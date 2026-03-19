@@ -25,10 +25,12 @@ def check_url_stats_file(ctx):
 def check_url_stats_top_domain(ctx):
     """api.example.com should appear as the top domain (3 URLs)."""
     lines = ctx.stdout.strip().split("\n")
-    # First non-empty line should contain api.example.com
+    # Find the first line that looks like a domain entry (skip preamble/headers)
+    # Expected format: '<domain>: <count>'
     for line in lines:
-        if line.strip():
-            return "api.example.com" in line
+        stripped = line.strip()
+        if re.match(r"[\w.-]+\.[a-z]+.*:", stripped):
+            return "api.example.com" in stripped
     return False
 
 
@@ -73,12 +75,16 @@ def check_toc_installation_heading(ctx):
 def check_toc_h3_indented(ctx):
     """H3 entries should be indented (have leading spaces or dashes after spaces)."""
     lines = ctx.stdout.strip().split("\n")
-    # Find a line containing 'prerequisites' or 'quick-start' (h3 headings in input)
-    for line in lines:
-        if "prerequisite" in line.lower() or "quick" in line.lower():
-            # Should have leading whitespace (indentation for h3 vs h2)
-            return line.startswith((" ", "\t"))
-    return False
+    # Find ALL lines containing h3 headings from the input ('prerequisites', 'quick')
+    matched = [
+        line
+        for line in lines
+        if "prerequisite" in line.lower() or "quick" in line.lower()
+    ]
+    if not matched:
+        return False
+    # ALL matched lines must have leading whitespace (indentation for h3 vs h2)
+    return all(line.startswith((" ", "\t")) for line in matched)
 
 
 def check_toc_exit(ctx):
