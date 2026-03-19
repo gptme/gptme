@@ -402,25 +402,61 @@ jobs:
           python3 - <<'PY'
           import json
           import os
-          from pathlib import Path
-
-          version = os.environ["VERSION"]
-          for path_str in ["tauri/src-tauri/tauri.conf.json", "tauri/package.json"]:
-              path = Path(path_str)
-              data = json.loads(path.read_text())
-              data["version"] = version
-              path.write_text(json.dumps(data, indent=2) + "\n")
-          PY
-          python3 - <<'PY'
-          import os
           import re
           from pathlib import Path
 
-          version = os.environ["VERSION"]
+          pep440_version = os.environ["VERSION"]
+
+          def pep440_to_semver(version: str) -> str:
+              patterns = [
+                  (r"^(\d+\.\d+\.\d+)\.dev(\d+)$", "dev"),
+                  (r"^(\d+\.\d+\.\d+)\.(a|b|rc)(\d+)$", None),
+                  (r"^(\d+\.\d+\.\d+)(a|b|rc)(\d+)$", None),
+              ]
+              for pattern, fixed_label in patterns:
+                  match = re.match(pattern, version)
+                  if not match:
+                      continue
+                  base = match.group(1)
+                  label = fixed_label or match.group(2)
+                  number = match.group(2 if fixed_label else 3)
+                  return f"{base}-{label}.{number}"
+              return version
+
+          semver_version = pep440_to_semver(pep440_version)
+
+          json_paths = [Path("tauri/src-tauri/tauri.conf.json"), Path("tauri/package.json")]
+          for path in json_paths:
+              original = path.read_text()
+              data = json.loads(original)
+              if "version" not in data:
+                  raise RuntimeError(f"Missing version field in {path}")
+              updated = re.sub(
+                  r'(^\s*"version"\s*:\s*")[^"]+(",?$)',
+                  rf'\g<1>{semver_version}\2',
+                  original,
+                  count=1,
+                  flags=re.MULTILINE,
+              )
+              if updated == original:
+                  raise RuntimeError(f"Failed to update version field in {path}")
+              path.write_text(updated)
+
           cargo = Path("tauri/src-tauri/Cargo.toml")
-          cargo.write_text(
-              re.sub(r'^version = ".*"$', f'version = "{version}"', cargo.read_text(), count=1, flags=re.MULTILINE)
+          cargo_text = cargo.read_text()
+          cargo_updated = re.sub(
+              r'^version = ".*"$',
+              f'version = "{semver_version}"',
+              cargo_text,
+              count=1,
+              flags=re.MULTILINE,
           )
+          if cargo_updated == cargo_text:
+              raise RuntimeError("Failed to update Cargo.toml version")
+          cargo.write_text(cargo_updated)
+
+          print(f"Release tag version: {pep440_version}")
+          print(f"Tauri semver version: {semver_version}")
           PY
 
       - name: Build and publish release
