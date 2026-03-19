@@ -690,7 +690,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7faf4ca9b240&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f70876572e0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1143,7 +1143,7 @@ To wait for all CI checks to complete:
 The optional commit_sha allows checking a specific commit instead of the PR head.
 This is useful for checking previous commits without waiting for new builds.
 
-For posting multi-line comments, always use <span class="sb">`--body-file`</span> with a single-quoted heredoc to avoid two bash pitfalls:
+For multi-line comments, use <span class="sb">`--body-file`</span> with a single-quoted heredoc:
 <span class="sb">```shell</span>
 gh<span class="w"> </span>issue<span class="w"> </span>comment<span class="w"> </span>NUM<span class="w"> </span>--repo<span class="w"> </span>owner/repo<span class="w"> </span>--body-file<span class="w"> </span>-<span class="w"> </span><span class="s">&lt;&lt; &#39;EOF&#39;</span>
 <span class="s">## Summary</span>
@@ -1262,27 +1262,23 @@ Leverage lessons for self-improvement:
 
 <span class="gs">**Description:**</span> Search, discover, and manage MCP servers
 
-<span class="gs">**Instructions:**</span> This tool allows you to search for MCP servers in various registries and dynamically load/unload them.
+<span class="gs">**Instructions:**</span> Search, load, and manage MCP servers. Loaded server tools available as <span class="sb">`&lt;server-name&gt;.&lt;tool-name&gt;`</span>. Search queries the Official MCP Registry (registry.modelcontextprotocol.io).
 
-Once loaded, server tools are available as <span class="sb">`&lt;server-name&gt;.&lt;tool-name&gt;`</span>.
+<span class="gs">**Resource Commands:**</span>
+<span class="k">-</span><span class="w"> </span><span class="sb">`resources list &lt;server&gt;`</span> - List available resources
+<span class="k">-</span><span class="w"> </span><span class="sb">`resources read &lt;server&gt; &lt;uri&gt;`</span> - Read a resource by URI
+<span class="k">-</span><span class="w"> </span><span class="sb">`templates list &lt;server&gt;`</span> - List resource templates
 
-Search queries the Official MCP Registry (registry.modelcontextprotocol.io).
+<span class="gs">**Prompt Commands:**</span>
+<span class="k">-</span><span class="w"> </span><span class="sb">`prompts list &lt;server&gt;`</span> - List available prompts
+<span class="k">-</span><span class="w"> </span><span class="sb">`prompts get &lt;server&gt; &lt;name&gt; [args]`</span> - Get a prompt with optional args
 
-<span class="gs">**Resource Commands**</span> (for servers that expose resources):
-<span class="k">-</span><span class="w"> </span><span class="sb">`resources list &lt;server&gt;`</span> - List available resources from a loaded server
-<span class="k">-</span><span class="w"> </span><span class="sb">`resources read &lt;server&gt; &lt;uri&gt;`</span> - Read a specific resource by URI
-<span class="k">-</span><span class="w"> </span><span class="sb">`templates list &lt;server&gt;`</span> - List resource templates (parameterized resources)
+<span class="gs">**Roots Commands**</span> (operational boundaries):
+<span class="k">-</span><span class="w"> </span><span class="sb">`roots list [server]`</span> - List configured roots
+<span class="k">-</span><span class="w"> </span><span class="sb">`roots add &lt;server&gt; &lt;uri&gt; [name]`</span> - Add a root URI
+<span class="k">-</span><span class="w"> </span><span class="sb">`roots remove &lt;server&gt; &lt;uri&gt;`</span> - Remove a root
 
-<span class="gs">**Prompt Commands**</span> (for servers that expose prompts):
-<span class="k">-</span><span class="w"> </span><span class="sb">`prompts list &lt;server&gt;`</span> - List available prompts from a loaded server
-<span class="k">-</span><span class="w"> </span><span class="sb">`prompts get &lt;server&gt; &lt;name&gt; [args]`</span> - Get a specific prompt, optionally with JSON arguments
-
-<span class="gs">**Roots Commands**</span> (for defining operational boundaries):
-<span class="k">-</span><span class="w"> </span><span class="sb">`roots list [server]`</span> - List configured roots (all servers if no server specified)
-<span class="k">-</span><span class="w"> </span><span class="sb">`roots add &lt;server&gt; &lt;uri&gt; [name]`</span> - Add a root to tell the server where it can operate
-<span class="k">-</span><span class="w"> </span><span class="sb">`roots remove &lt;server&gt; &lt;uri&gt;`</span> - Remove a root from a server
-
-Roots are advisory URIs (file paths, HTTP URLs) that help servers understand workspace boundaries.
+Roots are advisory URIs (file paths, HTTP URLs) defining workspace boundaries.
 
 <span class="gu">### Examples</span>
 
@@ -2192,7 +2188,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 11953</p>
+<p>Tokens: 11881</p>
 </dd></dl>
 
 <dl class="py function">
