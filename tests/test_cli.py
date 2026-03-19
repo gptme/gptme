@@ -132,15 +132,13 @@ def test_repeat_flag_invalid(runner: CliRunner):
 
 
 def test_repeat_flag_creates_separate_logdirs(
-    name: str, runner: CliRunner, tmp_path: Path
+    name: str, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """--repeat 2 should create two separate conversations."""
-    import os
-
     with runner.isolated_filesystem(temp_dir=tmp_path):
         data_dir = tmp_path / "data"
         data_dir.mkdir()
-        os.environ["XDG_DATA_HOME"] = str(data_dir)
+        monkeypatch.setenv("XDG_DATA_HOME", str(data_dir))
         result = runner.invoke(
             cli.main,
             ["--name", name, "--non-interactive", "--repeat", "2", "/exit"],
@@ -151,10 +149,10 @@ def test_repeat_flag_creates_separate_logdirs(
         assert "Run 2/2" in result.output
         # Each run should get its own logdir (name-run-1, name-run-2)
         logs_dir = data_dir / "gptme" / "logs"
-        if logs_dir.exists():
-            log_names = [p.name for p in logs_dir.iterdir()]
-            assert any("run-1" in n for n in log_names)
-            assert any("run-2" in n for n in log_names)
+        assert logs_dir.exists(), f"logs dir was not created: {logs_dir}"
+        log_names = [p.name for p in logs_dir.iterdir()]
+        assert any("run-1" in n for n in log_names)
+        assert any("run-2" in n for n in log_names)
 
 
 def test_command_doctor(args: list[str], runner: CliRunner):

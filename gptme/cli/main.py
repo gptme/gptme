@@ -557,12 +557,26 @@ def main(
     ):
         logdir = pick_log()
     else:
-        logdir = get_logdir(name)
+        if repeat > 1:
+            # Don't create the base logdir when repeating — each run gets its own.
+            # get_logdir() calls mkdir(), so we construct the path without calling it.
+            logdir = get_logs_dir() / name
+        else:
+            logdir = get_logdir(name)
         prompt_msgs = inject_stdin(prompt_msgs, piped_input)
 
     # Register atexit handler to show conversation ID on exit
+    # For repeat runs, last_run_logdir is updated inside the loop.
+    last_run_logdir: list[Path] = []
+
     def goodbye_handler():
-        print(f"\nGoodbye! (resume with: gptme --name {logdir.name})")
+        target = last_run_logdir[-1] if last_run_logdir else logdir
+        if repeat > 1:
+            print(
+                f"\nGoodbye! Last run: {target.name} (resume with: gptme --name {target.name})"
+            )
+        else:
+            print(f"\nGoodbye! (resume with: gptme --name {target.name})")
 
     atexit.register(goodbye_handler)
 
@@ -698,6 +712,7 @@ def main(
                     run_logdir = get_logdir("random")
                 else:
                     run_logdir = get_logdir(f"{name}-run-{run_idx + 1}")
+                last_run_logdir.append(run_logdir)
                 console.print(
                     f"\n[bold cyan]Run {run_idx + 1}/{repeat}[/bold cyan] → {run_logdir.name}"
                 )
