@@ -394,6 +394,35 @@ jobs:
           SIGNING_IDENTITY=$(echo "$CERT_INFO" | awk -F'"' '{print $2}')
           echo "APPLE_SIGNING_IDENTITY=$SIGNING_IDENTITY" >> $GITHUB_ENV
 
+      - name: Set Tauri bundle version from release tag
+        shell: bash
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          export VERSION="${TAG#v}"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          version = os.environ["VERSION"]
+          for path_str in ["tauri/src-tauri/tauri.conf.json", "tauri/package.json"]:
+              path = Path(path_str)
+              data = json.loads(path.read_text())
+              data["version"] = version
+              path.write_text(json.dumps(data, indent=2) + "\n")
+          PY
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          version = os.environ["VERSION"]
+          cargo = Path("tauri/src-tauri/Cargo.toml")
+          cargo.write_text(
+              re.sub(r'^version = ".*"$', f'version = "{version}"', cargo.read_text(), count=1, flags=re.MULTILINE)
+          )
+          PY
+
       - name: Build and publish release
         uses: tauri-apps/tauri-action@v0
         env:
