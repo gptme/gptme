@@ -395,3 +395,59 @@ def test_chained_prompts_complete_exits_when_last():
             model=None,
             interactive=False,
         )
+
+
+def test_complete_hook_does_not_refire_on_next_prompt():
+    """complete_hook must not raise when the complete tool call is in a prior turn.
+
+    Regression: complete_hook scanned the entire conversation history and would
+    re-raise SessionCompleteException on the second chained prompt because the
+    last assistant message still contained the `complete` tool call from turn 1.
+    Fix: only look at assistant messages AFTER the most recent user message.
+    """
+    from gptme.message import Message
+    from gptme.tools import init_tools
+    from gptme.tools.complete import complete_hook
+
+    # complete tool is disabled_by_default — init with it enabled so
+    # ToolUse.iter_from_content can recognise the ```complete``` block.
+    init_tools(allowlist=["complete"])
+
+    # Simulate message history after processing the first chained prompt:
+    #   user1 → assistant1 (calls `complete`) → system ("Task complete") → user2
+    # When GENERATION_PRE fires for user2, these are the messages in the log.
+    messages = [
+        Message("system", "You are an assistant."),
+        Message("user", "first prompt"),
+        Message("assistant", "```complete\n```"),
+        Message("system", "Task complete. Autonomous session finished."),
+        Message("user", "second prompt"),  # current turn starts here
+    ]
+
+    # complete_hook must NOT raise — the complete call belongs to the previous turn.
+    result = list(complete_hook(messages))
+    assert result == []
+
+
+def test_complete_hook_fires_in_current_turn():
+    """complete_hook must raise when the complete tool call is in the current turn."""
+    from gptme.message import Message
+    from gptme.tools import init_tools
+    from gptme.tools.complete import SessionCompleteException, complete_hook
+
+    # complete tool is disabled_by_default — init with it enabled.
+    init_tools(allowlist=["complete"])
+
+    # Simulate history where LLM has just called `complete` in the current turn:
+    #   user1 → assistant1 (calls `complete`) → system ("Task complete")
+    # When GENERATION_PRE fires again (loop continuing), these are the messages.
+    messages = [
+        Message("system", "You are an assistant."),
+        Message("user", "first prompt"),
+        Message("assistant", "```complete\n```"),
+        Message("system", "Task complete. Autonomous session finished."),
+    ]
+
+    # complete_hook MUST raise — complete was called in the current turn.
+    with pytest.raises(SessionCompleteException):
+        list(complete_hook(messages))
