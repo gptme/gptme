@@ -160,6 +160,17 @@ def _extract_codeblocks(
                         reprocess_current_line = True
                         break
 
+                    # Some models concatenate the closing fence with a thinking tag,
+                    # e.g. "```<think>". Recover by treating the leading fence as the
+                    # closing delimiter and reprocessing the remainder on the same line.
+                    if rest.startswith(("<think>", "<thinking>")):
+                        yield Codeblock(
+                            lang, "\n".join(content_lines), start=start_line
+                        )
+                        lines[i] = rest
+                        reprocess_current_line = True
+                        break
+
                 # Check if this line starts with backticks (potential opening or closing)
                 line_fence_match = re.match(r"^(`{3,})", line)
                 if line_fence_match:
