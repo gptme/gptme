@@ -719,12 +719,21 @@ def main(
             else:
                 run_logdir = logdir
 
+            # When --workspace @log, isolate each run's workspace under its own logdir
+            run_workspace = (
+                run_logdir / "workspace"
+                if workspace == "@log"
+                else config.chat.workspace
+            )
+            if workspace == "@log" and repeat > 1:
+                run_workspace.mkdir(parents=True, exist_ok=True)
+
             try:
                 chat(
                     prompt_msgs,
                     initial_msgs,
                     run_logdir,
-                    config.chat.workspace,
+                    run_workspace,
                     config.chat.model,
                     config.chat.stream,
                     no_confirm,

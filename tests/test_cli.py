@@ -155,6 +155,41 @@ def test_repeat_flag_creates_separate_logdirs(
         assert any("run-2" in n for n in log_names)
 
 
+def test_repeat_flag_workspace_log_isolation(
+    name: str, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """--repeat 2 --workspace @log should give each run its own workspace."""
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        monkeypatch.setenv("XDG_DATA_HOME", str(data_dir))
+        result = runner.invoke(
+            cli.main,
+            [
+                "--name",
+                name,
+                "--non-interactive",
+                "--repeat",
+                "2",
+                "--workspace",
+                "@log",
+                "/exit",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        logs_dir = data_dir / "gptme" / "logs"
+        assert logs_dir.exists(), f"logs dir was not created: {logs_dir}"
+        # Each run should have its own workspace under its own logdir
+        run1_dirs = [p for p in logs_dir.iterdir() if "run-1" in p.name]
+        run2_dirs = [p for p in logs_dir.iterdir() if "run-2" in p.name]
+        assert run1_dirs, "no run-1 logdir found"
+        assert run2_dirs, "no run-2 logdir found"
+        # Workspaces must be in separate logdirs (not the same path)
+        run1_workspace = run1_dirs[0] / "workspace"
+        run2_workspace = run2_dirs[0] / "workspace"
+        assert run1_workspace != run2_workspace
+
+
 def test_command_doctor(args: list[str], runner: CliRunner):
     args.append("/doctor")
     result = runner.invoke(cli.main, args)
