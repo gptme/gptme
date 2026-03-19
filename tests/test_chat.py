@@ -306,9 +306,17 @@ def test_chained_prompts_continue_after_complete():
     Regression test for: gptme 'prompt1' - 'prompt2' exits after prompt1 if
     the LLM calls the complete tool, never processing prompt2.
     """
+    import sys
+
     from gptme.chat import _run_chat_loop
     from gptme.message import Message
     from gptme.tools.complete import SessionCompleteException
+
+    # gptme/__init__.py does `from .chat import chat`, which shadows the
+    # gptme.chat MODULE attribute with the chat FUNCTION on the gptme package.
+    # patch("gptme.chat.X") resolves gptme.chat via getattr(gptme, 'chat') and
+    # gets the function, not the module. Use sys.modules to get the real module.
+    _chat_mod = sys.modules["gptme.chat"]
 
     manager = MagicMock()
     manager.log = MagicMock()
@@ -328,10 +336,12 @@ def test_chained_prompts_continue_after_complete():
     prompt_queue = [Message("user", "first prompt"), Message("user", "second prompt")]
 
     with (
-        patch("gptme.chat._process_message_conversation", side_effect=mock_process),
-        patch("gptme.chat.trigger_hook", return_value=[]),
-        patch("gptme.chat.include_paths", side_effect=lambda msg, ws: msg),
-        patch("gptme.chat.execute_cmd", return_value=False),
+        patch.object(
+            _chat_mod, "_process_message_conversation", side_effect=mock_process
+        ),
+        patch.object(_chat_mod, "trigger_hook", return_value=[]),
+        patch.object(_chat_mod, "include_paths", side_effect=lambda msg, ws: msg),
+        patch.object(_chat_mod, "execute_cmd", return_value=False),
     ):
         # Should NOT raise — queue has a second prompt, so complete should not exit
         _run_chat_loop(
@@ -348,9 +358,14 @@ def test_chained_prompts_continue_after_complete():
 
 def test_chained_prompts_complete_exits_when_last():
     """When complete fires on the last (or only) chained prompt, exit normally."""
+    import sys
+
     from gptme.chat import _run_chat_loop
     from gptme.message import Message
     from gptme.tools.complete import SessionCompleteException
+
+    # See test_chained_prompts_continue_after_complete for why we use sys.modules.
+    _chat_mod = sys.modules["gptme.chat"]
 
     manager = MagicMock()
     manager.log = MagicMock()
@@ -363,10 +378,12 @@ def test_chained_prompts_complete_exits_when_last():
     prompt_queue = [Message("user", "only prompt")]
 
     with (
-        patch("gptme.chat._process_message_conversation", side_effect=mock_process),
-        patch("gptme.chat.trigger_hook", return_value=[]),
-        patch("gptme.chat.include_paths", side_effect=lambda msg, ws: msg),
-        patch("gptme.chat.execute_cmd", return_value=False),
+        patch.object(
+            _chat_mod, "_process_message_conversation", side_effect=mock_process
+        ),
+        patch.object(_chat_mod, "trigger_hook", return_value=[]),
+        patch.object(_chat_mod, "include_paths", side_effect=lambda msg, ws: msg),
+        patch.object(_chat_mod, "execute_cmd", return_value=False),
         pytest.raises(SessionCompleteException),
     ):
         # Should raise — no more prompts in queue after this one
