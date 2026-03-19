@@ -166,10 +166,18 @@ def check_changelog_docs(ctx):
 
 
 def check_changelog_scopes(ctx):
-    """Should include explicit scope notation (e.g. (auth), (api)) in the output."""
-    output = ctx.stdout
-    has_auth_scope = bool(re.search(r"\(auth\)", output, re.IGNORECASE))
-    has_api_scope = bool(re.search(r"\(api\)", output, re.IGNORECASE))
+    """Should include explicit scope notation as bullet-point prefixes (e.g. '- (auth)').
+
+    Anchors to bullet-point lines to prevent raw commit input like 'feat(auth):'
+    from satisfying this check without proper reformatting.
+    """
+    lines = ctx.stdout.strip().split("\n")
+    has_auth_scope = any(
+        re.match(r"^\s*[-*]\s+\(auth\)", line, re.IGNORECASE) for line in lines
+    )
+    has_api_scope = any(
+        re.match(r"^\s*[-*]\s+\(api\)", line, re.IGNORECASE) for line in lines
+    )
     return has_auth_scope and has_api_scope
 
 
