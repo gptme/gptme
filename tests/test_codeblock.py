@@ -1337,3 +1337,25 @@ def test_thinking_block_unclosed_thinking_tag_early_exit():
     markdown = "<thinking>\nmodel is still reasoning...\n```save pipeline.py\nprint('hello')\n```"
     blocks = list(_extract_codeblocks(markdown))
     assert len(blocks) == 0
+
+
+def test_thinking_tag_concatenated_then_unclosed_standalone():
+    """Concatenated <think> followed by a genuinely unclosed standalone <think> should early-exit."""
+    # After the concatenated closing (```<think>...</think>), a new standalone <think>
+    # block is opened but never closed — no tool blocks should be extracted.
+    markdown = "```shell\npwd\n```<think>\nbrief reasoning\n</think>\n<think>\nstill thinking...\n```save pipeline.py\nprint('hello')\n```"
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 0
+
+
+def test_adjacent_fences_bare_multifence_content_line():
+    """A content line of bare 6 backticks inside a block must NOT trigger adjacent-fence recovery."""
+    # "``````" (6 backticks) is a valid content line, not a pair of adjacent fences.
+    # With fence_len=3, the adjacent-fence guard must require a non-backtick char after
+    # the fence prefix; otherwise it incorrectly splits the block.
+    markdown = "```shell\nsome code\n``````\nmore code\n```"
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 1
+    assert blocks[0].lang == "shell"
+    assert "``````" in blocks[0].content
+    assert "more code" in blocks[0].content
