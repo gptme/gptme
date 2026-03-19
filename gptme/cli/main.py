@@ -720,7 +720,7 @@ def main(
                 config.chat.model,
                 config.chat.stream,
                 no_confirm=no_confirm,
-                interactive=False,
+                interactive=interactive,
                 show_hidden=show_hidden,
                 tool_allowlist=config.chat.tools,
                 tool_format=config.chat.tool_format,

@@ -71,6 +71,17 @@ def test_review_flag_help(runner: CliRunner):
     assert "--review" in result.output
 
 
+@pytest.mark.slow
+@pytest.mark.requires_api
+def test_review_flag_executes(args: list[str], runner: CliRunner):
+    """--review flag should trigger a second review pass after the main run."""
+    args.extend(["--review", "--no-confirm", "write 'hello' to hello.txt"])
+    result = runner.invoke(cli.main, args)
+    print(result.output)
+    assert "Review pass" in result.output
+    assert result.exit_code == 0
+
+
 def test_version(runner: CliRunner):
     result = runner.invoke(cli.main, ["--version"])
     assert result.exit_code == 0
