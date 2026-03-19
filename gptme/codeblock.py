@@ -111,6 +111,7 @@ def _extract_codeblocks(
     # appears in the prefix at all).  We must NOT strip when <think> appears only
     # concatenated with a fence closer (e.g. "```<think>") — that is handled later
     # by the inner-loop fence-recovery logic.
+    _concatenated_end_found = False
     for _think_end_tag in ["</thinking>", "</think>"]:
         _think_end = markdown.find(_think_end_tag)
         if _think_end != -1:
@@ -126,12 +127,18 @@ def _extract_codeblocks(
                 # remove anything before and including the closing thinking tag
                 markdown = markdown[_think_end + len(_think_end_tag) :]
                 break
+            # Found </think> but didn't strip: opening was concatenated (e.g. "```<think>").
+            # Inner-loop fence-recovery handles this; skip the unclosed-tag early-exit below.
+            _concatenated_end_found = True
     else:
         # if start thinking tag but no end, early exit (only for standalone tags;
-        # concatenated occurrences like "```<think>" are handled by inner-loop logic)
-        for _think_start_tag in ["<thinking>", "<think>"]:
-            if re.search(r"(?:^|\n)" + re.escape(_think_start_tag), markdown):
-                return
+        # concatenated occurrences like "```<think>" are handled by inner-loop logic).
+        # Skip if we already found a closing tag for the concatenated case — that means
+        # any standalone <think> further down is properly closed and safe to parse through.
+        if not _concatenated_end_found:
+            for _think_start_tag in ["<thinking>", "<think>"]:
+                if re.search(r"(?:^|\n)" + re.escape(_think_start_tag), markdown):
+                    return
 
     # speed check (early exit): check if message contains a code block
     # Check for at least 2 fence markers (3+ backticks each)

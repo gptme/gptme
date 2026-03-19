@@ -1309,6 +1309,20 @@ def test_thinking_tag_concatenated_to_closing_fence():
     assert "print('hello')" in blocks[1].content
 
 
+def test_thinking_tag_concatenated_then_standalone_closed():
+    """Concatenated <think> followed by a standalone closed <think> block should yield all tool blocks."""
+    # Edge case: first block closes with ```<think> (concatenated, handled by inner-loop),
+    # followed by a properly-closed standalone <think>...</think>, then another tool block.
+    # The for-else early-exit must NOT fire here — standalone <think> is closed.
+    markdown = "```shell\npwd\n```<think>\nbrief reasoning\n</think>\n<think>\nmore thinking\n</think>\n```save pipeline.py\nprint('hello')\n```"
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 2
+    assert blocks[0].lang == "shell"
+    assert blocks[0].content == "pwd"
+    assert blocks[1].lang.startswith("save")
+    assert "print('hello')" in blocks[1].content
+
+
 def test_thinking_block_with_closing_think_tag():
     """Existing </think> tag variant still works after refactor."""
     markdown = "<think>\nsome thinking\n</think>\n```save result.py\nx = 1\n```"
