@@ -425,34 +425,27 @@ jobs:
 
           semver_version = pep440_to_semver(pep440_version)
 
+          version_pattern = re.compile(
+              r'(^\s*"version"\s*:\s*")[^"]+(",?$)',
+              flags=re.MULTILINE,
+          )
           json_paths = [Path("tauri/src-tauri/tauri.conf.json"), Path("tauri/package.json")]
           for path in json_paths:
               original = path.read_text()
               data = json.loads(original)
               if "version" not in data:
                   raise RuntimeError(f"Missing version field in {path}")
-              updated = re.sub(
-                  r'(^\s*"version"\s*:\s*")[^"]+(",?$)',
-                  rf'\g<1>{semver_version}\2',
-                  original,
-                  count=1,
-                  flags=re.MULTILINE,
-              )
-              if updated == original:
-                  raise RuntimeError(f"Failed to update version field in {path}")
+              if not version_pattern.search(original):
+                  raise RuntimeError(f"Failed to locate version field in {path}")
+              updated = version_pattern.sub(rf'\g<1>{semver_version}\2', original, count=1)
               path.write_text(updated)
 
           cargo = Path("tauri/src-tauri/Cargo.toml")
           cargo_text = cargo.read_text()
-          cargo_updated = re.sub(
-              r'^version = ".*"$',
-              f'version = "{semver_version}"',
-              cargo_text,
-              count=1,
-              flags=re.MULTILINE,
-          )
-          if cargo_updated == cargo_text:
-              raise RuntimeError("Failed to update Cargo.toml version")
+          cargo_pattern = re.compile(r'^version = ".*"$', flags=re.MULTILINE)
+          if not cargo_pattern.search(cargo_text):
+              raise RuntimeError("Failed to locate Cargo.toml version")
+          cargo_updated = cargo_pattern.sub(f'version = "{semver_version}"', cargo_text, count=1)
           cargo.write_text(cargo_updated)
 
           print(f"Release tag version: {pep440_version}")
