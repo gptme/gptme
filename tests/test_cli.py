@@ -506,3 +506,9 @@ def test_tool_exclusion_mixed_bare_and_minus_raises():
     assert "Cannot mix bare tool names" in error_text, (
         f"Expected 'Cannot mix bare tool names' in output, got: {error_text!r}"
     )
+
+
+def test_race_flag_help(runner: CliRunner):
+    result = runner.invoke(cli.main, ["--help"])
+    assert result.exit_code == 0
+    assert "--race" in result.output

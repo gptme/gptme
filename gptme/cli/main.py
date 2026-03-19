@@ -36,7 +36,7 @@ from ..profiles import get_profile
 from ..prompts import get_prompt
 from ..telemetry import init_telemetry, shutdown_telemetry
 from ..tools import ToolFormat, get_available_tools, init_tools
-from ..util import epoch_to_age
+from ..util import console, epoch_to_age
 from ..util.auto_naming import generate_conversation_id
 from ..util.context import md_codeblock
 from ..util.interrupt import handle_keyboard_interrupt, set_interruptible
@@ -309,6 +309,13 @@ Run 'gptme-util --help' for all utility commands."""
     hidden=True,
     help="Schema for structured output in format 'module:ClassName'. The class should be a Pydantic BaseModel.",
 )
+@click.option(
+    "--race",
+    "race",
+    default=1,
+    type=click.IntRange(min=1),
+    help="Run the prompt N times independently and select the best result. Each run gets its own conversation.",
+)
 def main(
     ctx: click.Context,
     prompts: list[str],
@@ -333,6 +340,7 @@ def main(
     context_mode: str | None,
     context_include: tuple[str, ...],
     output_schema: str | None,
+    race: int,
 ):
     """Main entrypoint for the CLI."""
 
@@ -577,6 +585,7 @@ def main(
         agent_path=Path(agent_path) if agent_path else None,
     )
     assert config.chat and config.chat.tool_format
+    chat_config = config.chat
 
     # init telemetry with agent name and interactive mode
     agent_config = config.chat.agent_config
@@ -682,45 +691,91 @@ def main(
         )
         sys.exit(1)
 
+    def _run_chat(run_logdir: Path) -> bool:
+        """Run chat() in the given logdir. Returns True on success, False on error."""
+        try:
+            chat(
+                prompt_msgs,
+                initial_msgs,
+                run_logdir,
+                chat_config.workspace,
+                chat_config.model,
+                chat_config.stream,
+                no_confirm,
+                chat_config.interactive,
+                show_hidden,
+                chat_config.tools,
+                chat_config.tool_format,
+                output_schema_type,
+            )
+            return True
+        except (RuntimeError, Exception) as e:
+            logger.error("Fatal error occurred")
+            if verbose:
+                logger.exception(e)
+            else:
+                logger.error(e)
+                # Print last call site in gptme code for context
+                tb = traceback.extract_tb(sys.exc_info()[2])
+
+                # Get actual gptme package directory
+                gptme_dir = Path(gptme.__file__).parent.resolve()
+
+                # Filter for frames actually in gptme source code
+                gptme_frames = [
+                    frame
+                    for frame in tb
+                    if Path(frame.filename).is_relative_to(gptme_dir)
+                ]
+
+                if gptme_frames:
+                    last_frame = gptme_frames[-1]
+                    logger.error(
+                        f"  at {last_frame.filename}:{last_frame.lineno} in {last_frame.name}"
+                    )
+            return False
+
     try:
-        chat(
-            prompt_msgs,
-            initial_msgs,
-            logdir,
-            config.chat.workspace,
-            config.chat.model,
-            config.chat.stream,
-            no_confirm,
-            config.chat.interactive,
-            show_hidden,
-            config.chat.tools,
-            config.chat.tool_format,
-            output_schema_type,
-        )
-    except (RuntimeError, Exception) as e:
-        logger.error("Fatal error occurred")
-        if verbose:
-            logger.exception(e)
-        else:
-            logger.error(e)
-            # Print last call site in gptme code for context
-            tb = traceback.extract_tb(sys.exc_info()[2])
-
-            # Get actual gptme package directory
-
-            gptme_dir = Path(gptme.__file__).parent.resolve()
-
-            # Filter for frames actually in gptme source code
-            gptme_frames = [
-                frame for frame in tb if Path(frame.filename).is_relative_to(gptme_dir)
-            ]
-
-            if gptme_frames:
-                last_frame = gptme_frames[-1]
-                logger.error(
-                    f"  at {last_frame.filename}:{last_frame.lineno} in {last_frame.name}"
+        if race > 1:
+            # Race mode: run the same prompt N times, each in its own logdir,
+            # then let the user pick the best result.
+            race_logdirs: list[Path] = []
+            race_successes: list[bool] = []
+            for i in range(race):
+                run_logdir = get_logdir(f"{name}-race-{i + 1}")
+                race_logdirs.append(run_logdir)
+                console.print(
+                    f"\n[bold cyan]Race {i + 1}/{race}[/bold cyan] → {run_logdir.name}"
                 )
-        sys.exit(1)
+                success = _run_chat(run_logdir)
+                race_successes.append(success)
+
+            n_success = sum(race_successes)
+            console.print(
+                f"\n[bold green]Race complete:[/bold green] {n_success}/{race} runs succeeded."
+            )
+            for i, (ld, ok) in enumerate(zip(race_logdirs, race_successes)):
+                status = "[green]ok[/green]" if ok else "[red]fail[/red]"
+                console.print(f"  {i + 1}. [{status}] {ld.name}")
+
+            if interactive and pick is not None and n_success > 0:
+                # Let user pick which result to keep/continue with
+                options = [
+                    ld.name for ld, ok in zip(race_logdirs, race_successes) if ok
+                ]
+                selected_name, _ = pick(
+                    options, "Select the best result to continue with:"
+                )
+                console.print(
+                    f"\n[bold]Selected:[/bold] {selected_name}"
+                    f"  (resume with: gptme --name {selected_name})"
+                )
+            elif n_success == 0:
+                sys.exit(1)
+        else:
+            ok = _run_chat(logdir)
+            if not ok:
+                sys.exit(1)
     finally:
         shutdown_telemetry()
 
