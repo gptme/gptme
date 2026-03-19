@@ -1,0 +1,301 @@
+"""Practical eval tests (batch 8) — URL parsing, markdown TOC, and JSON flattening.
+
+Tests capabilities not covered by earlier practical suites:
+- URL parsing with domain grouping and path statistics (urllib.parse + collections)
+- Markdown table-of-contents generation with anchor links (regex + string formatting)
+- Nested JSON flattening to dot-notation keys (recursion + dict manipulation)
+"""
+
+import json
+import re
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from gptme.eval.main import EvalSpec
+
+
+# --- url-stats checks ---
+
+
+def check_url_stats_file(ctx):
+    """url_stats.py should exist."""
+    return "url_stats.py" in ctx.files
+
+
+def check_url_stats_top_domain(ctx):
+    """api.example.com should appear as the top domain (3 URLs)."""
+    lines = ctx.stdout.strip().split("\n")
+    # First non-empty line should contain api.example.com
+    for line in lines:
+        if line.strip():
+            return "api.example.com" in line
+    return False
+
+
+def check_url_stats_count(ctx):
+    """Top domain count should be 3."""
+    # api.example.com appears 3 times in the input
+    return bool(re.search(r"api\.example\.com.*\b3\b", ctx.stdout)) or bool(
+        re.search(r"\b3\b.*api\.example\.com", ctx.stdout)
+    )
+
+
+def check_url_stats_docs_domain(ctx):
+    """docs.example.com should appear with count 2."""
+    return "docs.example.com" in ctx.stdout and bool(
+        re.search(r"docs\.example\.com.*\b2\b", ctx.stdout)
+        or re.search(r"\b2\b.*docs\.example\.com", ctx.stdout)
+    )
+
+
+def check_url_stats_exit(ctx):
+    return ctx.exit_code == 0
+
+
+# --- markdown-toc checks ---
+
+
+def check_toc_file(ctx):
+    """gen_toc.py should exist."""
+    return "gen_toc.py" in ctx.files
+
+
+def check_toc_has_links(ctx):
+    """Output should contain markdown links like [text](#anchor)."""
+    return bool(re.search(r"\[.+\]\(#.+\)", ctx.stdout))
+
+
+def check_toc_installation_heading(ctx):
+    """Should contain a TOC entry for 'Installation'."""
+    return "installation" in ctx.stdout.lower()
+
+
+def check_toc_h3_indented(ctx):
+    """H3 entries should be indented (have leading spaces or dashes after spaces)."""
+    lines = ctx.stdout.strip().split("\n")
+    # Find a line containing 'prerequisites' or 'quick-start' (h3 headings in input)
+    for line in lines:
+        if "prerequisite" in line.lower() or "quick" in line.lower():
+            # Should have leading whitespace (indentation for h3 vs h2)
+            return line.startswith((" ", "\t"))
+    return False
+
+
+def check_toc_exit(ctx):
+    return ctx.exit_code == 0
+
+
+# --- json-flatten checks ---
+
+
+def check_flatten_file(ctx):
+    """flatten.py should exist."""
+    return "flatten.py" in ctx.files
+
+
+def check_flatten_valid_json(ctx):
+    """Output should be valid JSON."""
+    try:
+        json.loads(ctx.stdout.strip())
+        return True
+    except (json.JSONDecodeError, ValueError):
+        return False
+
+
+def check_flatten_nested_key(ctx):
+    """Nested key 'database.host' should appear in output."""
+    try:
+        data = json.loads(ctx.stdout.strip())
+    except (json.JSONDecodeError, ValueError):
+        return False
+    return "database.host" in data
+
+
+def check_flatten_deep_key(ctx):
+    """Deep nested key 'server.tls.cert_file' should appear in output."""
+    try:
+        data = json.loads(ctx.stdout.strip())
+    except (json.JSONDecodeError, ValueError):
+        return False
+    return "server.tls.cert_file" in data
+
+
+def check_flatten_values_preserved(ctx):
+    """Values should be preserved correctly (database.port == 5432)."""
+    try:
+        data = json.loads(ctx.stdout.strip())
+    except (json.JSONDecodeError, ValueError):
+        return False
+    return data.get("database.port") == 5432
+
+
+def check_flatten_list_preserved(ctx):
+    """List values should be preserved as-is (not further flattened)."""
+    try:
+        data = json.loads(ctx.stdout.strip())
+    except (json.JSONDecodeError, ValueError):
+        return False
+    # 'server.allowed_hosts' should be a list, not split by index
+    val = data.get("server.allowed_hosts")
+    return isinstance(val, list) and len(val) == 3
+
+
+def check_flatten_exit(ctx):
+    return ctx.exit_code == 0
+
+
+# --- test data ---
+
+_URLS_TXT = """\
+https://api.example.com/v1/users
+https://api.example.com/v1/products
+https://api.example.com/v1/orders
+https://docs.example.com/getting-started
+https://docs.example.com/api-reference
+https://example.com/blog/introducing-v2
+https://example.com/about
+https://other.org/contact
+"""
+
+_GUIDE_MD = """\
+# User Guide
+
+## Installation
+
+Some installation text here.
+
+### Prerequisites
+
+You need Python 3.10+.
+
+### Quick Start
+
+Run the install command.
+
+## Configuration
+
+Configure your settings.
+
+### Environment Variables
+
+Set these env vars.
+
+### Config File
+
+Or use a config file.
+
+## Usage
+
+Basic usage examples.
+"""
+
+_NESTED_JSON = json.dumps(
+    {
+        "database": {
+            "host": "localhost",
+            "port": 5432,
+            "credentials": {
+                "user": "admin",
+                "password": "secret",
+            },
+        },
+        "server": {
+            "host": "0.0.0.0",
+            "port": 8080,
+            "tls": {
+                "enabled": True,
+                "cert_file": "/etc/ssl/cert.pem",
+                "key_file": "/etc/ssl/key.pem",
+            },
+            "allowed_hosts": ["localhost", "example.com", "*.example.com"],
+        },
+        "debug": False,
+        "version": "2.0.0",
+    },
+    indent=2,
+)
+
+tests: list["EvalSpec"] = [
+    {
+        "name": "url-stats",
+        "files": {"urls.txt": _URLS_TXT},
+        "run": "python url_stats.py urls.txt",
+        "prompt": (
+            "Write url_stats.py that reads a file of URLs (one per line) and prints "
+            "a domain frequency report. The script should accept the filename as a "
+            "command-line argument.\n\n"
+            "Use Python's urllib.parse module to extract domain names.\n\n"
+            "Output format: list each domain and its URL count, sorted by count "
+            "descending (then alphabetically for ties). Print one domain per line "
+            "in the format: '<domain>: <count>'\n\n"
+            "Skip empty lines. Use only the Python standard library."
+        ),
+        "tools": ["read", "save", "shell"],
+        "expect": {
+            "url_stats.py exists": check_url_stats_file,
+            "top domain is api.example.com": check_url_stats_top_domain,
+            "top domain count is 3": check_url_stats_count,
+            "docs.example.com count is 2": check_url_stats_docs_domain,
+            "clean exit": check_url_stats_exit,
+        },
+    },
+    {
+        "name": "markdown-toc",
+        "files": {"guide.md": _GUIDE_MD},
+        "run": "python gen_toc.py guide.md",
+        "prompt": (
+            "Write gen_toc.py that reads a Markdown file and prints a table of "
+            "contents. The script should accept the filename as a command-line "
+            "argument.\n\n"
+            "Process all headings at level 2 (##) and level 3 (###). Skip h1 (#) "
+            "headings.\n\n"
+            "For each heading, generate a markdown link with a GitHub-style anchor:\n"
+            "- Convert heading text to lowercase\n"
+            "- Replace spaces with hyphens\n"
+            "- Remove non-alphanumeric characters except hyphens\n\n"
+            "Indent h3 entries with 2 spaces relative to h2 entries. Output format:\n"
+            "- [Installation](#installation)\n"
+            "  - [Prerequisites](#prerequisites)\n"
+            "  - [Quick Start](#quick-start)\n"
+            "- [Configuration](#configuration)\n\n"
+            "Use only the Python standard library."
+        ),
+        "tools": ["read", "save", "shell"],
+        "expect": {
+            "gen_toc.py exists": check_toc_file,
+            "contains markdown links": check_toc_has_links,
+            "Installation heading present": check_toc_installation_heading,
+            "h3 entries are indented": check_toc_h3_indented,
+            "clean exit": check_toc_exit,
+        },
+    },
+    {
+        "name": "json-flatten",
+        "files": {"config.json": _NESTED_JSON},
+        "run": "python flatten.py config.json",
+        "prompt": (
+            "Write flatten.py that reads a nested JSON file and flattens it to a "
+            "single level using dot notation for keys. The script should accept the "
+            "filename as a command-line argument.\n\n"
+            "Flattening rules:\n"
+            "- Nested dicts are expanded: {'a': {'b': 1}} → {'a.b': 1}\n"
+            "- Lists/arrays are kept as-is (not further flattened by index)\n"
+            "- Scalar values (strings, numbers, booleans, null) are leaf nodes\n\n"
+            "Example:\n"
+            'Input: {"server": {"host": "localhost", "port": 8080}}\n'
+            'Output: {"server.host": "localhost", "server.port": 8080}\n\n'
+            "Print the result as pretty-printed JSON (indent=2) to stdout. "
+            "Use only the Python standard library."
+        ),
+        "tools": ["read", "save", "shell"],
+        "expect": {
+            "flatten.py exists": check_flatten_file,
+            "valid JSON output": check_flatten_valid_json,
+            "database.host key present": check_flatten_nested_key,
+            "server.tls.cert_file key present": check_flatten_deep_key,
+            "database.port value preserved": check_flatten_values_preserved,
+            "lists preserved as-is": check_flatten_list_preserved,
+            "clean exit": check_flatten_exit,
+        },
+    },
+]
