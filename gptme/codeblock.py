@@ -105,16 +105,32 @@ def _extract_codeblocks(
     # dont extract codeblocks from thinking blocks
     # (since claude sometimes forgets to close codeblocks in its thinking,
     #  and gemini uses </thinking> instead of </think>)
+    # Only strip when the closing tag is genuine: the corresponding opening tag
+    # must be either (a) standalone at a line boundary, or (b) absent entirely
+    # (Gemini uses "```thinking>" with no "<" before "thinking>", so no <thinking>
+    # appears in the prefix at all).  We must NOT strip when <think> appears only
+    # concatenated with a fence closer (e.g. "```<think>") — that is handled later
+    # by the inner-loop fence-recovery logic.
     for _think_end_tag in ["</thinking>", "</think>"]:
         _think_end = markdown.find(_think_end_tag)
         if _think_end != -1:
-            # remove anything before and including the closing thinking tag
-            markdown = markdown[_think_end + len(_think_end_tag) :]
-            break
+            _think_start_tag = _think_end_tag.replace("/", "")  # e.g. "<think>"
+            _prefix = markdown[:_think_end]
+            _has_standalone = bool(
+                re.search(r"(?:^|\n)" + re.escape(_think_start_tag), _prefix)
+            )
+            _has_any = _think_start_tag in _prefix
+            # Strip if standalone opening exists, or if there is no opening tag at
+            # all in the prefix (covers the Gemini "```thinking>" malformed case).
+            if _has_standalone or not _has_any:
+                # remove anything before and including the closing thinking tag
+                markdown = markdown[_think_end + len(_think_end_tag) :]
+                break
     else:
-        # if start thinking tag but no end, early exit
+        # if start thinking tag but no end, early exit (only for standalone tags;
+        # concatenated occurrences like "```<think>" are handled by inner-loop logic)
         for _think_start_tag in ["<thinking>", "<think>"]:
-            if _think_start_tag in markdown:
+            if re.search(r"(?:^|\n)" + re.escape(_think_start_tag), markdown):
                 return
 
     # speed check (early exit): check if message contains a code block
