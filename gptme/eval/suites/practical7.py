@@ -51,6 +51,17 @@ def check_ini_nested(ctx):
     return srv.get("workers") == "4" and srv.get("debug") == "false"
 
 
+def check_ini_logging_format(ctx):
+    """Logging format string with % placeholders should be preserved as-is (RawConfigParser key test)."""
+    try:
+        data = json.loads(ctx.stdout)
+    except (json.JSONDecodeError, ValueError):
+        return False
+    log = data.get("logging", {})
+    fmt = log.get("format", "")
+    return "%(asctime)s" in fmt and "%(levelname)s" in fmt
+
+
 def check_ini_exit(ctx):
     return ctx.exit_code == 0
 
@@ -76,24 +87,26 @@ def check_diff_removed(ctx):
 
 
 def check_diff_changed(ctx):
-    """Should detect changed values for 'age' and 'address.city'."""
-    output = ctx.stdout
-    has_age = "age" in output
-    has_city = "address.city" in output
-    has_changed = "changed" in output.lower()
-    return has_age and has_city and has_changed
+    """Should detect changed values for 'age' and 'address.city' on lines that mention 'changed'."""
+    lines = ctx.stdout.strip().split("\n")
+    has_age_changed = any("age" in line and "changed" in line.lower() for line in lines)
+    has_city_changed = any(
+        "address.city" in line and "changed" in line.lower() for line in lines
+    )
+    return has_age_changed and has_city_changed
 
 
 def check_diff_unchanged(ctx):
-    """Should NOT report 'name' as changed (it's the same in both)."""
-    # 'name' should not appear in any diff line unless it's part of a path
-    # that was actually changed
+    """Should NOT report unchanged fields (name, email, address.street, tags) as changed."""
     lines = ctx.stdout.strip().split("\n")
+    unchanged_fields = ("name", "email", "address.street", "tags")
     for line in lines:
         line_lower = line.lower().strip()
-        # If a line mentions 'name' as a changed/added/removed key, that's wrong
-        if re.match(r"^(added|removed|changed):?\s+name\b", line_lower):
-            return False
+        for field in unchanged_fields:
+            if re.match(
+                rf"^(added|removed|changed):?\s+{re.escape(field)}\b", line_lower
+            ):
+                return False
     return True
 
 
@@ -110,53 +123,62 @@ def check_changelog_file(ctx):
     return "changelog.py" in ctx.files
 
 
-def check_changelog_features(ctx):
-    """Should have a Features section heading with auth and search entries."""
-    output = ctx.stdout
-    # Anchor to a heading so raw commit lines don't false-positive
-    has_section = bool(
-        re.search(r"^#+\s*feat(ure)?s?", output, re.IGNORECASE | re.MULTILINE)
-    )
-    has_auth = "authentication" in output.lower() or "auth" in output.lower()
-    has_search = "search" in output.lower()
-    return has_section and has_auth and has_search
-
-
-def check_changelog_fixes(ctx):
-    """Should have a Fixes section heading with login and memory entries."""
-    output = ctx.stdout
-    # Anchor to a heading so raw commit lines don't false-positive
-    has_section = bool(
-        re.search(r"^#+\s*fix(es)?", output, re.IGNORECASE | re.MULTILINE)
-    )
-    has_login = "login" in output.lower()
-    has_memory = "memory" in output.lower()
-    return has_section and has_login and has_memory
-
-
-def check_changelog_docs(ctx):
-    """Should have a Docs section heading with API entry in that section."""
-    output = ctx.stdout
-    # Anchor to a heading so raw commit lines don't false-positive
-    m = re.search(r"^#+\s*doc(s|umentation)?.*$", output, re.IGNORECASE | re.MULTILINE)
+def _extract_section(output: str, heading_pattern: str) -> str | None:
+    """Extract section body from heading match to next heading (or EOF)."""
+    m = re.search(heading_pattern, output, re.IGNORECASE | re.MULTILINE)
     if not m:
-        return False
-    # Extract section body: from end of heading to the next heading (or EOF)
+        return None
     section_start = m.end()
     next_heading = re.search(r"^#+\s+\S", output[section_start:], re.MULTILINE)
-    section_body = (
+    return (
         output[section_start : section_start + next_heading.start()]
         if next_heading
         else output[section_start:]
     )
-    return "api" in section_body.lower()
+
+
+def check_changelog_features(ctx):
+    """Should have a Features section with auth and search entries in that section body."""
+    body = _extract_section(ctx.stdout, r"^#+\s*feat(ure)?s?.*$")
+    if body is None:
+        return False
+    has_auth = "authentication" in body.lower() or "auth" in body.lower()
+    has_search = "search" in body.lower()
+    return has_auth and has_search
+
+
+def check_changelog_fixes(ctx):
+    """Should have a Fixes section with login and memory entries in that section body."""
+    body = _extract_section(ctx.stdout, r"^#+\s*fix(es)?.*$")
+    if body is None:
+        return False
+    has_login = "login" in body.lower()
+    has_memory = "memory" in body.lower()
+    return has_login and has_memory
+
+
+def check_changelog_docs(ctx):
+    """Should have a Docs section heading with API entry in that section body."""
+    body = _extract_section(ctx.stdout, r"^#+\s*doc(s|umentation)?.*$")
+    if body is None:
+        return False
+    return "api" in body.lower()
 
 
 def check_changelog_scopes(ctx):
-    """Should include scope information where present (e.g. auth, api)."""
-    output = ctx.stdout
-    # At least some scopes should appear in the output
-    return "auth" in output.lower() and "api" in output.lower()
+    """Should include explicit scope notation as bullet-point prefixes (e.g. '- (auth)').
+
+    Anchors to bullet-point lines to prevent raw commit input like 'feat(auth):'
+    from satisfying this check without proper reformatting.
+    """
+    lines = ctx.stdout.strip().split("\n")
+    has_auth_scope = any(
+        re.match(r"^\s*[-*]\s+\(auth\)", line, re.IGNORECASE) for line in lines
+    )
+    has_api_scope = any(
+        re.match(r"^\s*[-*]\s+\(api\)", line, re.IGNORECASE) for line in lines
+    )
+    return has_auth_scope and has_api_scope
 
 
 def check_changelog_exit(ctx):
@@ -249,6 +271,7 @@ tests: list["EvalSpec"] = [
             "all sections present": check_ini_sections,
             "database values correct": check_ini_values,
             "server values correct": check_ini_nested,
+            "logging format preserved": check_ini_logging_format,
             "clean exit": check_ini_exit,
         },
     },
