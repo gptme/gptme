@@ -381,6 +381,9 @@ class ToolSpec:
         parts = [f"\n<tool name={quoteattr(self.name)}>"]
         if self.desc:
             parts.append(f"<description>{xml_escape(self.desc)}</description>")
+        # Note: xml_escape is applied here, so any instructions_format["xml"] entry
+        # should NOT embed raw XML markup — it would be double-escaped.
+        # If a future tool needs unescaped XML in instructions, add a separate tag here.
         instructions = self.get_instructions(tool_format)
         if instructions:
             parts.append(f"<instructions>\n{xml_escape(instructions)}\n</instructions>")
