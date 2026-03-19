@@ -51,6 +51,17 @@ def check_ini_nested(ctx):
     return srv.get("workers") == "4" and srv.get("debug") == "false"
 
 
+def check_ini_logging_format(ctx):
+    """Logging format string with % placeholders should be preserved as-is (RawConfigParser key test)."""
+    try:
+        data = json.loads(ctx.stdout)
+    except (json.JSONDecodeError, ValueError):
+        return False
+    log = data.get("logging", {})
+    fmt = log.get("format", "")
+    return "%(asctime)s" in fmt and "%(levelname)s" in fmt
+
+
 def check_ini_exit(ctx):
     return ctx.exit_code == 0
 
@@ -86,15 +97,16 @@ def check_diff_changed(ctx):
 
 
 def check_diff_unchanged(ctx):
-    """Should NOT report 'name' as changed (it's the same in both)."""
-    # 'name' should not appear in any diff line unless it's part of a path
-    # that was actually changed
+    """Should NOT report unchanged fields (name, email, address.street, tags) as changed."""
     lines = ctx.stdout.strip().split("\n")
+    unchanged_fields = ("name", "email", "address.street", "tags")
     for line in lines:
         line_lower = line.lower().strip()
-        # If a line mentions 'name' as a changed/added/removed key, that's wrong
-        if re.match(r"^(added|removed|changed):?\s+name\b", line_lower):
-            return False
+        for field in unchanged_fields:
+            if re.match(
+                rf"^(added|removed|changed):?\s+{re.escape(field)}\b", line_lower
+            ):
+                return False
     return True
 
 
@@ -251,6 +263,7 @@ tests: list["EvalSpec"] = [
             "all sections present": check_ini_sections,
             "database values correct": check_ini_values,
             "server values correct": check_ini_nested,
+            "logging format preserved": check_ini_logging_format,
             "clean exit": check_ini_exit,
         },
     },
