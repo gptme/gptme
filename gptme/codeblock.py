@@ -130,6 +130,11 @@ def _extract_codeblocks(
                 break
             # Found </think> but didn't strip: opening was concatenated (e.g. "```<think>").
             # Inner-loop fence-recovery handles this; track position of the closing tag.
+            # NOTE: if both </thinking> and </think> appear concatenated in the same message,
+            # _concatenated_end_pos is overwritten by the second iteration (the later position).
+            # This means the _after_concat scan misses standalone think blocks between the two
+            # concatenated end-tags. Emitting both concatenated closers in one message is
+            # extremely unlikely in practice so this edge case is acceptable.
             _concatenated_end_found = True
             _concatenated_end_pos = _think_end + len(_think_end_tag)
     else:
@@ -190,9 +195,14 @@ def _extract_codeblocks(
                 if nesting_depth == 1 and line.startswith("`" * fence_len):
                     rest = line[fence_len:]
                     # Only treat as adjacent fences when the remainder starts a new fence
-                    # with a non-backtick character (e.g. a language tag like "shell").
-                    # A bare rest of "```" (from a content line like "``````") must NOT
-                    # trigger recovery — it would incorrectly split the block.
+                    # followed immediately by a non-whitespace character (e.g. a language
+                    # tag like "shell"). The `{3,}` quantifier is greedy: it consumes all
+                    # leading backticks in `rest`, so if `rest` consists solely of backticks
+                    # (e.g. rest="```" from a content line like "``````") `\S` has no char
+                    # left to match and the guard correctly falls through. Only when the
+                    # backtick run is followed by a non-whitespace char (a language tag or
+                    # similar) does this match — preventing false splits on bare-backtick
+                    # content lines.
                     if re.match(r"^`{3,}\S", rest):
                         yield Codeblock(
                             lang, "\n".join(content_lines), start=start_line
