@@ -1,4 +1,3 @@
-import concurrent.futures
 import io
 import logging
 import multiprocessing
@@ -7,7 +6,13 @@ import signal
 import sys
 import time
 from collections import defaultdict
-from concurrent.futures import Future, ProcessPoolExecutor, as_completed
+from concurrent.futures import (
+    CancelledError,
+    Future,
+    ProcessPoolExecutor,
+    TimeoutError,
+    as_completed,
+)
 from multiprocessing import Manager, Process
 from pathlib import Path
 from typing import TypedDict
@@ -149,9 +154,7 @@ def run_evals(
             except Exception as e:
                 gen_time = 0
                 error_detail = ""
-                if isinstance(e, concurrent.futures.TimeoutError) or isinstance(
-                    e, concurrent.futures.CancelledError
-                ):
+                if isinstance(e, (TimeoutError, CancelledError)):
                     status: Status = "timeout"
                     gen_time = timeout
                     error_detail = f"Process-level {type(e).__name__}"
@@ -190,7 +193,7 @@ def run_evals(
             ):
                 _handle_future(future)
                 completed.add(future)
-        except concurrent.futures.TimeoutError:
+        except TimeoutError:
             # NOTE: this should rarely happen, as `execute` should handle timeouts
             logger.warning(
                 "Timeout reached in top-level (shouldnt happen). Cancelling remaining futures..."
@@ -308,7 +311,7 @@ def execute(
 
         logger.debug("Got result")
 
-        if status != "timeout" and status != "error":
+        if status not in ("timeout", "error"):
             # check and collect results
             run_start = time.time()
             env = DockerExecutionEnv() if use_docker else SimpleExecutionEnv()

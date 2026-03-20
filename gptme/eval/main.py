@@ -553,11 +553,11 @@ def write_results(model_results: dict[ModelConfig, list[EvalResult]]):
         commit_hash = git_result.stdout.strip()
     else:
         # not in a git repo, use package version
-        from importlib.metadata import version
+        from importlib.metadata import PackageNotFoundError, version
 
         try:
             commit_hash = f"v{version('gptme')}"
-        except Exception:
+        except PackageNotFoundError:
             commit_hash = "unknown"
     eval_results_dir = Path(
         os.environ.get("EVAL_RESULTS_DIR", project_dir / "eval_results")
