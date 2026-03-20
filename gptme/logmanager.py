@@ -741,16 +741,14 @@ def get_conversations() -> Generator[ConversationMeta, None, None]:
                             conv_cost += meta.get("cost", 0) or 0
                             # Token counts: nested under "usage" (new) or top-level (old)
                             usage = meta.get("usage", {})
+                            src = usage or meta
+                            # Input = uncached + cache_read + cache_creation
                             conv_input_tokens += (
-                                usage.get("input_tokens", 0)
-                                or meta.get("input_tokens", 0)
-                                or 0
+                                (src.get("input_tokens", 0) or 0)
+                                + (src.get("cache_read_tokens", 0) or 0)
+                                + (src.get("cache_creation_tokens", 0) or 0)
                             )
-                            conv_output_tokens += (
-                                usage.get("output_tokens", 0)
-                                or meta.get("output_tokens", 0)
-                                or 0
-                            )
+                            conv_output_tokens += src.get("output_tokens", 0) or 0
                     except (json.JSONDecodeError, TypeError):
                         pass
         assert len(log) <= 1
