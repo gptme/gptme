@@ -1,5 +1,6 @@
 """Tests for the Claude Code eval agent."""
 
+import os
 from unittest.mock import patch
 
 import pytest
@@ -10,6 +11,14 @@ from gptme.eval.agents.claude_code import (
     parse_claude_code_model,
 )
 from gptme.util.cost_tracker import CostTracker
+
+
+@pytest.fixture(autouse=True)
+def reset_cost_tracker():
+    """Reset CostTracker before and after each test to prevent session state leakage."""
+    CostTracker.reset()
+    yield
+    CostTracker.reset()
 
 
 def test_is_claude_code_model():
@@ -97,8 +106,6 @@ def test_agent_env_cleanup():
             "stderr": "",
         },
     )()
-
-    import os
 
     original_env = os.environ.copy()
     os.environ["CLAUDECODE"] = "1"
