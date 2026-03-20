@@ -23,7 +23,11 @@ def check_url_stats_file(ctx):
 
 
 def check_url_stats_top_domain(ctx):
-    """api.example.com should appear as the top domain (3 URLs)."""
+    """other.org should appear as the top domain (3 URLs).
+
+    NOTE: other.org is alphabetically last but has the highest count — this ensures
+    agents must implement count-descending sort, not naive alphabetical sort.
+    """
     lines = ctx.stdout.strip().split("\n")
     # Find the first line that looks like a domain entry (skip preamble/headers)
     # Expected format: '<domain>: <count>'
@@ -32,14 +36,14 @@ def check_url_stats_top_domain(ctx):
         # Anchor to '<domain>: <count>' format to avoid matching filenames like 'urls.txt:'
         if re.match(r"[\w.-]+\.[a-z]+:\s*\d+$", stripped):
             domain = stripped.split(":")[0].strip()
-            return domain == "api.example.com"
+            return domain == "other.org"
     return False
 
 
 def check_url_stats_count(ctx):
     """Top domain count should be 3."""
     # Require the expected 'domain: count' format to avoid matching preamble lines
-    return bool(re.search(r"api\.example\.com:\s*3\b", ctx.stdout))
+    return bool(re.search(r"other\.org:\s*3\b", ctx.stdout))
 
 
 def check_url_stats_docs_domain(ctx):
@@ -48,9 +52,12 @@ def check_url_stats_docs_domain(ctx):
 
 
 def check_url_stats_tiebreak_order(ctx):
-    """docs.example.com (d < e) before example.com; both count-2 before other.org (count-1)."""
+    """other.org (count-3) first; docs.example.com (d<e) before example.com (both count-2); api.example.com (count-1) last."""
     lines = ctx.stdout.strip().split("\n")
     # Use strip().startswith to avoid matching docs.example.com when looking for example.com
+    other_pos = next(
+        (i for i, ln in enumerate(lines) if ln.strip().startswith("other.org")), None
+    )
     docs_pos = next(
         (i for i, ln in enumerate(lines) if ln.strip().startswith("docs.example.com")),
         None,
@@ -58,12 +65,10 @@ def check_url_stats_tiebreak_order(ctx):
     example_pos = next(
         (i for i, ln in enumerate(lines) if ln.strip().startswith("example.com")), None
     )
-    other_pos = next(
-        (i for i, ln in enumerate(lines) if ln.strip().startswith("other.org")), None
-    )
-    if docs_pos is None or example_pos is None or other_pos is None:
+    if other_pos is None or docs_pos is None or example_pos is None:
         return False
-    return docs_pos < example_pos < other_pos
+    # other.org (count-3) before docs/example (count-2); docs before example (alpha tiebreak)
+    return other_pos < docs_pos < example_pos
 
 
 def check_url_stats_exit(ctx):
@@ -161,14 +166,14 @@ def check_flatten_exit(ctx):
 # --- test data ---
 
 _URLS_TXT = """\
-https://api.example.com/v1/users
-https://api.example.com/v1/products
-https://api.example.com/v1/orders
+https://other.org/page1
+https://other.org/page2
+https://other.org/page3
 https://docs.example.com/getting-started
 https://docs.example.com/api-reference
 https://example.com/blog/introducing-v2
 https://example.com/about
-https://other.org/contact
+https://api.example.com/v1/users
 """
 
 _GUIDE_MD = """\
@@ -247,7 +252,7 @@ tests: list["EvalSpec"] = [
         "tools": ["read", "save", "shell"],
         "expect": {
             "url_stats.py exists": check_url_stats_file,
-            "top domain is api.example.com": check_url_stats_top_domain,
+            "top domain is other.org": check_url_stats_top_domain,
             "top domain count is 3": check_url_stats_count,
             "docs.example.com count is 2": check_url_stats_docs_domain,
             "tie-break: docs before example.com": check_url_stats_tiebreak_order,
