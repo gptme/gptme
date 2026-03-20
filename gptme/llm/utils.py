@@ -140,7 +140,7 @@ def process_image_file(
 
     logger = logging.getLogger(__name__)
 
-    ALLOWED_FILE_EXTS = ["jpg", "jpeg", "png", "gif"]
+    ALLOWED_FILE_EXTS = ["jpg", "jpeg", "png", "gif", "webp"]
 
     f = Path(file_path)
     if expand_user:

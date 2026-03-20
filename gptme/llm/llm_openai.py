@@ -178,7 +178,7 @@ def _record_usage(usage, model: str) -> MessageMetadata | None:
 # TODO: set quantization: https://openrouter.ai/docs/provider-routing#quantization
 
 
-ALLOWED_FILE_EXTS = ["jpg", "jpeg", "png", "gif"]
+ALLOWED_FILE_EXTS = ["jpg", "jpeg", "png", "gif", "webp"]
 
 
 def _make_response_format(output_schema):

@@ -753,7 +753,7 @@ def _handle_tools(message_dicts: Iterable[dict]) -> Generator[dict, None, None]:
 
 
 # File extensions allowed for image uploads
-ALLOWED_FILE_EXTS = ["jpg", "jpeg", "png", "gif"]
+ALLOWED_FILE_EXTS = ["jpg", "jpeg", "png", "gif", "webp"]
 
 
 def _process_file(message_dict: dict) -> dict:

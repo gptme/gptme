@@ -298,6 +298,18 @@ class TestProcessImageFile:
         _, media_type = result
         assert media_type == "image/gif"
 
+    def test_valid_webp_image(self, tmp_path):
+        """WebP images should be supported."""
+        img_file = tmp_path / "photo.webp"
+        img_file.write_bytes(b"RIFF" + b"\x00" * 4 + b"WEBP" + b"\x00" * 100)
+
+        content_parts: list[dict] = []
+        result = process_image_file(str(img_file), content_parts)
+
+        assert result is not None
+        _, media_type = result
+        assert media_type == "image/webp"
+
     def test_unsupported_file_type(self, tmp_path):
         """Non-image file extensions should be rejected."""
         txt_file = tmp_path / "readme.txt"
