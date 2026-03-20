@@ -8,6 +8,7 @@ Also tests the _WritePipeProtocol used for backpressure handling.
 import asyncio
 import io
 import os
+import subprocess
 import sys
 
 import pytest
@@ -123,8 +124,6 @@ def test_no_stdout_pollution_from_imports():
     (e.g. workspace agent hooks or Rich console instances created by other tests
     that write to the captured sys.stdout during module reload).
     """
-    import subprocess
-
     result = subprocess.run(
         [
             sys.executable,
@@ -139,6 +138,7 @@ def test_no_stdout_pollution_from_imports():
     assert result.returncode == 0, f"Import failed: {result.stderr}"
     assert result.stdout == "", (
         f"Unexpected stdout output during imports: {result.stdout!r}"
+        f" (stderr: {result.stderr!r})"
     )
 
 
@@ -237,7 +237,6 @@ def test_write_pipe_protocol_connection_lost_resolves_drain():
 
 def test_write_pipe_protocol_connection_lost_with_exception():
     """connection_lost(exc) sets exception on drain waiter."""
-    import pytest
 
     async def _check():
         from gptme.acp.__main__ import _WritePipeProtocol
@@ -260,7 +259,6 @@ def test_write_pipe_protocol_connection_lost_with_exception():
 
 def test_write_pipe_protocol_drain_after_connection_lost():
     """_drain_helper() raises ConnectionResetError after connection_lost()."""
-    import pytest
 
     async def _check():
         from gptme.acp.__main__ import _WritePipeProtocol
