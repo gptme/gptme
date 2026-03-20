@@ -609,7 +609,14 @@ def search(query: str, engine: EngineType | None = None) -> str:
     errors: list[str] = []
     for candidate in engines_to_try:
         logger.info(f"Searching for '{query}' on {candidate}")
-        result = _search_with_engine(query, candidate)
+        try:
+            result = _search_with_engine(query, candidate)
+        except Exception as exc:
+            logger.warning(
+                "Search backend %s failed with exception", candidate, exc_info=exc
+            )
+            errors.append(f"{candidate}: {exc}")
+            continue
         if not _search_failed(result):
             return result
         errors.append(

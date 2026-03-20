@@ -125,6 +125,26 @@ def test_search_reports_all_failures(monkeypatch):
     assert "- duckduckgo: DuckDuckGo blocked" in result
 
 
+def test_search_continues_after_backend_exception(monkeypatch):
+    monkeypatch.setattr("gptme.tools.browser.has_perplexity", True)
+    monkeypatch.setattr("gptme.tools.browser.browser", "lynx")
+    monkeypatch.setattr(
+        "gptme.tools.browser.search_perplexity",
+        Mock(return_value="Error: Perplexity timeout"),
+    )
+
+    def fake_lynx(query: str, engine: str) -> str:
+        if engine == "google":
+            raise RuntimeError("lynx exited 1")
+        return "duckduckgo ok"
+
+    monkeypatch.setattr("gptme.tools.browser.search_lynx", fake_lynx, raising=False)
+
+    result = search("query")
+
+    assert result == "duckduckgo ok"
+
+
 def test_available_search_engines_prioritize_perplexity(monkeypatch):
     monkeypatch.setattr("gptme.tools.browser.has_perplexity", True)
     monkeypatch.setattr("gptme.tools.browser.browser", "lynx")
