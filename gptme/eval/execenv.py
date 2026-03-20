@@ -485,7 +485,8 @@ class DockerGPTMeEnv(DockerExecutionEnv):
         duration = time.time() - start
         print(f"--- Finished gptme execution (Docker) in {duration:.1f}s ---\n")
 
-        return stdout_full, stderr_full, p.returncode if p.returncode is not None else 0
+        assert p.returncode is not None
+        return stdout_full, stderr_full, p.returncode
 
     def get_logs(self) -> dict[str, str]:
         """
@@ -696,5 +697,5 @@ class DockerClaudeCodeEnv(DockerExecutionEnv):
                 cmd="docker exec claude -p ...", timeout=self.timeout
             )
 
-        exit_code = p.returncode if p.returncode is not None else 0
-        return stdout_full, stderr_full, exit_code
+        assert p.returncode is not None
+        return stdout_full, stderr_full, p.returncode

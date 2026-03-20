@@ -1,13 +1,20 @@
 import os
+import subprocess
+from typing import TYPE_CHECKING, cast
+from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
 
 from gptme.config import get_config
 from gptme.eval import execute, tests
-from gptme.eval.agents import GPTMe
+from gptme.eval.agents import Agent, GPTMe
 from gptme.eval.main import main
+from gptme.eval.run import ProcessError, SyncedDict, act_process
 from gptme.eval.suites import suites, tests_map
+
+if TYPE_CHECKING:
+    from gptme.eval.types import EvalSpec
 
 
 def test_no_duplicate_test_names():
@@ -103,3 +110,70 @@ def pytest_generate_tests(metafunc):
             *[(test, test["name"]) for test in tests if test["name"] in allowlist]
         )
         metafunc.parametrize("test", test_set, ids=test_names)
+
+
+class TimeoutAgent(Agent):
+    def act(
+        self, files: dict[str, str | bytes] | None, prompt: str
+    ) -> dict[str, str | bytes]:
+        raise subprocess.TimeoutExpired(cmd="claude -p", timeout=7)
+
+
+class SuccessAgent(Agent):
+    def act(
+        self, files: dict[str, str | bytes] | None, prompt: str
+    ) -> dict[str, str | bytes]:
+        return {"out.txt": "done"}
+
+
+def test_act_process_maps_subprocess_timeout_to_timeout_result():
+    sync_dict = cast(SyncedDict, {})
+    agent = TimeoutAgent(model="claude-code/test")
+
+    with patch("gptme.eval.run._graceful_killpg"):
+        act_process(
+            agent=agent,
+            test_name="timeout-case",
+            prompt="do thing",
+            files={},
+            sync_dict=sync_dict,
+            parallel=True,
+            suppress_output=True,
+        )
+
+    result = cast(ProcessError, sync_dict["result"])
+    assert result["status"] == "timeout"
+    assert result["duration"] >= 0
+    assert result["message"]
+
+
+def test_execute_docker_mode_runs_checks_in_docker_env():
+    test: EvalSpec = {
+        "name": "docker-check",
+        "files": {},
+        "prompt": "write output",
+        "run": "cat out.txt",
+        "expect": {"has output": lambda ctx: ctx.files.get("out.txt") == "done"},
+    }
+    agent = SuccessAgent(model="claude-code/test")
+
+    with patch("gptme.eval.run.DockerExecutionEnv") as MockDockerEnv:
+        env = MockDockerEnv.return_value
+        env.run.return_value = ("done", "", 0)
+        env.download.return_value = {"out.txt": "done"}
+
+        result = execute(
+            test=test,
+            agent=agent,
+            timeout=5,
+            parallel=False,
+            use_docker=True,
+        )
+
+    MockDockerEnv.assert_called_once()
+    env.upload.assert_called_once_with({"out.txt": "done"})
+    env.run.assert_called_once_with("cat out.txt")
+    env.cleanup.assert_called_once()
+    assert result.status == "success"
+    assert all(case.passed for case in result.results)
+    assert result.run_stdout == "done"
