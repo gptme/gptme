@@ -1,0 +1,32 @@
+
+--- Start of generation ---
+[04:10:01] Using model: openai/gpt-4o                                           
+           Using logdir:                                                        
+           ~/.local/share/gptme/logs/2026-03-20-gptme-evals-openai--gpt-4o-xml-e
+           e8ecf7d                                                              
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2026-03-20-gptme-evals-openai--gpt-4o-xml-e
+           e8ecf7d/workspace                                                    
+Skipped 2 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: 
+Patch the code in hello.py to print "Hello, human!"
+
+````hello.py
+print("Hello, world!")
+````
+Assistant: Thinking...                                                                                Assistant: 
+<tool-use>
+<patch args="/home/appuser/.local/share/gptme/logs/2026-03-20-gptme-evals-openai--gpt-4o-xml-ee8ecf7d/workspace/hello.py">
+<<<<<< ORIGINAL
+print("Hello, world!")
+=======
+print("Hello, human!")
+>>>>>> UPDATED
+</patch>
+</tool-use>                                                                                System: ❌ Error during execution: Invalid patch: invalid patch, no `<<<<<<< 
+ORIGINAL`
+Assistant: Thinking...                                                                                Assistant: 
+It seems there was an issue with the patch format. Let me correct that and apply the patch again.                                                                                [04:10:04] Session: $0.01 | 2 turns | 1k context | 50% cached                   
+--- Finished generation ---
+
