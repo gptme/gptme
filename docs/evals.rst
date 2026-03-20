@@ -65,7 +65,7 @@ The evaluation suite is organized into named suites that can be run individually
 **basic**
   Fundamental tool use: reading and writing files, patching code, running Python in IPython,
   executing shell commands, using git, counting words, transforming JSON, multi-file refactoring,
-  writing tests, generating CLI programs, and fixing bugs. (~16 tests)
+  writing tests, generating CLI programs, and fixing bugs. (~18 tests)
 
 **browser**
   Web browsing and data extraction using the browser tool.
@@ -102,7 +102,7 @@ The evaluation suite is organized into named suites that can be run individually
   |            | changelog generation                     | changelog-gen                    |
   +------------+------------------------------------------+----------------------------------+
 
-Run a specific suite by name:
+Run specific tests or suites by name:
 
 .. code-block:: bash
 
