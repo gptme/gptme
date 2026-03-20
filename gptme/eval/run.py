@@ -105,6 +105,15 @@ def run_evals(
         cleanup_on_sigterm()
 
     n_runs = len(evals) * len(model_configs)
+    if n_runs == 0:
+        if not model_configs:
+            logger.warning(
+                "No models configured. Pass --model or set API keys "
+                "(OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)"
+            )
+        if not evals:
+            logger.warning("No evals to run")
+        return {}
     model_results: dict[ModelConfig, dict[str, EvalResult]] = defaultdict(dict)
     parallel = min(n_runs, parallel)
     with ProcessPoolExecutor(parallel) as executor:
@@ -278,14 +287,19 @@ def execute(
 
                 cost = CostSummary.from_dict(cost_dict)
         else:
-            logger.error("No result in shared dictionary")
+            exit_code = p.exitcode
+            error_msg = (
+                f"Subprocess exited with code {exit_code} "
+                f"without writing result to shared dict"
+            )
+            logger.error(error_msg)
             return EvalResult(
                 name=test["name"],
                 status="error",
                 results=[],
                 timings={"gen": time_gen, "run": time_run, "eval": time_eval},
                 gen_stdout="",
-                gen_stderr="",
+                gen_stderr=error_msg,
                 run_stdout="",
                 run_stderr="",
                 log_dir=agent.log_dir,
