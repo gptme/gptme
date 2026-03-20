@@ -183,6 +183,4 @@ def test_parse_usage_ndjson():
     assert entry.output_tokens == 50
     assert entry.cost == pytest.approx(0.0025)
     assert entry.model == "claude-sonnet-4-6"
-
-    # Clean up
-    CostTracker.reset()
+    # autouse reset_cost_tracker fixture handles cleanup

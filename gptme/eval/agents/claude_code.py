@@ -94,6 +94,15 @@ class ClaudeCodeAgent(Agent):
         ]
 
         if self.tools:
+            # NOTE: gptme tool names (e.g. "shell", "read") differ from Claude Code
+            # tool names (e.g. "Bash", "Read"). A name mapping would be needed for
+            # restrictions to be fully honoured; for now we pass them as-is and warn.
+            logger.warning(
+                "ClaudeCodeAgent: tools=%r uses gptme tool names which may not "
+                "match Claude Code's --allowedTools identifiers. "
+                "Tool restrictions may not be fully enforced.",
+                self.tools,
+            )
             # CC CLI accepts comma-separated tool names in a single --allowedTools arg
             cmd.extend(["--allowedTools", ",".join(self.tools)])
 
