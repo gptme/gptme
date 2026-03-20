@@ -650,7 +650,8 @@ class DockerClaudeCodeEnv(DockerExecutionEnv):
         )
 
         stdout_full, stderr_full = "", ""
-        while p.poll() is None or p.stdout or p.stderr:
+        timed_out = False
+        while True:
             assert p.stdout is not None
             assert p.stderr is not None
             stdout = p.stdout.readline()
@@ -665,7 +666,9 @@ class DockerClaudeCodeEnv(DockerExecutionEnv):
                 break
             if time.time() - start > self.timeout:
                 print(f"Timeout after {self.timeout}s!")
+                timed_out = True
                 p.kill()
+                p.wait()  # reap the process so p.returncode is populated
                 if self.container_id:
                     subprocess.run(
                         ["docker", "stop", self.container_id],
@@ -679,4 +682,10 @@ class DockerClaudeCodeEnv(DockerExecutionEnv):
         duration = time.time() - start
         print(f"--- Finished Claude Code execution (Docker) in {duration:.1f}s ---\n")
 
-        return stdout_full, stderr_full, p.returncode if p.returncode is not None else 0
+        # p.returncode is None only if the process was never waited on.
+        # After p.wait() above (timeout path) it is populated (-9 from SIGKILL).
+        # Use -1 as a safe fallback rather than 0 to avoid misclassifying as success.
+        exit_code = (
+            p.returncode if p.returncode is not None else (-1 if timed_out else 0)
+        )
+        return stdout_full, stderr_full, exit_code
