@@ -168,9 +168,9 @@ class ClaudeCodeAgent(Agent):
             )
 
         try:
-            # Start session inside try so a Docker startup failure doesn't leak
-            # an open CostTracker session (start_container() is lazy inside
-            # run_claude_code(), so any RuntimeError would bypass _parse_usage).
+            # Start the container first so startup failures don't create a
+            # dangling cost-tracking session before generation even begins.
+            docker_env.start_container()
             CostTracker.start_session(f"claude-code-eval:{self.cc_model}")
             stdout, stderr, exit_code = docker_env.run_claude_code(
                 prompt=prompt,

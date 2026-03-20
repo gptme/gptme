@@ -1,11 +1,14 @@
 """
 Tests for Docker execution environments.
 
-These tests verify the DockerGPTMeEnv class for Docker-isolated gptme execution.
+These tests verify the DockerGPTMeEnv and DockerClaudeCodeEnv classes for
+Docker-isolated eval execution.
 Most tests are unit tests that mock Docker to avoid requiring actual Docker runtime.
 """
 
 import os
+import shlex
+import subprocess
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -13,7 +16,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from gptme.eval.execenv import (
+    CLAUDE_CODE_ENV_PASSTHROUGH,
     DOCKER_ENV_PASSTHROUGH,
+    DockerClaudeCodeEnv,
     DockerExecutionEnv,
     DockerGPTMeEnv,
     SimpleExecutionEnv,
@@ -207,6 +212,96 @@ class TestDockerGPTMeEnv:
 
             assert "test.jsonl" in logs
             assert '{"msg": "test"}' in logs["test.jsonl"]
+
+
+class TestDockerClaudeCodeEnv:
+    """Tests for DockerClaudeCodeEnv - Docker-isolated Claude Code execution."""
+
+    def test_init_default_values(self):
+        """Test that default values are set correctly."""
+        env = DockerClaudeCodeEnv()
+        assert env.image == "gptme-eval:latest"
+        assert env.working_dir == "/workspace"
+        assert env.timeout == 600
+        assert env.env_passthrough == CLAUDE_CODE_ENV_PASSTHROUGH
+
+    def test_get_env_args_with_values(self):
+        """Test env args when Anthropic API key is set."""
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "secret123"}):
+            env = DockerClaudeCodeEnv()
+            args = env._get_env_args()
+            assert args == ["-e", "ANTHROPIC_API_KEY=secret123"]
+
+    @patch("subprocess.run")
+    def test_start_container_image_not_found(self, mock_run):
+        """Test container start with missing image includes Claude install hint."""
+        mock_run.side_effect = subprocess.CalledProcessError(
+            1, "docker", stderr="Unable to find image"
+        )
+
+        env = DockerClaudeCodeEnv()
+        with pytest.raises(RuntimeError, match="Docker image not found") as exc_info:
+            env.start_container()
+
+        assert "Claude Code CLI" in str(exc_info.value)
+
+    @patch("subprocess.run")
+    @patch("subprocess.Popen")
+    def test_run_claude_code_builds_correct_command(self, mock_popen, mock_run):
+        """Test that run_claude_code builds a shell-quoted Claude CLI command."""
+        mock_run.return_value = MagicMock(stdout="container123\n", returncode=0)
+        mock_process = MagicMock()
+        mock_process.communicate.return_value = ('{"type":"result"}\n', "")
+        mock_process.returncode = 0
+        mock_popen.return_value = mock_process
+
+        env = DockerClaudeCodeEnv()
+        prompt = "fix 'this' file"
+        tools = ["shell", "read write"]
+        env.run_claude_code(
+            prompt=prompt,
+            model="claude-sonnet-4-6",
+            max_turns=42,
+            tools=tools,
+        )
+
+        mock_popen.assert_called_once()
+        docker_exec_cmd = mock_popen.call_args[0][0]
+        assert docker_exec_cmd[:5] == ["docker", "exec", "-i", "-w", "/workspace"]
+        assert docker_exec_cmd[5] == "container123"
+        command = docker_exec_cmd[-1]
+        assert "claude -p" in command
+        assert shlex.quote(prompt) in command
+        assert shlex.quote("claude-sonnet-4-6") in command
+        assert "--max-turns 42" in command
+        assert shlex.quote(",".join(tools)) in command
+
+    @patch("subprocess.run")
+    @patch("subprocess.Popen")
+    def test_run_claude_code_timeout_stops_container_and_raises(
+        self, mock_popen, mock_run
+    ):
+        """Test timeout path stops the container and re-raises TimeoutExpired."""
+        mock_run.side_effect = [
+            MagicMock(stdout="container123\n", returncode=0),
+            MagicMock(returncode=0),
+        ]
+
+        mock_process = MagicMock()
+        mock_process.communicate.side_effect = [
+            subprocess.TimeoutExpired(cmd="claude -p", timeout=600),
+            ("partial stdout", "partial stderr"),
+        ]
+        mock_process.returncode = 137
+        mock_popen.return_value = mock_process
+
+        env = DockerClaudeCodeEnv(timeout=600)
+
+        with pytest.raises(subprocess.TimeoutExpired):
+            env.run_claude_code(prompt="test", model="claude-sonnet-4-6")
+
+        mock_process.kill.assert_called_once()
+        assert mock_run.call_args_list[1][0][0] == ["docker", "stop", "container123"]
 
 
 class TestDockerGPTMeEnvIntegration:

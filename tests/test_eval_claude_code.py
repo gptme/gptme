@@ -145,6 +145,37 @@ def test_agent_env_cleanup():
         os.environ.update(original_env)
 
 
+def test_agent_custom_max_turns_forwarded_locally():
+    """Test that custom max_turns is forwarded to the Claude CLI."""
+    agent = ClaudeCodeAgent(model="claude-code/claude-sonnet-4-6", max_turns=42)
+
+    mock_result = type(
+        "Result",
+        (),
+        {
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+        },
+    )()
+
+    with (
+        patch(
+            "gptme.eval.agents.claude_code.shutil.which",
+            return_value="/usr/bin/claude",
+        ),
+        patch(
+            "gptme.eval.agents.claude_code.subprocess.run",
+            return_value=mock_result,
+        ) as mock_run,
+    ):
+        agent.act(None, "test")
+
+        cmd = mock_run.call_args[0][0]
+        idx = cmd.index("--max-turns")
+        assert cmd[idx + 1] == "42"
+
+
 def test_agent_tools_forwarded():
     """Test that tools parameter is forwarded as --allowedTools."""
     agent = ClaudeCodeAgent(
@@ -197,6 +228,7 @@ def test_agent_docker_mode():
             host_dir=agent.workspace_dir,
             timeout=agent.timeout,
         )
+        mock_env.start_container.assert_called_once()
         # Verify run_claude_code was called
         mock_env.run_claude_code.assert_called_once_with(
             prompt="test prompt",
@@ -220,6 +252,7 @@ def test_agent_docker_timeout_propagates():
         with pytest.raises(subprocess.TimeoutExpired):
             agent.act(None, "test prompt")
 
+        mock_env.start_container.assert_called_once()
         mock_env.cleanup.assert_called_once()
 
 
@@ -237,12 +270,29 @@ def test_agent_docker_mode_with_tools():
 
         agent.act(None, "test")
 
+        mock_env.start_container.assert_called_once()
         mock_env.run_claude_code.assert_called_once_with(
             prompt="test",
             model="claude-sonnet-4-6",
             tools=["shell", "read"],
             max_turns=30,
         )
+
+
+def test_agent_docker_startup_failure_does_not_start_cost_session():
+    """Test that Docker startup failures happen before cost tracking starts."""
+    agent = ClaudeCodeAgent(model="claude-code/claude-sonnet-4-6", use_docker=True)
+
+    with patch("gptme.eval.agents.claude_code.DockerClaudeCodeEnv") as MockDockerEnv:
+        mock_env = MockDockerEnv.return_value
+        mock_env.start_container.side_effect = RuntimeError("docker unavailable")
+
+        with pytest.raises(RuntimeError, match="docker unavailable"):
+            agent.act(None, "test prompt")
+
+        assert CostTracker.get_session_costs() is None
+        mock_env.run_claude_code.assert_not_called()
+        mock_env.cleanup.assert_called_once()
 
 
 def test_parse_usage_ndjson():
