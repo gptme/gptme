@@ -649,43 +649,38 @@ class DockerClaudeCodeEnv(DockerExecutionEnv):
             text=True,
         )
 
-        stdout_full, stderr_full = "", ""
         timed_out = False
-        while True:
-            assert p.stdout is not None
-            assert p.stderr is not None
-            stdout = p.stdout.readline()
-            stderr = p.stderr.readline()
-            if stdout:
-                print(stdout, end="")
-                stdout_full += stdout
-            if stderr:
-                print(stderr, end="")
-                stderr_full += stderr
-            if not stdout and not stderr and p.poll() is not None:
-                break
-            if time.time() - start > self.timeout:
-                print(f"Timeout after {self.timeout}s!")
-                timed_out = True
-                p.kill()
-                p.wait()  # reap the process so p.returncode is populated
-                if self.container_id:
-                    subprocess.run(
-                        ["docker", "stop", self.container_id],
-                        check=False,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        timeout=5,
-                    )
-                break
+        try:
+            # Use communicate() to read both pipes concurrently, avoiding the
+            # deadlock that sequential readline() causes when one pipe's buffer
+            # fills while the other is blocked waiting for data.
+            stdout_full, stderr_full = p.communicate(timeout=self.timeout)
+        except subprocess.TimeoutExpired:
+            print(f"Timeout after {self.timeout}s!")
+            timed_out = True
+            p.kill()
+            if self.container_id:
+                subprocess.run(
+                    ["docker", "stop", self.container_id],
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                )
+            stdout_full, stderr_full = p.communicate()
+
+        if stdout_full:
+            print(stdout_full, end="")
+        if stderr_full:
+            print(stderr_full, end="")
 
         duration = time.time() - start
         print(f"--- Finished Claude Code execution (Docker) in {duration:.1f}s ---\n")
 
-        # p.returncode is None only if the process was never waited on.
-        # After p.wait() above (timeout path) it is populated (-9 from SIGKILL).
-        # Use -1 as a safe fallback rather than 0 to avoid misclassifying as success.
-        exit_code = (
-            p.returncode if p.returncode is not None else (-1 if timed_out else 0)
-        )
+        if timed_out:
+            raise subprocess.TimeoutExpired(
+                cmd="docker exec claude -p ...", timeout=self.timeout
+            )
+
+        exit_code = p.returncode if p.returncode is not None else 0
         return stdout_full, stderr_full, exit_code

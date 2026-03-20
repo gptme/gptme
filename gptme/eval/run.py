@@ -455,6 +455,9 @@ def act_process(
             "duration": duration,
         }
         sync_dict["result"] = result_timeout
+        # Reset SIGTERM handler before cleanup to prevent self-SIGTERM
+        # from overwriting the timeout result (same guard as the success path).
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
         _graceful_killpg(pgrp)
         return
     except Exception as e:

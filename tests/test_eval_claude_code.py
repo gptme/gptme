@@ -205,6 +205,24 @@ def test_agent_docker_mode():
         mock_env.cleanup.assert_called_once()
 
 
+def test_agent_docker_timeout_propagates():
+    """Test that Docker timeout is propagated as subprocess.TimeoutExpired, not swallowed."""
+    import subprocess as _subprocess
+
+    agent = ClaudeCodeAgent(model="claude-code/claude-sonnet-4-6", use_docker=True)
+
+    with patch("gptme.eval.agents.claude_code.DockerClaudeCodeEnv") as MockDockerEnv:
+        mock_env = MockDockerEnv.return_value
+        mock_env.run_claude_code.side_effect = _subprocess.TimeoutExpired(
+            cmd="docker exec claude -p ...", timeout=600
+        )
+
+        with pytest.raises(_subprocess.TimeoutExpired):
+            agent.act(None, "test prompt")
+
+        mock_env.cleanup.assert_called_once()
+
+
 def test_agent_docker_mode_with_tools():
     """Test that tools are forwarded in Docker mode."""
     agent = ClaudeCodeAgent(
