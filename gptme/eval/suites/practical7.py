@@ -89,7 +89,9 @@ def check_diff_removed(ctx):
 def check_diff_changed(ctx):
     """Should detect changed values for 'age' and 'address.city' on lines that mention 'changed'."""
     lines = ctx.stdout.strip().split("\n")
-    has_age_changed = any("age" in line and "changed" in line.lower() for line in lines)
+    has_age_changed = any(
+        re.search(r"\bage\b", line) and "changed" in line.lower() for line in lines
+    )
     has_city_changed = any(
         "address.city" in line and "changed" in line.lower() for line in lines
     )
@@ -129,7 +131,7 @@ def _extract_section(output: str, heading_pattern: str) -> str | None:
     if not m:
         return None
     section_start = m.end()
-    next_heading = re.search(r"^#+\s+\S", output[section_start:], re.MULTILINE)
+    next_heading = re.search(r"^#+\s*\S", output[section_start:], re.MULTILINE)
     return (
         output[section_start : section_start + next_heading.start()]
         if next_heading
