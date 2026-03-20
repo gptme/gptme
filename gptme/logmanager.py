@@ -739,9 +739,18 @@ def get_conversations() -> Generator[ConversationMeta, None, None]:
                             if not conv_model and meta.get("model"):
                                 conv_model = meta["model"]
                             conv_cost += meta.get("cost", 0) or 0
+                            # Token counts: nested under "usage" (new) or top-level (old)
                             usage = meta.get("usage", {})
-                            conv_input_tokens += usage.get("input_tokens", 0) or 0
-                            conv_output_tokens += usage.get("output_tokens", 0) or 0
+                            conv_input_tokens += (
+                                usage.get("input_tokens", 0)
+                                or meta.get("input_tokens", 0)
+                                or 0
+                            )
+                            conv_output_tokens += (
+                                usage.get("output_tokens", 0)
+                                or meta.get("output_tokens", 0)
+                                or 0
+                            )
                     except (json.JSONDecodeError, TypeError):
                         pass
         assert len(log) <= 1
