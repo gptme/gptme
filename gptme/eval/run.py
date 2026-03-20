@@ -295,7 +295,7 @@ def execute(
             logger.error(error_msg)
             return EvalResult(
                 name=test["name"],
-                status=status,
+                status=status if status == "timeout" else "error",
                 results=[],
                 timings={"gen": time_gen, "run": time_run, "eval": time_eval},
                 gen_stdout="",
