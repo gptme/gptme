@@ -116,25 +116,27 @@ def test_console_log_goes_to_stderr_after_redirect():
 def test_no_stdout_pollution_from_imports():
     """Importing gptme modules shouldn't write to stdout.
 
-    Exercises key modules that use Rich console, logging, or print()
-    to verify they don't write to stdout during normal import/usage.
+    Uses subprocess isolation to avoid false positives from prior test state
+    (e.g. workspace agent hooks or Rich console instances created by other tests
+    that write to the captured sys.stdout during module reload).
     """
-    import importlib
+    import subprocess
 
-    original_stdout = sys.stdout
-    capture = io.StringIO()
-
-    try:
-        sys.stdout = capture
-
-        # Re-import modules known to use console/print at import or init time
-        importlib.reload(importlib.import_module("gptme.util"))
-        importlib.reload(importlib.import_module("gptme.config"))
-
-        output = capture.getvalue()
-        assert output == "", f"Unexpected stdout output during imports: {output!r}"
-    finally:
-        sys.stdout = original_stdout
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import gptme.util; import gptme.config",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, f"Import failed: {result.stderr}"
+    assert result.stdout == "", (
+        f"Unexpected stdout output during imports: {result.stdout!r}"
+    )
 
 
 def test_write_pipe_protocol_has_drain_helper():
