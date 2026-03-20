@@ -18,6 +18,7 @@ import subprocess
 import time
 
 from ...util.cost_tracker import CostEntry, CostTracker
+from ..execenv import DockerClaudeCodeEnv
 from ..filestore import FileStore
 from ..types import Files
 from . import Agent
@@ -71,6 +72,12 @@ class ClaudeCodeAgent(Agent):
         if files:
             store.upload(files)
 
+        if self.use_docker:
+            return self._act_docker(store, prompt)
+        return self._act_local(store, prompt)
+
+    def _act_local(self, store: FileStore, prompt: str) -> Files:
+        """Execute Claude Code directly on the host."""
         claude_bin = shutil.which("claude")
         if claude_bin is None:
             raise FileNotFoundError(
@@ -78,7 +85,6 @@ class ClaudeCodeAgent(Agent):
                 "Install it from https://docs.anthropic.com/en/docs/claude-code"
             )
 
-        # Start cost tracking after confirming the binary exists
         CostTracker.start_session(f"claude-code-eval:{self.cc_model}")
 
         cmd = [
@@ -94,20 +100,15 @@ class ClaudeCodeAgent(Agent):
         ]
 
         if self.tools:
-            # NOTE: gptme tool names (e.g. "shell", "read") differ from Claude Code
-            # tool names (e.g. "Bash", "Read"). A name mapping would be needed for
-            # restrictions to be fully honoured; for now we pass them as-is and warn.
             logger.warning(
                 "ClaudeCodeAgent: tools=%r uses gptme tool names which may not "
                 "match Claude Code's --allowedTools identifiers. "
                 "Tool restrictions may not be fully enforced.",
                 self.tools,
             )
-            # CC CLI accepts comma-separated tool names in a single --allowedTools arg
             cmd.extend(["--allowedTools", ",".join(self.tools)])
 
         env = os.environ.copy()
-        # Prevent nested session detection if already inside Claude Code
         env.pop("CLAUDECODE", None)
         env.pop("CLAUDE_CODE_ENTRYPOINT", None)
 
@@ -132,7 +133,6 @@ class ClaudeCodeAgent(Agent):
                 if result.stderr:
                     logger.warning(f"stderr: {result.stderr[:500]}")
 
-            # Parse JSON output for cost/usage info if available
             self._parse_usage(result.stdout)
 
         except subprocess.TimeoutExpired:
@@ -145,6 +145,41 @@ class ClaudeCodeAgent(Agent):
             raise
 
         print("--- Finished generation (Claude Code) ---\n")
+        return store.download()
+
+    def _act_docker(self, store: FileStore, prompt: str) -> Files:
+        """Execute Claude Code inside a Docker container for isolation."""
+        print("\n--- Start of generation (Claude Code, Docker-isolated) ---")
+        logger.debug(f"Working in {store.working_dir} (Docker mode)")
+
+        CostTracker.start_session(f"claude-code-eval:{self.cc_model}")
+
+        docker_env = DockerClaudeCodeEnv(
+            host_dir=self.workspace_dir,
+            timeout=self.timeout,
+        )
+
+        try:
+            stdout, stderr, exit_code = docker_env.run_claude_code(
+                prompt=prompt,
+                model=self.cc_model,
+                tools=self.tools,
+            )
+
+            if exit_code != 0:
+                logger.warning(f"Docker Claude Code exited with code {exit_code}")
+                if stderr:
+                    logger.warning(f"stderr: {stderr[:500]}")
+
+            self._parse_usage(stdout)
+
+        except Exception as e:
+            logger.error(f"Docker Claude Code execution failed: {e}")
+            raise
+        finally:
+            docker_env.cleanup()
+
+        print("--- Finished generation (Claude Code, Docker-isolated) ---\n")
         return store.download()
 
     def _parse_usage(self, stdout: str) -> None:

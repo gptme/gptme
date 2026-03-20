@@ -113,13 +113,6 @@ def run_evals(
         futures = []
         future_to_model_test: dict[Future, tuple[ModelConfig, EvalSpec, Agent]] = {}
         for config in model_configs:
-            # Warn once per model (not per test) to avoid log spam on large suites
-            if is_claude_code_model(config.model) and use_docker:
-                logger.warning(
-                    "use_docker=True does not affect the generation phase for "
-                    "ClaudeCodeAgent (Claude Code runs in its own subprocess). "
-                    "Docker isolation still applies to the eval checking phase."
-                )
             for test in evals:
                 tools = test.get(
                     "tools"
@@ -130,6 +123,7 @@ def run_evals(
                         model=config.model,
                         tools=tools,
                         timeout=timeout,
+                        use_docker=use_docker,
                     )
                 else:
                     agent = GPTMe(

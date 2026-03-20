@@ -51,7 +51,7 @@ def test_agent_init():
 def test_agent_no_claude_binary():
     agent = ClaudeCodeAgent(model="claude-code/claude-sonnet-4-6")
     with (
-        patch("shutil.which", return_value=None),
+        patch("gptme.eval.agents.claude_code.shutil.which", return_value=None),
         pytest.raises(FileNotFoundError, match="Claude Code CLI"),
     ):
         agent.act(None, "test prompt")
@@ -75,8 +75,14 @@ def test_agent_act_with_files():
     )()
 
     with (
-        patch("shutil.which", return_value="/usr/bin/claude"),
-        patch("subprocess.run", return_value=mock_result) as mock_run,
+        patch(
+            "gptme.eval.agents.claude_code.shutil.which",
+            return_value="/usr/bin/claude",
+        ),
+        patch(
+            "gptme.eval.agents.claude_code.subprocess.run",
+            return_value=mock_result,
+        ) as mock_run,
     ):
         files: dict[str, str | bytes] = {"hello.py": 'print("hello")'}
         result = agent.act(files, "fix the code")
@@ -118,8 +124,14 @@ def test_agent_env_cleanup():
 
     try:
         with (
-            patch("shutil.which", return_value="/usr/bin/claude"),
-            patch("subprocess.run", return_value=mock_result) as mock_run,
+            patch(
+                "gptme.eval.agents.claude_code.shutil.which",
+                return_value="/usr/bin/claude",
+            ),
+            patch(
+                "gptme.eval.agents.claude_code.subprocess.run",
+                return_value=mock_result,
+            ) as mock_run,
         ):
             agent.act(None, "test")
 
@@ -149,8 +161,14 @@ def test_agent_tools_forwarded():
     )()
 
     with (
-        patch("shutil.which", return_value="/usr/bin/claude"),
-        patch("subprocess.run", return_value=mock_result) as mock_run,
+        patch(
+            "gptme.eval.agents.claude_code.shutil.which",
+            return_value="/usr/bin/claude",
+        ),
+        patch(
+            "gptme.eval.agents.claude_code.subprocess.run",
+            return_value=mock_result,
+        ) as mock_run,
     ):
         agent.act(None, "test")
 
@@ -158,6 +176,54 @@ def test_agent_tools_forwarded():
         assert "--allowedTools" in cmd
         idx = cmd.index("--allowedTools")
         assert cmd[idx + 1] == "shell,read"
+
+
+def test_agent_docker_mode():
+    """Test that use_docker=True delegates to DockerClaudeCodeEnv."""
+    agent = ClaudeCodeAgent(model="claude-code/claude-sonnet-4-6", use_docker=True)
+    assert agent.use_docker is True
+
+    # Mock the Docker environment so we don't need real Docker
+    with patch("gptme.eval.agents.claude_code.DockerClaudeCodeEnv") as MockDockerEnv:
+        mock_env = MockDockerEnv.return_value
+        mock_env.run_claude_code.return_value = ("", "", 0)
+
+        files: dict[str, str | bytes] = {"test.py": "print('hi')"}
+        agent.act(files, "test prompt")
+
+        # Verify DockerClaudeCodeEnv was instantiated with correct args
+        MockDockerEnv.assert_called_once_with(
+            host_dir=agent.workspace_dir,
+            timeout=agent.timeout,
+        )
+        # Verify run_claude_code was called
+        mock_env.run_claude_code.assert_called_once_with(
+            prompt="test prompt",
+            model="claude-sonnet-4-6",
+            tools=None,
+        )
+        mock_env.cleanup.assert_called_once()
+
+
+def test_agent_docker_mode_with_tools():
+    """Test that tools are forwarded in Docker mode."""
+    agent = ClaudeCodeAgent(
+        model="claude-code/claude-sonnet-4-6",
+        use_docker=True,
+        tools=["shell", "read"],
+    )
+
+    with patch("gptme.eval.agents.claude_code.DockerClaudeCodeEnv") as MockDockerEnv:
+        mock_env = MockDockerEnv.return_value
+        mock_env.run_claude_code.return_value = ("", "", 0)
+
+        agent.act(None, "test")
+
+        mock_env.run_claude_code.assert_called_once_with(
+            prompt="test",
+            model="claude-sonnet-4-6",
+            tools=["shell", "read"],
+        )
 
 
 def test_parse_usage_ndjson():
