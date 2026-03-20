@@ -30,7 +30,9 @@ def check_url_stats_top_domain(ctx):
     for line in lines:
         stripped = line.strip()
         if re.match(r"[\w.-]+\.[a-z]+.*:", stripped):
-            return "api.example.com" in stripped
+            # Extract domain before the colon and compare exactly
+            domain = stripped.split(":")[0].strip()
+            return domain == "api.example.com"
     return False
 
 
@@ -75,11 +77,12 @@ def check_toc_installation_heading(ctx):
 def check_toc_h3_indented(ctx):
     """H3 entries should be indented (have leading spaces or dashes after spaces)."""
     lines = ctx.stdout.strip().split("\n")
-    # Find ALL lines containing h3 headings from the input ('prerequisites', 'quick')
+    # Match all 4 h3 headings from _GUIDE_MD using anchor-specific text
+    h3_keywords = ["prerequisite", "quick-start", "environment", "config-file"]
     matched = [
         line
         for line in lines
-        if "prerequisite" in line.lower() or "quick" in line.lower()
+        if any(kw in line.lower().replace(" ", "-") for kw in h3_keywords)
     ]
     if not matched:
         return False
@@ -94,6 +97,14 @@ def check_toc_exit(ctx):
 # --- json-flatten checks ---
 
 
+def _parse_flatten_output(ctx) -> dict | None:
+    """Parse flatten output as JSON, returning None on failure."""
+    try:
+        return json.loads(ctx.stdout.strip())
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+
 def check_flatten_file(ctx):
     """flatten.py should exist."""
     return "flatten.py" in ctx.files
@@ -101,45 +112,31 @@ def check_flatten_file(ctx):
 
 def check_flatten_valid_json(ctx):
     """Output should be valid JSON."""
-    try:
-        json.loads(ctx.stdout.strip())
-        return True
-    except (json.JSONDecodeError, ValueError):
-        return False
+    return _parse_flatten_output(ctx) is not None
 
 
 def check_flatten_nested_key(ctx):
     """Nested key 'database.host' should appear in output."""
-    try:
-        data = json.loads(ctx.stdout.strip())
-    except (json.JSONDecodeError, ValueError):
-        return False
-    return "database.host" in data
+    data = _parse_flatten_output(ctx)
+    return data is not None and "database.host" in data
 
 
 def check_flatten_deep_key(ctx):
     """Deep nested key 'server.tls.cert_file' should appear in output."""
-    try:
-        data = json.loads(ctx.stdout.strip())
-    except (json.JSONDecodeError, ValueError):
-        return False
-    return "server.tls.cert_file" in data
+    data = _parse_flatten_output(ctx)
+    return data is not None and "server.tls.cert_file" in data
 
 
 def check_flatten_values_preserved(ctx):
     """Values should be preserved correctly (database.port == 5432)."""
-    try:
-        data = json.loads(ctx.stdout.strip())
-    except (json.JSONDecodeError, ValueError):
-        return False
-    return data.get("database.port") == 5432
+    data = _parse_flatten_output(ctx)
+    return data is not None and data.get("database.port") == 5432
 
 
 def check_flatten_list_preserved(ctx):
     """List values should be preserved as-is (not further flattened)."""
-    try:
-        data = json.loads(ctx.stdout.strip())
-    except (json.JSONDecodeError, ValueError):
+    data = _parse_flatten_output(ctx)
+    if data is None:
         return False
     # 'server.allowed_hosts' should be a list, not split by index
     val = data.get("server.allowed_hosts")
