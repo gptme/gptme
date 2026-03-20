@@ -88,15 +88,13 @@ def check_toc_installation_heading(ctx):
 def check_toc_h3_indented(ctx):
     """All 4 h3 entries should be present and indented relative to h2."""
     lines = ctx.stdout.strip().split("\n")
-    # Match all 4 h3 headings from _GUIDE_MD using anchor-specific text
+    # One line per h3 keyword must be found and indented (per-keyword deduplication)
     h3_keywords = ["prerequisite", "quick-start", "environment", "config-file"]
-    matched = [
-        line
-        for line in lines
-        if any(kw in line.lower().replace(" ", "-") for kw in h3_keywords)
-    ]
-    # All 4 must be present AND all must have leading whitespace (h3 indented vs h2)
-    return len(matched) == 4 and all(line.startswith((" ", "\t")) for line in matched)
+    for kw in h3_keywords:
+        kw_lines = [line for line in lines if kw in line.lower().replace(" ", "-")]
+        if not kw_lines or not kw_lines[0].startswith((" ", "\t")):
+            return False
+    return True
 
 
 def check_toc_exit(ctx):
@@ -111,7 +109,7 @@ def _parse_flatten_output(ctx) -> dict | None:
     try:
         result = json.loads(ctx.stdout.strip())
         return result if isinstance(result, dict) else None
-    except (json.JSONDecodeError, ValueError):
+    except ValueError:
         return None
 
 
