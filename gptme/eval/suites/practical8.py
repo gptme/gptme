@@ -38,18 +38,13 @@ def check_url_stats_top_domain(ctx):
 
 def check_url_stats_count(ctx):
     """Top domain count should be 3."""
-    # api.example.com appears 3 times in the input
-    return bool(re.search(r"api\.example\.com.*\b3\b", ctx.stdout)) or bool(
-        re.search(r"\b3\b.*api\.example\.com", ctx.stdout)
-    )
+    # Require the expected 'domain: count' format to avoid matching preamble lines
+    return bool(re.search(r"api\.example\.com:\s*3\b", ctx.stdout))
 
 
 def check_url_stats_docs_domain(ctx):
     """docs.example.com should appear with count 2."""
-    return "docs.example.com" in ctx.stdout and bool(
-        re.search(r"docs\.example\.com.*\b2\b", ctx.stdout)
-        or re.search(r"\b2\b.*docs\.example\.com", ctx.stdout)
-    )
+    return bool(re.search(r"docs\.example\.com:\s*2\b", ctx.stdout))
 
 
 def check_url_stats_exit(ctx):
