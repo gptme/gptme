@@ -897,6 +897,9 @@ def check_for_modifications(log: Log) -> bool:
 def _gen_read_jsonl(path: PathLike) -> Generator[Message, None, None]:
     from .util.uri import parse_file_reference
 
+    # Pre-compute file mtime as fallback for messages without timestamps
+    _file_mtime = datetime.fromtimestamp(Path(path).stat().st_mtime, tz=timezone.utc)
+
     with open(path) as file:
         for line in file:
             line = line.strip()
@@ -911,6 +914,11 @@ def _gen_read_jsonl(path: PathLike) -> Generator[Message, None, None]:
             file_hashes = json_data.pop("file_hashes", {})
             if "timestamp" in json_data:
                 json_data["timestamp"] = isoparse(json_data["timestamp"])
+            else:
+                # Old messages lack timestamps; use file mtime instead of
+                # datetime.now() (the Message default) to avoid making old
+                # conversations appear as created "today".
+                json_data["timestamp"] = _file_mtime
             # Migrate flat metadata format to nested usage format
             if json_data.get("metadata"):
                 json_data["metadata"] = _migrate_metadata(json_data["metadata"])
