@@ -330,6 +330,7 @@ def conversation_stats(since: str | None = None, as_json: bool = False) -> None:
     total_cost = 0.0
     total_input_tokens = 0
     total_output_tokens = 0
+    total_cache_read_tokens = 0
     messages_list: list[int] = []
 
     for conv in get_user_conversations():
@@ -370,6 +371,7 @@ def conversation_stats(since: str | None = None, as_json: bool = False) -> None:
         total_cost += conv.total_cost
         total_input_tokens += conv.total_input_tokens
         total_output_tokens += conv.total_output_tokens
+        total_cache_read_tokens += conv.total_cache_read_tokens
         daily_cost[day] = daily_cost.get(day, 0.0) + conv.total_cost
 
     if total_conversations == 0:
@@ -427,6 +429,7 @@ def conversation_stats(since: str | None = None, as_json: bool = False) -> None:
             "total_cost": round(total_cost, 4),
             "total_input_tokens": total_input_tokens,
             "total_output_tokens": total_output_tokens,
+            "total_cache_read_tokens": total_cache_read_tokens,
             "by_agent": dict(agent_counts.most_common()),
             "by_model": {
                 m: {
@@ -496,8 +499,15 @@ def conversation_stats(since: str | None = None, as_json: bool = False) -> None:
 
     # Token and cost summary
     if total_input_tokens or total_cost:
+        cache_pct = (
+            total_cache_read_tokens / total_input_tokens * 100
+            if total_input_tokens
+            else 0
+        )
         print("\nToken Usage & Cost")
-        print(f"  Input tokens:   {_format_tokens(total_input_tokens):>10s}")
+        print(
+            f"  Input tokens:   {_format_tokens(total_input_tokens):>10s}  ({cache_pct:.0f}% cached)"
+        )
         print(f"  Output tokens:  {_format_tokens(total_output_tokens):>10s}")
         print(
             f"  Total tokens:   {_format_tokens(total_input_tokens + total_output_tokens):>10s}"

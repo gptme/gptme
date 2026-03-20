@@ -697,6 +697,7 @@ class ConversationMeta:
     total_cost: float = 0.0
     total_input_tokens: int = 0
     total_output_tokens: int = 0
+    total_cache_read_tokens: int = 0
 
     def format(self, metadata=False) -> str:
         """Format conversation metadata for display."""
@@ -725,6 +726,7 @@ def get_conversations() -> Generator[ConversationMeta, None, None]:
         conv_cost = 0.0
         conv_input_tokens = 0
         conv_output_tokens = 0
+        conv_cache_read_tokens = 0
         with open(conv_fn, "rb") as f:
             for line in f:
                 line = line.strip()
@@ -743,12 +745,14 @@ def get_conversations() -> Generator[ConversationMeta, None, None]:
                             usage = meta.get("usage", {})
                             src = usage or meta
                             # Input = uncached + cache_read + cache_creation
+                            cache_read = src.get("cache_read_tokens", 0) or 0
                             conv_input_tokens += (
                                 (src.get("input_tokens", 0) or 0)
-                                + (src.get("cache_read_tokens", 0) or 0)
+                                + cache_read
                                 + (src.get("cache_creation_tokens", 0) or 0)
                             )
                             conv_output_tokens += src.get("output_tokens", 0) or 0
+                            conv_cache_read_tokens += cache_read
                     except (json.JSONDecodeError, TypeError):
                         pass
         assert len(log) <= 1
@@ -790,6 +794,7 @@ def get_conversations() -> Generator[ConversationMeta, None, None]:
             total_cost=conv_cost,
             total_input_tokens=conv_input_tokens,
             total_output_tokens=conv_output_tokens,
+            total_cache_read_tokens=conv_cache_read_tokens,
         )
 
 
