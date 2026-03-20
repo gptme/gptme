@@ -120,13 +120,14 @@ def run_evals(
                 if is_claude_code_model(config.model):
                     if use_docker:
                         logger.warning(
-                            "use_docker=True is not supported for ClaudeCodeAgent "
-                            "(Claude Code is already an isolated subprocess). "
-                            "The flag is ignored for this agent."
+                            "use_docker=True does not affect the generation phase for "
+                            "ClaudeCodeAgent (Claude Code runs in its own subprocess). "
+                            "Docker isolation still applies to the eval checking phase."
                         )
                     agent = ClaudeCodeAgent(
                         model=config.model,
                         tools=tools,
+                        timeout=timeout,
                     )
                 else:
                     agent = GPTMe(

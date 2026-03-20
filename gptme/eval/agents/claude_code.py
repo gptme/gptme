@@ -48,6 +48,7 @@ class ClaudeCodeAgent(Agent):
     def __init__(
         self,
         model: str,
+        timeout: int = 600,
         **kwargs,
     ):
         # Strip the prefix for the underlying model name
@@ -58,6 +59,7 @@ class ClaudeCodeAgent(Agent):
         kwargs.setdefault("tool_format", "markdown")
         super().__init__(model=model, **kwargs)
         self.cc_model = cc_model
+        self.timeout = timeout
 
     def act(self, files: Files | None, prompt: str) -> Files:
         store = FileStore(working_dir=self.workspace_dir)
@@ -108,6 +110,7 @@ class ClaudeCodeAgent(Agent):
                 env=env,
                 stdin=subprocess.DEVNULL,
                 check=False,
+                timeout=self.timeout,
             )
 
             if result.returncode != 0:
@@ -118,6 +121,11 @@ class ClaudeCodeAgent(Agent):
             # Parse JSON output for cost/usage info if available
             self._parse_usage(result.stdout)
 
+        except subprocess.TimeoutExpired:
+            logger.error(
+                f"Claude Code timed out after {self.timeout}s — process killed"
+            )
+            raise
         except Exception as e:
             logger.error(f"Claude Code execution failed: {e}")
             raise
