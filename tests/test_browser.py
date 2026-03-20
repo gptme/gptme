@@ -125,6 +125,23 @@ def test_search_reports_all_failures(monkeypatch):
     assert "- duckduckgo: DuckDuckGo blocked" in result
 
 
+def test_search_reports_requested_engine_failure(monkeypatch):
+    monkeypatch.setattr("gptme.tools.browser.has_perplexity", False)
+    monkeypatch.setattr("gptme.tools.browser.browser", "lynx")
+    monkeypatch.setattr(
+        "gptme.tools.browser.search_lynx",
+        Mock(return_value="Error: Google blocked"),
+        raising=False,
+    )
+
+    result = search("query", "google")
+
+    assert result.startswith(
+        "Error: The requested search backend 'google' failed for query 'query'."
+    )
+    assert "- google: Google blocked" in result
+
+
 def test_search_continues_after_backend_exception(monkeypatch):
     monkeypatch.setattr("gptme.tools.browser.has_perplexity", True)
     monkeypatch.setattr("gptme.tools.browser.browser", "lynx")

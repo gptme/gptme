@@ -623,9 +623,13 @@ def search(query: str, engine: EngineType | None = None) -> str:
             f"{candidate}: {result.removeprefix(SEARCH_ENGINE_ERROR_PREFIX).strip()}"
         )
 
-    return (
-        f"Error: All available search backends failed for query '{query}'.\n"
-        + "\n".join(f"- {error}" for error in errors)
+    target = (
+        "All available search backends"
+        if engine is None
+        else f"The requested search backend '{engines_to_try[0]}'"
+    )
+    return f"Error: {target} failed for query '{query}'.\n" + "\n".join(
+        f"- {error}" for error in errors
     )
 
 
