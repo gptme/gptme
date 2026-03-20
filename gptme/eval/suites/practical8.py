@@ -98,9 +98,10 @@ def check_toc_exit(ctx):
 
 
 def _parse_flatten_output(ctx) -> dict | None:
-    """Parse flatten output as JSON, returning None on failure."""
+    """Parse flatten output as JSON dict, returning None on non-dict or parse failure."""
     try:
-        return json.loads(ctx.stdout.strip())
+        result = json.loads(ctx.stdout.strip())
+        return result if isinstance(result, dict) else None
     except (json.JSONDecodeError, ValueError):
         return None
 
