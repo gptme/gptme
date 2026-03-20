@@ -86,7 +86,7 @@ The evaluation suite is organized into named suites that can be run individually
   | practical2 | Data filtering, templating, CSV          | sort-and-filter, template-fill,  |
   |            | validation                               | validate-csv                     |
   +------------+------------------------------------------+----------------------------------+
-  | practical3 | Unit test writing, SQLite               | write-tests-calculator,          |
+  | practical3 | Unit test writing, SQLite                | write-tests-calculator,          |
   |            | persistence                              | sqlite-store                     |
   +------------+------------------------------------------+----------------------------------+
   | practical4 | Data aggregation, schedule overlap       | group-by, schedule-overlaps,     |
