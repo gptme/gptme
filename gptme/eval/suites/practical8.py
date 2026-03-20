@@ -48,7 +48,7 @@ def check_url_stats_docs_domain(ctx):
 
 
 def check_url_stats_tiebreak_order(ctx):
-    """docs.example.com (d) should appear before example.com (e) for equal-count ties."""
+    """docs.example.com (d < e) before example.com; both count-2 before other.org (count-1)."""
     lines = ctx.stdout.strip().split("\n")
     # Use strip().startswith to avoid matching docs.example.com when looking for example.com
     docs_pos = next(
@@ -58,9 +58,12 @@ def check_url_stats_tiebreak_order(ctx):
     example_pos = next(
         (i for i, ln in enumerate(lines) if ln.strip().startswith("example.com")), None
     )
-    if docs_pos is None or example_pos is None:
+    other_pos = next(
+        (i for i, ln in enumerate(lines) if ln.strip().startswith("other.org")), None
+    )
+    if docs_pos is None or example_pos is None or other_pos is None:
         return False
-    return docs_pos < example_pos
+    return docs_pos < example_pos < other_pos
 
 
 def check_url_stats_exit(ctx):
@@ -81,8 +84,8 @@ def check_toc_has_links(ctx):
 
 
 def check_toc_installation_heading(ctx):
-    """Should contain a TOC entry for 'Installation'."""
-    return "installation" in ctx.stdout.lower()
+    """Should contain a TOC link entry for 'Installation'."""
+    return bool(re.search(r"\[Installation\]\(#installation\)", ctx.stdout))
 
 
 def check_toc_h3_indented(ctx):
