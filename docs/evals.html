@@ -460,7 +460,7 @@
                 <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recommended-model">Recommended Model</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#available-evals">Available Evals</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#available-eval-suites">Available Eval Suites</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#results">Results</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#other-evals">Other evals</a></li>
 </ul>
@@ -478,13 +478,10 @@
 <h1>Evals<a class="headerlink" href="#evals" title="Link to this heading">#</a></h1>
 <p>gptme provides LLMs with a wide variety of tools, but how well do models make use of them? Which tasks can they complete, and which ones do they struggle with? How far can they get on their own, without any human intervention?</p>
 <p>To answer these questions, we have created an evaluation suite that tests the capabilities of LLMs on a wide variety of tasks.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>The evaluation suite is still tiny and under development, but the eval harness is fully functional.</p>
-</div>
+<p>The suite covers fundamental tool use, web browsing, project initialization, and a growing set of <strong>practical programming tasks</strong> that reflect real-world agentic work: building APIs, refactoring code, parsing data formats, writing tests, and more.</p>
 <section id="recommended-model">
 <h2>Recommended Model<a class="headerlink" href="#recommended-model" title="Link to this heading">#</a></h2>
-<p>The recommended model is <strong>Claude Sonnet 4.5</strong> (<code class="docutils literal notranslate"><span class="pre">anthropic/claude-sonnet-4-5</span></code> and <code class="docutils literal notranslate"><span class="pre">openrouter/anthropic/claude-sonnet-4-5</span></code>) for its:</p>
+<p>The recommended model is <strong>Claude Sonnet 4.6</strong> (<code class="docutils literal notranslate"><span class="pre">anthropic/claude-sonnet-4-6</span></code> and <code class="docutils literal notranslate"><span class="pre">openrouter/anthropic/claude-sonnet-4-6</span></code>) for its:</p>
 <ul class="simple">
 <li><p>Strong agentic capabilities</p></li>
 <li><p>Strong coder capabilities</p></li>
@@ -512,7 +509,7 @@
 <section id="usage">
 <h2>Usage<a class="headerlink" href="#usage" title="Link to this heading">#</a></h2>
 <p>You can run the simple <code class="docutils literal notranslate"><span class="pre">hello</span></code> eval like this:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-eval<span class="w"> </span>hello<span class="w"> </span>--model<span class="w"> </span>anthropic/claude-sonnet-4-5
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-eval<span class="w"> </span>hello<span class="w"> </span>--model<span class="w"> </span>anthropic/claude-sonnet-4-6
 </pre></div>
 </div>
 <p>However, we recommend running it in Docker to improve isolation and reproducibility:</p>
@@ -520,19 +517,94 @@
 docker<span class="w"> </span>run<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-e<span class="w"> </span><span class="s2">&quot;ANTHROPIC_API_KEY=&lt;your api key&gt;&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-v<span class="w"> </span><span class="k">$(</span><span class="nb">pwd</span><span class="k">)</span>/eval_results:/app/eval_results<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>gptme-eval<span class="w"> </span>hello<span class="w"> </span>--model<span class="w"> </span>anthropic/claude-sonnet-4-5
+<span class="w">    </span>gptme-eval<span class="w"> </span>hello<span class="w"> </span>--model<span class="w"> </span>anthropic/claude-sonnet-4-6
 </pre></div>
 </div>
 </section>
-<section id="available-evals">
-<h2>Available Evals<a class="headerlink" href="#available-evals" title="Link to this heading">#</a></h2>
-<p>The current evaluations test basic tool use in gptme, such as the ability to: read, write, patch files; run code in ipython, commands in the shell; use git and create new projects with npm and cargo. It also has basic tests for web browsing and data extraction.</p>
+<section id="available-eval-suites">
+<h2>Available Eval Suites<a class="headerlink" href="#available-eval-suites" title="Link to this heading">#</a></h2>
+<p>The evaluation suite is organized into named suites that can be run individually or together:</p>
+<dl>
+<dt><strong>basic</strong></dt><dd><p>Fundamental tool use: reading and writing files, patching code, running Python in IPython,
+executing shell commands, using git, counting words, transforming JSON, multi-file refactoring,
+writing tests, generating CLI programs, and fixing bugs. (~18 tests)</p>
+</dd>
+<dt><strong>browser</strong></dt><dd><p>Web browsing and data extraction using the browser tool.</p>
+</dd>
+<dt><strong>init_projects</strong></dt><dd><p>Project initialization: <code class="docutils literal notranslate"><span class="pre">init-git</span></code>, <code class="docutils literal notranslate"><span class="pre">init-react</span></code>, <code class="docutils literal notranslate"><span class="pre">init-rust</span></code>. Tests the ability
+to scaffold new projects from scratch.</p>
+</dd>
+<dt><strong>practical</strong> — <strong>practical2</strong> — <strong>practical3</strong> — <strong>practical4</strong> — <strong>practical5</strong> — <strong>practical6</strong> — <strong>practical7</strong></dt><dd><p>A growing series of real-world programming tasks that go beyond basic file I/O:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Suite</p></th>
+<th class="head"><p>Description</p></th>
+<th class="head"><p>Tests</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>practical</p></td>
+<td><p>Web APIs, log parsing, error handling</p></td>
+<td><p>build-api, parse-log,
+add-error-handling</p></td>
+</tr>
+<tr class="row-odd"><td><p>practical2</p></td>
+<td><p>Data filtering, templating, CSV
+validation</p></td>
+<td><p>sort-and-filter, template-fill,
+validate-csv</p></td>
+</tr>
+<tr class="row-even"><td><p>practical3</p></td>
+<td><p>Unit test writing, SQLite
+persistence</p></td>
+<td><p>write-tests-calculator,
+sqlite-store</p></td>
+</tr>
+<tr class="row-odd"><td><p>practical4</p></td>
+<td><p>Data aggregation, schedule overlap
+detection, topological sort</p></td>
+<td><p>group-by, schedule-overlaps,
+topo-sort</p></td>
+</tr>
+<tr class="row-even"><td><p>practical5</p></td>
+<td><p>Code refactoring, data pipelines,
+regex scrubbing</p></td>
+<td><p>rename-function, data-pipeline,
+regex-scrub</p></td>
+</tr>
+<tr class="row-odd"><td><p>practical6</p></td>
+<td><p>CSV analysis, word frequency
+counting, config merging</p></td>
+<td><p>csv-analysis, word-frequency,
+merge-configs</p></td>
+</tr>
+<tr class="row-even"><td><p>practical7</p></td>
+<td><p>INI-to-JSON conversion, JSON diff,
+changelog generation</p></td>
+<td><p>ini-to-json, json-diff,
+changelog-gen</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</dd>
+</dl>
+<p>Run specific tests or suites by name:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-eval<span class="w"> </span>build-api<span class="w"> </span>--model<span class="w"> </span>anthropic/claude-sonnet-4-6
+gptme-eval<span class="w"> </span>sort-and-filter<span class="w"> </span>rename-function<span class="w"> </span>--model<span class="w"> </span>anthropic/claude-sonnet-4-6
+</pre></div>
+</div>
+<p>Run all practical suites at once (useful for benchmarking):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-eval<span class="w"> </span>practical<span class="w"> </span>practical2<span class="w"> </span>practical3<span class="w"> </span>practical4<span class="w"> </span>practical5<span class="w"> </span>practical6<span class="w"> </span>practical7<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--model<span class="w"> </span>anthropic/claude-sonnet-4-6
+</pre></div>
+</div>
 </section>
 <section id="results">
 <h2>Results<a class="headerlink" href="#results" title="Link to this heading">#</a></h2>
 <p>Here are the results of the evals we have run so far:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>$ gptme-eval eval_results/*/eval_results.csv
-2026-03-20 06:02:04,745 - INFO - gptme.config - Using user configuration from ~/.config/gptme/config.toml
+2026-03-20 07:20:17,464 - INFO - gptme.config - Using user configuration from ~/.config/gptme/config.toml
 Model                                     Format    hello             hello-patch       hello-ask         prime100          init-git          init-rust      whois-superuserlabs-ceo
 ----------------------------------------  --------  ----------------  ----------------  ----------------  ----------------  ----------------  -------------  -------------------------
 anthropic/claude-3-5-haiku-20241022       markdown  ✅ 66/69 456tk    ✅ 68/69 377tk    ✅ 68/69 458tk    ✅ 67/69 885tk    ✅ 65/68 905tk    ❓ N/A         ✅ 1/1 2619tk
@@ -669,7 +741,7 @@ x-ai/grok-code-fast-1                     xml       ❌ 0/1 485tk      ❌ 0/1 1
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recommended-model">Recommended Model</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#available-evals">Available Evals</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#available-eval-suites">Available Eval Suites</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#results">Results</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#other-evals">Other evals</a></li>
 </ul>

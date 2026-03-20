@@ -5,13 +5,12 @@ gptme provides LLMs with a wide variety of tools, but how well do models make us
 
 To answer these questions, we have created an evaluation suite that tests the capabilities of LLMs on a wide variety of tasks.
 
-.. note::
-    The evaluation suite is still tiny and under development, but the eval harness is fully functional.
+The suite covers fundamental tool use, web browsing, project initialization, and a growing set of **practical programming tasks** that reflect real-world agentic work: building APIs, refactoring code, parsing data formats, writing tests, and more.
 
 Recommended Model
 -----------------
 
-The recommended model is **Claude Sonnet 4.5** (``anthropic/claude-sonnet-4-5`` and ``openrouter/anthropic/claude-sonnet-4-5``) for its:
+The recommended model is **Claude Sonnet 4.6** (``anthropic/claude-sonnet-4-6`` and ``openrouter/anthropic/claude-sonnet-4-6``) for its:
 
 - Strong agentic capabilities
 - Strong coder capabilities
@@ -46,7 +45,7 @@ You can run the simple ``hello`` eval like this:
 
 .. code-block:: bash
 
-    gptme-eval hello --model anthropic/claude-sonnet-4-5
+    gptme-eval hello --model anthropic/claude-sonnet-4-6
 
 However, we recommend running it in Docker to improve isolation and reproducibility:
 
@@ -56,37 +55,66 @@ However, we recommend running it in Docker to improve isolation and reproducibil
     docker run \
         -e "ANTHROPIC_API_KEY=<your api key>" \
         -v $(pwd)/eval_results:/app/eval_results \
-        gptme-eval hello --model anthropic/claude-sonnet-4-5
+        gptme-eval hello --model anthropic/claude-sonnet-4-6
 
-Available Evals
----------------
+Available Eval Suites
+---------------------
 
-The current evaluations test basic tool use in gptme, such as the ability to: read, write, patch files; run code in ipython, commands in the shell; use git and create new projects with npm and cargo. It also has basic tests for web browsing and data extraction.
+The evaluation suite is organized into named suites that can be run individually or together:
 
-.. This is where we want to get to:
+**basic**
+  Fundamental tool use: reading and writing files, patching code, running Python in IPython,
+  executing shell commands, using git, counting words, transforming JSON, multi-file refactoring,
+  writing tests, generating CLI programs, and fixing bugs. (~18 tests)
 
-    The evaluation suite tests models on:
+**browser**
+  Web browsing and data extraction using the browser tool.
 
-    1. Tool Usage
+**init_projects**
+  Project initialization: ``init-git``, ``init-react``, ``init-rust``. Tests the ability
+  to scaffold new projects from scratch.
 
-       - Shell commands and file operations
-       - Git operations
-       - Web browsing and data extraction
-       - Project navigation and understanding
+**practical** — **practical2** — **practical3** — **practical4** — **practical5** — **practical6** — **practical7**
+  A growing series of real-world programming tasks that go beyond basic file I/O:
 
-    2. Programming Tasks
+  +------------+------------------------------------------+----------------------------------+
+  | Suite      | Description                              | Tests                            |
+  +============+==========================================+==================================+
+  | practical  | Web APIs, log parsing, error handling    | build-api, parse-log,            |
+  |            |                                          | add-error-handling               |
+  +------------+------------------------------------------+----------------------------------+
+  | practical2 | Data filtering, templating, CSV          | sort-and-filter, template-fill,  |
+  |            | validation                               | validate-csv                     |
+  +------------+------------------------------------------+----------------------------------+
+  | practical3 | Unit test writing, SQLite                | write-tests-calculator,          |
+  |            | persistence                              | sqlite-store                     |
+  +------------+------------------------------------------+----------------------------------+
+  | practical4 | Data aggregation, schedule overlap       | group-by, schedule-overlaps,     |
+  |            | detection, topological sort              | topo-sort                        |
+  +------------+------------------------------------------+----------------------------------+
+  | practical5 | Code refactoring, data pipelines,        | rename-function, data-pipeline,  |
+  |            | regex scrubbing                          | regex-scrub                      |
+  +------------+------------------------------------------+----------------------------------+
+  | practical6 | CSV analysis, word frequency             | csv-analysis, word-frequency,    |
+  |            | counting, config merging                 | merge-configs                    |
+  +------------+------------------------------------------+----------------------------------+
+  | practical7 | INI-to-JSON conversion, JSON diff,       | ini-to-json, json-diff,          |
+  |            | changelog generation                     | changelog-gen                    |
+  +------------+------------------------------------------+----------------------------------+
 
-       - Code completion and generation
-       - Bug fixing and debugging
-       - Documentation writing
-       - Test creation
+Run specific tests or suites by name:
 
-    3. Reasoning
+.. code-block:: bash
 
-       - Multi-step problem solving
-       - Tool selection and sequencing
-       - Error handling and recovery
-       - Self-correction
+    gptme-eval build-api --model anthropic/claude-sonnet-4-6
+    gptme-eval sort-and-filter rename-function --model anthropic/claude-sonnet-4-6
+
+Run all practical suites at once (useful for benchmarking):
+
+.. code-block:: bash
+
+    gptme-eval practical practical2 practical3 practical4 practical5 practical6 practical7 \
+        --model anthropic/claude-sonnet-4-6
 
 
 Results
