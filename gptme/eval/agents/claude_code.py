@@ -34,7 +34,12 @@ def is_claude_code_model(model: str) -> bool:
 
 def parse_claude_code_model(model: str) -> str:
     """Extract the underlying model name from a claude-code/ prefixed string."""
-    return model[len(CLAUDE_CODE_MODEL_PREFIX) :]
+    suffix = model[len(CLAUDE_CODE_MODEL_PREFIX) :]
+    if not suffix:
+        raise ValueError(
+            f"Missing model name after '{CLAUDE_CODE_MODEL_PREFIX}' prefix"
+        )
+    return suffix
 
 
 class ClaudeCodeAgent(Agent):
