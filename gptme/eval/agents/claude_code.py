@@ -152,12 +152,21 @@ class ClaudeCodeAgent(Agent):
         print("\n--- Start of generation (Claude Code, Docker-isolated) ---")
         logger.debug(f"Working in {store.working_dir} (Docker mode)")
 
-        CostTracker.start_session(f"claude-code-eval:{self.cc_model}")
-
         docker_env = DockerClaudeCodeEnv(
             host_dir=self.workspace_dir,
             timeout=self.timeout,
         )
+
+        # Start session after env is created (mirrors _act_local guard pattern)
+        CostTracker.start_session(f"claude-code-eval:{self.cc_model}")
+
+        if self.tools:
+            logger.warning(
+                "ClaudeCodeAgent: tools=%r uses gptme tool names which may not "
+                "match Claude Code's --allowedTools identifiers. "
+                "Tool restrictions may not be fully enforced.",
+                self.tools,
+            )
 
         try:
             stdout, stderr, exit_code = docker_env.run_claude_code(
