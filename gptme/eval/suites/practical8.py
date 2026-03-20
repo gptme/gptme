@@ -29,8 +29,8 @@ def check_url_stats_top_domain(ctx):
     # Expected format: '<domain>: <count>'
     for line in lines:
         stripped = line.strip()
-        if re.match(r"[\w.-]+\.[a-z]+.*:", stripped):
-            # Extract domain before the colon and compare exactly
+        # Anchor to '<domain>: <count>' format to avoid matching filenames like 'urls.txt:'
+        if re.match(r"[\w.-]+\.[a-z]+:\s*\d+$", stripped):
             domain = stripped.split(":")[0].strip()
             return domain == "api.example.com"
     return False
