@@ -162,7 +162,7 @@ jobs:
                 # Detect fast-fail pattern: all tests failed in <5s avg → likely API quota/auth error
                 # Real test failures take 10-60s (model inference + execution)
                 avg_duration = total_duration / total_count if total_count > 0 else 0
-                fast_fail = passed_count == 0 and avg_duration < 5.0
+                fast_fail = passed_count == 0 and total_count > 0 and avg_duration < 5.0
 
                 if fast_fail:
                     comment = (
