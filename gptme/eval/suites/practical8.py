@@ -47,6 +47,22 @@ def check_url_stats_docs_domain(ctx):
     return bool(re.search(r"docs\.example\.com:\s*2\b", ctx.stdout))
 
 
+def check_url_stats_tiebreak_order(ctx):
+    """docs.example.com (d) should appear before example.com (e) for equal-count ties."""
+    lines = ctx.stdout.strip().split("\n")
+    # Use strip().startswith to avoid matching docs.example.com when looking for example.com
+    docs_pos = next(
+        (i for i, ln in enumerate(lines) if ln.strip().startswith("docs.example.com")),
+        None,
+    )
+    example_pos = next(
+        (i for i, ln in enumerate(lines) if ln.strip().startswith("example.com")), None
+    )
+    if docs_pos is None or example_pos is None:
+        return False
+    return docs_pos < example_pos
+
+
 def check_url_stats_exit(ctx):
     return ctx.exit_code == 0
 
@@ -70,7 +86,7 @@ def check_toc_installation_heading(ctx):
 
 
 def check_toc_h3_indented(ctx):
-    """H3 entries should be indented (have leading spaces or dashes after spaces)."""
+    """All 4 h3 entries should be present and indented relative to h2."""
     lines = ctx.stdout.strip().split("\n")
     # Match all 4 h3 headings from _GUIDE_MD using anchor-specific text
     h3_keywords = ["prerequisite", "quick-start", "environment", "config-file"]
@@ -79,10 +95,8 @@ def check_toc_h3_indented(ctx):
         for line in lines
         if any(kw in line.lower().replace(" ", "-") for kw in h3_keywords)
     ]
-    if not matched:
-        return False
-    # ALL matched lines must have leading whitespace (indentation for h3 vs h2)
-    return all(line.startswith((" ", "\t")) for line in matched)
+    # All 4 must be present AND all must have leading whitespace (h3 indented vs h2)
+    return len(matched) == 4 and all(line.startswith((" ", "\t")) for line in matched)
 
 
 def check_toc_exit(ctx):
@@ -235,6 +249,7 @@ tests: list["EvalSpec"] = [
             "top domain is api.example.com": check_url_stats_top_domain,
             "top domain count is 3": check_url_stats_count,
             "docs.example.com count is 2": check_url_stats_docs_domain,
+            "tie-break: docs before example.com": check_url_stats_tiebreak_order,
             "clean exit": check_url_stats_exit,
         },
     },
