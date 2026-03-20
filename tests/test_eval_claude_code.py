@@ -202,6 +202,7 @@ def test_agent_docker_mode():
             prompt="test prompt",
             model="claude-sonnet-4-6",
             tools=None,
+            max_turns=30,
         )
         mock_env.cleanup.assert_called_once()
 
@@ -240,6 +241,7 @@ def test_agent_docker_mode_with_tools():
             prompt="test",
             model="claude-sonnet-4-6",
             tools=["shell", "read"],
+            max_turns=30,
         )
 
 

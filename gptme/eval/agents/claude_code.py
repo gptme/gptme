@@ -55,6 +55,7 @@ class ClaudeCodeAgent(Agent):
         self,
         model: str,
         timeout: int = 600,
+        max_turns: int = 30,
         **kwargs,
     ):
         # Strip the prefix for the underlying model name
@@ -66,6 +67,7 @@ class ClaudeCodeAgent(Agent):
         super().__init__(model=model, **kwargs)
         self.cc_model = cc_model
         self.timeout = timeout
+        self.max_turns = max_turns
 
     def act(self, files: Files | None, prompt: str) -> Files:
         store = FileStore(working_dir=self.workspace_dir)
@@ -96,7 +98,7 @@ class ClaudeCodeAgent(Agent):
             "--model",
             self.cc_model,
             "--max-turns",
-            "30",
+            str(self.max_turns),
         ]
 
         if self.tools:
@@ -157,9 +159,6 @@ class ClaudeCodeAgent(Agent):
             timeout=self.timeout,
         )
 
-        # Start session after env is created (mirrors _act_local guard pattern)
-        CostTracker.start_session(f"claude-code-eval:{self.cc_model}")
-
         if self.tools:
             logger.warning(
                 "ClaudeCodeAgent: tools=%r uses gptme tool names which may not "
@@ -169,10 +168,15 @@ class ClaudeCodeAgent(Agent):
             )
 
         try:
+            # Start session inside try so a Docker startup failure doesn't leak
+            # an open CostTracker session (start_container() is lazy inside
+            # run_claude_code(), so any RuntimeError would bypass _parse_usage).
+            CostTracker.start_session(f"claude-code-eval:{self.cc_model}")
             stdout, stderr, exit_code = docker_env.run_claude_code(
                 prompt=prompt,
                 model=self.cc_model,
                 tools=self.tools,
+                max_turns=self.max_turns,
             )
 
             if exit_code != 0:

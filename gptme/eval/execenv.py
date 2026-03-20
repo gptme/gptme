@@ -621,7 +621,7 @@ class DockerClaudeCodeEnv(DockerExecutionEnv):
         ]
 
         if tools:
-            cmd_parts.extend(["--allowedTools", ",".join(tools)])
+            cmd_parts.extend(["--allowedTools", shlex.quote(",".join(tools))])
 
         command = " ".join(cmd_parts)
 

@@ -51,7 +51,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 
 # Install Claude Code CLI for cross-harness evaluation
 # Uses ANTHROPIC_API_KEY env var (passed at runtime via -e flag)
-RUN npm install -g @anthropic-ai/claude-code@latest
+RUN npm install -g @anthropic-ai/claude-code@2.1.80
 
 WORKDIR /app
 
