@@ -115,3 +115,44 @@ def test_agent_env_cleanup():
     finally:
         os.environ.clear()
         os.environ.update(original_env)
+
+
+def test_agent_tools_forwarded():
+    """Test that tools parameter is forwarded as --allowedTools."""
+    agent = ClaudeCodeAgent(
+        model="claude-code/claude-sonnet-4-6", tools=["shell", "read"]
+    )
+
+    mock_result = type(
+        "Result",
+        (),
+        {
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+        },
+    )()
+
+    with (
+        patch("shutil.which", return_value="/usr/bin/claude"),
+        patch("subprocess.run", return_value=mock_result) as mock_run,
+    ):
+        agent.act(None, "test")
+
+        cmd = mock_run.call_args[0][0]
+        assert "--allowedTools" in cmd
+        idx = cmd.index("--allowedTools")
+        assert cmd[idx + 1] == "shell,read"
+
+
+def test_parse_usage_ndjson():
+    """Test that _parse_usage handles NDJSON (one JSON object per line)."""
+    agent = ClaudeCodeAgent(model="claude-code/claude-sonnet-4-6")
+
+    # Simulate NDJSON output with usage in the last line
+    ndjson = (
+        '{"type":"text","text":"Hello"}\n'
+        '{"type":"usage","usage":{"input_tokens":100,"output_tokens":50}}\n'
+    )
+    # Should not raise — just logs usage info
+    agent._parse_usage(ndjson)

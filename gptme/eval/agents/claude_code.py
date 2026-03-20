@@ -81,6 +81,9 @@ class ClaudeCodeAgent(Agent):
             "30",
         ]
 
+        if self.tools:
+            cmd.extend(["--allowedTools", ",".join(self.tools)])
+
         env = os.environ.copy()
         # Prevent nested session detection if already inside Claude Code
         env.pop("CLAUDECODE", None)
@@ -117,18 +120,26 @@ class ClaudeCodeAgent(Agent):
         return store.download()
 
     def _parse_usage(self, stdout: str) -> None:
-        """Try to extract usage info from Claude Code JSON output."""
+        """Try to extract usage info from Claude Code NDJSON output.
+
+        Claude Code with ``--output-format json`` emits one JSON object per
+        line (NDJSON).  We iterate line-by-line so that multi-line output is
+        handled correctly.
+        """
         if not stdout.strip():
             return
-        try:
-            data = json.loads(stdout)
-            if isinstance(data, dict) and "usage" in data:
-                usage = data["usage"]
-                logger.info(
-                    f"Claude Code usage: "
-                    f"input={usage.get('input_tokens', '?')}, "
-                    f"output={usage.get('output_tokens', '?')}"
-                )
-        except (json.JSONDecodeError, TypeError):
-            # Output may contain multiple JSON lines or non-JSON content
-            pass
+        for line in stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                data = json.loads(line)
+                if isinstance(data, dict) and "usage" in data:
+                    usage = data["usage"]
+                    logger.info(
+                        f"Claude Code usage: "
+                        f"input={usage.get('input_tokens', '?')}, "
+                        f"output={usage.get('output_tokens', '?')}"
+                    )
+            except (json.JSONDecodeError, TypeError):
+                continue
