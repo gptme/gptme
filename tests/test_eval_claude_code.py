@@ -9,6 +9,7 @@ from gptme.eval.agents.claude_code import (
     is_claude_code_model,
     parse_claude_code_model,
 )
+from gptme.util.cost_tracker import CostTracker
 
 
 def test_is_claude_code_model():
@@ -146,13 +147,30 @@ def test_agent_tools_forwarded():
 
 
 def test_parse_usage_ndjson():
-    """Test that _parse_usage handles NDJSON (one JSON object per line)."""
+    """Test that _parse_usage handles NDJSON and records usage into CostTracker."""
     agent = ClaudeCodeAgent(model="claude-code/claude-sonnet-4-6")
 
-    # Simulate NDJSON output with usage in the last line
+    # Start a CostTracker session so record() calls are captured
+    CostTracker.start_session("test-parse-usage")
+
+    # Simulate NDJSON output: result line has total_cost_usd + usage
     ndjson = (
         '{"type":"text","text":"Hello"}\n'
-        '{"type":"usage","usage":{"input_tokens":100,"output_tokens":50}}\n'
+        '{"type":"result","total_cost_usd":0.0025,'
+        '"usage":{"input_tokens":100,"output_tokens":50,'
+        '"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}\n'
     )
-    # Should not raise — just logs usage info
     agent._parse_usage(ndjson)
+
+    # Assert usage was actually recorded in CostTracker
+    costs = CostTracker.get_session_costs()
+    assert costs is not None
+    assert len(costs.entries) == 1
+    entry = costs.entries[0]
+    assert entry.input_tokens == 100
+    assert entry.output_tokens == 50
+    assert entry.cost == pytest.approx(0.0025)
+    assert entry.model == "claude-sonnet-4-6"
+
+    # Clean up
+    CostTracker.reset()

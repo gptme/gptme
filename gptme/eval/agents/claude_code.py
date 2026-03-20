@@ -15,7 +15,9 @@ import logging
 import os
 import shutil
 import subprocess
+import time
 
+from ...util.cost_tracker import CostEntry, CostTracker
 from ..filestore import FileStore
 from ..types import Files
 from . import Agent
@@ -58,6 +60,8 @@ class ClaudeCodeAgent(Agent):
         self.cc_model = cc_model
 
     def act(self, files: Files | None, prompt: str) -> Files:
+        # Start cost tracking for this eval run
+        CostTracker.start_session(f"claude-code-eval:{self.cc_model}")
         store = FileStore(working_dir=self.workspace_dir)
         if files:
             store.upload(files)
@@ -82,6 +86,7 @@ class ClaudeCodeAgent(Agent):
         ]
 
         if self.tools:
+            # CC CLI accepts comma-separated tool names in a single --allowedTools arg
             cmd.extend(["--allowedTools", ",".join(self.tools)])
 
         env = os.environ.copy()
@@ -120,11 +125,12 @@ class ClaudeCodeAgent(Agent):
         return store.download()
 
     def _parse_usage(self, stdout: str) -> None:
-        """Try to extract usage info from Claude Code NDJSON output.
+        """Extract usage info from Claude Code NDJSON output and record into CostTracker.
 
         Claude Code with ``--output-format json`` emits one JSON object per
-        line (NDJSON).  We iterate line-by-line so that multi-line output is
-        handled correctly.
+        line (NDJSON).  The result line contains ``total_cost_usd`` and ``usage``
+        with token counts.  We record a :class:`CostEntry` so that eval results
+        include accurate cost data for ClaudeCodeAgent runs.
         """
         if not stdout.strip():
             return
@@ -134,12 +140,29 @@ class ClaudeCodeAgent(Agent):
                 continue
             try:
                 data = json.loads(line)
-                if isinstance(data, dict) and "usage" in data:
-                    usage = data["usage"]
-                    logger.info(
-                        f"Claude Code usage: "
-                        f"input={usage.get('input_tokens', '?')}, "
-                        f"output={usage.get('output_tokens', '?')}"
+                if not isinstance(data, dict) or "usage" not in data:
+                    continue
+                usage = data["usage"]
+                input_tokens = int(usage.get("input_tokens", 0))
+                output_tokens = int(usage.get("output_tokens", 0))
+                cache_read = int(usage.get("cache_read_input_tokens", 0))
+                cache_create = int(usage.get("cache_creation_input_tokens", 0))
+                cost_usd = float(data.get("total_cost_usd", 0.0))
+                logger.info(
+                    f"Claude Code usage: "
+                    f"input={input_tokens}, output={output_tokens}, "
+                    f"cost=${cost_usd:.4f}"
+                )
+                CostTracker.record(
+                    CostEntry(
+                        timestamp=time.time(),
+                        model=self.cc_model,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        cache_read_tokens=cache_read,
+                        cache_creation_tokens=cache_create,
+                        cost=cost_usd,
                     )
-            except (json.JSONDecodeError, TypeError):
+                )
+            except (json.JSONDecodeError, TypeError, ValueError):
                 continue

@@ -118,6 +118,12 @@ def run_evals(
                 )  # Get tools from test spec, None if not specified
                 agent: Agent
                 if is_claude_code_model(config.model):
+                    if use_docker:
+                        logger.warning(
+                            "use_docker=True is not supported for ClaudeCodeAgent "
+                            "(Claude Code is already an isolated subprocess). "
+                            "The flag is ignored for this agent."
+                        )
                     agent = ClaudeCodeAgent(
                         model=config.model,
                         tools=tools,
