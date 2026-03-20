@@ -154,7 +154,7 @@ def run_evals(
             except Exception as e:
                 gen_time = 0
                 error_detail = ""
-                if isinstance(e, (TimeoutError, CancelledError)):
+                if isinstance(e, TimeoutError | CancelledError):
                     status: Status = "timeout"
                     gen_time = timeout
                     error_detail = f"Process-level {type(e).__name__}"
