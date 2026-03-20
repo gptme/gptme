@@ -159,32 +159,46 @@ jobs:
                 total_count = len(rows)
                 total_duration = round(sum(float(r["Total Duration"]) for r in rows), 1)
 
-                # Warn if the eval step itself failed (partial results)
-                step_warning = ""
-                if eval_outcome == "failure" and passed_count < total_count:
-                    step_warning = "\n\n> ⚠️ Eval step exited with an error — results may be incomplete."
+                # Detect fast-fail pattern: all tests failed in <5s avg → likely API quota/auth error
+                # Real test failures take 10-60s (model inference + execution)
+                avg_duration = total_duration / total_count if total_count > 0 else 0
+                fast_fail = passed_count == 0 and avg_duration < 5.0
 
-                status_emoji = "✅" if passed_count == total_count else "⚠️"
-                header = f"## {status_emoji} Eval Quality Gate — {passed_count}/{total_count} tests passed"
+                if fast_fail:
+                    comment = (
+                        "## ℹ️ Eval Quality Gate — skipped (API unavailable)\n\n"
+                        f"All {total_count} tests failed in under 5s (avg: {avg_duration:.1f}s), "
+                        "indicating an API authentication or quota issue rather than real test failures.\n\n"
+                        f"Model: `{eval_model_display}` · [View run]({run_url})\n\n"
+                        f"*Informational only — does not block merge*\n{COMMENT_MARKER}"
+                    )
+                else:
+                    # Warn if the eval step itself failed (partial results)
+                    step_warning = ""
+                    if eval_outcome == "failure" and passed_count < total_count:
+                        step_warning = "\n\n> ⚠️ Eval step exited with an error — results may be incomplete."
 
-                table_lines = [
-                    "| Test | Status | Duration |",
-                    "|------|--------|----------|",
-                ]
-                for row in rows:
-                    icon = "✅" if row["Passed"] == "true" else "❌"
-                    dur = round(float(row["Total Duration"]), 1)
-                    table_lines.append(f"| `{row['Test']}` | {icon} | {dur}s |")
-                table = "\n".join(table_lines)
+                    status_emoji = "✅" if passed_count == total_count else "⚠️"
+                    header = f"## {status_emoji} Eval Quality Gate — {passed_count}/{total_count} tests passed"
 
-                comment = (
-                    f"{header}\n\n"
-                    f"{table}\n\n"
-                    f"Model: `{eval_model_display}` · Total: {total_duration}s · "
-                    f"[Full run]({run_url})"
-                    f"{step_warning}\n\n"
-                    f"*Informational only — does not block merge*\n{COMMENT_MARKER}"
-                )
+                    table_lines = [
+                        "| Test | Status | Duration |",
+                        "|------|--------|----------|",
+                    ]
+                    for row in rows:
+                        icon = "✅" if row["Passed"] == "true" else "❌"
+                        dur = round(float(row["Total Duration"]), 1)
+                        table_lines.append(f"| `{row['Test']}` | {icon} | {dur}s |")
+                    table = "\n".join(table_lines)
+
+                    comment = (
+                        f"{header}\n\n"
+                        f"{table}\n\n"
+                        f"Model: `{eval_model_display}` · Total: {total_duration}s · "
+                        f"[Full run]({run_url})"
+                        f"{step_warning}\n\n"
+                        f"*Informational only — does not block merge*\n{COMMENT_MARKER}"
+                    )
 
         # Post comment: find our prior comment by unique marker, then update or create
         import json
