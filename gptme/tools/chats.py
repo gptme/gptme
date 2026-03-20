@@ -265,6 +265,15 @@ def find_empty_conversations(
     return results
 
 
+def _format_tokens(n: int) -> str:
+    """Format token count with K/M suffix."""
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.1f}K"
+    return str(n)
+
+
 def _parse_since(since: str | None) -> float | None:
     """Parse a --since argument into a timestamp.
 
@@ -313,6 +322,14 @@ def conversation_stats(since: str | None = None, as_json: bool = False) -> None:
     newest_ts: float | None = None
     daily_counts: Counter[str] = Counter()
     agent_counts: Counter[str] = Counter()
+    model_counts: Counter[str] = Counter()
+    model_cost: dict[str, float] = {}
+    model_input_tokens: Counter[str] = Counter()
+    model_output_tokens: Counter[str] = Counter()
+    daily_cost: dict[str, float] = {}
+    total_cost = 0.0
+    total_input_tokens = 0
+    total_output_tokens = 0
     messages_list: list[int] = []
 
     for conv in get_user_conversations():
@@ -343,6 +360,17 @@ def conversation_stats(since: str | None = None, as_json: bool = False) -> None:
         # Agent breakdown
         agent = conv.agent_name or "interactive"
         agent_counts[agent] += 1
+
+        # Model breakdown and cost/token tracking
+        model = conv.model or "unknown"
+        model_counts[model] += 1
+        model_cost[model] = model_cost.get(model, 0.0) + conv.total_cost
+        model_input_tokens[model] += conv.total_input_tokens
+        model_output_tokens[model] += conv.total_output_tokens
+        total_cost += conv.total_cost
+        total_input_tokens += conv.total_input_tokens
+        total_output_tokens += conv.total_output_tokens
+        daily_cost[day] = daily_cost.get(day, 0.0) + conv.total_cost
 
     if total_conversations == 0:
         if since:
@@ -396,7 +424,19 @@ def conversation_stats(since: str | None = None, as_json: bool = False) -> None:
             "median_messages_per_conversation": median_messages,
             "oldest": oldest_dt.isoformat() if oldest_dt else None,
             "newest": newest_dt.isoformat() if newest_dt else None,
+            "total_cost": round(total_cost, 4),
+            "total_input_tokens": total_input_tokens,
+            "total_output_tokens": total_output_tokens,
             "by_agent": dict(agent_counts.most_common()),
+            "by_model": {
+                m: {
+                    "conversations": model_counts[m],
+                    "cost": round(model_cost[m], 4),
+                    "input_tokens": model_input_tokens[m],
+                    "output_tokens": model_output_tokens[m],
+                }
+                for m in sorted(model_counts, key=model_counts.get, reverse=True)  # type: ignore
+            },
             "by_day": {
                 (now - timedelta(days=i)).strftime("%Y-%m-%d"): daily_counts.get(
                     (now - timedelta(days=i)).strftime("%Y-%m-%d"), 0
@@ -439,6 +479,30 @@ def conversation_stats(since: str | None = None, as_json: bool = False) -> None:
         for agent, count in agent_counts.most_common(10):
             pct = count / total_conversations * 100
             print(f"  {agent:20s}  {count:5,} ({pct:5.1f}%)")
+
+    # Model breakdown with cost and tokens
+    known_models = {m: c for m, c in model_counts.items() if m != "unknown"}
+    if known_models:
+        print("\nBy Model")
+        top_models = sorted(known_models, key=known_models.get, reverse=True)[:15]  # type: ignore[arg-type]
+        for model in top_models:
+            count = known_models[model]
+            cost = model_cost[model]
+            in_tok = model_input_tokens[model]
+            out_tok = model_output_tokens[model]
+            tok_str = _format_tokens(in_tok + out_tok)
+            cost_str = f"${cost:.2f}" if cost >= 0.01 else f"${cost:.4f}"
+            print(f"  {model:40s}  {count:4,} convs  {tok_str:>8s} tok  {cost_str:>8s}")
+
+    # Token and cost summary
+    if total_input_tokens or total_cost:
+        print("\nToken Usage & Cost")
+        print(f"  Input tokens:   {_format_tokens(total_input_tokens):>10s}")
+        print(f"  Output tokens:  {_format_tokens(total_output_tokens):>10s}")
+        print(
+            f"  Total tokens:   {_format_tokens(total_input_tokens + total_output_tokens):>10s}"
+        )
+        print(f"  Total cost:     ${total_cost:>9.2f}")
 
     # Show daily breakdown for the histogram window
     print(f"\nDaily Activity (last {hist_days} days)")
