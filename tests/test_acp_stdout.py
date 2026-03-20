@@ -10,6 +10,8 @@ import io
 import os
 import sys
 
+import pytest
+
 
 def test_capture_stdio_transport():
     """_capture_stdio_transport redirects fd 1 to stderr at OS level."""
@@ -113,6 +115,7 @@ def test_console_log_goes_to_stderr_after_redirect():
         sys.stdout = original_stdout
 
 
+@pytest.mark.timeout(30)
 def test_no_stdout_pollution_from_imports():
     """Importing gptme modules shouldn't write to stdout.
 
