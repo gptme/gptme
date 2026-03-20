@@ -144,7 +144,7 @@ def check_changelog_features(ctx):
     body = _extract_section(ctx.stdout, r"^#+\s*feat(ure)?s?.*$")
     if body is None:
         return False
-    has_auth = "authentication" in body.lower() or "auth" in body.lower()
+    has_auth = "auth" in body.lower()
     has_search = "search" in body.lower()
     return has_auth and has_search
 
