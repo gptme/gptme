@@ -41,6 +41,8 @@ def test_agent_no_claude_binary():
         pytest.raises(FileNotFoundError, match="Claude Code CLI"),
     ):
         agent.act(None, "test prompt")
+    # No CostTracker session should have been started (binary check happens before start_session)
+    assert CostTracker.get_session_costs() is None
 
 
 def test_agent_act_with_files():
@@ -153,8 +155,11 @@ def test_parse_usage_ndjson():
     # Start a CostTracker session so record() calls are captured
     CostTracker.start_session("test-parse-usage")
 
-    # Simulate NDJSON output: result line has total_cost_usd + usage
+    # Simulate NDJSON output: per-turn assistant event carries "usage" but no
+    # "total_cost_usd"; the final result line has both — only the latter should
+    # be recorded to avoid double-counting.
     ndjson = (
+        '{"type":"assistant","usage":{"input_tokens":80,"output_tokens":40}}\n'
         '{"type":"text","text":"Hello"}\n'
         '{"type":"result","total_cost_usd":0.0025,'
         '"usage":{"input_tokens":100,"output_tokens":50,'
@@ -162,7 +167,7 @@ def test_parse_usage_ndjson():
     )
     agent._parse_usage(ndjson)
 
-    # Assert usage was actually recorded in CostTracker
+    # Assert only ONE entry was recorded (the result line, not per-turn events)
     costs = CostTracker.get_session_costs()
     assert costs is not None
     assert len(costs.entries) == 1

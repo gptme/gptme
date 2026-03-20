@@ -60,8 +60,6 @@ class ClaudeCodeAgent(Agent):
         self.cc_model = cc_model
 
     def act(self, files: Files | None, prompt: str) -> Files:
-        # Start cost tracking for this eval run
-        CostTracker.start_session(f"claude-code-eval:{self.cc_model}")
         store = FileStore(working_dir=self.workspace_dir)
         if files:
             store.upload(files)
@@ -72,6 +70,9 @@ class ClaudeCodeAgent(Agent):
                 "Claude Code CLI ('claude') not found on PATH. "
                 "Install it from https://docs.anthropic.com/en/docs/claude-code"
             )
+
+        # Start cost tracking after confirming the binary exists
+        CostTracker.start_session(f"claude-code-eval:{self.cc_model}")
 
         cmd = [
             claude_bin,
@@ -140,9 +141,12 @@ class ClaudeCodeAgent(Agent):
                 continue
             try:
                 data = json.loads(line)
-                if not isinstance(data, dict) or "usage" not in data:
+                # Only record from the final "result" line which has total_cost_usd.
+                # Per-turn assistant events also carry "usage" but recording those
+                # would double-count costs proportional to the number of turns.
+                if not isinstance(data, dict) or "total_cost_usd" not in data:
                     continue
-                usage = data["usage"]
+                usage = data.get("usage", {})
                 input_tokens = int(usage.get("input_tokens", 0))
                 output_tokens = int(usage.get("output_tokens", 0))
                 cache_read = int(usage.get("cache_read_input_tokens", 0))
