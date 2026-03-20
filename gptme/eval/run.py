@@ -15,6 +15,7 @@ from typing import TypedDict
 from tqdm import tqdm
 
 from .agents import Agent, GPTMe
+from .agents.claude_code import ClaudeCodeAgent, is_claude_code_model
 from .cost import get_eval_costs
 from .execenv import DockerExecutionEnv, SimpleExecutionEnv
 from .types import (
@@ -115,12 +116,19 @@ def run_evals(
                 tools = test.get(
                     "tools"
                 )  # Get tools from test spec, None if not specified
-                agent = GPTMe(
-                    model=config.model,
-                    tool_format=config.tool_format,
-                    tools=tools,
-                    use_docker=use_docker,
-                )
+                agent: Agent
+                if is_claude_code_model(config.model):
+                    agent = ClaudeCodeAgent(
+                        model=config.model,
+                        tools=tools,
+                    )
+                else:
+                    agent = GPTMe(
+                        model=config.model,
+                        tool_format=config.tool_format,
+                        tools=tools,
+                        use_docker=use_docker,
+                    )
                 future = executor.submit(
                     execute,
                     test,
