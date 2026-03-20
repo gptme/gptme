@@ -322,12 +322,16 @@ class DockerGPTMeEnv(DockerExecutionEnv):
         self.env_passthrough = env_passthrough or DOCKER_ENV_PASSTHROUGH
 
     def _get_env_args(self) -> list[str]:
-        """Get Docker -e arguments for environment variable passthrough."""
+        """Get Docker -e arguments for environment variable passthrough.
+
+        Uses ``-e VAR`` (without ``=value``) so Docker reads the value from the
+        host environment at runtime.  This keeps secrets out of the process
+        argument list visible via ``ps aux`` or ``/proc/<pid>/cmdline``.
+        """
         env_args: list[str] = []
         for var in self.env_passthrough:
-            value = os.environ.get(var)
-            if value:
-                env_args.extend(["-e", f"{var}={value}"])
+            if os.environ.get(var):
+                env_args.extend(["-e", var])
         return env_args
 
     def start_container(self) -> None:
@@ -537,12 +541,16 @@ class DockerClaudeCodeEnv(DockerExecutionEnv):
         self.env_passthrough = env_passthrough or CLAUDE_CODE_ENV_PASSTHROUGH
 
     def _get_env_args(self) -> list[str]:
-        """Get Docker -e arguments for environment variable passthrough."""
+        """Get Docker -e arguments for environment variable passthrough.
+
+        Uses ``-e VAR`` (without ``=value``) so Docker reads the value from the
+        host environment at runtime.  This keeps secrets out of the process
+        argument list visible via ``ps aux`` or ``/proc/<pid>/cmdline``.
+        """
         env_args: list[str] = []
         for var in self.env_passthrough:
-            value = os.environ.get(var)
-            if value:
-                env_args.extend(["-e", f"{var}={value}"])
+            if os.environ.get(var):
+                env_args.extend(["-e", var])
         return env_args
 
     def start_container(self) -> None:
@@ -570,8 +578,14 @@ class DockerClaudeCodeEnv(DockerExecutionEnv):
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=120,  # 2 min cap for docker startup / image pull
             )
             self.container_id = result.stdout.strip()
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError(
+                f"Docker container startup timed out after 120s for image '{self.image}'. "
+                "The image may need to be pre-pulled: docker pull gptme-eval:latest"
+            ) from e
         except subprocess.CalledProcessError as e:
             error_msg = f"Failed to start Docker container with image '{self.image}'.\n"
             if "Unable to find image" in e.stderr or "No such image" in e.stderr:

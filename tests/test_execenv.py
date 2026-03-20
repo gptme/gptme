@@ -115,11 +115,11 @@ class TestDockerGPTMeEnv:
         assert args == []
 
     def test_get_env_args_with_values(self):
-        """Test env args when env vars are set."""
+        """Test env args pass variable name only (no value in cmdline)."""
         with patch.dict(os.environ, {"TEST_API_KEY": "secret123"}):
             env = DockerGPTMeEnv(env_passthrough=["TEST_API_KEY"])
             args = env._get_env_args()
-            assert args == ["-e", "TEST_API_KEY=secret123"]
+            assert args == ["-e", "TEST_API_KEY"]
 
     @patch("subprocess.run")
     def test_start_container_success(self, mock_run):
@@ -226,11 +226,24 @@ class TestDockerClaudeCodeEnv:
         assert env.env_passthrough == CLAUDE_CODE_ENV_PASSTHROUGH
 
     def test_get_env_args_with_values(self):
-        """Test env args when Anthropic API key is set."""
+        """Test env args when Anthropic API key is set.
+
+        Uses ``-e VAR`` (no value) so the secret stays out of ps/cmdline."""
         with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "secret123"}):
             env = DockerClaudeCodeEnv()
             args = env._get_env_args()
-            assert args == ["-e", "ANTHROPIC_API_KEY=secret123"]
+            assert args == ["-e", "ANTHROPIC_API_KEY"]
+
+    @patch("subprocess.run")
+    def test_start_container_timeout_raises(self, mock_run):
+        """Test that start_container raises RuntimeError on timeout."""
+        mock_run.side_effect = subprocess.TimeoutExpired(
+            cmd="docker run -d ...", timeout=120
+        )
+
+        env = DockerClaudeCodeEnv()
+        with pytest.raises(RuntimeError, match="startup timed out"):
+            env.start_container()
 
     @patch("subprocess.run")
     def test_start_container_image_not_found(self, mock_run):

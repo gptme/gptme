@@ -295,6 +295,24 @@ def test_agent_docker_startup_failure_does_not_start_cost_session():
         mock_env.cleanup.assert_called_once()
 
 
+def test_agent_local_timeout_propagates():
+    """Test that local-mode TimeoutExpired is propagated, not swallowed."""
+    agent = ClaudeCodeAgent(model="claude-code/claude-sonnet-4-6", timeout=5)
+
+    with (
+        patch(
+            "gptme.eval.agents.claude_code.shutil.which",
+            return_value="/usr/bin/claude",
+        ),
+        patch(
+            "gptme.eval.agents.claude_code.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd="claude -p ...", timeout=5),
+        ),
+        pytest.raises(subprocess.TimeoutExpired),
+    ):
+        agent.act(None, "test prompt")
+
+
 def test_parse_usage_ndjson():
     """Test that _parse_usage handles NDJSON and records usage into CostTracker."""
     agent = ClaudeCodeAgent(model="claude-code/claude-sonnet-4-6")
