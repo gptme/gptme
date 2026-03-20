@@ -36,6 +36,11 @@ def test_parse_claude_code_model():
     assert parse_claude_code_model("claude-code/claude-opus-4-6") == "claude-opus-4-6"
 
 
+def test_parse_claude_code_model_empty_suffix():
+    with pytest.raises(ValueError, match="Missing model name"):
+        parse_claude_code_model("claude-code/")
+
+
 def test_agent_init():
     agent = ClaudeCodeAgent(model="claude-code/claude-sonnet-4-6")
     assert agent.cc_model == "claude-sonnet-4-6"

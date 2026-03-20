@@ -4,6 +4,7 @@ import logging
 import multiprocessing
 import os
 import signal
+import subprocess
 import sys
 import time
 from collections import defaultdict
@@ -446,6 +447,22 @@ def act_process(
     subprocess_logger.info("Started")
     try:
         files = agent.act(files, prompt)
+    except subprocess.TimeoutExpired as e:
+        # ClaudeCodeAgent re-raises TimeoutExpired when the claude CLI times out.
+        # Catch it before the generic handler so eval reports show "timeout" rather
+        # than "error", keeping ClaudeCodeAgent results comparable to GPTMe timeouts.
+        duration = time.time() - start
+        subprocess_logger.error(f"Agent subprocess timed out: {e}")
+        result_timeout: ProcessError = {
+            "status": "timeout",
+            "message": str(e),
+            "stdout": stdout.getvalue(),
+            "stderr": stderr.getvalue(),
+            "duration": duration,
+        }
+        sync_dict["result"] = result_timeout
+        _graceful_killpg(pgrp)
+        return
     except Exception as e:
         error_handler(e)
         return
