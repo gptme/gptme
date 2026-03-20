@@ -54,6 +54,7 @@ import importlib.metadata
 import importlib.util
 import logging
 import shutil
+from dataclasses import replace
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
@@ -298,11 +299,72 @@ if browser == "playwright":
     from ._browser_playwright import search_duckduckgo, search_google  # fmt: skip
 elif browser == "lynx":
     from ._browser_lynx import read_url as read_url_lynx  # fmt: skip
+    from ._browser_lynx import search as search_lynx  # fmt: skip
 
 logger = logging.getLogger(__name__)
 
 # Always include all engine types in the type definition
 EngineType = Literal["google", "duckduckgo", "perplexity"]
+
+SEARCH_ENGINE_ERROR_PREFIX = "Error:"
+
+
+def _available_search_engines() -> list[EngineType]:
+    """Return usable search backends in priority order."""
+    engines: list[EngineType] = []
+
+    if has_perplexity:
+        engines.append("perplexity")
+
+    if browser in ("playwright", "lynx"):
+        engines.append("google")
+
+    # DuckDuckGo scraping is currently known-broken outside the lynx backend.
+    if browser == "lynx":
+        engines.append("duckduckgo")
+
+    return engines
+
+
+def _search_with_engine(query: str, engine: EngineType) -> str:
+    """Execute a search with a specific engine without fallback."""
+    if engine == "perplexity":
+        if has_perplexity:
+            assert search_perplexity is not None
+            return search_perplexity(query)
+        return (
+            "Error: Perplexity search not available. Set PERPLEXITY_API_KEY or "
+            "OPENROUTER_API_KEY environment variable or add it to "
+            "~/.config/gptme/config.toml"
+        )
+
+    if engine == "google":
+        if browser == "playwright":
+            return search_google(query)
+        if browser == "lynx":
+            return search_lynx(query, "google")
+        return "Error: Google search not available because no browser backend is configured"
+
+    if engine == "duckduckgo":
+        if browser == "lynx":
+            return search_lynx(query, "duckduckgo")
+        return (
+            "Error: DuckDuckGo search is unavailable because bot detection blocks "
+            "the current browser backend"
+        )
+
+    raise ValueError(f"Unknown search engine: {engine}")
+
+
+def _search_failed(result: str) -> bool:
+    return result.startswith(SEARCH_ENGINE_ERROR_PREFIX)
+
+
+def _available_search_engines_text() -> str:
+    engines = _available_search_engines()
+    if not engines:
+        return "none"
+    return ", ".join(engines)
 
 
 def examples(tool_format):
@@ -377,12 +439,27 @@ Assistant: I've extracted the text from the PDF. The paper discusses [summary of
 """.strip()
 
 
+def _tool_instructions() -> str:
+    available_search = _available_search_engines_text()
+    return (
+        "Browse the web: read any URL or PDF with read_url(), "
+        f"search the web with search() using auto-detected backends and fallback "
+        f"(available now: {available_search}), "
+        "capture screenshots with screenshot_url(), "
+        "check browser console errors with read_logs(), "
+        "or convert a local PDF to images with pdf_to_images()."
+    )
+
+
 def init() -> ToolSpec:
     if browser == "playwright":
         console.log("Using browser tool with playwright")
     elif browser == "lynx":
         console.log("Using browser tool with lynx")
-    return tool
+    return replace(
+        tool,
+        instructions_format={**tool.instructions_format, "tool": _tool_instructions()},
+    )
 
 
 @lru_cache
@@ -505,20 +582,44 @@ def read_url(url: str, max_pages: int | None = None) -> str:
     return read_url_lynx(url)
 
 
-def search(query: str, engine: EngineType = "perplexity") -> str:
-    """Search for a query on a search engine."""
-    logger.info(f"Searching for '{query}' on {engine}")
-    if engine in ("google", "duckduckgo"):
+def search(query: str, engine: EngineType | None = None) -> str:
+    """Search for a query on a search engine.
+
+    If no engine is specified, automatically chooses the best available backend
+    and falls back to the next usable backend on failure.
+    """
+    available_engines = _available_search_engines()
+
+    if engine is not None:
+        if engine not in available_engines:
+            return (
+                f"Error: Search engine '{engine}' is not currently available. "
+                f"Available engines: {_available_search_engines_text()}"
+            )
+        engines_to_try = [engine]
+    else:
+        engines_to_try = available_engines
+
+    if not engines_to_try:
         return (
-            f"Error: {engine} search is disabled due to bot detection blocking.\n"
-            "Use Perplexity instead: search(query, 'perplexity')\n"
-            "Requires PERPLEXITY_API_KEY or OPENROUTER_API_KEY to be set."
+            "Error: No search backends are currently available. "
+            "Set PERPLEXITY_API_KEY or OPENROUTER_API_KEY, or install a supported browser backend."
         )
-    if engine == "perplexity":
-        if has_perplexity:
-            return search_perplexity(query)
-        return "Error: Perplexity search not available. Set PERPLEXITY_API_KEY or OPENROUTER_API_KEY environment variable or add it to ~/.config/gptme/config.toml"
-    raise ValueError(f"Unknown search engine: {engine}")
+
+    errors: list[str] = []
+    for candidate in engines_to_try:
+        logger.info(f"Searching for '{query}' on {candidate}")
+        result = _search_with_engine(query, candidate)
+        if not _search_failed(result):
+            return result
+        errors.append(
+            f"{candidate}: {result.removeprefix(SEARCH_ENGINE_ERROR_PREFIX).strip()}"
+        )
+
+    return (
+        f"Error: All available search backends failed for query '{query}'.\n"
+        + "\n".join(f"- {error}" for error in errors)
+    )
 
 
 def search_playwright(query: str, engine: EngineType = "google") -> str:
@@ -552,7 +653,7 @@ tool = ToolSpec(
     instructions_format={
         # Compact description for OpenAI tool format (full docstrings exceed 1024 chars)
         "tool": "Browse the web: read any URL or PDF with read_url(), "
-        "search the web via Perplexity with search(), "
+        "search the web with search() using auto-detected backends and fallback, "
         "capture screenshots with screenshot_url(), "
         "check browser console errors with read_logs(), "
         "or convert a local PDF to images with pdf_to_images().",
