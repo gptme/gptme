@@ -70,17 +70,26 @@ tests = [
 """
     )
 
+    captured_evals: list = []
+
+    def fake_run_evals(evals, *args, **kwargs):
+        captured_evals.extend(evals)
+        return {}
+
     runner = CliRunner()
-    # Pass an invalid model so we don't actually run the eval, just check loading
-    with runner.isolated_filesystem():
+    with (
+        patch("gptme.eval.main.run_evals", side_effect=fake_run_evals),
+        runner.isolated_filesystem(),
+    ):
         result = runner.invoke(
             main,
-            ["--eval-module", str(module_file), "--model", "invalid/model@tool"],
+            ["--eval-module", str(module_file), "--model", "anthropic"],
             catch_exceptions=False,
         )
-    # Module loaded and eval scheduled: exit code is 0 and feature name appears in output
+    # Module loaded without error and the test was passed to run_evals
     assert result.exit_code == 0, f"Unexpected exit: {result.output}"
-    assert "my-feature" in result.output  # the loaded test's name appeared in results
+    assert len(captured_evals) == 1, f"Expected 1 eval, got {captured_evals}"
+    assert captured_evals[0]["name"] == "my-feature"
     # Key: should NOT fail with "module must define a 'tests' list"
     assert "must define a 'tests' list" not in (result.output or "")
 
