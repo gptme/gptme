@@ -337,7 +337,7 @@ def _create_subagent_thread(
     prompt: str,
     logdir: Path,
     model: str | None,
-    context_mode: Literal["full", "instructions-only", "selective"],
+    context_mode: Literal["full", "selective"],
     context_include: list[str] | None,
     workspace: Path,
     target: str = "parent",
@@ -407,26 +407,7 @@ def _create_subagent_thread(
     prompt_msgs = [Message("user", prompt)]
 
     # Build initial messages based on context_mode
-    if context_mode == "instructions-only":
-        # Minimal system context - just basic instruction
-        initial_msgs = [
-            Message(
-                "system",
-                "You are a helpful AI assistant. Complete the task described by the user. Use the `complete` tool when finished with a summary of your work.",
-            )
-        ]
-        # Add complete tool for instructions-only mode
-        from ..prompts import prompt_tools
-
-        initial_msgs.extend(
-            list(
-                prompt_tools(
-                    tools=[t for t in get_tools() if t.name == "complete"],
-                    tool_format="markdown",
-                )
-            )
-        )
-    elif context_mode == "selective":
+    if context_mode == "selective":
         # Selective context - build from specified components
         from ..prompts import prompt_gptme, prompt_tools
 
@@ -491,7 +472,7 @@ def _run_subagent_subprocess(
     logdir: Path,
     model: str | None,
     workspace: Path,
-    context_mode: Literal["full", "instructions-only", "selective"] | None = None,
+    context_mode: Literal["full", "selective"] | None = None,
     context_include: list[str] | None = None,
     output_schema: str | None = None,
     profile: str | None = None,
@@ -506,7 +487,7 @@ def _run_subagent_subprocess(
         logdir: Directory for conversation logs
         model: Model to use (or None for default)
         workspace: Workspace directory
-        context_mode: Context mode (full, instructions-only, selective)
+        context_mode: Context mode (full or selective)
         context_include: Context components to include for selective mode
             (files, cmd, all). Legacy values like "agent" and "tools" are
             mapped or ignored since tools/agent are always included by CLI.
@@ -532,11 +513,7 @@ def _run_subagent_subprocess(
         cmd.extend(["--agent-profile", profile])
 
     # Map context_mode/context_include to the --context CLI flag
-    if context_mode == "instructions-only":
-        # Deprecated: minimal context. Passing no --context values effectively
-        # means selective with nothing included.
-        logger.warning("context_mode='instructions-only' is deprecated")
-    elif context_mode == "selective" and context_include:
+    if context_mode == "selective" and context_include:
         # Map internal component names to CLI --context values
         # Thread mode handles "agent"/"tools" internally; for subprocess mode,
         # map to CLI-compatible values ("files", "cmd").
@@ -691,7 +668,7 @@ def _run_planner(
     prompt: str,
     subtasks: list[SubtaskDef],
     execution_mode: Literal["parallel", "sequential"] = "parallel",
-    context_mode: Literal["full", "instructions-only", "selective"] = "full",
+    context_mode: Literal["full", "selective"] = "full",
     context_include: list[str] | None = None,
     model: str | None = None,
     profile_name: str | None = None,
@@ -770,7 +747,7 @@ def subagent(
     mode: Literal["executor", "planner"] = "executor",
     subtasks: list[SubtaskDef] | None = None,
     execution_mode: Literal["parallel", "sequential"] = "parallel",
-    context_mode: Literal["full", "instructions-only", "selective"] = "full",
+    context_mode: Literal["full", "selective"] = "full",
     context_include: list[str] | None = None,
     output_schema: type | None = None,
     use_subprocess: bool = False,
@@ -804,7 +781,6 @@ def subagent(
                        Only applies to planner mode.
         context_mode: Controls what context is shared with the subagent:
             - "full" (default): Share complete context (agent identity, tools, workspace)
-            - "instructions-only": Deprecated, minimal context
             - "selective": Share only specified context components (requires context_include)
         context_include: For selective mode, list of context components to include:
             - "files": Project config files (gptme.toml files list)
@@ -1437,17 +1413,6 @@ Assistant: I'll use full context mode for comprehensive analysis.
             "ipython",
             [],
             'subagent("analyze", "Analyze code quality and suggest improvements", context_mode="full")',
-        ).to_output(tool_format)
-    }
-
-#### Instructions-Only Mode (minimal context)
-User: compute the sum of 1 to 100
-Assistant: For a simple computation, I'll use instructions-only mode with minimal context.
-{
-        ToolUse(
-            "ipython",
-            [],
-            'subagent("sum", "Compute sum of integers from 1 to 100", context_mode="instructions-only")',
         ).to_output(tool_format)
     }
 

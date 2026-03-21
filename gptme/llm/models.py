@@ -13,6 +13,7 @@ from typing import (
 
 from typing_extensions import NotRequired
 
+from .llm_anthropic_models_deprecated import ANTHROPIC_MODELS_DEPRECATED
 from .llm_openai_models import OPENAI_MODELS, OPENAI_SUBSCRIPTION_MODELS
 
 if TYPE_CHECKING:
@@ -163,6 +164,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
         for model, props in OPENAI_SUBSCRIPTION_MODELS.items()
     },
     # https://docs.anthropic.com/en/docs/about-claude/models
+    # Active models here; deprecated models in llm_anthropic_models_deprecated.py
     "anthropic": {
         "claude-opus-4-6": {
             "context": 1_000_000,
@@ -255,70 +257,8 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_parallel_tool_calls": True,
             "knowledge_cutoff": datetime(2025, 3, 1, tzinfo=timezone.utc),
         },
-        "claude-3-7-sonnet-20250219": {
-            "context": 200_000,
-            "max_output": 8192,
-            "price_input": 3,
-            "price_output": 15,
-            "supports_vision": True,
-            "supports_reasoning": True,
-            "knowledge_cutoff": datetime(2024, 10, 1, tzinfo=timezone.utc),
-            "deprecated": True,  # superseded by claude-sonnet-4+
-        },
-        "claude-3-5-sonnet-20241022": {
-            "context": 200_000,
-            "max_output": 8192,
-            "price_input": 3,
-            "price_output": 15,
-            "supports_vision": True,
-            "knowledge_cutoff": datetime(2024, 4, 1, tzinfo=timezone.utc),
-            "deprecated": True,  # superseded by claude-sonnet-4+
-        },
-        "claude-3-5-sonnet-20240620": {
-            "context": 200_000,
-            "max_output": 4096,
-            "price_input": 3,
-            "price_output": 15,
-            "supports_vision": True,
-            "knowledge_cutoff": datetime(2024, 4, 1, tzinfo=timezone.utc),
-            "deprecated": True,  # superseded by claude-3-5-sonnet-20241022
-        },
-        "claude-3-5-haiku-20241022": {
-            "context": 200_000,
-            "max_output": 8192,
-            "price_input": 1,
-            "price_output": 5,
-            "supports_vision": True,
-            "knowledge_cutoff": datetime(2024, 4, 1, tzinfo=timezone.utc),
-            "deprecated": True,  # superseded by claude-haiku-4-5
-        },
-        "claude-3-haiku-20240307": {
-            "context": 200_000,
-            "max_output": 4096,
-            "price_input": 0.25,
-            "price_output": 1.25,
-            "supports_vision": True,
-            "knowledge_cutoff": datetime(2024, 4, 1, tzinfo=timezone.utc),
-            "deprecated": True,  # superseded by claude-3-5-haiku
-        },
-        "claude-3-opus-20240229": {
-            "context": 200_000,
-            "max_output": 4096,
-            "price_input": 15,
-            "price_output": 75,
-            "supports_vision": True,
-            "knowledge_cutoff": datetime(2023, 8, 1, tzinfo=timezone.utc),
-            "deprecated": True,  # superseded by claude-opus-4+
-        },
-        "claude-3-opus-latest": {
-            "context": 200_000,
-            "max_output": 4096,
-            "price_input": 15,
-            "price_output": 75,
-            "supports_vision": True,
-            "knowledge_cutoff": datetime(2023, 8, 1, tzinfo=timezone.utc),
-            "deprecated": True,  # resolves to claude-3-opus-20240229 (deprecated)
-        },
+        # Deprecated models merged from separate file
+        **ANTHROPIC_MODELS_DEPRECATED,
     },
     # https://ai.google.dev/gemini-api/docs/models
     # https://ai.google.dev/gemini-api/docs/pricing
