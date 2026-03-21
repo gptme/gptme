@@ -634,3 +634,118 @@ metadata:
         assert any(m["skill"] == "test-skill" for m in missing), (
             f"Manifest-only skill not checked: {missing}"
         )
+
+    def test_check_dependencies_raises_on_unknown_skill(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """check_dependencies() should raise KeyError for unknown skill names."""
+        from gptme.lessons.index import LessonIndex
+
+        fake_index = LessonIndex.__new__(LessonIndex)
+        fake_index.lessons = []
+        monkeypatch.setattr("gptme.lessons.index.LessonIndex", lambda: fake_index)
+        monkeypatch.setattr(
+            "gptme.lessons.installer.get_manifest", lambda: SkillManifest()
+        )
+
+        with pytest.raises(KeyError, match="Unknown skill"):
+            check_dependencies(["nonexistent-skill"])
+
+    def test_check_dependencies_explicit_skill_names(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """check_dependencies() with explicit names returns satisfied deps."""
+        from gptme.lessons.index import LessonIndex
+        from gptme.lessons.parser import parse_lesson
+
+        skill = tmp_path / "has-dep"
+        skill.mkdir()
+        (skill / "SKILL.md").write_text(
+            "---\nname: has-dep\ndescription: D\ndepends:\n  - other\n---\n# D\n"
+        )
+        other = tmp_path / "other"
+        other.mkdir()
+        (other / "SKILL.md").write_text("---\nname: other\ndescription: O\n---\n# O\n")
+
+        parsed_dep = parse_lesson(skill / "SKILL.md")
+        parsed_other = parse_lesson(other / "SKILL.md")
+
+        fake_index = LessonIndex.__new__(LessonIndex)
+        fake_index.lessons = [parsed_dep, parsed_other]
+        monkeypatch.setattr("gptme.lessons.index.LessonIndex", lambda: fake_index)
+        monkeypatch.setattr(
+            "gptme.lessons.installer.get_manifest", lambda: SkillManifest()
+        )
+
+        # All deps satisfied — should return empty
+        missing = check_dependencies(["has-dep"])
+        assert missing == []
+
+    def test_depends_null_does_not_crash_check_dependencies(
+        self, tmp_path: Path, skill_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """depends: null (YAML) should not crash check_dependencies."""
+        from gptme.lessons.index import LessonIndex
+
+        install_skill(str(skill_dir))
+
+        fake_index = LessonIndex.__new__(LessonIndex)
+        fake_index.lessons = []
+        monkeypatch.setattr("gptme.lessons.index.LessonIndex", lambda: fake_index)
+
+        # Patch SKILL.md to have depends: null
+        installed_md = get_skills_dir() / "test-skill" / "SKILL.md"
+        installed_md.write_text(
+            "---\nname: test-skill\ndescription: Test\ndepends:\n---\n# Test\n"
+        )
+
+        # Should not crash — depends: (bare) parses as None in YAML
+        missing = check_dependencies()
+        assert isinstance(missing, list)
+
+    def test_depends_null_does_not_crash_dependency_graph(
+        self, tmp_path: Path, skill_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """depends: null (YAML) should not crash dependency_graph."""
+        from gptme.lessons.index import LessonIndex
+
+        install_skill(str(skill_dir))
+
+        fake_index = LessonIndex.__new__(LessonIndex)
+        fake_index.lessons = []
+        monkeypatch.setattr("gptme.lessons.index.LessonIndex", lambda: fake_index)
+
+        installed_md = get_skills_dir() / "test-skill" / "SKILL.md"
+        installed_md.write_text(
+            "---\nname: test-skill\ndescription: Test\ndepends:\n---\n# Test\n"
+        )
+
+        # Should not crash
+        graph = dependency_graph()
+        assert isinstance(graph, dict)
+
+    def test_depends_null_does_not_crash_parse_lesson(self, tmp_path: Path):
+        """depends: null should not crash parse_lesson."""
+        from gptme.lessons.parser import parse_lesson
+
+        skill = tmp_path / "null-dep"
+        skill.mkdir()
+        (skill / "SKILL.md").write_text(
+            "---\nname: null-dep\ndescription: Null\ndepends:\n---\n# Null\n"
+        )
+
+        parsed = parse_lesson(skill / "SKILL.md")
+        assert parsed.metadata.depends == []
+
+    def test_depends_integer_does_not_crash_parse_lesson(self, tmp_path: Path):
+        """depends: 42 should not crash parse_lesson."""
+        from gptme.lessons.parser import parse_lesson
+
+        skill = tmp_path / "int-dep"
+        skill.mkdir()
+        (skill / "SKILL.md").write_text(
+            "---\nname: int-dep\ndescription: Int\ndepends: 42\n---\n# Int\n"
+        )
+
+        parsed = parse_lesson(skill / "SKILL.md")
+        assert parsed.metadata.depends == []

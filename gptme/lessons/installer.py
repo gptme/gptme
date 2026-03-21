@@ -489,6 +489,20 @@ def list_installed() -> list[InstalledSkill]:
     return list(manifest.skills.values())
 
 
+def _extract_depends(fm: dict) -> list[str]:
+    """Extract and normalise the ``depends`` field from parsed SKILL.md frontmatter.
+
+    Handles ``str``, ``list``, ``None`` (YAML null), and other scalars gracefully.
+    """
+    raw = fm.get("depends", [])
+    if isinstance(raw, str):
+        raw = [raw]
+    elif not isinstance(raw, list):
+        # YAML null parses as None; other scalars (int, float) are also invalid
+        raw = []
+    return [d for d in raw if isinstance(d, str) and d.strip()]
+
+
 def check_dependencies(
     skill_names: list[str] | None = None,
 ) -> list[dict[str, str]]:
@@ -500,6 +514,9 @@ def check_dependencies(
     Returns:
         List of dicts with unsatisfied dependencies:
         [{"skill": "my-skill", "depends": "missing-dep"}, ...]
+
+    Raises:
+        KeyError: If any name in ``skill_names`` is not a known installed skill.
     """
     from .index import LessonIndex
 
@@ -517,6 +534,12 @@ def check_dependencies(
     missing: list[dict[str, str]] = []
 
     if skill_names is not None:
+        unknown = [n for n in skill_names if n not in available]
+        if unknown:
+            raise KeyError(
+                f"Unknown skill(s): {', '.join(sorted(unknown))}. "
+                "Check installed skills with `gptme --list-skills`."
+            )
         targets = skill_names
     else:
         # Include all known skills: indexed + manifest-only
@@ -532,20 +555,19 @@ def check_dependencies(
             continue
         # Find the skill in index or manifest
         deps: list[str] = []
+        found_in_index = False
         for item in index.lessons:
             if item.metadata.name == skill_name:
                 deps = item.metadata.depends
+                found_in_index = True
                 break
-        if not deps and skill_name in manifest.skills:
+        if not found_in_index and skill_name in manifest.skills:
             # Check manifest entry's SKILL.md
             skill_path = Path(manifest.skills[skill_name].install_path)
             skill_md = _find_skill_md(skill_path)
             if skill_md:
                 fm = _parse_skill_frontmatter(skill_md)
-                raw = fm.get("depends", [])
-                if isinstance(raw, str):
-                    raw = [raw]
-                deps = [d for d in raw if isinstance(d, str) and d.strip()]
+                deps = _extract_depends(fm)
 
         missing.extend(
             {"skill": skill_name, "depends": dep}
@@ -586,35 +608,39 @@ def dependency_graph() -> dict[str, list[str]]:
             skill_md = _find_skill_md(skill_path)
             if skill_md:
                 fm = _parse_skill_frontmatter(skill_md)
-                raw = fm.get("depends", [])
-                if isinstance(raw, str):
-                    raw = [raw]
-                deps = [d for d in raw if isinstance(d, str) and d.strip()]
+                deps = _extract_depends(fm)
                 if deps:
                     graph[name] = deps
 
-    # Detect circular dependencies (simple depth-first check)
+    # Detect circular dependencies (iterative DFS — no recursion limit risk)
     cycles: list[str] = []
-
-    def _has_cycle(node: str, visited: set[str], stack: set[str]) -> bool:
-        visited.add(node)
-        stack.add(node)
-        for dep in graph.get(node, []):
-            if dep not in visited:
-                if _has_cycle(dep, visited, stack):
-                    return True
-            elif dep in stack:
-                cycle = f"{node} -> {dep}"
-                cycles.append(cycle)
-                logger.warning(f"Circular dependency detected: {cycle}")
-                return True
-        stack.discard(node)
-        return False
-
     visited: set[str] = set()
-    for skill in graph:
-        if skill not in visited:
-            _has_cycle(skill, visited, set())
+
+    for start in graph:
+        if start in visited:
+            continue
+        stack: list[tuple[str, int]] = [(start, 0)]
+        path: set[str] = set()
+        while stack:
+            node, idx = stack.pop()
+            if idx == 0:
+                if node in path:
+                    # Back-edge — cycle detected
+                    cycle = f"{stack[-1][0]} -> {node}" if stack else node
+                    cycles.append(cycle)
+                    logger.warning(f"Circular dependency detected: {cycle}")
+                    continue
+                if node in visited:
+                    continue
+                visited.add(node)
+                path.add(node)
+            deps = graph.get(node, [])
+            if idx < len(deps):
+                # Push current node back with incremented index, then push child
+                stack.append((node, idx + 1))
+                stack.append((deps[idx], 0))
+            else:
+                path.discard(node)
 
     if cycles:
         raise ValueError(f"Circular dependencies detected: {', '.join(cycles)}")

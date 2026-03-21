@@ -358,6 +358,9 @@ def parse_lesson(path: Path) -> Lesson:
                         raw_depends = frontmatter.get("depends", [])
                         if isinstance(raw_depends, str):
                             raw_depends = [raw_depends]
+                        elif not isinstance(raw_depends, list):
+                            # YAML null → None, or other scalars
+                            raw_depends = []
                         depends = [
                             d for d in raw_depends if isinstance(d, str) and d.strip()
                         ]
