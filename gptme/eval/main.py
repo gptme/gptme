@@ -446,7 +446,8 @@ def main(
         # Add the module's parent dir to sys.path so worker processes can reimport it
         # (multiprocessing pickles functions by module+qualname and reimports them)
         parent = str(module_path.parent)
-        if parent not in sys.path:
+        path_was_absent = parent not in sys.path
+        if path_was_absent:
             sys.path.insert(0, parent)
         # Detect stem collisions (two different files with the same stem) and raise
         # early rather than silently overwriting the first module's check functions.
@@ -469,7 +470,12 @@ def main(
                     f"Eval module '{module_path}' must define a 'tests' list of EvalSpec dicts"
                 )
         except Exception:
-            sys.modules.pop(mod_name, None)  # clean up partial entry on failure
+            sys.modules.pop(mod_name, None)  # clean up on exec or validation failure
+            if path_was_absent:
+                try:
+                    sys.path.remove(parent)
+                except ValueError:
+                    pass
             raise
         loaded: list[EvalSpec] = mod.tests
         logger.info(
