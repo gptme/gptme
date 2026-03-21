@@ -332,3 +332,39 @@ class TestClosestModelMatch:
         assert model.provider == "xai"
         assert model.supports_reasoning is True
         assert model.price_input > 0
+
+
+class TestSupportsParallelToolCalls:
+    """Test the supports_parallel_tool_calls flag on ModelMeta."""
+
+    def test_claude_sonnet_4_6_supports_parallel(self):
+        """claude-sonnet-4-6 was explicitly verified to support parallel tool calls."""
+        model = get_model("anthropic/claude-sonnet-4-6")
+        assert model.supports_parallel_tool_calls is True
+
+    def test_claude_opus_4_6_supports_parallel(self):
+        model = get_model("anthropic/claude-opus-4-6")
+        assert model.supports_parallel_tool_calls is True
+
+    def test_claude_haiku_4_5_does_not_support_parallel(self):
+        """claude-haiku-4-5 was explicitly verified to NOT emit parallel tool calls."""
+        model = get_model("anthropic/claude-haiku-4-5-20251001")
+        assert model.supports_parallel_tool_calls is False
+
+    def test_claude_3_5_sonnet_does_not_support_parallel(self):
+        """Older claude-3.x models do not support parallel tool calls."""
+        model = get_model("anthropic/claude-3-5-sonnet-20241022")
+        assert model.supports_parallel_tool_calls is False
+
+    def test_gpt5_supports_parallel(self):
+        model = get_model("openai/gpt-5")
+        assert model.supports_parallel_tool_calls is True
+
+    def test_gpt4o_supports_parallel(self):
+        model = get_model("openai/gpt-4o")
+        assert model.supports_parallel_tool_calls is True
+
+    def test_unknown_model_defaults_to_false(self):
+        """Unknown models fall back to False (safe default — don't break things)."""
+        model = get_model("unknown-provider/unknown-model")
+        assert model.supports_parallel_tool_calls is False

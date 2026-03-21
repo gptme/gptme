@@ -99,6 +99,9 @@ class ModelMeta:
     supports_streaming: bool = True
     supports_vision: bool = False
     supports_reasoning: bool = False  # models which support reasoning do not need prompting to use <thinking> tags
+    supports_parallel_tool_calls: bool = (
+        False  # models that can emit multiple tool calls in a single response
+    )
 
     # price in USD per 1M tokens
     # if price is not set, it is assumed to be 0
@@ -133,6 +136,7 @@ class _ModelDictMeta(TypedDict):
     supports_streaming: NotRequired[bool]
     supports_vision: NotRequired[bool]
     supports_reasoning: NotRequired[bool]
+    supports_parallel_tool_calls: NotRequired[bool]
 
     knowledge_cutoff: NotRequired[datetime]
     deprecated: NotRequired[bool]
@@ -168,6 +172,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 25,
             "supports_vision": True,
             "supports_reasoning": True,
+            "supports_parallel_tool_calls": True,
             "knowledge_cutoff": datetime(
                 2025, 8, 1, tzinfo=timezone.utc
             ),  # training cutoff Aug 2025, reliable May 2025
@@ -180,6 +185,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 15,
             "supports_vision": True,
             "supports_reasoning": True,
+            "supports_parallel_tool_calls": True,  # verified: emits multiple tool calls per response
             "knowledge_cutoff": datetime(
                 2026, 1, 1, tzinfo=timezone.utc
             ),  # training cutoff Jan 2026, reliable Aug 2025
@@ -191,6 +197,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 25,
             "supports_vision": True,
             "supports_reasoning": True,
+            "supports_parallel_tool_calls": True,
             "knowledge_cutoff": datetime(
                 2025, 8, 1, tzinfo=timezone.utc
             ),  # training cutoff Aug 2025, reliable May 2025
@@ -202,6 +209,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 15,
             "supports_vision": True,
             "supports_reasoning": True,
+            "supports_parallel_tool_calls": True,
             "knowledge_cutoff": datetime(
                 2025, 7, 1, tzinfo=timezone.utc
             ),  # training cutoff Jul 2025, reliable Jan 2025
@@ -224,6 +232,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 75,
             "supports_vision": True,
             "supports_reasoning": True,
+            "supports_parallel_tool_calls": True,
             "knowledge_cutoff": datetime(2025, 3, 1, tzinfo=timezone.utc),
         },
         "claude-opus-4-20250514": {
@@ -233,6 +242,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 75,
             "supports_vision": True,
             "supports_reasoning": True,
+            "supports_parallel_tool_calls": True,
             "knowledge_cutoff": datetime(2025, 3, 1, tzinfo=timezone.utc),
         },
         "claude-sonnet-4-20250514": {
@@ -242,6 +252,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 15,
             "supports_vision": True,
             "supports_reasoning": True,
+            "supports_parallel_tool_calls": True,
             "knowledge_cutoff": datetime(2025, 3, 1, tzinfo=timezone.utc),
         },
         "claude-3-7-sonnet-20250219": {

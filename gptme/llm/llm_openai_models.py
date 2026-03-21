@@ -16,6 +16,7 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "price_output": 10,
         "supports_vision": True,
         "supports_reasoning": True,
+        "supports_parallel_tool_calls": True,
         "knowledge_cutoff": datetime(2024, 9, 30, tzinfo=timezone.utc),
     },
     "gpt-5-mini": {
@@ -25,6 +26,7 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "price_output": 2,
         "supports_vision": True,
         "supports_reasoning": True,
+        "supports_parallel_tool_calls": True,
         "knowledge_cutoff": datetime(2024, 5, 31, tzinfo=timezone.utc),
     },
     "gpt-5-nano": {
@@ -34,6 +36,7 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "price_output": 0.4,
         "supports_vision": True,
         "supports_reasoning": True,
+        "supports_parallel_tool_calls": True,
         "knowledge_cutoff": datetime(2024, 5, 31, tzinfo=timezone.utc),
     },
     # GPT-4.1
@@ -43,6 +46,7 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "price_input": 2,
         "price_output": 8,
         "supports_vision": True,
+        "supports_parallel_tool_calls": True,
         "knowledge_cutoff": datetime(2024, 6, 1, tzinfo=timezone.utc),
     },
     "gpt-4.1-mini": {
@@ -51,6 +55,7 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "price_input": 0.4,
         "price_output": 1.6,
         "supports_vision": True,
+        "supports_parallel_tool_calls": True,
         "knowledge_cutoff": datetime(2024, 6, 1, tzinfo=timezone.utc),
     },
     "gpt-4.1-nano": {
@@ -59,6 +64,7 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "price_input": 0.1,
         "price_output": 0.4,
         "supports_vision": True,
+        "supports_parallel_tool_calls": True,
         "knowledge_cutoff": datetime(2024, 6, 1, tzinfo=timezone.utc),
     },
     # GPT-4o
@@ -67,6 +73,7 @@ OPENAI_MODELS: dict[str, "_ModelDictMeta"] = {
         "price_input": 5,
         "price_output": 15,
         "supports_vision": True,
+        "supports_parallel_tool_calls": True,
         # October 2023
         "knowledge_cutoff": datetime(2023, 10, 1, tzinfo=timezone.utc),
     },

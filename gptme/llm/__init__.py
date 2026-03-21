@@ -34,6 +34,7 @@ from .models import (
     ModelMeta,
     Provider,
     get_default_model_summary,
+    get_model,
     is_custom_provider,
 )
 
@@ -116,7 +117,15 @@ def reply(
     if on_token is not None and not stream:
         logger.warning("on_token callback has no effect when stream=False; ignoring")
     if stream:
-        break_on_tooluse = bool(config.get_env_bool("GPTME_BREAK_ON_TOOLUSE", True))
+        _env_break = config.get_env_bool("GPTME_BREAK_ON_TOOLUSE")
+        if _env_break is not None:
+            # Explicit env var overrides model-dependent default
+            break_on_tooluse = _env_break
+        else:
+            # Default based on model capability: don't break for models that support
+            # emitting multiple tool calls in a single response (e.g. Sonnet 4.6+)
+            model_meta = get_model(model)
+            break_on_tooluse = not model_meta.supports_parallel_tool_calls
         return _reply_stream(
             generation_msgs,
             model,
