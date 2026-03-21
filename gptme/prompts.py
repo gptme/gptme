@@ -65,7 +65,7 @@ PromptType = Literal["full", "short"]
 logger = logging.getLogger(__name__)
 
 
-ContextMode = Literal["full", "instructions-only", "selective"]
+ContextMode = Literal["full", "selective"]
 
 
 def get_prompt(
@@ -120,7 +120,7 @@ def get_prompt(
         model: Model to use
         workspace: Project workspace directory
         agent_path: Agent identity workspace (if different from project workspace)
-        context_mode: Context mode (full, selective; instructions-only deprecated)
+        context_mode: Context mode (full or selective)
         context_include: Components to include in selective mode
 
     Returns a list of messages: [core_system_prompt, workspace_prompt, ...].
@@ -133,10 +133,6 @@ def get_prompt(
     # Default context_mode to "full" if not specified
     effective_mode = context_mode or "full"
     include_set = set(context_include or [])
-
-    # "instructions-only" is a deprecated alias for "selective" with no includes
-    if effective_mode == "instructions-only":
-        effective_mode = "selective"
 
     # Determine what to include based on context_mode
     # Expand aliases

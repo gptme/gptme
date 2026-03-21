@@ -163,25 +163,6 @@ def test_context_mode_default_is_full(mock_create_thread: MagicMock):
     assert len(_subagents) == initial_count + 1
 
 
-@patch("gptme.tools.subagent._create_subagent_thread")
-def test_context_mode_instructions_only(mock_create_thread: MagicMock):
-    """Test that instructions-only mode works with minimal context."""
-    initial_count = len(_subagents)
-
-    subagent(
-        agent_id="test-instructions-only",
-        prompt="Simple computation task",
-        context_mode="instructions-only",
-    )
-
-    # Should spawn 1 executor
-    assert len(_subagents) == initial_count + 1
-
-    executor = _subagents[-1]
-    assert executor.agent_id == "test-instructions-only"
-    assert executor.prompt == "Simple computation task"
-
-
 def test_context_mode_selective_requires_context_include():
     """Test that selective mode requires context_include parameter."""
     with pytest.raises(ValueError, match="context_include parameter required"):
@@ -269,13 +250,12 @@ def test_planner_mode_with_context_modes(mock_create_thread: MagicMock):
         {"id": "task2", "description": "Complex analysis"},
     ]
 
-    # Planner with instructions-only context
+    # Planner with full context
     subagent(
         agent_id="test-planner-context",
         prompt="Overall task context",
         mode="planner",
         subtasks=subtasks,
-        context_mode="instructions-only",
     )
 
     # Should spawn 2 executors
@@ -1055,7 +1035,7 @@ def test_profile_hard_tool_enforcement():
             prompt="Read the codebase",
             logdir=Path("/tmp/test-enforcement"),
             model=None,
-            context_mode="instructions-only",
+            context_mode="full",
             context_include=None,
             workspace=Path("/tmp"),
             profile_name="explorer",
@@ -1110,7 +1090,7 @@ def test_profile_no_restriction_skips_set_tools():
             prompt="Write some code",
             logdir=Path("/tmp/test-no-restrict"),
             model=None,
-            context_mode="instructions-only",
+            context_mode="full",
             context_include=None,
             workspace=Path("/tmp"),
             profile_name="developer",

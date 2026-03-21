@@ -7,7 +7,6 @@ import pstats
 import signal
 import sys
 import traceback
-import warnings
 from datetime import datetime, timezone
 from itertools import islice
 from pathlib import Path
@@ -280,14 +279,6 @@ Run 'gptme-util --help' for all utility commands."""
     help="Enable profiling and save results to gptme-profile-{timestamp}.prof",
 )
 @click.option(
-    "--context-mode",
-    "context_mode",
-    type=click.Choice(["full", "instructions-only", "selective"]),
-    default=None,
-    hidden=True,
-    help="Deprecated: use --context-include instead. Kept for backward compatibility.",
-)
-@click.option(
     "--context",
     "context_include",
     multiple=True,
@@ -330,7 +321,6 @@ def main(
     agent_path: str | None,
     profile: bool,
     multi_tool: bool | None,
-    context_mode: str | None,
     context_include: tuple[str, ...],
     output_schema: str | None,
 ):
@@ -608,20 +598,7 @@ def main(
         initial_msgs = []
     else:
         # Infer context mode: --context-include implies selective mode
-        effective_context_mode = context_mode
-        if context_mode == "instructions-only":
-            warnings.warn(
-                "--context-mode=instructions-only is deprecated. "
-                "Use --context-include with no values instead.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            effective_context_mode = "selective"
-        elif context_mode == "selective":
-            pass  # explicit selective, keep as-is
-        elif context_include and not context_mode:
-            # --context-include without --context-mode implies selective
-            effective_context_mode = "selective"
+        effective_context_mode: str | None = "selective" if context_include else None
 
         # get initial system prompt
         initial_msgs = get_prompt(
