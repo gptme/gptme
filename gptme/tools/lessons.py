@@ -39,8 +39,8 @@ def _get_ace_components() -> tuple[type | None, type | None]:
         Tuple of (LessonEmbedder class, GptmeHybridMatcher class), or (None, None) if unavailable.
     """
     try:
-        from ace.embedder import LessonEmbedder  # type: ignore[import-not-found]
-        from ace.gptme_integration import (  # type: ignore[import-not-found]
+        from ace.embedder import LessonEmbedder
+        from ace.gptme_integration import (
             GptmeHybridMatcher,
         )
 
