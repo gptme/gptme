@@ -327,7 +327,13 @@ def _available_search_engines() -> list[EngineType]:
 
 
 def _search_with_engine(query: str, engine: EngineType) -> str:
-    """Execute a search with a specific engine without fallback."""
+    """Execute a search with a specific engine without fallback.
+
+    Note: the Error branches below are unreachable when called via search(), because
+    search() only includes engines that pass _available_search_engines(). They remain
+    here so _search_with_engine can be called directly (e.g. in tests) without the
+    availability gate.
+    """
     if engine == "perplexity":
         if has_perplexity:
             assert search_perplexity is not None
@@ -592,9 +598,12 @@ def search(query: str, engine: EngineType | None = None) -> str:
 
     if engine is not None:
         if engine not in available_engines:
+            available_text = (
+                ", ".join(available_engines) if available_engines else "none"
+            )
             return (
                 f"Error: Search engine '{engine}' is not currently available. "
-                f"Available engines: {_available_search_engines_text()}"
+                f"Available engines: {available_text}"
             )
         engines_to_try = [engine]
     else:
