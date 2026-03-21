@@ -90,7 +90,8 @@ def check_topo_all_tasks(ctx):
     deps = _load_topo_deps(ctx)
     if deps is None:
         return False
-    return all(re.search(rf"\b{re.escape(task)}\b", ctx.stdout) for task in deps)
+    all_tasks = set(deps.keys()) | {p for prereqs in deps.values() for p in prereqs}
+    return all(re.search(rf"\b{re.escape(task)}\b", ctx.stdout) for task in all_tasks)
 
 
 def check_topo_order_valid(ctx):
