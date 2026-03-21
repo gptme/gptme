@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import cast
 
-import matplotlib.pyplot as plt  # type: ignore[import-not-found]
+import matplotlib.pyplot as plt
 import pandas as pd
 from datasets import Dataset, load_dataset
 from swebench.harness.constants import SWEbenchInstance

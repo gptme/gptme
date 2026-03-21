@@ -17,7 +17,7 @@ except ImportError:
 _msvcrt: object = None
 if os.name == "nt":
     try:
-        import msvcrt as _msvcrt  # type: ignore[assignment]
+        import msvcrt as _msvcrt
     except ImportError:
         pass
 from typing import TYPE_CHECKING

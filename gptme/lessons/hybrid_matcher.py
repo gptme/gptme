@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 # Optional embedding support
 try:
     import numpy as np
-    from sentence_transformers import (  # type: ignore[import-not-found]
+    from sentence_transformers import (
         SentenceTransformer,
     )
 

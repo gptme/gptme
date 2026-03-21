@@ -479,7 +479,7 @@ def main(
                 raise ValueError(f"Could not load eval module: {module_path}")
             mod = importlib.util.module_from_spec(mod_spec)
             sys.modules[mod_name] = mod  # register so pickle can find it
-            mod_spec.loader.exec_module(mod)  # type: ignore[union-attr]
+            mod_spec.loader.exec_module(mod)
             if not hasattr(mod, "tests") or not isinstance(mod.tests, list):
                 raise ValueError(
                     f"Eval module '{module_path}' must define a 'tests' list of EvalSpec dicts"

@@ -95,7 +95,7 @@ class _MinimalClient:
         **kwargs: Any,
     ) -> Any:
         """Handle a permission request from the agent."""
-        from acp.schema import (  # type: ignore[import-not-found]
+        from acp.schema import (
             AllowedOutcome,
             DeniedOutcome,
             RequestPermissionResponse,
@@ -150,7 +150,7 @@ class _MinimalClient:
         **kwargs: Any,
     ) -> Any:
         """Write a text file on behalf of the agent (pass-through)."""
-        from acp.schema import WriteTextFileResponse  # type: ignore[import-not-found]
+        from acp.schema import WriteTextFileResponse
 
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -166,7 +166,7 @@ class _MinimalClient:
         **kwargs: Any,
     ) -> Any:
         """Read a text file on behalf of the agent (pass-through)."""
-        from acp.schema import ReadTextFileResponse  # type: ignore[import-not-found]
+        from acp.schema import ReadTextFileResponse
 
         target = Path(path)
         if not target.exists():
@@ -191,7 +191,7 @@ class _MinimalClient:
         **kwargs: Any,
     ) -> Any:
         """Create a terminal (stub — not implemented in base client)."""
-        from acp.schema import CreateTerminalResponse  # type: ignore[import-not-found]
+        from acp.schema import CreateTerminalResponse
 
         logger.warning(
             "ACP create_terminal called but not implemented in _MinimalClient; "
@@ -261,8 +261,8 @@ class GptmeAcpClient:
 
     async def __aenter__(self) -> GptmeAcpClient:
         _check_acp()
-        from acp import PROTOCOL_VERSION  # type: ignore[import-not-found]
-        from acp.stdio import spawn_agent_process  # type: ignore[import-not-found]
+        from acp import PROTOCOL_VERSION
+        from acp.stdio import spawn_agent_process
 
         if not shutil.which(self.command):
             raise FileNotFoundError(
@@ -281,7 +281,7 @@ class GptmeAcpClient:
         self._client_handler = client
 
         self._ctx = spawn_agent_process(
-            client,  # type: ignore[arg-type]
+            client,
             self.command,
             *self.extra_args,
             cwd=self.workspace,
@@ -368,7 +368,7 @@ class GptmeAcpClient:
             raise RuntimeError(
                 "GptmeAcpClient is not connected; use as async context manager"
             )
-        from acp.schema import TextContentBlock  # type: ignore[import-not-found]
+        from acp.schema import TextContentBlock
 
         prompt_content = [TextContentBlock(type="text", text=message)]
         resp = await self._conn.prompt(

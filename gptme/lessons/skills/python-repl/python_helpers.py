@@ -76,7 +76,7 @@ def quick_plot(data: Any, kind: str = "line", **kwargs) -> None:
         **kwargs: Additional plotting arguments
     """
     try:
-        import matplotlib.pyplot as plt  # type: ignore[import-not-found]
+        import matplotlib.pyplot as plt
 
         if kind == "line":
             plt.plot(data, **kwargs)

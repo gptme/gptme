@@ -23,7 +23,7 @@ from ..swe_extra.swe_bench_test_spec import instance_to_trajectory_info, make_te
 try:
     from swebench.harness.constants import SWEbenchInstance
 except ImportError:
-    SWEbenchInstance = dict  # type: ignore[misc,assignment]
+    SWEbenchInstance = dict
 
 logger = logging.getLogger(__name__)
 

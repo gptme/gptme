@@ -14,7 +14,7 @@ except ImportError:
 _msvcrt: object = None
 if os.name == "nt":
     try:
-        import msvcrt as _msvcrt  # type: ignore[assignment]
+        import msvcrt as _msvcrt
     except ImportError:
         pass
 from collections.abc import Generator
@@ -267,7 +267,7 @@ class LogManager:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         elif _msvcrt is not None:
             # msvcrt.locking operates on a byte range; lock 1 byte at position 0
-            _msvcrt.locking(fd.fileno(), _msvcrt.LK_NBLCK, 1)  # type: ignore[union-attr]
+            _msvcrt.locking(fd.fileno(), _msvcrt.LK_NBLCK, 1)
         else:
             # No locking available — proceed without lock
             pass
@@ -281,7 +281,7 @@ class LogManager:
             # Unlock the same byte range we locked
             try:
                 fd.seek(0)
-                _msvcrt.locking(fd.fileno(), _msvcrt.LK_UNLCK, 1)  # type: ignore[union-attr]
+                _msvcrt.locking(fd.fileno(), _msvcrt.LK_UNLCK, 1)
             except OSError:
                 pass  # Lock already released or file closed
 

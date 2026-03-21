@@ -15,11 +15,11 @@ from ...llm import PROVIDER_API_KEYS
 from . import DEFAULT_MODEL
 
 try:
-    from terminal_bench.agents.installed_agents.abstract_installed_agent import (  # type: ignore[import-not-found]
+    from terminal_bench.agents.installed_agents.abstract_installed_agent import (
         AbstractInstalledAgent,
     )
     from terminal_bench.terminal.models import (
-        TerminalCommand,  # type: ignore[import-not-found]
+        TerminalCommand,
     )
 except ImportError as e:
     raise ImportError(

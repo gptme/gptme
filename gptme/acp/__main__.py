@@ -186,7 +186,7 @@ async def _run_acp(real_stdin: IO[bytes], real_stdout: IO[bytes]) -> None:
     writer = asyncio.StreamWriter(write_transport, write_protocol, reader, loop)
 
     # NOW safe to import gptme (triggers config loading, console.log, etc.)
-    from acp import run_agent  # type: ignore[import-not-found]
+    from acp import run_agent
 
     from .agent import GptmeAgent
 
@@ -205,7 +205,7 @@ async def _run_acp(real_stdin: IO[bytes], real_stdout: IO[bytes]) -> None:
     #   input_stream = writer (agent writes to client's input)
     #   output_stream = reader (agent reads from client's output)
     await run_agent(
-        GptmeAgent(),  # type: ignore[arg-type]
+        GptmeAgent(),
         input_stream=writer,
         output_stream=reader,
         **connection_kwargs,
@@ -246,7 +246,7 @@ def main() -> int:
             protocol_logger.addHandler(handler)
 
     try:
-        import acp  # type: ignore[import-not-found]  # noqa: F401
+        import acp  # noqa: F401
     except ImportError:
         logger.error(
             "agent-client-protocol package not installed.\n"

@@ -390,7 +390,7 @@ class TestStepPreAgents:
     """Tests for step_pre_agents — periodic arrival/departure detection."""
 
     @pytest.fixture(autouse=True)
-    def reset_tracking(self) -> None:  # type: ignore[return]
+    def reset_tracking(self) -> None:
         """Reset module-level tracking state between tests."""
         import gptme.hooks.workspace_agents as mod
 

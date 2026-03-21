@@ -73,20 +73,20 @@ def _import_acp() -> bool:
         PromptResponse, \
         Client
     try:
-        from acp import (  # type: ignore[import-not-found]
+        from acp import (
             Agent as _Agent,
         )
-        from acp import (  # type: ignore[import-not-found]
+        from acp import (
             InitializeResponse as _InitializeResponse,
         )
-        from acp import (  # type: ignore[import-not-found]
+        from acp import (
             NewSessionResponse as _NewSessionResponse,
         )
-        from acp import (  # type: ignore[import-not-found]
+        from acp import (
             PromptResponse as _PromptResponse,
         )
-        from acp.interfaces import Client as _Client  # type: ignore[import-not-found]
-        from acp.schema import (  # type: ignore[import-not-found]
+        from acp.interfaces import Client as _Client
+        from acp.schema import (
             Implementation as _Implementation,
         )
 
@@ -496,7 +496,7 @@ class GptmeAgent:
                 return _check_acp_import(InitializeResponse, "InitializeResponse")(
                     protocol_version=protocol_version,
                     agent_info=_agent_info(),
-                )  # type: ignore[misc]
+                )
 
             self._initialized = True
             # Capture the resolved model (from config/env/auto-detect)
@@ -695,7 +695,7 @@ class GptmeAgent:
         - auto: Autonomous mode (tools run without confirmation, like --no-confirm)
         """
         try:
-            from acp.schema import (  # type: ignore[import-not-found]
+            from acp.schema import (
                 SessionMode,
                 SessionModeState,
             )
@@ -722,7 +722,7 @@ class GptmeAgent:
     def _build_models_state(self, session_model: str | None) -> Any:
         """Build SessionModelState from gptme's model registry."""
         try:
-            from acp.schema import (  # type: ignore[import-not-found]
+            from acp.schema import (
                 ModelInfo,
                 SessionModelState,
             )
@@ -774,7 +774,7 @@ class GptmeAgent:
             return
 
         try:
-            from acp import (  # type: ignore[import-not-found]
+            from acp import (
                 text_block,
                 update_agent_message,
             )
@@ -826,10 +826,10 @@ class GptmeAgent:
         if not self._conn or session_id in self._session_commands_advertised:
             return
         try:
-            from acp.helpers import (  # type: ignore[import-not-found]
+            from acp.helpers import (
                 update_available_commands,
             )
-            from acp.schema import (  # type: ignore[import-not-found]
+            from acp.schema import (
                 AvailableCommand,
             )
 
@@ -972,7 +972,7 @@ class GptmeAgent:
                 "Install with: pip install 'gptme[acp]'"
             )
 
-        from acp import (  # type: ignore[import-not-found]
+        from acp import (
             text_block,
             update_agent_message,
         )
@@ -1331,10 +1331,10 @@ class GptmeAgent:
         """
         if not _import_acp():
             raise RuntimeError("agent-client-protocol package not installed")
-        from acp.client.connection import (  # type: ignore[import-not-found]
+        from acp.client.connection import (
             ListSessionsResponse,
         )
-        from acp.schema import SessionInfo  # type: ignore[import-not-found]
+        from acp.schema import SessionInfo
 
         # Get persistent conversations from disk
         conversations = list_conversations(limit=50)
