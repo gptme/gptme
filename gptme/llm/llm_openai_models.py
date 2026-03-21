@@ -1,10 +1,10 @@
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
+from .llm_openai_models_deprecated import OPENAI_MODELS_DEPRECATED
+
 if TYPE_CHECKING:
     from .models import _ModelDictMeta  # fmt: skip
-
-from .llm_openai_models_deprecated import OPENAI_MODELS_DEPRECATED
 
 # Active models only. Deprecated models are in llm_openai_models_deprecated.py
 # and merged in below. They still work when explicitly requested via --model.
