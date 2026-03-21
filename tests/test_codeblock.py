@@ -1310,7 +1310,12 @@ def test_thinking_tag_concatenated_to_closing_fence():
 
 
 def test_adjacent_outer_fences_split_tool_blocks():
-    """A malformed close+open fence on one line should still yield the following block."""
+    """Inner-loop recovery: 6-backtick line inside an open block yields both blocks.
+
+    This exercises the pre-existing inner-loop guard (nesting_depth==1 path),
+    NOT the new outer-loop guard added in this commit. The ``````lang line appears
+    before block 1's closing fence, so the inner loop rewrites it and reprocesses.
+    """
     # Inner-loop case: 6-backtick line appears inside block 1 (no closing fence before it)
     markdown = (
         "```patch /tmp/file1.py\n"
