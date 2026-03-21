@@ -1,19 +1,22 @@
 """
 Flask application factory for gptme server.
-
-Separated from api.py (V1 endpoints) so that removing V1 later
-is a one-line change (drop the V1 blueprint registration).
 """
 
+import atexit
 import logging
+from importlib import resources
 
 import flask
 from flask_cors import CORS
 
-from .api import api as v1_api
-from .api import static_path
-
 logger = logging.getLogger(__name__)
+
+# Resolve static/media paths from the gptme package
+_gptme_path_ctx = resources.as_file(resources.files("gptme"))
+_root_path = _gptme_path_ctx.__enter__()
+static_path = _root_path / "server" / "static"
+media_path = _root_path.parent / "media"
+atexit.register(_gptme_path_ctx.__exit__, None, None, None)
 
 
 def create_app(cors_origin: str | None = None, host: str = "127.0.0.1") -> flask.Flask:
@@ -23,7 +26,6 @@ def create_app(cors_origin: str | None = None, host: str = "127.0.0.1") -> flask
         cors_origin: CORS origin to allow. Use '*' to allow all origins.
     """
     app = flask.Flask(__name__, static_folder=static_path)
-    app.register_blueprint(v1_api)
 
     # Capture the server's default model from the startup context
     # This is needed because ContextVar doesn't propagate across request contexts
@@ -73,6 +75,23 @@ def create_app(cors_origin: str | None = None, host: str = "127.0.0.1") -> flask
     from .auth import init_auth  # fmt: skip
 
     init_auth(host=host, display=False)
+
+    # Register static file routes directly on the app
+    @app.route("/")
+    def root():
+        return app.send_static_file("index.html")
+
+    @app.route("/computer")
+    def computer():
+        return app.send_static_file("computer.html")
+
+    @app.route("/chat")
+    def chat():
+        return app.send_static_file("index.html")
+
+    @app.route("/favicon.png")
+    def favicon():
+        return flask.send_from_directory(media_path, "logo.png")
 
     # Server confirmation hook is now registered via init_hooks(server=True)
     # in server/cli.py

@@ -15,7 +15,7 @@ import flask
 from dateutil.parser import isoparse
 from flask import request
 
-from gptme.config import ChatConfig, Config, load_user_config, set_config
+from gptme.config import ChatConfig, Config, get_config, load_user_config, set_config
 from gptme.llm.models import (
     PROVIDERS,
     Provider,
@@ -84,6 +84,40 @@ def api_root():
             "documentation": "https://gptme.org/docs/server.html",
         }
     )
+
+
+@v2_api.route("/api/v2/config")
+@api_doc()
+def api_config():
+    """Agent configuration endpoint.
+
+    Returns workspace agent configuration including named URLs (dashboard, repo, etc.)
+    configured in ``gptme.toml`` under ``[agent.urls]``.
+
+    Clients can use the ``dashboard`` URL to link to or embed the agent's dashboard.
+
+    Response schema::
+
+        {
+          "agent": {
+            "name": "bob",               // agent name from gptme.toml [agent] name
+            "urls": {                     // from [agent.urls] section (may be empty)
+              "dashboard": "https://...", // static dashboard URL (gh-pages)
+              "dashboard-api": "https://..." // live dashboard API URL (optional)
+            }
+          }
+        }
+    """
+    config = get_config()
+    agent = config.project.agent if config.project else None
+
+    agent_info: dict = {}
+    if agent:
+        agent_info["name"] = agent.name
+        if agent.urls:
+            agent_info["urls"] = agent.urls
+
+    return flask.jsonify({"agent": agent_info})
 
 
 @v2_api.route("/api/v2/conversations")
