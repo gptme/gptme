@@ -462,6 +462,9 @@ def init() -> ToolSpec:
         console.log("Using browser tool with playwright")
     elif browser == "lynx":
         console.log("Using browser tool with lynx")
+    # Note: _tool_instructions() is evaluated once at init time, so the
+    # "available now:" list reflects backend availability at startup.
+    # search() itself always re-evaluates _available_search_engines() at call time.
     return replace(
         tool,
         instructions_format={**tool.instructions_format, "tool": _tool_instructions()},
@@ -635,7 +638,7 @@ def search(query: str, engine: EngineType | None = None) -> str:
     target = (
         "All available search backends"
         if engine is None
-        else f"The requested search backend '{engines_to_try[0]}'"
+        else f"The requested search backend '{engine}'"
     )
     return f"Error: {target} failed for query '{query}'.\n" + "\n".join(
         f"- {error}" for error in errors
