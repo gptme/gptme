@@ -54,7 +54,7 @@ def _check_acp_import(cls: type | None, name: str) -> type:
     """Verify a lazy-imported ACP class is available.
 
     Uses explicit check instead of assert, which can be disabled with python -O.
-    See also: server/api.py and server/api_v2.py for the same pattern.
+    See also: server/api_v2.py for the same pattern.
     """
     if cls is None:
         raise RuntimeError(
