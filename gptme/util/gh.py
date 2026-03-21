@@ -1,7 +1,7 @@
 """
 Fetches GitHub issue or PR content using the `gh` CLI tool, including essential info like comments and reviews.
 
-Inspired by scripts/gh-pr-view-with-pr-comments.py
+Originally prototyped as scripts/gh-pr-view-with-pr-comments.py (since removed)
 """
 
 import json
