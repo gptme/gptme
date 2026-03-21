@@ -92,6 +92,8 @@ def check_topo_all_tasks(ctx):
     deps = _load_topo_deps(ctx)
     if deps is None:
         return False
+    if not deps:
+        return False
     all_tasks = set(deps.keys()) | {p for prereqs in deps.values() for p in prereqs}
     return all(re.search(rf"\b{re.escape(task)}\b", ctx.stdout) for task in all_tasks)
 
@@ -100,6 +102,8 @@ def check_topo_order_valid(ctx):
     """Each task's dependencies must appear earlier in the output."""
     deps = _load_topo_deps(ctx)
     if deps is None:
+        return False
+    if not deps:
         return False
 
     lines = [line.strip() for line in ctx.stdout.splitlines() if line.strip()]
