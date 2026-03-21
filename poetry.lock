@@ -668,7 +668,7 @@ description = "Foreign Function Interface for Python calling C code."
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
-markers = "platform_python_implementation != \"PyPy\""
+markers = "platform_python_implementation != \"PyPy\" or extra == \"sounds\" or extra == \"all\""
 files = [
     {file = "cffi-2.0.0-cp310-cp310-macosx_10_13_x86_64.whl", hash = "sha256:0cf2d91ecc3fcc0625c2c530fe004f82c110405f101548512cce44322fa8ac44"},
     {file = "cffi-2.0.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:f73b96c41e3b2adedc34a7356e64c8eb96e03a3782b535e043a986276ce12a49"},
@@ -3762,7 +3762,7 @@ description = "Fundamental package for array computing in Python"
 optional = true
 python-versions = ">=3.10"
 groups = ["main"]
-markers = "extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"datascience\""
+markers = "extra == \"dspy\" or extra == \"eval\" or extra == \"all\" or extra == \"datascience\" or extra == \"sounds\""
 files = [
     {file = "numpy-2.2.0-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:1e25507d85da11ff5066269d0bd25d06e0a0f2e908415534f3e603d2a78e4ffa"},
     {file = "numpy-2.2.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:a62eb442011776e4036af5c8b1a00b706c5bc02dc15eb5344b0c750428c94219"},
@@ -5397,7 +5397,7 @@ description = "C parser in Python"
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
-markers = "platform_python_implementation != \"PyPy\" and implementation_name != \"PyPy\""
+markers = "implementation_name != \"PyPy\" and (platform_python_implementation != \"PyPy\" or extra == \"sounds\" or extra == \"all\")"
 files = [
     {file = "pycparser-2.22-py3-none-any.whl", hash = "sha256:c3702b6d3dd8c7abc1afa565d7e63d53a1d0bd86cdc24edd75470f4de499cfcc"},
     {file = "pycparser-2.22.tar.gz", hash = "sha256:491c8be9c040f5390f5bf44a5b07752bd07f56edf992381b05c701439eec10f6"},
@@ -6705,7 +6705,7 @@ description = "Fundamental algorithms for scientific computing in Python"
 optional = true
 python-versions = ">=3.10"
 groups = ["main"]
-markers = "extra == \"dspy\" or extra == \"eval\" or extra == \"all\""
+markers = "extra == \"sounds\" or extra == \"all\" or extra == \"dspy\" or extra == \"eval\""
 files = [
     {file = "scipy-1.15.1-cp310-cp310-macosx_10_13_x86_64.whl", hash = "sha256:c64ded12dcab08afff9e805a67ff4480f5e69993310e093434b10e85dc9d43e1"},
     {file = "scipy-1.15.1-cp310-cp310-macosx_12_0_arm64.whl", hash = "sha256:5b190b935e7db569960b48840e5bef71dc513314cc4e79a1b7d14664f57fd4ff"},
@@ -6870,6 +6870,29 @@ files = [
     {file = "snowballstemmer-2.2.0-py2.py3-none-any.whl", hash = "sha256:c8e1716e83cc398ae16824e5572ae04e0d9fc2c6b985fb0f900f5f0c96ecba1a"},
     {file = "snowballstemmer-2.2.0.tar.gz", hash = "sha256:09b16deb8547d3412ad7b590689584cd0fe25ec8db3be37788be3810cbf19cb1"},
 ]
+
+[[package]]
+name = "sounddevice"
+version = "0.5.5"
+description = "Play and Record Sound with Python"
+optional = true
+python-versions = ">=3.7"
+groups = ["main"]
+markers = "extra == \"sounds\" or extra == \"all\""
+files = [
+    {file = "sounddevice-0.5.5-py3-none-any.whl", hash = "sha256:30ff99f6c107f49d25ad16a45cacd8d91c25a1bcdd3e81a206b921a3a6405b1f"},
+    {file = "sounddevice-0.5.5-py3-none-macosx_10_6_x86_64.macosx_10_6_universal2.whl", hash = "sha256:05eb9fd6c54c38d67741441c19164c0dae8ce80453af2d8c4ad2e7823d15b722"},
+    {file = "sounddevice-0.5.5-py3-none-win32.whl", hash = "sha256:1234cc9b4c9df97b6cbe748146ae0ec64dd7d6e44739e8e42eaa5b595313a103"},
+    {file = "sounddevice-0.5.5-py3-none-win_amd64.whl", hash = "sha256:cfc6b2c49fb7f555591c78cb8ecf48d6a637fd5b6e1db5fec6ed9365d64b3519"},
+    {file = "sounddevice-0.5.5-py3-none-win_arm64.whl", hash = "sha256:3861901ddd8230d2e0e8ae62ac320cdd4c688d81df89da036dcb812f757bb3e6"},
+    {file = "sounddevice-0.5.5.tar.gz", hash = "sha256:22487b65198cb5bf2208755105b524f78ad173e5ab6b445bdab1c989f6698df3"},
+]
+
+[package.dependencies]
+cffi = "*"
+
+[package.extras]
+numpy = ["numpy"]
 
 [[package]]
 name = "soupsieve"
@@ -9037,7 +9060,7 @@ type = ["pytest-mypy"]
 
 [extras]
 acp = ["agent-client-protocol"]
-all = ["agent-client-protocol", "dspy", "flask", "flask-cors", "matplotlib", "numpy", "opentelemetry-api", "opentelemetry-exporter-otlp", "opentelemetry-exporter-prometheus", "opentelemetry-instrumentation-anthropic", "opentelemetry-instrumentation-flask", "opentelemetry-instrumentation-openai", "opentelemetry-instrumentation-requests", "opentelemetry-instrumentation-threading", "opentelemetry-sdk", "pandas", "playwright", "pydantic", "sentence-transformers"]
+all = ["agent-client-protocol", "dspy", "flask", "flask-cors", "matplotlib", "numpy", "opentelemetry-api", "opentelemetry-exporter-otlp", "opentelemetry-exporter-prometheus", "opentelemetry-instrumentation-anthropic", "opentelemetry-instrumentation-flask", "opentelemetry-instrumentation-openai", "opentelemetry-instrumentation-requests", "opentelemetry-instrumentation-threading", "opentelemetry-sdk", "pandas", "playwright", "pydantic", "scipy", "sentence-transformers", "sounddevice"]
 browser = ["playwright"]
 computer = []
 datascience = ["matplotlib", "numpy", "pandas"]
@@ -9045,9 +9068,10 @@ dspy = ["dspy", "sentence-transformers"]
 eval = ["datasets", "dspy", "sentence-transformers", "swebench", "terminal-bench"]
 pyinstaller = ["pyinstaller"]
 server = ["flask", "flask-cors", "pydantic"]
+sounds = ["scipy", "sounddevice"]
 telemetry = ["opentelemetry-api", "opentelemetry-exporter-otlp", "opentelemetry-exporter-prometheus", "opentelemetry-instrumentation-anthropic", "opentelemetry-instrumentation-flask", "opentelemetry-instrumentation-openai", "opentelemetry-instrumentation-requests", "opentelemetry-instrumentation-threading", "opentelemetry-sdk"]
 
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "44d85407eff37cffd561ccf4b28a0610fbed6ae4f21508446a69f2f1c1a98a56"
+content-hash = "4a2d72d3c602a906bf097974373f097aeaa774ec27111ba251c0cdb3999ee9ca"

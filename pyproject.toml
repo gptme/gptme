@@ -80,6 +80,10 @@ pillow = {version = "*"}  # non-optional, needed for image scaling in vision
 matplotlib = {version = "*", optional=true}
 pandas = {version = "*", optional=true}
 numpy = {version = "*", optional=true}
+
+# tool sounds (GPTME_TOOL_SOUNDS=true)
+sounddevice = {version = "*", optional=true}
+scipy = {version = "*", optional=true}
 # server
 flask = {version = "^3.0", optional=true}
 flask-cors = {version = ">=4,<6", optional=true}
@@ -150,6 +154,7 @@ tomli = "^2.2.1"
 server = ["flask", "flask-cors", "pydantic"]
 browser = ["playwright"]
 datascience = ["matplotlib", "pandas", "numpy"]  # pillow (non-opt)
+sounds = ["sounddevice", "scipy"]
 computer = []  # pillow (non-opt)
 pyinstaller = ["pyinstaller"]
 acp = ["agent-client-protocol"]
@@ -171,6 +176,8 @@ all = [
     "playwright",
     # datascience
     "matplotlib", "pandas", "numpy", # "pillow",
+    # tool sounds
+    "sounddevice", "scipy",
     # computer
     # "pillow",
     # dspy prompt optimization
