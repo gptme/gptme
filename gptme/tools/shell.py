@@ -138,7 +138,10 @@ class BackgroundJob:
                 remaining = self.process.stdout.read()
                 if remaining:
                     with self._buffer_lock:
-                        self._append_to_buffer(self.stdout_buffer, remaining)
+                        self._append_to_buffer(
+                            self.stdout_buffer,
+                            remaining.decode("utf-8", errors="replace"),
+                        )
             except (OSError, ValueError):
                 pass
         if self.process.stderr:
@@ -146,7 +149,10 @@ class BackgroundJob:
                 remaining = self.process.stderr.read()
                 if remaining:
                     with self._buffer_lock:
-                        self._append_to_buffer(self.stderr_buffer, remaining)
+                        self._append_to_buffer(
+                            self.stderr_buffer,
+                            remaining.decode("utf-8", errors="replace"),
+                        )
             except (OSError, ValueError):
                 pass
 
