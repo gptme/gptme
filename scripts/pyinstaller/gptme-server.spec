@@ -26,7 +26,6 @@ hiddenimports = [
     '_json',
     # gptme modules
     'gptme.server.cli',
-    'gptme.server.api',
     'gptme.server.api_v2',
     'gptme.server.workspace_api',
     'gptme.tools',
