@@ -443,6 +443,16 @@ def main(
         # Workers start with empty sys.modules and import by name; the name must
         # match a file discoverable on sys.path.
         mod_name = module_path.stem
+        # Validate stem is a valid Python identifier — spawn-based worker processes
+        # reimport pickled check functions by module name, which requires it to be
+        # importable (i.e., a valid identifier matching the filename stem).
+        if not mod_name.isidentifier():
+            raise ValueError(
+                f"Eval module filename '{module_path.name}' produces module name "
+                f"'{mod_name}' which is not a valid Python identifier. "
+                f"Rename the file to use only letters, digits, and underscores "
+                f"(no dashes or spaces) so that multiprocessing workers can reimport it."
+            )
         # Add the module's parent dir to sys.path so worker processes can reimport it
         # (multiprocessing pickles functions by module+qualname and reimports them)
         parent = str(module_path.parent)
