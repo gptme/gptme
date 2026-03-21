@@ -77,9 +77,12 @@ def _load_topo_deps(ctx) -> dict[str, list[str]] | None:
     if not raw:
         return None
     try:
-        return json.loads(raw)
+        data = json.loads(raw)
     except json.JSONDecodeError:
         return None
+    if not isinstance(data, dict):
+        return None
+    return data
 
 
 def check_topo_all_tasks(ctx):
@@ -97,14 +100,16 @@ def check_topo_order_valid(ctx):
         return False
 
     lines = [line.strip() for line in ctx.stdout.splitlines() if line.strip()]
+    # Collect all node names: keys AND prereq values (prereqs may not be top-level keys)
+    all_tasks = set(deps.keys()) | {p for prereqs in deps.values() for p in prereqs}
     # Find first line index where each task appears
     positions: dict[str, int] = {}
     for i, line in enumerate(lines):
-        for task in deps:
+        for task in all_tasks:
             if task not in positions and re.search(rf"\b{re.escape(task)}\b", line):
                 positions[task] = i
 
-    if len(positions) < len(deps):
+    if len(positions) < len(all_tasks):
         return False
 
     # Verify each task appears after all its prerequisites
