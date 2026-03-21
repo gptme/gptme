@@ -1096,7 +1096,11 @@ def prompt_skills_summary(
                 # Truncate description to keep it compact
                 if len(desc) > 80:
                     desc = desc[:77] + "..."
-                lines.append(f"- **{name}**: {desc}")
+                entry = f"- **{name}**: {desc}"
+                if skill.metadata.depends:
+                    deps_str = ", ".join(skill.metadata.depends)
+                    entry += f" (depends: {deps_str})"
+                lines.append(entry)
                 lines.append(f"  `{skill.path}`")
 
             lines.append(f"\n*{len(skills)} skills available*")

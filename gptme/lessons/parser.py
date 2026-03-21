@@ -26,6 +26,11 @@ class LessonMetadata:
     name: str | None = None
     description: str | None = None
 
+    # Skill dependency declarations (agentskills.io trajectory)
+    # Lists other skills/tools this skill requires to function correctly.
+    # Used for: auto-installation, dependency graphs, circular detection.
+    depends: list[str] = field(default_factory=list)
+
     # Stable lesson identifier (optional)
     id: str | None = None
 
@@ -349,10 +354,19 @@ def parse_lesson(path: Path) -> Lesson:
                             k for k in raw_keywords if isinstance(k, str) and k.strip()
                         ]
 
+                        # Extract depends (skill dependency declarations)
+                        raw_depends = frontmatter.get("depends", [])
+                        if isinstance(raw_depends, str):
+                            raw_depends = [raw_depends]
+                        depends = [
+                            d for d in raw_depends if isinstance(d, str) and d.strip()
+                        ]
+
                         metadata = LessonMetadata(
                             name=name,
                             description=description,
                             id=lesson_id,
+                            depends=depends,
                             keywords=keywords,
                             patterns=patterns,
                             tools=match_data.get("tools", []),

@@ -454,6 +454,22 @@ def validate_skill(path: Path) -> list[str]:
     elif not isinstance(fm["description"], str):
         errors.append("Field 'description' must be a string")
 
+    # Dependency declarations (optional — validated if present)
+    depends = fm.get("depends", [])
+    if isinstance(depends, str):
+        depends = [depends]
+    if not isinstance(depends, list):
+        errors.append("Field 'depends' must be a list of strings")
+    elif depends:
+        for dep in depends:
+            if not isinstance(dep, str) or not dep.strip():
+                errors.append(f"Invalid dependency entry: {dep!r}")
+            elif not re.match(r"^[a-zA-Z0-9][\w.\-]*$", dep.strip()):
+                errors.append(
+                    f"Dependency '{dep}' contains invalid characters. "
+                    "Use skill names (alphanumeric, hyphens, dots)."
+                )
+
     # Marketplace metadata (recommended but not required)
     metadata = fm.get("metadata", {})
     if isinstance(metadata, dict):
@@ -473,12 +489,111 @@ def list_installed() -> list[InstalledSkill]:
     return list(manifest.skills.values())
 
 
+def check_dependencies(
+    skill_names: list[str] | None = None,
+) -> list[dict[str, str]]:
+    """Check if all skill dependencies are satisfied.
+
+    Args:
+        skill_names: Specific skills to check (None = check all installed)
+
+    Returns:
+        List of dicts with unsatisfied dependencies:
+        [{"skill": "my-skill", "depends": "missing-dep"}, ...]
+    """
+    from .index import LessonIndex
+
+    index = LessonIndex()
+    manifest = get_manifest()
+
+    # Build set of available skill names
+    available: set[str] = set()
+    for item in index.lessons:
+        if item.metadata.name:
+            available.add(item.metadata.name)
+    for name in manifest.skills:
+        available.add(name)
+
+    missing: list[dict[str, str]] = []
+
+    targets = skill_names or [
+        item.metadata.name for item in index.lessons if item.metadata.name
+    ]
+
+    for skill_name in targets:
+        if not skill_name:
+            continue
+        # Find the skill in index or manifest
+        deps: list[str] = []
+        for item in index.lessons:
+            if item.metadata.name == skill_name:
+                deps = item.metadata.depends
+                break
+        if not deps and skill_name in manifest.skills:
+            # Check manifest entry's SKILL.md
+            skill_path = Path(manifest.skills[skill_name].install_path)
+            skill_md = _find_skill_md(skill_path)
+            if skill_md:
+                fm = _parse_skill_frontmatter(skill_md)
+                raw = fm.get("depends", [])
+                if isinstance(raw, str):
+                    raw = [raw]
+                deps = [d for d in raw if isinstance(d, str) and d.strip()]
+
+        missing.extend(
+            {"skill": skill_name, "depends": dep}
+            for dep in deps
+            if dep not in available
+        )
+
+    return missing
+
+
+def dependency_graph() -> dict[str, list[str]]:
+    """Build a dependency graph of all skills with dependencies.
+
+    Returns:
+        Dict mapping skill name to its dependency list.
+        Only includes skills that have dependencies.
+    """
+    from .index import LessonIndex
+
+    index = LessonIndex()
+    graph: dict[str, list[str]] = {}
+
+    for item in index.lessons:
+        if item.metadata.name and item.metadata.depends:
+            graph[item.metadata.name] = list(item.metadata.depends)
+
+    # Detect circular dependencies (simple depth-first check)
+    def _has_cycle(node: str, visited: set[str], stack: set[str]) -> bool:
+        visited.add(node)
+        stack.add(node)
+        for dep in graph.get(node, []):
+            if dep not in visited:
+                if _has_cycle(dep, visited, stack):
+                    return True
+            elif dep in stack:
+                logger.warning(f"Circular dependency detected: {node} -> {dep}")
+                return True
+        stack.discard(node)
+        return False
+
+    visited: set[str] = set()
+    for skill in graph:
+        if skill not in visited:
+            _has_cycle(skill, visited, set())
+
+    return graph
+
+
 # --- Skill template for init ---
 
 SKILL_TEMPLATE = """\
 ---
 name: {name}
 description: {description}
+# depends: [other-skill]  # Optional: list skill dependencies
 metadata:
   author: {author}
   version: "0.1.0"

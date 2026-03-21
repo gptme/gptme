@@ -377,3 +377,194 @@ class TestPublishSkill:
         assert archive is not None
         # Minimal skills should publish but show warnings
         assert "Warnings" in msg or "metadata" in msg.lower()
+
+
+class TestSkillDependencies:
+    """Tests for skill dependency declarations."""
+
+    def test_valid_depends_in_skill(self, tmp_path: Path):
+        """Skill with valid depends list should pass validation."""
+        skill = tmp_path / "dep-skill"
+        skill.mkdir()
+        (skill / "SKILL.md").write_text(
+            """---
+name: dep-skill
+description: A skill with dependencies
+depends:
+  - other-skill
+  - another-skill
+metadata:
+  author: test
+  version: "1.0.0"
+  tags: test
+---
+
+# Dep Skill
+
+Needs other skills.
+"""
+        )
+        errors = validate_skill(skill)
+        real_errors = [e for e in errors if "recommended" not in e.lower()]
+        assert not real_errors, f"Unexpected errors: {real_errors}"
+
+    def test_depends_string_auto_converts(self, tmp_path: Path):
+        """Single depends string should be accepted (auto-converts to list)."""
+        skill = tmp_path / "single-dep"
+        skill.mkdir()
+        (skill / "SKILL.md").write_text(
+            """---
+name: single-dep
+description: Skill with single string depends
+depends: other-skill
+metadata:
+  author: test
+  version: "1.0.0"
+  tags: test
+---
+
+# Single Dep
+"""
+        )
+        errors = validate_skill(skill)
+        real_errors = [e for e in errors if "recommended" not in e.lower()]
+        assert not real_errors, f"Unexpected errors: {real_errors}"
+
+    def test_invalid_depends_type(self, tmp_path: Path):
+        """Non-list/non-string depends should fail validation."""
+        skill = tmp_path / "bad-deps"
+        skill.mkdir()
+        (skill / "SKILL.md").write_text(
+            """---
+name: bad-deps
+description: Skill with invalid depends
+depends: 42
+metadata:
+  author: test
+  version: "1.0.0"
+  tags: test
+---
+
+# Bad Deps
+"""
+        )
+        errors = validate_skill(skill)
+        dep_errors = [e for e in errors if "depends" in e.lower()]
+        assert any("must be a list" in e for e in dep_errors)
+
+    def test_invalid_depends_characters(self, tmp_path: Path):
+        """Dependency with invalid characters should fail."""
+        skill = tmp_path / "char-deps"
+        skill.mkdir()
+        (skill / "SKILL.md").write_text(
+            """---
+name: char-deps
+description: Skill with bad dependency names
+depends:
+  - "../evil"
+  - "has spaces"
+metadata:
+  author: test
+  version: "1.0.0"
+  tags: test
+---
+
+# Char Deps
+"""
+        )
+        errors = validate_skill(skill)
+        dep_errors = [
+            e for e in errors if "depends" in e.lower() or "invalid" in e.lower()
+        ]
+        assert len(dep_errors) >= 2, f"Expected 2+ dependency errors, got: {dep_errors}"
+
+    def test_empty_depends_entry(self, tmp_path: Path):
+        """Empty string dependency should fail."""
+        skill = tmp_path / "empty-dep"
+        skill.mkdir()
+        (skill / "SKILL.md").write_text(
+            """---
+name: empty-dep
+description: Skill with empty dep
+depends:
+  - ""
+metadata:
+  author: test
+  version: "1.0.0"
+  tags: test
+---
+
+# Empty Dep
+"""
+        )
+        errors = validate_skill(skill)
+        dep_errors = [e for e in errors if "Invalid dependency" in e]
+        assert len(dep_errors) == 1
+
+    def test_no_depends_is_valid(self, skill_dir: Path):
+        """Skill without depends field should be valid."""
+        errors = validate_skill(skill_dir)
+        real_errors = [e for e in errors if "recommended" not in e.lower()]
+        assert not real_errors
+
+    def test_dependency_graph_from_index(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """dependency_graph should return skills with dependencies."""
+        from gptme.lessons.parser import parse_lesson
+
+        skill1 = tmp_path / "skill-a"
+        skill1.mkdir()
+        (skill1 / "SKILL.md").write_text(
+            """---
+name: skill-a
+description: Depends on skill-b
+depends:
+  - skill-b
+---
+
+# Skill A
+"""
+        )
+        skill2 = tmp_path / "skill-b"
+        skill2.mkdir()
+        (skill2 / "SKILL.md").write_text(
+            """---
+name: skill-b
+description: No dependencies
+---
+
+# Skill B
+"""
+        )
+
+        # Verify parser extracts depends
+        parsed_a = parse_lesson(skill1 / "SKILL.md")
+        assert parsed_a.metadata.depends == ["skill-b"]
+
+        parsed_b = parse_lesson(skill2 / "SKILL.md")
+        assert parsed_b.metadata.depends == []
+
+    def test_depends_with_dots_and_hyphens(self, tmp_path: Path):
+        """Dependencies with dots and hyphens should be valid."""
+        skill = tmp_path / "deps-dots"
+        skill.mkdir()
+        (skill / "SKILL.md").write_text(
+            """---
+name: deps-dots
+description: Skill with dotted dependencies
+depends:
+  - org.other-skill
+  - my-skill.v2
+metadata:
+  author: test
+  version: "1.0.0"
+  tags: test
+---
+
+# Dots Deps
+"""
+        )
+        errors = validate_skill(skill)
+        real_errors = [e for e in errors if "recommended" not in e.lower()]
+        assert not real_errors, f"Unexpected errors: {real_errors}"
