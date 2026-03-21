@@ -44,6 +44,9 @@ from .shell_background import (
     execute_kill_command,
     execute_output_command,
     get_background_job,
+    list_background_jobs,  # noqa: F401  # re-exported for tests
+    reset_background_jobs,  # noqa: F401  # re-exported for tests
+    start_background_job,  # noqa: F401  # re-exported for tests
 )
 from .shell_validation import (
     _find_first_unquoted_pipe,
