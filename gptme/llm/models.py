@@ -784,6 +784,7 @@ def get_model(model: str) -> ModelMeta:
                                 supports_streaming=model_meta.supports_streaming,
                                 supports_vision=model_meta.supports_vision,
                                 supports_reasoning=model_meta.supports_reasoning,
+                                supports_parallel_tool_calls=model_meta.supports_parallel_tool_calls,
                                 price_input=model_meta.price_input,
                                 price_output=model_meta.price_output,
                                 knowledge_cutoff=model_meta.knowledge_cutoff,
