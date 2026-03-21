@@ -79,7 +79,7 @@ tests = [
 
     runner = CliRunner()
     saved_path = list(sys.path)
-    saved_modules = dict(sys.modules)
+    modules_before = frozenset(sys.modules)
     try:
         with (
             patch("gptme.eval.main.run_evals", side_effect=fake_run_evals),
@@ -91,10 +91,13 @@ tests = [
                 catch_exceptions=False,
             )
     finally:
-        # Restore global state mutated by the module loader (sys.path / sys.modules)
+        # Restore global state mutated by the module loader (sys.path / sys.modules).
+        # Only remove newly added modules — clearing all of sys.modules is too
+        # aggressive and can corrupt pytest's import state in xdist workers.
         sys.path[:] = saved_path
-        sys.modules.clear()
-        sys.modules.update(saved_modules)
+        for key in list(sys.modules):
+            if key not in modules_before:
+                del sys.modules[key]
     # Module loaded without error and the test was passed to run_evals
     assert result.exit_code == 0, f"Unexpected exit: {result.output}"
     assert len(captured_evals) == 1, f"Expected 1 eval, got {captured_evals}"
