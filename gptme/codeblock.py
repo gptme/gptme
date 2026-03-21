@@ -176,7 +176,7 @@ def _extract_codeblocks(
         # "```\n```patch file.py". ToolUse._to_markdown always emits triple fences,
         # so six leading backticks followed immediately by a language tag is a good
         # signal that the first three backticks belong to the previous block.
-        if re.match(r"^``````\S", line):
+        if re.match(r"^`{6}[^`\s]", line):
             line = line[3:]
             lines[i] = line
 
