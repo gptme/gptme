@@ -1,5 +1,6 @@
 import copy
 import random
+import unittest.mock
 
 import pytest
 
@@ -106,11 +107,6 @@ def test_api_conversation_post(conv, client: FlaskClient):
     assert response.status_code == 200
 
 
-@pytest.mark.slow
-@pytest.mark.requires_api
-@pytest.mark.xfail(
-    reason="sometimes gets {'error': \"'Mock' object is not iterable\"} in CI"
-)
 def test_api_conversation_generate(conv: str, client: FlaskClient):
     # Ask the assistant to generate a test response
     response = client.post(
@@ -119,13 +115,18 @@ def test_api_conversation_generate(conv: str, client: FlaskClient):
     )
     assert response.status_code == 200
 
-    model = m.full if (m := get_default_model()) else get_recommended_model("anthropic")
+    # Mock _stream to return a deterministic iterable response, avoiding
+    # real API calls that previously caused flaky "'Mock' object is not iterable"
+    # errors in CI (the old test was marked xfail for this reason).
+    def mock_stream(messages, model, tools=None):
+        yield "Hello! "
+        yield "This is a test response."
 
-    # Test regular (non-streaming) response
-    response = client.post(
-        f"/api/conversations/{conv}/generate",
-        json={"model": model},
-    )
+    with unittest.mock.patch("gptme.server.api._stream", mock_stream):
+        response = client.post(
+            f"/api/conversations/{conv}/generate",
+            json={"model": "test/mock-model"},
+        )
     assert response.status_code == 200
     data = response.get_data(as_text=True)
     assert data  # Ensure we got some response
@@ -140,6 +141,7 @@ def test_api_conversation_generate(conv: str, client: FlaskClient):
 
     # First message should be the assistant's response
     assert msgs_resps[0]["role"] == "assistant"
+    assert msgs_resps[0]["content"] == "Hello! This is a test response."
 
 
 @pytest.mark.slow
