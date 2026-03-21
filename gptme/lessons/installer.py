@@ -500,6 +500,9 @@ def check_dependencies(
     Returns:
         List of dicts with unsatisfied dependencies:
         [{"skill": "my-skill", "depends": "missing-dep"}, ...]
+
+    Raises:
+        KeyError: If any name in ``skill_names`` is not a known installed skill.
     """
     from .index import LessonIndex
 
@@ -517,6 +520,13 @@ def check_dependencies(
     missing: list[dict[str, str]] = []
 
     if skill_names is not None:
+        # Validate that each requested name is actually known
+        unknown = [n for n in skill_names if n not in available]
+        if unknown:
+            raise KeyError(
+                f"Unknown skill(s): {', '.join(sorted(unknown))}. "
+                "Check installed skills with `gptme --list-skills`."
+            )
         targets = skill_names
     else:
         # Include all known skills: indexed + manifest-only

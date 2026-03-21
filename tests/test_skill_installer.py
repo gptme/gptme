@@ -650,3 +650,57 @@ metadata:
         assert any(m["skill"] == "test-skill" for m in missing), (
             f"Manifest-only skill not checked: {missing}"
         )
+
+    def test_check_dependencies_explicit_skill_names(
+        self, tmp_path: Path, skill_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """check_dependencies(["skill"]) should work for known installed skills."""
+        from gptme.lessons.index import LessonIndex
+        from gptme.lessons.parser import parse_lesson
+
+        # Create a skill that depends on another skill
+        dep_skill = tmp_path / "dep-skill"
+        dep_skill.mkdir()
+        (dep_skill / "SKILL.md").write_text(
+            "---\nname: dep-skill\ndescription: A dependency\n---\n# Dep\n"
+        )
+
+        skill_with_dep = tmp_path / "skill-with-dep"
+        skill_with_dep.mkdir()
+        (skill_with_dep / "SKILL.md").write_text(
+            "---\nname: skill-with-dep\ndescription: Has a dep\ndepends:\n  - dep-skill\n---\n# Has dep\n"
+        )
+
+        parsed_dep = parse_lesson(dep_skill / "SKILL.md")
+        parsed_main = parse_lesson(skill_with_dep / "SKILL.md")
+
+        fake_index = LessonIndex.__new__(LessonIndex)
+        fake_index.lessons = [parsed_dep, parsed_main]
+        monkeypatch.setattr("gptme.lessons.index.LessonIndex", lambda: fake_index)
+        monkeypatch.setattr(
+            "gptme.lessons.installer.get_manifest", lambda: SkillManifest()
+        )
+
+        # Satisfied dep — should return empty list
+        missing = check_dependencies(["skill-with-dep"])
+        assert missing == [], f"Expected no missing deps but got: {missing}"
+
+        # Direct check of existing skill — dep present
+        missing2 = check_dependencies(["dep-skill"])
+        assert missing2 == [], f"Expected no missing deps for dep-skill: {missing2}"
+
+    def test_check_dependencies_raises_on_unknown_skill(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """check_dependencies(["nonexistent"]) should raise KeyError, not return []."""
+        from gptme.lessons.index import LessonIndex
+
+        fake_index = LessonIndex.__new__(LessonIndex)
+        fake_index.lessons = []
+        monkeypatch.setattr("gptme.lessons.index.LessonIndex", lambda: fake_index)
+        monkeypatch.setattr(
+            "gptme.lessons.installer.get_manifest", lambda: SkillManifest()
+        )
+
+        with pytest.raises(KeyError, match="nonexistent-skill"):
+            check_dependencies(["nonexistent-skill"])
