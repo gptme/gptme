@@ -704,3 +704,60 @@ metadata:
 
         with pytest.raises(KeyError, match="nonexistent-skill"):
             check_dependencies(["nonexistent-skill"])
+
+    def test_depends_null_does_not_crash_check_dependencies(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """check_dependencies should handle 'depends: null' SKILL.md without TypeError."""
+        from gptme.lessons.index import LessonIndex
+
+        # Skill present in manifest but not in index (manifest-only path)
+        null_skill_dir = tmp_path / "null-dep-skill"
+        null_skill_dir.mkdir()
+        (null_skill_dir / "SKILL.md").write_text(
+            "---\nname: null-dep-skill\ndescription: test\ndepends:\n---\n# Body\n"
+        )
+        manifest = SkillManifest()
+        manifest.skills["null-dep-skill"] = InstalledSkill(
+            name="null-dep-skill",
+            version="0.1.0",
+            source="local",
+            install_path=str(null_skill_dir),
+            installed_at="2026-01-01T00:00:00+00:00",
+        )
+        fake_index = LessonIndex.__new__(LessonIndex)
+        fake_index.lessons = []
+        monkeypatch.setattr("gptme.lessons.index.LessonIndex", lambda: fake_index)
+        monkeypatch.setattr("gptme.lessons.installer.get_manifest", lambda: manifest)
+
+        # Should not raise TypeError
+        result = check_dependencies()
+        assert result == []
+
+    def test_depends_null_does_not_crash_dependency_graph(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """dependency_graph should handle 'depends: null' SKILL.md without TypeError."""
+        from gptme.lessons.index import LessonIndex
+
+        null_skill_dir = tmp_path / "null-dep-skill"
+        null_skill_dir.mkdir()
+        (null_skill_dir / "SKILL.md").write_text(
+            "---\nname: null-dep-skill\ndescription: test\ndepends:\n---\n# Body\n"
+        )
+        manifest = SkillManifest()
+        manifest.skills["null-dep-skill"] = InstalledSkill(
+            name="null-dep-skill",
+            version="0.1.0",
+            source="local",
+            install_path=str(null_skill_dir),
+            installed_at="2026-01-01T00:00:00+00:00",
+        )
+        fake_index = LessonIndex.__new__(LessonIndex)
+        fake_index.lessons = []
+        monkeypatch.setattr("gptme.lessons.index.LessonIndex", lambda: fake_index)
+        monkeypatch.setattr("gptme.lessons.installer.get_manifest", lambda: manifest)
+
+        # Should not raise TypeError; skill with no deps should not appear in graph
+        graph = dependency_graph()
+        assert "null-dep-skill" not in graph

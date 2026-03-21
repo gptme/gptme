@@ -113,6 +113,19 @@ def _parse_skill_frontmatter(skill_md: Path) -> dict:
         return {}
 
 
+def _extract_depends(fm: dict) -> list[str]:
+    """Extract and normalise the 'depends' field from parsed SKILL.md frontmatter.
+
+    Handles str, list, null (None), and any other scalar gracefully.
+    """
+    raw = fm.get("depends", [])
+    if isinstance(raw, str):
+        raw = [raw]
+    elif not isinstance(raw, list):
+        raw = []
+    return [d for d in raw if isinstance(d, str) and d.strip()]
+
+
 def _sanitize_skill_name(name: str) -> str:
     """Sanitize a skill name to prevent path traversal attacks.
 
@@ -554,10 +567,7 @@ def check_dependencies(
             skill_md = _find_skill_md(skill_path)
             if skill_md:
                 fm = _parse_skill_frontmatter(skill_md)
-                raw = fm.get("depends", [])
-                if isinstance(raw, str):
-                    raw = [raw]
-                deps = [d for d in raw if isinstance(d, str) and d.strip()]
+                deps = _extract_depends(fm)
 
         missing.extend(
             {"skill": skill_name, "depends": dep}
@@ -598,10 +608,7 @@ def dependency_graph() -> dict[str, list[str]]:
             skill_md = _find_skill_md(skill_path)
             if skill_md:
                 fm = _parse_skill_frontmatter(skill_md)
-                raw = fm.get("depends", [])
-                if isinstance(raw, str):
-                    raw = [raw]
-                deps = [d for d in raw if isinstance(d, str) and d.strip()]
+                deps = _extract_depends(fm)
                 if deps:
                     graph[name] = deps
 
