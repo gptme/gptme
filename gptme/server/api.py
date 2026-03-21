@@ -18,7 +18,6 @@ from pathlib import Path
 import flask
 from dateutil.parser import isoparse
 from flask import current_app, request
-from flask_cors import CORS
 
 from ..commands import execute_cmd
 from ..config import get_config
@@ -28,7 +27,7 @@ from ..llm.models import get_default_model
 from ..logmanager import LogManager, get_user_conversations, prepare_messages
 from ..message import Message
 from ..tools import ToolUse, execute_msg, init_tools
-from ..util.uri import URI
+from .api_v2_common import _abs_to_rel_workspace
 from .auth import require_auth
 from .openapi_docs import (
     ConversationCreateRequest,
@@ -129,21 +128,6 @@ def api_conversations():
     limit = int(request.args.get("limit", 100))
     conversations = list(islice(get_user_conversations(), limit))
     return flask.jsonify(conversations)
-
-
-def _abs_to_rel_workspace(path: str | Path | URI, workspace: Path) -> str:
-    """Convert an absolute path to a relative path.
-
-    URIs are returned as-is since they are not workspace-relative.
-    """
-    # URIs should be returned as-is (they're not workspace-relative)
-    if isinstance(path, URI):
-        return str(path)
-
-    path = Path(path).resolve()
-    if path.is_relative_to(workspace):
-        return str(path.relative_to(workspace))
-    return str(path)
 
 
 @api.route("/api/conversations/<string:logfile>")
@@ -565,67 +549,3 @@ def chat():
 @api.route("/favicon.png")
 def favicon():
     return flask.send_from_directory(media_path, "logo.png")
-
-
-def create_app(cors_origin: str | None = None, host: str = "127.0.0.1") -> flask.Flask:
-    """Create the Flask app.
-
-    Args:
-        cors_origin: CORS origin to allow. Use '*' to allow all origins.
-    """
-    app = flask.Flask(__name__, static_folder=static_path)
-    app.register_blueprint(api)
-
-    # Capture the server's default model from the startup context
-    # This is needed because ContextVar doesn't propagate across request contexts
-    from ..llm.models import get_default_model, set_default_model
-
-    server_default_model = get_default_model()
-    if server_default_model:
-        app.config["SERVER_DEFAULT_MODEL"] = server_default_model
-
-        @app.before_request
-        def propagate_default_model():
-            """Propagate the server's default model to each request's ContextVar."""
-            # Only set if not already set in this context
-            if get_default_model() is None:
-                set_default_model(server_default_model)
-
-    # Register v2 API, workspace API, and tasks API
-    # noreorder
-    from .api_v2 import v2_api  # fmt: skip
-    from .tasks_api import tasks_api  # fmt: skip
-    from .workspace_api import workspace_api  # fmt: skip
-
-    app.register_blueprint(v2_api)
-    app.register_blueprint(workspace_api)
-    app.register_blueprint(tasks_api)
-
-    # Register OpenAPI documentation
-    from .openapi_docs import docs_api  # fmt: skip
-
-    app.register_blueprint(docs_api)
-    logger.info("OpenAPI documentation available at /api/docs/")
-
-    if cors_origin:
-        # Only allow credentials if a specific origin is set (not '*')
-        allow_credentials = cors_origin != "*" if cors_origin else False
-        CORS(
-            app,
-            resources={
-                r"/api/*": {
-                    "origins": cors_origin,
-                    "supports_credentials": allow_credentials,
-                }
-            },
-        )
-
-    # Initialize auth (defaults to local-only, no auth required)
-    from .auth import init_auth  # fmt: skip
-
-    init_auth(host=host, display=False)
-
-    # Server confirmation hook is now registered via init_hooks(server=True)
-    # in server/cli.py
-
-    return app

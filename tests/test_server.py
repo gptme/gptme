@@ -215,7 +215,7 @@ def test_default_model_propagation():
     # Set a default model before creating the app (simulates server startup with --model)
     # Use a mock model object that matches what get_default_model returns
     from gptme.llm.models import ModelMeta, set_default_model
-    from gptme.server.api import create_app
+    from gptme.server.app import create_app
 
     test_model = ModelMeta(
         provider="openai",

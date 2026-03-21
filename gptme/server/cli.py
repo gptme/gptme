@@ -9,7 +9,7 @@ from gptme.config import set_config_from_workspace
 
 from ..init import init, init_logging
 from ..telemetry import init_telemetry, shutdown_telemetry
-from .api import create_app
+from .app import create_app
 from .auth import get_server_token, init_auth
 from .constants import DEFAULT_FALLBACK_MODEL
 

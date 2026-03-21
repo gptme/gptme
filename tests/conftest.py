@@ -283,7 +283,7 @@ def server_thread():
         "flask", reason="flask not installed, install server extras (-E server)"
     )
 
-    from gptme.server.api import create_app  # fmt: skip
+    from gptme.server.app import create_app  # fmt: skip
 
     app = create_app()
 
@@ -314,7 +314,7 @@ def server_thread():
 
 @pytest.fixture
 def client():
-    from gptme.server.api import create_app  # fmt: skip
+    from gptme.server.app import create_app  # fmt: skip
 
     app = create_app()
 

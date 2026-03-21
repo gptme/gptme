@@ -45,9 +45,8 @@ def _validate_conversation_id(
     return None
 
 
-from .api import _abs_to_rel_workspace
 from .api_v2_agents import agents_api
-from .api_v2_common import msg2dict
+from .api_v2_common import _abs_to_rel_workspace, msg2dict
 from .api_v2_sessions import SessionManager, sessions_api
 from .auth import require_auth
 from .openapi_docs import (

@@ -194,7 +194,7 @@ class TestAbsToRelWorkspace:
         """URIs should be returned as-is, not converted to paths."""
         from pathlib import Path
 
-        from gptme.server.api import _abs_to_rel_workspace
+        from gptme.server.api_v2_common import _abs_to_rel_workspace
 
         workspace = Path("/tmp/workspace")
         uri = URI("https://example.com/doc.pdf")
@@ -207,7 +207,7 @@ class TestAbsToRelWorkspace:
         """MCP URIs should be returned as-is."""
         from pathlib import Path
 
-        from gptme.server.api import _abs_to_rel_workspace
+        from gptme.server.api_v2_common import _abs_to_rel_workspace
 
         workspace = Path("/tmp/workspace")
         uri = URI("memo://resource/123")
@@ -220,7 +220,7 @@ class TestAbsToRelWorkspace:
         """Regular paths should still be converted to relative."""
         from pathlib import Path
 
-        from gptme.server.api import _abs_to_rel_workspace
+        from gptme.server.api_v2_common import _abs_to_rel_workspace
 
         workspace = Path("/tmp/workspace")
         abs_path = Path("/tmp/workspace/subdir/file.txt")
@@ -233,7 +233,7 @@ class TestAbsToRelWorkspace:
         """Paths outside workspace should be returned as-is."""
         from pathlib import Path
 
-        from gptme.server.api import _abs_to_rel_workspace
+        from gptme.server.api_v2_common import _abs_to_rel_workspace
 
         workspace = Path("/tmp/workspace")
         outside_path = Path("/other/location/file.txt")
