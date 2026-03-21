@@ -513,6 +513,7 @@ metadata:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
         """dependency_graph should return skills with dependencies."""
+        from gptme.lessons.index import LessonIndex
         from gptme.lessons.parser import parse_lesson
 
         skill1 = tmp_path / "skill-a"
@@ -540,12 +541,21 @@ description: No dependencies
 """
         )
 
-        # Verify parser extracts depends
         parsed_a = parse_lesson(skill1 / "SKILL.md")
-        assert parsed_a.metadata.depends == ["skill-b"]
-
         parsed_b = parse_lesson(skill2 / "SKILL.md")
-        assert parsed_b.metadata.depends == []
+
+        # Monkeypatch LessonIndex and manifest to use our test skills
+        fake_index = LessonIndex.__new__(LessonIndex)
+        fake_index.lessons = [parsed_a, parsed_b]
+        monkeypatch.setattr("gptme.lessons.index.LessonIndex", lambda: fake_index)
+        monkeypatch.setattr(
+            "gptme.lessons.installer.get_manifest", lambda: SkillManifest()
+        )
+
+        graph = dependency_graph()
+
+        assert graph == {"skill-a": ["skill-b"]}
+        assert "skill-b" not in graph  # No deps, not included
 
     def test_depends_with_dots_and_hyphens(self, tmp_path: Path):
         """Dependencies with dots and hyphens should be valid."""

@@ -569,11 +569,29 @@ def dependency_graph() -> dict[str, list[str]]:
     from .index import LessonIndex
 
     index = LessonIndex()
+    manifest = get_manifest()
     graph: dict[str, list[str]] = {}
 
+    indexed_names: set[str] = set()
     for item in index.lessons:
         if item.metadata.name and item.metadata.depends:
             graph[item.metadata.name] = list(item.metadata.depends)
+        if item.metadata.name:
+            indexed_names.add(item.metadata.name)
+
+    # Include manifest-only skills (installed via git URL or local path, not in index)
+    for name, skill_info in manifest.skills.items():
+        if name not in indexed_names:
+            skill_path = Path(skill_info.install_path)
+            skill_md = _find_skill_md(skill_path)
+            if skill_md:
+                fm = _parse_skill_frontmatter(skill_md)
+                raw = fm.get("depends", [])
+                if isinstance(raw, str):
+                    raw = [raw]
+                deps = [d for d in raw if isinstance(d, str) and d.strip()]
+                if deps:
+                    graph[name] = deps
 
     # Detect circular dependencies (simple depth-first check)
     cycles: list[str] = []
