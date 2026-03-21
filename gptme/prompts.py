@@ -1086,7 +1086,7 @@ def prompt_skills_summary(
                 depends_attr = ""
                 if skill.metadata.depends:
                     depends_attr = (
-                        f" depends={quoteattr(' '.join(skill.metadata.depends))}"
+                        f" depends={quoteattr(', '.join(skill.metadata.depends))}"
                     )
                 skill_entries.append(
                     f"  <skill name={name} path={path}{depends_attr}>{desc}</skill>"

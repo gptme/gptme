@@ -532,12 +532,14 @@ def check_dependencies(
             continue
         # Find the skill in index or manifest
         deps: list[str] = []
+        found_in_index = False
         for item in index.lessons:
             if item.metadata.name == skill_name:
                 deps = item.metadata.depends
+                found_in_index = True
                 break
-        if not deps and skill_name in manifest.skills:
-            # Check manifest entry's SKILL.md
+        if not found_in_index and skill_name in manifest.skills:
+            # Not in index at all — check manifest entry's SKILL.md
             skill_path = Path(manifest.skills[skill_name].install_path)
             skill_md = _find_skill_md(skill_path)
             if skill_md:
@@ -593,28 +595,31 @@ def dependency_graph() -> dict[str, list[str]]:
                 if deps:
                     graph[name] = deps
 
-    # Detect circular dependencies (simple depth-first check)
+    # Detect circular dependencies — iterative DFS to avoid RecursionError on deep chains
     cycles: list[str] = []
-
-    def _has_cycle(node: str, visited: set[str], stack: set[str]) -> bool:
-        visited.add(node)
-        stack.add(node)
-        for dep in graph.get(node, []):
-            if dep not in visited:
-                if _has_cycle(dep, visited, stack):
-                    return True
-            elif dep in stack:
-                cycle = f"{node} -> {dep}"
-                cycles.append(cycle)
-                logger.warning(f"Circular dependency detected: {cycle}")
-                return True
-        stack.discard(node)
-        return False
-
     visited: set[str] = set()
-    for skill in graph:
-        if skill not in visited:
-            _has_cycle(skill, visited, set())
+
+    for start in graph:
+        if start in visited:
+            continue
+        # path tracks the nodes on the current DFS stack (for back-edge detection)
+        path: set[str] = {start}
+        dfs_stack = [(start, iter(graph.get(start, [])))]
+        while dfs_stack:
+            node, deps_iter = dfs_stack[-1]
+            try:
+                dep = next(deps_iter)
+                if dep in path:
+                    cycle_str = f"{node} -> {dep}"
+                    cycles.append(cycle_str)
+                    logger.warning(f"Circular dependency detected: {cycle_str}")
+                elif dep not in visited:
+                    path.add(dep)
+                    dfs_stack.append((dep, iter(graph.get(dep, []))))
+            except StopIteration:
+                visited.add(node)
+                path.discard(node)
+                dfs_stack.pop()
 
     if cycles:
         raise ValueError(f"Circular dependencies detected: {', '.join(cycles)}")

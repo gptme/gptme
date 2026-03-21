@@ -602,10 +602,13 @@ metadata:
         parsed_a = parse_lesson(skill_a / "SKILL.md")
         parsed_b = parse_lesson(skill_b / "SKILL.md")
 
-        # Monkeypatch LessonIndex at the source module
+        # Monkeypatch LessonIndex and manifest (explicit isolation — no disk reads)
         fake_index = LessonIndex.__new__(LessonIndex)
         fake_index.lessons = [parsed_a, parsed_b]
         monkeypatch.setattr("gptme.lessons.index.LessonIndex", lambda: fake_index)
+        monkeypatch.setattr(
+            "gptme.lessons.installer.get_manifest", lambda: SkillManifest()
+        )
 
         with pytest.raises(ValueError, match="Circular"):
             dependency_graph()
