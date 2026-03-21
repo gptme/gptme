@@ -438,16 +438,25 @@ def main(
     external_evals: list[EvalSpec] = []
     for module_path in eval_modules:
         module_path = module_path.resolve()
-        # Use a unique module name to avoid stem collisions when loading multiple
-        # modules with the same filename (e.g. /a/eval.py and /b/eval.py).
-        # Multiprocessing workers pickle functions by module name + qualname and
-        # reimport by that name, so the name must be stable and unique.
-        mod_name = f"_gptme_eval_{module_path.stem}_{abs(hash(str(module_path)))}"
+        # Use the file stem as the module name so spawn-based worker processes
+        # (default on macOS/Windows) can reimport pickled check functions.
+        # Workers start with empty sys.modules and import by name; the name must
+        # match a file discoverable on sys.path.
+        mod_name = module_path.stem
         # Add the module's parent dir to sys.path so worker processes can reimport it
         # (multiprocessing pickles functions by module+qualname and reimports them)
         parent = str(module_path.parent)
         if parent not in sys.path:
             sys.path.insert(0, parent)
+        # Detect stem collisions (two different files with the same stem) and raise
+        # early rather than silently overwriting the first module's check functions.
+        if mod_name in sys.modules and getattr(
+            sys.modules[mod_name], "__file__", None
+        ) != str(module_path):
+            raise ValueError(
+                f"Eval module stem collision: '{mod_name}' is already loaded from a "
+                f"different file. Rename your eval module to use a unique filename."
+            )
         mod_spec = importlib.util.spec_from_file_location(mod_name, module_path)
         if mod_spec is None or mod_spec.loader is None:
             raise ValueError(f"Could not load eval module: {module_path}")
@@ -474,6 +483,12 @@ def main(
             raise ValueError(f"Test or results '{eval_name}' not found")
 
     evals_to_run.extend(external_evals)
+
+    if eval_modules and not external_evals:
+        logger.warning(
+            "All --eval-module files defined empty 'tests' lists; "
+            "falling back to default suite"
+        )
 
     if not evals_to_run:
         evals_to_run = tests_default

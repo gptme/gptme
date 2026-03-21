@@ -1,3 +1,4 @@
+import importlib
 import os
 import subprocess
 import sys
@@ -13,6 +14,11 @@ from gptme.eval.agents import Agent, GPTMe
 from gptme.eval.main import main
 from gptme.eval.run import ProcessError, SyncedDict, act_process
 from gptme.eval.suites import suites, tests_map
+
+# importlib.import_module returns the actual module object from sys.modules,
+# not the 'main' Click-command attribute exposed via gptme/eval/__init__.py.
+# 'import gptme.eval.main as x' would also get the Click command via IMPORT_FROM.
+_eval_main_module = importlib.import_module("gptme.eval.main")
 
 if TYPE_CHECKING:
     from gptme.eval.types import EvalSpec
@@ -82,7 +88,10 @@ tests = [
     modules_before = frozenset(sys.modules)
     try:
         with (
-            patch("gptme.eval.main.run_evals", side_effect=fake_run_evals),
+            # Use patch.object to avoid mock._importer resolving "gptme.eval.main"
+            # via getattr(gptme.eval, "main") which returns the Click command instead
+            # of the submodule (gptme/eval/__init__.py overrides the attribute).
+            patch.object(_eval_main_module, "run_evals", side_effect=fake_run_evals),
             runner.isolated_filesystem(),
         ):
             result = runner.invoke(
