@@ -47,6 +47,7 @@ _EXTRA_DESCRIPTIONS = {
     "telemetry": "OpenTelemetry instrumentation",
     "acp": "Agent Communication Protocol support",
     "computer": "Computer use (system tools)",
+    "sounds": "Tool sound notifications (sounddevice + scipy)",
 }
 
 # Internal/build extras that aren't useful to show in --version
