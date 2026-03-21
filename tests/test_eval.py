@@ -1,5 +1,6 @@
 import os
 import subprocess
+import sys
 from typing import TYPE_CHECKING, cast
 from unittest.mock import patch
 
@@ -77,15 +78,23 @@ tests = [
         return {}
 
     runner = CliRunner()
-    with (
-        patch("gptme.eval.main.run_evals", side_effect=fake_run_evals),
-        runner.isolated_filesystem(),
-    ):
-        result = runner.invoke(
-            main,
-            ["--eval-module", str(module_file), "--model", "anthropic"],
-            catch_exceptions=False,
-        )
+    saved_path = list(sys.path)
+    saved_modules = dict(sys.modules)
+    try:
+        with (
+            patch("gptme.eval.main.run_evals", side_effect=fake_run_evals),
+            runner.isolated_filesystem(),
+        ):
+            result = runner.invoke(
+                main,
+                ["--eval-module", str(module_file), "--model", "anthropic"],
+                catch_exceptions=False,
+            )
+    finally:
+        # Restore global state mutated by the module loader (sys.path / sys.modules)
+        sys.path[:] = saved_path
+        sys.modules.clear()
+        sys.modules.update(saved_modules)
     # Module loaded without error and the test was passed to run_evals
     assert result.exit_code == 0, f"Unexpected exit: {result.output}"
     assert len(captured_evals) == 1, f"Expected 1 eval, got {captured_evals}"

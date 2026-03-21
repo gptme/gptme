@@ -438,18 +438,23 @@ def main(
     external_evals: list[EvalSpec] = []
     for module_path in eval_modules:
         module_path = module_path.resolve()
+        # Use a unique module name to avoid stem collisions when loading multiple
+        # modules with the same filename (e.g. /a/eval.py and /b/eval.py).
+        # Multiprocessing workers pickle functions by module name + qualname and
+        # reimport by that name, so the name must be stable and unique.
+        mod_name = f"_gptme_eval_{module_path.stem}_{abs(hash(str(module_path)))}"
         # Add the module's parent dir to sys.path so worker processes can reimport it
         # (multiprocessing pickles functions by module+qualname and reimports them)
         parent = str(module_path.parent)
         if parent not in sys.path:
             sys.path.insert(0, parent)
-        mod_spec = importlib.util.spec_from_file_location(module_path.stem, module_path)
+        mod_spec = importlib.util.spec_from_file_location(mod_name, module_path)
         if mod_spec is None or mod_spec.loader is None:
             raise ValueError(f"Could not load eval module: {module_path}")
         mod = importlib.util.module_from_spec(mod_spec)
-        sys.modules[module_path.stem] = mod  # register so pickle can find it
+        sys.modules[mod_name] = mod  # register so pickle can find it
         mod_spec.loader.exec_module(mod)  # type: ignore[union-attr]
-        if not hasattr(mod, "tests"):
+        if not hasattr(mod, "tests") or not isinstance(mod.tests, list):
             raise ValueError(
                 f"Eval module '{module_path}' must define a 'tests' list of EvalSpec dicts"
             )
