@@ -524,6 +524,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 15,
             "supports_vision": True,
             "supports_reasoning": True,
+            "supports_parallel_tool_calls": True,
         },
         "meta-llama/llama-3.3-70b-instruct": {
             "context": 128_000,

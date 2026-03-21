@@ -364,6 +364,11 @@ class TestSupportsParallelToolCalls:
         model = get_model("openai/gpt-4o")
         assert model.supports_parallel_tool_calls is True
 
+    def test_openrouter_claude_sonnet_4_6_supports_parallel(self):
+        """claude-sonnet-4-6 via OpenRouter should also support parallel tool calls."""
+        model = get_model("openrouter/anthropic/claude-sonnet-4-6")
+        assert model.supports_parallel_tool_calls is True
+
     def test_unknown_model_defaults_to_false(self):
         """Unknown models fall back to False (safe default — don't break things)."""
         model = get_model("unknown-provider/unknown-model")
