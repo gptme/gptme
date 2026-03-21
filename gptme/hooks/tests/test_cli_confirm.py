@@ -246,7 +246,7 @@ class TestCliConfirmHook:
         mock_preview.assert_not_called()
         assert result.action == ConfirmAction.CONFIRM
 
-    @patch("gptme.hooks.cli_confirm.termios", None)
+    @patch("gptme.util.terminal.termios", None)
     @patch("gptme.hooks.cli_confirm.prompt_alert", return_value="y")
     @patch("gptme.hooks.cli_confirm.print_preview")
     @patch("gptme.hooks.cli_confirm.print_bell")
@@ -257,7 +257,7 @@ class TestCliConfirmHook:
         assert result.action == ConfirmAction.CONFIRM
         mock_bell.assert_called_once()
 
-    @patch("gptme.hooks.cli_confirm.termios", None)
+    @patch("gptme.util.terminal.termios", None)
     @patch("gptme.hooks.cli_confirm.prompt_alert", return_value="n")
     @patch("gptme.hooks.cli_confirm.print_preview")
     @patch("gptme.hooks.cli_confirm.print_bell")
