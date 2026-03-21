@@ -82,6 +82,8 @@ def _load_topo_deps(ctx) -> dict[str, list[str]] | None:
         return None
     if not isinstance(data, dict):
         return None
+    if not all(isinstance(v, list) for v in data.values()):
+        return None
     return data
 
 
@@ -116,7 +118,7 @@ def check_topo_order_valid(ctx):
     # Verify each task appears after all its prerequisites
     for task, prerequisites in deps.items():
         for prereq in prerequisites:
-            if positions.get(prereq, 999) >= positions.get(task, -1):
+            if positions[prereq] >= positions[task]:
                 return False
     return True
 
