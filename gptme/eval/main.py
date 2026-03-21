@@ -492,6 +492,15 @@ def main(
         else:
             raise ValueError(f"Test or results '{eval_name}' not found")
 
+    # Detect name collisions between external module tests and named/suite evals
+    if evals_to_run and external_evals:
+        named_set = {e["name"] for e in evals_to_run}
+        for ext in external_evals:
+            if ext["name"] in named_set:
+                raise ValueError(
+                    f"External eval name '{ext['name']}' collides with a named/suite eval. "
+                    f"Rename the external eval to use a unique name."
+                )
     evals_to_run.extend(external_evals)
 
     if eval_modules and not external_evals:
