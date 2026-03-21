@@ -187,7 +187,6 @@ class TestValidateTools:
             "rag",
             "tmux",
             "vision",
-            "youtube",
             "tts",
             "subagent",
             "gh",

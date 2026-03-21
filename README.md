@@ -278,7 +278,6 @@ gptme equips the AI with a rich set of built-in tools:
 | `subagent` | Spawn sub-agents for parallel or isolated tasks |
 | `chats` | Reference and search past conversations |
 | `tts` | Text-to-speech output |
-| `youtube` | Fetch and process YouTube video transcripts |
 
 Use `/tools` during a conversation to see all available tools and their status.
 
@@ -535,7 +534,7 @@ Options:
   -t, --tools TEXT       Tools to allow as comma-separated list. Available:
                          append, browser, chats, choice, computer, gh,
                          ipython, morph, patch, rag, read, save, screenshot,
-                         shell, subagent, tmux, tts, vision, youtube.
+                         shell, subagent, tmux, tts, vision.
   --tool-format TEXT     Tool format to use. Options: markdown, xml, tool
   --no-stream            Don't stream responses
   --show-hidden          Show hidden system messages.

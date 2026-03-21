@@ -66,7 +66,6 @@ anthropic = "^0.47"
 ipython = "^8.17.2"
 bashlex = "^0.18"
 playwright = {version = "1.49.1", optional=true}  # version constrained due to annoying to have to run `playwright install` on every update
-youtube_transcript_api = {version = "^0.6.1", optional=true}
 python-xlib = {version = "^0.33", optional=true}  # for X11 interaction
 
 # evals
@@ -157,7 +156,6 @@ datascience = ["matplotlib", "pandas", "numpy"]  # pillow (non-opt)
 computer = []  # pillow (non-opt)
 pyinstaller = ["pyinstaller"]
 acp = ["agent-client-protocol"]
-youtube = ["youtube_transcript_api"]
 tts = ["sounddevice", "scipy", "numpy"]
 telemetry = [
     "opentelemetry-api", "opentelemetry-sdk",
@@ -179,8 +177,6 @@ all = [
     "matplotlib", "pandas", "numpy", "scipy", # "pillow",
     # computer
     # "pillow",
-    # youtube transcript tool
-    "youtube_transcript_api",
     # tts
     "sounddevice", "scipy", "numpy",
     # dspy prompt optimization

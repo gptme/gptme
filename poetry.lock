@@ -9037,22 +9037,6 @@ multidict = ">=4.0"
 propcache = ">=0.2.1"
 
 [[package]]
-name = "youtube-transcript-api"
-version = "0.6.2"
-description = "This is an python API which allows you to get the transcripts/subtitles for a given YouTube video. It also works for automatically generated subtitles, supports translating subtitles and it does not require a headless browser, like other selenium based solutions do!"
-optional = true
-python-versions = "*"
-groups = ["main"]
-markers = "extra == \"youtube\" or extra == \"all\""
-files = [
-    {file = "youtube_transcript_api-0.6.2-py3-none-any.whl", hash = "sha256:019dbf265c6a68a0591c513fff25ed5a116ce6525832aefdfb34d4df5567121c"},
-    {file = "youtube_transcript_api-0.6.2.tar.gz", hash = "sha256:cad223d7620633cec44f657646bffc8bbc5598bd8e70b1ad2fa8277dec305eb7"},
-]
-
-[package.dependencies]
-requests = "*"
-
-[[package]]
 name = "zipp"
 version = "3.23.0"
 description = "Backport of pathlib-compatible object wrapper for zip files"
@@ -9075,7 +9059,7 @@ type = ["pytest-mypy"]
 
 [extras]
 acp = ["agent-client-protocol"]
-all = ["agent-client-protocol", "dspy", "flask", "flask-cors", "matplotlib", "numpy", "numpy", "opentelemetry-api", "opentelemetry-exporter-otlp", "opentelemetry-exporter-prometheus", "opentelemetry-instrumentation-anthropic", "opentelemetry-instrumentation-flask", "opentelemetry-instrumentation-openai", "opentelemetry-instrumentation-requests", "opentelemetry-instrumentation-threading", "opentelemetry-sdk", "pandas", "playwright", "pydantic", "scipy", "scipy", "sentence-transformers", "sounddevice", "youtube_transcript_api"]
+all = ["agent-client-protocol", "dspy", "flask", "flask-cors", "matplotlib", "numpy", "numpy", "opentelemetry-api", "opentelemetry-exporter-otlp", "opentelemetry-exporter-prometheus", "opentelemetry-instrumentation-anthropic", "opentelemetry-instrumentation-flask", "opentelemetry-instrumentation-openai", "opentelemetry-instrumentation-requests", "opentelemetry-instrumentation-threading", "opentelemetry-sdk", "pandas", "playwright", "pydantic", "scipy", "scipy", "sentence-transformers", "sounddevice"]
 browser = ["playwright"]
 computer = []
 datascience = ["matplotlib", "numpy", "pandas"]
@@ -9085,9 +9069,8 @@ pyinstaller = ["pyinstaller"]
 server = ["flask", "flask-cors", "pydantic"]
 telemetry = ["opentelemetry-api", "opentelemetry-exporter-otlp", "opentelemetry-exporter-prometheus", "opentelemetry-instrumentation-anthropic", "opentelemetry-instrumentation-flask", "opentelemetry-instrumentation-openai", "opentelemetry-instrumentation-requests", "opentelemetry-instrumentation-threading", "opentelemetry-sdk"]
 tts = ["numpy", "scipy", "sounddevice"]
-youtube = ["youtube_transcript_api"]
 
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "3f0c2233e8634246766909c4d73123f3325040e6d02a0376faff4f1d215eaf69"
+content-hash = "741291c72c05cedc39a8e7af3681ab0c6d126c1bc8bbd1d0e7c3e8b09e389c37"

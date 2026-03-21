@@ -46,7 +46,6 @@ _EXTRA_DESCRIPTIONS = {
     "tts": "Text-to-speech with Kokoro",
     "dspy": "DSPy & embeddings for RAG/lessons",
     "telemetry": "OpenTelemetry instrumentation",
-    "youtube": "YouTube transcript extraction",
     "acp": "Agent Communication Protocol support",
     "computer": "Computer use (system tools)",
 }

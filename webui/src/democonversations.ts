@@ -65,7 +65,7 @@ const demoMessages: Record<string, Message[]> = {
     {
       role: 'assistant',
       content:
-        'I have several tools at my disposal:\n\n1. **File Operations**:\n   - `save`: Create or overwrite files\n   - `append`: Append to files\n   - `patch`: Make targeted changes to files\n   - `read`: Read file contents\n\n2. **Code Execution**:\n   - `shell`: Run shell commands\n   - `ipython`: Execute Python code\n   - `tmux`: Run long-lived processes\n\n3. **Web & Research**:\n   - `browser`: Browse websites and take screenshots\n   - `youtube`: Fetch and summarize video transcripts\n   - `rag`: Search through project documentation\n\n4. **Other**:\n   - `screenshot`: Take screenshots\n   - `gh`: Interact with GitHub\n   - `chats`: Search conversation history\n\nLet me demonstrate the browser tool:\n\n```ipython\nsearch("gptme github repository")\n```',
+        'I have several tools at my disposal:\n\n1. **File Operations**:\n   - `save`: Create or overwrite files\n   - `append`: Append to files\n   - `patch`: Make targeted changes to files\n   - `read`: Read file contents\n\n2. **Code Execution**:\n   - `shell`: Run shell commands\n   - `ipython`: Execute Python code\n   - `tmux`: Run long-lived processes\n\n3. **Web & Research**:\n   - `browser`: Browse websites and take screenshots\n   - `rag`: Search through project documentation\n\n4. **Other**:\n   - `screenshot`: Take screenshots\n   - `gh`: Interact with GitHub\n   - `chats`: Search conversation history\n\nLet me demonstrate the browser tool:\n\n```ipython\nsearch("gptme github repository")\n```',
       timestamp: new Date().toISOString(),
     },
     {
