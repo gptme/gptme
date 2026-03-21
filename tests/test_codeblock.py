@@ -1309,6 +1309,22 @@ def test_thinking_tag_concatenated_to_closing_fence():
     assert "print('hello')" in blocks[1].content
 
 
+def test_adjacent_outer_fences_split_tool_blocks():
+    """A malformed close+open fence on one line should still yield the following block."""
+    markdown = (
+        "```patch /tmp/file1.py\n"
+        "<<<<<<< ORIGINAL\nold\n=======\nnew\n>>>>>>> UPDATED\n"
+        "``````patch /tmp/file2.py\n"
+        "<<<<<<< ORIGINAL\nold2\n=======\nnew2\n>>>>>>> UPDATED\n"
+        "```"
+    )
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 2
+    assert blocks[0].lang.startswith("patch")
+    assert blocks[1].lang == "patch /tmp/file2.py"
+    assert "old2" in blocks[1].content
+
+
 def test_thinking_tag_concatenated_then_standalone_closed():
     """Concatenated <think> followed by a standalone closed <think> block should yield all tool blocks."""
     # Edge case: first block closes with ```<think> (concatenated, handled by inner-loop),

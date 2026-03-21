@@ -171,6 +171,15 @@ def _extract_codeblocks(
     while i < len(lines):
         line = lines[i]
 
+        # Recover from malformed adjacent outer fences where a block closes and the
+        # next one opens on the same line, e.g. "``````patch file.py" instead of
+        # "```\n```patch file.py". ToolUse._to_markdown always emits triple fences,
+        # so six leading backticks followed immediately by a language tag is a good
+        # signal that the first three backticks belong to the previous block.
+        if re.match(r"^``````\S", line):
+            line = "```" + line[3:]
+            lines[i] = line
+
         # Look for code block start (3+ backticks)
         # Count the backticks at the start of the line
         fence_match = re.match(r"^(`{3,})", line)
