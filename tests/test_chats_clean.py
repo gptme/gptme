@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-from gptme.cli.util import _format_size, chats_clean
+from gptme.cli.cmd_chats import _format_size, chats_clean
 from gptme.logmanager import ConversationMeta
 from gptme.tools.chats import find_empty_conversations
 
@@ -135,8 +135,11 @@ def test_cli_clean_dry_run(mock_empty_convs):
     """Dry run shows conversations but doesn't delete."""
     runner = CliRunner()
     with (
-        patch("gptme.cli.util.find_empty_conversations", return_value=mock_empty_convs),
-        patch("gptme.cli.util._ensure_tools"),
+        patch(
+            "gptme.cli.cmd_chats.find_empty_conversations",
+            return_value=mock_empty_convs,
+        ),
+        patch("gptme.cli.cmd_chats._ensure_tools"),
     ):
         result = runner.invoke(chats_clean, [])
         assert result.exit_code == 0
@@ -148,8 +151,11 @@ def test_cli_clean_delete(mock_empty_convs):
     """--delete flag removes conversations."""
     runner = CliRunner()
     with (
-        patch("gptme.cli.util.find_empty_conversations", return_value=mock_empty_convs),
-        patch("gptme.cli.util._ensure_tools"),
+        patch(
+            "gptme.cli.cmd_chats.find_empty_conversations",
+            return_value=mock_empty_convs,
+        ),
+        patch("gptme.cli.cmd_chats._ensure_tools"),
         patch("gptme.logmanager.delete_conversation", return_value=True) as mock_delete,
     ):
         result = runner.invoke(chats_clean, ["--delete"])
@@ -162,8 +168,8 @@ def test_cli_clean_no_results():
     """No empty conversations shows appropriate message."""
     runner = CliRunner()
     with (
-        patch("gptme.cli.util.find_empty_conversations", return_value=[]),
-        patch("gptme.cli.util._ensure_tools"),
+        patch("gptme.cli.cmd_chats.find_empty_conversations", return_value=[]),
+        patch("gptme.cli.cmd_chats._ensure_tools"),
     ):
         result = runner.invoke(chats_clean, [])
         assert result.exit_code == 0
@@ -174,8 +180,8 @@ def test_cli_clean_no_results_json():
     """No empty conversations JSON output has consistent schema."""
     runner = CliRunner()
     with (
-        patch("gptme.cli.util.find_empty_conversations", return_value=[]),
-        patch("gptme.cli.util._ensure_tools"),
+        patch("gptme.cli.cmd_chats.find_empty_conversations", return_value=[]),
+        patch("gptme.cli.cmd_chats._ensure_tools"),
     ):
         result = runner.invoke(chats_clean, ["--json"])
         assert result.exit_code == 0
@@ -191,8 +197,11 @@ def test_cli_clean_json_output(mock_empty_convs):
     """--json flag outputs machine-readable JSON."""
     runner = CliRunner()
     with (
-        patch("gptme.cli.util.find_empty_conversations", return_value=mock_empty_convs),
-        patch("gptme.cli.util._ensure_tools"),
+        patch(
+            "gptme.cli.cmd_chats.find_empty_conversations",
+            return_value=mock_empty_convs,
+        ),
+        patch("gptme.cli.cmd_chats._ensure_tools"),
     ):
         result = runner.invoke(chats_clean, ["--json"])
         assert result.exit_code == 0
@@ -206,8 +215,11 @@ def test_cli_clean_json_delete(mock_empty_convs):
     """--json --delete outputs correct deletion count."""
     runner = CliRunner()
     with (
-        patch("gptme.cli.util.find_empty_conversations", return_value=mock_empty_convs),
-        patch("gptme.cli.util._ensure_tools"),
+        patch(
+            "gptme.cli.cmd_chats.find_empty_conversations",
+            return_value=mock_empty_convs,
+        ),
+        patch("gptme.cli.cmd_chats._ensure_tools"),
         patch("gptme.logmanager.delete_conversation", return_value=True),
     ):
         result = runner.invoke(chats_clean, ["--json", "--delete"])
@@ -221,8 +233,10 @@ def test_cli_clean_max_messages():
     """--max-messages flag is passed through."""
     runner = CliRunner()
     with (
-        patch("gptme.cli.util.find_empty_conversations", return_value=[]) as mock_find,
-        patch("gptme.cli.util._ensure_tools"),
+        patch(
+            "gptme.cli.cmd_chats.find_empty_conversations", return_value=[]
+        ) as mock_find,
+        patch("gptme.cli.cmd_chats._ensure_tools"),
     ):
         runner.invoke(chats_clean, ["-n", "3"])
         mock_find.assert_called_once_with(max_messages=3, include_test=False)
@@ -232,8 +246,10 @@ def test_cli_clean_include_test():
     """--include-test flag is passed through."""
     runner = CliRunner()
     with (
-        patch("gptme.cli.util.find_empty_conversations", return_value=[]) as mock_find,
-        patch("gptme.cli.util._ensure_tools"),
+        patch(
+            "gptme.cli.cmd_chats.find_empty_conversations", return_value=[]
+        ) as mock_find,
+        patch("gptme.cli.cmd_chats._ensure_tools"),
     ):
         runner.invoke(chats_clean, ["--include-test"])
         mock_find.assert_called_once_with(max_messages=1, include_test=True)
