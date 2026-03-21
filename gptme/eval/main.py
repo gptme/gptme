@@ -6,6 +6,7 @@ Inspired by a document by Anton Osika and Axel Theorell.
 
 import csv
 import importlib.util
+import keyword
 import logging
 import os
 import subprocess
@@ -443,37 +444,41 @@ def main(
         # Workers start with empty sys.modules and import by name; the name must
         # match a file discoverable on sys.path.
         mod_name = module_path.stem
-        # Validate stem is a valid Python identifier — spawn-based worker processes
-        # reimport pickled check functions by module name, which requires it to be
-        # importable (i.e., a valid identifier matching the filename stem).
-        if not mod_name.isidentifier():
+        # Validate stem is a usable Python module name — spawn-based worker processes
+        # (default on macOS/Windows) reimport pickled check functions by module name,
+        # which requires the name to be both a valid identifier AND not a reserved
+        # keyword (e.g. __import__("class") raises SyntaxError on spawn workers).
+        if not mod_name.isidentifier() or keyword.iskeyword(mod_name):
             raise ValueError(
                 f"Eval module filename '{module_path.name}' produces module name "
-                f"'{mod_name}' which is not a valid Python identifier. "
+                f"'{mod_name}' which is not a usable Python module name "
+                f"(must be a valid identifier and not a reserved keyword). "
                 f"Rename the file to use only letters, digits, and underscores "
-                f"(no dashes or spaces) so that multiprocessing workers can reimport it."
+                f"(no dashes, spaces, or reserved words) so that multiprocessing "
+                f"workers can reimport it."
             )
-        # Add the module's parent dir to sys.path so worker processes can reimport it
+        # Add the module's parent dir to sys.path so worker processes can reimport it.
         # (multiprocessing pickles functions by module+qualname and reimports them)
+        # All error paths after this point must remove the entry to avoid leaking.
         parent = str(module_path.parent)
         path_was_absent = parent not in sys.path
         if path_was_absent:
             sys.path.insert(0, parent)
-        # Detect stem collisions (two different files with the same stem) and raise
-        # early rather than silently overwriting the first module's check functions.
-        if mod_name in sys.modules and getattr(
-            sys.modules[mod_name], "__file__", None
-        ) != str(module_path):
-            raise ValueError(
-                f"Eval module stem collision: '{mod_name}' is already loaded from a "
-                f"different file. Rename your eval module to use a unique filename."
-            )
-        mod_spec = importlib.util.spec_from_file_location(mod_name, module_path)
-        if mod_spec is None or mod_spec.loader is None:
-            raise ValueError(f"Could not load eval module: {module_path}")
-        mod = importlib.util.module_from_spec(mod_spec)
-        sys.modules[mod_name] = mod  # register so pickle can find it
         try:
+            # Detect stem collisions (two different files with the same stem) and raise
+            # early rather than silently overwriting the first module's check functions.
+            if mod_name in sys.modules and getattr(
+                sys.modules[mod_name], "__file__", None
+            ) != str(module_path):
+                raise ValueError(
+                    f"Eval module stem collision: '{mod_name}' is already loaded from a "
+                    f"different file. Rename your eval module to use a unique filename."
+                )
+            mod_spec = importlib.util.spec_from_file_location(mod_name, module_path)
+            if mod_spec is None or mod_spec.loader is None:
+                raise ValueError(f"Could not load eval module: {module_path}")
+            mod = importlib.util.module_from_spec(mod_spec)
+            sys.modules[mod_name] = mod  # register so pickle can find it
             mod_spec.loader.exec_module(mod)  # type: ignore[union-attr]
             if not hasattr(mod, "tests") or not isinstance(mod.tests, list):
                 raise ValueError(
@@ -491,6 +496,16 @@ def main(
         logger.info(
             "Loaded %d eval(s) from external module: %s", len(loaded), module_path
         )
+        # Detect name collisions between this module's tests and already-loaded external evals
+        if external_evals and loaded:
+            existing_names = {e["name"] for e in external_evals}
+            for spec in loaded:
+                if spec["name"] in existing_names:
+                    raise ValueError(
+                        f"External eval name '{spec['name']}' from '{module_path}' "
+                        f"collides with an eval from another --eval-module file. "
+                        f"Rename the eval to use a unique name."
+                    )
         external_evals.extend(loaded)
 
     evals_to_run: list[EvalSpec] = []
