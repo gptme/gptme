@@ -253,7 +253,6 @@ You can find more [Demos][docs-demos] and [Examples][docs-examples] in the [docu
   - Standalone executable builds available with PyInstaller.
 - 💻 **[Computer use][docs-tools-computer]** (see [#216](https://github.com/gptme/gptme/issues/216))
   - Give the assistant access to a full desktop, allowing it to interact with GUI applications.
-- 🗣️ **[Text-to-Speech][docs-tools-tts]** — locally generated using Kokoro (no cloud required).
 - 🔊 **Tool sounds** — pleasant notification sounds for different tool operations.
   - Enable with `GPTME_TOOL_SOUNDS=true`.
 
@@ -277,7 +276,6 @@ gptme equips the AI with a rich set of built-in tools:
 | `computer` | Full desktop access for GUI interactions |
 | `subagent` | Spawn sub-agents for parallel or isolated tasks |
 | `chats` | Reference and search past conversations |
-| `tts` | Text-to-speech output |
 
 Use `/tools` during a conversation to see all available tools and their status.
 
@@ -534,7 +532,7 @@ Options:
   -t, --tools TEXT       Tools to allow as comma-separated list. Available:
                          append, browser, chats, choice, computer, gh,
                          ipython, morph, patch, rag, read, save, screenshot,
-                         shell, subagent, tmux, tts, vision.
+                         shell, subagent, tmux, vision.
   --tool-format TEXT     Tool format to use. Options: markdown, xml, tool
   --no-stream            Don't stream responses
   --show-hidden          Show hidden system messages.
@@ -613,7 +611,6 @@ Contributions welcome! See the [contributing guide](https://gptme.org/docs/contr
 [docs-tools-patch]: https://gptme.org/docs/tools.html#patch
 [docs-tools-browser]: https://gptme.org/docs/tools.html#browser
 [docs-tools-computer]: https://gptme.org/docs/tools.html#computer
-[docs-tools-tts]: https://gptme.org/docs/tools.html#tts
 [docs-lessons]: https://gptme.org/docs/lessons.html
 [docs-skills]: https://gptme.org/docs/skills.html
 [docs-bot]: https://gptme.org/docs/bot.html

@@ -260,7 +260,7 @@ See :doc:`bot` for the GitHub bot and :doc:`usage` for automation patterns.
 Quality of Life
 ---------------
 
-- 🗣️ **Text-to-Speech** — locally generated using Kokoro (no cloud required). See the :ref:`TTS <tools:TTS>` tool.
+- 🗣️ **Text-to-Speech** — locally generated using Kokoro via ``gptme-tts`` plugin (no cloud required).
 - 🔊 **Tool sounds** — pleasant notification sounds for tool operations (enable with ``GPTME_TOOL_SOUNDS=true``).
 - 🔄 **Auto-commit** — optionally commit changes automatically after tool execution.
 - 📋 **Pre-commit hooks** — automatic checks on file saves.

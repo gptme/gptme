@@ -43,7 +43,6 @@ _EXTRA_DESCRIPTIONS = {
     "browser": "Web browsing with Playwright",
     "server": "REST API server",
     "datascience": "Data science tools (numpy, pandas, matplotlib)",
-    "tts": "Text-to-speech with Kokoro",
     "dspy": "DSPy & embeddings for RAG/lessons",
     "telemetry": "OpenTelemetry instrumentation",
     "acp": "Agent Communication Protocol support",
