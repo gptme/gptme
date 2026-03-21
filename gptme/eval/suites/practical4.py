@@ -71,29 +71,43 @@ def check_topo_file(ctx):
     return "topo_sort.py" in ctx.files
 
 
+def _load_topo_deps(ctx) -> dict[str, list[str]] | None:
+    """Load dependency graph from deps.json in the final workspace."""
+    raw = ctx.files.get("deps.json")
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+
+
 def check_topo_all_tasks(ctx):
-    """All 6 tasks (A–F) should appear in the output."""
-    return all(re.search(rf"\b{task}\b", ctx.stdout) for task in "ABCDEF")
+    """All tasks from deps.json should appear in the output."""
+    deps = _load_topo_deps(ctx)
+    if deps is None:
+        return False
+    return all(re.search(rf"\b{re.escape(task)}\b", ctx.stdout) for task in deps)
 
 
 def check_topo_order_valid(ctx):
-    """Each task's dependencies must appear earlier in the output.
+    """Each task's dependencies must appear earlier in the output."""
+    deps = _load_topo_deps(ctx)
+    if deps is None:
+        return False
 
-    Graph: B->A, C->A, D->B, D->C, E->D, F->E
-    """
     lines = [line.strip() for line in ctx.stdout.splitlines() if line.strip()]
     # Find first line index where each task appears
     positions: dict[str, int] = {}
     for i, line in enumerate(lines):
-        for task in "ABCDEF":
-            if task not in positions and re.search(rf"\b{task}\b", line):
+        for task in deps:
+            if task not in positions and re.search(rf"\b{re.escape(task)}\b", line):
                 positions[task] = i
 
-    if len(positions) < 6:
+    if len(positions) < len(deps):
         return False
 
-    # deps[task] = list of tasks that must come BEFORE task
-    deps = {"B": ["A"], "C": ["A"], "D": ["B", "C"], "E": ["D"], "F": ["E"]}
+    # Verify each task appears after all its prerequisites
     for task, prerequisites in deps.items():
         for prereq in prerequisites:
             if positions.get(prereq, 999) >= positions.get(task, -1):
