@@ -689,13 +689,14 @@ class TestBreakOnTooluseDefault:
     GPTME_BREAK_ON_TOOLUSE env var overrides the default.
     """
 
-    def _capture_break_on_tooluse(self, monkeypatch):
+    @staticmethod
+    def _capture_break_on_tooluse(monkeypatch):
         """Set up mocks to capture the break_on_tooluse value passed to _reply_stream."""
         from gptme.message import Message
 
         captured: dict[str, Any] = {}
 
-        def fake_reply_stream(messages, model, tools, break_on_tooluse=True, **kwargs):
+        def fake_reply_stream(messages, model, tools, break_on_tooluse=None, **kwargs):
             captured["break_on_tooluse"] = break_on_tooluse
             return Message("assistant", "ok")
 
