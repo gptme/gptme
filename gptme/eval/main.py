@@ -462,7 +462,11 @@ def main(
             raise ValueError(f"Could not load eval module: {module_path}")
         mod = importlib.util.module_from_spec(mod_spec)
         sys.modules[mod_name] = mod  # register so pickle can find it
-        mod_spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        try:
+            mod_spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        except Exception:
+            sys.modules.pop(mod_name, None)  # clean up partial entry on failure
+            raise
         if not hasattr(mod, "tests") or not isinstance(mod.tests, list):
             raise ValueError(
                 f"Eval module '{module_path}' must define a 'tests' list of EvalSpec dicts"
@@ -485,10 +489,16 @@ def main(
     evals_to_run.extend(external_evals)
 
     if eval_modules and not external_evals:
-        logger.warning(
-            "All --eval-module files defined empty 'tests' lists; "
-            "falling back to default suite"
-        )
+        if evals_to_run:
+            logger.warning(
+                "All --eval-module files defined empty 'tests' lists; "
+                "running named evals/suites only"
+            )
+        else:
+            logger.warning(
+                "All --eval-module files defined empty 'tests' lists; "
+                "falling back to default suite"
+            )
 
     if not evals_to_run:
         evals_to_run = tests_default
