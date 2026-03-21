@@ -509,6 +509,19 @@ metadata:
         real_errors = [e for e in errors if "recommended" not in e.lower()]
         assert not real_errors
 
+    def test_parse_lesson_non_iterable_depends_does_not_crash(self, tmp_path: Path):
+        """parse_lesson should not crash when depends is a non-iterable scalar."""
+        from gptme.lessons.parser import parse_lesson
+
+        skill_dir = tmp_path / "bad-depends"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: bad-depends\ndescription: Bad depends\ndepends: 42\n---\n# Bad\n"
+        )
+        lesson = parse_lesson(skill_dir / "SKILL.md")
+        assert lesson is not None
+        assert lesson.metadata.depends == []
+
     def test_dependency_graph_from_index(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
