@@ -46,6 +46,45 @@ def test_no_duplicate_test_names():
     )
 
 
+def test_eval_module_loading(tmp_path):
+    """Test that --eval-module loads and registers tests from an external module."""
+    # Write a minimal eval module with a tests list
+    module_file = tmp_path / "my_feature_eval.py"
+    module_file.write_text(
+        """\
+def check_file_exists(ctx):
+    return "main.py" in ctx.files
+
+FEATURE = "my-feature"
+PROMPT = "Create a main.py file."
+CHECKS = [check_file_exists]
+tests = [
+    {
+        "name": FEATURE or "spec-kit-eval",
+        "files": {},
+        "run": "python main.py",
+        "prompt": PROMPT,
+        "expect": {fn.__name__: fn for fn in CHECKS},
+    }
+]
+"""
+    )
+
+    runner = CliRunner()
+    # Pass an invalid model so we don't actually run the eval, just check loading
+    with runner.isolated_filesystem():
+        result = runner.invoke(
+            main,
+            ["--eval-module", str(module_file), "--model", "invalid/model@tool"],
+            catch_exceptions=False,
+        )
+    # Module loaded and eval scheduled: exit code is 0 and feature name appears in output
+    assert result.exit_code == 0, f"Unexpected exit: {result.output}"
+    assert "my-feature" in result.output  # the loaded test's name appeared in results
+    # Key: should NOT fail with "module must define a 'tests' list"
+    assert "must define a 'tests' list" not in (result.output or "")
+
+
 def _detect_model():
     # detect which model is configured (manual since init() hasn't run in tests)
     config = get_config()
