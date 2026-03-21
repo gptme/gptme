@@ -132,7 +132,7 @@ class TestExportCLI:
 
         from gptme.cli.util import main
 
-        monkeypatch.setattr("gptme.cli.util.get_logs_dir", lambda: tmp_path)
+        monkeypatch.setattr("gptme.cli.cmd_chats.get_logs_dir", lambda: tmp_path)
 
         runner = CliRunner()
         result = runner.invoke(main, ["chats", "export", "nonexistent"])
@@ -155,8 +155,10 @@ class TestExportCLI:
             ],
         )
 
-        monkeypatch.setattr("gptme.cli.util.get_logs_dir", lambda: tmp_path / "logs")
-        monkeypatch.setattr("gptme.cli.util.get_tools", lambda: ["fake"])
+        monkeypatch.setattr(
+            "gptme.cli.cmd_chats.get_logs_dir", lambda: tmp_path / "logs"
+        )
+        monkeypatch.setattr("gptme.cli.cmd_chats.get_tools", lambda: ["fake"])
 
         runner = CliRunner()
         with runner.isolated_filesystem():
@@ -190,8 +192,10 @@ class TestExportCLI:
             ],
         )
 
-        monkeypatch.setattr("gptme.cli.util.get_logs_dir", lambda: tmp_path / "logs")
-        monkeypatch.setattr("gptme.cli.util.get_tools", lambda: ["fake"])
+        monkeypatch.setattr(
+            "gptme.cli.cmd_chats.get_logs_dir", lambda: tmp_path / "logs"
+        )
+        monkeypatch.setattr("gptme.cli.cmd_chats.get_tools", lambda: ["fake"])
 
         # Patch export_chat_to_html to avoid needing real template files in tests
         with patch("gptme.util.export.export_chat_to_html") as mock_export:
@@ -216,8 +220,10 @@ class TestExportCLI:
         logdir.mkdir(parents=True)
         _create_test_log(logdir, [Message("user", "Test", timestamp=_TS)])
 
-        monkeypatch.setattr("gptme.cli.util.get_logs_dir", lambda: tmp_path / "logs")
-        monkeypatch.setattr("gptme.cli.util.get_tools", lambda: ["fake"])
+        monkeypatch.setattr(
+            "gptme.cli.cmd_chats.get_logs_dir", lambda: tmp_path / "logs"
+        )
+        monkeypatch.setattr("gptme.cli.cmd_chats.get_tools", lambda: ["fake"])
 
         custom_output = tmp_path / "custom-output.md"
         runner = CliRunner()

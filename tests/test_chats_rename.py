@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from gptme.cli.util import chats_rename
+from gptme.cli.cmd_chats import chats_rename
 from gptme.logmanager import ConversationMeta, rename_conversation
 
 # --- Helpers ---
