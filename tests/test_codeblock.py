@@ -1326,7 +1326,7 @@ def test_adjacent_outer_fences_split_tool_blocks():
     )
     blocks = list(_extract_codeblocks(markdown))
     assert len(blocks) == 2
-    assert blocks[0].lang.startswith("patch")
+    assert blocks[0].lang == "patch /tmp/file1.py"
     assert blocks[1].lang == "patch /tmp/file2.py"
     assert "old2" in blocks[1].content
 
