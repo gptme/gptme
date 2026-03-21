@@ -7,6 +7,8 @@ import pytest
 from gptme.lessons.installer import (
     InstalledSkill,
     SkillManifest,
+    check_dependencies,
+    dependency_graph,
     get_manifest,
     get_skills_dir,
     init_skill,
@@ -568,3 +570,57 @@ metadata:
         errors = validate_skill(skill)
         real_errors = [e for e in errors if "recommended" not in e.lower()]
         assert not real_errors, f"Unexpected errors: {real_errors}"
+
+    def test_dependency_graph_raises_on_cycle(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """dependency_graph() should raise ValueError when circular deps exist."""
+        from gptme.lessons.index import LessonIndex
+        from gptme.lessons.parser import parse_lesson
+
+        skill_a = tmp_path / "cycle-a"
+        skill_a.mkdir()
+        (skill_a / "SKILL.md").write_text(
+            "---\nname: cycle-a\ndescription: Cycle A\ndepends:\n  - cycle-b\n---\n# Cycle A\n"
+        )
+        skill_b = tmp_path / "cycle-b"
+        skill_b.mkdir()
+        (skill_b / "SKILL.md").write_text(
+            "---\nname: cycle-b\ndescription: Cycle B\ndepends:\n  - cycle-a\n---\n# Cycle B\n"
+        )
+
+        parsed_a = parse_lesson(skill_a / "SKILL.md")
+        parsed_b = parse_lesson(skill_b / "SKILL.md")
+
+        # Monkeypatch LessonIndex at the source module
+        fake_index = LessonIndex.__new__(LessonIndex)
+        fake_index.lessons = [parsed_a, parsed_b]
+        monkeypatch.setattr("gptme.lessons.index.LessonIndex", lambda: fake_index)
+
+        with pytest.raises(ValueError, match="Circular"):
+            dependency_graph()
+
+    def test_check_dependencies_includes_manifest_only_skills(
+        self, tmp_path: Path, skill_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """check_dependencies(None) should check manifest-only skills too."""
+        from gptme.lessons.index import LessonIndex
+
+        # Install a skill so it's in the manifest but not the index
+        install_skill(str(skill_dir))
+
+        # Mock an empty index (no indexed lessons)
+        fake_index = LessonIndex.__new__(LessonIndex)
+        fake_index.lessons = []
+        monkeypatch.setattr("gptme.lessons.index.LessonIndex", lambda: fake_index)
+
+        # Patch the installed skill's SKILL.md to declare a missing dependency
+        installed_md = get_skills_dir() / "test-skill" / "SKILL.md"
+        installed_md.write_text(
+            "---\nname: test-skill\ndescription: Test\ndepends:\n  - missing-dep\n---\n# Test\n"
+        )
+
+        missing = check_dependencies()
+        assert any(m["skill"] == "test-skill" for m in missing), (
+            f"Manifest-only skill not checked: {missing}"
+        )

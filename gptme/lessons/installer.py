@@ -467,7 +467,7 @@ def validate_skill(path: Path) -> list[str]:
             elif not re.match(r"^[a-zA-Z0-9][\w.\-]*$", dep.strip()):
                 errors.append(
                     f"Dependency '{dep}' contains invalid characters. "
-                    "Use skill names (alphanumeric, hyphens, dots)."
+                    "Use skill names (alphanumeric, underscores, hyphens, dots)."
                 )
 
     # Marketplace metadata (recommended but not required)
@@ -516,9 +516,16 @@ def check_dependencies(
 
     missing: list[dict[str, str]] = []
 
-    targets = skill_names or [
-        item.metadata.name for item in index.lessons if item.metadata.name
-    ]
+    if skill_names is not None:
+        targets = skill_names
+    else:
+        # Include all known skills: indexed + manifest-only
+        indexed_names = {
+            item.metadata.name for item in index.lessons if item.metadata.name
+        }
+        targets = list(indexed_names) + [
+            name for name in manifest.skills if name not in indexed_names
+        ]
 
     for skill_name in targets:
         if not skill_name:
@@ -555,6 +562,9 @@ def dependency_graph() -> dict[str, list[str]]:
     Returns:
         Dict mapping skill name to its dependency list.
         Only includes skills that have dependencies.
+
+    Raises:
+        ValueError: If circular dependencies are detected.
     """
     from .index import LessonIndex
 
@@ -566,6 +576,8 @@ def dependency_graph() -> dict[str, list[str]]:
             graph[item.metadata.name] = list(item.metadata.depends)
 
     # Detect circular dependencies (simple depth-first check)
+    cycles: list[str] = []
+
     def _has_cycle(node: str, visited: set[str], stack: set[str]) -> bool:
         visited.add(node)
         stack.add(node)
@@ -574,7 +586,9 @@ def dependency_graph() -> dict[str, list[str]]:
                 if _has_cycle(dep, visited, stack):
                     return True
             elif dep in stack:
-                logger.warning(f"Circular dependency detected: {node} -> {dep}")
+                cycle = f"{node} -> {dep}"
+                cycles.append(cycle)
+                logger.warning(f"Circular dependency detected: {cycle}")
                 return True
         stack.discard(node)
         return False
@@ -583,6 +597,9 @@ def dependency_graph() -> dict[str, list[str]]:
     for skill in graph:
         if skill not in visited:
             _has_cycle(skill, visited, set())
+
+    if cycles:
+        raise ValueError(f"Circular dependencies detected: {', '.join(cycles)}")
 
     return graph
 
