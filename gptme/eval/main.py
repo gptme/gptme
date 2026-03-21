@@ -464,13 +464,13 @@ def main(
         sys.modules[mod_name] = mod  # register so pickle can find it
         try:
             mod_spec.loader.exec_module(mod)  # type: ignore[union-attr]
+            if not hasattr(mod, "tests") or not isinstance(mod.tests, list):
+                raise ValueError(
+                    f"Eval module '{module_path}' must define a 'tests' list of EvalSpec dicts"
+                )
         except Exception:
             sys.modules.pop(mod_name, None)  # clean up partial entry on failure
             raise
-        if not hasattr(mod, "tests") or not isinstance(mod.tests, list):
-            raise ValueError(
-                f"Eval module '{module_path}' must define a 'tests' list of EvalSpec dicts"
-            )
         loaded: list[EvalSpec] = mod.tests
         logger.info(
             "Loaded %d eval(s) from external module: %s", len(loaded), module_path
