@@ -2,7 +2,7 @@
 
 These models are no longer recommended but are kept for historical reference.
 They are hidden from listings by default but still work when explicitly requested
-via --model. Use `--show-deprecated` to include them in model listings.
+via --model. Use `--include-deprecated` to include them in model listings.
 
 Separated from models.py to keep the active model list clean.
 """
