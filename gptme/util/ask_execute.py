@@ -7,31 +7,8 @@ confirmation questions.
 """
 
 import os
-import sys
 from collections.abc import Callable, Generator
 from pathlib import Path
-
-try:
-    import termios
-except ImportError:
-    termios = None  # type: ignore[assignment]
-
-_msvcrt: object = None
-if os.name == "nt":
-    try:
-        import msvcrt as _msvcrt
-    except ImportError:
-        pass
-
-
-def _flush_stdin() -> None:
-    """Flush stdin to clear any buffered input before prompting."""
-    if termios and sys.stdin.isatty():
-        termios.tcflush(sys.stdin, termios.TCIFLUSH)
-    elif _msvcrt:
-        while _msvcrt.kbhit():  # type: ignore[attr-defined]
-            _msvcrt.getch()  # type: ignore[attr-defined]
-
 
 from rich import print
 from rich.console import Console

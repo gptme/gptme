@@ -5,21 +5,7 @@ that was previously implemented in ask_execute.py.
 """
 
 import logging
-import os
-import sys
 from pathlib import Path
-
-try:
-    import termios
-except ImportError:
-    termios = None  # type: ignore[assignment]
-
-_msvcrt: object = None
-if os.name == "nt":
-    try:
-        import msvcrt as _msvcrt
-    except ImportError:
-        pass
 from typing import TYPE_CHECKING
 
 from rich import print
@@ -29,7 +15,7 @@ from ..util.ask_execute import print_confirmation_help, print_preview
 from ..util.clipboard import copy
 from ..util.prompt import prompt_alert
 from ..util.sound import print_bell
-from ..util.terminal import terminal_state_title
+from ..util.terminal import flush_stdin, terminal_state_title
 from ..util.useredit import edit_text_with_editor
 from .confirm import (
     ConfirmationResult,
@@ -100,11 +86,7 @@ def cli_confirm_hook(
 
     # Build the confirmation prompt
     print_bell()  # Ring the bell before asking
-    if termios:
-        termios.tcflush(sys.stdin, termios.TCIFLUSH)
-    elif _msvcrt:
-        while _msvcrt.kbhit():  # type: ignore[attr-defined]
-            _msvcrt.getch()  # type: ignore[attr-defined]
+    flush_stdin()
 
     # Build choice string with available options
     choicestr = "[Y/n"

@@ -1,22 +1,9 @@
 import copy
 import logging
 import os
-import sys
 import threading
 from collections.abc import Callable, Generator
 from pathlib import Path
-
-try:
-    import termios
-except ImportError:
-    termios = None  # type: ignore[assignment]
-
-_msvcrt: object = None
-if os.name == "nt":
-    try:
-        import msvcrt as _msvcrt
-    except ImportError:
-        pass
 
 from .commands import execute_cmd
 from .config import ChatConfig, get_config
@@ -50,7 +37,7 @@ from .util.cost import log_costs
 from .util.interrupt import clear_interruptible, set_interruptible
 from .util.prompt import add_history, get_input
 from .util.sound import print_bell
-from .util.terminal import set_current_conv_name, terminal_state_title
+from .util.terminal import flush_stdin, set_current_conv_name, terminal_state_title
 
 logger = logging.getLogger(__name__)
 
@@ -538,12 +525,7 @@ def step(
 
 def prompt_user(value=None) -> str:  # pragma: no cover
     print_bell()
-    # Flush stdin to clear any buffered input before prompting
-    if termios and sys.stdin.isatty():
-        termios.tcflush(sys.stdin, termios.TCIFLUSH)
-    elif _msvcrt:
-        while _msvcrt.kbhit():  # type: ignore[attr-defined]
-            _msvcrt.getch()  # type: ignore[attr-defined]
+    flush_stdin()
     response = ""
     # Get user name from config for the prompt display
     user_name = get_config().user.user.name
