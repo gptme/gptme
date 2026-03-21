@@ -675,3 +675,124 @@ def test_handle_tools_thinking_without_signature_skipped():
     # Tool use must still be present
     tool_blocks = [b for b in content if b.get("type") == "tool_use"]
     assert len(tool_blocks) >= 1
+
+
+# --- break_on_tooluse model-dependent default tests ---
+
+
+class TestBreakOnTooluseDefault:
+    """Test that reply() sets break_on_tooluse based on model capabilities.
+
+    PR #1724 made break_on_tooluse model-dependent: models that support
+    parallel tool calls (e.g. Sonnet 4.6+) default to False (don't break),
+    while others default to True (break after each tool block).
+    GPTME_BREAK_ON_TOOLUSE env var overrides the default.
+    """
+
+    @staticmethod
+    def _capture_break_on_tooluse(monkeypatch):
+        """Set up mocks to capture the break_on_tooluse value passed to _reply_stream."""
+        from gptme.message import Message
+
+        captured: dict[str, Any] = {}
+
+        def fake_reply_stream(messages, model, tools, break_on_tooluse=None, **kwargs):
+            captured["break_on_tooluse"] = break_on_tooluse
+            return Message("assistant", "ok")
+
+        monkeypatch.setattr("gptme.llm._reply_stream", fake_reply_stream)
+        monkeypatch.setattr("gptme.llm.init_llm", lambda *a, **kw: None)
+        # Suppress hooks that try to access workspace state
+        monkeypatch.setattr("gptme.hooks.trigger_hook", lambda *a, **kw: iter([]))
+        return captured
+
+    def test_parallel_model_defaults_break_off(self, monkeypatch):
+        """Models supporting parallel tool calls should default break_on_tooluse=False."""
+        from gptme.llm import reply
+        from gptme.message import Message
+
+        captured = self._capture_break_on_tooluse(monkeypatch)
+        # Remove env var to test model-dependent default
+        monkeypatch.delenv("GPTME_BREAK_ON_TOOLUSE", raising=False)
+
+        reply(
+            [Message("user", "hi")],
+            model="anthropic/claude-sonnet-4-6",
+            stream=True,
+        )
+        assert captured["break_on_tooluse"] is False
+
+    def test_non_parallel_model_defaults_break_on(self, monkeypatch):
+        """Models NOT supporting parallel tool calls should default break_on_tooluse=True."""
+        from gptme.llm import reply
+        from gptme.message import Message
+
+        captured = self._capture_break_on_tooluse(monkeypatch)
+        monkeypatch.delenv("GPTME_BREAK_ON_TOOLUSE", raising=False)
+
+        reply(
+            [Message("user", "hi")],
+            model="anthropic/claude-haiku-4-5-20251001",
+            stream=True,
+        )
+        assert captured["break_on_tooluse"] is True
+
+    def test_env_var_overrides_parallel_model(self, monkeypatch):
+        """GPTME_BREAK_ON_TOOLUSE=1 should force break_on_tooluse=True even for parallel-capable models."""
+        from gptme.llm import reply
+        from gptme.message import Message
+
+        captured = self._capture_break_on_tooluse(monkeypatch)
+        monkeypatch.setenv("GPTME_BREAK_ON_TOOLUSE", "1")
+
+        reply(
+            [Message("user", "hi")],
+            model="anthropic/claude-sonnet-4-6",
+            stream=True,
+        )
+        assert captured["break_on_tooluse"] is True
+
+    def test_env_var_overrides_non_parallel_model(self, monkeypatch):
+        """GPTME_BREAK_ON_TOOLUSE=0 should force break_on_tooluse=False even for non-parallel models."""
+        from gptme.llm import reply
+        from gptme.message import Message
+
+        captured = self._capture_break_on_tooluse(monkeypatch)
+        monkeypatch.setenv("GPTME_BREAK_ON_TOOLUSE", "0")
+
+        reply(
+            [Message("user", "hi")],
+            model="anthropic/claude-haiku-4-5-20251001",
+            stream=True,
+        )
+        assert captured["break_on_tooluse"] is False
+
+    def test_openai_parallel_model_defaults_break_off(self, monkeypatch):
+        """Cross-provider check: OpenAI models with parallel support also default to False."""
+        from gptme.llm import reply
+        from gptme.message import Message
+
+        captured = self._capture_break_on_tooluse(monkeypatch)
+        monkeypatch.delenv("GPTME_BREAK_ON_TOOLUSE", raising=False)
+
+        reply(
+            [Message("user", "hi")],
+            model="openai/gpt-4o",
+            stream=True,
+        )
+        assert captured["break_on_tooluse"] is False
+
+    def test_old_claude_model_defaults_break_on(self, monkeypatch):
+        """Older Claude 3.5 models without parallel support should default to True."""
+        from gptme.llm import reply
+        from gptme.message import Message
+
+        captured = self._capture_break_on_tooluse(monkeypatch)
+        monkeypatch.delenv("GPTME_BREAK_ON_TOOLUSE", raising=False)
+
+        reply(
+            [Message("user", "hi")],
+            model="anthropic/claude-3-5-sonnet-20241022",
+            stream=True,
+        )
+        assert captured["break_on_tooluse"] is True
