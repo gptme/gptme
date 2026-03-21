@@ -690,7 +690,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fb966f6b740&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7efd533e5120&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -2141,17 +2141,6 @@ The following Python functions are available using the <span class="sb">`ipython
 <span class="s">view_image(image_path: Path | str | Image.Image) -&gt; Message: View an image. Large images (&gt;1MB) will be automatically scaled down.</span>
 <span class="sb">```</span>
 
-<span class="gu">## youtube</span>
-
-<span class="gs">**Description:**</span> Fetch and summarize YouTube video transcripts
-
-<span class="gs">**Instructions:**</span> The following Python functions are available using the <span class="sb">`ipython`</span> tool:
-
-<span class="sb">```txt</span>
-<span class="s">get_transcript(video_id: str) -&gt; str: No description</span>
-<span class="s">summarize_transcript(transcript: str) -&gt; str: No description</span>
-<span class="sb">```</span>
-
 <span class="gu">## ipython</span>
 
 <span class="gs">**Description:**</span> Execute Python code
@@ -2183,7 +2172,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 11822</p>
+<p>Tokens: 11752</p>
 </dd></dl>
 
 <dl class="py function">
