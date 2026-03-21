@@ -221,6 +221,8 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 5,
             "supports_vision": True,
             "supports_reasoning": True,
+            # supports_parallel_tool_calls intentionally absent (defaults to False):
+            # unlike Sonnet/Opus 4.5, Haiku 4.5 does not emit multiple tool calls per response
             "knowledge_cutoff": datetime(
                 2025, 7, 1, tzinfo=timezone.utc
             ),  # "reliable cutoff" is Feb 2025
