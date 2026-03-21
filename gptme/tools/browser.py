@@ -306,7 +306,9 @@ logger = logging.getLogger(__name__)
 # Always include all engine types in the type definition
 EngineType = Literal["google", "duckduckgo", "perplexity"]
 
-SEARCH_ENGINE_ERROR_PREFIX = "Error:"
+
+class SearchBackendError(RuntimeError):
+    """Raised by _search_with_engine when a search backend fails or is unavailable."""
 
 
 def _available_search_engines() -> list[EngineType]:
@@ -329,41 +331,52 @@ def _available_search_engines() -> list[EngineType]:
 def _search_with_engine(query: str, engine: EngineType) -> str:
     """Execute a search with a specific engine without fallback.
 
-    Note: the Error branches below are unreachable when called via search(), because
-    search() only includes engines that pass _available_search_engines(). They remain
-    here so _search_with_engine can be called directly (e.g. in tests) without the
-    availability gate.
+    Raises SearchBackendError on engine unavailability or backend-reported failure.
+    Returns the search result string on success.
+
+    Note: the unavailability branches below are unreachable when called via search(),
+    because search() only includes engines that pass _available_search_engines(). They
+    remain here so _search_with_engine can be called directly (e.g. in tests) without
+    the availability gate.
     """
     if engine == "perplexity":
-        if has_perplexity:
-            assert search_perplexity is not None
-            return search_perplexity(query)
-        return (
-            "Error: Perplexity search not available. Set PERPLEXITY_API_KEY or "
-            "OPENROUTER_API_KEY environment variable or add it to "
-            "~/.config/gptme/config.toml"
-        )
+        if not has_perplexity:
+            raise SearchBackendError(
+                "Perplexity search not available. Set PERPLEXITY_API_KEY or "
+                "OPENROUTER_API_KEY environment variable or add it to "
+                "~/.config/gptme/config.toml"
+            )
+        assert search_perplexity is not None
+        result = search_perplexity(query)
+        # search_perplexity uses "Error:" prefix for API-level failures
+        if result.startswith("Error:"):
+            raise SearchBackendError(result.removeprefix("Error:").strip())
+        return result
 
     if engine == "google":
         if browser == "playwright":
             return search_google(query)
         if browser == "lynx":
-            return search_lynx(query, "google")
-        return "Error: Google search not available because no browser backend is configured"
+            result = search_lynx(query, "google")
+            if result.startswith("Error:"):
+                raise SearchBackendError(result.removeprefix("Error:").strip())
+            return result
+        raise SearchBackendError(
+            "Google search not available because no browser backend is configured"
+        )
 
     if engine == "duckduckgo":
         if browser == "lynx":
-            return search_lynx(query, "duckduckgo")
-        return (
-            "Error: DuckDuckGo search is unavailable because bot detection blocks "
+            result = search_lynx(query, "duckduckgo")
+            if result.startswith("Error:"):
+                raise SearchBackendError(result.removeprefix("Error:").strip())
+            return result
+        raise SearchBackendError(
+            "DuckDuckGo search is unavailable because bot detection blocks "
             "the current browser backend"
         )
 
     raise ValueError(f"Unknown search engine: {engine}")
-
-
-def _search_failed(result: str) -> bool:
-    return result.startswith(SEARCH_ENGINE_ERROR_PREFIX)
 
 
 def _available_search_engines_text() -> str:
@@ -622,18 +635,14 @@ def search(query: str, engine: EngineType | None = None) -> str:
     for candidate in engines_to_try:
         logger.info(f"Searching for '{query}' on {candidate}")
         try:
-            result = _search_with_engine(query, candidate)
+            return _search_with_engine(query, candidate)
+        except SearchBackendError as exc:
+            errors.append(f"{candidate}: {exc}")
         except Exception as exc:
             logger.warning(
                 "Search backend %s failed with exception", candidate, exc_info=exc
             )
             errors.append(f"{candidate}: {exc}")
-            continue
-        if not _search_failed(result):
-            return result
-        errors.append(
-            f"{candidate}: {result.removeprefix(SEARCH_ENGINE_ERROR_PREFIX).strip()}"
-        )
 
     target = (
         "All available search backends"
