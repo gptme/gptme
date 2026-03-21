@@ -28,8 +28,6 @@ gptme has optional Python dependencies that can be installed using extras:
      - Playwright for web browsing and automation
    * - ``datascience``
      - matplotlib, pandas, numpy for data analysis
-   * - ``tts``
-     - Text-to-speech support with Kokoro
    * - ``telemetry``
      - OpenTelemetry instrumentation for observability
    * - ``all``

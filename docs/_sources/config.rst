@@ -208,12 +208,6 @@ Besides the configuration files, gptme supports several environment variables to
 
 - ``LLM_API_TIMEOUT`` - Set the timeout in seconds for LLM API requests (default: 600). Must be a valid numeric string (e.g., "600", "1800"). Useful for local LLMs that may take longer to respond.
 
-.. rubric:: Tool Configuration
-
-- ``GPTME_TTS_VOICE`` - Set the voice to use for TTS
-- ``GPTME_TTS_SPEED`` - Set the speed to use for TTS (default: 1.0)
-- ``GPTME_VOICE_FINISH`` - Wait for TTS speech to finish before exiting (default: false)
-
 .. rubric:: Paths
 
 - ``GPTME_LOGS_HOME`` - Override the default logs folder location

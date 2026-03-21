@@ -223,8 +223,6 @@ gptme has optional Python dependencies that can be installed using extras:
      - Playwright for web browsing and automation
    * - ``datascience``
      - matplotlib, pandas, numpy for data analysis
-   * - ``tts``
-     - Text-to-speech support with Kokoro
    * - ``telemetry``
      - OpenTelemetry instrumentation for observability
    * - ``all``
@@ -1025,7 +1023,6 @@ Overview
 
 - `Tmux`_ - Manage long-running processes in terminal sessions
 - `Subagent`_ - Delegate subtasks to specialized agent instances
-- `TTS`_ - Convert responses to speech for hands-free interaction
 
 Combinations
 ^^^^^^^^^^^^
@@ -1133,13 +1130,6 @@ RAG
 ---
 
 .. automodule:: gptme.tools.rag
-    :members:
-    :noindex:
-
-TTS
----
-
-.. automodule:: gptme.tools.tts
     :members:
     :noindex:
 
@@ -1852,12 +1842,6 @@ Besides the configuration files, gptme supports several environment variables to
 .. rubric:: API Configuration
 
 - ``LLM_API_TIMEOUT`` - Set the timeout in seconds for LLM API requests (default: 600). Must be a valid numeric string (e.g., "600", "1800"). Useful for local LLMs that may take longer to respond.
-
-.. rubric:: Tool Configuration
-
-- ``GPTME_TTS_VOICE`` - Set the voice to use for TTS
-- ``GPTME_TTS_SPEED`` - Set the speed to use for TTS (default: 1.0)
-- ``GPTME_VOICE_FINISH`` - Wait for TTS speech to finish before exiting (default: false)
 
 .. rubric:: Paths
 
@@ -2615,7 +2599,7 @@ See :doc:`bot` for the GitHub bot and :doc:`usage` for automation patterns.
 Quality of Life
 ---------------
 
-- 🗣️ **Text-to-Speech** — locally generated using Kokoro (no cloud required). See the :ref:`TTS <tools:TTS>` tool.
+- 🗣️ **Text-to-Speech** — locally generated using Kokoro via ``gptme-tts`` plugin (no cloud required).
 - 🔊 **Tool sounds** — pleasant notification sounds for tool operations (enable with ``GPTME_TOOL_SOUNDS=true``).
 - 🔄 **Auto-commit** — optionally commit changes automatically after tool execution.
 - 📋 **Pre-commit hooks** — automatic checks on file saves.

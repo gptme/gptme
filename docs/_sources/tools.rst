@@ -38,7 +38,6 @@ Overview
 
 - `Tmux`_ - Manage long-running processes in terminal sessions
 - `Subagent`_ - Delegate subtasks to specialized agent instances
-- `TTS`_ - Convert responses to speech for hands-free interaction
 
 Combinations
 ^^^^^^^^^^^^
@@ -143,13 +142,6 @@ RAG
 ---
 
 .. automodule:: gptme.tools.rag
-    :members:
-    :noindex:
-
-TTS
----
-
-.. automodule:: gptme.tools.tts
     :members:
     :noindex:
 

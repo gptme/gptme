@@ -690,7 +690,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f6adc84bb00&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f63343e5120&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -2091,44 +2091,6 @@ to restore your todo list state.
 <span class="s">clear completed</span>
 <span class="sb">```</span>
 
-<span class="gu">## tts</span>
-
-<span class="gs">**Description:**</span> Text-to-speech (TTS) tool for generating audio from text.
-
-<span class="gs">**Instructions:**</span> Will output all assistant speech (not codeblocks, tool-uses, or other non-speech text). The assistant cannot hear the output.
-
-The following Python functions are available using the <span class="sb">`ipython`</span> tool:
-
-<span class="sb">```txt</span>
-<span class="s">speak(): Speak text using Kokoro TTS server.</span>
-
-<span class="s">    The TTS system supports:</span>
-
-<span class="s">    - Speed control via set_speed(0.5 to 2.0)</span>
-<span class="s">    - Volume control via set_volume(0.0 to 1.0)</span>
-<span class="s">    - Automatic chunking of long texts</span>
-<span class="s">    - Non-blocking operation with optional blocking mode</span>
-<span class="s">    - Interruption of current speech</span>
-<span class="s">    - Background processing of TTS requests</span>
-
-<span class="s">    Args:</span>
-<span class="s">        text: Text to speak</span>
-<span class="s">        block: If True, wait for audio to finish playing</span>
-<span class="s">        interrupt: If True, stop current speech and clear queue before speaking</span>
-<span class="s">        clean: If True, clean text for speech (remove markup, emojis, etc.)</span>
-
-<span class="s">    Example:</span>
-<span class="s">        &gt;&gt;&gt; from gptme.tools.tts import speak, set_speed, set_volume</span>
-<span class="s">        &gt;&gt;&gt; set_volume(0.8)  # Set comfortable volume</span>
-<span class="s">        &gt;&gt;&gt; set_speed(1.2)   # Slightly faster speech</span>
-<span class="s">        &gt;&gt;&gt; speak(&quot;Hello, world!&quot;)  # Non-blocking by default</span>
-<span class="s">        &gt;&gt;&gt; speak(&quot;Important message!&quot;, interrupt=True)  # Interrupts previous speech</span>
-
-<span class="s">set_speed(): Set the speaking speed (0.5 to 2.0, default 1.3).</span>
-<span class="s">set_volume(): Set the volume for TTS playback (0.0 to 1.0).</span>
-<span class="s">stop(): Stop audio playback and clear queues.</span>
-<span class="sb">```</span>
-
 <span class="gu">## vision</span>
 
 <span class="gs">**Description:**</span> Viewing images
@@ -2172,7 +2134,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 11752</p>
+<p>Tokens: 11390</p>
 </dd></dl>
 
 <dl class="py function">
