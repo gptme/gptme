@@ -177,7 +177,7 @@ def _extract_codeblocks(
         # so six leading backticks followed immediately by a language tag is a good
         # signal that the first three backticks belong to the previous block.
         if re.match(r"^``````\S", line):
-            line = "```" + line[3:]
+            line = line[3:]
             lines[i] = line
 
         # Look for code block start (3+ backticks)

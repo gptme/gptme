@@ -1311,6 +1311,7 @@ def test_thinking_tag_concatenated_to_closing_fence():
 
 def test_adjacent_outer_fences_split_tool_blocks():
     """A malformed close+open fence on one line should still yield the following block."""
+    # Inner-loop case: 6-backtick line appears inside block 1 (no closing fence before it)
     markdown = (
         "```patch /tmp/file1.py\n"
         "<<<<<<< ORIGINAL\nold\n=======\nnew\n>>>>>>> UPDATED\n"
@@ -1321,6 +1322,27 @@ def test_adjacent_outer_fences_split_tool_blocks():
     blocks = list(_extract_codeblocks(markdown))
     assert len(blocks) == 2
     assert blocks[0].lang.startswith("patch")
+    assert blocks[1].lang == "patch /tmp/file2.py"
+    assert "old2" in blocks[1].content
+
+
+def test_adjacent_outer_fences_outer_level():
+    """Outer-loop case: 6-backtick line at outer level (after a properly-closed block)."""
+    # Block 1 is properly closed with ```, then "``````patch" appears at the outer loop level.
+    # Without the fix, fence_len=6 would cause the inner loop to search for a 6-backtick
+    # closing fence, never find one, and silently drop block 2.
+    markdown = (
+        "```patch /tmp/file1.py\n"
+        "<<<<<<< ORIGINAL\nold\n=======\nnew\n>>>>>>> UPDATED\n"
+        "```\n"
+        "``````patch /tmp/file2.py\n"
+        "<<<<<<< ORIGINAL\nold2\n=======\nnew2\n>>>>>>> UPDATED\n"
+        "```"
+    )
+    blocks = list(_extract_codeblocks(markdown))
+    assert len(blocks) == 2
+    assert blocks[0].lang == "patch /tmp/file1.py"
+    assert "old" in blocks[0].content
     assert blocks[1].lang == "patch /tmp/file2.py"
     assert "old2" in blocks[1].content
 
