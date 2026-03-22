@@ -337,6 +337,70 @@ def _list_results_duckduckgo(page) -> str:
     return titleurl_to_list(hits)
 
 
+def _format_aria_node(node: dict, indent: int = 0) -> str:
+    """Format an accessibility tree node as readable text."""
+    prefix = "  " * indent
+    role = node.get("role", "unknown")
+    name = node.get("name", "")
+
+    # Build attribute list
+    attrs = []
+    if "level" in node:
+        attrs.append(f"level={node['level']}")
+    if "value" in node:
+        attrs.append(f'value="{node["value"]}"')
+    if "checked" in node:
+        attrs.append(f"checked={node['checked']}")
+    if "pressed" in node:
+        attrs.append(f"pressed={node['pressed']}")
+    if "disabled" in node:
+        attrs.append("disabled")
+    if "required" in node:
+        attrs.append("required")
+    if "expanded" in node:
+        attrs.append(f"expanded={node['expanded']}")
+    if "selected" in node:
+        attrs.append(f"selected={node['selected']}")
+    if node.get("readonly"):
+        attrs.append("readonly")
+
+    attr_str = f" [{', '.join(attrs)}]" if attrs else ""
+    name_str = f' "{name}"' if name else ""
+
+    line = f"{prefix}- {role}{name_str}{attr_str}"
+
+    # Add children
+    children = node.get("children", [])
+    if children:
+        child_lines = [_format_aria_node(child, indent + 1) for child in children]
+        return line + ":\n" + "\n".join(child_lines)
+    return line
+
+
+def _get_aria_snapshot(browser: Browser, url: str) -> str:
+    """Load a page and return its ARIA accessibility snapshot."""
+    context = browser.new_context(
+        locale="en-US",
+    )
+    page = context.new_page()
+    try:
+        page.goto(url)
+        page.wait_for_load_state("networkidle")
+        snapshot = page.accessibility.snapshot()
+        if not snapshot:
+            return "Error: Could not get accessibility snapshot for this page."
+        return _format_aria_node(snapshot)
+    finally:
+        page.close()
+        context.close()
+
+
+def aria_snapshot(url: str) -> str:
+    """Get the ARIA accessibility snapshot of a webpage."""
+    logger.info(f"Getting ARIA snapshot of '{url}'")
+    return _execute_with_retry(_get_aria_snapshot, url)
+
+
 def _take_screenshot(
     browser: Browser, url: str, path: Path | str | None = None
 ) -> Path:

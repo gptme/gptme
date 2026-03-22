@@ -4,6 +4,7 @@ Tools to let the assistant control a browser, including:
  - reading their contents
  - searching the web
  - taking screenshots (Playwright only)
+ - getting ARIA accessibility snapshots (Playwright only)
  - reading PDFs (with page limits and vision fallback hints)
  - converting PDFs to images (using pdftoppm, ImageMagick, or vips)
 
@@ -293,6 +294,7 @@ except ImportError:
 
 # noreorder
 if browser == "playwright":
+    from ._browser_playwright import aria_snapshot as aria_snapshot_pw  # fmt: skip
     from ._browser_playwright import read_logs as read_logs_playwright  # fmt: skip
     from ._browser_playwright import read_url as read_url_playwright  # fmt: skip
     from ._browser_playwright import screenshot_url as screenshot_url_pw  # fmt: skip
@@ -375,6 +377,12 @@ def _available_search_engines_text() -> str:
 
 def examples(tool_format):
     # Define example output with newlines outside f-string (backslashes not allowed in f-string expressions)
+    snapshot_example_result = (
+        '- WebArea "Example Domain":\n'
+        '  - heading "Example Domain" [level=1]\n'
+        '  - text "This domain is for use in illustrative examples..."\n'
+        '  - link "More information..."'
+    )
     pdf_example_result = (
         "--- Page 1 ---\n[PDF text content...]\n\n--- Page 2 ---\n[More content...]\n\n---\n"
         "**Note**: This PDF has 42 pages. Showing first 10 pages.\n"
@@ -424,6 +432,14 @@ Assistant: Certainly! I'll use the browser tool to screenshot the ActivityWatch 
 System:
 {md_codeblock("result", "Screenshot saved to screenshot.png")}
 
+### Get ARIA snapshot to see interactive elements
+User: what interactive elements are on example.com?
+Assistant: Let me get the accessibility snapshot of the page.
+{ToolUse("ipython", [], "snapshot_url('https://example.com')").to_output(tool_format)}
+System:
+{md_codeblock("result", snapshot_example_result)}
+Assistant: The page has a heading "Example Domain", a paragraph with description text, and a link "More information...".
+
 ### Read URL and check browser logs
 User: read this page and check if there are any console errors
 Assistant: I'll read the page first and then check the browser logs.
@@ -452,6 +468,7 @@ def _tool_instructions() -> str:
         f"search the web with search() using auto-detected backends and fallback "
         f"(available now: {available_search}), "
         "capture screenshots with screenshot_url(), "
+        "get ARIA accessibility snapshots with snapshot_url() to see interactive elements, "
         "check browser console errors with read_logs(), "
         "or convert a local PDF to images with pdf_to_images()."
     )
@@ -662,6 +679,19 @@ def screenshot_url(url: str, path: Path | str | None = None) -> Path:
     raise ValueError("Screenshot not supported with lynx backend")
 
 
+def snapshot_url(url: str) -> str:
+    """Get the ARIA accessibility snapshot of a webpage.
+
+    Returns a structured text representation of the page's accessibility tree,
+    showing interactive elements (buttons, links, inputs) with their roles and names.
+    Useful for understanding page structure and finding elements to interact with.
+    """
+    assert browser
+    if browser == "playwright":
+        return aria_snapshot_pw(url)
+    raise ValueError("ARIA snapshots not supported with lynx backend")
+
+
 def read_logs() -> str:
     """Read browser console logs from the last read URL."""
     assert browser
@@ -678,11 +708,19 @@ tool = ToolSpec(
         "tool": "Browse the web: read any URL or PDF with read_url(), "
         "search the web with search() using auto-detected backends and fallback, "
         "capture screenshots with screenshot_url(), "
+        "get ARIA accessibility snapshots with snapshot_url(), "
         "check browser console errors with read_logs(), "
         "or convert a local PDF to images with pdf_to_images().",
     },
     examples=examples,
-    functions=[read_url, search, screenshot_url, read_logs, pdf_to_images],
+    functions=[
+        read_url,
+        search,
+        screenshot_url,
+        snapshot_url,
+        read_logs,
+        pdf_to_images,
+    ],
     available=has_browser_tool,
     init=init,
 )

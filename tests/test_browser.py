@@ -10,6 +10,7 @@ from gptme.tools.browser import (  # fmt: skip
     _available_search_engines,
     read_url,
     search,
+    snapshot_url,
 )
 
 
@@ -22,6 +23,23 @@ def test_read_url_with_links():
 
     # check that link to activitywatch is present
     assert "https://activitywatch.net/" in s
+
+
+@pytest.mark.slow
+def test_snapshot_url():
+    """Test ARIA accessibility snapshot of a webpage."""
+    snapshot = snapshot_url("https://example.com")
+
+    # Should return non-empty string
+    assert snapshot, "Snapshot should not be empty"
+    assert len(snapshot) > 50, f"Snapshot too short: {len(snapshot)} chars"
+
+    # Should contain typical ARIA elements
+    # example.com has a heading and a link
+    assert "Example Domain" in snapshot, "Should contain the page title/heading"
+    assert "link" in snapshot.lower() or "heading" in snapshot.lower(), (
+        "Should contain ARIA role information"
+    )
 
 
 @pytest.mark.slow
