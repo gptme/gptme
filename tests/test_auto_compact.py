@@ -673,7 +673,7 @@ def test_compact_resume_error_handling():
     ]
 
     # Mock the LLM to raise an exception with an empty message
-    with patch("gptme.tools.autocompact.llm") as mock_llm:
+    with patch("gptme.tools.autocompact.resume.llm") as mock_llm:
         # Exception with empty string (the bug we're fixing)
         mock_llm.reply.side_effect = Exception("")
 
@@ -706,7 +706,7 @@ def test_compact_resume_error_with_message():
         Message("assistant", "Assistant response 2"),
     ]
 
-    with patch("gptme.tools.autocompact.llm") as mock_llm:
+    with patch("gptme.tools.autocompact.resume.llm") as mock_llm:
         # Exception with actual message
         mock_llm.reply.side_effect = Exception("API rate limit exceeded")
 
@@ -734,7 +734,7 @@ def test_compact_resume_no_model():
         Message("assistant", "Assistant response 2"),
     ]
 
-    with patch("gptme.tools.autocompact.get_default_model") as mock_get_model:
+    with patch("gptme.tools.autocompact.resume.get_default_model") as mock_get_model:
         # No model configured
         mock_get_model.return_value = None
 
@@ -893,12 +893,12 @@ def test_resume_via_llm_with_mocked_reply():
         "## Context Files\n- `src/main.py` - Main file\n"
     )
 
-    with patch("gptme.tools.autocompact.llm") as mock_llm:
+    with patch("gptme.tools.autocompact.resume.llm") as mock_llm:
         mock_response = MagicMock()
         mock_response.content = resume_content
         mock_llm.reply.return_value = mock_response
 
-        with patch("gptme.tools.autocompact.get_default_model") as mock_model:
+        with patch("gptme.tools.autocompact.resume.get_default_model") as mock_model:
             mock_m = MagicMock()
             mock_m.full = "test-model"
             mock_model.return_value = mock_m
@@ -935,12 +935,12 @@ def test_resume_via_llm_with_view_branch():
 
     resume_content = "# Resume\n## Summary\nWe discussed testing.\n"
 
-    with patch("gptme.tools.autocompact.llm") as mock_llm:
+    with patch("gptme.tools.autocompact.resume.llm") as mock_llm:
         mock_response = MagicMock()
         mock_response.content = resume_content
         mock_llm.reply.return_value = mock_response
 
-        with patch("gptme.tools.autocompact.get_default_model") as mock_model:
+        with patch("gptme.tools.autocompact.resume.get_default_model") as mock_model:
             mock_m = MagicMock()
             mock_m.full = "test-model"
             mock_model.return_value = mock_m
