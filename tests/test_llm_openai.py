@@ -558,7 +558,11 @@ def test_message_conversion_gpt5_with_tool_results():
     # 1. Regular system message is converted to user message
     # 2. Tool result (system with call_id) is converted to tool message
     assert messages_list[0]["role"] == "user"  # System prompt -> user
-    assert "<system>" in messages_list[0]["content"][0]["text"]  # type: ignore[index]
+    content_0 = messages_list[0]["content"]
+    assert isinstance(content_0, list)
+    first_part = content_0[0]
+    assert isinstance(first_part, dict)
+    assert "<system>" in first_part["text"]
 
     assert messages_list[1]["role"] == "user"  # User message stays user
 
@@ -569,7 +573,11 @@ def test_message_conversion_gpt5_with_tool_results():
     # The critical assertion: tool result should be role="tool", not role="user"
     assert messages_list[3]["role"] == "tool"  # Tool result preserved!
     assert messages_list[3]["tool_call_id"] == "call_123"
-    assert messages_list[3]["content"][0]["text"] == "Saved to file.txt"  # type: ignore[index]
+    content_3 = messages_list[3]["content"]
+    assert isinstance(content_3, list)
+    first_part_3 = content_3[0]
+    assert isinstance(first_part_3, dict)
+    assert first_part_3["text"] == "Saved to file.txt"
 
 
 def test_transform_msgs_for_groq():
@@ -1229,8 +1237,10 @@ def test_transform_msgs_handles_list_content():
     assert result[0]["reasoning_content"] == "Reasoning here"
 
     # Content should be cleaned (reasoning extracted)
-    assert "<think>" not in result[0]["content"]  # type: ignore[operator]
-    assert "Actual response content" in result[0]["content"]  # type: ignore[operator]
+    result_content = result[0]["content"]
+    assert isinstance(result_content, str)
+    assert "<think>" not in result_content
+    assert "Actual response content" in result_content
 
 
 def test_transform_msgs_handles_string_list_content():

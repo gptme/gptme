@@ -471,7 +471,8 @@ def _merge_project_config(
     elif existing_config:
         final_config = existing_config
     else:
-        final_config = project_config  # type: ignore[assignment]
+        assert project_config is not None
+        final_config = project_config
 
     # Ensure agent name is set
     if not final_config.agent or not final_config.agent.name:

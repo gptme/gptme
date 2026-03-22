@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from gptme.context import AdaptiveCompressor, CompressionResult
+from gptme.context.task_analyzer import TaskClassification
 
 
 def test_adaptive_compressor_init():
@@ -78,7 +79,9 @@ def test_compression_result_tokens_saved():
         original_content="a" * 1000,  # 1000 chars
         compressed_content="a" * 500,  # 500 chars
         compression_ratio=0.5,
-        task_classification=None,  # type: ignore[arg-type]
+        task_classification=TaskClassification(
+            primary_type="diagnostic", confidence=0.0
+        ),
         rationale="Test",
     )
 

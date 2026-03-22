@@ -14,7 +14,7 @@ import functools
 import logging
 import time
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from .llm.models import get_model
 from .util._telemetry import (
@@ -142,7 +142,7 @@ def trace_function(
                     span.set_attribute("function.error.message", str(e))
                     raise
 
-        return wrapper  # type: ignore[return-value]
+        return cast(F, wrapper)
 
     return decorator
 
@@ -478,4 +478,4 @@ def measure_tokens_per_second(func: F) -> F:
 
         return result
 
-    return wrapper  # type: ignore[return-value]
+    return cast(F, wrapper)

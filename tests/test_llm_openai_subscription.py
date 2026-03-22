@@ -1,4 +1,5 @@
 import json
+from collections.abc import Iterator
 from typing import Any
 from unittest.mock import patch
 
@@ -12,7 +13,7 @@ class _FakeSSEStreamResponse:
         self.text = ""
         self._events = events
 
-    def iter_lines(self):  # type: ignore[no-untyped-def]
+    def iter_lines(self) -> Iterator[bytes]:
         for event in self._events:
             yield f"data: {json.dumps(event)}".encode()
 

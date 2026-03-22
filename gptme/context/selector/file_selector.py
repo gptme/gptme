@@ -4,7 +4,7 @@ import logging
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from ...message import Message
 from .file_config import FileSelectorConfig
@@ -282,9 +282,7 @@ def select_relevant_files(
             candidates=[item for item, _ in scored_items],
             max_results=max_files,
         )
-        # Assert type for mypy (we know these are FileItems)
-        assert all(isinstance(item, FileItem) for item in selected)
-        return [item.path for item in selected]  # type: ignore[attr-defined]
+        return [cast(FileItem, item).path for item in selected]
     except Exception as e:
         logger.error(f"Context selector failed: {e}, falling back to scored ranking")
         return [item.path for item, _ in scored_items[:max_files]]

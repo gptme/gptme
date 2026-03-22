@@ -2,6 +2,7 @@
 
 import shutil
 import subprocess
+from typing import Any, cast
 from unittest import mock
 
 import pytest
@@ -145,15 +146,15 @@ def test_parse_key_sequence_alias_mapping():
     """Test that key aliases are resolved during parsing."""
     # "enter" should map to "return"
     ops = _parse_key_sequence("enter")
-    assert dict(ops[0])["key"] == "return"  # type: ignore[call-overload]
+    assert cast(dict[str, Any], ops[0])["key"] == "return"
 
     # "escape" should map to "esc"
     ops = _parse_key_sequence("escape")
-    assert dict(ops[0])["key"] == "esc"  # type: ignore[call-overload]
+    assert cast(dict[str, Any], ops[0])["key"] == "esc"
 
     # "command" should map to "cmd" as a modifier
     ops = _parse_key_sequence("command+c")
-    assert "cmd" in dict(ops[0])["modifiers"]  # type: ignore[call-overload,operator]
+    assert "cmd" in cast(dict[str, Any], ops[0])["modifiers"]
 
 
 def test_parse_key_sequence_whitespace_handling():
@@ -161,8 +162,8 @@ def test_parse_key_sequence_whitespace_handling():
     ops = _parse_key_sequence("ctrl+c ; t:hello ; return")
     assert len(ops) == 3
     assert ops[0]["type"] == "combo"
-    assert dict(ops[1])["text"] == "hello"  # type: ignore[call-overload]
-    assert dict(ops[2])["key"] == "return"  # type: ignore[call-overload]
+    assert cast(dict[str, Any], ops[1])["text"] == "hello"
+    assert cast(dict[str, Any], ops[2])["key"] == "return"
 
 
 # === Key mapping tests ===
@@ -353,7 +354,7 @@ def test_run_xdotool_macos_raises():
 def test_computer_invalid_action(mock_res):
     """Test that invalid actions raise ValueError."""
     with pytest.raises(ValueError, match="Invalid action"):
-        computer("invalid_action")  # type: ignore[arg-type]
+        computer(cast(Any, "invalid_action"))
 
 
 @mock.patch("gptme.tools.computer._get_display_resolution", return_value=(1920, 1080))

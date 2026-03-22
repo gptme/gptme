@@ -14,6 +14,7 @@ from .hooks import init_hooks
 from .llm import guess_provider_from_config, init_llm, is_custom_provider
 from .llm.models import (
     PROVIDERS,
+    CustomProvider,
     Provider,
     get_model,
     get_recommended_model,
@@ -94,7 +95,7 @@ def init_model(
             provider, model_name = cast(tuple[Provider, str], model.split("/", 1))
         elif is_custom_provider(provider_part):
             # Custom provider - use full model string, provider is extracted
-            provider = provider_part  # type: ignore[assignment]
+            provider = CustomProvider(provider_part)
             model_name = "/".join(model.split("/")[1:])  # Rest after provider
         else:
             # Unknown provider format, treat as provider only
@@ -104,7 +105,7 @@ def init_model(
         if is_custom_provider(model):
             # Get the ModelMeta which will resolve the default model
             model_meta = get_model(model)
-            provider = model  # type: ignore[assignment]
+            provider = CustomProvider(model)
             model_name = "/".join(
                 model_meta.model.split("/")[1:]
             )  # Strip provider prefix

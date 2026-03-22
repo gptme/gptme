@@ -17,6 +17,7 @@ Once loaded, server tools are available as ``<server-name>.<tool-name>``.
 import json
 from collections.abc import Generator
 from logging import getLogger
+from typing import cast
 
 from ..hooks import confirm
 from ..message import Message
@@ -332,8 +333,7 @@ def execute_mcp(
 def examples(tool_format: str) -> str:
     """Return example usage."""
 
-    # Cast to ToolFormat type
-    fmt: ToolFormat = tool_format  # type: ignore[assignment]
+    fmt = cast(ToolFormat, tool_format)
     return "\n\n".join(
         [
             ToolUse("mcp", [], "search sqlite").to_output(fmt),

@@ -32,7 +32,7 @@ from ..llm.models import get_recommended_model
 from ..logmanager import ConversationMeta, get_user_conversations
 from ..message import Message
 from ..profiles import get_profile
-from ..prompts import get_prompt
+from ..prompts import ContextMode, get_prompt
 from ..telemetry import init_telemetry, shutdown_telemetry
 from ..tools import ToolFormat, get_available_tools, init_tools
 from ..util import epoch_to_age
@@ -598,7 +598,9 @@ def main(
         initial_msgs = []
     else:
         # Infer context mode: --context-include implies selective mode
-        effective_context_mode: str | None = "selective" if context_include else None
+        effective_context_mode: ContextMode | None = (
+            "selective" if context_include else None
+        )
 
         # get initial system prompt
         initial_msgs = get_prompt(
@@ -609,7 +611,7 @@ def main(
             model=config.chat.model,
             workspace=workspace_path,
             agent_path=config.chat.agent,
-            context_mode=effective_context_mode,  # type: ignore[arg-type]
+            context_mode=effective_context_mode,
             context_include=[item for val in context_include for item in val.split(",")]
             if context_include
             else None,

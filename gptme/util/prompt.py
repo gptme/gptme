@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
@@ -661,4 +661,4 @@ def rich_to_str(text: str | Any, **kwargs) -> str:
     # kwargs.setdefault("force_terminal", True)  # Ensure ANSI codes are generated
     console = Console(file=io.StringIO(), **kwargs)
     console.print(text, end="")
-    return console.file.getvalue()  # type: ignore[attr-defined]
+    return cast(io.StringIO, console.file).getvalue()

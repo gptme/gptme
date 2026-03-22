@@ -88,11 +88,11 @@ def _migrate_metadata(meta: dict) -> MessageMetadata:
     if "usage" in meta or not any(k in meta for k in _TOKEN_KEYS):
         return MessageMetadata(**meta)
 
-    usage: UsageData = {}
+    usage: dict[str, int] = {}
     remaining: dict = {}
     for k, v in meta.items():
         if k in _TOKEN_KEYS:
-            usage[k] = v  # type: ignore[literal-required]
+            usage[k] = v
         else:
             remaining[k] = v
     if usage:

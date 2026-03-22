@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from logging import getLogger
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, cast
 
 import mcp.types as mcp_types
 
@@ -21,6 +21,7 @@ from ..util.ask_execute import execute_with_confirmation
 from .base import (
     ExecuteFunc,
     Parameter,
+    ToolFormat,
     ToolSpec,
     ToolUse,
 )
@@ -201,7 +202,7 @@ def create_mcp_tools(config: Config) -> list[ToolSpec]:
                 ) -> Callable[[str], str]:
                     return lambda tool_format: ToolUse(
                         tool_name, [], example_content
-                    ).to_output(tool_format)  # type: ignore[arg-type]
+                    ).to_output(cast(ToolFormat, tool_format))
 
                 tool_spec = ToolSpec(
                     name=name,
@@ -869,8 +870,9 @@ def _mcp_params_to_elicitation_request(
         field_default = field_info.get("default")
 
         # Map JSON Schema types to FormField types
+        form_type: Literal["text", "boolean", "number"]
         if json_type == "boolean":
-            form_type: str = "boolean"
+            form_type = "boolean"
         elif json_type in ("integer", "number"):
             form_type = "number"
         else:
@@ -880,7 +882,7 @@ def _mcp_params_to_elicitation_request(
             FormField(
                 name=field_name,
                 prompt=field_desc,
-                type=form_type,  # type: ignore[arg-type]
+                type=form_type,
                 required=field_name in required_fields,
                 default=str(field_default) if field_default is not None else None,
             )

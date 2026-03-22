@@ -1,3 +1,5 @@
+from typing import cast
+
 import json_repair
 import pytest
 
@@ -253,7 +255,7 @@ def test_no_tooluse_repr_in_examples():
     tools = init_tools()
     for tool in tools:
         for tool_format in ("markdown", "xml", "tool"):
-            tool_format_typed: ToolFormat = tool_format  # type: ignore[assignment]
+            tool_format_typed = cast(ToolFormat, tool_format)
             examples = tool.get_examples(tool_format=tool_format_typed)
             if examples:
                 assert "ToolUse(" not in examples, (
@@ -275,4 +277,5 @@ def test_parse_multiple_tool_calls():
     assert tooluses[0].kwargs == {"cmd": "ls"}
     assert tooluses[1].kwargs == {"cmd": "pwd"}
     # Check ordering by start position
-    assert tooluses[0].start < tooluses[1].start  # type: ignore
+    assert tooluses[0].start is not None and tooluses[1].start is not None
+    assert tooluses[0].start < tooluses[1].start
