@@ -237,12 +237,12 @@ When agent_id matches a profile name, the profile is auto-applied:
 - developer: Full development capabilities (all tools)
 - isolated: Restricted processing for untrusted content (tools: read, ipython)
 - computer-use: Visual UI testing specialist (tools: computer, vision, ipython, shell)
-- browser-use: Web interaction and testing specialist (tools: browser, screenshot, vision, shell)
+- browser-use: Web interaction and testing specialist (tools: browser, screenshot, vision, shell) — supports interactive browsing (open_page, click, fill, scroll) and one-shot reads
 
 Example: `subagent("explorer", "Explore codebase")`
 With model override: `subagent("researcher", "Find docs", model="openai/gpt-4o-mini")`
 Computer-use example: `subagent("computer-use", "Click the Submit button, wait for the modal, and screenshot the result")`
-Browser-use example: `subagent("browser-use", "Open localhost:5173, take a screenshot, and report UI issues")`
+Browser-use example: `subagent("browser-use", "Open localhost:5173, fill the chat input, click send, and report the result")`
 
 Use subagent_read_log() to inspect a subagent's conversation log for debugging.
 
