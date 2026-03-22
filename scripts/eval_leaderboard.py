@@ -152,7 +152,7 @@ def load_results(results_dir: Path) -> list[dict]:
     return all_results
 
 
-def aggregate_results(results: list[dict], min_tests: int = 5) -> list[dict]:
+def aggregate_results(results: list[dict], min_tests: int = 4) -> list[dict]:
     """Aggregate results into per-model stats.
 
     For each model, picks the best tool format and computes pass rates
@@ -240,7 +240,7 @@ def format_rst_table(ranked: list[dict]) -> str:
     lines.append(header_sep)
 
     for stats in ranked:
-        display_name = normalize_model(stats["model"])
+        display_name = normalize_model(stats["model"])[: cols[0][1]]
         fmt = stats["format"] or "default"
         overall = (
             f"{stats['total_passed']}/{stats['total_tests']} ({stats['pass_rate']:.0%})"
