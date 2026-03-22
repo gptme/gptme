@@ -674,7 +674,7 @@ def _dir_to_listing(path: Path, prompt: str, max_entries: int = 50) -> str | Non
         )
         if result.returncode == 0 and result.stdout.strip():
             entries = sorted(result.stdout.strip().splitlines())
-    except subprocess.TimeoutExpired:
+    except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
 
     if entries is None:
@@ -742,6 +742,9 @@ def _resource_to_codeblock(
     for word in words:
         f = Path(word).expanduser()
         if f.exists() and f.is_file():
+            paths.append(word)
+            continue
+        if f.exists() and f.is_dir():
             paths.append(word)
             continue
         try:
