@@ -163,7 +163,6 @@ def auto_compact_log(
         candidates.sort(key=lambda x: x[1], reverse=True)
 
         # Truncate largest outputs until under target
-        truncated_indices: set[int] = set()
         for idx, msg_tokens, msg in candidates:
             if current_tokens <= target_tokens:
                 logger.info(
@@ -201,7 +200,6 @@ def auto_compact_log(
 
             summary_msg = msg.replace(content=summary_content)
             compacted_log[idx] = summary_msg
-            truncated_indices.add(idx)
 
             saved = msg_tokens - len_tokens(summary_content, model.model)
             tool_result_tokens_saved += saved
