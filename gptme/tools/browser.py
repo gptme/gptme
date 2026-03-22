@@ -384,19 +384,29 @@ def _available_search_engines_text() -> str:
 def examples(tool_format):
     # Define example output with newlines outside f-string (backslashes not allowed in f-string expressions)
     snapshot_example_result = (
+        "Page: Example Domain\n"
+        "URL: https://example.com/\n\n"
         '- WebArea "Example Domain":\n'
         '  - heading "Example Domain" [level=1]\n'
         '  - text "This domain is for use in illustrative examples..."\n'
         '  - link "More information..."'
     )
     interact_open_result = (
+        "Page: Example\n"
+        "URL: https://example.com/\n\n"
         '- WebArea "Example":\n  - textbox "Search" [name="q"]\n  - button "Go"'
     )
     interact_fill_result = (
+        "Page: Example\n"
+        "URL: https://example.com/\n\n"
         '- WebArea "Example":\n  - textbox "Search" [name="q"]: gptme\n  - button "Go"'
     )
     interact_fill_code = "fill_element('input[name=\"q\"]', 'gptme')"
-    interact_click_result = '- WebArea "Search Results":\n  - heading "Results for: gptme"\n  - link "gptme on GitHub"'
+    interact_click_result = (
+        "Page: Search Results\n"
+        "URL: https://example.com/search?q=gptme\n\n"
+        '- WebArea "Search Results":\n  - heading "Results for: gptme"\n  - link "gptme on GitHub"'
+    )
     pdf_example_result = (
         "--- Page 1 ---\n[PDF text content...]\n\n--- Page 2 ---\n[More content...]\n\n---\n"
         "**Note**: This PDF has 42 pages. Showing first 10 pages.\n"
