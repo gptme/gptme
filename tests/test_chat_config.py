@@ -1,3 +1,4 @@
+from dataclasses import replace as dc_replace
 from pathlib import Path
 
 import tomlkit
@@ -63,8 +64,6 @@ def test_chat_config_save_preserves_formatting(tmp_path: Path):
     assert config.model == "openai/gpt-4o"
 
     # Update model and save
-    from dataclasses import replace as dc_replace
-
     config = dc_replace(config, model="anthropic/claude-sonnet-4-5-20250514")
     config.save()
 
