@@ -27,8 +27,14 @@ logger = logging.getLogger(__name__)
 def _restart_browser() -> None:
     """Restart the browser by resetting the global instance"""
 
-    global _browser
+    global _browser, _current_page, _current_context
     start_time = time.time()
+
+    # Clear persistent page globals — after a restart, old Page/BrowserContext objects
+    # are dead. Resetting here ensures callers get a clear "no page open" error rather
+    # than silently failing with a low-level Playwright "Target closed" error.
+    _current_page = None
+    _current_context = None
 
     if _browser is not None:
         try:
@@ -418,12 +424,17 @@ def _open_page(browser: Browser, url: str) -> str:
     return _page_snapshot()
 
 
+def _do_close_page(browser: Browser) -> str:
+    """Close the current page on the browser thread."""
+    _close_current_page()
+    return "Page closed."
+
+
 def close_page() -> str:
     """Close the current interactive browsing page."""
     if _current_page is None:
         return "No page is currently open."
-    _close_current_page()
-    return "Page closed."
+    return _execute_with_retry(_do_close_page)
 
 
 def open_page(url: str) -> str:

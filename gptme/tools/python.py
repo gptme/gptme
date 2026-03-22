@@ -338,17 +338,38 @@ def init() -> ToolSpec:
         or "- no common libraries found"
     )
 
-    _instructions = f"""{instructions}
-
-Available libraries:
+    _appendix_full = f"""Available libraries:
 {python_libraries_str}
 
 Available functions:
-{get_functions()}
-""".strip()
+{get_functions()}"""
 
-    # create a copy with the updated instructions
-    return dataclasses.replace(tool, instructions=_instructions)
+    # Concise function list for tool format (stays within OpenAI's 1024-char limit, see #1697)
+    _appendix_concise = f"Available functions: {', '.join(registered_functions.keys())}"
+
+    # Merge with existing format overrides (markdown already has codeblock note)
+    existing_markdown = tool.instructions_format.get("markdown", "").strip()
+    markdown_appendix = (
+        f"{_appendix_full}\n\n{existing_markdown}"
+        if existing_markdown
+        else _appendix_full
+    )
+
+    instructions_format_updated = {
+        **tool.instructions_format,
+        "markdown": markdown_appendix,
+        "tool": _appendix_concise,
+    }
+
+    # create a copy with the updated instructions:
+    # - instructions: short base text (shared across formats)
+    # - instructions_format: format-specific appendices (full signatures for markdown,
+    #   concise names only for tool to stay within OpenAI's 1024-char limit)
+    return dataclasses.replace(
+        tool,
+        instructions=instructions,
+        instructions_format=instructions_format_updated,
+    )
 
 
 tool = ToolSpec(
