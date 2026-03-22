@@ -48,13 +48,13 @@ def check_env_parser_no_disabled(ctx):
 
 
 def check_env_parser_line_count(ctx):
-    """Exactly 5 KEY=VALUE lines in output."""
+    """Exactly 6 KEY=VALUE lines in output."""
     lines = [
         line.strip()
         for line in ctx.stdout.strip().split("\n")
         if line.strip() and "=" in line
     ]
-    return len(lines) == 5
+    return len(lines) == 6
 
 
 def check_env_parser_exit(ctx):
@@ -239,7 +239,7 @@ tests: list["EvalSpec"] = [
             "APP_SECRET quotes stripped": check_env_parser_app_secret,
             "inline comment stripped": check_env_parser_inline_comment,
             "commented line excluded": check_env_parser_no_disabled,
-            "exactly 5 output lines": check_env_parser_line_count,
+            "exactly 6 output lines": check_env_parser_line_count,
             "clean exit": check_env_parser_exit,
         },
     },
