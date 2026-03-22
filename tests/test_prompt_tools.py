@@ -320,9 +320,9 @@ def test_prompt_project_xml_escapes_project_info(tmp_path: Path):
     mock_config.prompt = "Support C++ & Python <template> builds"
 
     with (
-        patch("gptme.prompts.get_project_git_dir", return_value=project_dir),
-        patch("gptme.prompts.get_project_config", return_value=mock_config),
-        patch("gptme.prompts.get_config") as mock_get_config,
+        patch("gptme.prompts.templates.get_project_git_dir", return_value=project_dir),
+        patch("gptme.prompts.templates.get_project_config", return_value=mock_config),
+        patch("gptme.prompts.templates.get_config") as mock_get_config,
     ):
         mock_get_config.return_value.user.prompt.project = None
         msgs = list(prompt_project(tool_format="xml"))
