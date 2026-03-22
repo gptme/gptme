@@ -391,6 +391,8 @@ def main(
     Output from evals will be captured, unless a single eval is run, and saved to the results directory.
     """
     if list_tests:
+        if eval_modules:
+            print("Note: --eval-module tests are not included in this listing.")
         print_available_tests()
         sys.exit(0)
 
