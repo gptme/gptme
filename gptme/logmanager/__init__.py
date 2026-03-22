@@ -6,7 +6,8 @@ Split into focused modules:
 """
 
 # Re-export Message for backward compatibility (tests and tools import it from here)
-from ..message import Message
+# Not in __all__ to avoid Sphinx ambiguity with gptme.message.Message
+from ..message import Message  # noqa: F401
 from .conversations import (
     ConversationMeta,
     delete_conversation,
@@ -31,7 +32,6 @@ __all__ = [
     # Core types
     "Log",
     "LogManager",
-    "Message",
     "PathLike",
     "RoleLiteral",
     # Module-level state
