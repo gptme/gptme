@@ -84,7 +84,7 @@ jobs:
       run: npx playwright install --with-deps chromium
 
     - name: Check that server is up
-      run: curl --retry 2 --retry-delay 5 --retry-connrefused -sSfL http://localhost:5700/api
+      run: curl --retry 2 --retry-delay 5 --retry-connrefused -sSfL http://localhost:5700/api/v2
 
     - name: Run e2e tests
       run: npm run test:e2e
