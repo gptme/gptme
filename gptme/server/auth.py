@@ -288,6 +288,10 @@ def clear_auth_cookie():
         200 with success message and expired Set-Cookie header.
     """
     response = jsonify({"ok": True, "message": "Auth cookie cleared"})
-    response.delete_cookie(AUTH_COOKIE_NAME, path="/api/")
+    response.delete_cookie(
+        AUTH_COOKIE_NAME,
+        path="/api/",
+        secure=request.headers.get("X-Forwarded-Proto") == "https" or request.is_secure,
+    )
     logger.info("Auth cookie cleared for client")
     return response

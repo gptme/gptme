@@ -308,6 +308,9 @@ export function useConversation(conversationId: string, serverId?: string) {
               });
             }
           },
+        }).catch((err) => {
+          console.error('[useConversation] Failed to subscribe to events:', err);
+          toast({ variant: 'destructive', title: 'Error', description: 'Failed to connect to event stream' });
         });
       } catch (error) {
         console.error('Error loading conversation:', error);
