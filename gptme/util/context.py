@@ -661,6 +661,7 @@ def _dir_to_listing(path: Path, prompt: str, max_entries: int = 50) -> str | Non
     falls back to ``Path.iterdir()`` otherwise.  Output is truncated to
     *max_entries* to prevent context bloat.
     """
+    entries: list[str] | None = None
     try:
         # Try git ls-files first (respects .gitignore, lists tracked + untracked)
         result = subprocess.run(
@@ -673,14 +674,17 @@ def _dir_to_listing(path: Path, prompt: str, max_entries: int = 50) -> str | Non
         )
         if result.returncode == 0 and result.stdout.strip():
             entries = sorted(result.stdout.strip().splitlines())
-        else:
-            raise FileNotFoundError  # fall through to iterdir
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except subprocess.TimeoutExpired:
+        pass
+
+    if entries is None:
         # Fallback: list directory recursively, skip hidden files
+        # Use relative_to(path) for hidden-file check so parent dirs don't interfere
         entries = sorted(
             str(p.relative_to(path))
             for p in path.rglob("*")
-            if p.is_file() and not any(part.startswith(".") for part in p.parts)
+            if p.is_file()
+            and not any(part.startswith(".") for part in p.relative_to(path).parts)
         )
 
     total = len(entries)
