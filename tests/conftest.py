@@ -230,7 +230,12 @@ def temp_file():
 
 @pytest.fixture(autouse=True)
 def init_():
-    init(None, interactive=False, tool_allowlist=None, tool_format="markdown")
+    # Pass MODEL from env explicitly to avoid picking up stale config.chat.model
+    # values left by server tests (e.g. "gpt-4o-mini" from test_v2_chat_config).
+    # When _init_done is reset per-test, init_model() re-runs and would otherwise
+    # read the contaminated config instead of the test environment's MODEL.
+    model = os.environ.get("MODEL")
+    init(model, interactive=False, tool_allowlist=None, tool_format="markdown")
 
 
 @pytest.fixture
