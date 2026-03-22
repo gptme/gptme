@@ -79,6 +79,17 @@ export class ApiClient {
   }
 
   /**
+   * Reset cookie state and re-initiate cookie setup.
+   * Called on reconnect to handle expired cookies (24h TTL).
+   */
+  private resetAuthCookie(): void {
+    this.authCookieSet = false;
+    if (this.authHeader) {
+      this.authCookiePromise = this.ensureAuthCookie();
+    }
+  }
+
+  /**
    * Set an HttpOnly auth cookie via the server's cookie endpoint.
    * This allows SSE/EventSource connections to authenticate via cookies
    * instead of exposing tokens in query parameters.
@@ -305,6 +316,8 @@ export class ApiClient {
     const reconnect = () => {
       console.log(`[ApiClient] Attempting reconnection for ${conversationId}`);
       this.closeEventStream(conversationId);
+      // Reset cookie state so expired cookies (24h TTL) are re-fetched on reconnect
+      this.resetAuthCookie();
       this.subscribeToEvents(conversationId, callbacks).catch((err) => {
         console.error('[ApiClient] Reconnect failed:', err);
         callbacks.onError?.(String(err));
