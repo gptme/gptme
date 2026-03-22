@@ -6,6 +6,7 @@ import pytest
 playwright = pytest.importorskip("playwright")
 
 # noreorder
+from gptme.tools._browser_playwright import _format_snapshot
 from gptme.tools.browser import (  # fmt: skip
     _available_search_engines,
     click_element,
@@ -38,6 +39,10 @@ def test_snapshot_url():
     # Should return non-empty string
     assert snapshot, "Snapshot should not be empty"
     assert len(snapshot) > 50, f"Snapshot too short: {len(snapshot)} chars"
+
+    # Should contain page metadata header
+    assert snapshot.startswith("Page: "), "Snapshot should start with page metadata"
+    assert "URL: " in snapshot, "Snapshot should include current URL"
 
     # Should contain typical ARIA elements
     # example.com has a heading and a link
@@ -278,8 +283,10 @@ def test_open_page():
     """Test opening a page for interactive browsing."""
     snapshot = open_page("https://example.com")
 
-    # Should return ARIA snapshot
+    # Should return ARIA snapshot with metadata
     assert snapshot, "Snapshot should not be empty"
+    assert snapshot.startswith("Page: "), "Should include page metadata header"
+    assert "URL: " in snapshot, "Should include current URL"
     assert "Example Domain" in snapshot, "Should contain the page title"
 
 
@@ -344,3 +351,32 @@ def test_scroll_invalid_amount():
         scroll_page("down", -100)
     with pytest.raises(ValueError, match="amount must be positive"):
         scroll_page("down", 0)
+
+
+def test_format_snapshot():
+    """Test that _format_snapshot prepends page metadata."""
+    snapshot = '- heading "Hello World" [level=1]\n- link "About"'
+    result = _format_snapshot(snapshot, "https://example.com/page", "Hello World")
+
+    # Should start with metadata header
+    assert result.startswith("Page: Hello World\n")
+    assert "URL: https://example.com/page\n" in result
+
+    # Should contain the original ARIA snapshot after metadata
+    assert result.endswith(snapshot)
+
+    # Metadata and snapshot should be separated by blank line
+    lines = result.split("\n")
+    assert lines[0] == "Page: Hello World"
+    assert lines[1] == "URL: https://example.com/page"
+    assert lines[2] == ""  # blank separator
+
+
+def test_format_snapshot_redirect():
+    """Test metadata reflects redirected URL, not original."""
+    snapshot = '- heading "Redirected" [level=1]'
+    result = _format_snapshot(
+        snapshot, "https://example.com/new-location", "Redirected Page"
+    )
+    assert "URL: https://example.com/new-location" in result
+    assert "Page: Redirected Page" in result

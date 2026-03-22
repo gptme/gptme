@@ -367,7 +367,7 @@ def _get_aria_snapshot(browser: Browser, url: str) -> str:
         snapshot = page.locator("body").aria_snapshot()
         if not snapshot:
             return "Error: Could not get accessibility snapshot for this page."
-        return snapshot
+        return _format_snapshot(snapshot, page.url, page.title())
     finally:
         page.close()
         context.close()
@@ -399,6 +399,16 @@ def _close_current_page() -> None:
         _current_context = None
 
 
+def _format_snapshot(snapshot: str, url: str, title: str) -> str:
+    """Prepend page metadata to an ARIA snapshot.
+
+    Adds the current URL (which may differ from the requested URL after
+    redirects) and the page title so agents always know where they are.
+    """
+    header = f"Page: {title}\nURL: {url}\n\n"
+    return header + snapshot
+
+
 def _page_snapshot() -> str:
     """Get ARIA snapshot of the current persistent page."""
     if _current_page is None:
@@ -406,7 +416,7 @@ def _page_snapshot() -> str:
     snapshot = _current_page.locator("body").aria_snapshot()
     if not snapshot:
         raise RuntimeError("Could not get accessibility snapshot.")
-    return snapshot
+    return _format_snapshot(snapshot, _current_page.url, _current_page.title())
 
 
 def _open_page(browser: Browser, url: str) -> str:

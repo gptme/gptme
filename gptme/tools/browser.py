@@ -717,6 +717,9 @@ def snapshot_url(url: str) -> str:
     Returns a structured text representation of the page's accessibility tree,
     showing interactive elements (buttons, links, inputs) with their roles and names.
     Useful for understanding page structure and finding elements to interact with.
+
+    The output includes a metadata header with the page title and current URL
+    (which may differ from the requested URL after redirects).
     """
     assert browser
     if browser == "playwright":
@@ -738,6 +741,8 @@ def open_page(url: str) -> str:
     Use this instead of read_url() when you need to interact with the page
     (click buttons, fill forms, scroll). The page stays open for subsequent
     click_element(), fill_element(), and scroll_page() calls.
+
+    The output includes a metadata header with the page title and current URL.
     """
     assert browser
     if browser == "playwright":
