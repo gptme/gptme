@@ -122,6 +122,8 @@ def parse_model_format(model: str, fmt: str) -> tuple[str, str]:
 
 def load_results(results_dir: Path) -> list[dict]:
     """Load all eval results from CSV files."""
+    if not results_dir.exists():
+        return []
     all_results = []
     for d in sorted(results_dir.iterdir()):
         if not d.is_dir():
@@ -226,7 +228,7 @@ def format_rst_table(ranked: list[dict]) -> str:
     cols = [
         ("Model", 35),
         ("Format", 10),
-        ("Overall", 10),
+        ("Overall", 15),
         ("Basic", 10),
         ("Practical", 10),
     ]
@@ -309,7 +311,7 @@ def main():
     parser.add_argument(
         "--min-tests",
         type=int,
-        default=5,
+        default=4,
         help="Minimum number of tests for a model to be included",
     )
     args = parser.parse_args()

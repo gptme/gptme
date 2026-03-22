@@ -268,6 +268,31 @@ def test_empty_results_dir(tmp_path):
     assert results == []
 
 
+def test_load_results_missing_dir(tmp_path):
+    """Missing results directory returns empty list (no crash)."""
+    missing = tmp_path / "does_not_exist"
+    results = load_results(missing)
+    assert results == []
+
+
+def test_format_rst_table_wide_overall(tmp_path):
+    """RST table Overall column must not overflow for models with ≥10 tests."""
+    rows = [
+        ("openai/gpt-4o", "markdown", f"test-{i}", "true" if i % 3 != 0 else "false")
+        for i in range(15)
+    ]
+    _create_eval_results(tmp_path, [{"dir": "run1", "rows": rows}])
+    results = load_results(tmp_path)
+    ranked = aggregate_results(results, min_tests=5)
+    table = format_rst_table(ranked)
+
+    # Verify every data row fits within the separator width
+    lines = table.splitlines()
+    sep_len = len(lines[0])
+    for line in lines[3:-1]:  # skip header sep, header, second sep, footer sep
+        assert len(line) <= sep_len, f"Row too wide: {line!r}"
+
+
 def test_suite_classification(tmp_path):
     """Tests are correctly classified into basic and practical suites."""
     _create_eval_results(
