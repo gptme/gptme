@@ -690,7 +690,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f9445d8bba0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7efc2dc8bba0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -746,11 +746,16 @@ to append the code block content to the file at the given path.
 <span class="s">    showing interactive elements (buttons, links, inputs) with their roles and names.</span>
 <span class="s">    Useful for understanding page structure and finding elements to interact with.</span>
 
+<span class="s">    The output includes a metadata header with the page title and current URL</span>
+<span class="s">    (which may differ from the requested URL after redirects).</span>
+
 <span class="s">open_page(url: str) -&gt; str: Open a page for interactive browsing. Returns ARIA accessibility snapshot.</span>
 
 <span class="s">    Use this instead of read_url() when you need to interact with the page</span>
 <span class="s">    (click buttons, fill forms, scroll). The page stays open for subsequent</span>
 <span class="s">    click_element(), fill_element(), and scroll_page() calls.</span>
+
+<span class="s">    The output includes a metadata header with the page title and current URL.</span>
 
 <span class="s">close_page() -&gt; str: Close the current interactive browsing page.</span>
 
@@ -863,6 +868,14 @@ to append the code block content to the file at the given path.
 <span class="sb">```ipython</span>
 <span class="n">snapshot_url</span><span class="p">(</span><span class="s1">&#39;https://example.com&#39;</span><span class="p">)</span>
 <span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">Page: Example Domain</span>
+<span class="k">&gt; </span><span class="ge">URL: https://example.com/</span>
+
+<span class="k">-</span><span class="w"> </span>WebArea &quot;Example Domain&quot;:
+<span class="w">  </span><span class="k">-</span><span class="w"> </span>heading &quot;Example Domain&quot; [level=1]
+<span class="w">  </span><span class="k">-</span><span class="w"> </span>text &quot;This domain is for use in illustrative examples...&quot;
+<span class="w">  </span><span class="k">-</span><span class="w"> </span>link &quot;More information...&quot;
+````
 <span class="k">&gt; </span><span class="ge">Assistant: The page has a heading &quot;Example Domain&quot;, a paragraph with description text, and a link &quot;More information...&quot;.</span>
 
 <span class="gu">### Interactive browsing: open page, click, fill</span>
@@ -872,10 +885,34 @@ to append the code block content to the file at the given path.
 <span class="sb">```ipython</span>
 <span class="n">open_page</span><span class="p">(</span><span class="s1">&#39;https://example.com&#39;</span><span class="p">)</span>
 <span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">Page: Example</span>
+<span class="k">&gt; </span><span class="ge">URL: https://example.com/</span>
+
+<span class="k">-</span><span class="w"> </span>WebArea &quot;Example&quot;:
+<span class="w">  </span><span class="k">-</span><span class="w"> </span>textbox &quot;Search&quot; [name=&quot;q&quot;]
+<span class="w">  </span><span class="k">-</span><span class="w"> </span>button &quot;Go&quot;
+````
 <span class="k">&gt; </span><span class="ge">Assistant: I can see a search box and button. Let me fill in the search and click Go.</span>
 <span class="sb">```ipython</span>
 <span class="n">fill_element</span><span class="p">(</span><span class="s1">&#39;input[name=&quot;q&quot;]&#39;</span><span class="p">,</span> <span class="s1">&#39;gptme&#39;</span><span class="p">)</span>
 <span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">Page: Example</span>
+<span class="k">&gt; </span><span class="ge">URL: https://example.com/</span>
+
+<span class="k">-</span><span class="w"> </span>WebArea &quot;Example&quot;:
+<span class="w">  </span><span class="k">-</span><span class="w"> </span>textbox &quot;Search&quot; [name=&quot;q&quot;]: gptme
+<span class="w">  </span><span class="k">-</span><span class="w"> </span>button &quot;Go&quot;
+````
+<span class="sb">```ipython</span>
+<span class="n">click_element</span><span class="p">(</span><span class="s1">&#39;text=Go&#39;</span><span class="p">)</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">Page: Search Results</span>
+<span class="k">&gt; </span><span class="ge">URL: https://example.com/search?q=gptme</span>
+
+<span class="k">-</span><span class="w"> </span>WebArea &quot;Search Results&quot;:
+<span class="w">  </span><span class="k">-</span><span class="w"> </span>heading &quot;Results for: gptme&quot;
+<span class="w">  </span><span class="k">-</span><span class="w"> </span>link &quot;gptme on GitHub&quot;
+````
 <span class="k">&gt; </span><span class="ge">Assistant: The search was submitted and the page now shows results for &quot;gptme&quot;.</span>
 
 <span class="gu">### Read URL and check browser logs</span>
@@ -2199,7 +2236,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 12014</p>
+<p>Tokens: 12272</p>
 </dd></dl>
 
 <dl class="py function">

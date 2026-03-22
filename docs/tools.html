@@ -2443,7 +2443,10 @@ brew<span class="w"> </span>install<span class="w"> </span>lynx
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
   <td>
     <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;"><div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">`result</div>
-<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">- WebArea "Example Domain":
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">Page: Example Domain
+URL: https://example.com/
+
+- WebArea "Example Domain":
   - heading "Example Domain" [level=1]
   - text "This domain is for use in illustrative examples..."
   - link "More information..."
@@ -2477,7 +2480,10 @@ brew<span class="w"> </span>install<span class="w"> </span>lynx
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
   <td>
     <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;"><div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">`result</div>
-<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">- WebArea "Example":
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">Page: Example
+URL: https://example.com/
+
+- WebArea "Example":
   - textbox "Search" [name="q"]
   - button "Go"
 </pre></div>`</pre>
@@ -2495,7 +2501,10 @@ brew<span class="w"> </span>install<span class="w"> </span>lynx
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
   <td>
     <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;"><div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">`result</div>
-<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">- WebArea "Example":
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">Page: Example
+URL: https://example.com/
+
+- WebArea "Example":
   - textbox "Search" [name="q"]: gptme
   - button "Go"
 </pre></div>`<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">ipython</div>
@@ -2507,7 +2516,10 @@ brew<span class="w"> </span>install<span class="w"> </span>lynx
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
   <td>
     <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;"><div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">`result</div>
-<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">- WebArea "Search Results":
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">Page: Search Results
+URL: https://example.com/search?q=gptme
+
+- WebArea "Search Results":
   - heading "Results for: gptme"
   - link "gptme on GitHub"
 </pre></div>`</pre>
@@ -2658,6 +2670,7 @@ To read more pages, use: `read_url('...', max_pages=N)` where N is the desired c
 <p>Use this instead of read_url() when you need to interact with the page
 (click buttons, fill forms, scroll). The page stays open for subsequent
 click_element(), fill_element(), and scroll_page() calls.</p>
+<p>The output includes a metadata header with the page title and current URL.</p>
 </dd></dl>
 
 <dl class="py function">
@@ -2756,6 +2769,8 @@ and falls back to the next usable backend on failure.</p>
 <p>Returns a structured text representation of the page’s accessibility tree,
 showing interactive elements (buttons, links, inputs) with their roles and names.
 Useful for understanding page structure and finding elements to interact with.</p>
+<p>The output includes a metadata header with the page title and current URL
+(which may differ from the requested URL after redirects).</p>
 </dd></dl>
 
 </section>
