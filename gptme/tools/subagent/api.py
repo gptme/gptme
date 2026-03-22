@@ -15,10 +15,7 @@ from pathlib import Path
 from typing import Literal
 
 from . import execution as _exec
-from .hooks import (  # noqa: F401 (used in closures)
-    _get_complete_instruction,
-    notify_completion,
-)
+from .hooks import notify_completion
 from .types import (
     ReturnType,
     Subagent,
@@ -411,13 +408,15 @@ def subagent(
                 # Clean up worktree isolation
                 _exec._cleanup_isolation(sa)
 
-        # Start a thread with a subagent
+        # Create thread (don't start yet)
         t = threading.Thread(
             target=run_subagent,
             daemon=True,
         )
-        t.start()
 
+        # Register Subagent BEFORE starting thread to avoid race condition:
+        # run_subagent closure looks up agent_id in _subagents, which would
+        # return None if the thread runs before _subagents.append(sa).
         sa = Subagent(
             agent_id=agent_id,
             prompt=prompt,
@@ -432,6 +431,7 @@ def subagent(
             repo_path=repo_path,
         )
         _subagents.append(sa)
+        t.start()
 
 
 def subagent_status(agent_id: str) -> dict:
