@@ -461,8 +461,6 @@ def include_paths(msg: Message, workspace: Path | None = None) -> Message:
         msg: Message to process
         workspace: If provided, paths will be stored relative to this directory
     """
-    # TODO: add support for directories?
-
     # Skip processing for non-user messages
     if msg.role != "user":
         return msg
@@ -656,6 +654,47 @@ def _human_readable_size(size_bytes: int) -> str:
     return f"{size:.1f} TB"
 
 
+def _dir_to_listing(path: Path, prompt: str, max_entries: int = 50) -> str | None:
+    """Generate a file listing for a directory, returned as a codeblock.
+
+    Uses ``git ls-files`` when inside a git repo (respects .gitignore),
+    falls back to ``Path.iterdir()`` otherwise.  Output is truncated to
+    *max_entries* to prevent context bloat.
+    """
+    try:
+        # Try git ls-files first (respects .gitignore, lists tracked + untracked)
+        result = subprocess.run(
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+            cwd=path,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            entries = sorted(result.stdout.strip().splitlines())
+        else:
+            raise FileNotFoundError  # fall through to iterdir
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        # Fallback: list directory recursively, skip hidden files
+        entries = sorted(
+            str(p.relative_to(path))
+            for p in path.rglob("*")
+            if p.is_file() and not any(part.startswith(".") for part in p.parts)
+        )
+
+    total = len(entries)
+    if total == 0:
+        return md_codeblock(prompt, "(empty directory)")
+
+    truncated = entries[:max_entries]
+    listing = "\n".join(truncated)
+    if total > max_entries:
+        listing += f"\n... ({total - max_entries} more files)"
+
+    return md_codeblock(prompt, listing)
+
+
 def _resource_to_codeblock(
     prompt: str, confirmed_urls: list[str] | None = None
 ) -> str | None:
@@ -676,6 +715,8 @@ def _resource_to_codeblock(
             file_content = f.read_text()
             file_content = _check_content_size(file_content, str(f))
             return md_codeblock(prompt, file_content)
+        if f.exists() and f.is_dir():
+            return _dir_to_listing(f, prompt)
     except OSError as oserr:
         # some prompts are too long to be a path, so we can't read them
         if oserr.errno == errno.ENAMETOOLONG:

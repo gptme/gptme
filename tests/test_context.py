@@ -342,6 +342,106 @@ def test_resource_to_codeblock_binary(tmp_path):
     assert "Size:" in result
 
 
+def test_dir_to_listing(tmp_path):
+    """Test that _dir_to_listing generates file listings for directories."""
+    from gptme.util.context import _dir_to_listing
+
+    # Create a directory with some files
+    subdir = tmp_path / "project"
+    subdir.mkdir()
+    (subdir / "main.py").write_text("print('hello')")
+    (subdir / "utils.py").write_text("def helper(): pass")
+    (subdir / "README.md").write_text("# Project")
+
+    result = _dir_to_listing(subdir, str(subdir))
+    assert result is not None
+    assert "main.py" in result
+    assert "utils.py" in result
+    assert "README.md" in result
+
+
+def test_dir_to_listing_empty(tmp_path):
+    """Test that empty directories produce a meaningful message."""
+    from gptme.util.context import _dir_to_listing
+
+    empty = tmp_path / "empty"
+    empty.mkdir()
+
+    result = _dir_to_listing(empty, str(empty))
+    assert result is not None
+    assert "(empty directory)" in result
+
+
+def test_dir_to_listing_truncation(tmp_path):
+    """Test that large directories are truncated."""
+    from gptme.util.context import _dir_to_listing
+
+    bigdir = tmp_path / "big"
+    bigdir.mkdir()
+    for i in range(60):
+        (bigdir / f"file_{i:03d}.txt").write_text(f"content {i}")
+
+    result = _dir_to_listing(bigdir, str(bigdir), max_entries=50)
+    assert result is not None
+    assert "10 more files" in result
+    # First 50 should be included
+    assert "file_000.txt" in result
+    assert "file_049.txt" in result
+
+
+def test_dir_to_listing_nested(tmp_path):
+    """Test that nested directory structures are listed."""
+    from gptme.util.context import _dir_to_listing
+
+    project = tmp_path / "nested"
+    project.mkdir()
+    src = project / "src"
+    src.mkdir()
+    (src / "app.py").write_text("app")
+    tests = project / "tests"
+    tests.mkdir()
+    (tests / "test_app.py").write_text("test")
+    (project / "pyproject.toml").write_text("[project]")
+
+    result = _dir_to_listing(project, str(project))
+    assert result is not None
+    # Should include nested paths
+    assert "app.py" in result
+    assert "test_app.py" in result
+    assert "pyproject.toml" in result
+
+
+def test_resource_to_codeblock_directory(tmp_path):
+    """Test that _resource_to_codeblock handles directories."""
+    from gptme.util.context import _resource_to_codeblock
+
+    subdir = tmp_path / "mydir"
+    subdir.mkdir()
+    (subdir / "file.txt").write_text("content")
+
+    result = _resource_to_codeblock(str(subdir))
+    assert result is not None
+    assert "file.txt" in result
+
+
+def test_include_paths_directory(tmp_path, monkeypatch):
+    """Test that include_paths expands directory references."""
+    from gptme.util.context import include_paths
+
+    # Create a directory with files
+    subdir = tmp_path / "src"
+    subdir.mkdir()
+    (subdir / "main.py").write_text("print('hello')")
+    (subdir / "utils.py").write_text("def helper(): pass")
+
+    monkeypatch.chdir(tmp_path)
+    msg = Message("user", f"review the code in {subdir}")
+    result = include_paths(msg)
+
+    assert "main.py" in result.content
+    assert "utils.py" in result.content
+
+
 def test_is_interactive_mode():
     """Test interactive mode detection."""
     from gptme.util.context import _is_interactive_mode
