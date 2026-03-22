@@ -321,8 +321,8 @@ class GptmeAgent:
             return option_id == "allow-once"
 
         except Exception as e:
-            logger.warning("Permission request failed: %s, auto-allowing", e)
-            return True
+            logger.warning("Permission request failed: %s, denying for safety", e)
+            return False
 
     def _create_confirm_with_tools(
         self,
@@ -417,12 +417,14 @@ class GptmeAgent:
                 return future.result(timeout=permission_timeout)
             except TimeoutError:
                 logger.warning(
-                    f"Tool permission request timed out after {permission_timeout}s, auto-allowing"
+                    f"Tool permission request timed out after {permission_timeout}s, denying for safety"
                 )
-                return True
+                return False
             except Exception as e:
-                logger.warning("Tool permission check failed: %s, auto-allowing", e)
-                return True
+                logger.warning(
+                    "Tool permission check failed: %s, denying for safety", e
+                )
+                return False
 
         return confirm_callback
 

@@ -364,7 +364,7 @@ class TestRequestToolPermission:
         result = _run(agent._request_tool_permission("session_1", tc))
         assert result is False
 
-    def test_permission_request_exception_auto_allows(self):
+    def test_permission_request_exception_denies(self):
         agent = GptmeAgent()
         conn = MagicMock()
         conn.request_permission = AsyncMock(side_effect=RuntimeError("connection lost"))
@@ -372,7 +372,7 @@ class TestRequestToolPermission:
 
         tc = ToolCall(tool_call_id="call_1", title="Test", kind=ToolKind.EXECUTE)
         result = _run(agent._request_tool_permission("session_1", tc))
-        assert result is True  # Auto-allow on failure
+        assert result is False  # Fail-closed: deny on error for safety
 
 
 class TestCreateConfirmWithTools:
