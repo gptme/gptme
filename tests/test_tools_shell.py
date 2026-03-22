@@ -82,6 +82,7 @@ def test_cd(shell):
 
 def test_shell_cd_chdir(shell):
     # make a tmp dir
+    original_cwd = os.getcwd()
     tmpdir = tempfile.TemporaryDirectory()
     # test that running cd in the shell changes the directory
     shell.run(f"cd {tmpdir.name}")
@@ -91,6 +92,7 @@ def test_shell_cd_chdir(shell):
         assert cwd == os.path.realpath(tmpdir.name)
         assert cwd == os.path.realpath(output.strip())
     finally:
+        os.chdir(original_cwd)  # restore before cleanup to avoid broken cwd
         tmpdir.cleanup()
 
 
