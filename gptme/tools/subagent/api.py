@@ -519,7 +519,7 @@ def subagent_read_log(
 
         # Filter messages
         if not include_system:
-            messages = [m for m in messages if m.role != "system" or not m.hide]
+            messages = [m for m in messages if m.role != "system"]
         if message_filter:
             messages = [m for m in messages if m.role == message_filter]
 
