@@ -472,6 +472,8 @@ def click_element(selector: str) -> str:
             - Role: "role=button[name='Submit']"
             - Chained: "form >> text=Submit"
     """
+    if _current_page is None:
+        raise RuntimeError("No page is open. Call open_page(url) first.")
     logger.info(f"Clicking element: '{selector}'")
     return _execute_with_retry(_click, selector)
 
@@ -493,6 +495,8 @@ def fill_element(selector: str, value: str) -> str:
         selector: Playwright selector for the input/textarea element.
         value: Text to fill into the field.
     """
+    if _current_page is None:
+        raise RuntimeError("No page is open. Call open_page(url) first.")
     logger.info(f"Filling element '{selector}' with value")
     return _execute_with_retry(_fill, selector, value)
 
@@ -517,6 +521,8 @@ def scroll_page(direction: str = "down", amount: int = 500) -> str:
         direction: "up" or "down" (default: "down")
         amount: Pixels to scroll (default: 500)
     """
+    if _current_page is None:
+        raise RuntimeError("No page is open. Call open_page(url) first.")
     logger.info(f"Scrolling {direction} by {amount}px")
     return _execute_with_retry(_scroll, direction, amount)
 
