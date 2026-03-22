@@ -31,7 +31,8 @@ class ContextConfig:
     def from_dict(cls, config_dict: dict[str, Any]) -> "ContextConfig":
         """Create config from dictionary (typically from gptme.toml).
 
-        Example:
+        Example::
+
             config = ContextConfig.from_dict({
                 'enabled': True,
                 'selector': {
