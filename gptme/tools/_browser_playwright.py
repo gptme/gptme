@@ -22,8 +22,8 @@ from playwright.sync_api import (
     TimeoutError as PlaywrightTimeoutError,
 )
 
+from ._browser_format import format_snapshot as _format_snapshot
 from ._browser_thread import BrowserThread, _is_connection_error
-from .browser import _format_snapshot
 
 _browser: BrowserThread | None = None
 _last_logs: dict = {"logs": [], "errors": [], "url": None}
