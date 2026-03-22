@@ -12,6 +12,7 @@ from gptme.tools.browser import (  # fmt: skip
     close_page,
     fill_element,
     open_page,
+    read_page_text,
     read_url,
     scroll_page,
     search,
@@ -341,6 +342,23 @@ def test_scroll_without_open_page():
     close_page()  # Ensure no page is open
     with pytest.raises(RuntimeError, match="No page is open"):
         scroll_page("down", 300)
+
+
+@pytest.mark.slow
+def test_read_page_text():
+    """Test reading text content of the current interactive page."""
+    open_page("https://example.com")
+
+    text = read_page_text()
+    assert text, "Text content should not be empty"
+    assert "Example Domain" in text, "Should contain the page heading"
+
+
+def test_read_page_text_without_open_page():
+    """Test that read_page_text fails gracefully without open_page."""
+    close_page()  # Ensure no page is open
+    with pytest.raises(RuntimeError, match="No page is open"):
+        read_page_text()
 
 
 def test_scroll_invalid_amount():

@@ -301,6 +301,7 @@ if browser == "playwright":
     from ._browser_playwright import fill_element as fill_element_pw  # fmt: skip
     from ._browser_playwright import open_page as open_page_pw  # fmt: skip
     from ._browser_playwright import read_logs as read_logs_playwright  # fmt: skip
+    from ._browser_playwright import read_page_text as read_page_text_pw  # fmt: skip
     from ._browser_playwright import read_url as read_url_playwright  # fmt: skip
     from ._browser_playwright import screenshot_url as screenshot_url_pw  # fmt: skip
     from ._browser_playwright import scroll_page as scroll_page_pw  # fmt: skip
@@ -407,6 +408,7 @@ def examples(tool_format):
         "URL: https://example.com/search?q=gptme\n\n"
         '- WebArea "Search Results":\n  - heading "Results for: gptme"\n  - link "gptme on GitHub"'
     )
+    read_page_text_result = "# Article Title\n\nThe article discusses..."
     pdf_example_result = (
         "--- Page 1 ---\n[PDF text content...]\n\n--- Page 2 ---\n[More content...]\n\n---\n"
         "**Note**: This PDF has 42 pages. Showing first 10 pages.\n"
@@ -479,6 +481,14 @@ System:
 {md_codeblock("result", interact_click_result)}
 Assistant: The search was submitted and the page now shows results for "gptme".
 
+### Read full text content of interactive page
+User: what does the article say?
+Assistant: Let me read the full text content of the current page.
+{ToolUse("ipython", [], "read_page_text()").to_output(tool_format)}
+System:
+{md_codeblock("result", read_page_text_result)}
+Assistant: The article covers [summary of content].
+
 ### Read URL and check browser logs
 User: read this page and check if there are any console errors
 Assistant: I'll read the page first and then check the browser logs.
@@ -511,6 +521,7 @@ def _tool_instructions() -> str:
         "use open_page() + click_element()/fill_element()/scroll_page() to fully automate "
         "multi-step web interactions such as form submissions and paginated browsing — "
         "each call returns an ARIA snapshot so you can verify the updated page state and plan your next step, "
+        "use read_page_text() to get the full text content of the current interactive page as Markdown, "
         "check browser console errors with read_logs(), "
         "or convert a local PDF to images with pdf_to_images()."
     )
@@ -771,6 +782,22 @@ def close_page() -> str:
     raise ValueError("Interactive browsing not supported with lynx backend")
 
 
+def read_page_text() -> str:
+    """Read the full text content of the current interactive page as Markdown.
+
+    Requires open_page() to be called first. Returns the page body converted
+    to Markdown, preserving text formatting. Useful for reading article text,
+    documentation, or other content after navigating to a page.
+
+    Unlike read_url(), this reads from the current interactive session — so
+    it reflects the page state after any clicks, form fills, or navigation.
+    """
+    assert browser
+    if browser == "playwright":
+        return read_page_text_pw()
+    raise ValueError("Interactive browsing not supported with lynx backend")
+
+
 def click_element(selector: str) -> str:
     """Click an element on the current page and return updated ARIA snapshot.
 
@@ -829,6 +856,7 @@ tool = ToolSpec(
         "capture screenshots with screenshot_url(), "
         "get ARIA accessibility snapshots with snapshot_url(), "
         "interact with pages using open_page() + click_element()/fill_element()/scroll_page(), "
+        "read interactive page content with read_page_text(), "
         "check browser console errors with read_logs(), "
         "or convert a local PDF to images with pdf_to_images().",
     },
@@ -840,6 +868,7 @@ tool = ToolSpec(
         snapshot_url,
         open_page,
         close_page,
+        read_page_text,
         click_element,
         fill_element,
         scroll_page,

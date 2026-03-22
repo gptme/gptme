@@ -410,6 +410,25 @@ def _page_snapshot() -> str:
     return _format_snapshot(snapshot, _current_page.url, _current_page.title())
 
 
+def _read_page_text(browser: Browser) -> str:
+    """Read the text content of the current persistent page as Markdown."""
+    if _current_page is None:
+        raise RuntimeError("No page is open. Call open_page(url) first.")
+    body_html = _current_page.inner_html("body")
+    return html_to_markdown(body_html)
+
+
+def read_page_text() -> str:
+    """Read the full text content of the current interactive page as Markdown.
+
+    Returns the page content converted to Markdown, preserving text formatting.
+    Useful for reading article text, documentation, or other content after
+    navigating with open_page()/click_element().
+    """
+    logger.info("Reading text content of current page")
+    return _execute_with_retry(_read_page_text)
+
+
 def _open_page(browser: Browser, url: str) -> str:
     """Open a page for interactive browsing and return its ARIA snapshot."""
     global _current_page, _current_context
