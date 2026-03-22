@@ -12,6 +12,7 @@ import logging
 import os
 import subprocess
 import sys
+import tempfile
 from collections import defaultdict
 from collections.abc import Generator
 from datetime import datetime, timezone
@@ -112,19 +113,39 @@ def docker_reexec(argv: list[str]) -> None:
     # Get config to also check config.toml for API keys
     config = get_config()
 
-    env_args = []
+    # Collect env vars to pass into the container.
+    # Use --env-file with a temporary file (mode 0600) so that secret values
+    # never appear in the process argument list visible via ``ps aux`` or
+    # ``/proc/<pid>/cmdline``.  See CWE-214.
+    env_entries: list[str] = []
     for var in env_vars_to_pass:
         # Check both environment variables and config.toml
         value = config.get_env(var)
         if value:
-            env_args.extend(["-e", f"{var}={value}"])
+            env_entries.append(f"{var}={value}")
+
+    # Write env vars to a secure temporary file for --env-file
+    env_file = None
+    env_file_args: list[str] = []
+    if env_entries:
+        env_file = tempfile.NamedTemporaryFile(
+            mode="w",
+            prefix="gptme-docker-env-",
+            suffix=".env",
+            delete=False,
+        )
+        # Restrict permissions to owner-only before writing secrets
+        os.chmod(env_file.name, 0o600)
+        env_file.write("\n".join(env_entries) + "\n")
+        env_file.close()
+        env_file_args = ["--env-file", env_file.name]
 
     # Construct docker run command
     docker_cmd = [
         "docker",
         "run",
         "--rm",
-        *env_args,
+        *env_file_args,
         "-v",
         f"{git_root}/eval_results:/app/eval_results",
         "-v",
@@ -134,29 +155,22 @@ def docker_reexec(argv: list[str]) -> None:
         image,
     ] + argv
 
-    # Redact API keys in log output for security
-    def redact_env_args(cmd: list[str]) -> list[str]:
-        """Redact API key values from docker command for safe logging."""
-        redacted = []
-        i = 0
-        while i < len(cmd):
-            if cmd[i] == "-e" and i + 1 < len(cmd):
-                env_assignment = cmd[i + 1]
-                if "=" in env_assignment:
-                    var_name = env_assignment.split("=", 1)[0]
-                    if "KEY" in var_name or "TOKEN" in var_name:
-                        redacted.append(cmd[i])
-                        redacted.append(f"{var_name}=***REDACTED***")
-                        i += 2
-                        continue
-            redacted.append(cmd[i])
-            i += 1
-        return redacted
+    env_var_names = [e.split("=", 1)[0] for e in env_entries]
+    logger.info(
+        "Re-executing inside Docker: %s (env vars: %s)",
+        " ".join(docker_cmd),
+        ", ".join(env_var_names) if env_var_names else "none",
+    )
 
-    logger.info(f"Re-executing inside Docker: {' '.join(redact_env_args(docker_cmd))}")
-
-    # Run and exit with same code
-    result = subprocess.run(docker_cmd, check=False)
+    # Run and exit with same code, ensuring env file cleanup
+    try:
+        result = subprocess.run(docker_cmd, check=False)
+    finally:
+        if env_file is not None:
+            try:
+                os.unlink(env_file.name)
+            except OSError:
+                pass
     sys.exit(result.returncode)
 
 
