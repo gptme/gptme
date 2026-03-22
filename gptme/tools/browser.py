@@ -381,6 +381,16 @@ def _available_search_engines_text() -> str:
     return ", ".join(engines)
 
 
+def _format_snapshot(snapshot: str, url: str, title: str) -> str:
+    """Prepend page metadata to an ARIA snapshot.
+
+    Adds the current URL (which may differ from the requested URL after
+    redirects) and the page title so agents always know where they are.
+    """
+    header = f"Page: {title}\nURL: {url}\n\n"
+    return header + snapshot
+
+
 def examples(tool_format):
     # Define example output with newlines outside f-string (backslashes not allowed in f-string expressions)
     snapshot_example_result = (

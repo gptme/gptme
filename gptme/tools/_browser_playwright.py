@@ -23,6 +23,7 @@ from playwright.sync_api import (
 )
 
 from ._browser_thread import BrowserThread, _is_connection_error
+from .browser import _format_snapshot
 
 _browser: BrowserThread | None = None
 _last_logs: dict = {"logs": [], "errors": [], "url": None}
@@ -397,16 +398,6 @@ def _close_current_page() -> None:
         except Exception:
             pass
         _current_context = None
-
-
-def _format_snapshot(snapshot: str, url: str, title: str) -> str:
-    """Prepend page metadata to an ARIA snapshot.
-
-    Adds the current URL (which may differ from the requested URL after
-    redirects) and the page title so agents always know where they are.
-    """
-    header = f"Page: {title}\nURL: {url}\n\n"
-    return header + snapshot
 
 
 def _page_snapshot() -> str:
