@@ -101,11 +101,21 @@ def test_v2_create_conversation_default_system_prompt(
     monkeypatch.chdir(tmp_path)
     # Explicitly disable chat history for this test
     monkeypatch.setenv("GPTME_CHAT_HISTORY", "false")
-    # Isolate from user config (user-level prompt files can inject extra messages)
-    monkeypatch.setattr("gptme.config.config_path", str(tmp_path / "config.toml"))
-    from gptme.config import _config_var
 
-    _config_var.set(None)  # Force re-creation from isolated config path
+    # Fully isolate from user config.
+    # Patching gptme.config.config_path alone is insufficient because:
+    #   - user.py has its own module-level config_path (not affected by __init__ patch)
+    #   - workspace.py imports config_path at import time (binding is stale after patch)
+    # Instead, inject a clean Config with default user settings directly.
+    from gptme.config import Config, set_config
+    from gptme.config.user import default_config
+
+    set_config(Config(user=default_config))
+    # Also patch workspace.py's config_path so it doesn't find user-level agent files
+    monkeypatch.setattr(
+        "gptme.prompts.workspace.config_path",
+        str(tmp_path / "config.toml"),
+    )
 
     convname = f"test-server-v2-{random.randint(0, 1000000)}"
     response = client.put(
