@@ -101,7 +101,7 @@ def check_yaml_merge_override_db_host(ctx):
 def check_yaml_merge_base_db_name(ctx):
     """merged.yaml should contain name: myapp (base preserved)."""
     content = ctx.files.get("merged.yaml", "")
-    return bool(re.search(r"name:\s*myapp", content))
+    return bool(re.search(r"name:\s*myapp\b", content))
 
 
 def check_yaml_merge_override_level(ctx):
@@ -144,8 +144,8 @@ def check_git_stats_bob(ctx):
 
 
 def check_git_stats_charlie(ctx):
-    """stdout should contain 'Charlie: 1 commit' (accept both singular and plural)."""
-    return "Charlie: 1 commit" in ctx.stdout or "Charlie: 1 commits" in ctx.stdout
+    """stdout should contain 'Charlie: 1 commit(s)' (accept both singular and plural)."""
+    return bool(re.search(r"Charlie: 1 commits?\b", ctx.stdout))
 
 
 def check_git_stats_author_order(ctx):
