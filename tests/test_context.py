@@ -435,7 +435,7 @@ def test_dir_to_listing_nested(tmp_path):
     assert "pyproject.toml" in result
 
 
-def test_dir_to_listing_includes_dotfiles(tmp_path, monkeypatch):
+def test_dir_to_listing_includes_dotfiles(tmp_path):
     """Test that rglob fallback includes dotfiles like .pre-commit-config.yml and .github/."""
     from unittest.mock import MagicMock, patch
 

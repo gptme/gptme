@@ -680,7 +680,7 @@ def _dir_to_listing(path: Path, prompt: str, max_entries: int = 50) -> str:
     if entries is None:
         # Fallback: list directory recursively.
         # Only exclude .git/ internals to avoid noise; dotfiles like
-        # .pre-commit-config.yml, .github/, .env etc. are legitimate project files.
+        # .pre-commit-config.yaml, .github/, .env etc. are legitimate project files.
         try:
             entries = sorted(
                 str(p.relative_to(path))
