@@ -1,3 +1,4 @@
+import importlib
 import json
 import logging
 import os
@@ -383,9 +384,9 @@ def _handle_openai_transient_error(e, attempt, max_retries, base_delay):
     from openai import APIConnectionError, APIStatusError, RateLimitError  # fmt: skip
 
     try:
-        import httpx
+        httpx = importlib.import_module("httpx")
     except ImportError:
-        httpx = None  # type: ignore[assignment]
+        httpx = None
 
     # Allow tests to override max_retries via environment variable
     # This breaks out of the retry loop early to prevent test timeouts

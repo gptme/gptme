@@ -1,5 +1,6 @@
 """Utilities for terminal manipulation."""
 
+import importlib
 import os
 import sys
 from contextlib import contextmanager
@@ -7,9 +8,9 @@ from typing import Any
 
 # Platform-specific imports for stdin flushing
 try:
-    import termios
+    termios: Any = importlib.import_module("termios")
 except ImportError:
-    termios = None  # type: ignore[assignment]
+    termios = None
 
 _msvcrt: Any = None
 if os.name == "nt":

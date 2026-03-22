@@ -7,6 +7,7 @@ See Issue #576 for the original background jobs feature.
 """
 
 import atexit
+import importlib
 import logging
 import os
 import subprocess
@@ -14,6 +15,7 @@ import threading
 import time
 from collections.abc import Generator
 from dataclasses import dataclass, field
+from typing import Any
 
 from ..message import Message
 from ..util.context import md_codeblock
@@ -21,9 +23,9 @@ from ..util.context import md_codeblock
 _is_windows = os.name == "nt"
 
 try:
-    import select
+    select: Any = importlib.import_module("select")
 except ImportError:
-    select = None  # type: ignore[assignment]
+    select = None
 
 
 logger = logging.getLogger(__name__)

@@ -4,18 +4,20 @@ Log is an immutable wrapper around a list of Messages with JSON serialization.
 LogManager handles conversation persistence, branching, views, and file locking.
 """
 
+import importlib
 import json
 import logging
 import os
 import shutil
 import textwrap
+from typing import Any
 
 try:
-    import fcntl
+    fcntl: Any = importlib.import_module("fcntl")
 except ImportError:
-    fcntl = None  # type: ignore[assignment]
+    fcntl = None
 
-_msvcrt: object = None
+_msvcrt: Any = None
 if os.name == "nt":
     try:
         import msvcrt as _msvcrt
@@ -29,7 +31,6 @@ from itertools import islice, zip_longest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import (
-    Any,
     Literal,
     TextIO,
     TypeAlias,
