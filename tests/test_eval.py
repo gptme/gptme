@@ -53,6 +53,18 @@ def test_no_duplicate_test_names():
     )
 
 
+def test_list_tests():
+    """Test that --list prints available suites and tests."""
+    runner = CliRunner()
+    result = runner.invoke(main, ["--list"])
+    assert result.exit_code == 0
+    assert "Available eval suites:" in result.output
+    assert "basic" in result.output
+    assert "hello *" in result.output
+    assert "Total:" in result.output
+    assert "Default suite:" in result.output
+
+
 def test_eval_module_loading(tmp_path):
     """Test that --eval-module loads and registers tests from an external module."""
     # Write a minimal eval module with a tests list

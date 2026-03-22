@@ -25,7 +25,7 @@ from ..config import get_config
 from ..message import len_tokens
 from ..tools import ToolFormat
 from .run import run_evals
-from .suites import suites, tests_default, tests_map
+from .suites import suites, tests_default, tests_default_ids, tests_map
 from .types import CaseResult, EvalResult, EvalSpec, ModelConfig
 
 # Configure logging, including fully-qualified module names
@@ -168,6 +168,32 @@ def sort_tests(test_names):
         test_names,
         key=lambda x: list(tests_map).index(x) if x in tests_map else 0,
     )
+
+
+def print_available_tests():
+    """Print available eval suites and their tests."""
+    default_names = set(tests_default_ids)
+    total_tests = 0
+
+    print("Available eval suites:\n")
+    for suite_name, suite_tests in suites.items():
+        total_tests += len(suite_tests)
+        print(f"  {suite_name} ({len(suite_tests)} tests)")
+        for test in suite_tests:
+            name = test["name"]
+            # Truncate prompt for display
+            prompt = test.get("prompt", "").replace("\n", " ").strip()
+            if len(prompt) > 70:
+                prompt = prompt[:67] + "..."
+            marker = " *" if name in default_names else ""
+            print(f"    {name}{marker}")
+            if prompt:
+                print(f"      {prompt}")
+        print()
+
+    print(f"Total: {total_tests} tests across {len(suites)} suites")
+    print(f"Default suite: {', '.join(tests_default_ids)}")
+    print("(* = included in default suite)")
 
 
 def print_model_results(model_results: dict[ModelConfig, list[EvalResult]]):
@@ -328,6 +354,13 @@ def aggregate_and_display_results(result_files: list[str]):
     help="Tool format to use. Can also be specified per model with @format.",
 )
 @click.option(
+    "--list",
+    "-l",
+    "list_tests",
+    is_flag=True,
+    help="List available eval suites and tests, then exit.",
+)
+@click.option(
     "--use-docker",
     is_flag=True,
     help="Run evals in Docker container for isolation (prevents host environment pollution)",
@@ -346,6 +379,7 @@ def main(
     _model: list[str],
     timeout: int,
     parallel: int,
+    list_tests: bool = False,
     tool_format: ToolFormat | None = None,
     use_docker: bool = False,
     eval_modules: tuple[Path, ...] = (),
@@ -356,6 +390,10 @@ def main(
 
     Output from evals will be captured, unless a single eval is run, and saved to the results directory.
     """
+    if list_tests:
+        print_available_tests()
+        sys.exit(0)
+
     # Check if we should re-execute inside Docker
     if use_docker and not in_docker():
         logger.info("Re-executing inside Docker container...")
