@@ -396,6 +396,7 @@ def examples(tool_format):
         '- WebArea "Example":\n  - textbox "Search" [name="q"]: gptme\n  - button "Go"'
     )
     interact_fill_code = "fill_element('input[name=\"q\"]', 'gptme')"
+    interact_click_result = '- WebArea "Search Results":\n  - heading "Results for: gptme"\n  - link "gptme on GitHub"'
     pdf_example_result = (
         "--- Page 1 ---\n[PDF text content...]\n\n--- Page 2 ---\n[More content...]\n\n---\n"
         "**Note**: This PDF has 42 pages. Showing first 10 pages.\n"
@@ -464,6 +465,9 @@ Assistant: I can see a search box and button. Let me fill in the search and clic
 System:
 {md_codeblock("result", interact_fill_result)}
 {ToolUse("ipython", [], "click_element('text=Go')").to_output(tool_format)}
+System:
+{md_codeblock("result", interact_click_result)}
+Assistant: The search was submitted and the page now shows results for "gptme".
 
 ### Read URL and check browser logs
 User: read this page and check if there are any console errors
@@ -494,8 +498,9 @@ def _tool_instructions() -> str:
         f"(available now: {available_search}), "
         "capture screenshots with screenshot_url(), "
         "use snapshot_url() to instantly understand page structure and locate interactive elements without a screenshot, "
-        "interact with pages using open_page() then click_element()/fill_element()/scroll_page() "
-        "(each returns an ARIA snapshot showing the updated page state), "
+        "use open_page() + click_element()/fill_element()/scroll_page() to fully automate "
+        "multi-step web interactions such as form submissions and paginated browsing — "
+        "each call returns an ARIA snapshot so you can verify the updated page state and plan your next step, "
         "check browser console errors with read_logs(), "
         "or convert a local PDF to images with pdf_to_images()."
     )
