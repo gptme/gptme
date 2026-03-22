@@ -27,6 +27,7 @@ from ..logmanager import LogManager, prepare_messages
 from ..message import Message
 from ..telemetry import trace_function
 from ..tools import ToolUse, get_tools
+from ..tools.shell import set_workspace_cwd
 from .api_v2_common import ConfigChangedEvent, ErrorEvent, msg2dict
 from .session_models import (
     ConversationSession,
@@ -562,8 +563,6 @@ def step(
     # We also keep os.chdir() for the first message as a fallback for tools
     # that still use Path.cwd() (save, read, patch, etc.) — a full migration
     # to workspace-aware helpers is tracked separately.
-    from ..tools.shell import set_workspace_cwd
-
     set_workspace_cwd(str(workspace))
     user_messages = [msg for msg in manager.log.messages if msg.role == "user"]
     if len(user_messages) <= 1:
