@@ -1,7 +1,7 @@
 """Configuration dataclass models.
 
-All configuration dataclasses used across gptme.
-Does not contain loading logic — only data definitions.
+All configuration dataclasses used across gptme,
+including their serialization helpers (from_dict, to_dict, merge).
 """
 
 import logging
