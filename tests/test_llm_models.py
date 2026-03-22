@@ -51,7 +51,7 @@ def test_get_model_unknown_name_only():
     assert model.context == 128_000
 
 
-@patch("gptme.llm.models._get_models_for_provider")
+@patch("gptme.llm.models.listing._get_models_for_provider")
 def test_get_model_dynamic_fetch_success(mock_get_models):
     """Test successful dynamic model fetching for OpenRouter."""
     # Mock a dynamic model
@@ -73,7 +73,7 @@ def test_get_model_dynamic_fetch_success(mock_get_models):
     mock_get_models.assert_called_once_with("openrouter", dynamic_fetch=True)
 
 
-@patch("gptme.llm.models._get_models_for_provider")
+@patch("gptme.llm.models.listing._get_models_for_provider")
 def test_get_model_dynamic_fetch_failure(mock_get_models):
     """Test fallback when dynamic model fetching fails."""
     mock_get_models.side_effect = Exception("API error")
@@ -84,7 +84,7 @@ def test_get_model_dynamic_fetch_failure(mock_get_models):
     assert model.context == 128_000  # fallback
 
 
-@patch("gptme.llm.models._get_models_for_provider")
+@patch("gptme.llm.models.listing._get_models_for_provider")
 def test_get_model_dynamic_fetch_model_not_found(mock_get_models):
     """Test fallback when dynamic model is not found in results."""
     other_model = ModelMeta(provider="openrouter", model="other-model", context=100_000)
@@ -104,7 +104,7 @@ def test_get_models_for_provider():
     assert all(m.provider == "openai" for m in openai_models)
 
 
-@patch("gptme.llm.models._get_models_for_provider")
+@patch("gptme.llm.models.listing._get_models_for_provider")
 def test_get_model_name_only_with_dynamic_fetch(mock_get_models):
     """Test model lookup by name only with dynamic fetching from OpenRouter."""
     # Mock OpenRouter dynamic model
@@ -203,7 +203,7 @@ def test_get_model_provider_only_groq():
     assert model.model == "llama-3.3-70b-versatile"
 
 
-@patch("gptme.llm.models._get_configured_providers")
+@patch("gptme.llm.models.listing._get_configured_providers")
 def test_list_models_available_only(mock_configured, capsys):
     """Test that --available filters to only configured providers."""
     mock_configured.return_value = {"anthropic"}
@@ -217,7 +217,7 @@ def test_list_models_available_only(mock_configured, capsys):
     assert "\ngemini" not in output
 
 
-@patch("gptme.llm.models._get_configured_providers")
+@patch("gptme.llm.models.listing._get_configured_providers")
 def test_list_models_shows_availability_markers(mock_configured, capsys):
     """Test that detailed format shows availability markers."""
     mock_configured.return_value = {"anthropic", "openai"}
@@ -228,7 +228,7 @@ def test_list_models_shows_availability_markers(mock_configured, capsys):
     assert "[✓]" in output
 
 
-@patch("gptme.llm.models._get_configured_providers")
+@patch("gptme.llm.models.listing._get_configured_providers")
 def test_list_models_unconfigured_marker(mock_configured, capsys):
     """Test that unconfigured providers show ✗ marker."""
     mock_configured.return_value = set()
@@ -239,7 +239,7 @@ def test_list_models_unconfigured_marker(mock_configured, capsys):
     assert "[✗]" in output
 
 
-@patch("gptme.llm.models._get_configured_providers")
+@patch("gptme.llm.models.listing._get_configured_providers")
 def test_list_models_simple_available(mock_configured, capsys):
     """Test that --simple --available filters correctly."""
     mock_configured.return_value = {"anthropic"}
