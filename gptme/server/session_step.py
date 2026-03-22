@@ -143,7 +143,7 @@ def _run_health_check() -> None:
                 acp_runtime.process_pid,
             )
             # Null out acp_runtime before remove_session so it doesn't
-            # spawn a _close_acp_runtime_bg thread for an already-dead process.
+            # spawn a close_acp_runtime_bg thread for an already-dead process.
             session.acp_runtime = None
             SessionManager.remove_session(session_id)
 
@@ -179,7 +179,7 @@ def _cleanup_all_acp_sessions() -> None:
             )
         finally:
             # Null out acp_runtime before remove_session so it won't re-trigger
-            # _close_acp_runtime_bg for an already-terminated process.
+            # close_acp_runtime_bg for an already-terminated process.
             session.acp_runtime = None
             # Remove from SessionManager to avoid stale entries surviving shutdown.
             # This is safe in the atexit path and prevents zombie sessions on
