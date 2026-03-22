@@ -220,8 +220,10 @@ class ShellSession:
     stderr_fd: int
     delimiter: str
     start_marker: str  # Fix for Issue #408: Add start marker to prevent output mixing
+    _cwd: str | None  # Workspace directory for this session (thread-safe)
 
-    def __init__(self) -> None:
+    def __init__(self, cwd: str | None = None) -> None:
+        self._cwd = cwd
         self._init()
 
         # close on exit
@@ -244,6 +246,7 @@ class ShellSession:
             stderr=subprocess.PIPE,
             bufsize=0,  # Unbuffered
             universal_newlines=True,
+            cwd=self._cwd,  # Use explicit workspace dir (thread-safe)
             **popen_kwargs,
         )
         assert self.process.stdout is not None
@@ -348,7 +351,7 @@ class ShellSession:
             stderr=subprocess.PIPE,
             # Don't use start_new_session=True here - we need to inherit the
             # controlling terminal so sudo can prompt for passwords
-            cwd=os.getcwd(),
+            cwd=self._cwd or os.getcwd(),
             env=session_env,
         )
         try:
@@ -887,12 +890,28 @@ class ShellSession:
 
 
 _shell_var: ContextVar[ShellSession | None] = ContextVar("shell", default=None)
+_workspace_cwd: ContextVar[str | None] = ContextVar("workspace_cwd", default=None)
 
 # Conversation-level shell registry for server-side cleanup.
 # Maps conversation_id -> ShellSession so SESSION_END hooks can find and close
 # shells that would otherwise leak when their thread's ContextVar goes out of scope.
 _conversation_shells: dict[str, ShellSession] = {}
 _conv_shell_lock: threading.Lock = threading.Lock()
+
+
+def set_workspace_cwd(cwd: str) -> None:
+    """Set the workspace directory for the current context (thread-safe).
+
+    Call this before any shell creation to ensure the shell subprocess
+    starts in the correct directory, even with concurrent sessions.
+    This is the thread-safe replacement for os.chdir() in server contexts.
+    """
+    _workspace_cwd.set(cwd)
+
+
+def get_workspace_cwd() -> str | None:
+    """Get the workspace directory for the current context, if set."""
+    return _workspace_cwd.get()
 
 
 def get_shell() -> ShellSession:
@@ -906,7 +925,9 @@ def get_shell() -> ShellSession:
     """
     shell = _shell_var.get()
     if shell is None:
-        shell = ShellSession()
+        # Use workspace from ContextVar for thread-safe cwd
+        workspace = _workspace_cwd.get()
+        shell = ShellSession(cwd=workspace)
         _shell_var.set(shell)
         # Register for conversation-level cleanup if in a server context
         _register_conversation_shell(shell)
