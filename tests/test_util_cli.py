@@ -47,7 +47,9 @@ def test_chats_list(tmp_path, mocker):
 
     # Mock both the logs directory and the conversation listing
     mocker.patch("gptme.dirs.get_logs_dir", return_value=str(logs_dir))
-    mocker.patch("gptme.logmanager.get_user_conversations", return_value=[])
+    mocker.patch(
+        "gptme.logmanager.conversations.get_user_conversations", return_value=[]
+    )
 
     # Test empty list (should work now since we're using our empty logs_dir)
     result = runner.invoke(main, ["chats", "list"])
@@ -92,7 +94,10 @@ def test_chats_list(tmp_path, mocker):
     )
 
     # Update the mock to return our test conversations
-    mocker.patch("gptme.logmanager.get_user_conversations", return_value=[conv1, conv2])
+    mocker.patch(
+        "gptme.logmanager.conversations.get_user_conversations",
+        return_value=[conv1, conv2],
+    )
 
     # Test with conversations
     result = runner.invoke(main, ["chats", "list"])
