@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from gptme.dirs import get_profile_memory_dir
-from gptme.tools.subagent_execution import (
+from gptme.tools.subagent.execution import (
     _build_memory_system_message,
     _load_agent_memory,
 )

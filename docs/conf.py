@@ -155,6 +155,8 @@ nitpick_ignore = [
     # Phase 1 async subagent types
     ("py:class", "gptme.tools.subagent.ReturnType"),
     ("py:class", "gptme.tools.subagent.BatchJob"),
+    ("py:class", "gptme.tools.subagent.types.SubtaskDef"),
+    ("py:class", "gptme.tools.subagent.batch.BatchJob"),
     # Hook confirmation system types
     ("py:class", "gptme.hooks.confirm.ToolConfirmHook"),
     ("py:class", "gptme.hooks.elicitation.ElicitationHook"),
