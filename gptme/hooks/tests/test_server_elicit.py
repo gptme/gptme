@@ -5,7 +5,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from gptme.hooks.elicitation import ElicitationRequest, ElicitationResponse
+from gptme.hooks.elicitation import (
+    ElicitationRequest,
+    ElicitationResponse,
+    ElicitationType,
+)
 from gptme.hooks.server_confirm import current_conversation_id, current_session_id
 from gptme.hooks.server_elicit import (
     PendingElicitation,
@@ -31,7 +35,7 @@ def reset_state():
 
 
 def _make_request(
-    type: str = "text",
+    type: ElicitationType = "text",
     prompt: str = "Enter value:",
     options: list[str] | None = None,
     default: str | None = None,
@@ -39,7 +43,7 @@ def _make_request(
 ) -> ElicitationRequest:
     """Create an ElicitationRequest."""
     return ElicitationRequest(
-        type=type,  # type: ignore[arg-type]
+        type=type,
         prompt=prompt,
         options=options,
         default=default,

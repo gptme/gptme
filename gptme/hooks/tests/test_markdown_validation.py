@@ -1,6 +1,7 @@
 """Tests for markdown_validation hook."""
 
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -26,7 +27,9 @@ class TestCheckLastLineSuspicious:
         assert pattern is None
 
     def test_none_content(self):
-        is_suspicious, pattern = check_last_line_suspicious(None)  # type: ignore
+        # Verify defensive behavior with invalid input
+        content: Any = None
+        is_suspicious, pattern = check_last_line_suspicious(content)
         assert not is_suspicious
         assert pattern is None
 
@@ -109,7 +112,7 @@ class TestCheckLastLineSuspicious:
         assert "header start" in pattern
 
 
-def _make_manager(messages: list[Message]) -> SimpleNamespace:
+def _make_manager(messages: list[Message]) -> Any:
     """Create a minimal mock LogManager with given messages."""
     return SimpleNamespace(log=Log(messages))
 
@@ -119,25 +122,25 @@ class TestValidateMarkdownOnMessageComplete:
 
     def test_empty_log(self):
         manager = _make_manager([])
-        msgs = list(validate_markdown_on_message_complete(manager))  # type: ignore[arg-type]
+        msgs = list(validate_markdown_on_message_complete(manager))
         assert len(msgs) == 0
 
     def test_user_message_ignored(self):
         """Non-assistant messages should not trigger validation."""
         manager = _make_manager([Message("user", "# Hello\n```\ncode\n```")])
-        msgs = list(validate_markdown_on_message_complete(manager))  # type: ignore[arg-type]
+        msgs = list(validate_markdown_on_message_complete(manager))
         assert len(msgs) == 0
 
     def test_system_message_ignored(self):
         """System messages should not trigger validation."""
         manager = _make_manager([Message("system", "# Some header")])
-        msgs = list(validate_markdown_on_message_complete(manager))  # type: ignore[arg-type]
+        msgs = list(validate_markdown_on_message_complete(manager))
         assert len(msgs) == 0
 
     def test_assistant_message_no_tooluse(self):
         """Assistant message without tool uses should not trigger."""
         manager = _make_manager([Message("assistant", "Just a plain text response")])
-        msgs = list(validate_markdown_on_message_complete(manager))  # type: ignore[arg-type]
+        msgs = list(validate_markdown_on_message_complete(manager))
         assert len(msgs) == 0
 
     def test_assistant_with_clean_save(self):
@@ -146,7 +149,7 @@ class TestValidateMarkdownOnMessageComplete:
             "Saving the file:\n\n```save test.py\ndef hello():\n    print('hello')\n```"
         )
         manager = _make_manager([Message("assistant", content)])
-        msgs = list(validate_markdown_on_message_complete(manager))  # type: ignore[arg-type]
+        msgs = list(validate_markdown_on_message_complete(manager))
         assert len(msgs) == 0
 
     def test_assistant_with_properly_closed_save(self):
@@ -156,7 +159,7 @@ class TestValidateMarkdownOnMessageComplete:
         # the closing backticks came from the parser, not the LLM.
         content = "Saving:\n\n```save test.md\nSome content\n# Cut Off Header\n```"
         manager = _make_manager([Message("assistant", content)])
-        msgs = list(validate_markdown_on_message_complete(manager))  # type: ignore[arg-type]
+        msgs = list(validate_markdown_on_message_complete(manager))
         # The tool use content is "Some content\n# Cut Off Header"
         # check_last_line_suspicious would flag this, but the parser may handle
         # the content differently. Either 0 or 1 warnings is acceptable —
@@ -169,6 +172,6 @@ class TestValidateMarkdownOnMessageComplete:
         suspicious = Message("assistant", "```save f.md\nold\n# Cut\n```")
         safe = Message("assistant", "All done, nothing to save.")
         manager = _make_manager([suspicious, safe])
-        msgs = list(validate_markdown_on_message_complete(manager))  # type: ignore[arg-type]
+        msgs = list(validate_markdown_on_message_complete(manager))
         # Last message is safe (no tool use), so no warning
         assert len(msgs) == 0

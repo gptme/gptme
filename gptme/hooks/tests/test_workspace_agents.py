@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -399,7 +400,7 @@ class TestStepPreAgents:
         mod._last_scan_time = 0.0
         return
 
-    def _make_manager(self) -> object:
+    def _make_manager(self) -> Any:
         """Create a minimal mock LogManager."""
         from types import SimpleNamespace
 
@@ -407,7 +408,7 @@ class TestStepPreAgents:
 
     def test_no_workspace_no_scan(self) -> None:
         """If workspace was never set (e.g. no session_start), no scan happens."""
-        msgs = list(step_pre_agents(self._make_manager()))  # type: ignore[arg-type]
+        msgs = list(step_pre_agents(self._make_manager()))
         assert len(msgs) == 0
 
     def test_throttled_no_repeat(self) -> None:
@@ -421,7 +422,7 @@ class TestStepPreAgents:
         mod._last_scan_time = time.time()  # Just scanned
 
         with patch("gptme.hooks.workspace_agents.scan_agents") as mock_scan:
-            msgs = list(step_pre_agents(self._make_manager()))  # type: ignore[arg-type]
+            msgs = list(step_pre_agents(self._make_manager()))
             mock_scan.assert_not_called()
             assert len(msgs) == 0
 
@@ -443,7 +444,7 @@ class TestStepPreAgents:
         with patch(
             "gptme.hooks.workspace_agents.scan_agents", return_value=[new_agent]
         ):
-            msgs = list(step_pre_agents(self._make_manager()))  # type: ignore[arg-type]
+            msgs = list(step_pre_agents(self._make_manager()))
             assert len(msgs) == 1
             assert isinstance(msgs[0], Message)
             assert "arrived" in msgs[0].content.lower()
@@ -464,7 +465,7 @@ class TestStepPreAgents:
         mod._last_scan_time = 0.0  # Force rescan
 
         with patch("gptme.hooks.workspace_agents.scan_agents", return_value=[]):
-            msgs = list(step_pre_agents(self._make_manager()))  # type: ignore[arg-type]
+            msgs = list(step_pre_agents(self._make_manager()))
             assert len(msgs) == 1
             assert isinstance(msgs[0], Message)
             assert "departed" in msgs[0].content.lower()
@@ -486,7 +487,7 @@ class TestStepPreAgents:
             stale_reason="zombie",
         )
         with patch("gptme.hooks.workspace_agents.scan_agents", return_value=[stale]):
-            msgs = list(step_pre_agents(self._make_manager()))  # type: ignore[arg-type]
+            msgs = list(step_pre_agents(self._make_manager()))
             # Stale arrivals are tracked but don't produce messages
             assert len(msgs) == 0
 
@@ -502,5 +503,5 @@ class TestStepPreAgents:
             "gptme.hooks.workspace_agents.scan_agents",
             side_effect=OSError("permission denied"),
         ):
-            msgs = list(step_pre_agents(self._make_manager()))  # type: ignore[arg-type]
+            msgs = list(step_pre_agents(self._make_manager()))
             assert len(msgs) == 0

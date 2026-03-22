@@ -225,7 +225,9 @@ def rename_conversation(conv_id: str, new_name: str) -> bool:
 
     if "chat" not in config_data:
         config_data.add("chat", tomlkit.table())
-    config_data["chat"]["name"] = new_name  # type: ignore[index]
+    chat_section = config_data["chat"]
+    assert isinstance(chat_section, dict)
+    chat_section["name"] = new_name
 
     with open(config_path, "w") as f:
         tomlkit.dump(config_data, f)

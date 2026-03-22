@@ -101,7 +101,8 @@ class TestAddTokenUsageWarning:
             "gptme.llm.models.get_default_model",
             return_value=_make_model(),
         ):
-            msgs = list(add_token_usage_warning(None, None, None))  # type: ignore[arg-type]
+            log: Any = None
+            msgs = list(add_token_usage_warning(log, None, None))
         assert msgs == []
 
     def test_no_model_yields_nothing(self):

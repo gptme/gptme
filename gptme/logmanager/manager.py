@@ -21,7 +21,7 @@ if os.name == "nt":
         import msvcrt as _msvcrt
     except ImportError:
         pass
-from collections.abc import Generator
+from collections.abc import Generator, Iterator
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
@@ -83,9 +83,9 @@ class Log:
 
     @classmethod
     def read_jsonl(cls, path: PathLike, limit=None) -> "Log":
-        gen = _gen_read_jsonl(path)
+        gen: Iterator[Message] = _gen_read_jsonl(path)
         if limit:
-            gen = islice(gen, limit)  # type: ignore[assignment]
+            gen = islice(gen, limit)
         return Log(list(gen))
 
     def write_jsonl(self, path: PathLike) -> None:
