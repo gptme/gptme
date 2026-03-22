@@ -133,6 +133,35 @@ class ChatConfig:
 
         config_dict = self.to_dict()
 
+        # Load existing config as TOMLDocument to preserve formatting/comments
+        if chat_config_path.exists():
+            try:
+                with open(chat_config_path) as f:
+                    doc = tomlkit.load(f)
+                # Update document in-place, preserving formatting
+                for key, value in config_dict.items():
+                    if isinstance(value, dict) and key in doc:
+                        # Update nested tables in-place
+                        table = doc[key]
+                        assert isinstance(table, dict)
+                        for k, v in value.items():
+                            table[k] = v
+                        # Remove keys no longer present
+                        for k in list(table):
+                            if k not in value:
+                                del table[k]
+                    else:
+                        doc[key] = value
+                # Remove top-level keys no longer present
+                for key in list(doc):
+                    if key not in config_dict:
+                        del doc[key]
+            except (OSError, TOMLKitError):
+                # If loading fails, fall back to fresh document
+                doc = tomlkit.parse(tomlkit.dumps(config_dict))
+        else:
+            doc = tomlkit.parse(tomlkit.dumps(config_dict))
+
         # Use atomic write: write to temp file, then rename
         # This prevents corruption if process is interrupted during write
         # (e.g., daemon thread killed on exit while saving)
@@ -143,8 +172,7 @@ class ChatConfig:
             delete=False,
         ) as f:
             temp_path = Path(f.name)
-            # TODO: load and update this properly as TOMLDocument to preserve formatting
-            tomlkit.dump(config_dict, f)
+            tomlkit.dump(doc, f)
             # Ensure data is flushed to disk before rename
             f.flush()
             os.fsync(f.fileno())

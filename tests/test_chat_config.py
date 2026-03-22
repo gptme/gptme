@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import tomlkit
+
 from gptme.config import ChatConfig
 
 
@@ -39,3 +41,60 @@ def test_chat_config_load_or_create(tmp_path: Path):
         config.stream is False
     )  # existing value preserved (not overridden by default)
     assert config.interactive is False  # existing value preserved
+
+
+def test_chat_config_save_preserves_formatting(tmp_path: Path):
+    """Test that saving a config preserves TOML comments and formatting."""
+    config_path = tmp_path / "config.toml"
+
+    # Write a config with comments
+    config_path.write_text(
+        "# Chat session configuration\n"
+        "[chat]\n"
+        "# The model to use for this conversation\n"
+        'model = "openai/gpt-4o"\n'
+        "stream = true\n"
+        "\n"
+        "[env]\n"
+    )
+
+    # Load, modify, and save
+    config = ChatConfig.from_logdir(tmp_path)
+    assert config.model == "openai/gpt-4o"
+
+    # Update model and save
+    from dataclasses import replace as dc_replace
+
+    config = dc_replace(config, model="anthropic/claude-sonnet-4-5-20250514")
+    config.save()
+
+    # Verify comments are preserved
+    saved = config_path.read_text()
+    assert "# Chat session configuration" in saved
+    assert "# The model to use for this conversation" in saved
+    assert 'model = "anthropic/claude-sonnet-4-5-20250514"' in saved
+
+
+def test_chat_config_save_roundtrip(tmp_path: Path):
+    """Test that save/load roundtrip produces valid TOML."""
+    config = ChatConfig(
+        _logdir=tmp_path,
+        model="test/model",
+        stream=False,
+        tools=["shell", "python"],
+    )
+    config.save()
+
+    # Verify file is valid TOML
+    config_path = tmp_path / "config.toml"
+    with open(config_path) as f:
+        data = tomlkit.load(f).unwrap()
+    assert data["chat"]["model"] == "test/model"
+    assert data["chat"]["stream"] is False
+    assert data["chat"]["tools"] == ["shell", "python"]
+
+    # Load back and verify
+    loaded = ChatConfig.from_logdir(tmp_path)
+    assert loaded.model == "test/model"
+    assert loaded.stream is False
+    assert loaded.tools == ["shell", "python"]
