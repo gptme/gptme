@@ -229,14 +229,11 @@ def get_prompt(
                 prompt_tools(tools=tools, tool_format=tool_format, model=model)
             )
 
-    # TODO: generate context_cmd outputs separately and put them last in a "dynamic context" section
-    #       with context known not to cache well across conversation starts, so that cache points can be set before and better utilized/changed less frequently.
-    #       probably together with chat history since it's also dynamic/live context.
-    #       as opposed to static (core/system prompt) and semi-static (workspace/project prompt, like files).
-
     # Generate workspace messages separately (if included)
+    # Always exclude context_cmd here — it's collected separately below
+    # for better prompt caching (static/semi-static content first, dynamic last).
     workspace_msgs = (
-        list(prompt_workspace(workspace, include_context_cmd=include_context_cmd))
+        list(prompt_workspace(workspace, include_context_cmd=False))
         if include_workspace and workspace and workspace != agent_path
         else []
     )
@@ -248,12 +245,41 @@ def get_prompt(
                 agent_path,
                 title="Agent Config",
                 include_path=True,
-                include_context_cmd=include_context_cmd,
+                include_context_cmd=False,
             )
         )
         if include_agent_config
         else []
     )
+
+    # Collect dynamic context_cmd outputs separately.
+    # By placing these after all static/semi-static content, we maximize the
+    # prompt prefix that can be cached across conversation starts (core prompt,
+    # workspace files, agent config rarely change; context_cmd changes every session).
+    dynamic_context_msgs: list[Message] = []
+    if include_context_cmd:
+        for ws, title in [
+            (agent_path if include_agent_config else None, "Agent"),
+            (
+                workspace if include_workspace and workspace != agent_path else None,
+                "Project",
+            ),
+        ]:
+            if ws is None:
+                continue
+            ws_project = get_project_config(ws)
+            if (
+                ws_project
+                and ws_project.context_cmd
+                and (
+                    cmd_output := get_project_context_cmd_output(
+                        ws_project.context_cmd, ws
+                    )
+                )
+            ):
+                dynamic_context_msgs.append(
+                    Message("system", f"## {title} computed context\n\n" + cmd_output)
+                )
 
     # Combine core messages into one system prompt
     result = []
@@ -269,8 +295,10 @@ def get_prompt(
     if include_workspace:
         result.extend(workspace_msgs)
 
-    # Generate cross-conversation context if enabled
-    # Add chat history context
+    # Dynamic context last (changes every session, least cacheable)
+    result.extend(dynamic_context_msgs)
+
+    # Chat history (also dynamic)
     result.extend(prompt_chat_history())
 
     # Set hide=True, pinned=True for all messages

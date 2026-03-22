@@ -204,6 +204,44 @@ def test_workspace_git_status_in_git_repo(tmp_path):
     assert "test-branch" in result
 
 
+def test_dynamic_context_after_static(tmp_path):
+    """Test that context_cmd output comes after static workspace content.
+
+    This ordering improves prompt caching: static/semi-static content first
+    (cacheable prefix), dynamic context last (changes every session).
+    """
+    from gptme.prompts import get_prompt
+
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    (workspace / "README.md").write_text("# Test Project")
+    (workspace / "gptme.toml").write_text(
+        '[prompt]\nfiles = ["README.md"]\ncontext_cmd = "echo DYNAMIC_MARKER_123"\n'
+    )
+
+    msgs = get_prompt(
+        get_tools(),
+        prompt="full",
+        workspace=workspace,
+    )
+
+    # Find the indices of workspace file content and dynamic context
+    file_idx = None
+    dynamic_idx = None
+    for i, msg in enumerate(msgs):
+        if "README.md" in msg.content:
+            file_idx = i
+        if "DYNAMIC_MARKER_123" in msg.content:
+            dynamic_idx = i
+
+    assert file_idx is not None, "Should include workspace files"
+    assert dynamic_idx is not None, "Should include context_cmd output"
+    assert dynamic_idx > file_idx, (
+        f"Dynamic context (msg {dynamic_idx}) should come after "
+        f"static workspace files (msg {file_idx})"
+    )
+
+
 def test_workspace_git_status_not_git_repo(tmp_path):
     """Test that git status returns None for non-git directories."""
     from gptme.prompts.workspace import _get_git_status
