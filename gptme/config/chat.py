@@ -150,6 +150,12 @@ class ChatConfig:
                         for k in list(table):
                             if k not in value:
                                 del table[k]
+                    elif isinstance(value, dict):
+                        # New section not yet in doc: use tomlkit.table() so it
+                        # serializes as a proper [section] header, not an inline table
+                        t = tomlkit.table()
+                        t.update(value)
+                        doc[key] = t
                     else:
                         doc[key] = value
                 # Remove top-level keys no longer present

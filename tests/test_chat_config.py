@@ -97,3 +97,19 @@ def test_chat_config_save_roundtrip(tmp_path: Path):
     assert loaded.model == "test/model"
     assert loaded.stream is False
     assert loaded.tools == ["shell", "python"]
+
+
+def test_chat_config_save_new_section_uses_header(tmp_path: Path):
+    """Test that a new dict section added to an existing config uses a proper [section] header."""
+    config_path = tmp_path / "config.toml"
+
+    # Write a config that only has [chat] — no [env] section
+    config_path.write_text('[chat]\nmodel = "test/model"\n')
+
+    # Save a config that adds an env section for the first time
+    config = ChatConfig(_logdir=tmp_path, model="test/model", env={"MY_VAR": "hello"})
+    config.save()
+
+    saved = config_path.read_text()
+    # Should serialize as [env] header, not inline: env = {MY_VAR = "hello"}
+    assert "[env]" in saved, f"Expected [env] section header, got:\n{saved}"
