@@ -425,6 +425,8 @@ def read_page_text() -> str:
     Useful for reading article text, documentation, or other content after
     navigating with open_page()/click_element().
     """
+    if _current_page is None:
+        raise RuntimeError("No page is open. Call open_page(url) first.")
     logger.info("Reading text content of current page")
     return _execute_with_retry(_read_page_text)
 
