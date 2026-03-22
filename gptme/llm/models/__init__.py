@@ -16,6 +16,7 @@ from .listing import (
     list_models,
 )
 from .resolution import (
+    _default_model_var,
     _find_base_model_properties,
     _find_closest_model_properties,
     get_default_model,
@@ -51,6 +52,7 @@ __all__ = [
     "PROVIDERS",
     "PROVIDERS_OPENAI",
     # Internal (re-exported for test compatibility)
+    "_default_model_var",
     "_find_base_model_properties",
     "_find_closest_model_properties",
     "_apply_model_filters",
