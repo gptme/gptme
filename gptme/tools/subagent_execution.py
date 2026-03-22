@@ -21,7 +21,7 @@ from ..message import Message
 from . import get_tools, set_tools
 
 if TYPE_CHECKING:
-    from .subagent import ReturnType, Subagent, SubtaskDef
+    from .subagent import ReturnType, Status, Subagent, SubtaskDef
 
 logger = logging.getLogger(__name__)
 
@@ -406,7 +406,7 @@ def _monitor_subprocess(
 
     # Determine status based on return code
     if subagent.process.returncode == 0:
-        status: Literal["running", "success", "failure"] = "success"
+        status: Status = "success"
         # Get result from conversation log (primary source for subprocess mode)
         try:
             log_status = subagent.status()
@@ -468,7 +468,6 @@ def _run_planner(
         s = string.ascii_lowercase + string.digits
         return "".join(random.choice(s) for _ in range(n))
 
-    threads = []
     for subtask in subtasks:
         executor_id = f"{agent_id}-{subtask['id']}"
         executor_prompt = f"Context: {prompt}\n\nSubtask: {subtask['description']}"
@@ -496,7 +495,6 @@ def _run_planner(
 
         t = threading.Thread(target=run_executor, daemon=True)
         t.start()
-        threads.append(t)
         _subagents.append(Subagent(executor_id, executor_prompt, t, logdir, model))
 
         # Sequential mode: wait for each task to complete before starting next
