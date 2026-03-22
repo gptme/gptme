@@ -4,6 +4,7 @@ Contains the HookRegistry class, context-local registry management,
 and module-level API functions (register_hook, trigger_hook, etc.).
 """
 
+import functools
 import logging
 import threading
 from collections.abc import Generator
@@ -296,6 +297,7 @@ _hooks_init_lock = threading.Lock()
 def _thread_safe_init(func):
     """Decorator for thread-safe initialization."""
 
+    @functools.wraps(func)
     def wrapper(*args, **kwargs):
         with _hooks_init_lock:
             return func(*args, **kwargs)
