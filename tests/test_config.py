@@ -715,7 +715,9 @@ workspace = "{workspace!s}"
         new_logdir = Path(tmpdir) / "new-conversation"
         new_logdir.mkdir()
 
-        with patch("gptme.config._get_model_default_tool_format", return_value=None):
+        with patch(
+            "gptme.config.cli_setup._get_model_default_tool_format", return_value=None
+        ):
             config = setup_config_from_cli(
                 workspace=workspace,
                 logdir=new_logdir,
