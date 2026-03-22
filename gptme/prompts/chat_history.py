@@ -46,7 +46,7 @@ def prompt_chat_history() -> Generator[Message, None, None]:
         if not substantial_conversations:
             return
 
-        # Take the 3 most recent substantial conversations
+        # Take the 5 most recent substantial conversations
         conversations_to_summarize = substantial_conversations[:5]
 
         context_parts = []
