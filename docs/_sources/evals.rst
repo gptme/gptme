@@ -38,6 +38,33 @@ Note that pricing for models varies widely when accounting for caching, making s
 
 You can get an overview of actual model usage in the wild from the `OpenRouter app analytics for gptme <https://openrouter.ai/apps?url=https://github.com/gptme/gptme>`_.
 
+
+Model Leaderboard
+-----------------
+
+The table below shows pass rates across our eval suites for each model (best tool format per model). Models are ranked by overall pass rate, with breakdowns by suite type.
+
+.. command-output:: python scripts/eval_leaderboard.py --format rst --min-tests 4
+   :cwd: ..
+   :shell:
+
+**Notes:**
+
+- *Format* shows the best-performing ``--tool-format`` for each model.
+- *Basic* tests cover fundamental tool use (file I/O, shell, git, Python).
+- *Practical* tests cover real-world programming tasks (APIs, data processing, refactoring).
+- Models with fewer than 4 tests are excluded.
+- Results use a 60-second timeout per test. Some models may perform better with longer timeouts.
+
+To generate this table locally:
+
+.. code-block:: bash
+
+    python scripts/eval_leaderboard.py --format rst
+    python scripts/eval_leaderboard.py --format csv    # for data analysis
+    python scripts/eval_leaderboard.py --format markdown  # for GitHub/blog
+
+
 Usage
 -----
 
@@ -117,16 +144,14 @@ Run all practical suites at once (useful for benchmarking):
         --model anthropic/claude-sonnet-4-6
 
 
-Results
--------
+Raw Results
+-----------
 
-Here are the results of the evals we have run so far:
+Full per-test results from all eval runs:
 
 .. command-output:: gptme-eval eval_results/*/eval_results.csv
    :cwd: ..
    :shell:
-
-We are working on making the evals more robust, informative, and challenging.
 
 
 Other evals

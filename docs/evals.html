@@ -459,9 +459,10 @@
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recommended-model">Recommended Model</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#model-leaderboard">Model Leaderboard</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#available-eval-suites">Available Eval Suites</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#results">Results</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#raw-results">Raw Results</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#other-evals">Other evals</a></li>
 </ul>
             </nav>
@@ -505,6 +506,68 @@
 <p>Note that many providers on OpenRouter have poor performance and reliability, so be sure to test your chosen model/provider combination before committing to it. This is especially true for open weight models which any provider can host at any quality. You can choose a specific provider by appending with <code class="docutils literal notranslate"><span class="pre">:provider</span></code>, e.g. <code class="docutils literal notranslate"><span class="pre">openrouter/qwen/qwen3-coder:alibaba/opensource</span></code>.</p>
 <p>Note that pricing for models varies widely when accounting for caching, making some providers much cheaper than others. Anthropic is known and tested to cache well, significantly reducing costs for conversations with many turns.</p>
 <p>You can get an overview of actual model usage in the wild from the <a class="reference external" href="https://openrouter.ai/apps?url=https://github.com/gptme/gptme">OpenRouter app analytics for gptme</a>.</p>
+</section>
+<section id="model-leaderboard">
+<h2>Model Leaderboard<a class="headerlink" href="#model-leaderboard" title="Link to this heading">#</a></h2>
+<p>The table below shows pass rates across our eval suites for each model (best tool format per model). Models are ranked by overall pass rate, with breakdowns by suite type.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>$ python scripts/eval_leaderboard.py --format rst --min-tests 4
+============================  ==========  ===============  ==========  ==========
+Model                         Format      Overall          Basic       Practical 
+============================  ==========  ===============  ==========  ==========
+Claude 3.5 Sonnet (Jun 2024)  default     7/7 (100%)       4/4         -         
+Gemini 1.5 Pro (OR)           default     7/7 (100%)       4/4         -         
+GPT-4 Turbo                   default     7/7 (100%)       4/4         -         
+Hermes 3 405B                 default     7/7 (100%)       4/4         -         
+Claude 3.5 Haiku              default     6/6 (100%)       4/4         -         
+GPT-4o                        tool        5/5 (100%)       4/4         -         
+GPT-4o Mini                   tool        5/5 (100%)       4/4         -         
+Llama 3.1 405B                markdown    5/5 (100%)       4/4         -         
+Claude 3.5 Sonnet (Oct 2024)  default     5/5 (100%)       4/4         -         
+Claude Sonnet 4               markdown    5/5 (100%)       4/4         -         
+Kimi K2                       xml         4/4 (100%)       4/4         -         
+Gemini 2.5 Flash              markdown    4/4 (100%)       4/4         -         
+Kimi K2 (OR)                  markdown    4/4 (100%)       4/4         -         
+Magistral Medium              markdown    4/4 (100%)       4/4         -         
+Qwen3 Max                     markdown    4/4 (100%)       4/4         -         
+Grok 4 Fast                   markdown    4/4 (100%)       4/4         -         
+Claude 3 Haiku                default     6/7 (86%)        3/4         -         
+o1-preview                    default     6/7 (86%)        3/4         -         
+Llama 3.1 70B                 xml         4/5 (80%)        3/4         -         
+GPT-5                         markdown    4/5 (80%)        4/4         -         
+GPT-5 Mini                    xml         4/5 (80%)        3/4         -         
+Llama 3.2 90B                 default     3/4 (75%)        3/4         -         
+Llama 3.2 11B                 default     3/4 (75%)        3/4         -         
+Grok Code Fast                markdown    3/4 (75%)        3/4         -         
+Hermes 4 70B                  xml         3/4 (75%)        3/4         -         
+Gemini 1.5 Flash (OR)         default     5/7 (71%)        3/4         -         
+Gemma 2 27B                   default     5/7 (71%)        4/4         -         
+Llama 3.1 8B                  default     3/5 (60%)        2/4         -         
+Qwen3 32B                     markdown    3/5 (60%)        2/4         -         
+o1-mini                       default     4/7 (57%)        3/4         -         
+Gemma 2 9B                    default     3/7 (43%)        2/4         -         
+Hermes 2 Pro 8B               default     1/4 (25%)        1/4         -         
+Claude Opus 4.1               markdown    1/5 (20%)        1/4         -         
+Gemini 1.5 Flash              default     0/5 (0%)         0/4         -         
+Claude Haiku 4.5              tool        0/5 (0%)         0/4         -         
+Claude Sonnet 4.6             markdown    0/5 (0%)         0/4         -         
+Hermes 3 70B                  default     0/4 (0%)         0/4         -         
+============================  ==========  ===============  ==========  ==========
+</pre></div>
+</div>
+<p><strong>Notes:</strong></p>
+<ul class="simple">
+<li><p><em>Format</em> shows the best-performing <code class="docutils literal notranslate"><span class="pre">--tool-format</span></code> for each model.</p></li>
+<li><p><em>Basic</em> tests cover fundamental tool use (file I/O, shell, git, Python).</p></li>
+<li><p><em>Practical</em> tests cover real-world programming tasks (APIs, data processing, refactoring).</p></li>
+<li><p>Models with fewer than 4 tests are excluded.</p></li>
+<li><p>Results use a 60-second timeout per test. Some models may perform better with longer timeouts.</p></li>
+</ul>
+<p>To generate this table locally:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>scripts/eval_leaderboard.py<span class="w"> </span>--format<span class="w"> </span>rst
+python<span class="w"> </span>scripts/eval_leaderboard.py<span class="w"> </span>--format<span class="w"> </span>csv<span class="w">    </span><span class="c1"># for data analysis</span>
+python<span class="w"> </span>scripts/eval_leaderboard.py<span class="w"> </span>--format<span class="w"> </span>markdown<span class="w">  </span><span class="c1"># for GitHub/blog</span>
+</pre></div>
+</div>
 </section>
 <section id="usage">
 <h2>Usage<a class="headerlink" href="#usage" title="Link to this heading">#</a></h2>
@@ -600,11 +663,11 @@ gptme-eval<span class="w"> </span>sort-and-filter<span class="w"> </span>rename-
 </pre></div>
 </div>
 </section>
-<section id="results">
-<h2>Results<a class="headerlink" href="#results" title="Link to this heading">#</a></h2>
-<p>Here are the results of the evals we have run so far:</p>
+<section id="raw-results">
+<h2>Raw Results<a class="headerlink" href="#raw-results" title="Link to this heading">#</a></h2>
+<p>Full per-test results from all eval runs:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>$ gptme-eval eval_results/*/eval_results.csv
-2026-03-22 08:13:19,030 - INFO - gptme.config.user - Using user configuration from ~/.config/gptme/config.toml
+2026-03-22 10:55:27,313 - INFO - gptme.config.user - Using user configuration from ~/.config/gptme/config.toml
 Model                                     Format    hello             hello-patch       hello-ask         prime100          init-git          init-rust      whois-superuserlabs-ceo
 ----------------------------------------  --------  ----------------  ----------------  ----------------  ----------------  ----------------  -------------  -------------------------
 anthropic/claude-3-5-haiku-20241022       markdown  ✅ 66/69 456tk    ✅ 68/69 377tk    ✅ 68/69 458tk    ✅ 67/69 885tk    ✅ 65/68 905tk    ❓ N/A         ✅ 1/1 2619tk
@@ -684,7 +747,6 @@ x-ai/grok-code-fast-1                     tool      ✅ 1/1 663tk      ❌ 0/1 2
 x-ai/grok-code-fast-1                     xml       ❌ 0/1 485tk      ❌ 0/1 1652tk     ✅ 1/1 759tk      ✅ 1/1 1112tk     ❓ N/A            ❓ N/A         ❓ N/A
 </pre></div>
 </div>
-<p>We are working on making the evals more robust, informative, and challenging.</p>
 </section>
 <section id="other-evals">
 <h2>Other evals<a class="headerlink" href="#other-evals" title="Link to this heading">#</a></h2>
@@ -740,9 +802,10 @@ x-ai/grok-code-fast-1                     xml       ❌ 0/1 485tk      ❌ 0/1 1
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recommended-model">Recommended Model</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#model-leaderboard">Model Leaderboard</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#usage">Usage</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#available-eval-suites">Available Eval Suites</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#results">Results</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#raw-results">Raw Results</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#other-evals">Other evals</a></li>
 </ul>
   </nav></div>
