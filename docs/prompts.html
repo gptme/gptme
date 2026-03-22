@@ -690,7 +690,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f37fb98bba0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f6a5666bba0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -722,7 +722,7 @@ to append the code block content to the file at the given path.
 
 <span class="gu">## browser</span>
 
-<span class="gs">**Description:**</span> Browse, search or screenshot the web
+<span class="gs">**Description:**</span> Browse, interact with, search, or screenshot the web
 
 <span class="gs">**Instructions:**</span> The following Python functions are available using the <span class="sb">`ipython`</span> tool:
 
@@ -745,6 +745,43 @@ to append the code block content to the file at the given path.
 <span class="s">    Returns a structured text representation of the page&#39;s accessibility tree,</span>
 <span class="s">    showing interactive elements (buttons, links, inputs) with their roles and names.</span>
 <span class="s">    Useful for understanding page structure and finding elements to interact with.</span>
+
+<span class="s">open_page(url: str) -&gt; str: Open a page for interactive browsing. Returns ARIA accessibility snapshot.</span>
+
+<span class="s">    Use this instead of read_url() when you need to interact with the page</span>
+<span class="s">    (click buttons, fill forms, scroll). The page stays open for subsequent</span>
+<span class="s">    click_element(), fill_element(), and scroll_page() calls.</span>
+
+<span class="s">close_page() -&gt; str: Close the current interactive browsing page.</span>
+
+<span class="s">    Frees browser resources. A new page can be opened with open_page().</span>
+
+<span class="s">click_element(selector: str) -&gt; str: Click an element on the current page and return updated ARIA snapshot.</span>
+
+<span class="s">    Requires open_page() to be called first.</span>
+
+<span class="s">    Args:</span>
+<span class="s">        selector: Playwright selector to find the element. Supports:</span>
+<span class="s">            - CSS: &quot;#submit-btn&quot;, &quot;.nav-link&quot;, &quot;button&quot;</span>
+<span class="s">            - Text: &quot;text=Submit&quot;, &quot;text=Log in&quot;</span>
+<span class="s">            - Role: &quot;role=button[name=&#39;Submit&#39;]&quot;</span>
+<span class="s">            - Chained: &quot;form &gt;&gt; text=Submit&quot;</span>
+
+<span class="s">fill_element(selector: str, value: str) -&gt; str: Fill a form field on the current page and return updated ARIA snapshot.</span>
+
+<span class="s">    Requires open_page() to be called first. Clears any existing value before filling.</span>
+
+<span class="s">    Args:</span>
+<span class="s">        selector: Playwright selector for the input/textarea element.</span>
+<span class="s">        value: Text to fill into the field.</span>
+
+<span class="s">scroll_page(direction: str, amount: int) -&gt; str: Scroll the current page and return updated ARIA snapshot.</span>
+
+<span class="s">    Requires open_page() to be called first.</span>
+
+<span class="s">    Args:</span>
+<span class="s">        direction: &quot;up&quot; or &quot;down&quot; (default: &quot;down&quot;)</span>
+<span class="s">        amount: Pixels to scroll (default: 500)</span>
 
 <span class="s">read_logs() -&gt; str: Read browser console logs from the last read URL.</span>
 <span class="s">pdf_to_images(url_or_path: str, output_dir: Union[str, Path, None], pages: Union[tuple[int, int], None], dpi: int) -&gt; list[Path]: Convert PDF pages to images using auto-detected CLI tools.</span>
@@ -827,6 +864,19 @@ to append the code block content to the file at the given path.
 <span class="n">snapshot_url</span><span class="p">(</span><span class="s1">&#39;https://example.com&#39;</span><span class="p">)</span>
 <span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">Assistant: The page has a heading &quot;Example Domain&quot;, a paragraph with description text, and a link &quot;More information...&quot;.</span>
+
+<span class="gu">### Interactive browsing: open page, click, fill</span>
+
+<span class="k">&gt; </span><span class="ge">User: search for gptme on example.com&#39;s search form</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll open the page, fill the search form, and click submit.</span>
+<span class="sb">```ipython</span>
+<span class="n">open_page</span><span class="p">(</span><span class="s1">&#39;https://example.com&#39;</span><span class="p">)</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I can see a search box and button. Let me fill in the search and click Go.</span>
+<span class="sb">```ipython</span>
+<span class="n">fill_element</span><span class="p">(</span><span class="s1">&#39;input[name=&quot;q&quot;]&#39;</span><span class="p">,</span> <span class="s1">&#39;gptme&#39;</span><span class="p">)</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">Assistant: The search was submitted and the page now shows results for &quot;gptme&quot;.</span>
 
 <span class="gu">### Read URL and check browser logs</span>
 
@@ -2149,7 +2199,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 11534</p>
+<p>Tokens: 12014</p>
 </dd></dl>
 
 <dl class="py function">
