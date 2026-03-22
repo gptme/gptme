@@ -361,12 +361,13 @@ Available functions:
     instructions_format_updated = {
         **tool.instructions_format,
         "markdown": markdown_appendix,
+        "xml": _appendix_full,  # xml gets full library + function listing (same as markdown)
         "tool": _appendix_concise,
     }
 
     # create a copy with the updated instructions:
     # - instructions: short base text (shared across formats)
-    # - instructions_format: format-specific appendices (full signatures for markdown,
+    # - instructions_format: format-specific appendices (full signatures for markdown/xml,
     #   concise names only for tool to stay within OpenAI's 1024-char limit)
     return dataclasses.replace(
         tool,
