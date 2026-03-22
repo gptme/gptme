@@ -672,7 +672,7 @@ def _dir_to_listing(path: Path, prompt: str, max_entries: int = 50) -> str | Non
             timeout=5,
             check=False,
         )
-        if result.returncode == 0 and result.stdout.strip():
+        if result.returncode == 0:
             entries = sorted(result.stdout.strip().splitlines())
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass

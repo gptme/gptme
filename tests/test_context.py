@@ -372,6 +372,31 @@ def test_dir_to_listing_empty(tmp_path):
     assert "(empty directory)" in result
 
 
+def test_dir_to_listing_all_gitignored(tmp_path, monkeypatch):
+    """Test that files are not exposed when git returns empty output (all gitignored)."""
+    from unittest.mock import MagicMock, patch
+
+    from gptme.util.context import _dir_to_listing
+
+    # Create a directory with a file that would be found by rglob
+    gitdir = tmp_path / "gitrepo"
+    gitdir.mkdir()
+    (gitdir / "secret.env").write_text("API_KEY=hunter2")
+
+    # Simulate git returning returncode=0 with empty stdout (all files gitignored)
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stdout = ""
+
+    with patch("subprocess.run", return_value=mock_result):
+        result = _dir_to_listing(gitdir, str(gitdir))
+
+    # When git reports success with no files, should return empty listing, NOT rglob files
+    assert result is not None
+    assert "secret.env" not in result
+    assert "(empty directory)" in result
+
+
 def test_dir_to_listing_truncation(tmp_path):
     """Test that large directories are truncated."""
     from gptme.util.context import _dir_to_listing
