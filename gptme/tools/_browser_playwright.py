@@ -527,6 +527,8 @@ def scroll_page(direction: str = "down", amount: int = 500) -> str:
     """
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
+    if direction not in ("up", "down"):
+        raise ValueError(f"direction must be 'up' or 'down', got: {direction!r}")
     logger.info(f"Scrolling {direction} by {amount}px")
     return _execute_with_retry(_scroll, direction, amount)
 

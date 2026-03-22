@@ -313,6 +313,7 @@ def test_fill_element():
     # Fill the search box
     snapshot = fill_element("input[name='q']", "gptme test")
     assert snapshot, "Fill should return a valid snapshot"
+    assert "gptme test" in snapshot, "Snapshot should reflect filled value"
 
 
 def test_click_without_open_page():
