@@ -337,7 +337,7 @@ def _list_results_duckduckgo(page) -> str:
     return titleurl_to_list(hits)
 
 
-def _format_aria_node(node: dict, indent: int = 0) -> str:
+def _format_aria_node(node: dict, indent: int = 0, max_depth: int = 10) -> str:
     """Format an accessibility tree node as readable text."""
     prefix = "  " * indent
     role = node.get("role", "unknown")
@@ -353,9 +353,9 @@ def _format_aria_node(node: dict, indent: int = 0) -> str:
         attrs.append(f"checked={node['checked']}")
     if "pressed" in node:
         attrs.append(f"pressed={node['pressed']}")
-    if "disabled" in node:
+    if node.get("disabled"):
         attrs.append("disabled")
-    if "required" in node:
+    if node.get("required"):
         attrs.append("required")
     if "expanded" in node:
         attrs.append(f"expanded={node['expanded']}")
@@ -369,10 +369,12 @@ def _format_aria_node(node: dict, indent: int = 0) -> str:
 
     line = f"{prefix}- {role}{name_str}{attr_str}"
 
-    # Add children
+    # Add children (cap recursion to avoid overwhelming LLM context on complex pages)
     children = node.get("children", [])
-    if children:
-        child_lines = [_format_aria_node(child, indent + 1) for child in children]
+    if children and indent < max_depth:
+        child_lines = [
+            _format_aria_node(child, indent + 1, max_depth) for child in children
+        ]
         return line + ":\n" + "\n".join(child_lines)
     return line
 
@@ -385,7 +387,10 @@ def _get_aria_snapshot(browser: Browser, url: str) -> str:
     page = context.new_page()
     try:
         page.goto(url)
-        page.wait_for_load_state("networkidle")
+        try:
+            page.wait_for_load_state("networkidle")
+        except Exception as e:
+            logger.warning(f"networkidle wait failed for {url}: {e}, proceeding anyway")
         snapshot = page.accessibility.snapshot()
         if not snapshot:
             return "Error: Could not get accessibility snapshot for this page."
