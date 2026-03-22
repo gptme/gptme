@@ -1,6 +1,6 @@
 """Pure unit tests for browser formatting helpers — no playwright dependency."""
 
-from gptme.tools.browser import _format_snapshot
+from gptme.tools._browser_format import format_snapshot as _format_snapshot
 
 
 def test_format_snapshot():
