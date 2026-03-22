@@ -27,6 +27,17 @@ logger = logging.getLogger(__name__)
 # Set at session start if Anthropic API quota is exhausted
 _anthropic_quota_exhausted = False
 
+# Error patterns that indicate API quota/rate-limit exhaustion
+_QUOTA_ERROR_PATTERNS = [
+    "usage limits",
+    "rate limit",
+    "quota exceeded",
+    "billing hard limit",
+    "insufficient_quota",
+    "exceeded your current quota",
+    "spending limit",
+]
+
 
 def has_api_key() -> bool:
     """Check if any API key is configured."""
@@ -88,19 +99,7 @@ def pytest_configure(config):
     os.environ["GPTME_CHAT_HISTORY"] = "false"
 
 
-# Error patterns that indicate API quota/rate-limit exhaustion
-_QUOTA_ERROR_PATTERNS = [
-    "usage limits",
-    "rate limit",
-    "quota exceeded",
-    "billing",
-    "insufficient_quota",
-    "exceeded your current quota",
-    "spending limit",
-]
-
-
-@pytest.hookimpl(hookwrapper=True)
+@pytest.hookimpl(wrapper=True)
 def pytest_runtest_makereport(item, call):
     """Convert API quota/rate-limit failures to skips for requires_api tests.
 
@@ -108,8 +107,7 @@ def pytest_runtest_makereport(item, call):
     actual test can hit quota limits with heavier models or longer generations.
     This hook catches those mid-run failures and converts them to skips.
     """
-    outcome = yield
-    report = outcome.get_result()
+    report = yield
 
     if (
         report.when == "call"
@@ -120,7 +118,9 @@ def pytest_runtest_makereport(item, call):
         error_str = str(call.excinfo.value).lower()
         if any(pattern in error_str for pattern in _QUOTA_ERROR_PATTERNS):
             report.outcome = "skipped"
-            report.wasxfail = f"API quota exhausted during test: {call.excinfo.value}"
+            report.longrepr = f"API quota exhausted during test: {call.excinfo.value}"
+
+    return report
 
 
 def pytest_collection_modifyitems(config, items):
