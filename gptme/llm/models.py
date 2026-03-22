@@ -49,6 +49,7 @@ BuiltinProvider = Literal[
     "groq",
     "xai",
     "deepseek",
+    "minimax",
     "nvidia",
     "local",
 ]
@@ -86,6 +87,7 @@ PROVIDERS_OPENAI = [
     "xai",
     "groq",
     "deepseek",
+    "minimax",
     "nvidia",
     "local",
 ]
@@ -375,6 +377,33 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "max_output": 8192,
             "price_input": 0.55,
             "price_output": 2.19,
+        },
+    },
+    # https://platform.minimaxi.com/document/Models
+    "minimax": {
+        "MiniMax-M2.7": {
+            "context": 1_000_000,
+            "max_output": 131_072,
+            "price_input": 1.0,
+            "price_output": 5.0,
+        },
+        "MiniMax-M2.7-highspeed": {
+            "context": 1_000_000,
+            "max_output": 131_072,
+            "price_input": 0.5,
+            "price_output": 2.5,
+        },
+        "MiniMax-M2.5": {
+            "context": 204_000,
+            "max_output": 131_072,
+            "price_input": 0.8,
+            "price_output": 4.0,
+        },
+        "MiniMax-M2.5-highspeed": {
+            "context": 204_000,
+            "max_output": 131_072,
+            "price_input": 0.4,
+            "price_output": 2.0,
         },
     },
     # https://groq.com/pricing/
@@ -812,6 +841,8 @@ def get_recommended_model(provider: Provider) -> str:  # pragma: no cover
         return "claude-sonnet-4-6"
     if provider == "deepseek":
         return "deepseek-chat"
+    if provider == "minimax":
+        return "MiniMax-M2.7"
     if provider == "groq":
         return "llama-3.3-70b-versatile"
     raise ValueError(
@@ -836,6 +867,8 @@ def get_summary_model(provider: Provider) -> str | None:  # pragma: no cover
         return "claude-haiku-4-5"
     if provider == "deepseek":
         return "deepseek-chat"
+    if provider == "minimax":
+        return "MiniMax-M2.7-highspeed"
     if provider == "xai":
         return "grok-4-1-fast"
     if provider == "local":

@@ -284,6 +284,13 @@ def init(provider: Provider, config: Config):
         clients[provider] = OpenAI(
             api_key=api_key, base_url="https://api.deepseek.com/v1", timeout=timeout
         )
+    elif provider == "minimax":
+        api_key = config.get_env_required("MINIMAX_API_KEY")
+        clients[provider] = OpenAI(
+            api_key=api_key,
+            base_url="https://api.minimax.io/v1",
+            timeout=timeout,
+        )
     elif provider == "nvidia":
         api_key = config.get_env_required("NVIDIA_API_KEY")
         clients[provider] = OpenAI(

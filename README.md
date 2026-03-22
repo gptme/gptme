@@ -244,7 +244,7 @@ You can find more [Demos][docs-demos] and [Examples][docs-examples] in the [docu
   - Adapts to interactive vs autonomous modes.
   - Extend with your own lessons and [skills][docs-skills].
 - 🤖 **Support for many LLM [providers][docs-providers]**
-  - Anthropic (Claude), OpenAI (GPT), Google (Gemini), xAI (Grok), DeepSeek, and more.
+  - Anthropic (Claude), OpenAI (GPT), Google (Gemini), xAI (Grok), DeepSeek, MiniMax, and more.
   - Use OpenRouter for access to 100+ models, or serve locally with `llama.cpp`.
 - 🌐 **Web UI and REST API**
   - Modern web interface at [chat.gptme.org](https://chat.gptme.org) ([gptme-webui])
