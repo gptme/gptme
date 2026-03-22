@@ -72,9 +72,25 @@ export class ApiClient {
     this.identifier = crypto.randomUUID();
     console.log(`[ApiClient] Identifier: ${this.identifier}`);
 
-    // Set auth cookie eagerly (for SSE connections that need it later)
-    if (this.authHeader) {
+    // Set auth cookie eagerly (for SSE connections that need it later).
+    // Skip for cross-origin servers: SameSite=Lax cookies aren't sent on cross-origin
+    // EventSource requests, so cookie auth would silently fail with a 401 and the
+    // query-param fallback would be suppressed (authCookieSet=true). Use query params instead.
+    if (this.authHeader && !this.isBaseUrlCrossOrigin()) {
       this.authCookiePromise = this.ensureAuthCookie();
+    }
+  }
+
+  /**
+   * Returns true if baseUrl is on a different origin than the current page.
+   * Cross-origin EventSource requests do not send SameSite=Lax cookies, so
+   * we fall back to query-param auth in that case.
+   */
+  private isBaseUrlCrossOrigin(): boolean {
+    try {
+      return new URL(this.baseUrl).origin !== window.location.origin;
+    } catch {
+      return false;
     }
   }
 
@@ -84,7 +100,7 @@ export class ApiClient {
    */
   private resetAuthCookie(): void {
     this.authCookieSet = false;
-    if (this.authHeader) {
+    if (this.authHeader && !this.isBaseUrlCrossOrigin()) {
       this.authCookiePromise = this.ensureAuthCookie();
     }
   }
