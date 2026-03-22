@@ -3,6 +3,7 @@ import logging
 import shutil
 import sys
 import textwrap
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal, TypedDict
@@ -489,7 +490,7 @@ def print_msg(
         )
 
 
-def msgs_to_toml(msgs: list[Message]) -> str:
+def msgs_to_toml(msgs: Iterable[Message]) -> str:
     """Converts a list of messages to a TOML string, for easy editing by hand in editor to then be parsed back."""
     t = ""
     for msg in msgs:

@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 def use_chat_history_context() -> bool:
     """Check if cross-conversation context is enabled."""
     config = get_config()
-    flag: str = config.get_env("GPTME_CHAT_HISTORY", "")  # type: ignore[assignment]
+    flag = config.get_env("GPTME_CHAT_HISTORY", "") or ""
     return flag.lower() in ("1", "true", "yes")
 
 

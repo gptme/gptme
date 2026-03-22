@@ -438,7 +438,9 @@ def conversation_stats(since: str | None = None, as_json: bool = False) -> None:
                     "input_tokens": model_input_tokens[m],
                     "output_tokens": model_output_tokens[m],
                 }
-                for m in sorted(model_counts, key=model_counts.get, reverse=True)  # type: ignore
+                for m in sorted(
+                    model_counts, key=lambda m: model_counts.get(m, 0), reverse=True
+                )
             },
             "by_day": {
                 (now - timedelta(days=i)).strftime("%Y-%m-%d"): daily_counts.get(
@@ -487,7 +489,9 @@ def conversation_stats(since: str | None = None, as_json: bool = False) -> None:
     known_models = {m: c for m, c in model_counts.items() if m != "unknown"}
     if known_models:
         print("\nBy Model")
-        top_models = sorted(known_models, key=known_models.get, reverse=True)[:15]  # type: ignore[arg-type]
+        top_models = sorted(
+            known_models, key=lambda m: known_models.get(m, 0), reverse=True
+        )[:15]
         for model in top_models:
             count = known_models[model]
             cost = model_cost[model]

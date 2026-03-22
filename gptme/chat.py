@@ -99,7 +99,7 @@ def chat(
     # Use nested if/else for proper mypy type narrowing
     if model is None:
         if default_model is None:
-            raise AssertionError("No model loaded and no model specified")
+            raise ValueError("No model loaded and no model specified")
         model_to_use = default_model.full
     else:
         model_to_use = model
@@ -475,7 +475,7 @@ def step(
     # Use nested if/else for proper mypy type narrowing
     if model is None:
         if default_model is None:
-            raise AssertionError("No model loaded and no model specified")
+            raise ValueError("No model loaded and no model specified")
         model = default_model.full
     if isinstance(log, list):
         log = Log(log)
