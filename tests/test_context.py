@@ -429,10 +429,9 @@ def test_dir_to_listing_nested(tmp_path):
     (project / "pyproject.toml").write_text("[project]")
 
     result = _dir_to_listing(project, str(project))
-    assert result is not None
-    # Should include nested paths
-    assert "app.py" in result
-    assert "test_app.py" in result
+    # Should include full relative paths (not just bare filenames)
+    assert "src/app.py" in result
+    assert "tests/test_app.py" in result
     assert "pyproject.toml" in result
 
 
