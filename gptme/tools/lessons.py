@@ -45,7 +45,7 @@ def _get_ace_components() -> tuple[type | None, type | None]:
         LessonEmbedder = _embedder_mod.LessonEmbedder
         GptmeHybridMatcher = _integration_mod.GptmeHybridMatcher
         return LessonEmbedder, GptmeHybridMatcher
-    except ImportError:
+    except (ImportError, AttributeError):
         logger.debug("ACE not available - sentence-transformers not installed")
         return None, None
 
