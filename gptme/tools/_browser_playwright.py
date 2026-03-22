@@ -471,6 +471,10 @@ def click_element(selector: str) -> str:
             - Text: "text=Submit", "text=Log in"
             - Role: "role=button[name='Submit']"
             - Chained: "form >> text=Submit"
+
+    Note:
+        Links with ``target="_blank"`` open a new tab, but ``_current_page`` is not
+        updated to point to it. The returned snapshot reflects the *original* tab.
     """
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")

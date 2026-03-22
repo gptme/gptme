@@ -347,7 +347,10 @@ Available functions:
     # Concise function list for tool format (stays within OpenAI's 1024-char limit, see #1697)
     _appendix_concise = f"Available functions: {', '.join(registered_functions.keys())}"
 
-    # Merge with existing format overrides (markdown already has codeblock note)
+    # Merge with existing format overrides (markdown already has codeblock note).
+    # NOTE: _appendix_full is placed before existing_markdown intentionally so the
+    # library listing appears first. If a markdown key is ever added to instructions_format,
+    # review this order — the existing content would appear *after* the function list.
     existing_markdown = tool.instructions_format.get("markdown", "").strip()
     markdown_appendix = (
         f"{_appendix_full}\n\n{existing_markdown}"
