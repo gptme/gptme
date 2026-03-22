@@ -19,7 +19,7 @@ from gptme.hooks.agents_md_inject import (
     on_cwd_changed,
 )
 from gptme.message import Message
-from gptme.prompts import _loaded_agent_files_var, find_agent_files_in_tree
+from gptme.prompts import AGENT_FILES, _loaded_agent_files_var, find_agent_files_in_tree
 
 
 def _messages_only(items: list) -> list[Message]:
@@ -181,7 +181,7 @@ class TestFindAgentFiles:
         assert str((project / ".cursorrules").resolve()) in local
         assert str((project / ".windsurfrules").resolve()) in local
         assert str((project / ".github" / "copilot-instructions.md").resolve()) in local
-        assert len(local) == 7
+        assert len(local) == len(AGENT_FILES)
 
 
 class TestOnCwdChanged:

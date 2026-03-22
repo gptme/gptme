@@ -23,7 +23,7 @@ from ..util import document_prompt_function
 AGENT_FILES = [
     "AGENTS.md",
     "CLAUDE.md",  # Claude Code
-    "COPILOT.md",  # GitHub Copilot (CLAUDE.md-style convention)
+    "COPILOT.md",  # gptme-invented convention mirroring CLAUDE.md/GEMINI.md
     "GEMINI.md",  # Gemini
     ".github/copilot-instructions.md",  # GitHub Copilot official project instructions
     ".cursorrules",  # Cursor legacy project rules
