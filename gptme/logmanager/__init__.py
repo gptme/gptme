@@ -5,9 +5,6 @@ Split into focused modules:
 - conversations: ConversationMeta, conversation querying and management
 """
 
-# Re-export Message for backward compatibility (tests and tools import it from here)
-# Not in __all__ to avoid Sphinx ambiguity with gptme.message.Message
-from ..message import Message  # noqa: F401
 from .conversations import (
     ConversationMeta,
     delete_conversation,

@@ -3,7 +3,8 @@ from pathlib import Path
 import pytest
 
 from gptme.dirs import get_logs_dir
-from gptme.logmanager import Log, LogManager, Message, check_for_modifications
+from gptme.logmanager import Log, LogManager, check_for_modifications
+from gptme.message import Message
 from gptme.tools import init_tools
 
 
