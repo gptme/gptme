@@ -132,24 +132,27 @@ def load_results(results_dir: Path) -> list[dict]:
         csv_path = d / "eval_results.csv"
         if not csv_path.exists():
             continue
-        with open(csv_path) as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                raw_model = row.get("Model", "").strip()
-                raw_fmt = row.get("Tool Format", "").strip()
-                test = row.get("Test", "").strip()
-                passed = row.get("Passed", "").strip().lower()
-                if raw_model and test and passed in ("true", "false"):
-                    model, fmt = parse_model_format(raw_model, raw_fmt)
-                    all_results.append(
-                        {
-                            "model": model,
-                            "format": fmt,
-                            "test": test,
-                            "passed": passed == "true",
-                            "run_dir": d.name,
-                        }
-                    )
+        try:
+            with open(csv_path) as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    raw_model = row.get("Model", "").strip()
+                    raw_fmt = row.get("Tool Format", "").strip()
+                    test = row.get("Test", "").strip()
+                    passed = row.get("Passed", "").strip().lower()
+                    if raw_model and test and passed in ("true", "false"):
+                        model, fmt = parse_model_format(raw_model, raw_fmt)
+                        all_results.append(
+                            {
+                                "model": model,
+                                "format": fmt,
+                                "test": test,
+                                "passed": passed == "true",
+                                "run_dir": d.name,
+                            }
+                        )
+        except csv.Error as e:
+            print(f"Warning: skipping malformed CSV {csv_path}: {e}", file=sys.stderr)
     return all_results
 
 
@@ -246,7 +249,7 @@ def format_rst_table(ranked: list[dict]) -> str:
     model_col_width = max(5, max_model_len)  # at least 5 chars
 
     # Format (10): covers all gptme tool-format strings (markdown/xml/tool/native/v2 ≤ 8).
-    # Overall (15): covers the widest possible value "58/58 (100%)" = 14 chars.
+    # Overall (15): covers the widest possible value "58/58 (100%)" = 12 chars.
     # Both are safe to hardcode; only Model varies by unknown external names.
     cols = [
         ("Model", model_col_width),
