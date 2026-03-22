@@ -12,7 +12,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar
 
-from playwright.sync_api import Browser, BrowserContext, ElementHandle, Page
+from playwright.sync_api import (
+    Browser,
+    BrowserContext,
+    ElementHandle,
+    Page,
+)
+from playwright.sync_api import (
+    TimeoutError as PlaywrightTimeoutError,
+)
 
 from ._browser_thread import BrowserThread, _is_connection_error
 
@@ -457,7 +465,7 @@ def _click(browser: Browser, selector: str) -> str:
     # Wait for page to settle after click (navigation or dynamic update)
     try:
         _current_page.wait_for_load_state("domcontentloaded", timeout=5000)
-    except Exception:
+    except PlaywrightTimeoutError:
         pass  # Timeout is fine — page may not navigate
     return _page_snapshot()
 
@@ -511,6 +519,8 @@ def _scroll(browser: Browser, direction: str, amount: int) -> str:
         raise RuntimeError("No page is open. Call open_page(url) first.")
     if direction not in ("up", "down"):
         raise ValueError(f"direction must be 'up' or 'down', got: {direction!r}")
+    if amount <= 0:
+        raise ValueError(f"amount must be positive, got: {amount!r}")
     pixels = amount if direction == "down" else -amount
     _current_page.mouse.wheel(0, pixels)
     # Brief wait for lazy-loaded content
@@ -523,12 +533,14 @@ def scroll_page(direction: str = "down", amount: int = 500) -> str:
 
     Args:
         direction: "up" or "down" (default: "down")
-        amount: Pixels to scroll (default: 500)
+        amount: Pixels to scroll — must be positive (default: 500)
     """
-    if _current_page is None:
-        raise RuntimeError("No page is open. Call open_page(url) first.")
     if direction not in ("up", "down"):
         raise ValueError(f"direction must be 'up' or 'down', got: {direction!r}")
+    if amount <= 0:
+        raise ValueError(f"amount must be positive, got: {amount!r}")
+    if _current_page is None:
+        raise RuntimeError("No page is open. Call open_page(url) first.")
     logger.info(f"Scrolling {direction} by {amount}px")
     return _execute_with_retry(_scroll, direction, amount)
 

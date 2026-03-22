@@ -335,3 +335,12 @@ def test_scroll_without_open_page():
     close_page()  # Ensure no page is open
     with pytest.raises(RuntimeError, match="No page is open"):
         scroll_page("down", 300)
+
+
+def test_scroll_invalid_amount():
+    """Test that scroll_page raises ValueError for non-positive amount."""
+    # Argument validation runs before page-state check, so no browser needed
+    with pytest.raises(ValueError, match="amount must be positive"):
+        scroll_page("down", -100)
+    with pytest.raises(ValueError, match="amount must be positive"):
+        scroll_page("down", 0)
