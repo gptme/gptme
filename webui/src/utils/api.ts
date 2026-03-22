@@ -64,6 +64,7 @@ export class ApiClient {
   private eventSources: Map<string, EventSource> = new Map(); // Map conversation IDs to EventSource instances
   private isCleaningUp = false;
   private authCookieSet = false;
+  private authCookieSetAt: number | null = null;
   private authCookiePromise: Promise<void> | null = null;
 
   constructor(baseUrl: string = getApiBaseUrl(), authHeader: string | null = null) {
@@ -95,13 +96,20 @@ export class ApiClient {
   }
 
   /**
-   * Reset cookie state and re-initiate cookie setup.
+   * Reset cookie state and re-initiate cookie setup if cookie is near expiry.
    * Called on reconnect to handle expired cookies (24h TTL).
+   * Skips refresh when cookie was set recently to avoid hammering the endpoint
+   * on flaky connections that reconnect frequently.
    */
   private resetAuthCookie(): void {
-    this.authCookieSet = false;
-    if (this.authHeader && !this.isBaseUrlCrossOrigin()) {
-      this.authCookiePromise = this.ensureAuthCookie();
+    const now = Date.now();
+    const ttlMs = 86400 * 1000; // keep in sync with AUTH_COOKIE_MAX_AGE on server
+    const isExpired = this.authCookieSetAt === null || now - this.authCookieSetAt > ttlMs * 0.9;
+    if (isExpired) {
+      this.authCookieSet = false;
+      if (this.authHeader && !this.isBaseUrlCrossOrigin()) {
+        this.authCookiePromise = this.ensureAuthCookie();
+      }
     }
   }
 
@@ -121,6 +129,7 @@ export class ApiClient {
       });
       if (response.ok) {
         this.authCookieSet = true;
+        this.authCookieSetAt = Date.now();
         console.log('[ApiClient] Auth cookie set for SSE connections');
       } else {
         console.warn('[ApiClient] Failed to set auth cookie:', response.status);

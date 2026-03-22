@@ -272,8 +272,7 @@ def set_auth_cookie():
         max_age=AUTH_COOKIE_MAX_AGE,
         httponly=True,
         samesite="Lax",
-        # Secure=True only when behind HTTPS (check X-Forwarded-Proto)
-        secure=request.headers.get("X-Forwarded-Proto") == "https" or request.is_secure,
+        secure=request.is_secure,
         path="/api/",
     )
     logger.info("Auth cookie set for client")
@@ -291,7 +290,8 @@ def clear_auth_cookie():
     response.delete_cookie(
         AUTH_COOKIE_NAME,
         path="/api/",
-        secure=request.headers.get("X-Forwarded-Proto") == "https" or request.is_secure,
+        secure=request.is_secure,
+        samesite="Lax",
     )
     logger.info("Auth cookie cleared for client")
     return response
