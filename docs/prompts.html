@@ -690,7 +690,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7efc2dc8bba0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f375ba9bba0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -760,6 +760,15 @@ to append the code block content to the file at the given path.
 <span class="s">close_page() -&gt; str: Close the current interactive browsing page.</span>
 
 <span class="s">    Frees browser resources. A new page can be opened with open_page().</span>
+
+<span class="s">read_page_text() -&gt; str: Read the full text content of the current interactive page as Markdown.</span>
+
+<span class="s">    Requires open_page() to be called first. Returns the page body converted</span>
+<span class="s">    to Markdown, preserving text formatting. Useful for reading article text,</span>
+<span class="s">    documentation, or other content after navigating to a page.</span>
+
+<span class="s">    Unlike read_url(), this reads from the current interactive session — so</span>
+<span class="s">    it reflects the page state after any clicks, form fills, or navigation.</span>
 
 <span class="s">click_element(selector: str) -&gt; str: Click an element on the current page and return updated ARIA snapshot.</span>
 
@@ -914,6 +923,19 @@ to append the code block content to the file at the given path.
 <span class="w">  </span><span class="k">-</span><span class="w"> </span>link &quot;gptme on GitHub&quot;
 ````
 <span class="k">&gt; </span><span class="ge">Assistant: The search was submitted and the page now shows results for &quot;gptme&quot;.</span>
+
+<span class="gu">### Read full text content of interactive page</span>
+
+<span class="k">&gt; </span><span class="ge">User: what does the article say?</span>
+<span class="k">&gt; </span><span class="ge">Assistant: Let me read the full text content of the current page.</span>
+<span class="sb">```ipython</span>
+<span class="n">read_page_text</span><span class="p">()</span>
+<span class="sb">```</span>
+<span class="gh"># Article Title</span>
+
+The article discusses...
+````
+<span class="k">&gt; </span><span class="ge">Assistant: The article covers [summary of content].</span>
 
 <span class="gu">### Read URL and check browser logs</span>
 
@@ -2236,7 +2258,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 12272</p>
+<p>Tokens: 12440</p>
 </dd></dl>
 
 <dl class="py function">
