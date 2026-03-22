@@ -468,7 +468,7 @@ def _tool_instructions() -> str:
         f"search the web with search() using auto-detected backends and fallback "
         f"(available now: {available_search}), "
         "capture screenshots with screenshot_url(), "
-        "get ARIA accessibility snapshots with snapshot_url() to see interactive elements, "
+        "use snapshot_url() to instantly understand page structure and locate interactive elements without a screenshot, "
         "check browser console errors with read_logs(), "
         "or convert a local PDF to images with pdf_to_images()."
     )

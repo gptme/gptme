@@ -344,11 +344,9 @@ def _get_aria_snapshot(browser: Browser, url: str) -> str:
     )
     page = context.new_page()
     try:
-        page.goto(url)
-        try:
-            page.wait_for_load_state("networkidle")
-        except Exception as e:
-            logger.warning(f"networkidle wait failed for {url}: {e}, proceeding anyway")
+        page.goto(
+            url
+        )  # waits for "load" state by default; networkidle can hang on SPAs/analytics
         snapshot = page.locator("body").aria_snapshot()
         if not snapshot:
             return "Error: Could not get accessibility snapshot for this page."
