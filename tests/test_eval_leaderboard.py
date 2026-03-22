@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from eval_leaderboard import (
     aggregate_results,
+    format_csv_table,
     format_markdown_table,
     format_rst_table,
     load_results,
@@ -290,6 +291,57 @@ def test_format_rst_table_wide_overall(tmp_path):
     lines = table.splitlines()
     sep_len = len(lines[0])
     for line in lines[3:-1]:  # skip header sep, header, second sep, footer sep
+        assert len(line) <= sep_len, f"Row too wide: {line!r}"
+
+
+def test_format_csv_table(tmp_path):
+    """CSV output format produces valid CSV with expected columns."""
+    _create_eval_results(
+        tmp_path,
+        [
+            {
+                "dir": "run1",
+                "rows": [
+                    ("openai/gpt-4o", "markdown", "hello", "true"),
+                    ("openai/gpt-4o", "markdown", "prime100", "true"),
+                    ("openai/gpt-4o", "markdown", "hello-patch", "false"),
+                    ("openai/gpt-4o", "markdown", "hello-ask", "true"),
+                ],
+            }
+        ],
+    )
+    results = load_results(tmp_path)
+    ranked = aggregate_results(results, min_tests=3)
+    output = format_csv_table(ranked)
+    rows = list(csv.reader(output.splitlines()))
+    assert rows[0] == [
+        "Model",
+        "Format",
+        "Passed",
+        "Total",
+        "Pass Rate",
+        "Basic",
+        "Practical",
+    ]
+    assert rows[1][0] == "GPT-4o"
+    assert rows[1][1] == "markdown"
+    assert rows[1][2] == "3"  # passed
+    assert rows[1][3] == "4"  # total
+
+
+def test_format_rst_table_unknown_model_no_overflow(tmp_path):
+    """RST table adapts column width for unknown models with long API paths."""
+    long_model = "openrouter/provider/a-very-long-model-name-that-exceeds-35-chars"
+    rows = [(long_model, "tool", f"test-{i}", "true") for i in range(5)]
+    _create_eval_results(tmp_path, [{"dir": "run1", "rows": rows}])
+    results = load_results(tmp_path)
+    ranked = aggregate_results(results, min_tests=5)
+    table = format_rst_table(ranked)
+    assert long_model in table  # full name not truncated
+    # Verify every data row fits within the separator width
+    lines = table.splitlines()
+    sep_len = len(lines[0])
+    for line in lines[3:-1]:
         assert len(line) <= sep_len, f"Row too wide: {line!r}"
 
 

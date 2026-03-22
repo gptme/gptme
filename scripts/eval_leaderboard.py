@@ -9,6 +9,7 @@ Usage:
 """
 
 import csv
+import io
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -176,7 +177,8 @@ def aggregate_results(results: list[dict], min_tests: int = 4) -> list[dict]:
         total_tests = 0
 
         for test_name, runs in tests_dict.items():
-            latest = runs[-1]  # sorted by dir name = chronological
+            # Sort by run_dir to ensure chronological order regardless of insertion order
+            latest = sorted(runs, key=lambda r: r["run_dir"])[-1]
             total_tests += 1
             if latest["passed"]:
                 total_passed += 1
@@ -189,6 +191,8 @@ def aggregate_results(results: list[dict], min_tests: int = 4) -> list[dict]:
                 practical_total += 1
                 if latest["passed"]:
                     practical_passed += 1
+            # Tests not in either suite count toward Overall but show as '-' in
+            # breakdown columns — this is intentional (e.g. browser, init_projects).
 
         if total_tests >= min_tests:
             fmt_stats[(model, fmt)] = {
@@ -224,9 +228,16 @@ def format_rst_table(ranked: list[dict]) -> str:
     """Format results as an RST table."""
     lines = []
 
-    # Header
+    # Compute dynamic Model column width so long unknown model names don't get
+    # silently truncated and corrupt the RST simple table.
+    max_model_len = max(
+        (len(normalize_model(s["model"])) for s in ranked),
+        default=5,
+    )
+    model_col_width = max(5, max_model_len)  # at least 5 chars
+
     cols = [
-        ("Model", 35),
+        ("Model", model_col_width),
         ("Format", 10),
         ("Overall", 15),
         ("Basic", 10),
@@ -240,7 +251,7 @@ def format_rst_table(ranked: list[dict]) -> str:
     lines.append(header_sep)
 
     for stats in ranked:
-        display_name = normalize_model(stats["model"])[: cols[0][1]]
+        display_name = normalize_model(stats["model"])
         fmt = stats["format"] or "default"
         overall = (
             f"{stats['total_passed']}/{stats['total_tests']} ({stats['pass_rate']:.0%})"
@@ -265,6 +276,32 @@ def format_rst_table(ranked: list[dict]) -> str:
 
     lines.append(header_sep)
     return "\n".join(lines)
+
+
+def format_csv_table(ranked: list[dict]) -> str:
+    """Format results as a CSV string."""
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        ["Model", "Format", "Passed", "Total", "Pass Rate", "Basic", "Practical"]
+    )
+    for stats in ranked:
+        writer.writerow(
+            [
+                normalize_model(stats["model"]),
+                stats["format"] or "default",
+                stats["total_passed"],
+                stats["total_tests"],
+                f"{stats['pass_rate']:.1%}",
+                f"{stats['basic_passed']}/{stats['basic_total']}"
+                if stats["basic_total"]
+                else "-",
+                f"{stats['practical_passed']}/{stats['practical_total']}"
+                if stats["practical_total"]
+                else "-",
+            ]
+        )
+    return output.getvalue()
 
 
 def format_markdown_table(ranked: list[dict]) -> str:
@@ -334,26 +371,7 @@ def main():
     elif args.format == "markdown":
         print(format_markdown_table(ranked))
     elif args.format == "csv":
-        writer = csv.writer(sys.stdout)
-        writer.writerow(
-            ["Model", "Format", "Passed", "Total", "Pass Rate", "Basic", "Practical"]
-        )
-        for stats in ranked:
-            writer.writerow(
-                [
-                    normalize_model(stats["model"]),
-                    stats["format"] or "default",
-                    stats["total_passed"],
-                    stats["total_tests"],
-                    f"{stats['pass_rate']:.1%}",
-                    f"{stats['basic_passed']}/{stats['basic_total']}"
-                    if stats["basic_total"]
-                    else "-",
-                    f"{stats['practical_passed']}/{stats['practical_total']}"
-                    if stats["practical_total"]
-                    else "-",
-                ]
-            )
+        print(format_csv_table(ranked), end="")
 
 
 if __name__ == "__main__":
