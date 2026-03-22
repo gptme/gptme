@@ -305,7 +305,10 @@ export class ApiClient {
     const reconnect = () => {
       console.log(`[ApiClient] Attempting reconnection for ${conversationId}`);
       this.closeEventStream(conversationId);
-      this.subscribeToEvents(conversationId, callbacks);
+      this.subscribeToEvents(conversationId, callbacks).catch((err) => {
+        console.error('[ApiClient] Reconnect failed:', err);
+        callbacks.onError?.(String(err));
+      });
     };
 
     // Create a timeout that will reconnect if we don't get a session ID after 5 seconds
