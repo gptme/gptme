@@ -327,3 +327,10 @@ def test_fill_without_open_page():
     close_page()  # Ensure no page is open
     with pytest.raises(RuntimeError, match="No page is open"):
         fill_element("#some-input", "value")
+
+
+def test_scroll_without_open_page():
+    """Test that scroll_page fails gracefully without open_page."""
+    close_page()  # Ensure no page is open
+    with pytest.raises(RuntimeError, match="No page is open"):
+        scroll_page("down", 300)

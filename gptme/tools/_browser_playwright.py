@@ -393,7 +393,8 @@ def _close_current_page() -> None:
 
 def _page_snapshot() -> str:
     """Get ARIA snapshot of the current persistent page."""
-    assert _current_page is not None, "No page is currently open"
+    if _current_page is None:
+        raise RuntimeError("No page is currently open")
     snapshot = _current_page.locator("body").aria_snapshot()
     if not snapshot:
         return "Error: Could not get accessibility snapshot."
