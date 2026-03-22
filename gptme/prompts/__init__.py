@@ -18,12 +18,18 @@ from ..util import document_prompt_function
 
 # Agent instruction files — always loaded (layered: user-level + project-level)
 # These are the standard filenames used across different AI coding tools.
+# Cross-tool compatibility: we load instruction files from multiple AI coding tools
+# so that projects using any tool's convention get their rules respected by gptme.
 AGENT_FILES = [
     "AGENTS.md",
-    "CLAUDE.md",  # Claude Code compatibility
-    "GEMINI.md",  # Gemini compatibility
+    "CLAUDE.md",  # Claude Code
+    "COPILOT.md",  # GitHub Copilot (CLAUDE.md-style convention)
+    "GEMINI.md",  # Gemini
+    ".github/copilot-instructions.md",  # GitHub Copilot official project instructions
+    ".cursorrules",  # Cursor legacy project rules
+    ".windsurfrules",  # Windsurf/Codeium project rules
 ]
-# Keep old name for backwards compatibility with any external code
+# Keep old name for backwards compatibility with any external code (now includes cross-tool files)
 ALWAYS_LOAD_FILES = AGENT_FILES
 
 # ContextVar tracking which agent instruction files have been loaded into the session.

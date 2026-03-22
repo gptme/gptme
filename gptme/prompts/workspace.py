@@ -79,7 +79,11 @@ def find_agent_files_in_tree(
     directory: Path,
     exclude: set[str] | None = None,
 ) -> list[Path]:
-    """Find AGENTS.md/CLAUDE.md/GEMINI.md files from home down to the given directory.
+    """Find agent instruction files from home down to the given directory.
+
+    Discovers instruction files from multiple AI coding tools (AGENTS.md, CLAUDE.md,
+    COPILOT.md, GEMINI.md, .github/copilot-instructions.md, .cursorrules,
+    .windsurfrules) for cross-tool compatibility.
 
     Walks from home -> directory (most general first, most specific last), checking
     each directory for agent instruction files. Returns files whose resolved paths

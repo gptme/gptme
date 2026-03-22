@@ -1,7 +1,8 @@
 """Tests for the AGENTS.md injection hook (gptme/hooks/agents_md_inject.py).
 
-Tests that agent instruction files (AGENTS.md, CLAUDE.md, GEMINI.md) are
-automatically injected as system messages when the working directory changes.
+Tests that agent instruction files (AGENTS.md, CLAUDE.md, COPILOT.md, GEMINI.md,
+.github/copilot-instructions.md, .cursorrules, .windsurfrules) are automatically
+injected as system messages when the working directory changes.
 
 Updated for CWD_CHANGED hook type (Issue #1521): the hook now subscribes to
 CWD_CHANGED instead of using its own pre/post CWD comparison.
@@ -108,6 +109,79 @@ class TestFindAgentFiles:
             f for f in files if str(f.resolve()).startswith(str(tmp_path.resolve()))
         ]
         assert local_files == []
+
+    def test_finds_cursorrules(self, tmp_path: Path):
+        """Should find .cursorrules file."""
+        project = tmp_path / "cursor-project"
+        project.mkdir()
+        cursorrules = project / ".cursorrules"
+        cursorrules.write_text("You are a helpful assistant.\n")
+        files = find_agent_files_in_tree(project)
+        resolved = [str(f.resolve()) for f in files]
+        assert str(cursorrules.resolve()) in resolved
+
+    def test_finds_windsurfrules(self, tmp_path: Path):
+        """Should find .windsurfrules file."""
+        project = tmp_path / "windsurf-project"
+        project.mkdir()
+        windsurfrules = project / ".windsurfrules"
+        windsurfrules.write_text("Windsurf project rules.\n")
+        files = find_agent_files_in_tree(project)
+        resolved = [str(f.resolve()) for f in files]
+        assert str(windsurfrules.resolve()) in resolved
+
+    def test_finds_copilot_instructions(self, tmp_path: Path):
+        """Should find .github/copilot-instructions.md file."""
+        project = tmp_path / "copilot-project"
+        project.mkdir()
+        github_dir = project / ".github"
+        github_dir.mkdir()
+        copilot_file = github_dir / "copilot-instructions.md"
+        copilot_file.write_text("# Copilot Instructions\n\nProject rules.\n")
+        files = find_agent_files_in_tree(project)
+        resolved = [str(f.resolve()) for f in files]
+        assert str(copilot_file.resolve()) in resolved
+
+    def test_finds_copilot_md(self, tmp_path: Path):
+        """Should find COPILOT.md file."""
+        project = tmp_path / "copilot-md-project"
+        project.mkdir()
+        copilot_md = project / "COPILOT.md"
+        copilot_md.write_text("# Copilot Project Rules\n")
+        files = find_agent_files_in_tree(project)
+        resolved = [str(f.resolve()) for f in files]
+        assert str(copilot_md.resolve()) in resolved
+
+    def test_finds_all_cross_tool_files(self, tmp_path: Path):
+        """Should discover all cross-tool agent instruction files in one directory."""
+        project = tmp_path / "multi-tool-project"
+        project.mkdir()
+        # Create all supported agent files
+        (project / "AGENTS.md").write_text("# Agents\n")
+        (project / "CLAUDE.md").write_text("# Claude\n")
+        (project / "COPILOT.md").write_text("# Copilot\n")
+        (project / "GEMINI.md").write_text("# Gemini\n")
+        (project / ".cursorrules").write_text("Cursor rules\n")
+        (project / ".windsurfrules").write_text("Windsurf rules\n")
+        github_dir = project / ".github"
+        github_dir.mkdir()
+        (github_dir / "copilot-instructions.md").write_text("# Copilot instructions\n")
+
+        files = find_agent_files_in_tree(project)
+        # Filter to files within the project dir (ignore any from home)
+        local = [
+            str(f.resolve())
+            for f in files
+            if str(f.resolve()).startswith(str(project.resolve()))
+        ]
+        assert str((project / "AGENTS.md").resolve()) in local
+        assert str((project / "CLAUDE.md").resolve()) in local
+        assert str((project / "COPILOT.md").resolve()) in local
+        assert str((project / "GEMINI.md").resolve()) in local
+        assert str((project / ".cursorrules").resolve()) in local
+        assert str((project / ".windsurfrules").resolve()) in local
+        assert str((project / ".github" / "copilot-instructions.md").resolve()) in local
+        assert len(local) == 7
 
 
 class TestOnCwdChanged:
