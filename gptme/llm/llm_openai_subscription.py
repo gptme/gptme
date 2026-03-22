@@ -402,6 +402,7 @@ def _refresh_access_token(refresh_token: str) -> SubscriptionAuth:
 def get_auth() -> SubscriptionAuth:
     """Get current auth, refreshing or prompting login if needed."""
     global _auth
+    last_refresh_error: Exception | None = None
 
     if _auth is not None:
         if time.time() < _auth.expires_at - 300:
@@ -413,6 +414,7 @@ def get_auth() -> SubscriptionAuth:
                 return _auth
             except Exception as e:
                 logger.warning(f"Token refresh failed: {e}")
+                last_refresh_error = e
 
     stored_auth = _load_tokens()
     if stored_auth is not None:
@@ -426,6 +428,14 @@ def get_auth() -> SubscriptionAuth:
                 return _auth
             except Exception as e:
                 logger.warning(f"Token refresh failed: {e}")
+                last_refresh_error = e
+
+    if last_refresh_error is not None:
+        raise ValueError(
+            f"OpenAI subscription token refresh failed: {last_refresh_error}\n"
+            "This may be a temporary issue (network, OAuth server). "
+            "If persistent, re-authenticate with: gptme auth openai-subscription"
+        ) from last_refresh_error
 
     raise ValueError(
         "OpenAI subscription not authenticated.\n"
