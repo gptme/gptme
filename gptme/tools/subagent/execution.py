@@ -1,10 +1,10 @@
 """Subagent execution backends — thread, subprocess, and process monitoring.
 
-Extracted from subagent.py to separate execution logic (how subagents
-are spawned and monitored) from the public API and tool registration.
+Extracted from the main subagent module to separate execution logic (how
+subagents are spawned and monitored) from the public API and tool registration.
 
 Functions here are internal implementation details called by the main
-subagent() function in subagent.py.
+subagent() function in api.py.
 """
 
 import logging
@@ -17,11 +17,11 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from ..message import Message
-from . import get_tools, set_tools
+from ...message import Message
+from .. import get_tools, set_tools
 
 if TYPE_CHECKING:
-    from .subagent import ReturnType, Status, Subagent, SubtaskDef
+    from .types import ReturnType, Status, Subagent, SubtaskDef
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ def _load_agent_memory(profile_name: str | None) -> tuple[str | None, Path | Non
     if not profile_name:
         return None, None
 
-    from ..dirs import get_profile_memory_dir
+    from ...dirs import get_profile_memory_dir
 
     memory_dir = get_profile_memory_dir(profile_name)
     memory_file = memory_dir / "MEMORY.md"
@@ -122,9 +122,9 @@ def _create_subagent_thread(
     from gptme.executor import prepare_execution_environment  # fmt: skip
     from gptme.llm.models import set_default_model  # fmt: skip
 
-    from ..profiles import get_profile  # fmt: skip
-    from ..prompts import get_prompt  # fmt: skip
-    from .subagent import _get_complete_instruction  # fmt: skip
+    from ...profiles import get_profile  # fmt: skip
+    from ...prompts import get_prompt  # fmt: skip
+    from .hooks import _get_complete_instruction  # fmt: skip
 
     # Resolve profile if specified
     profile = get_profile(profile_name) if profile_name else None
@@ -171,7 +171,7 @@ def _create_subagent_thread(
     # Build initial messages based on context_mode
     if context_mode == "selective":
         # Selective context - build from specified components
-        from ..prompts import prompt_gptme, prompt_tools
+        from ...prompts import prompt_gptme, prompt_tools
 
         initial_msgs = []
 
@@ -259,7 +259,7 @@ def _run_subagent_subprocess(
     Returns:
         The subprocess.Popen object for monitoring
     """
-    from .subagent import _get_complete_instruction
+    from .hooks import _get_complete_instruction
 
     cmd = [
         sys.executable,
@@ -374,7 +374,7 @@ def _cleanup_isolation(subagent: "Subagent") -> None:
     if not subagent.isolated or not subagent.worktree_path:
         return
 
-    from ..util.git_worktree import cleanup_worktree
+    from ...util.git_worktree import cleanup_worktree
 
     try:
         cleanup_worktree(subagent.worktree_path, subagent.repo_path)
@@ -391,11 +391,11 @@ def _monitor_subprocess(
     Uses .wait() instead of .communicate() to avoid memory issues with
     long-running subagents that produce large outputs.
     """
-    from .subagent import (
+    from .hooks import notify_completion
+    from .types import (
         ReturnType,
         _subagent_results,
         _subagent_results_lock,
-        notify_completion,
     )
 
     if not subagent.process:
@@ -457,7 +457,7 @@ def _run_planner(
     """
     from gptme.cli.main import get_logdir
 
-    from .subagent import Subagent, _subagents
+    from .types import Subagent, _subagents
 
     logger.info(
         f"Starting planner {agent_id} with {len(subtasks)} subtasks "
