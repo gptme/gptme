@@ -156,7 +156,7 @@ class ChatConfig:
                 for key in list(doc):
                     if key not in config_dict:
                         del doc[key]
-            except (OSError, TOMLKitError):
+            except (OSError, TOMLKitError, AssertionError):
                 # If loading fails, fall back to fresh document
                 doc = tomlkit.parse(tomlkit.dumps(config_dict))
         else:
