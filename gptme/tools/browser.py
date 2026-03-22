@@ -5,6 +5,7 @@ Tools to let the assistant control a browser, including:
  - searching the web
  - taking screenshots (Playwright only)
  - getting ARIA accessibility snapshots (Playwright only)
+ - interactive browsing: click, fill forms, scroll (Playwright only)
  - reading PDFs (with page limits and vision fallback hints)
  - converting PDFs to images (using pdftoppm, ImageMagick, or vips)
 
@@ -295,9 +296,14 @@ except ImportError:
 # noreorder
 if browser == "playwright":
     from ._browser_playwright import aria_snapshot as aria_snapshot_pw  # fmt: skip
+    from ._browser_playwright import click_element as click_element_pw  # fmt: skip
+    from ._browser_playwright import close_page as close_page_pw  # fmt: skip
+    from ._browser_playwright import fill_element as fill_element_pw  # fmt: skip
+    from ._browser_playwright import open_page as open_page_pw  # fmt: skip
     from ._browser_playwright import read_logs as read_logs_playwright  # fmt: skip
     from ._browser_playwright import read_url as read_url_playwright  # fmt: skip
     from ._browser_playwright import screenshot_url as screenshot_url_pw  # fmt: skip
+    from ._browser_playwright import scroll_page as scroll_page_pw  # fmt: skip
     from ._browser_playwright import search_duckduckgo, search_google  # fmt: skip
 elif browser == "lynx":
     from ._browser_lynx import read_url as read_url_lynx  # fmt: skip
@@ -383,6 +389,13 @@ def examples(tool_format):
         '  - text "This domain is for use in illustrative examples..."\n'
         '  - link "More information..."'
     )
+    interact_open_result = (
+        '- WebArea "Example":\n  - textbox "Search" [name="q"]\n  - button "Go"'
+    )
+    interact_fill_result = (
+        '- WebArea "Example":\n  - textbox "Search" [name="q"]: gptme\n  - button "Go"'
+    )
+    interact_fill_code = "fill_element('input[name=\"q\"]', 'gptme')"
     pdf_example_result = (
         "--- Page 1 ---\n[PDF text content...]\n\n--- Page 2 ---\n[More content...]\n\n---\n"
         "**Note**: This PDF has 42 pages. Showing first 10 pages.\n"
@@ -440,6 +453,18 @@ System:
 {md_codeblock("result", snapshot_example_result)}
 Assistant: The page has a heading "Example Domain", a paragraph with description text, and a link "More information...".
 
+### Interactive browsing: open page, click, fill
+User: search for gptme on example.com's search form
+Assistant: I'll open the page, fill the search form, and click submit.
+{ToolUse("ipython", [], "open_page('https://example.com')").to_output(tool_format)}
+System:
+{md_codeblock("result", interact_open_result)}
+Assistant: I can see a search box and button. Let me fill in the search and click Go.
+{ToolUse("ipython", [], interact_fill_code).to_output(tool_format)}
+System:
+{md_codeblock("result", interact_fill_result)}
+{ToolUse("ipython", [], "click_element('text=Go')").to_output(tool_format)}
+
 ### Read URL and check browser logs
 User: read this page and check if there are any console errors
 Assistant: I'll read the page first and then check the browser logs.
@@ -469,6 +494,8 @@ def _tool_instructions() -> str:
         f"(available now: {available_search}), "
         "capture screenshots with screenshot_url(), "
         "use snapshot_url() to instantly understand page structure and locate interactive elements without a screenshot, "
+        "interact with pages using open_page() then click_element()/fill_element()/scroll_page() "
+        "(each returns an ARIA snapshot showing the updated page state), "
         "check browser console errors with read_logs(), "
         "or convert a local PDF to images with pdf_to_images()."
     )
@@ -700,15 +727,88 @@ def read_logs() -> str:
     raise ValueError("Browser logs not supported with lynx backend")
 
 
+def open_page(url: str) -> str:
+    """Open a page for interactive browsing. Returns ARIA accessibility snapshot.
+
+    Use this instead of read_url() when you need to interact with the page
+    (click buttons, fill forms, scroll). The page stays open for subsequent
+    click_element(), fill_element(), and scroll_page() calls.
+    """
+    assert browser
+    if browser == "playwright":
+        return open_page_pw(url)
+    raise ValueError("Interactive browsing not supported with lynx backend")
+
+
+def close_page() -> str:
+    """Close the current interactive browsing page.
+
+    Frees browser resources. A new page can be opened with open_page().
+    """
+    assert browser
+    if browser == "playwright":
+        return close_page_pw()
+    raise ValueError("Interactive browsing not supported with lynx backend")
+
+
+def click_element(selector: str) -> str:
+    """Click an element on the current page and return updated ARIA snapshot.
+
+    Requires open_page() to be called first.
+
+    Args:
+        selector: Playwright selector to find the element. Supports:
+            - CSS: "#submit-btn", ".nav-link", "button"
+            - Text: "text=Submit", "text=Log in"
+            - Role: "role=button[name='Submit']"
+            - Chained: "form >> text=Submit"
+    """
+    assert browser
+    if browser == "playwright":
+        return click_element_pw(selector)
+    raise ValueError("Interactive browsing not supported with lynx backend")
+
+
+def fill_element(selector: str, value: str) -> str:
+    """Fill a form field on the current page and return updated ARIA snapshot.
+
+    Requires open_page() to be called first. Clears any existing value before filling.
+
+    Args:
+        selector: Playwright selector for the input/textarea element.
+        value: Text to fill into the field.
+    """
+    assert browser
+    if browser == "playwright":
+        return fill_element_pw(selector, value)
+    raise ValueError("Interactive browsing not supported with lynx backend")
+
+
+def scroll_page(direction: str = "down", amount: int = 500) -> str:
+    """Scroll the current page and return updated ARIA snapshot.
+
+    Requires open_page() to be called first.
+
+    Args:
+        direction: "up" or "down" (default: "down")
+        amount: Pixels to scroll (default: 500)
+    """
+    assert browser
+    if browser == "playwright":
+        return scroll_page_pw(direction, amount)
+    raise ValueError("Interactive browsing not supported with lynx backend")
+
+
 tool = ToolSpec(
     name="browser",
-    desc="Browse, search or screenshot the web",
+    desc="Browse, interact with, search, or screenshot the web",
     instructions_format={
         # Compact description for OpenAI tool format (full docstrings exceed 1024 chars)
         "tool": "Browse the web: read any URL or PDF with read_url(), "
         "search the web with search() using auto-detected backends and fallback, "
         "capture screenshots with screenshot_url(), "
         "get ARIA accessibility snapshots with snapshot_url(), "
+        "interact with pages using open_page() + click_element()/fill_element()/scroll_page(), "
         "check browser console errors with read_logs(), "
         "or convert a local PDF to images with pdf_to_images().",
     },
@@ -718,6 +818,10 @@ tool = ToolSpec(
         search,
         screenshot_url,
         snapshot_url,
+        open_page,
+        click_element,
+        fill_element,
+        scroll_page,
         read_logs,
         pdf_to_images,
     ],

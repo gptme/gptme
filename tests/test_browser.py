@@ -8,7 +8,12 @@ playwright = pytest.importorskip("playwright")
 # noreorder
 from gptme.tools.browser import (  # fmt: skip
     _available_search_engines,
+    click_element,
+    close_page,
+    fill_element,
+    open_page,
     read_url,
+    scroll_page,
     search,
     snapshot_url,
 )
@@ -266,3 +271,59 @@ def test_pdf_vision_hint():
     assert "garbled" in content.lower() or "incomplete" in content.lower(), (
         "Missing context for when to use vision"
     )
+
+
+@pytest.mark.slow
+def test_open_page():
+    """Test opening a page for interactive browsing."""
+    snapshot = open_page("https://example.com")
+
+    # Should return ARIA snapshot
+    assert snapshot, "Snapshot should not be empty"
+    assert "Example Domain" in snapshot, "Should contain the page title"
+
+
+@pytest.mark.slow
+def test_click_element():
+    """Test clicking an element on an open page."""
+    # Open example.com which has a link
+    open_page("https://example.com")
+
+    # Click the link using CSS selector (more reliable than text matching)
+    snapshot = click_element("a")
+    assert snapshot, "Click should return a valid snapshot"
+
+
+@pytest.mark.slow
+def test_scroll_page():
+    """Test scrolling the current page."""
+    open_page("https://example.com")
+
+    # Scroll down — should return valid snapshot
+    snapshot = scroll_page("down", 300)
+    assert snapshot, "Scroll should return a valid snapshot"
+
+
+@pytest.mark.slow
+def test_fill_element():
+    """Test filling a form field on an open page."""
+    # Use DuckDuckGo which has a simple search input
+    open_page("https://duckduckgo.com")
+
+    # Fill the search box
+    snapshot = fill_element("input[name='q']", "gptme test")
+    assert snapshot, "Fill should return a valid snapshot"
+
+
+def test_click_without_open_page():
+    """Test that click_element fails gracefully without open_page."""
+    close_page()  # Ensure no page is open
+    with pytest.raises(RuntimeError, match="No page is open"):
+        click_element("#some-button")
+
+
+def test_fill_without_open_page():
+    """Test that fill_element fails gracefully without open_page."""
+    close_page()  # Ensure no page is open
+    with pytest.raises(RuntimeError, match="No page is open"):
+        fill_element("#some-input", "value")
