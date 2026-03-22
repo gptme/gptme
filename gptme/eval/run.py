@@ -1,3 +1,4 @@
+import importlib
 import io
 import logging
 import multiprocessing
@@ -102,14 +103,12 @@ def run_evals(
     # For coverage to work with multiprocessing
     # https://pytest-cov.readthedocs.io/en/latest/subprocess-support.html
     try:
-        # noreorder
-        from pytest_cov.embed import (
-            cleanup_on_sigterm,  # fmt: skip  # type: ignore[import-not-found]
-        )
+        _cov_embed = importlib.import_module("pytest_cov.embed")
+        _cleanup_on_sigterm = getattr(_cov_embed, "cleanup_on_sigterm", None)
     except ImportError:
-        pass
-    else:
-        cleanup_on_sigterm()
+        _cleanup_on_sigterm = None
+    if _cleanup_on_sigterm:
+        _cleanup_on_sigterm()
 
     n_runs = len(evals) * len(model_configs)
     if n_runs == 0:

@@ -547,7 +547,7 @@ def chat(
 
     response = client.chat.completions.create(
         model=api_model.split("@")[0],
-        messages=messages_dicts,  # type: ignore[arg-type]
+        messages=cast(list, messages_dicts),
         extra_headers=extra_headers(provider),
         extra_body=extra_body(provider, model_meta),
         **optional_kwargs,
@@ -645,7 +645,7 @@ def stream(
 
     for chunk_raw in client.chat.completions.create(
         model=api_model.split("@")[0],
-        messages=messages_dicts,  # type: ignore[call-overload]
+        messages=cast(list, messages_dicts),
         stream=True,
         extra_headers=extra_headers(provider),
         extra_body=extra_body(provider, model_meta),

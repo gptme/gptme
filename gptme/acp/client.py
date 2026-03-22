@@ -27,6 +27,7 @@ Typical usage
 
 from __future__ import annotations
 
+import importlib
 import inspect
 import logging
 import shutil
@@ -45,7 +46,7 @@ logger = logging.getLogger(__name__)
 def _check_acp() -> None:
     """Raise RuntimeError if the ``acp`` package is not installed."""
     try:
-        import acp  # noqa: F401  # type: ignore[import-not-found]
+        importlib.import_module("acp")
     except ImportError as exc:
         raise RuntimeError(
             "The 'acp' package is required for ACP client support. "

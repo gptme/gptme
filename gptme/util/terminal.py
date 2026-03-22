@@ -3,6 +3,7 @@
 import os
 import sys
 from contextlib import contextmanager
+from typing import Any
 
 # Platform-specific imports for stdin flushing
 try:
@@ -10,7 +11,7 @@ try:
 except ImportError:
     termios = None  # type: ignore[assignment]
 
-_msvcrt: object = None
+_msvcrt: Any = None
 if os.name == "nt":
     try:
         import msvcrt as _msvcrt
@@ -23,8 +24,8 @@ def flush_stdin() -> None:
     if termios and sys.stdin.isatty():
         termios.tcflush(sys.stdin, termios.TCIFLUSH)
     elif _msvcrt:
-        while _msvcrt.kbhit():  # type: ignore[attr-defined]
-            _msvcrt.getch()  # type: ignore[attr-defined]
+        while _msvcrt.kbhit():
+            _msvcrt.getch()
 
 
 # Global state for conversation name
