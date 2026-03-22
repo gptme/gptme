@@ -238,3 +238,149 @@ def test_api_v2_conversation_path_not_command(conv, client: FlaskClient):
     data = response.get_json()
     # File paths should not be treated as commands
     assert "command" not in data
+
+
+# --- Cookie-based authentication tests ---
+
+
+@pytest.fixture
+def auth_app():
+    """Create an app with auth enabled (network binding)."""
+    from gptme.server.app import create_app
+    from gptme.server.auth import (
+        AUTH_COOKIE_NAME,
+        init_auth,
+        set_server_token,
+    )
+
+    app = create_app(host="0.0.0.0")
+    # Force auth enabled and set a known token
+    test_token = "test-token-for-cookie-auth"
+    set_server_token(test_token)
+    init_auth(host="0.0.0.0", display=False)
+
+    yield app, test_token, AUTH_COOKIE_NAME
+
+    # Reset auth state for other tests
+    init_auth(host="127.0.0.1", display=False)
+
+
+@pytest.fixture
+def auth_client(auth_app):
+    """Test client for auth-enabled app."""
+    app, token, cookie_name = auth_app
+    with app.test_client() as test_client:
+        yield test_client, token, cookie_name
+
+
+def test_auth_cookie_set(auth_client):
+    """POST /api/v2/auth/cookie sets HttpOnly auth cookie."""
+    client, token, cookie_name = auth_client
+
+    response = client.post(
+        "/api/v2/auth/cookie",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["ok"] is True
+
+    # Verify Set-Cookie header properties
+    set_cookie = response.headers.get("Set-Cookie", "")
+    assert cookie_name in set_cookie
+    assert "HttpOnly" in set_cookie
+    assert "Path=/api/" in set_cookie
+
+
+def test_auth_cookie_rejected_without_token(auth_client):
+    """POST /api/v2/auth/cookie without Bearer token returns 401."""
+    client, token, cookie_name = auth_client
+
+    response = client.post("/api/v2/auth/cookie")
+    assert response.status_code == 401
+
+
+def test_auth_cookie_rejected_with_bad_token(auth_client):
+    """POST /api/v2/auth/cookie with wrong token returns 401."""
+    client, token, cookie_name = auth_client
+
+    response = client.post(
+        "/api/v2/auth/cookie",
+        headers={"Authorization": "Bearer wrong-token"},
+    )
+    assert response.status_code == 401
+
+
+def test_auth_cookie_used_for_api(auth_client):
+    """API requests authenticate via cookie when no header is present."""
+    client, token, cookie_name = auth_client
+
+    # Verify protected endpoint rejects without any auth
+    response = client.get("/api/v2/conversations")
+    assert response.status_code == 401
+
+    # Set the cookie
+    client.post(
+        "/api/v2/auth/cookie",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    # Now make an API request without Authorization header — cookie should work
+    response = client.get("/api/v2/conversations")
+    assert response.status_code == 200
+
+
+def test_auth_cookie_clear(auth_client):
+    """DELETE /api/v2/auth/cookie returns success and sets expired cookie."""
+    client, token, cookie_name = auth_client
+
+    # Set cookie first
+    client.post(
+        "/api/v2/auth/cookie",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    # Clear it
+    response = client.delete("/api/v2/auth/cookie")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["ok"] is True
+
+    # Verify the Set-Cookie header expires the cookie
+    set_cookie = response.headers.get("Set-Cookie", "")
+    assert cookie_name in set_cookie
+    # Expired cookies have Expires in the past or Max-Age=0
+    assert "Expires=" in set_cookie or "Max-Age=0" in set_cookie
+
+    # Verify cookie-only requests are rejected after clearing
+    # Use a fresh client (no cookie jar) to simulate browser honoring Max-Age=0
+    app = client.application
+    with app.test_client() as fresh_client:
+        response = fresh_client.get("/api/v2/conversations")
+        assert response.status_code == 401
+
+
+def test_auth_header_takes_priority_over_cookie(auth_client):
+    """Authorization header is preferred over cookie."""
+    client, token, cookie_name = auth_client
+
+    # Set a valid cookie
+    client.post(
+        "/api/v2/auth/cookie",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    # Request with valid header should work even if we clear cookie
+    response = client.get(
+        "/api/v2/conversations",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200
+
+
+def test_auth_query_param_still_works(auth_client):
+    """Query parameter auth still works as fallback (backward compat)."""
+    client, token, cookie_name = auth_client
+
+    response = client.get(f"/api/v2/conversations?token={token}")
+    assert response.status_code == 200

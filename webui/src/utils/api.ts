@@ -63,12 +63,81 @@ export class ApiClient {
   public userInfo$: Observable<UserInfo | null> = observable<UserInfo | null>(null);
   private eventSources: Map<string, EventSource> = new Map(); // Map conversation IDs to EventSource instances
   private isCleaningUp = false;
+  private authCookieSet = false;
+  private authCookieSetAt: number | null = null;
+  private authCookiePromise: Promise<void> | null = null;
 
   constructor(baseUrl: string = getApiBaseUrl(), authHeader: string | null = null) {
     this.baseUrl = baseUrl;
     this.authHeader = authHeader;
     this.identifier = crypto.randomUUID();
     console.log(`[ApiClient] Identifier: ${this.identifier}`);
+
+    // Set auth cookie eagerly (for SSE connections that need it later).
+    // Skip for cross-origin servers: SameSite=Lax cookies aren't sent on cross-origin
+    // EventSource requests, so cookie auth would silently fail with a 401 and the
+    // query-param fallback would be suppressed (authCookieSet=true). Use query params instead.
+    if (this.authHeader && !this.isBaseUrlCrossOrigin()) {
+      this.authCookiePromise = this.ensureAuthCookie();
+    }
+  }
+
+  /**
+   * Returns true if baseUrl is on a different origin than the current page.
+   * Cross-origin EventSource requests do not send SameSite=Lax cookies, so
+   * we fall back to query-param auth in that case.
+   */
+  private isBaseUrlCrossOrigin(): boolean {
+    try {
+      return new URL(this.baseUrl).origin !== window.location.origin;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Reset cookie state and re-initiate cookie setup if cookie is near expiry.
+   * Called on reconnect to handle expired cookies (24h TTL).
+   * Skips refresh when cookie was set recently to avoid hammering the endpoint
+   * on flaky connections that reconnect frequently.
+   */
+  private resetAuthCookie(): void {
+    const now = Date.now();
+    const ttlMs = 86400 * 1000; // keep in sync with AUTH_COOKIE_MAX_AGE on server
+    const isExpired = this.authCookieSetAt === null || now - this.authCookieSetAt > ttlMs * 0.9;
+    if (isExpired) {
+      this.authCookieSet = false;
+      if (this.authHeader && !this.isBaseUrlCrossOrigin()) {
+        this.authCookiePromise = this.ensureAuthCookie();
+      }
+    }
+  }
+
+  /**
+   * Set an HttpOnly auth cookie via the server's cookie endpoint.
+   * This allows SSE/EventSource connections to authenticate via cookies
+   * instead of exposing tokens in query parameters.
+   */
+  private async ensureAuthCookie(): Promise<void> {
+    if (this.authCookieSet || !this.authHeader) return;
+
+    try {
+      const response = await fetch(`${this.baseUrl}/api/v2/auth/cookie`, {
+        method: 'POST',
+        headers: { Authorization: this.authHeader },
+        credentials: 'include',
+      });
+      if (response.ok) {
+        this.authCookieSet = true;
+        this.authCookieSetAt = Date.now();
+        console.log('[ApiClient] Auth cookie set for SSE connections');
+      } else {
+        console.warn('[ApiClient] Failed to set auth cookie:', response.status);
+      }
+    } catch (error) {
+      // Non-fatal: fall back to query param auth for SSE
+      console.warn('[ApiClient] Could not set auth cookie, will use query param fallback:', error);
+    }
   }
 
   private async fetchWithTimeout(
@@ -250,7 +319,7 @@ export class ApiClient {
     this.isConnected$.set(connected);
   }
 
-  subscribeToEvents(
+  async subscribeToEvents(
     conversationId: string,
     callbacks: {
       onMessageStart: () => void;
@@ -264,7 +333,7 @@ export class ApiClient {
       onConfigChanged?: (config: ChatConfig, changedFields: string[]) => void;
       onConnected?: () => void;
     }
-  ): void {
+  ): Promise<void> {
     // Close any existing event stream for this conversation
     this.closeEventStream(conversationId);
 
@@ -272,7 +341,12 @@ export class ApiClient {
     const reconnect = () => {
       console.log(`[ApiClient] Attempting reconnection for ${conversationId}`);
       this.closeEventStream(conversationId);
-      this.subscribeToEvents(conversationId, callbacks);
+      // Reset cookie state so expired cookies (24h TTL) are re-fetched on reconnect
+      this.resetAuthCookie();
+      this.subscribeToEvents(conversationId, callbacks).catch((err) => {
+        console.error('[ApiClient] Reconnect failed:', err);
+        callbacks.onError?.(String(err));
+      });
     };
 
     // Create a timeout that will reconnect if we don't get a session ID after 5 seconds
@@ -286,12 +360,11 @@ export class ApiClient {
     }, 5000);
 
     /**
-     * For SSE connections, we need to pass the auth token as a query parameter
-     * since EventSource doesn't support custom headers.
+     * For SSE connections, we prefer cookie-based authentication (set via
+     * ensureAuthCookie). If the cookie is set, EventSource sends it
+     * automatically with withCredentials: true.
      *
-     * Security note: This is less secure than using headers, but necessary for SSE.
-     * The token in the URL may be logged or appear in browser history.
-     * We only do this for SSE connections, all other requests use headers.
+     * Falls back to query parameter auth if the cookie endpoint failed.
      */
     const url = new URL(`${this.baseUrl}/api/v2/conversations/${conversationId}/events`);
 
@@ -302,21 +375,23 @@ export class ApiClient {
       console.log(`[ApiClient] Reusing existing session ID for SSE: ${existingSessionId}`);
     }
 
-    if (this.authHeader) {
-      // Extract token from "Bearer <token>"
+    // Wait for the cookie setup to complete before deciding auth method.
+    // This eliminates the race condition where SSE connects before cookie is set.
+    if (this.authCookiePromise) {
+      await this.authCookiePromise;
+    }
+
+    if (this.authHeader && !this.authCookieSet) {
+      // Fallback: pass token as query param if cookie endpoint was unavailable
       const token = this.authHeader.split(' ')[1];
       if (!token) {
         console.error('[ApiClient] Invalid auth header format, expected "Bearer <token>"');
         throw new ApiClientError('Invalid auth header format');
       }
       url.searchParams.set('token', token);
-
-      // Log connection attempt but not the full URL with token
-      const urlWithoutToken = new URL(url);
-      urlWithoutToken.searchParams.delete('token');
-      console.log(
-        `[ApiClient] Connecting to event stream: ${urlWithoutToken.toString()} (with auth token)`
-      );
+      console.warn('[ApiClient] Using query param auth for SSE (cookie not available)');
+    } else if (this.authHeader) {
+      console.log(`[ApiClient] Connecting to event stream: ${url.toString()} (with auth cookie)`);
     } else {
       console.log(`[ApiClient] Connecting to event stream without auth: ${url.toString()}`);
     }

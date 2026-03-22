@@ -122,193 +122,202 @@ export function useConversation(conversationId: string, serverId?: string) {
 
         // Connect to event stream
         console.log(`[useConversation] Connecting to ${conversationId}`);
-        api.subscribeToEvents(conversationId, {
-          onMessageStart: () => {
-            console.log('[useConversation] Generation started');
-            setGenerating(conversationId, true);
-            setExecutingTool(conversationId, null, null); // Clear executing tool when starting new generation
-            messageJustCompleted.current = false;
+        api
+          .subscribeToEvents(conversationId, {
+            onMessageStart: () => {
+              console.log('[useConversation] Generation started');
+              setGenerating(conversationId, true);
+              setExecutingTool(conversationId, null, null); // Clear executing tool when starting new generation
+              messageJustCompleted.current = false;
 
-            // Add empty message placeholder if needed
-            const messages$ = conversation$?.data.log;
-            const lastMessage$ = messages$?.[messages$.length - 1];
-            console.log(
-              '[useConversation] MessageStart - messages count:',
-              messages$?.length,
-              'lastMessage role:',
-              lastMessage$?.role?.get(),
-              'content:',
-              JSON.stringify(lastMessage$?.content?.get())
-            );
-            if (
-              !lastMessage$ ||
-              lastMessage$.role.get() !== 'assistant' ||
-              lastMessage$.content.get() !== ''
-            ) {
-              const streamingMessage: StreamingMessage = {
-                role: 'assistant',
-                content: '',
-                timestamp: new Date().toISOString(),
-                isComplete: false,
-              };
-              console.log('[useConversation] Adding streaming message placeholder');
-              addMessage(conversationId, streamingMessage);
+              // Add empty message placeholder if needed
+              const messages$ = conversation$?.data.log;
+              const lastMessage$ = messages$?.[messages$.length - 1];
               console.log(
-                '[useConversation] Placeholder added, new messages count:',
-                conversation$?.data.log.length
+                '[useConversation] MessageStart - messages count:',
+                messages$?.length,
+                'lastMessage role:',
+                lastMessage$?.role?.get(),
+                'content:',
+                JSON.stringify(lastMessage$?.content?.get())
               );
-            } else {
-              console.log('[useConversation] Reusing existing empty assistant message');
-            }
-          },
-          onToken: (token) => {
-            const messages$ = conversation$?.data.log;
-            const lastMessage$ = messages$?.[messages$.length - 1];
-            if (lastMessage$?.role?.get() === 'assistant') {
-              lastMessage$.content.set((prev) => prev + token);
-            } else {
-              console.warn(
-                '[useConversation] No assistant message to append token to. Last message role:',
-                lastMessage$?.role?.get()
-              );
-            }
-          },
-          onMessageComplete: (message) => {
-            console.log('[useConversation] Generation complete');
-            messageJustCompleted.current = true;
-
-            // Update the last message
-            const messages$ = conversation$?.data.log;
-            const lastMessage$ = messages$?.[messages$.length - 1];
-            if (lastMessage$?.role.get() === 'assistant') {
-              lastMessage$.content.set(message.content);
-              if ('isComplete' in lastMessage$) {
-                lastMessage$.isComplete.set(true);
+              if (
+                !lastMessage$ ||
+                lastMessage$.role.get() !== 'assistant' ||
+                lastMessage$.content.get() !== ''
+              ) {
+                const streamingMessage: StreamingMessage = {
+                  role: 'assistant',
+                  content: '',
+                  timestamp: new Date().toISOString(),
+                  isComplete: false,
+                };
+                console.log('[useConversation] Adding streaming message placeholder');
+                addMessage(conversationId, streamingMessage);
+                console.log(
+                  '[useConversation] Placeholder added, new messages count:',
+                  conversation$?.data.log.length
+                );
+              } else {
+                console.log('[useConversation] Reusing existing empty assistant message');
               }
-            }
+            },
+            onToken: (token) => {
+              const messages$ = conversation$?.data.log;
+              const lastMessage$ = messages$?.[messages$.length - 1];
+              if (lastMessage$?.role?.get() === 'assistant') {
+                lastMessage$.content.set((prev) => prev + token);
+              } else {
+                console.warn(
+                  '[useConversation] No assistant message to append token to. Last message role:',
+                  lastMessage$?.role?.get()
+                );
+              }
+            },
+            onMessageComplete: (message) => {
+              console.log('[useConversation] Generation complete');
+              messageJustCompleted.current = true;
 
-            // Use setTimeout with 100ms delay to allow potential onToolPending to fire first
-            // Increased from 0ms to give API events more breathing room
-            setTimeout(() => {
+              // Update the last message
+              const messages$ = conversation$?.data.log;
+              const lastMessage$ = messages$?.[messages$.length - 1];
+              if (lastMessage$?.role.get() === 'assistant') {
+                lastMessage$.content.set(message.content);
+                if ('isComplete' in lastMessage$) {
+                  lastMessage$.isComplete.set(true);
+                }
+              }
+
+              // Use setTimeout with 100ms delay to allow potential onToolPending to fire first
+              // Increased from 0ms to give API events more breathing room
+              setTimeout(() => {
+                if (messageJustCompleted.current) {
+                  setGenerating(conversationId, false);
+                  playChime().catch((error) => {
+                    console.warn('Failed to play completion chime:', error);
+                  });
+                  notifyGenerationComplete(conversation$?.data.name.get()).catch((error) => {
+                    console.warn('Failed to show completion notification:', error);
+                  });
+                }
+              }, 100);
+            },
+            onMessageAdded: (message) => {
+              console.log('[useConversation] Message added:', message);
+              // Check if this message already exists (ignoring timestamp)
+              const messages$ = conversation$?.data.log;
+              const lastMessage$ = messages$?.[messages$.length - 1];
+              if (
+                lastMessage$?.role.get() === message.role &&
+                lastMessage$?.content.get() === message.content
+              ) {
+                console.log('[useConversation] Skipping duplicate message');
+                return;
+              }
+              addMessage(conversationId, message);
+            },
+            onToolPending: (toolId, tooluse, auto_confirm) => {
+              console.log('[useConversation] Tool pending:', { toolId, tooluse, auto_confirm });
+
               if (messageJustCompleted.current) {
+                messageJustCompleted.current = false;
+                // Keep generating true as we're continuing with tool execution
+              }
+
+              // Always set pending tool state so onToolExecuting can find it
+              setPendingTool(conversationId, toolId, tooluse);
+
+              if (!auto_confirm) {
+                // Always set generating to false and play chime for manual confirmation
                 setGenerating(conversationId, false);
                 playChime().catch((error) => {
-                  console.warn('Failed to play completion chime:', error);
+                  console.warn('Failed to play tool confirmation chime:', error);
                 });
-                notifyGenerationComplete(conversation$?.data.name.get()).catch((error) => {
-                  console.warn('Failed to show completion notification:', error);
+                notifyToolConfirmation(tooluse?.tool, conversation$?.data.name.get()).catch(
+                  (error) => {
+                    console.warn('Failed to show tool confirmation notification:', error);
+                  }
+                );
+              } else {
+                api.confirmTool(conversationId, toolId, 'confirm').catch((error) => {
+                  console.error('[useConversation] Error auto-confirming tool:', error);
                 });
               }
-            }, 100);
-          },
-          onMessageAdded: (message) => {
-            console.log('[useConversation] Message added:', message);
-            // Check if this message already exists (ignoring timestamp)
-            const messages$ = conversation$?.data.log;
-            const lastMessage$ = messages$?.[messages$.length - 1];
-            if (
-              lastMessage$?.role.get() === message.role &&
-              lastMessage$?.content.get() === message.content
-            ) {
-              console.log('[useConversation] Skipping duplicate message');
-              return;
-            }
-            addMessage(conversationId, message);
-          },
-          onToolPending: (toolId, tooluse, auto_confirm) => {
-            console.log('[useConversation] Tool pending:', { toolId, tooluse, auto_confirm });
+            },
+            onToolExecuting: (toolId) => {
+              console.log('[useConversation] Tool executing:', { toolId });
 
-            if (messageJustCompleted.current) {
-              messageJustCompleted.current = false;
-              // Keep generating true as we're continuing with tool execution
-            }
-
-            // Always set pending tool state so onToolExecuting can find it
-            setPendingTool(conversationId, toolId, tooluse);
-
-            if (!auto_confirm) {
-              // Always set generating to false and play chime for manual confirmation
+              // Get the pending tool to move it to executing state
+              const pendingTool = conversation$?.pendingTool.get();
+              if (pendingTool && pendingTool.id === toolId) {
+                // Move from pending to executing (generating stays false - tools can't be interrupted)
+                setPendingTool(conversationId, null, null);
+                setExecutingTool(conversationId, toolId, pendingTool.tooluse);
+              } else {
+                console.warn(
+                  '[useConversation] No matching pending tool found for executing tool:',
+                  toolId
+                );
+              }
+            },
+            onInterrupted: () => {
+              console.log('[useConversation] Generation interrupted');
               setGenerating(conversationId, false);
-              playChime().catch((error) => {
-                console.warn('Failed to play tool confirmation chime:', error);
-              });
-              notifyToolConfirmation(tooluse?.tool, conversation$?.data.name.get()).catch(
-                (error) => {
-                  console.warn('Failed to show tool confirmation notification:', error);
-                }
-              );
-            } else {
-              api.confirmTool(conversationId, toolId, 'confirm').catch((error) => {
-                console.error('[useConversation] Error auto-confirming tool:', error);
-              });
-            }
-          },
-          onToolExecuting: (toolId) => {
-            console.log('[useConversation] Tool executing:', { toolId });
-
-            // Get the pending tool to move it to executing state
-            const pendingTool = conversation$?.pendingTool.get();
-            if (pendingTool && pendingTool.id === toolId) {
-              // Move from pending to executing (generating stays false - tools can't be interrupted)
               setPendingTool(conversationId, null, null);
-              setExecutingTool(conversationId, toolId, pendingTool.tooluse);
-            } else {
-              console.warn(
-                '[useConversation] No matching pending tool found for executing tool:',
-                toolId
-              );
-            }
-          },
-          onInterrupted: () => {
-            console.log('[useConversation] Generation interrupted');
-            setGenerating(conversationId, false);
-            setPendingTool(conversationId, null, null);
-            setExecutingTool(conversationId, null, null);
-            messageJustCompleted.current = false;
+              setExecutingTool(conversationId, null, null);
+              messageJustCompleted.current = false;
 
-            // Mark the last message as interrupted
-            const messages$ = conversation$?.data.log;
-            const lastMessage$ = messages$?.[messages$.length - 1];
-            if (lastMessage$?.role.get() === 'assistant') {
-              const content = lastMessage$.content.get();
-              if (!content.toLowerCase().includes('[interrupted]')) {
-                lastMessage$.content.set(content + ' [INTERRUPTED]');
+              // Mark the last message as interrupted
+              const messages$ = conversation$?.data.log;
+              const lastMessage$ = messages$?.[messages$.length - 1];
+              if (lastMessage$?.role.get() === 'assistant') {
+                const content = lastMessage$.content.get();
+                if (!content.toLowerCase().includes('[interrupted]')) {
+                  lastMessage$.content.set(content + ' [INTERRUPTED]');
+                }
               }
-            }
-          },
-          onError: (error) => {
-            console.error('[useConversation] Error:', error);
+            },
+            onError: (error) => {
+              console.error('[useConversation] Error:', error);
+              toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: error,
+              });
+            },
+            onConfigChanged: (config, changedFields) => {
+              // Update the full chat config in the conversation state
+              updateConversation(conversationId, { chatConfig: config });
+
+              // Check if the name was changed
+              if (changedFields.includes('name') && config.chat.name) {
+                updateConversationName(conversationId, config.chat.name);
+              }
+            },
+            onConnected: () => {
+              setConnected(conversationId, true);
+
+              // Check if this conversation needs initial step (was created from WelcomeView)
+              // This fixes the race condition where step() was called before subscription
+              const needsStep = conversation$?.needsInitialStep?.get();
+              if (needsStep) {
+                console.log('[useConversation] Triggering initial step after subscription');
+                setNeedsInitialStep(conversationId, false);
+                // Use the api from context to trigger step
+                api.step(conversationId).catch((error) => {
+                  console.error('[useConversation] Error triggering initial step:', error);
+                });
+              }
+            },
+          })
+          .catch((err) => {
+            console.error('[useConversation] Failed to subscribe to events:', err);
             toast({
               variant: 'destructive',
               title: 'Error',
-              description: error,
+              description: 'Failed to connect to event stream',
             });
-          },
-          onConfigChanged: (config, changedFields) => {
-            // Update the full chat config in the conversation state
-            updateConversation(conversationId, { chatConfig: config });
-
-            // Check if the name was changed
-            if (changedFields.includes('name') && config.chat.name) {
-              updateConversationName(conversationId, config.chat.name);
-            }
-          },
-          onConnected: () => {
-            setConnected(conversationId, true);
-
-            // Check if this conversation needs initial step (was created from WelcomeView)
-            // This fixes the race condition where step() was called before subscription
-            const needsStep = conversation$?.needsInitialStep?.get();
-            if (needsStep) {
-              console.log('[useConversation] Triggering initial step after subscription');
-              setNeedsInitialStep(conversationId, false);
-              // Use the api from context to trigger step
-              api.step(conversationId).catch((error) => {
-                console.error('[useConversation] Error triggering initial step:', error);
-              });
-            }
-          },
-        });
+          });
       } catch (error) {
         console.error('Error loading conversation:', error);
         toast({

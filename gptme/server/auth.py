@@ -3,6 +3,11 @@ Authentication middleware for gptme-server.
 
 Provides bearer token authentication for API access.
 Authentication is only required when binding to network interfaces.
+
+Supports three authentication methods (checked in order):
+1. Authorization header (preferred for normal API calls)
+2. HttpOnly cookie (preferred for SSE/EventSource connections)
+3. Query parameter (deprecated, kept for backward compatibility)
 """
 
 import logging
@@ -10,6 +15,7 @@ import os
 import secrets
 from functools import wraps
 
+import flask
 from flask import jsonify, request
 
 logger = logging.getLogger(__name__)
@@ -19,6 +25,13 @@ _server_token: str | None = None
 
 # Auth state (disabled for local-only binding)
 _auth_enabled: bool = True
+
+# Cookie configuration
+AUTH_COOKIE_NAME = "gptme_auth"
+AUTH_COOKIE_MAX_AGE = 86400  # 24 hours
+
+# Blueprint for auth endpoints
+auth_api = flask.Blueprint("auth_api", __name__)
 
 
 def generate_token() -> str:
@@ -97,18 +110,10 @@ def require_auth(f):
     When binding to localhost (127.0.0.1), authentication is disabled
     for seamless local development.
 
-    Security Warning:
-        Query parameter authentication (via ?token=xxx) is supported but
-        LESS SECURE than Authorization headers because tokens appear in:
-        - Server access logs
-        - Browser history
-        - Referrer headers
-        - Proxy server logs
-
-        Only use query parameters for SSE connections where custom headers
-        aren't supported. For all other requests, use Authorization headers.
-
-        Future: Implement cookie-based authentication for SSE to eliminate this risk.
+    Checks authentication in order of preference:
+    1. Authorization header (most secure, use for normal API calls)
+    2. HttpOnly cookie (secure, use for SSE/EventSource connections)
+    3. Query parameter (deprecated, kept for backward compatibility)
 
     Returns:
         Decorated function that validates bearer token before execution.
@@ -130,7 +135,7 @@ def require_auth(f):
             logger.error("Server token not available but auth is enabled")
             return jsonify({"error": "Authentication system error"}), 500
 
-        # Check Authorization header first (preferred method)
+        # 1. Check Authorization header (preferred method)
         auth_header = request.headers.get("Authorization")
         token = None
 
@@ -143,14 +148,20 @@ def require_auth(f):
             except ValueError:
                 logger.warning("Invalid Authorization header format")
                 return jsonify({"error": "Invalid authorization header format"}), 401
-        else:
-            # ⚠️  SECURITY WARNING: Query parameter fallback for SSE/EventSource
-            # This is LESS SECURE as tokens appear in URLs and logs
-            # Only use for SSE connections where Authorization headers aren't supported
-            # TODO: Replace with cookie-based authentication for SSE
+
+        # 2. Check HttpOnly cookie (for SSE/EventSource connections)
+        if not token:
+            token = request.cookies.get(AUTH_COOKIE_NAME)
+            if token:
+                logger.debug("Using cookie authentication")
+
+        # 3. Query parameter fallback (deprecated, kept for backward compat)
+        if not token:
             token = request.args.get("token")
             if token:
-                logger.debug("Using query parameter authentication (SSE fallback)")
+                logger.debug(
+                    "Using query parameter authentication (deprecated, use cookie)"
+                )
 
         if not token:
             logger.warning("Missing authentication credentials")
@@ -233,3 +244,54 @@ def init_auth(host: str = "127.0.0.1", display: bool = True) -> str | None:
         logger.info("=" * 60)
 
     return token
+
+
+@auth_api.route("/api/v2/auth/cookie", methods=["POST"])
+@require_auth
+def set_auth_cookie():
+    """Set an HttpOnly authentication cookie.
+
+    Requires a valid Bearer token in the Authorization header.
+    Sets an HttpOnly cookie that will be sent automatically with
+    subsequent requests, including SSE/EventSource connections.
+
+    This eliminates the need for query parameter authentication,
+    which exposes tokens in URLs and logs.
+
+    Returns:
+        200 with success message and Set-Cookie header.
+    """
+    server_token = get_server_token()
+    if not server_token:
+        return jsonify({"error": "Authentication system error"}), 500
+
+    response = jsonify({"ok": True, "message": "Auth cookie set"})
+    response.set_cookie(
+        AUTH_COOKIE_NAME,
+        server_token,
+        max_age=AUTH_COOKIE_MAX_AGE,
+        httponly=True,
+        samesite="Lax",
+        secure=request.is_secure,
+        path="/api/",
+    )
+    logger.info("Auth cookie set for client")
+    return response
+
+
+@auth_api.route("/api/v2/auth/cookie", methods=["DELETE"])
+def clear_auth_cookie():
+    """Clear the authentication cookie (logout).
+
+    Returns:
+        200 with success message and expired Set-Cookie header.
+    """
+    response = jsonify({"ok": True, "message": "Auth cookie cleared"})
+    response.delete_cookie(
+        AUTH_COOKIE_NAME,
+        path="/api/",
+        secure=request.is_secure,
+        samesite="Lax",
+    )
+    logger.info("Auth cookie cleared for client")
+    return response

@@ -231,9 +231,10 @@ def temp_file():
 @pytest.fixture(autouse=True)
 def init_():
     # Pass MODEL from env explicitly to avoid picking up stale config.chat.model
-    # values left by server tests (e.g. "gpt-4o-mini" from test_v2_chat_config).
-    # When _init_done is reset per-test, init_model() re-runs and would otherwise
-    # read the contaminated config instead of the test environment's MODEL.
+    # values left by server tests. When _init_done is reset per-test, init_model()
+    # re-runs and would otherwise read the contaminated config instead of the test
+    # environment's MODEL. Server tests now use fully-qualified model names
+    # (e.g. "openai/gpt-4o-mini") to prevent provider validation errors.
     model = os.environ.get("MODEL")
     init(model, interactive=False, tool_allowlist=None, tool_format="markdown")
 
