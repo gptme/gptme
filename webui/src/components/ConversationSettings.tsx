@@ -49,7 +49,12 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
     const messages: string[] = [];
     const extractErrors = (obj: Record<string, unknown>, prefix = '') => {
       for (const [key, val] of Object.entries(obj)) {
-        if (val && typeof val === 'object' && 'message' in val && typeof (val as { message: unknown }).message === 'string') {
+        if (
+          val &&
+          typeof val === 'object' &&
+          'message' in val &&
+          typeof (val as { message: unknown }).message === 'string'
+        ) {
           messages.push(`${prefix}${key}: ${(val as { message: string }).message}`);
         } else if (val && typeof val === 'object') {
           extractErrors(val as Record<string, unknown>, `${prefix}${key}.`);

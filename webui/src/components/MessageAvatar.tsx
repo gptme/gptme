@@ -3,12 +3,7 @@ import { Bot, User, Terminal } from 'lucide-react';
 import type { MessageRole } from '@/types/conversation';
 import { type Observable } from '@legendapp/state';
 import { use$ } from '@legendapp/state/react';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface MessageAvatarProps {
   role$: Observable<MessageRole>;
@@ -44,8 +39,7 @@ export function MessageAvatar({
   const isUser = role === 'user';
   const isAssistant = role === 'assistant';
   const showCustomAvatar =
-    (isAssistant && agentAvatarUrl && !imageError) ||
-    (isUser && userAvatarUrl && !imageError);
+    (isAssistant && agentAvatarUrl && !imageError) || (isUser && userAvatarUrl && !imageError);
   const avatarUrl = isUser ? userAvatarUrl : agentAvatarUrl;
 
   const avatarClasses = `hidden md:flex flex-shrink-0 w-10 h-10 rounded-full items-center justify-center absolute border-2 border-border ${
@@ -78,7 +72,7 @@ export function MessageAvatar({
       <img
         src={avatarUrl}
         alt={`${tooltipText} avatar`}
-        className="w-full h-full object-cover rounded-full"
+        className="h-full w-full rounded-full object-cover"
         onError={() => setImageError(true)}
       />
     </div>

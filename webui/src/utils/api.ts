@@ -63,12 +63,44 @@ export class ApiClient {
   public userInfo$: Observable<UserInfo | null> = observable<UserInfo | null>(null);
   private eventSources: Map<string, EventSource> = new Map(); // Map conversation IDs to EventSource instances
   private isCleaningUp = false;
+  private authCookieSet = false;
 
   constructor(baseUrl: string = getApiBaseUrl(), authHeader: string | null = null) {
     this.baseUrl = baseUrl;
     this.authHeader = authHeader;
     this.identifier = crypto.randomUUID();
     console.log(`[ApiClient] Identifier: ${this.identifier}`);
+
+    // Set auth cookie if we have a token (for SSE connections)
+    if (this.authHeader) {
+      this.ensureAuthCookie();
+    }
+  }
+
+  /**
+   * Set an HttpOnly auth cookie via the server's cookie endpoint.
+   * This allows SSE/EventSource connections to authenticate via cookies
+   * instead of exposing tokens in query parameters.
+   */
+  private async ensureAuthCookie(): Promise<void> {
+    if (this.authCookieSet || !this.authHeader) return;
+
+    try {
+      const response = await fetch(`${this.baseUrl}/api/v2/auth/cookie`, {
+        method: 'POST',
+        headers: { Authorization: this.authHeader },
+        credentials: 'include',
+      });
+      if (response.ok) {
+        this.authCookieSet = true;
+        console.log('[ApiClient] Auth cookie set for SSE connections');
+      } else {
+        console.warn('[ApiClient] Failed to set auth cookie:', response.status);
+      }
+    } catch (error) {
+      // Non-fatal: fall back to query param auth for SSE
+      console.warn('[ApiClient] Could not set auth cookie, will use query param fallback:', error);
+    }
   }
 
   private async fetchWithTimeout(
@@ -286,12 +318,11 @@ export class ApiClient {
     }, 5000);
 
     /**
-     * For SSE connections, we need to pass the auth token as a query parameter
-     * since EventSource doesn't support custom headers.
+     * For SSE connections, we prefer cookie-based authentication (set via
+     * ensureAuthCookie). If the cookie is set, EventSource sends it
+     * automatically with withCredentials: true.
      *
-     * Security note: This is less secure than using headers, but necessary for SSE.
-     * The token in the URL may be logged or appear in browser history.
-     * We only do this for SSE connections, all other requests use headers.
+     * Falls back to query parameter auth if the cookie endpoint failed.
      */
     const url = new URL(`${this.baseUrl}/api/v2/conversations/${conversationId}/events`);
 
@@ -302,21 +333,20 @@ export class ApiClient {
       console.log(`[ApiClient] Reusing existing session ID for SSE: ${existingSessionId}`);
     }
 
-    if (this.authHeader) {
-      // Extract token from "Bearer <token>"
+    // Cookie is set asynchronously in constructor via ensureAuthCookie().
+    // By the time user triggers SSE, the cookie POST should have completed.
+    // If not, we fall back to query param below.
+    if (this.authHeader && !this.authCookieSet) {
+      // Fallback: pass token as query param if cookie endpoint was unavailable
       const token = this.authHeader.split(' ')[1];
       if (!token) {
         console.error('[ApiClient] Invalid auth header format, expected "Bearer <token>"');
         throw new ApiClientError('Invalid auth header format');
       }
       url.searchParams.set('token', token);
-
-      // Log connection attempt but not the full URL with token
-      const urlWithoutToken = new URL(url);
-      urlWithoutToken.searchParams.delete('token');
-      console.log(
-        `[ApiClient] Connecting to event stream: ${urlWithoutToken.toString()} (with auth token)`
-      );
+      console.warn('[ApiClient] Using query param auth for SSE (cookie not available)');
+    } else if (this.authHeader) {
+      console.log(`[ApiClient] Connecting to event stream: ${url.toString()} (with auth cookie)`);
     } else {
       console.log(`[ApiClient] Connecting to event stream without auth: ${url.toString()}`);
     }

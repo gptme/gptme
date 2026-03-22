@@ -18,10 +18,9 @@ type SetupStep = 'welcome' | 'mode' | 'local' | 'cloud' | 'complete';
 
 // The gptme cloud service is hosted on fleet.gptme.ai (the cloud.gptme.ai domain
 // is a planned alias). Override with VITE_GPTME_CLOUD_BASE_URL for other deployments.
-const CLOUD_AUTH_URL =
-  import.meta.env.VITE_GPTME_CLOUD_BASE_URL
-    ? `${import.meta.env.VITE_GPTME_CLOUD_BASE_URL}/authorize`
-    : 'https://fleet.gptme.ai/authorize';
+const CLOUD_AUTH_URL = import.meta.env.VITE_GPTME_CLOUD_BASE_URL
+  ? `${import.meta.env.VITE_GPTME_CLOUD_BASE_URL}/authorize`
+  : 'https://fleet.gptme.ai/authorize';
 
 export function SetupWizard() {
   const { settings, updateSettings } = useSettings();
@@ -184,7 +183,7 @@ export function SetupWizard() {
                   <p className="text-sm text-muted-foreground">
                     Start the server in your terminal:
                   </p>
-                  <code className="rounded bg-muted px-3 py-2 text-sm font-mono">
+                  <code className="rounded bg-muted px-3 py-2 font-mono text-sm">
                     pipx run --spec &apos;gptme[server]&apos; gptme-server
                   </code>
                   <p className="text-xs text-muted-foreground">
@@ -206,7 +205,13 @@ export function SetupWizard() {
               )}
             </div>
             <DialogFooter className="gap-2 sm:gap-0">
-              <Button variant="outline" onClick={() => { setStep('mode'); setConnectError(null); }}>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setStep('mode');
+                  setConnectError(null);
+                }}
+              >
                 Back
               </Button>
               <Button onClick={handleLocalSetup} disabled={isConnecting}>
@@ -232,8 +237,7 @@ export function SetupWizard() {
                 </p>
                 {isTauri && (
                   <p className="text-xs text-muted-foreground">
-                    The app will handle the login callback via the <code>gptme://</code> deep
-                    link.
+                    The app will handle the login callback via the <code>gptme://</code> deep link.
                   </p>
                 )}
               </div>

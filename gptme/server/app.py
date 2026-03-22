@@ -42,13 +42,15 @@ def create_app(cors_origin: str | None = None, host: str = "127.0.0.1") -> flask
             if get_default_model() is None:
                 set_default_model(server_default_model)
 
-    # Register v2 API, workspace API, and tasks API
+    # Register v2 API, workspace API, tasks API, and auth API
     # noreorder
     from .api_v2 import v2_api  # fmt: skip
+    from .auth import auth_api  # fmt: skip
     from .tasks_api import tasks_api  # fmt: skip
     from .workspace_api import workspace_api  # fmt: skip
 
     app.register_blueprint(v2_api)
+    app.register_blueprint(auth_api)
     app.register_blueprint(workspace_api)
     app.register_blueprint(tasks_api)
 
