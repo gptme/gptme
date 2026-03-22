@@ -397,7 +397,7 @@ def _page_snapshot() -> str:
         raise RuntimeError("No page is currently open")
     snapshot = _current_page.locator("body").aria_snapshot()
     if not snapshot:
-        return "Error: Could not get accessibility snapshot."
+        raise RuntimeError("Could not get accessibility snapshot.")
     return snapshot
 
 
