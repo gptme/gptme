@@ -435,6 +435,36 @@ def test_dir_to_listing_nested(tmp_path):
     assert "pyproject.toml" in result
 
 
+def test_dir_to_listing_includes_dotfiles(tmp_path, monkeypatch):
+    """Test that rglob fallback includes dotfiles like .pre-commit-config.yml and .github/."""
+    from unittest.mock import MagicMock, patch
+
+    from gptme.util.context import _dir_to_listing
+
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / ".pre-commit-config.yaml").write_text("repos: []")
+    (project / ".gitignore").write_text("*.pyc")
+    (project / "main.py").write_text("print('hello')")
+    gh = project / ".github" / "workflows"
+    gh.mkdir(parents=True)
+    (gh / "test.yml").write_text("on: push")
+
+    # Simulate git not available so we exercise the rglob fallback
+    mock_result = MagicMock()
+    mock_result.returncode = 1  # git fails → fall through to rglob
+    mock_result.stdout = ""
+
+    with patch("subprocess.run", return_value=mock_result):
+        result = _dir_to_listing(project, str(project))
+
+    assert ".pre-commit-config.yaml" in result
+    assert ".gitignore" in result
+    assert ".github/workflows/test.yml" in result
+    assert "main.py" in result
+    # .git internals should never appear (none created here, but guard is correct)
+
+
 def test_resource_to_codeblock_directory(tmp_path):
     """Test that _resource_to_codeblock handles directories."""
     from gptme.util.context import _resource_to_codeblock

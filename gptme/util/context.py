@@ -678,14 +678,14 @@ def _dir_to_listing(path: Path, prompt: str, max_entries: int = 50) -> str:
         pass
 
     if entries is None:
-        # Fallback: list directory recursively, skip hidden files
-        # Use relative_to(path) for hidden-file check so parent dirs don't interfere
+        # Fallback: list directory recursively.
+        # Only exclude .git/ internals to avoid noise; dotfiles like
+        # .pre-commit-config.yml, .github/, .env etc. are legitimate project files.
         try:
             entries = sorted(
                 str(p.relative_to(path))
                 for p in path.rglob("*")
-                if p.is_file()
-                and not any(part.startswith(".") for part in p.relative_to(path).parts)
+                if p.is_file() and ".git" not in p.relative_to(path).parts
             )
         except PermissionError:
             entries = []
