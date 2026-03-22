@@ -64,7 +64,8 @@ def _check_anthropic_quota_exhausted() -> bool:
         )
         return False
     except anthropic.BadRequestError as e:
-        if "usage limits" in str(e).lower():
+        error_str = str(e).lower()
+        if any(p in error_str for p in _QUOTA_ERROR_PATTERNS):
             logger.warning(f"Anthropic API quota exhausted: {e}")
             return True
         return False
@@ -85,6 +86,41 @@ def pytest_configure(config):
     os.environ["GPTME_CHECK"] = "false"
     # Disable chat history context during tests for predictable prompts
     os.environ["GPTME_CHAT_HISTORY"] = "false"
+
+
+# Error patterns that indicate API quota/rate-limit exhaustion
+_QUOTA_ERROR_PATTERNS = [
+    "usage limits",
+    "rate limit",
+    "quota exceeded",
+    "billing",
+    "insufficient_quota",
+    "exceeded your current quota",
+    "spending limit",
+]
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Convert API quota/rate-limit failures to skips for requires_api tests.
+
+    The session-start quota check may pass with a tiny haiku call, but the
+    actual test can hit quota limits with heavier models or longer generations.
+    This hook catches those mid-run failures and converts them to skips.
+    """
+    outcome = yield
+    report = outcome.get_result()
+
+    if (
+        report.when == "call"
+        and report.failed
+        and "requires_api" in item.keywords
+        and call.excinfo is not None
+    ):
+        error_str = str(call.excinfo.value).lower()
+        if any(pattern in error_str for pattern in _QUOTA_ERROR_PATTERNS):
+            report.outcome = "skipped"
+            report.wasxfail = f"API quota exhausted during test: {call.excinfo.value}"
 
 
 def pytest_collection_modifyitems(config, items):
