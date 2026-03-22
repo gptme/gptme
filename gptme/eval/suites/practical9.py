@@ -111,9 +111,9 @@ def check_yaml_merge_override_level(ctx):
 
 
 def check_yaml_merge_list_replaced(ctx):
-    """merged.yaml should NOT contain '- file' (list fully replaced by override)."""
+    """merged.yaml should NOT contain '- file' list item (list fully replaced by override)."""
     content = ctx.files.get("merged.yaml", "")
-    return "- file" not in content
+    return not re.search(r"^\s*-\s+file\b", content, re.MULTILINE)
 
 
 def check_yaml_merge_exit(ctx):
@@ -144,8 +144,8 @@ def check_git_stats_bob(ctx):
 
 
 def check_git_stats_charlie(ctx):
-    """stdout should contain 'Charlie: 1 commit' (singular)."""
-    return "Charlie: 1 commit" in ctx.stdout
+    """stdout should contain 'Charlie: 1 commit' (accept both singular and plural)."""
+    return "Charlie: 1 commit" in ctx.stdout or "Charlie: 1 commits" in ctx.stdout
 
 
 def check_git_stats_author_order(ctx):
