@@ -10,7 +10,7 @@ import os
 import sys
 from collections.abc import Generator
 
-from ..hooks import confirm
+from ..hooks.confirm import confirm
 from ..message import Message
 from .base import ToolSpec
 
