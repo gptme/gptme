@@ -64,6 +64,7 @@ export class ApiClient {
   private eventSources: Map<string, EventSource> = new Map(); // Map conversation IDs to EventSource instances
   private isCleaningUp = false;
   private authCookieSet = false;
+  private authCookiePromise: Promise<void> | null = null;
 
   constructor(baseUrl: string = getApiBaseUrl(), authHeader: string | null = null) {
     this.baseUrl = baseUrl;
@@ -71,9 +72,9 @@ export class ApiClient {
     this.identifier = crypto.randomUUID();
     console.log(`[ApiClient] Identifier: ${this.identifier}`);
 
-    // Set auth cookie if we have a token (for SSE connections)
+    // Set auth cookie eagerly (for SSE connections that need it later)
     if (this.authHeader) {
-      this.ensureAuthCookie();
+      this.authCookiePromise = this.ensureAuthCookie();
     }
   }
 
@@ -282,7 +283,7 @@ export class ApiClient {
     this.isConnected$.set(connected);
   }
 
-  subscribeToEvents(
+  async subscribeToEvents(
     conversationId: string,
     callbacks: {
       onMessageStart: () => void;
@@ -296,7 +297,7 @@ export class ApiClient {
       onConfigChanged?: (config: ChatConfig, changedFields: string[]) => void;
       onConnected?: () => void;
     }
-  ): void {
+  ): Promise<void> {
     // Close any existing event stream for this conversation
     this.closeEventStream(conversationId);
 
@@ -333,9 +334,12 @@ export class ApiClient {
       console.log(`[ApiClient] Reusing existing session ID for SSE: ${existingSessionId}`);
     }
 
-    // Cookie is set asynchronously in constructor via ensureAuthCookie().
-    // By the time user triggers SSE, the cookie POST should have completed.
-    // If not, we fall back to query param below.
+    // Wait for the cookie setup to complete before deciding auth method.
+    // This eliminates the race condition where SSE connects before cookie is set.
+    if (this.authCookiePromise) {
+      await this.authCookiePromise;
+    }
+
     if (this.authHeader && !this.authCookieSet) {
       // Fallback: pass token as query param if cookie endpoint was unavailable
       const token = this.authHeader.split(' ')[1];

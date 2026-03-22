@@ -315,14 +315,18 @@ def test_auth_cookie_used_for_api(auth_client):
     """API requests authenticate via cookie when no header is present."""
     client, token, cookie_name = auth_client
 
-    # First, set the cookie
+    # Verify protected endpoint rejects without any auth
+    response = client.get("/api/v2/conversations")
+    assert response.status_code == 401
+
+    # Set the cookie
     client.post(
         "/api/v2/auth/cookie",
         headers={"Authorization": f"Bearer {token}"},
     )
 
     # Now make an API request without Authorization header — cookie should work
-    response = client.get("/api/v2")
+    response = client.get("/api/v2/conversations")
     assert response.status_code == 200
 
 
@@ -348,6 +352,13 @@ def test_auth_cookie_clear(auth_client):
     # Expired cookies have Expires in the past or Max-Age=0
     assert "Expires=" in set_cookie or "Max-Age=0" in set_cookie
 
+    # Verify cookie-only requests are rejected after clearing
+    # Use a fresh client (no cookie jar) to simulate browser honoring Max-Age=0
+    app = client.application
+    with app.test_client() as fresh_client:
+        response = fresh_client.get("/api/v2/conversations")
+        assert response.status_code == 401
+
 
 def test_auth_header_takes_priority_over_cookie(auth_client):
     """Authorization header is preferred over cookie."""
@@ -361,7 +372,7 @@ def test_auth_header_takes_priority_over_cookie(auth_client):
 
     # Request with valid header should work even if we clear cookie
     response = client.get(
-        "/api/v2",
+        "/api/v2/conversations",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 200
@@ -371,5 +382,5 @@ def test_auth_query_param_still_works(auth_client):
     """Query parameter auth still works as fallback (backward compat)."""
     client, token, cookie_name = auth_client
 
-    response = client.get(f"/api/v2?token={token}")
+    response = client.get(f"/api/v2/conversations?token={token}")
     assert response.status_code == 200
