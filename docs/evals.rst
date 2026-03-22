@@ -44,7 +44,7 @@ Model Leaderboard
 
 The table below shows pass rates across our eval suites for each model (best tool format per model). Models are ranked by overall pass rate, with breakdowns by suite type.
 
-.. command-output:: python scripts/eval_leaderboard.py --min-tests 4
+.. command-output:: python scripts/eval_leaderboard.py --format rst --min-tests 4
    :cwd: ..
    :shell:
 

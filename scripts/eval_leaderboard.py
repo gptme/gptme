@@ -207,12 +207,21 @@ def aggregate_results(results: list[dict], min_tests: int = 4) -> list[dict]:
                 "pass_rate": total_passed / total_tests if total_tests > 0 else 0,
             }
 
-    # For each base model, pick the best format (highest pass rate)
+    # For each base model, pick the best format (highest pass rate).
+    # Tie-breaking: on equal pass rates the first format encountered in insertion order
+    # wins (strict >, not >=). Python 3.7+ preserves dict insertion order so this is
+    # deterministic, but arbitrary. Prefer the format with more tests as explicit
+    # secondary sort to make the intent clear.
     best_by_model: dict[str, dict] = {}
     for (model, _fmt), stats in fmt_stats.items():
+        current = best_by_model.get(model)
         if (
-            model not in best_by_model
-            or stats["pass_rate"] > best_by_model[model]["pass_rate"]
+            current is None
+            or stats["pass_rate"] > current["pass_rate"]
+            or (
+                stats["pass_rate"] == current["pass_rate"]
+                and stats["total_tests"] > current["total_tests"]
+            )
         ):
             best_by_model[model] = stats
 
@@ -236,6 +245,9 @@ def format_rst_table(ranked: list[dict]) -> str:
     )
     model_col_width = max(5, max_model_len)  # at least 5 chars
 
+    # Format (10): covers all gptme tool-format strings (markdown/xml/tool/native/v2 ≤ 8).
+    # Overall (15): covers the widest possible value "58/58 (100%)" = 14 chars.
+    # Both are safe to hardcode; only Model varies by unknown external names.
     cols = [
         ("Model", model_col_width),
         ("Format", 10),
