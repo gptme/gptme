@@ -13,7 +13,7 @@ def test_planner_mode_requires_subtasks():
         subagent(agent_id="test-planner", prompt="Test task", mode="planner")
 
 
-@patch("gptme.tools.subagent._create_subagent_thread")
+@patch("gptme.tools.subagent_execution._create_subagent_thread")
 def test_planner_mode_spawns_executors(mock_create_thread: MagicMock):
     """Test that planner mode spawns executor subagents."""
     initial_count = len(_subagents)
@@ -39,7 +39,7 @@ def test_planner_mode_spawns_executors(mock_create_thread: MagicMock):
     assert "test-planner-task2" in executor_ids
 
 
-@patch("gptme.tools.subagent._create_subagent_thread")
+@patch("gptme.tools.subagent_execution._create_subagent_thread")
 def test_planner_mode_executor_prompts(mock_create_thread: MagicMock):
     """Test that executor prompts include context and subtask description."""
     subtasks: list[SubtaskDef] = [
@@ -59,7 +59,7 @@ def test_planner_mode_executor_prompts(mock_create_thread: MagicMock):
     assert "Do something specific" in executor.prompt
 
 
-@patch("gptme.tools.subagent._create_subagent_thread")
+@patch("gptme.tools.subagent_execution._create_subagent_thread")
 def test_executor_mode_still_works(mock_create_thread: MagicMock):
     """Test that default executor mode still works as before."""
     initial_count = len(_subagents)
@@ -75,7 +75,7 @@ def test_executor_mode_still_works(mock_create_thread: MagicMock):
     assert executor.prompt == "Simple task"
 
 
-@patch("gptme.tools.subagent._create_subagent_thread")
+@patch("gptme.tools.subagent_execution._create_subagent_thread")
 def test_planner_parallel_mode(mock_create_thread: MagicMock):
     """Test that parallel mode spawns all executors at once."""
     initial_count = len(_subagents)
@@ -113,7 +113,7 @@ def test_planner_sequential_mode():
 
     # Mock _create_subagent_thread to avoid real chat sessions
     # Sequential mode blocks with t.join(), so we need threads to complete instantly
-    with patch("gptme.tools.subagent._create_subagent_thread"):
+    with patch("gptme.tools.subagent_execution._create_subagent_thread"):
         subagent(
             agent_id="test-sequential",
             prompt="Sequential execution test",
@@ -131,7 +131,7 @@ def test_planner_sequential_mode():
     assert "test-sequential-seq2" in executor_ids
 
 
-@patch("gptme.tools.subagent._create_subagent_thread")
+@patch("gptme.tools.subagent_execution._create_subagent_thread")
 def test_planner_default_is_parallel(mock_create_thread: MagicMock):
     """Test that default execution mode is parallel."""
     initial_count = len(_subagents)
@@ -152,7 +152,7 @@ def test_planner_default_is_parallel(mock_create_thread: MagicMock):
     assert len(_subagents) == initial_count + 1
 
 
-@patch("gptme.tools.subagent._create_subagent_thread")
+@patch("gptme.tools.subagent_execution._create_subagent_thread")
 def test_context_mode_default_is_full(mock_create_thread: MagicMock):
     """Test that default context_mode is 'full'."""
     initial_count = len(_subagents)
@@ -173,7 +173,7 @@ def test_context_mode_selective_requires_context_include():
         )
 
 
-@patch("gptme.tools.subagent._create_subagent_thread")
+@patch("gptme.tools.subagent_execution._create_subagent_thread")
 def test_context_mode_selective_with_tools(mock_create_thread: MagicMock):
     """Test selective mode with tools context."""
     initial_count = len(_subagents)
@@ -192,7 +192,7 @@ def test_context_mode_selective_with_tools(mock_create_thread: MagicMock):
     assert executor.agent_id == "test-selective-tools"
 
 
-@patch("gptme.tools.subagent._create_subagent_thread")
+@patch("gptme.tools.subagent_execution._create_subagent_thread")
 def test_context_mode_selective_with_agent(mock_create_thread: MagicMock):
     """Test selective mode with agent context."""
     initial_count = len(_subagents)
@@ -208,7 +208,7 @@ def test_context_mode_selective_with_agent(mock_create_thread: MagicMock):
     assert len(_subagents) == initial_count + 1
 
 
-@patch("gptme.tools.subagent._create_subagent_thread")
+@patch("gptme.tools.subagent_execution._create_subagent_thread")
 def test_context_mode_selective_with_workspace(mock_create_thread: MagicMock):
     """Test selective mode with workspace context."""
     initial_count = len(_subagents)
@@ -224,7 +224,7 @@ def test_context_mode_selective_with_workspace(mock_create_thread: MagicMock):
     assert len(_subagents) == initial_count + 1
 
 
-@patch("gptme.tools.subagent._create_subagent_thread")
+@patch("gptme.tools.subagent_execution._create_subagent_thread")
 def test_context_mode_selective_multiple_components(mock_create_thread: MagicMock):
     """Test selective mode with multiple context components."""
     initial_count = len(_subagents)
@@ -240,7 +240,7 @@ def test_context_mode_selective_multiple_components(mock_create_thread: MagicMoc
     assert len(_subagents) == initial_count + 1
 
 
-@patch("gptme.tools.subagent._create_subagent_thread")
+@patch("gptme.tools.subagent_execution._create_subagent_thread")
 def test_planner_mode_with_context_modes(mock_create_thread: MagicMock):
     """Test that planner mode works with context modes."""
     initial_count = len(_subagents)
@@ -438,7 +438,9 @@ def test_subprocess_mode_creates_process():
     mock_process = MagicMock()
     mock_process.poll.return_value = None  # Process still running
 
-    with patch("gptme.tools.subagent.subprocess.Popen", return_value=mock_process):
+    with patch(
+        "gptme.tools.subagent_execution.subprocess.Popen", return_value=mock_process
+    ):
         subagent(
             agent_id="test-subprocess",
             prompt="Simple test task",
@@ -470,7 +472,9 @@ def test_subprocess_mode_command_construction():
 
     _subagents.clear()
 
-    with patch("gptme.tools.subagent.subprocess.Popen", side_effect=capture_popen):
+    with patch(
+        "gptme.tools.subagent_execution.subprocess.Popen", side_effect=capture_popen
+    ):
         subagent(
             agent_id="test-cmd",
             prompt="Test prompt for command",
@@ -506,7 +510,9 @@ def test_subprocess_mode_completion_stored():
     mock_process.poll.return_value = 0  # Completed
     mock_process.communicate.return_value = ("Success output", "")
 
-    with patch("gptme.tools.subagent.subprocess.Popen", return_value=mock_process):
+    with patch(
+        "gptme.tools.subagent_execution.subprocess.Popen", return_value=mock_process
+    ):
         subagent(
             agent_id="test-complete",
             prompt="Task to complete",
@@ -535,7 +541,7 @@ def test_subprocess_actual_process_creation():
     import tempfile
     from pathlib import Path
 
-    from gptme.tools.subagent import _run_subagent_subprocess
+    from gptme.tools.subagent_execution import _run_subagent_subprocess
 
     with tempfile.TemporaryDirectory() as tmpdir:
         logdir = Path(tmpdir) / "logs"
@@ -577,7 +583,7 @@ def test_subprocess_command_includes_required_flags():
     import tempfile
     from pathlib import Path
 
-    from gptme.tools.subagent import _run_subagent_subprocess
+    from gptme.tools.subagent_execution import _run_subagent_subprocess
 
     with tempfile.TemporaryDirectory() as tmpdir:
         logdir = Path(tmpdir) / "logs"
@@ -622,7 +628,7 @@ def test_subprocess_working_directory():
     import tempfile
     from pathlib import Path
 
-    from gptme.tools.subagent import _run_subagent_subprocess
+    from gptme.tools.subagent_execution import _run_subagent_subprocess
 
     with tempfile.TemporaryDirectory() as tmpdir:
         workspace = Path(tmpdir) / "workspace"
@@ -814,7 +820,7 @@ def test_subprocess_mode_read_log():
 # Profile integration tests
 
 
-@patch("gptme.tools.subagent._create_subagent_thread")
+@patch("gptme.tools.subagent_execution._create_subagent_thread")
 def test_subagent_with_profile(mock_create_thread: MagicMock):
     """Test that profile parameter is passed to subagent thread."""
     initial_count = len(_subagents)
@@ -833,7 +839,7 @@ def test_subagent_with_profile(mock_create_thread: MagicMock):
     assert call_kwargs["profile_name"] == "explorer"
 
 
-@patch("gptme.tools.subagent._create_subagent_thread")
+@patch("gptme.tools.subagent_execution._create_subagent_thread")
 def test_subagent_with_model_override(mock_create_thread: MagicMock):
     """Test that model parameter overrides parent's model."""
     initial_count = len(_subagents)
@@ -851,7 +857,7 @@ def test_subagent_with_model_override(mock_create_thread: MagicMock):
     assert executor.model == "openai/gpt-4o-mini"
 
 
-@patch("gptme.tools.subagent._create_subagent_thread")
+@patch("gptme.tools.subagent_execution._create_subagent_thread")
 def test_subagent_with_profile_and_model(mock_create_thread: MagicMock):
     """Test combining profile and model parameters."""
     initial_count = len(_subagents)
@@ -872,7 +878,7 @@ def test_subagent_with_profile_and_model(mock_create_thread: MagicMock):
     assert call_kwargs["model"] == "anthropic/claude-haiku"
 
 
-@patch("gptme.tools.subagent._create_subagent_thread")
+@patch("gptme.tools.subagent_execution._create_subagent_thread")
 def test_planner_with_profile(mock_create_thread: MagicMock):
     """Test that planner mode passes profile to executor subagents."""
     initial_count = len(_subagents)
@@ -898,7 +904,7 @@ def test_planner_with_profile(mock_create_thread: MagicMock):
         assert call[1]["profile_name"] == "explorer"
 
 
-@patch("gptme.tools.subagent._create_subagent_thread")
+@patch("gptme.tools.subagent_execution._create_subagent_thread")
 def test_subagent_auto_detects_profile_from_agent_id(mock_create_thread: MagicMock):
     """Test that agent_id matching a profile name auto-applies the profile."""
     initial_count = len(_subagents)
@@ -917,7 +923,7 @@ def test_subagent_auto_detects_profile_from_agent_id(mock_create_thread: MagicMo
     assert call_kwargs["profile_name"] == "explorer"
 
 
-@patch("gptme.tools.subagent._create_subagent_thread")
+@patch("gptme.tools.subagent_execution._create_subagent_thread")
 def test_subagent_auto_detects_profile_alias_from_agent_id(
     mock_create_thread: MagicMock,
 ):
@@ -937,7 +943,7 @@ def test_subagent_auto_detects_profile_alias_from_agent_id(
     assert call_kwargs["profile_name"] == "developer"
 
 
-@patch("gptme.tools.subagent._create_subagent_thread")
+@patch("gptme.tools.subagent_execution._create_subagent_thread")
 def test_subagent_no_auto_detect_for_unknown_agent_id(mock_create_thread: MagicMock):
     """Test that non-profile agent_ids don't trigger auto-detection."""
     initial_count = len(_subagents)
@@ -955,7 +961,7 @@ def test_subagent_no_auto_detect_for_unknown_agent_id(mock_create_thread: MagicM
     assert call_kwargs["profile_name"] is None
 
 
-@patch("gptme.tools.subagent._create_subagent_thread")
+@patch("gptme.tools.subagent_execution._create_subagent_thread")
 def test_subagent_explicit_profile_overrides_auto_detect(
     mock_create_thread: MagicMock,
 ):
@@ -1000,6 +1006,7 @@ def test_profile_hard_tool_enforcement():
     import gptme.chat
     import gptme.executor
     import gptme.llm.models
+    import gptme.tools.subagent_execution
     from gptme.tools import set_tools as real_set_tools
     from gptme.tools.base import ToolSpec
 
@@ -1019,8 +1026,10 @@ def test_profile_hard_tool_enforcement():
         real_set_tools(tools)
 
     with (
-        patch.object(gptme.tools.subagent, "set_tools", spy_set_tools),
-        patch.object(gptme.tools.subagent, "get_tools", return_value=mock_tools),
+        patch.object(gptme.tools.subagent_execution, "set_tools", spy_set_tools),
+        patch.object(
+            gptme.tools.subagent_execution, "get_tools", return_value=mock_tools
+        ),
         patch.object(sys.modules["gptme"], "chat"),
         patch.object(
             gptme.executor,
@@ -1029,7 +1038,7 @@ def test_profile_hard_tool_enforcement():
         ),
         patch.object(gptme.llm.models, "set_default_model"),
     ):
-        from gptme.tools.subagent import _create_subagent_thread
+        from gptme.tools.subagent_execution import _create_subagent_thread
 
         _create_subagent_thread(
             prompt="Read the codebase",
@@ -1059,6 +1068,7 @@ def test_profile_no_restriction_skips_set_tools():
     import gptme.chat
     import gptme.executor
     import gptme.llm.models
+    import gptme.tools.subagent_execution
     from gptme.tools.base import ToolSpec
 
     mock_tools = [
@@ -1073,8 +1083,10 @@ def test_profile_no_restriction_skips_set_tools():
         set_tools_calls.append([t.name for t in tools])
 
     with (
-        patch.object(gptme.tools.subagent, "set_tools", spy_set_tools),
-        patch.object(gptme.tools.subagent, "get_tools", return_value=mock_tools),
+        patch.object(gptme.tools.subagent_execution, "set_tools", spy_set_tools),
+        patch.object(
+            gptme.tools.subagent_execution, "get_tools", return_value=mock_tools
+        ),
         patch.object(sys.modules["gptme"], "chat"),
         patch.object(
             gptme.executor,
@@ -1083,7 +1095,7 @@ def test_profile_no_restriction_skips_set_tools():
         ),
         patch.object(gptme.llm.models, "set_default_model"),
     ):
-        from gptme.tools.subagent import _create_subagent_thread
+        from gptme.tools.subagent_execution import _create_subagent_thread
 
         # developer profile has tools=None (no restrictions)
         _create_subagent_thread(
@@ -1115,7 +1127,9 @@ def test_subprocess_mode_with_profile():
 
     _subagents.clear()
 
-    with patch("gptme.tools.subagent.subprocess.Popen", side_effect=capture_popen):
+    with patch(
+        "gptme.tools.subagent_execution.subprocess.Popen", side_effect=capture_popen
+    ):
         subagent(
             agent_id="test-subprocess-profile",
             prompt="Explore task",
@@ -1136,7 +1150,7 @@ def test_create_subagent_thread_warns_on_unknown_profile_tools(tmp_path):
     from gptme.message import Message
     from gptme.profiles import Profile
     from gptme.tools.base import ToolSpec
-    from gptme.tools.subagent import _create_subagent_thread
+    from gptme.tools.subagent_execution import _create_subagent_thread
 
     profile = Profile(
         name="test",
@@ -1155,11 +1169,11 @@ def test_create_subagent_thread_warns_on_unknown_profile_tools(tmp_path):
 
     with (
         patch("gptme.profiles.get_profile", return_value=profile),
-        patch("gptme.tools.subagent.get_tools", return_value=tools),
+        patch("gptme.tools.subagent_execution.get_tools", return_value=tools),
         patch("gptme.executor.prepare_execution_environment"),
         patch("gptme.prompts.get_prompt", mock_prompt),
         patch("gptme.chat", mock_chat),
-        patch("gptme.tools.subagent.logger.warning", mock_warn),
+        patch("gptme.tools.subagent_execution.logger.warning", mock_warn),
     ):
         _create_subagent_thread(
             prompt="test",
