@@ -690,7 +690,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7ff69827f920&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f2aa1d83920&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -740,6 +740,12 @@ to append the code block content to the file at the given path.
 <span class="s">    and falls back to the next usable backend on failure.</span>
 
 <span class="s">screenshot_url(url: str, path: Union[Path, str, None]) -&gt; Path: Take a screenshot of a webpage.</span>
+<span class="s">snapshot_url(url: str) -&gt; str: Get the ARIA accessibility snapshot of a webpage.</span>
+
+<span class="s">    Returns a structured text representation of the page&#39;s accessibility tree,</span>
+<span class="s">    showing interactive elements (buttons, links, inputs) with their roles and names.</span>
+<span class="s">    Useful for understanding page structure and finding elements to interact with.</span>
+
 <span class="s">read_logs() -&gt; str: Read browser console logs from the last read URL.</span>
 <span class="s">pdf_to_images(url_or_path: str, output_dir: Union[str, Path, None], pages: Union[tuple[int, int], None], dpi: int) -&gt; list[Path]: Convert PDF pages to images using auto-detected CLI tools.</span>
 
@@ -813,6 +819,15 @@ to append the code block content to the file at the given path.
 <span class="sb">```ipython</span>
 <span class="n">screenshot_url</span><span class="p">(</span><span class="s1">&#39;https://activitywatch.net&#39;</span><span class="p">)</span>
 <span class="sb">```</span>
+<span class="gu">### Get ARIA snapshot to see interactive elements</span>
+
+<span class="k">&gt; </span><span class="ge">User: what interactive elements are on example.com?</span>
+<span class="k">&gt; </span><span class="ge">Assistant: Let me get the accessibility snapshot of the page.</span>
+<span class="sb">```ipython</span>
+<span class="n">snapshot_url</span><span class="p">(</span><span class="s1">&#39;https://example.com&#39;</span><span class="p">)</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">Assistant: The page has a heading &quot;Example Domain&quot;, a paragraph with description text, and a link &quot;More information...&quot;.</span>
+
 <span class="gu">### Read URL and check browser logs</span>
 
 <span class="k">&gt; </span><span class="ge">User: read this page and check if there are any console errors</span>
@@ -2134,7 +2149,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 11390</p>
+<p>Tokens: 11534</p>
 </dd></dl>
 
 <dl class="py function">
