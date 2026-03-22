@@ -819,6 +819,7 @@ tool = ToolSpec(
         screenshot_url,
         snapshot_url,
         open_page,
+        close_page,
         click_element,
         fill_element,
         scroll_page,

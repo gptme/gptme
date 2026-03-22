@@ -500,6 +500,8 @@ def _scroll(browser: Browser, direction: str, amount: int) -> str:
     """Scroll the current page."""
     if _current_page is None:
         raise RuntimeError("No page is open. Call open_page(url) first.")
+    if direction not in ("up", "down"):
+        raise ValueError(f"direction must be 'up' or 'down', got: {direction!r}")
     pixels = amount if direction == "down" else -amount
     _current_page.mouse.wheel(0, pixels)
     # Brief wait for lazy-loaded content
