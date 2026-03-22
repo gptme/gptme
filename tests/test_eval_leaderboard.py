@@ -345,6 +345,41 @@ def test_format_rst_table_unknown_model_no_overflow(tmp_path):
         assert len(line) <= sep_len, f"Row too wide: {line!r}"
 
 
+def test_aggregate_tiebreak_by_total_tests(tmp_path):
+    """On equal pass rates, prefer the format/model with more tests."""
+    _create_eval_results(
+        tmp_path,
+        [
+            {
+                "dir": "run1",
+                "rows": [
+                    # model-a: markdown 2/2, tool 4/4 — equal 100% but tool has more tests
+                    ("model-a", "markdown", "hello", "true"),
+                    ("model-a", "markdown", "prime100", "true"),
+                    ("model-a", "tool", "hello", "true"),
+                    ("model-a", "tool", "prime100", "true"),
+                    ("model-a", "tool", "hello-patch", "true"),
+                    ("model-a", "tool", "hello-ask", "true"),
+                    # model-b: 3/4 (75%) — lower pass rate
+                    ("model-b", "markdown", "hello", "true"),
+                    ("model-b", "markdown", "prime100", "true"),
+                    ("model-b", "markdown", "hello-patch", "true"),
+                    ("model-b", "markdown", "hello-ask", "false"),
+                ],
+            }
+        ],
+    )
+    results = load_results(tmp_path)
+    ranked = aggregate_results(results, min_tests=2)
+    # model-a should be first (higher pass rate)
+    assert ranked[0]["model"] == "model-a"
+    # tool format selected for model-a because it has more tests (4 > 2) at equal pass rate
+    assert ranked[0]["format"] == "tool"
+    assert ranked[0]["total_tests"] == 4
+    # model-b is second
+    assert ranked[1]["model"] == "model-b"
+
+
 def test_suite_classification(tmp_path):
     """Tests are correctly classified into basic and practical suites."""
     _create_eval_results(
