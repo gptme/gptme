@@ -52,6 +52,7 @@ Provider Native Search:
     This is an experimental feature. It needs some work to be more robust and useful.
 """
 
+import importlib
 import importlib.metadata
 import importlib.util
 import logging
