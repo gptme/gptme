@@ -93,12 +93,12 @@ class TestResolveHookElicitation:
     """Test the HTTP-to-hook resolution function."""
 
     def test_resolve_accept_with_value(self):
-        from gptme.server.api_v2_sessions import _resolve_hook_elicitation
+        from gptme.server.session_step import resolve_hook_elicitation
 
         request = ElicitationRequest(type="text", prompt="Enter value:")
         pending = register_pending("resolve-1", request)
 
-        _resolve_hook_elicitation("resolve-1", "accept", value="hello")
+        resolve_hook_elicitation("resolve-1", "accept", value="hello")
         assert pending.event.is_set()
         assert pending.result is not None
         assert pending.result.value == "hello"
@@ -106,38 +106,38 @@ class TestResolveHookElicitation:
         remove_pending("resolve-1")
 
     def test_resolve_accept_with_values(self):
-        from gptme.server.api_v2_sessions import _resolve_hook_elicitation
+        from gptme.server.session_step import resolve_hook_elicitation
 
         request = ElicitationRequest(
             type="multi_choice", prompt="Pick:", options=["a", "b", "c"]
         )
         pending = register_pending("resolve-2", request)
 
-        _resolve_hook_elicitation("resolve-2", "accept", values=["a", "c"])
+        resolve_hook_elicitation("resolve-2", "accept", values=["a", "c"])
         assert pending.event.is_set()
         assert pending.result is not None
         assert pending.result.values == ["a", "c"]
         remove_pending("resolve-2")
 
     def test_resolve_cancel(self):
-        from gptme.server.api_v2_sessions import _resolve_hook_elicitation
+        from gptme.server.session_step import resolve_hook_elicitation
 
         request = ElicitationRequest(type="text", prompt="Enter value:")
         pending = register_pending("resolve-3", request)
 
-        _resolve_hook_elicitation("resolve-3", "cancel")
+        resolve_hook_elicitation("resolve-3", "cancel")
         assert pending.event.is_set()
         assert pending.result is not None
         assert pending.result.cancelled is True
         remove_pending("resolve-3")
 
     def test_resolve_decline(self):
-        from gptme.server.api_v2_sessions import _resolve_hook_elicitation
+        from gptme.server.session_step import resolve_hook_elicitation
 
         request = ElicitationRequest(type="confirmation", prompt="Continue?")
         pending = register_pending("resolve-4", request)
 
-        _resolve_hook_elicitation("resolve-4", "decline")
+        resolve_hook_elicitation("resolve-4", "decline")
         assert pending.event.is_set()
         assert pending.result is not None
         assert pending.result.value is None

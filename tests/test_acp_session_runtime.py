@@ -172,7 +172,7 @@ def _make_v2_conversation(client: FlaskClient, name: str | None = None) -> dict:
 def test_acp_step_emits_events(monkeypatch, client: FlaskClient, tmp_path):
     """_acp_step() should emit generation_started + generation_complete events."""
     import gptme.server.acp_session_runtime as rt_mod
-    import gptme.server.api_v2_sessions as sessions_mod
+    import gptme.server.session_step as sessions_mod
 
     created: list[_DummyClient] = []
 
@@ -369,7 +369,7 @@ def test_acp_step_rejects_duplicate_without_new_user_message(
 ):
     """Calling ACP /step twice without a new user message should not re-send prompt."""
     import gptme.server.acp_session_runtime as rt_mod
-    import gptme.server.api_v2_sessions as sessions_mod
+    import gptme.server.session_step as sessions_mod
 
     created: list[_DummyClient] = []
 
@@ -424,7 +424,7 @@ def test_acp_step_processes_all_pending_user_messages(
 ):
     """ACP step should process all pending user messages in order."""
     import gptme.server.acp_session_runtime as rt_mod
-    import gptme.server.api_v2_sessions as sessions_mod
+    import gptme.server.session_step as sessions_mod
 
     created: list[_DummyClient] = []
 
@@ -485,7 +485,7 @@ def test_acp_step_runs_session_start_step_pre_and_turn_post_hooks(
 ):
     """ACP step should preserve key server-side hook semantics."""
     import gptme.server.acp_session_runtime as rt_mod
-    import gptme.server.api_v2_sessions as sessions_mod
+    import gptme.server.session_step as sessions_mod
 
     created: list[_DummyClient] = []
 
@@ -547,7 +547,7 @@ def test_acp_step_runs_session_start_step_pre_and_turn_post_hooks(
 
 
 def test_iter_text_from_acp_update_shapes():
-    import gptme.server.api_v2_sessions as sessions_mod
+    import gptme.server.session_step as sessions_mod
 
     assert list(sessions_mod._iter_text_from_acp_update("abc")) == ["abc"]
     assert list(sessions_mod._iter_text_from_acp_update({"text": "abc"})) == ["abc"]
@@ -566,7 +566,7 @@ def test_acp_step_bridges_generation_progress_events(
 ):
     """ACP session_update text should be bridged to generation_progress SSE events."""
     import gptme.server.acp_session_runtime as rt_mod
-    import gptme.server.api_v2_sessions as sessions_mod
+    import gptme.server.session_step as sessions_mod
 
     created: list[_DummyClient] = []
 
@@ -867,4 +867,3 @@ def test_health_monitor_start_stop():
 
     # Stop should clean up
     stop_acp_health_monitor()
-

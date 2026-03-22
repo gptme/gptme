@@ -157,7 +157,7 @@ def test_message_post_process_hook(client: FlaskClient, monkeypatch):
         return ("Hello! How can I help you?", None)
 
     with unittest.mock.patch(
-        "gptme.server.api_v2_sessions._chat_complete", mock_chat_complete
+        "gptme.server.session_step._chat_complete", mock_chat_complete
     ):
         # Call step to generate response (should trigger TURN_POST hooks)
         response = client.post(

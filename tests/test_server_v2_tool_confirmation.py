@@ -41,7 +41,7 @@ def test_tool_confirmation_flow(
     )
 
     # Start generation with mocked response
-    with unittest.mock.patch("gptme.server.api_v2_sessions._stream", mock_stream):
+    with unittest.mock.patch("gptme.server.session_step._stream", mock_stream):
         # Request a step
         requests.post(
             f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
@@ -130,7 +130,7 @@ def test_tool_confirmation_without_session_id(
     )
 
     # Start generation with mocked response
-    with unittest.mock.patch("gptme.server.api_v2_sessions._stream", mock_stream):
+    with unittest.mock.patch("gptme.server.session_step._stream", mock_stream):
         # Request a step
         requests.post(
             f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",

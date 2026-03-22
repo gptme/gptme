@@ -56,7 +56,7 @@ def test_auto_stepping(
     )
 
     # Start generation with auto-confirm=2 for automatic stepping
-    with unittest.mock.patch("gptme.server.api_v2_sessions._stream", mock_stream):
+    with unittest.mock.patch("gptme.server.session_step._stream", mock_stream):
         requests.post(
             f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
             json={
