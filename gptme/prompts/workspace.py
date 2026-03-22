@@ -1,4 +1,5 @@
 import logging
+import subprocess
 from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -14,6 +15,64 @@ if TYPE_CHECKING:
     from ..util.uri import FilePath
 
 logger = logging.getLogger(__name__)
+
+
+def _get_git_status(workspace: Path) -> str | None:
+    """Get git branch and working tree status for the workspace.
+
+    Returns a formatted string with the current branch and any
+    modified/untracked files, or None if not a git repo.
+    """
+    try:
+        # Check if in a git repo
+        result = subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            check=False,
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        if result.returncode != 0:
+            return None
+
+        # Get current branch
+        branch_result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            check=False,
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        branch = (
+            branch_result.stdout.strip() if branch_result.returncode == 0 else "unknown"
+        )
+
+        # Get short status (modified/untracked files)
+        status_result = subprocess.run(
+            ["git", "status", "--short"],
+            check=False,
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        status_lines = (
+            status_result.stdout.strip() if status_result.returncode == 0 else ""
+        )
+
+        if status_lines:
+            # Truncate if too many changes (keep it concise)
+            lines = status_lines.splitlines()
+            if len(lines) > 20:
+                shown = "\n".join(lines[:20])
+                status_lines = f"{shown}\n... and {len(lines) - 20} more files"
+            return f"**Branch:** `{branch}`\n\n{md_codeblock('', status_lines)}"
+        return f"**Branch:** `{branch}` (clean)"
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+        logger.debug(f"Error getting git status: {e}")
+        return None
 
 
 def find_agent_files_in_tree(
@@ -64,7 +123,6 @@ def prompt_workspace(
 ) -> Generator[Message, None, None]:
     """Generate the workspace context prompt."""
     # TODO: update this prompt if the files change
-    # TODO: include `git status`, and keep it up-to-date
     sections = []
 
     if workspace is None:
@@ -194,6 +252,10 @@ def prompt_workspace(
     # Get tree output if enabled
     if tree_output := get_tree_output(workspace):
         sections.append(f"## Project Structure\n\n{md_codeblock('', tree_output)}\n\n")
+
+    # Get git status (branch + working tree changes)
+    if git_status := _get_git_status(workspace):
+        sections.append(f"## Git Status\n\n{git_status}")
 
     if sections:
         yield Message("system", f"# {title}\n\n" + "\n\n".join(sections))
