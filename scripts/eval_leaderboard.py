@@ -70,6 +70,7 @@ def normalize_model(model: str) -> str:
         "anthropic/claude-3-haiku-20240307": "Claude 3 Haiku",
         "anthropic/claude-haiku-4-5": "Claude Haiku 4.5",
         "anthropic/claude-sonnet-4-20250514": "Claude Sonnet 4",
+        "anthropic/claude-sonnet-4-6": "Claude Sonnet 4.6",
         "anthropic/claude-opus-4-1-20250805": "Claude Opus 4.1",
         "anthropic/claude-opus-4-6": "Claude Opus 4.6",
         "openai/gpt-4o": "GPT-4o",
