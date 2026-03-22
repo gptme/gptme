@@ -156,8 +156,6 @@ class ChatConfig:
                         t = tomlkit.table()
                         t.update(value)
                         doc[key] = t
-                    else:
-                        doc[key] = value
                 # Remove top-level keys no longer present
                 for key in list(doc):
                     if key not in config_dict:
