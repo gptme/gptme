@@ -1265,12 +1265,12 @@ When agent_id matches a profile name, the profile is auto-applied:
 <span class="k">-</span><span class="w"> </span>developer: Full development capabilities (all tools)
 <span class="k">-</span><span class="w"> </span>isolated: Restricted processing for untrusted content (tools: read, ipython)
 <span class="k">-</span><span class="w"> </span>computer-use: Visual UI testing specialist (tools: computer, vision, ipython, shell)
-<span class="k">-</span><span class="w"> </span>browser-use: Web interaction and testing specialist (tools: browser, screenshot, vision, shell)
+<span class="k">-</span><span class="w"> </span>browser-use: Web interaction and testing specialist (tools: browser, screenshot, vision, shell) — supports interactive browsing (open_page, click, fill, scroll) and one-shot reads
 
 Example: <span class="sb">`subagent(&quot;explorer&quot;, &quot;Explore codebase&quot;)`</span>
 With model override: <span class="sb">`subagent(&quot;researcher&quot;, &quot;Find docs&quot;, model=&quot;openai/gpt-4o-mini&quot;)`</span>
 Computer-use example: <span class="sb">`subagent(&quot;computer-use&quot;, &quot;Click the Submit button, wait for the modal, and screenshot the result&quot;)`</span>
-Browser-use example: <span class="sb">`subagent(&quot;browser-use&quot;, &quot;Open localhost:5173, take a screenshot, and report UI issues&quot;)`</span>
+Browser-use example: <span class="sb">`subagent(&quot;browser-use&quot;, &quot;Open localhost:5173, fill the chat input, click send, and report the result&quot;)`</span>
 
 Use subagent_read_log() to inspect a subagent&#39;s conversation log for debugging.
 
