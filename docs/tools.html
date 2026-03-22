@@ -1229,33 +1229,14 @@ new-session gptme --non-interactive "fix lint 2"
 </section>
 <section id="subagent">
 <h2>Subagent<a class="headerlink" href="#subagent" title="Link to this heading">#</a></h2>
-<p>A subagent tool for gptme</p>
-<p>Lets gptme break down a task into smaller parts, and delegate them to subagents.</p>
-<p>Current Implementation (Phase 1):
-- Subagents run as independent gptme sessions (thread or subprocess)
-- Communication is one-way: parent → child via prompt
-- Results are retrieved via subagent_status() or subagent_wait()
-- Completion notifications delivered via the <code class="docutils literal notranslate"><span class="pre">subagent_completion</span></code> hook</p>
-<dl>
-<dt>Hook System Integration:</dt><dd><p>The <code class="docutils literal notranslate"><span class="pre">subagent_completion</span></code> hook (registered via ToolSpec) implements the
-“fire-and-forget-then-get-alerted” pattern. When a subagent completes, the
-hook delivers a system message during LOOP_CONTINUE, allowing the parent
-agent to react naturally without active polling.</p>
-<p>The hook is registered automatically when the subagent tool is loaded.</p>
-</dd>
-</dl>
-<p>Future Design Intent (Phase 2/3):</p>
-<ul class="simple">
-<li><p><strong>Progress notifications</strong>: Allow subagents to push status updates to parent
-via hooks (e.g., “50% complete”, “found issue X”)</p></li>
-<li><p><strong>Clarification requests</strong>: Enable subagents to pause and ask parent for
-additional context when encountering ambiguity</p></li>
-<li><p><strong>Bidirectional communication</strong>: Establish message channels between
-parent/child for collaborative problem-solving</p></li>
-<li><p><strong>Hierarchical coordination</strong>: Support multi-level agent hierarchies with
-message routing and result aggregation</p></li>
-</ul>
-<p>These features will build on the existing hook infrastructure.</p>
+<p>Subagent tool — spawn, monitor, and coordinate child agents.</p>
+<p>Extracted from a single 1100-line module into a package for maintainability.</p>
+<p>Package structure:
+- types.py      — Data classes and module-level state (Subagent, ReturnType, etc.)
+- hooks.py      — Completion notification system (LOOP_CONTINUE hook)
+- api.py        — Public API (subagent, subagent_status, subagent_wait, etc.)
+- batch.py      — Batch execution (BatchJob, subagent_batch)
+- execution.py  — Execution backends (thread, subprocess, process monitoring)</p>
 <p class="rubric">Instructions</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>You can create, check status, wait for, and read logs from subagents.
 
@@ -1658,7 +1639,7 @@ completion messages automatically via the LOOP_CONTINUE hook. This class
 provides additional utilities for explicit synchronization when needed.</p>
 <dl class="py method">
 <dt class="sig sig-object py">
-<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="pre">agent_ids:</span> <span class="pre">list[str],</span> <span class="pre">results:</span> <span class="pre">dict[str,</span> <span class="pre">~gptme.tools.subagent.ReturnType]</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;,</span> <span class="pre">_lock:</span> <span class="pre">~_thread.allocate_lock</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span></dt>
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="pre">agent_ids:</span> <span class="pre">list[str],</span> <span class="pre">results:</span> <span class="pre">dict[str,</span> <span class="pre">~gptme.tools.subagent.types.ReturnType]</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;,</span> <span class="pre">_lock:</span> <span class="pre">~_thread.allocate_lock</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span></dt>
 <dd></dd></dl>
 
 <dl class="py method">
