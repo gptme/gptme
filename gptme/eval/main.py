@@ -764,7 +764,7 @@ def results_to_json(
         models.append(
             {
                 **config.to_dict(),
-                "pass_rate": round(passed / total, 4) if total else 0,
+                "pass_rate": round(passed / total, 4) if total else 0.0,
                 "total": total,
                 "passed": passed,
                 "results": result_dicts,
