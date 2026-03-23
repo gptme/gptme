@@ -83,6 +83,100 @@ def providers_list():
         click.echo()
 
 
+@providers.command("test")
+@click.argument("provider_name")
+def providers_test(provider_name: str):
+    """Test connectivity to a custom provider.
+
+    Connects to the provider's API and lists available models.
+    """
+    import os
+    import time
+
+    config = get_config()
+
+    # Find the provider config
+    provider_cfg = next(
+        (p for p in config.user.providers if p.name == provider_name), None
+    )
+    if not provider_cfg:
+        click.echo(f"❌ Provider '{provider_name}' not found in config")
+        click.echo()
+        if config.user.providers:
+            names = [p.name for p in config.user.providers]
+            click.echo(f"Available providers: {', '.join(names)}")
+        else:
+            click.echo("No custom providers configured. Add one to your gptme.toml:")
+            click.echo()
+            click.echo("[[providers]]")
+            click.echo(f'name = "{provider_name}"')
+            click.echo('base_url = "http://localhost:8000/v1"')
+        return
+
+    click.echo(f"🔌 Testing provider: {provider_name}")
+    click.echo(f"   Base URL: {provider_cfg.base_url}")
+
+    # Resolve API key
+    api_key = None
+    key_source = ""
+    if provider_cfg.api_key:
+        api_key = provider_cfg.api_key
+        key_source = "(configured directly)"
+    elif provider_cfg.api_key_env:
+        api_key = os.environ.get(provider_cfg.api_key_env)
+        key_source = f"${provider_cfg.api_key_env}"
+        if not api_key:
+            click.echo(f"   ❌ API key env var {key_source} is not set")
+            return
+    else:
+        env_var = f"{provider_name.upper()}_API_KEY"
+        api_key = os.environ.get(env_var)
+        key_source = f"${env_var}"
+        if not api_key:
+            api_key = "default-key"
+            key_source = "(default-key fallback)"
+
+    click.echo(f"   API Key: {key_source}")
+    click.echo()
+
+    # Try to connect and list models
+    try:
+        from openai import OpenAI  # fmt: skip
+
+        client = OpenAI(api_key=api_key, base_url=provider_cfg.base_url, timeout=10)
+
+        click.echo("   Connecting...")
+        start = time.monotonic()
+        models_response = client.models.list()
+        elapsed = time.monotonic() - start
+        model_list = list(models_response)
+
+        click.echo(f"   ✅ Connected! ({elapsed:.1f}s)")
+        click.echo(f"   📋 Available models ({len(model_list)}):")
+
+        for model in model_list[:10]:
+            marker = " ⭐" if model.id == provider_cfg.default_model else ""
+            click.echo(f"      • {model.id}{marker}")
+
+        if len(model_list) > 10:
+            click.echo(f"      ... and {len(model_list) - 10} more")
+
+        if provider_cfg.default_model:
+            found = any(m.id == provider_cfg.default_model for m in model_list)
+            if found:
+                click.echo(
+                    f"\n   ✅ Default model '{provider_cfg.default_model}' is available"
+                )
+            else:
+                click.echo(
+                    f"\n   ⚠️  Default model '{provider_cfg.default_model}' "
+                    "not found in model list"
+                )
+
+    except Exception as e:
+        click.echo(f"   ❌ Connection failed: {e}")
+
+
 @main.group()
 def tokens():
     """Commands for token counting."""
