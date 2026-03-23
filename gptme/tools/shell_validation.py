@@ -7,6 +7,7 @@ quote/heredoc parsing helpers for safe command execution.
 import logging
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -296,7 +297,10 @@ def is_allowlisted(cmd: str) -> bool:
         "-delete",  # find -delete can delete files
         "-ok",  # find -ok prompts but can be automated
     }
-    tokens = cmd.split()
+    try:
+        tokens = shlex.split(cmd)
+    except ValueError:
+        tokens = cmd.split()
     return not any(token in dangerous_flags for token in tokens)
 
 

@@ -74,6 +74,13 @@ ALLOWLIST_TEST_CASES = [
     ),
     ("find /tmp -type f -delete", False, "find -delete (dangerous flag)"),
     ("find . -name '*.txt' -ok cat {} \\;", False, "find -ok (dangerous flag)"),
+    # Quoted dangerous flags should still be caught (shlex handles quoting)
+    ("find . '-exec' rm {} \\;", False, "find with quoted -exec (bypass attempt)"),
+    (
+        'find . "-exec" rm {} \\;',
+        False,
+        "find with double-quoted -exec (bypass attempt)",
+    ),
 ]
 
 
