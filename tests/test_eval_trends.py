@@ -266,6 +266,35 @@ def test_compute_diff(tmp_path):
     assert len(d["new_tests"]) == 1  # new-test
 
 
+def test_compute_diff_removed_tests(tmp_path):
+    """Tests present in the previous run but absent from the latest run appear in removed_tests."""
+    _create_eval_results(
+        tmp_path,
+        [
+            {
+                "dir": "20260101_000000Z",
+                "rows": [
+                    ("model-a", "markdown", "hello", "true"),
+                    ("model-a", "markdown", "deprecated-test", "true"),
+                ],
+            },
+            {
+                "dir": "20260102_000000Z",
+                "rows": [
+                    ("model-a", "markdown", "hello", "true"),
+                    # deprecated-test is absent from the latest run
+                ],
+            },
+        ],
+    )
+    results = load_all_results(tmp_path)
+    diffs = compute_diff(results)
+    assert "model-a@markdown" in diffs
+    d = diffs["model-a@markdown"]
+    assert any(r["test"] == "deprecated-test" for r in d["removed_tests"])
+    assert d["unchanged_pass"] == 1  # hello
+
+
 def test_format_table_output(tmp_path):
     """Format table produces readable output."""
     _create_eval_results(

@@ -366,6 +366,12 @@ def main():
     if args.diff and args.last is not None:
         print("Warning: --last is ignored in --diff mode.", file=sys.stderr)
 
+    if args.diff and (args.regressions or args.improvements):
+        print(
+            "Warning: --regressions/--improvements is ignored in --diff mode.",
+            file=sys.stderr,
+        )
+
     results = load_all_results(args.results_dir)
     if not results:
         print("No eval results found.", file=sys.stderr)
