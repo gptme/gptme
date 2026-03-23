@@ -335,12 +335,13 @@ def main():
         default=None,
         help="Only consider last N runs per model/test",
     )
-    parser.add_argument(
+    filter_group = parser.add_mutually_exclusive_group()
+    filter_group.add_argument(
         "--regressions",
         action="store_true",
         help="Show only regressions",
     )
-    parser.add_argument(
+    filter_group.add_argument(
         "--improvements",
         action="store_true",
         help="Show only improvements",
@@ -384,14 +385,14 @@ def main():
 
     trends = compute_trends(results, model_filter=args.model, last_n_runs=args.last)
 
-    if args.format == "json":
-        print(json.dumps(trends, indent=2, default=str))
-        return
-
     if args.regressions:
         trends = {**trends, "improvements": [], "flaky": []}
     elif args.improvements:
         trends = {**trends, "regressions": [], "flaky": []}
+
+    if args.format == "json":
+        print(json.dumps(trends, indent=2, default=str))
+        return
 
     print(format_table(trends))
 
