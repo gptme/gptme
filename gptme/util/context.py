@@ -584,19 +584,27 @@ def _find_potential_paths(content: str) -> list[str]:
         Supports the ``@`` prefix convention (e.g. ``@src/file.py``) used by
         Claude Code and other AI tools to reference files and directories.
         """
-        # Strip leading @ for detection (actual stripping happens in caller)
-        w = word.lstrip("@") if word.startswith("@") else word
+        # Strip one leading @ for detection (actual stripping happens in caller)
+        w = word.removeprefix("@") if word.startswith("@") else word
+
+        def _is_path_like_bare(s: str) -> bool:
+            return (
+                # Absolute/home/relative paths
+                any(s.startswith(p) for p in ["/", "~/", "./"])
+                # URLs
+                or s.startswith("http")
+                # Contains slash (for backtick-wrapped paths)
+                or "/" in s
+                # Files in current directory or subdirectories
+                or any(s.split("/", 1)[0] == file for file in cwd_files)
+            )
+
         return (
-            # @-prefixed reference (must have content after @)
-            (word.startswith("@") and len(w) > 0)
-            # Absolute/home/relative paths
-            or any(w.startswith(s) for s in ["/", "~/", "./"])
-            # URLs
-            or w.startswith("http")
-            # Contains slash (for backtick-wrapped paths)
-            or "/" in w
-            # Files in current directory or subdirectories
-            or any(w.split("/", 1)[0] == file for file in cwd_files)
+            # @-prefixed reference: stripped form must also look like a path
+            # (prevents @username social handles from matching)
+            (word.startswith("@") and _is_path_like_bare(w))
+            # Plain path reference
+            or _is_path_like_bare(w)
         )
 
     def _strip_at_prefix(word: str) -> str:

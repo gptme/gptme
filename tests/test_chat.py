@@ -138,6 +138,18 @@ def test_find_potential_paths_at_prefix_bare_at():
     assert not any("@" in p or p == "" for p in paths)
 
 
+def test_find_potential_paths_at_prefix_handles(tmp_path, monkeypatch):
+    """Test that @username-style social handles are NOT treated as path references."""
+    monkeypatch.chdir(tmp_path)  # clean dir with no matching files
+    content = "Thanks @alice and @bob, see @charlie for details"
+    paths = _find_potential_paths(content)
+    # Social handles without slash should not be matched
+    assert "alice" not in paths
+    assert "bob" not in paths
+    assert "charlie" not in paths
+    assert "@alice" not in paths
+
+
 def test_include_paths_at_prefix(tmp_path, monkeypatch):
     """Integration test: @file.txt in user prompt → file content included."""
     from gptme.message import Message
