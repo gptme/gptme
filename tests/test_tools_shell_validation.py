@@ -609,15 +609,13 @@ class TestEdgeCases:
         denied, _, _ = is_denylisted("git add .env")
         assert not denied
 
-    def test_find_executable_false_positive(self):
-        """find -executable is caught by -exec substring check — known false positive.
+    def test_find_executable_not_blocked(self):
+        """find -executable is a safe flag and should not be blocked by -exec check.
 
-        The is_allowlisted() check uses `"-exec" in cmd` which matches
-        `-executable` as a substring. This test documents the bug.
+        Previously, the is_allowlisted() check used `"-exec" in cmd` substring
+        matching which caught `-executable`. Fixed to use token-based matching.
         """
-        # This SHOULD be allowlisted (it's a safe find flag), but isn't
-        # due to substring matching on "-exec"
-        assert not is_allowlisted("find . -executable")
+        assert is_allowlisted("find . -executable")
 
     def test_pipe_in_quoted_arg_no_false_positive(self):
         """Pipe characters in quoted arguments shouldn't trigger pipe detection."""
