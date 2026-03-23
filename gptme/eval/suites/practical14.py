@@ -135,7 +135,7 @@ def check_ipv4_class_a(ctx):
 def check_ipv4_class_c(ctx):
     """192.168.1.1 should be class C (first octet 192-223)."""
     for line in ctx.stdout.splitlines():
-        if "192.168.1.1" in line and re.search(r"\bC\b", line, re.IGNORECASE):
+        if re.search(r"192\.168\.1\.1\s+[Cc]\b", line):
             return True
     return False
 
