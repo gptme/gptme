@@ -11,6 +11,7 @@ from .practical6 import tests as tests_practical6
 from .practical7 import tests as tests_practical7
 from .practical8 import tests as tests_practical8
 from .practical9 import tests as tests_practical9
+from .practical10 import tests as tests_practical10
 from .practical11 import tests as tests_practical11
 
 suites: dict[str, list[EvalSpec]] = {
@@ -26,6 +27,7 @@ suites: dict[str, list[EvalSpec]] = {
     "practical7": tests_practical7,
     "practical8": tests_practical8,
     "practical9": tests_practical9,
+    "practical10": tests_practical10,
     "practical11": tests_practical11,
 }
 
