@@ -1,20 +1,18 @@
-"""Tests for the eval leaderboard aggregation script."""
+"""Tests for the eval leaderboard aggregation module."""
 
 import csv
-
-# Add scripts to path so we can import the module
-import sys
+import json
 from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
-
-from eval_leaderboard import (
+from gptme.eval.leaderboard import (
     aggregate_results,
     format_csv_table,
+    format_json,
     format_markdown_table,
     format_rst_table,
+    generate_leaderboard,
     load_results,
     normalize_model,
     parse_model_format,
@@ -406,3 +404,88 @@ def test_suite_classification(tmp_path):
     assert ranked[0]["basic_total"] == 3
     assert ranked[0]["practical_passed"] == 1
     assert ranked[0]["practical_total"] == 2
+
+
+def test_format_json(tmp_path):
+    """JSON output format produces valid JSON with expected structure."""
+    _create_eval_results(
+        tmp_path,
+        [
+            {
+                "dir": "run1",
+                "rows": [
+                    ("openai/gpt-4o", "markdown", "hello", "true"),
+                    ("openai/gpt-4o", "markdown", "prime100", "true"),
+                    ("openai/gpt-4o", "markdown", "build-api", "false"),
+                    ("openai/gpt-4o", "markdown", "hello-patch", "true"),
+                ],
+            }
+        ],
+    )
+    results = load_results(tmp_path)
+    ranked = aggregate_results(results, min_tests=3)
+    output = format_json(ranked)
+    data = json.loads(output)
+    assert "models" in data
+    assert len(data["models"]) == 1
+    model = data["models"][0]
+    assert model["model"] == "openai/gpt-4o"
+    assert model["display_name"] == "GPT-4o"
+    assert model["format"] == "markdown"
+    assert model["pass_rate"] == 0.75
+    assert model["total_passed"] == 3
+    assert model["total_tests"] == 4
+    assert model["basic"]["passed"] == 3
+    assert model["basic"]["total"] == 3
+    assert model["practical"]["passed"] == 0
+    assert model["practical"]["total"] == 1
+
+
+def test_generate_leaderboard_markdown(tmp_path):
+    """generate_leaderboard() produces markdown output."""
+    _create_eval_results(
+        tmp_path,
+        [
+            {
+                "dir": "run1",
+                "rows": [
+                    ("openai/gpt-4o", "tool", "hello", "true"),
+                    ("openai/gpt-4o", "tool", "prime100", "true"),
+                    ("openai/gpt-4o", "tool", "fix-bug", "true"),
+                    ("openai/gpt-4o", "tool", "hello-patch", "false"),
+                ],
+            }
+        ],
+    )
+    output = generate_leaderboard(
+        results_dir=tmp_path,
+        output_format="markdown",
+        min_tests=3,
+    )
+    assert "| GPT-4o |" in output
+    assert "3/4" in output
+
+
+def test_generate_leaderboard_json(tmp_path):
+    """generate_leaderboard() produces valid JSON output."""
+    _create_eval_results(
+        tmp_path,
+        [
+            {
+                "dir": "run1",
+                "rows": [
+                    ("openai/gpt-4o", "tool", "hello", "true"),
+                    ("openai/gpt-4o", "tool", "prime100", "true"),
+                    ("openai/gpt-4o", "tool", "fix-bug", "false"),
+                    ("openai/gpt-4o", "tool", "hello-patch", "true"),
+                ],
+            }
+        ],
+    )
+    output = generate_leaderboard(
+        results_dir=tmp_path,
+        output_format="json",
+        min_tests=3,
+    )
+    data = json.loads(output)
+    assert data["models"][0]["pass_rate"] == 0.75
