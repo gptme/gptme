@@ -26,13 +26,13 @@ def check_roman_i(ctx):
 
 
 def check_roman_iv(ctx):
-    """stdout should contain IV (for 4)."""
-    return "IV" in ctx.stdout
+    """stdout should contain IV on its own line (for 4)."""
+    return bool(any(line.strip() == "IV" for line in ctx.stdout.splitlines()))
 
 
 def check_roman_ix(ctx):
-    """stdout should contain IX (for 9)."""
-    return "IX" in ctx.stdout
+    """stdout should contain IX on its own line (for 9)."""
+    return bool(any(line.strip() == "IX" for line in ctx.stdout.splitlines()))
 
 
 def check_roman_xlii(ctx):
@@ -185,9 +185,9 @@ tests: list["EvalSpec"] = [
         "prompt": (
             "Write a Python script `anagram_groups.py` that reads space-separated "
             "words from `words.txt` and prints groups of anagrams, one group per line "
-            "with words sorted alphabetically within the group. Two words are anagrams "
-            "if they contain the same letters (case-insensitive). Groups should be "
-            "sorted alphabetically by their first word."
+            "with words separated by spaces and sorted alphabetically within the group. "
+            "Two words are anagrams if they contain the same letters (case-insensitive). "
+            "Groups should be sorted alphabetically by their first word."
         ),
         "tools": ["read", "save", "shell"],
         "expect": {
