@@ -147,10 +147,11 @@ def check_date_hist_all_days(ctx):
 
 def check_date_hist_zero_days(ctx):
     """Days with zero occurrences should still appear (Friday, Saturday, Sunday = 0)."""
-    # Friday, Saturday, Sunday have 0 occurrences in our data
-    return "0" in ctx.stdout and (
-        "Friday" in ctx.stdout or "Saturday" in ctx.stdout or "Sunday" in ctx.stdout
-    )
+    # Friday, Saturday, Sunday have 0 occurrences — verify at least one is shown with count 0
+    # Anchors "0" to the same line as the day name to avoid false positives from percentages
+    zero_days = ["Friday", "Saturday", "Sunday"]
+    lines = ctx.stdout.splitlines()
+    return any(day in line and ": 0" in line for day in zero_days for line in lines)
 
 
 def check_date_hist_exit(ctx):
