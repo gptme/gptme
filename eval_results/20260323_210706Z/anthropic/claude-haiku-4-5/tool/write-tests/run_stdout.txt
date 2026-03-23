@@ -1,0 +1,32 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.2, pluggy-1.6.0 -- /home/bob/gptme/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /tmp/gptme-evals-vlsh1fka
+plugins: anyio-4.12.1, cov-7.0.0, mock-3.15.1, timeout-2.4.0
+collecting ... collected 23 items
+
+test_mathlib.py::TestFactorial::test_factorial_zero PASSED               [  4%]
+test_mathlib.py::TestFactorial::test_factorial_one PASSED                [  8%]
+test_mathlib.py::TestFactorial::test_factorial_small_numbers PASSED      [ 13%]
+test_mathlib.py::TestFactorial::test_factorial_larger_numbers PASSED     [ 17%]
+test_mathlib.py::TestFactorial::test_factorial_negative_number PASSED    [ 21%]
+test_mathlib.py::TestIsPalindrome::test_simple_palindromes PASSED        [ 26%]
+test_mathlib.py::TestIsPalindrome::test_palindromes_with_mixed_case PASSED [ 30%]
+test_mathlib.py::TestIsPalindrome::test_palindromes_with_spaces PASSED   [ 34%]
+test_mathlib.py::TestIsPalindrome::test_palindromes_with_spaces_and_mixed_case PASSED [ 39%]
+test_mathlib.py::TestIsPalindrome::test_non_palindromes PASSED           [ 43%]
+test_mathlib.py::TestIsPalindrome::test_single_character PASSED          [ 47%]
+test_mathlib.py::TestIsPalindrome::test_empty_string PASSED              [ 52%]
+test_mathlib.py::TestIsPalindrome::test_two_character_palindromes PASSED [ 56%]
+test_mathlib.py::TestIsPalindrome::test_palindromes_with_only_spaces PASSED [ 60%]
+test_mathlib.py::TestIsPalindrome::test_numeric_palindromes PASSED       [ 65%]
+test_mathlib.py::TestClamp::test_value_within_range PASSED               [ 69%]
+test_mathlib.py::TestClamp::test_value_below_range PASSED                [ 73%]
+test_mathlib.py::TestClamp::test_value_above_range PASSED                [ 78%]
+test_mathlib.py::TestClamp::test_equal_bounds PASSED                     [ 82%]
+test_mathlib.py::TestClamp::test_negative_numbers PASSED                 [ 86%]
+test_mathlib.py::TestClamp::test_float_values PASSED                     [ 91%]
+test_mathlib.py::TestClamp::test_zero_crossings PASSED                   [ 95%]
+test_mathlib.py::TestClamp::test_boundary_values PASSED                  [100%]
+
+============================== 23 passed in 0.09s ==============================

@@ -1,0 +1,16 @@
+Traceback (most recent call last):
+  File "/home/bob/.local/share/gptme/logs/2026-03-23-gptme-evals-openrouter--openai--gpt-4o-mini-tool-8e8b74f0/workspace/main.py", line 4, in <module>
+    print(handle_profile(1))
+          ^^^^^^^^^^^^^^^^^
+  File "/home/bob/.local/share/gptme/logs/2026-03-23-gptme-evals-openrouter--openai--gpt-4o-mini-tool-8e8b74f0/workspace/routes.py", line 5, in handle_profile
+    user = get_user(user_id)
+           ^^^^^^^^
+NameError: name 'get_user' is not defined. Did you mean: 'fetch_user'?
+Traceback (most recent call last):
+  File "/home/bob/.local/share/gptme/logs/2026-03-23-gptme-evals-openrouter--openai--gpt-4o-mini-tool-8e8b74f0/workspace/main.py", line 5, in <module>
+    print(generate_report([2, 3]))
+          ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bob/.local/share/gptme/logs/2026-03-23-gptme-evals-openrouter--openai--gpt-4o-mini-tool-8e8b74f0/workspace/report.py", line 7, in generate_report
+    user = get_user(uid)
+           ^^^^^^^^
+NameError: name 'get_user' is not defined. Did you mean: 'fetch_user'?

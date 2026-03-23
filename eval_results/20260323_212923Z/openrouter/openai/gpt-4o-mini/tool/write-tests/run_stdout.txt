@@ -1,0 +1,12 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.2, pluggy-1.6.0 -- /home/bob/gptme/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /tmp/gptme-evals-y7q95xg6
+plugins: anyio-4.12.1, cov-7.0.0, mock-3.15.1, timeout-2.4.0
+collecting ... collected 3 items
+
+test_mathlib.py::test_factorial PASSED                                   [ 33%]
+test_mathlib.py::test_is_palindrome PASSED                               [ 66%]
+test_mathlib.py::test_clamp PASSED                                       [100%]
+
+============================== 3 passed in 0.04s ===============================

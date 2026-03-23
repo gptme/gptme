@@ -1,0 +1,14 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.2, pluggy-1.6.0 -- /home/bob/gptme/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /tmp/gptme-evals-7ekw4nbi
+plugins: anyio-4.12.1, cov-7.0.0, mock-3.15.1, timeout-2.4.0
+collecting ... collected 5 items
+
+test_shapes.py::test_circle_area PASSED                                  [ 20%]
+test_shapes.py::test_circle_perimeter PASSED                             [ 40%]
+test_shapes.py::test_rectangle_area PASSED                               [ 60%]
+test_shapes.py::test_rectangle_perimeter PASSED                          [ 80%]
+test_shapes.py::test_isinstance PASSED                                   [100%]
+
+============================== 5 passed in 0.02s ===============================

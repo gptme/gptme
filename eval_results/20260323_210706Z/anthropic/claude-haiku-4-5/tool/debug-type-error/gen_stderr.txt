@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/home/bob/.local/share/gptme/logs/2026-03-23-gptme-evals-anthropic--claude-haiku-4-5-tool-2cabb1db/workspace/process.py", line 18, in <module>
+    result = compute_total(cfg)
+             ^^^^^^^^^^^^^^^^^^
+  File "/home/bob/.local/share/gptme/logs/2026-03-23-gptme-evals-anthropic--claude-haiku-4-5-tool-2cabb1db/workspace/process.py", line 12, in compute_total
+    total = sum(prices)
+            ^^^^^^^^^^^
+TypeError: unsupported operand type(s) for +: 'int' and 'str'

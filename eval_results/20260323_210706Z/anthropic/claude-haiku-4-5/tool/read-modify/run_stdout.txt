@@ -1,0 +1,3 @@
+count: 5
+mean: 30.0
+max: 50
