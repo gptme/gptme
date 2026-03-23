@@ -55,7 +55,7 @@ def _get_docker_cmd_from_reexec(env_values: dict[str, str]) -> list[str]:
         patch("subprocess.check_output", side_effect=fake_check_output),
         patch.dict(os.environ, patched_env, clear=False),
         patch("sys.exit"),  # prevent SystemExit
-        patch("gptme.eval.main.get_config", return_value=mock_config),
+        patch.object(_eval_main_mod, "get_config", return_value=mock_config),
         patch("gptme.config.get_config", return_value=mock_config),
     ):
         docker_reexec = _eval_main_mod.docker_reexec
@@ -131,7 +131,7 @@ def test_env_file_has_restrictive_permissions():
         patch("subprocess.check_output", return_value="/fake/git/root\n"),
         patch.dict(os.environ, patched_env, clear=False),
         patch("sys.exit"),
-        patch("gptme.eval.main.get_config", return_value=mock_config),
+        patch.object(_eval_main_mod, "get_config", return_value=mock_config),
         patch("gptme.config.get_config", return_value=mock_config),
     ):
         docker_reexec = _eval_main_mod.docker_reexec
@@ -194,7 +194,7 @@ def test_env_file_contains_expected_content():
         patch("subprocess.check_output", return_value="/fake/git/root\n"),
         patch.dict(os.environ, patched_env, clear=False),
         patch("sys.exit"),
-        patch("gptme.eval.main.get_config", return_value=mock_config),
+        patch.object(_eval_main_mod, "get_config", return_value=mock_config),
         patch("gptme.config.get_config", return_value=mock_config),
     ):
         docker_reexec = _eval_main_mod.docker_reexec
