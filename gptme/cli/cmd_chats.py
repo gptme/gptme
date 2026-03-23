@@ -1,12 +1,15 @@
 """CLI commands for chat/conversation management."""
 
+import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import click
 
 from ..dirs import get_logs_dir
 from ..logmanager import LogManager
+from ..logmanager.conversations import ConversationMeta
 from ..message import Message
 from ..tools import get_tools, init_tools
 from ..tools.chats import find_empty_conversations, list_chats, search_chats
@@ -16,6 +19,25 @@ def _ensure_tools():
     """Lazily initialize tools only when needed."""
     if not get_tools():
         init_tools()
+
+
+def _conv_to_dict(conv: ConversationMeta) -> dict:
+    """Serialize a ConversationMeta to a JSON-friendly dict."""
+    return {
+        "id": conv.id,
+        "name": conv.name,
+        "path": conv.path,
+        "created": datetime.fromtimestamp(conv.created, tz=timezone.utc).isoformat(),
+        "modified": datetime.fromtimestamp(conv.modified, tz=timezone.utc).isoformat(),
+        "messages": conv.messages,
+        "branches": conv.branches,
+        "workspace": conv.workspace,
+        "agent_name": conv.agent_name,
+        "model": conv.model,
+        "total_cost": round(conv.total_cost, 4),
+        "total_input_tokens": conv.total_input_tokens,
+        "total_output_tokens": conv.total_output_tokens,
+    }
 
 
 def _format_size(size_bytes: int) -> str:
@@ -39,9 +61,18 @@ def chats():
 @click.option(
     "--summarize", is_flag=True, help="Generate LLM-based summaries for chats"
 )
-def chats_list(limit: int, summarize: bool):
+@click.option("--json", "output_json", is_flag=True, help="Output as JSON.")
+def chats_list(limit: int, summarize: bool, output_json: bool):
     """List conversation logs."""
     _ensure_tools()
+
+    if output_json:
+        from ..logmanager import list_conversations  # fmt: skip
+
+        conversations = list_conversations(limit)
+        click.echo(json.dumps([_conv_to_dict(c) for c in conversations], indent=2))
+        return
+
     if summarize:
         from gptme.init import init  # fmt: skip
 
@@ -61,9 +92,38 @@ def chats_list(limit: int, summarize: bool):
 @click.option(
     "--summarize", is_flag=True, help="Generate LLM-based summaries for chats"
 )
-def chats_search(query: str, limit: int, summarize: bool):
+@click.option("--json", "output_json", is_flag=True, help="Output as JSON.")
+def chats_search(query: str, limit: int, summarize: bool, output_json: bool):
     """Search conversation logs."""
     _ensure_tools()
+
+    if output_json:
+        from ..logmanager import LogManager, list_conversations  # fmt: skip
+        from ..tools.chats import _get_matching_messages  # fmt: skip
+
+        results = []
+        for conv in list_conversations(10 * limit):
+            log_path = Path(conv.path)
+            log_manager = LogManager.load(log_path, lock=False)
+            matching = _get_matching_messages(log_manager, query)
+            if matching:
+                entry = _conv_to_dict(conv)
+                entry["matches"] = len(matching)
+                entry["snippets"] = [
+                    {
+                        "index": idx,
+                        "role": msg.role,
+                        "content": msg.content[:200],
+                    }
+                    for idx, msg in matching[:3]
+                ]
+                results.append(entry)
+                if len(results) >= limit:
+                    break
+
+        click.echo(json.dumps(results, indent=2))
+        return
+
     if summarize:
         from gptme.init import init  # fmt: skip
 
