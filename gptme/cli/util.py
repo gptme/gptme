@@ -502,10 +502,17 @@ def tools_call(tool_name: str, function_name: str, arg: list[str]):
         # Parse arguments into a dictionary, ensuring proper typing
         kwargs = {}
         for arg_str in arg:
+            if "=" not in arg_str:
+                print(f"Error: Argument must be in key=value format, got: {arg_str}")
+                sys.exit(1)
             key, value = arg_str.split("=", 1)
             kwargs[key] = value
-        return_val = function[0](**kwargs)
-        print(return_val)
+        try:
+            return_val = function[0](**kwargs)
+            print(return_val)
+        except TypeError as e:
+            print(f"Error calling function: {e}")
+            sys.exit(1)
 
 
 @main.group()

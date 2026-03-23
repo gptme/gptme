@@ -64,7 +64,11 @@ class GptmeApiClient:
             # Read first event which contains session_id
             for line in response.iter_lines():
                 if line and line.startswith(b"data:"):
-                    data = json.loads(line[5:].strip())
+                    try:
+                        data = json.loads(line[5:].strip())
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"Failed to parse SSE event: {e}")
+                        continue
                     if data.get("type") == "connected":
                         session_id = data.get("session_id")
                         if session_id is None:

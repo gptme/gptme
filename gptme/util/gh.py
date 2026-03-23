@@ -175,7 +175,7 @@ def parse_github_url(url: str) -> dict[str, str] | None:
                 "type": path_parts[2],
                 "number": path_parts[3],
             }
-    except Exception:
+    except (ValueError, AttributeError):
         pass
     return None
 
