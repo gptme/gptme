@@ -56,10 +56,11 @@ class TestTruncateContextOutput:
         lines = ["line " + str(i) for i in range(50)]
         text = "\n".join(lines)
         result = self._truncate(text, 100)
-        # Result should end at a line boundary before the TRUNCATED notice
+        # Result should end at a complete line boundary before the TRUNCATED notice
         main_content = result.split("\n\n... [TRUNCATED")[0]
-        # Should not end mid-line
-        assert main_content.endswith(main_content.rstrip())
+        # Last line should be a complete "line N" entry, not a partial cut
+        last_line = main_content.rstrip().rsplit("\n", 1)[-1]
+        assert last_line.startswith("line ")
 
     def test_truncation_notice_format(self):
         """Truncation notice includes original and kept char counts."""
@@ -209,6 +210,18 @@ class TestJoinMessages:
 
 class TestPromptGptme:
     """Tests for prompt_gptme in templates.py."""
+
+    @pytest.fixture(autouse=True)
+    def _isolate_from_live_config(self):
+        """Mock project config lookups so tests don't depend on the live repo."""
+        with (
+            patch("gptme.prompts.templates.get_project_git_dir", return_value=None),
+            patch(
+                "gptme.prompts.templates.get_project_config",
+                return_value=MagicMock(base_prompt=None),
+            ),
+        ):
+            yield
 
     def test_interactive_mode(self):
         """Interactive mode includes interactive instructions."""
@@ -670,9 +683,9 @@ class TestUseChatHistoryContext:
         with patch("gptme.prompts.chat_history.get_config", return_value=mock_config):
             assert use_chat_history_context() is True
 
-    @pytest.mark.parametrize("value", ["0", "false", "no", "anything"])
-    def test_disabled_falsy_values(self, value):
-        """Chat history is disabled with falsy env var values."""
+    @pytest.mark.parametrize("value", ["0", "false", "no", "other"])
+    def test_disabled_non_truthy_values(self, value):
+        """Chat history is disabled with non-truthy env var values (allowlist-based)."""
         from gptme.prompts.chat_history import use_chat_history_context
 
         mock_config = MagicMock()
