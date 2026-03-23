@@ -52,7 +52,7 @@ def check_word_freq_ran(ctx):
 
 
 def check_word_freq_top5_order(ctx):
-    """'the' should appear before 'cat', 'dog', 'mat', 'ran' in output (sorted by freq desc)."""
+    """'the' should appear before 'cat' in output (sorted by freq desc)."""
     idx_the = ctx.stdout.find("the:")
     idx_cat = ctx.stdout.find("cat:")
     return idx_the < idx_cat if idx_the >= 0 and idx_cat >= 0 else False
