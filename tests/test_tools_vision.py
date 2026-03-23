@@ -51,21 +51,13 @@ def large_bmp(tmp_path: Path) -> Path:
 @pytest.fixture
 def huge_bmp(tmp_path: Path) -> Path:
     """Create a very large BMP image (several MB) that needs both compression and scaling."""
-    # 4000x4000 BMP will be ~48MB uncompressed
-    img = Image.new("RGB", (4000, 4000))
-    pixels = img.load()
-    assert pixels is not None
-    for x in range(0, 4000, 4):
-        for y in range(0, 4000, 4):
-            color = (
-                (x * 7 + y * 13) % 256,
-                (x * 11 + y * 3) % 256,
-                (x * 5 + y * 17) % 256,
-            )
-            for dx in range(4):
-                for dy in range(4):
-                    if x + dx < 4000 and y + dy < 4000:
-                        pixels[x + dx, y + dy] = color
+    import os
+
+    # 2000x2000 RGB BMP = ~12MB uncompressed — triggers both compression and scaling
+    # Random noise is incompressible as JPEG (still >1MB after compression, forces scaling)
+    # os.urandom + frombytes is far faster than per-pixel loops (~0.1s vs 10+s)
+    data = os.urandom(2000 * 2000 * 3)
+    img = Image.frombytes("RGB", (2000, 2000), data)
     path = tmp_path / "huge.bmp"
     img.save(str(path))
     return path
