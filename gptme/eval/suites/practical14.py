@@ -127,7 +127,7 @@ def check_ipv4_224_multicast(ctx):
 def check_ipv4_class_a(ctx):
     """10.0.0.5 should be class A (first octet 1-126 or 10.x)."""
     for line in ctx.stdout.splitlines():
-        if "10.0.0.5" in line and re.search(r"\bA\b", line, re.IGNORECASE):
+        if re.search(r"10\.0\.0\.5\s+[Aa]\b", line):
             return True
     return False
 
@@ -293,7 +293,7 @@ tests: list["EvalSpec"] = [
             "((] invalid": check_brackets_invalid1,
             "{[}] invalid": check_brackets_invalid2,
             "((( unclosed": check_brackets_unclosed,
-            "((] error at pos 2/3": check_brackets_error_pos,
+            "((] error at pos 3": check_brackets_error_pos,
             "clean exit": check_brackets_exit,
         },
     },
