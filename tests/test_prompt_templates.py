@@ -417,6 +417,9 @@ class TestPromptComposition:
 
         # Should have non-interactive blurb
         assert "non-interactive" in combined.lower()
+        # User-preferences section must be absent (prompt_user not called for non-interactive)
+        assert "Response Preferences" not in combined
+        assert "# About" not in combined
 
     def test_prompt_short_no_examples(self):
         """prompt_short passes examples=False, so examples are excluded."""
@@ -454,14 +457,24 @@ class TestPromptUser:
     """Tests for prompt_user in templates.py — config fallback logic."""
 
     def test_default_user_prompt(self):
-        """Without config, uses default user description."""
+        """Without user config, falls back to built-in defaults."""
         from gptme.prompts import prompt_user
 
-        msgs = list(prompt_user())
+        mock_config = MagicMock()
+        mock_config.user.user.name = None
+        mock_config.user.user.about = None
+        mock_config.user.user.response_preference = None
+        mock_config.user.prompt.about_user = None
+        mock_config.user.prompt.response_preference = None
+
+        with patch("gptme.prompts.templates.get_config", return_value=mock_config):
+            msgs = list(prompt_user())
         assert len(msgs) == 1
         content = msgs[0].content
-        # Should have some user info (either from config or defaults)
-        assert "About" in content or "User" in content
+        # Default fallbacks from prompt_user when no config is set
+        assert "# About User" in content
+        assert "You are interacting with a human programmer." in content
+        assert "No specific preferences set." in content
 
     def test_user_name_in_prompt(self):
         """User name from config appears in prompt."""
