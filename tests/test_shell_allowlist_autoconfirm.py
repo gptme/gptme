@@ -52,6 +52,13 @@ ALLOWLIST_TEST_CASES = [
     ("head file | bash", False, "pipe to bash (not in allowlist)"),
     ("ls | python -c 'import sys'", False, "pipe to python"),
     ("cat data.csv | perl -lane", False, "pipe to perl"),
+    # Safe find flags that look like dangerous ones - should be allowlisted
+    ("find . -executable", True, "find -executable (safe flag, not -exec)"),
+    (
+        "find . -type f -executable -name '*.sh'",
+        True,
+        "find -executable with other flags",
+    ),
     # Dangerous flags within allowlisted commands - blocked by flag check
     ("find . -name '*.py' -exec rm {} \\;", False, "find -exec rm (dangerous flag)"),
     ("find . -type f -exec cat {} \\;", False, "find -exec cat (dangerous flag)"),
