@@ -8,9 +8,15 @@ The fix uses ``--env-file`` with a temporary file (mode 0600) instead, so
 secrets never appear on the command line.
 """
 
+import importlib
 import os
 import stat
 from unittest.mock import MagicMock, patch
+
+# gptme/eval/__init__.py does ``from .main import main``, which shadows the
+# module name with the Click Command object.  Using importlib guarantees we
+# get the *module*, not the Click command — this is required for patch.object.
+_eval_main_mod = importlib.import_module("gptme.eval.main")
 
 
 def _get_docker_cmd_from_reexec(env_values: dict[str, str]) -> list[str]:
@@ -35,9 +41,7 @@ def _get_docker_cmd_from_reexec(env_values: dict[str, str]) -> list[str]:
         return "/fake/git/root\n"
 
     # Build a patched environment with the test keys
-    patched_env = dict(os.environ)
-    for k, v in env_values.items():
-        patched_env[k] = v
+    patched_env = {**os.environ, **env_values}
 
     with (
         patch("subprocess.run", side_effect=fake_subprocess_run),
@@ -49,9 +53,8 @@ def _get_docker_cmd_from_reexec(env_values: dict[str, str]) -> list[str]:
         mock_config = MagicMock()
         mock_config.get_env = lambda key, default=None: patched_env.get(key, default)
 
-        with patch("gptme.eval.main.get_config", return_value=mock_config):
-            from gptme.eval.main import docker_reexec
-
+        with patch.object(_eval_main_mod, "get_config", return_value=mock_config):
+            docker_reexec = _eval_main_mod.docker_reexec
             docker_reexec(["gptme-eval", "--some-arg"])
 
     return captured_cmd
@@ -115,8 +118,7 @@ def test_env_file_has_restrictive_permissions():
         mock_result.stdout = ""
         return mock_result
 
-    patched_env = dict(os.environ)
-    patched_env[test_key] = test_secret
+    patched_env = {**os.environ, test_key: test_secret}
 
     with (
         patch("subprocess.run", side_effect=capture_env_file),
@@ -127,9 +129,8 @@ def test_env_file_has_restrictive_permissions():
         mock_config = MagicMock()
         mock_config.get_env = lambda key, default=None: patched_env.get(key, default)
 
-        with patch("gptme.eval.main.get_config", return_value=mock_config):
-            from gptme.eval.main import docker_reexec
-
+        with patch.object(_eval_main_mod, "get_config", return_value=mock_config):
+            docker_reexec = _eval_main_mod.docker_reexec
             docker_reexec(["gptme-eval", "--some-arg"])
 
     assert env_file_path is not None, "Expected --env-file to be used"
@@ -180,9 +181,7 @@ def test_env_file_contains_expected_content():
         mock_result.stdout = ""
         return mock_result
 
-    patched_env = dict(os.environ)
-    for k, v in test_secrets.items():
-        patched_env[k] = v
+    patched_env = {**os.environ, **test_secrets}
 
     with (
         patch("subprocess.run", side_effect=capture_env_file_content),
@@ -193,9 +192,8 @@ def test_env_file_contains_expected_content():
         mock_config = MagicMock()
         mock_config.get_env = lambda key, default=None: patched_env.get(key, default)
 
-        with patch("gptme.eval.main.get_config", return_value=mock_config):
-            from gptme.eval.main import docker_reexec
-
+        with patch.object(_eval_main_mod, "get_config", return_value=mock_config):
+            docker_reexec = _eval_main_mod.docker_reexec
             docker_reexec(["gptme-eval", "--some-arg"])
 
     assert env_file_content is not None, "Expected env file to be written"
