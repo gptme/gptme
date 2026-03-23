@@ -105,6 +105,18 @@ def check_semver_prerelease_order(ctx):
         return False
 
 
+def check_semver_prerelease_before_lower_major(ctx):
+    """2.0.0-alpha.1 should appear before all 1.x.x versions (major 2 > major 1)."""
+    lines = [ln.strip() for ln in ctx.stdout.splitlines() if ln.strip()]
+    one_x_versions = ["1.11.0", "1.9.0", "1.2.3", "1.2.3-rc.2", "1.2.3-beta.1"]
+    try:
+        idx_alpha = lines.index("2.0.0-alpha.1")
+        first_1x = min(lines.index(v) for v in one_x_versions if v in lines)
+        return idx_alpha < first_1x
+    except ValueError:
+        return False
+
+
 def check_semver_exit(ctx):
     """Script should exit cleanly."""
     return ctx.exit_code == 0
@@ -222,6 +234,7 @@ tests: list["EvalSpec"] = [
             "1.11.0 before 1.9.0 (numeric)": check_semver_numeric_order,
             "2.0.0 before 2.0.0-alpha.1 (release > pre-release)": check_semver_release_before_prerelease,
             "1.2.3 > 1.2.3-rc.2 > 1.2.3-beta.1 (pre-release order)": check_semver_prerelease_order,
+            "2.0.0-alpha.1 before all 1.x.x (cross-major pre-release)": check_semver_prerelease_before_lower_major,
             "clean exit": check_semver_exit,
         },
     },
