@@ -635,6 +635,7 @@ def main(
         json_data = results_to_json(model_results, commit_hash=commit_hash)
         print(json.dumps(json_data, indent=2))
     else:
+        json_data = None
         print("\n=== Model Results ===")
         print_model_results(model_results)
 
@@ -642,7 +643,7 @@ def main(
         print_model_results_table(model_results)
 
     # Write results to CSV (and JSON if flag set)
-    write_results(model_results, write_json=json_output)
+    write_results(model_results, write_json=json_output, json_data=json_data)
 
     sys.exit(0)
 
@@ -799,6 +800,7 @@ def _get_commit_hash() -> str:
 def write_results(
     model_results: dict[ModelConfig, list[EvalResult]],
     write_json: bool = False,
+    json_data: dict | None = None,
 ):
     timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%SZ")
     commit_hash = _get_commit_hash()
@@ -865,7 +867,8 @@ def write_results(
     _status_file = sys.stderr if write_json else sys.stdout
 
     if write_json:
-        json_data = results_to_json(model_results, commit_hash=commit_hash)
+        if json_data is None:
+            json_data = results_to_json(model_results, commit_hash=commit_hash)
         json_filename = results_dir / "eval_results.json"
         with open(json_filename, "w") as f:
             json.dump(json_data, f, indent=2)
