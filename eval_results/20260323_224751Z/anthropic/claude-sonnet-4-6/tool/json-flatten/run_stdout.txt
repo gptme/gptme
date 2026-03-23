@@ -1,0 +1,18 @@
+{
+  "database.host": "localhost",
+  "database.port": 5432,
+  "database.credentials.user": "admin",
+  "database.credentials.password": "secret",
+  "server.host": "0.0.0.0",
+  "server.port": 8080,
+  "server.tls.enabled": true,
+  "server.tls.cert_file": "/etc/ssl/cert.pem",
+  "server.tls.key_file": "/etc/ssl/key.pem",
+  "server.allowed_hosts": [
+    "localhost",
+    "example.com",
+    "*.example.com"
+  ],
+  "debug": false,
+  "version": "2.0.0"
+}

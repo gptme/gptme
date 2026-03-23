@@ -1,0 +1,3 @@
+Subtotal: $150.00
+With tax: $165.00
+Raw: 150.0

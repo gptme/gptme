@@ -1,0 +1,5 @@
+Model,Test,Case,Passed,Duration
+,,check_schedule.py exists,true,0.0
+,,Meeting A detected,true,0.0
+,,Meeting B detected,true,0.0
+,,clean exit,true,0.0

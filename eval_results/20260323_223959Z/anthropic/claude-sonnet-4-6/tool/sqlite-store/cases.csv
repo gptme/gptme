@@ -1,0 +1,5 @@
+Model,Test,Case,Passed,Duration
+,,notes.py exists,true,0.0
+,,clean exit,true,0.0
+,,before-delete lists both notes,true,0.0
+,,after-delete removes 'buy milk',true,0.0

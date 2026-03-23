@@ -1,0 +1,3 @@
+Filtered employees: 3
+Total salary: 248000
+Avg experience: 11.666666666666666 years

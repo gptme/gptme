@@ -1,0 +1,4 @@
+Model,Test,Case,Passed,Duration
+,,analyze.py exists,true,0.0
+,,correct statistics,true,0.0
+,,clean exit,true,0.0

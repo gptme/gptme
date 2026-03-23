@@ -1,0 +1,3 @@
+Clothing: 550
+Electronics: 1200
+Food: 180

@@ -1,0 +1,8 @@
+Model,Test,Case,Passed,Duration
+,,log_stats.py exists,true,0.0
+,,INFO: 4,true,0.0
+,,DEBUG: 3,true,0.0
+,,ERROR: 2,true,0.0
+,,WARN: 1,true,0.0
+,,INFO before DEBUG (freq order),true,0.0
+,,clean exit,true,0.0

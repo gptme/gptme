@@ -1,0 +1,6 @@
+Encoded: 3A3B4C
+Decoded: AAABBBCCCC
+Encoded: ABCD4E
+Decoded: ABCDEEEE
+Encoded: 10W
+Decoded: WWWWWWWWWW

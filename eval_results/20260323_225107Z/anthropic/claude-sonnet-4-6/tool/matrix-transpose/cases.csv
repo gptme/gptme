@@ -1,0 +1,8 @@
+Model,Test,Case,Passed,Duration
+,,transpose.py exists,true,0.0
+,,row 1: 1 5 9,true,0.0
+,,row 2: 2 6 10,true,0.0
+,,row 3: 3 7 11,true,0.0
+,,row 4: 4 8 12,true,0.0
+,,4 output rows,true,0.0
+,,clean exit,true,0.0

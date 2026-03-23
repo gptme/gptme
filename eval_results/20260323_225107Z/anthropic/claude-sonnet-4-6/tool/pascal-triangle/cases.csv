@@ -1,0 +1,7 @@
+Model,Test,Case,Passed,Duration
+,,pascal.py exists,true,0.0
+,,row 1: 1,true,0.0
+,,row 3: 1 2 1,true,0.0
+,,row 5: 1 4 6 4 1,true,0.0
+,,row 6: 1 5 10 10 5 1,true,0.0
+,,clean exit,true,0.0

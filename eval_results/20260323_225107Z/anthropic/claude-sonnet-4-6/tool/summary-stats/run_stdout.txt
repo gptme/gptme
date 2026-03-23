@@ -1,0 +1,4 @@
+mean: 6.2
+median: 7.0
+mode: 7
+range: 12

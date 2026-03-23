@@ -1,0 +1,6 @@
+Alice: age=30, grade=A
+Error: invalid literal for int() with base 10: 'not_a_number'
+Charlie: age=25, grade=C
+Error: int() argument must be a string, a bytes-like object or a real number, not 'NoneType'
+Error: missing key: 'name'
+Diana: age=28, grade=A

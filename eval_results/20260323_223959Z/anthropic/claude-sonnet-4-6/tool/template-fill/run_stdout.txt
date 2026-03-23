@@ -1,0 +1,8 @@
+Dear Alice,
+
+Your order #ORD-2024-001 has been confirmed.
+Items: 3x Widget
+Total: $59.97
+
+Thank you for shopping with us!
+

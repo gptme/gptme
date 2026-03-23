@@ -1,0 +1,6 @@
+Total: 7 commits
+Authors:
+  Alice: 4 commits
+  Bob: 2 commits
+  Charlie: 1 commits
+Date range: 2024-01-15 to 2024-01-21

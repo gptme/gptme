@@ -1,0 +1,11 @@
+Model,Test,Case,Passed,Duration
+,,ipv4_classify.py exists,true,0.0
+,,192.168.1.1 private,true,0.0
+,,10.0.0.5 private,true,0.0
+,,172.16.254.3 private,true,0.0
+,,8.8.8.8 public,true,0.0
+,,127.0.0.1 loopback,true,0.0
+,,224.0.0.1 multicast,true,0.0
+,,10.x is class A,true,0.0
+,,192.x is class C,true,0.0
+,,clean exit,true,0.0

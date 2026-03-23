@@ -1,0 +1,25 @@
+{
+  "name": "myapp-prod",
+  "version": "1.0.0",
+  "database": {
+    "host": "db.prod.example.com",
+    "port": 5432,
+    "name": "myapp_production"
+  },
+  "logging": {
+    "level": "WARNING",
+    "handlers": {
+      "console": {
+        "enabled": true
+      },
+      "file": {
+        "enabled": true,
+        "path": "/var/log/myapp/prod.log"
+      }
+    }
+  },
+  "features": {
+    "cache": true,
+    "debug": false
+  }
+}

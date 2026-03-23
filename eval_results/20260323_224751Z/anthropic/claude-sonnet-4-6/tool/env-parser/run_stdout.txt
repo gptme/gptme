@@ -1,0 +1,6 @@
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=myapp_db
+APP_SECRET=super-secret-key
+DEBUG=true
+LOG_LEVEL=info

@@ -1,0 +1,4 @@
+INFO: 4
+DEBUG: 3
+ERROR: 2
+WARN: 1

@@ -1,0 +1,7 @@
+Model,Test,Case,Passed,Duration
+,,file created,true,0.0
+,,row 1 ok,true,0.0
+,,row 2 email error,true,0.0
+,,row 3 name error,true,0.0
+,,row 4 age error,true,0.0
+,,clean exit,true,0.0

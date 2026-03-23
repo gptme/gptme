@@ -1,0 +1,7 @@
+Model,Test,Case,Passed,Duration
+,,stats.py exists,true,0.0
+,,mean: 6.2,true,0.0
+,,median: 7.0,true,0.0
+,,mode: 7,true,0.0
+,,range: 12,true,0.0
+,,clean exit,true,0.0

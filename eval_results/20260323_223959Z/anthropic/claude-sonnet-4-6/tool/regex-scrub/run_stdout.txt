@@ -1,0 +1,12 @@
+Customer Report - Q4 2024
+
+Contact Alice at [EMAIL] or call [PHONE] for account details.
+Her SSN on file is [SSN].
+
+Bob from the partner team can be reached at [EMAIL].
+His direct line is [PHONE] and SSN [SSN].
+
+Meeting scheduled for January 15, 2025 at 10:00 AM.
+Total outstanding balance: $4,250.00
+
+Notes: Both Alice and Bob confirmed attendance for the Q1 review.

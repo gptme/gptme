@@ -1,0 +1,18 @@
+### Features
+- (auth) add JWT-based authentication
+- (search) implement full-text search for articles
+- (auth) add OAuth2 provider support
+
+### Fixes
+- (api) resolve login timeout on slow connections
+- correct memory leak in background worker
+- (ui) fix button alignment on mobile devices
+
+### Documentation
+- (api) update REST API reference with new endpoints
+- add contributing guidelines
+
+### Other
+- update dependencies to latest versions
+- (db) optimize query performance for user lookups
+

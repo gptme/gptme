@@ -1,0 +1,7 @@
+=== before delete ===
+buy milk
+call dentist
+
+=== after delete ===
+call dentist
+

@@ -1,0 +1,5 @@
+(())(()) valid
+([{}]) valid
+((] invalid at position 3
+{[}] invalid at position 3
+((( invalid at position 1

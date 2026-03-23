@@ -1,0 +1,7 @@
+- [Installation](#installation)
+  - [Prerequisites](#prerequisites)
+  - [Quick Start](#quick-start)
+- [Configuration](#configuration)
+  - [Environment Variables](#environment-variables)
+  - [Config File](#config-file)
+- [Usage](#usage)

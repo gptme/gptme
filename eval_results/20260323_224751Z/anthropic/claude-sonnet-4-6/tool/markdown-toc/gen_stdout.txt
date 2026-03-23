@@ -1,0 +1,72 @@
+
+--- Start of generation ---
+[22:43:24] Using model: anthropic/claude-sonnet-4-6                             
+           Using logdir:                                                        
+           ~/.local/share/gptme/logs/2026-03-23-gptme-evals-anthropic--claude-so
+           nnet-4-6-tool-503ba5cb                                               
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2026-03-23-gptme-evals-anthropic--claude-so
+           nnet-4-6-tool-503ba5cb/workspace                                     
+Skipped 2 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: 
+Write gen_toc.py that reads a Markdown file and prints a table of contents. The 
+script should accept the filename as a command-line argument.
+
+Process all headings at level 2 (##) and level 3 (###). Skip h1 (#) headings.
+
+For each heading, generate a markdown link with a GitHub-style anchor:
+- Convert heading text to lowercase
+- Replace spaces with hyphens
+- Remove non-alphanumeric characters except hyphens
+
+Indent h3 entries with 2 spaces relative to h2 entries. Output format:
+- [Installation](#installation)
+  - [Prerequisites](#prerequisites)
+  - [Quick Start](#quick-start)
+- [Configuration](#configuration)
+
+Use only the Python standard library.
+Assistant: Thinking...                                                                                Assistant: 
+<think>       <think>
+Let me write the gen_toc.py script that reads a Markdown file and generates a table of contents.
+<!-- think-sig: EogCCkYICxgCKkC94U1b7TiHQySMDaADMH6/hMrtKi/7paffNIe758Ym5OdBxwJPqBDxr5X831jbiDhQsw5HZYw49d2OicyeIjFDEgxwa/if43ULXf3Be5QaDFBtdkGNAW0yU+U6ZCIweVgo9FWjAmdpnB5lZ1tDzmqdvAJ606vwlwX64zpmxpZ4zP07G+qpP5JQ4AhaaLFiKnBODokQ3u7KwbnY0THeJqCR36x7rbTVzzh/5fAB2i0SWLg5xJonpcXt3T1IzY/FApuXUsBA1aMXUaL0jQrspgGBDWiCOdzxqz0gbIph8BIPV4Nu87i0WjlamWqA6wp7xMU9D5R5UorRY+iH7g4s8+uFGAE= -->
+</think>        </think>
+
+
+@save(toolu_01149mJQTG7JJ4rGyFjxfoQc): {"path": "gen_toc.py", "content": "#!/usr/bin/env python3\n\"\"\"Generate a table of contents from a Markdown file.\"\"\"\n\nimport re\nimport sys\n\n\ndef make_anchor(heading_text: str) -> str:\n    \"\"\"Generate a GitHub-style anchor from heading text.\"\"\"\n    anchor = heading_text.lower()\n    anchor = anchor.replace(\" \", \"-\")\n    anchor = re.sub(r\"[^a-z0-9\\-]\", \"\", anchor)\n    return anchor\n\n\ndef parse_headings(lines: list[str]) -> list[tuple[int, str]]:\n    \"\"\"Extract h2 and h3 headings from markdown lines as (level, text) tuples.\"\"\"\n    headings = []\n    in_code_block = False\n\n    for line in lines:\n        # Track fenced code blocks to avoid parsing headings inside them\n        if line.startswith(\"```\") or line.startswith(\"~~~\"):\n            in_code_block = not in_code_block\n            continue\n\n        if in_code_block:\n            continue\n\n        match = re.match(r\"^(#{2,3})\\s+(.+)\", line)\n        if match:\n            level = len(match.group(1))\n            text = match.group(2).strip()\n            headings.append((level, text))\n\n    return headings\n\n\ndef generate_toc(headings: list[tuple[int, str]]) -> list[str]:\n    \"\"\"Generate TOC lines from a list of (level, text) heading tuples.\"\"\"\n    toc_lines = []\n\n    for level, text in headings:\n        anchor = make_anchor(text)\n        link = f\"[{text}](#{anchor})\"\n\n        if level == 2:\n            toc_lines.append(f\"- {link}\")\n        elif level == 3:\n            toc_lines.append(f\"  - {link}\")\n\n    return toc_lines\n\n\ndef main() -> None:\n    if len(sys.argv) != 2:\n        print(f\"Usage: {sys.argv[0]} <markdown_file>\", file=sys.stderr)\n        sys.exit(1)\n\n    filename = sys.argv[1]\n\n    try:\n        with open(filename, encoding=\"utf-8\") as f:\n            lines = f.readlines()\n    except FileNotFoundError:\n        print(f\"Error: file '{filename}' not found.\", file=sys.stderr)\n        sys.exit(1)\n\n    headings = parse_headings(lines)\n    toc = generate_toc(headings)\n\n    print(\"\\n\".join(toc))\n\n\nif __name__ == \"__main__\":\n    main()\n"}                                                                                System: ✅ Saved to gen_toc.py
+Assistant: Thinking...                                                                                Assistant: 
+Let me verify it works with a test Markdown file:
+@save(toolu_01X1huTeRUJRBtNxkaNLCsCt): {"path": "test.md", "content": "# My Project\n\n## Installation\n\n### Prerequisites\n\n### Quick Start\n\n## Configuration\n\n### Basic Options\n\n### Advanced Options\n\n## FAQ\n\n```markdown\n### This heading inside code block should be skipped\n```\n\n## Contributing\n"}                                                                                System: ✅ Saved to test.md
+Assistant: Thinking...                                                                                Assistant: 
+
+@shell(toolu_01F6ABJGdPYrp1CcNtMVqNni): {"command": "python3 gen_toc.py test.md"}                                                                                - [Installation](#installation)
+  - [Prerequisites](#prerequisites)
+  - [Quick Start](#quick-start)
+- [Configuration](#configuration)
+  - [Basic Options](#basic-options)
+  - [Advanced Options](#advanced-options)
+- [FAQ](#faq)
+- [Contributing](#contributing)
+System: 
+Ran command: `python3 gen_toc.py test.md`
+
+```stdout
+- [Installation](#installation)
+  - [Prerequisites](#prerequisites)
+  - [Quick Start](#quick-start)
+- [Configuration](#configuration)
+  - [Basic Options](#basic-options)
+  - [Advanced Options](#advanced-options)
+- [FAQ](#faq)
+- [Contributing](#contributing)
+```
+Assistant: Thinking...                                                                                Assistant: 
+The output matches the expected format exactly. Here's a summary of what `gen_toc.py` does:
+
+- **`make_anchor(text)`** — converts heading text to a GitHub-style anchor: lowercased, spaces→hyphens, non-alphanumeric characters (except hyphens) stripped.
+- **`parse_headings(lines)`** — scans lines for `##` and `###` headings using a regex, correctly **skipping headings inside fenced code blocks** (` ``` ` or `~~~`).
+- **`generate_toc(headings)`** — builds the TOC list: h2 headings get `- [...]`, h3 headings get `  - [...]` (2-space indent).
+- **`main()`** — handles CLI argument parsing and file I/O with proper error messages to stderr.                                                                                [22:43:47] Session: $0.03 | 4 turns | 4k context | 72% cached                   
+--- Finished generation ---
+

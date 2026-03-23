@@ -1,0 +1,5 @@
+Total requests: 12
+Errors: 3
+Warnings: 4
+Most common endpoint: /api/users (5 requests)
+Average response time: 378.00ms

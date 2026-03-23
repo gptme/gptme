@@ -1,0 +1,7 @@
+Model,Test,Case,Passed,Duration
+,,diff_json.py exists,true,0.0
+,,detects added key,false,0.0
+,,detects removed key,false,0.0
+,,detects changed values,true,0.0
+,,ignores unchanged,false,0.0
+,,clean exit,true,0.0

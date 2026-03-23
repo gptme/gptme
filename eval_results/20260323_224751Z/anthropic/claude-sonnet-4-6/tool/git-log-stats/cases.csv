@@ -1,0 +1,9 @@
+Model,Test,Case,Passed,Duration
+,,git_stats.py exists,true,0.0
+,,total 7 commits,true,0.0
+,,Alice 4 commits,true,0.0
+,,Bob 2 commits,true,0.0
+,,Charlie 1 commit (singular),true,0.0
+,,Alice before Bob (sorted),true,0.0
+,,date range present,true,0.0
+,,clean exit,true,0.0

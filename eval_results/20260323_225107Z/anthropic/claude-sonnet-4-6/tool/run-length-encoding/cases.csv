@@ -1,0 +1,7 @@
+Model,Test,Case,Passed,Duration
+,,rle.py exists,true,0.0
+,,AAABBBCCCC → 3A3B4C,true,0.0
+,,ABCDEEEE → ABCD4E,true,0.0
+,,WWWWWWWWWW → 10W,true,0.0
+,,round-trip: AAABBBCCCC restored,true,0.0
+,,clean exit,true,0.0

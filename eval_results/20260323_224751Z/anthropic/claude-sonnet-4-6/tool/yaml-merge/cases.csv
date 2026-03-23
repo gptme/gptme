@@ -1,0 +1,11 @@
+Model,Test,Case,Passed,Duration
+,,yaml_merge.py exists,true,0.0
+,,merged.yaml exists,true,0.0
+,,base server.host preserved,true,0.0
+,,port overridden to 9090,true,0.0
+,,debug overridden to true,true,0.0
+,,db host overridden,true,0.0
+,,base db name preserved,true,0.0
+,,log level overridden,true,0.0
+,,list fully replaced,true,0.0
+,,clean exit,true,0.0

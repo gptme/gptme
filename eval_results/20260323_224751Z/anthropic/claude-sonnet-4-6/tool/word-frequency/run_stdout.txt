@@ -1,0 +1,5 @@
+the: 11
+fox: 4
+quick: 3
+brown: 2
+cat: 2

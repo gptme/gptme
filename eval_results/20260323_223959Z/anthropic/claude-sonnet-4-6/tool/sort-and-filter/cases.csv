@@ -1,0 +1,7 @@
+Model,Test,Case,Passed,Duration
+,,file created,true,0.0
+,,alice in output,true,0.0
+,,diana in output (boundary age=28),true,0.0
+,,bob filtered out,true,0.0
+,,correct sort order,true,0.0
+,,clean exit,true,0.0

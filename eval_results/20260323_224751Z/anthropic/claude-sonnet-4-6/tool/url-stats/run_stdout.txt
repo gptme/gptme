@@ -1,0 +1,4 @@
+other.org: 3
+docs.example.com: 2
+example.com: 2
+api.example.com: 1

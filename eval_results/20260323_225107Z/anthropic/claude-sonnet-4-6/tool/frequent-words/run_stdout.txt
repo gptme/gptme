@@ -1,0 +1,5 @@
+the: 6
+cat: 2
+dog: 2
+mat: 2
+ran: 2

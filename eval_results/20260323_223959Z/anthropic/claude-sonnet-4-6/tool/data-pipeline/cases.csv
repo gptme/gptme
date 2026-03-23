@@ -1,0 +1,6 @@
+Model,Test,Case,Passed,Duration
+,,pipeline.py exists,true,0.0
+,,correct count,true,0.0
+,,correct total salary,true,0.0
+,,correct avg experience,true,0.0
+,,clean exit,true,0.0

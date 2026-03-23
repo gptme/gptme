@@ -1,0 +1,7 @@
+Model,Test,Case,Passed,Duration
+,,date_histogram.py exists,true,0.0
+,,Monday count is 5,true,0.0
+,,identifies Monday as busiest,true,0.0
+,,all seven days listed,true,0.0
+,,zero-count days shown,true,0.0
+,,clean exit,true,0.0

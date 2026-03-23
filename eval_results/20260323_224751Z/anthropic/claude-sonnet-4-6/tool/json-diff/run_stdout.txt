@@ -1,0 +1,7 @@
+changed: address.city: "New York" -> "Boston"
+added: address.country = "USA"
+removed: address.zip (was "10001")
+changed: age: 30 -> 31
+added: email = "alice@example.com"
+changed: hobbies: ["reading", "cycling"] -> ["reading", "hiking"]
+removed: score (was 95)

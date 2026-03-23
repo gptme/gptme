@@ -1,0 +1,8 @@
+Monday: 5 (41.7%)
+Tuesday: 3 (25.0%)
+Wednesday: 3 (25.0%)
+Thursday: 1 (8.3%)
+Friday: 0 (0.0%)
+Saturday: 0 (0.0%)
+Sunday: 0 (0.0%)
+Busiest: Monday (5 occurrences)

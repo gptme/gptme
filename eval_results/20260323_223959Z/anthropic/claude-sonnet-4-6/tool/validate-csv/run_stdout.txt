@@ -1,0 +1,4 @@
+Row 1: OK
+Row 2: INVALID (email must contain '@')
+Row 3: INVALID (name must be non-empty)
+Row 4: INVALID (age must be between 0 and 120)

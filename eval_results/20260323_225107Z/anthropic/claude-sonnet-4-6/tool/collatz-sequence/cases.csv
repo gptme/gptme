@@ -1,0 +1,7 @@
+Model,Test,Case,Passed,Duration
+,,collatz.py exists,true,0.0
+,,6: 8 steps,true,0.0
+,,11: 14 steps,true,0.0
+,,16: 4 steps,true,0.0
+,,27: 111 steps,true,0.0
+,,clean exit,true,0.0

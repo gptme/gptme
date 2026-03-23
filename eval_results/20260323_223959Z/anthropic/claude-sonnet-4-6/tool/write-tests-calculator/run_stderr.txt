@@ -1,0 +1,13 @@
+test_add_negative_numbers (test_calculator.TestCalculator.test_add_negative_numbers) ... ok
+test_add_positive_numbers (test_calculator.TestCalculator.test_add_positive_numbers) ... ok
+test_divide_by_zero_raises (test_calculator.TestCalculator.test_divide_by_zero_raises) ... ok
+test_divide_normal_case (test_calculator.TestCalculator.test_divide_normal_case) ... ok
+test_multiply_by_zero (test_calculator.TestCalculator.test_multiply_by_zero) ... ok
+test_multiply_positive_numbers (test_calculator.TestCalculator.test_multiply_positive_numbers) ... ok
+test_subtract_negative_numbers (test_calculator.TestCalculator.test_subtract_negative_numbers) ... ok
+test_subtract_positive_numbers (test_calculator.TestCalculator.test_subtract_positive_numbers) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.000s
+
+OK

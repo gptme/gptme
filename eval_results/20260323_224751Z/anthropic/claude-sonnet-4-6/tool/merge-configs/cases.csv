@@ -1,0 +1,9 @@
+Model,Test,Case,Passed,Duration
+,,merge_config.py exists,true,0.0
+,,valid JSON output,true,0.0
+,,shallow override,true,0.0
+,,nested override (db host),true,0.0
+,,nested preserved (db port),true,0.0
+,,deep nested override (log path),true,0.0
+,,default-only key preserved,true,0.0
+,,clean exit,true,0.0

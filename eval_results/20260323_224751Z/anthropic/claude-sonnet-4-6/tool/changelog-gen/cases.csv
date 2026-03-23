@@ -1,0 +1,7 @@
+Model,Test,Case,Passed,Duration
+,,changelog.py exists,true,0.0
+,,features section correct,true,0.0
+,,fixes section correct,true,0.0
+,,docs section correct,true,0.0
+,,scopes included,true,0.0
+,,clean exit,true,0.0

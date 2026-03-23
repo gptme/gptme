@@ -1,0 +1,7 @@
+Model,Test,Case,Passed,Duration
+,,url_stats.py exists,true,0.0
+,,top domain is other.org,true,0.0
+,,top domain count is 3,true,0.0
+,,docs.example.com count is 2,true,0.0
+,,tie-break: docs before example.com,true,0.0
+,,clean exit,true,0.0

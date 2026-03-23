@@ -1,0 +1,6 @@
+Model,Test,Case,Passed,Duration
+,,test_calculator.py exists,true,0.0
+,,all tests pass,true,0.0
+,,≥4 test methods,true,0.0
+,,all ops covered,true,0.0
+,,ZeroDivisionError tested,true,0.0

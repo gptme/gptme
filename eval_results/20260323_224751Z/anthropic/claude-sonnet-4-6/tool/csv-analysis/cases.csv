@@ -1,0 +1,7 @@
+Model,Test,Case,Passed,Duration
+,,analyze_sales.py exists,true,0.0
+,,Electronics count=3,true,0.0
+,,Electronics total,true,0.0
+,,Clothing total,true,0.0
+,,Books average,true,0.0
+,,clean exit,true,0.0

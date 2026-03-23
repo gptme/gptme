@@ -1,0 +1,14 @@
+Merged YAML written to merged.yaml
+
+server:
+  host: 0.0.0.0
+  port: 9090
+  debug: true
+database:
+  host: db.prod.example.com
+  port: 5432
+  name: myapp
+logging:
+  level: info
+  handlers:
+  - console

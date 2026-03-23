@@ -1,0 +1,121 @@
+
+--- Start of generation ---
+[22:32:29] Using model: anthropic/claude-sonnet-4-6                             
+           Using logdir:                                                        
+           ~/.local/share/gptme/logs/2026-03-23-gptme-evals-anthropic--claude-so
+           nnet-4-6-tool-825f0913                                               
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2026-03-23-gptme-evals-anthropic--claude-so
+           nnet-4-6-tool-825f0913/workspace                                     
+Skipped 2 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: 
+Both order.py and user.py contain duplicated validation logic (checking for 
+missing/empty required fields). Extract this shared pattern into a 
+validate_required_fields() function in a new validators.py module. Update both 
+order.py and user.py to import and use the shared function. Make sure main.py 
+still works correctly.
+
+````order.py
+def process_order(data):
+    # validate required fields
+    errors = []
+    for field in ['product', 'quantity', 'price']:
+        if field not in data:
+            errors.append(f'missing {field}')
+        elif not data:
+            errors.append(f'{field} is empty')
+    if errors:
+        return {'ok': False, 'errors': errors}
+    return {'ok': True, 'total': data['quantity'] * data['price']}
+````
+
+````user.py
+def process_user(data):
+    # validate required fields
+    errors = []
+    for field in ['name', 'email', 'age']:
+        if field not in data:
+            errors.append(f'missing {field}')
+        elif not data:
+            errors.append(f'{field} is empty')
+    if errors:
+        return {'ok': False, 'errors': errors}
+    return {'ok': True, 'user': data['name']}
+````
+
+````order.py
+def process_order(data):
+    # validate required fields
+    errors = []
+    for field in ['product', 'quantity', 'price']:
+        if field not in data:
+            errors.append(f'missing {field}')
+        elif not data:
+            errors.append(f'{field} is empty')
+    if errors:
+        return {'ok': False, 'errors': errors}
+    return {'ok': True, 'total': data['quantity'] * data['price']}
+````
+
+````user.py
+def process_user(data):
+    # validate required fields
+    errors = []
+    for field in ['name', 'email', 'age']:
+        if field not in data:
+            errors.append(f'missing {field}')
+        elif not data:
+            errors.append(f'{field} is empty')
+    if errors:
+        return {'ok': False, 'errors': errors}
+    return {'ok': True, 'user': data['name']}
+````
+
+````main.py
+from order import process_order
+from user import process_user
+
+r1 = process_order({'product': 'Widget', 'quantity': 5, 'price': 10})
+print('Order OK' if r1['ok'] else 'Order FAIL')
+
+r2 = process_user({'name': 'Alice', 'email': 'a@b.com', 'age': 30})
+print('User OK' if r2['ok'] else 'User FAIL')
+````
+Assistant: Thinking...                                                                                Assistant: 
+<think>       <think>
+Let me create the validators.py module and update order.py and user.py to use it.
+<!-- think-sig: EvkBCkYICxgCKkAXFlsMDjGUlCw6LsPdBGG/d0VLmYBOd7/BNaAwwxZz/yrQrUfaT61QfhIUldrVY18rynY372MjEKDMgWcMiG4yEgx47bCWUZgBbIVYPToaDAMNbFF0F907r1oIuiIwjIHEVFSIsKkbqhyb79F8O5bL0hsFWHQwUKrueW7QjcllWJiHXG7tTD5wCQhv55kwKmFM9ZO5Q32mn5543J9BhPc1ZPrflMOFKwjzBfjuBVqgeS6plN6LVMp6su9Z9kJnUELvVCdMBHuiSFmRK2g/ZVt+FzkOmAFe4YLI8qe5PR8iyZ/PHN3zurJs/cHGVdQ3EEI9GAE= -->
+</think>        </think>
+
+
+@save(toolu_01F5hqMGjnmMdw3byrLiMpQo): {"path": "validators.py", "content": "def validate_required_fields(data, fields):\n    errors = []\n    for field in fields:\n        if field not in data:\n            errors.append(f'missing {field}')\n        elif not data[field]:\n            errors.append(f'{field} is empty')\n    return errors\n"}
+@save(toolu_0165L9FS3mxeTr2P7ecj3Pb4): {"path": "order.py", "content": "from validators import validate_required_fields\n\ndef process_order(data):\n    errors = validate_required_fields(data, ['product', 'quantity', 'price'])\n    if errors:\n        return {'ok': False, 'errors': errors}\n    return {'ok': True, 'total': data['quantity'] * data['price']}\n"}
+@save(toolu_0195DJg6Qq9JriyCVjhtKRMy): {"path": "user.py", "content": "from validators import validate_required_fields\n\ndef process_user(data):\n    errors = validate_required_fields(data, ['name', 'email', 'age'])\n    if errors:\n        return {'ok': False, 'errors': errors}\n    return {'ok': True, 'user': data['name']}\n"}                                                                                System: ✅ Saved to validators.py
+System: ✅ Saved to order.py (overwritten)
+System: ✅ Saved to user.py (overwritten)
+Assistant: Thinking...                                                                                Assistant: 
+Now let's verify `main.py` still works correctly:
+@shell(toolu_01EdQGhQxb6AztnP2MK3p8ig): {"command": "cd /home/bob/.local/share/gptme/logs/2026-03-23-gptme-evals-anthropic--claude-sonnet-4-6-tool-825f0913/workspace && python main.py"}                                                                                Order OK
+User OK
+System: 
+Ran command: `cd 
+/home/bob/.local/share/gptme/logs/2026-03-23-gptme-evals-anthropic--claude-so...
+(1 line)`
+
+```stdout
+Order OK
+User OK
+```
+Assistant: Thinking...                                                                                Assistant: 
+Everything works. Here's a summary of the changes made:
+
+- **`validators.py`** *(new)*: Contains `validate_required_fields(data, fields)` — the extracted shared logic that iterates over the given fields, collecting `"missing ..."` or `"... is empty"` errors, and returns the error list.
+
+- **`order.py`**: Removed the inline validation loop; now calls `validate_required_fields(data, ['product', 'quantity', 'price'])`.
+
+- **`user.py`**: Removed the inline validation loop; now calls `validate_required_fields(data, ['name', 'email', 'age'])`.
+
+- **`main.py`**: Unchanged — it continues to work as before, printing `Order OK` and `User OK`.                                                                                [22:32:45] Session: $0.03 | 3 turns | 5k context | 64% cached                   
+--- Finished generation ---
+

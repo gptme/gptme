@@ -1,0 +1,6 @@
+Model,Test,Case,Passed,Duration
+,,anagram_groups.py exists,true,0.0
+,,ate/eat/tea grouped together,true,0.0
+,,nat/tan grouped together,true,0.0
+,,bat in its own group,true,0.0
+,,clean exit,true,0.0

@@ -1,0 +1,6 @@
+192.168.1.1 C private
+10.0.0.5 A private
+172.16.254.3 B private
+8.8.8.8 A public
+127.0.0.1 - loopback
+224.0.0.1 D multicast

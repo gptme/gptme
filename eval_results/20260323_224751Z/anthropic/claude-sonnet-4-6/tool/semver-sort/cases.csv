@@ -1,0 +1,9 @@
+Model,Test,Case,Passed,Duration
+,,semver_sort.py exists,true,0.0
+,,2.0.0 is first (highest),true,0.0
+,,0.1.0 is last (lowest),true,0.0
+,,1.11.0 before 1.9.0 (numeric),true,0.0
+,,2.0.0 before 2.0.0-alpha.1 (release > pre-release),true,0.0
+,,1.2.3 > 1.2.3-rc.2 > 1.2.3-beta.1 (pre-release order),true,0.0
+,,2.0.0-alpha.1 before all 1.x.x (cross-major pre-release),true,0.0
+,,clean exit,true,0.0

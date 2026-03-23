@@ -1,0 +1,17 @@
+{
+  "products": [
+    {
+      "name": "A",
+      "revenue": 1000
+    },
+    {
+      "name": "B",
+      "revenue": 1000
+    },
+    {
+      "name": "C",
+      "revenue": 1000
+    }
+  ],
+  "total_revenue": 3000
+}

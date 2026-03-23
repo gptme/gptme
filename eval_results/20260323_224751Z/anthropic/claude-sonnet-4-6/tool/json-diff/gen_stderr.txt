@@ -1,0 +1,4 @@
+  File "/home/bob/.local/share/gptme/logs/2026-03-23-gptme-evals-anthropic--claude-sonnet-4-6-tool-2aad533e/workspace/diff_json.py", line 37
+    print(f"Usage: {sys.argv[0]} <old_file.json> <new_file.json}", file=sys.stderr)
+                                                               ^
+SyntaxError: f-string: single '}' is not allowed

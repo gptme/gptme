@@ -1,0 +1,9 @@
+Model,Test,Case,Passed,Duration
+,,roman.py exists,true,0.0
+,,1 → I,true,0.0
+,,4 → IV (subtractive),true,0.0
+,,9 → IX (subtractive),true,0.0
+,,42 → XLII,true,0.0
+,,1999 → MCMXCIX,true,0.0
+,,2024 → MMXXIV,true,0.0
+,,clean exit,true,0.0

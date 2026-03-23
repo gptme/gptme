@@ -1,0 +1,7 @@
+Model,Test,Case,Passed,Duration
+,,scrub.py exists,true,0.0
+,,emails redacted,true,0.0
+,,phones redacted,true,0.0
+,,SSNs redacted,true,0.0
+,,names preserved,true,0.0
+,,clean exit,true,0.0

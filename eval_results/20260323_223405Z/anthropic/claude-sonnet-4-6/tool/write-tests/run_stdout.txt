@@ -1,0 +1,31 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.2, pluggy-1.6.0 -- /home/bob/gptme/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /tmp/gptme-evals-mq_y8kih
+plugins: anyio-4.12.1, cov-7.0.0, mock-3.15.1, timeout-2.4.0
+collecting ... collected 22 items
+
+test_mathlib.py::TestFactorial::test_zero PASSED                         [  4%]
+test_mathlib.py::TestFactorial::test_one PASSED                          [  9%]
+test_mathlib.py::TestFactorial::test_small PASSED                        [ 13%]
+test_mathlib.py::TestFactorial::test_larger PASSED                       [ 18%]
+test_mathlib.py::TestFactorial::test_negative_raises PASSED              [ 22%]
+test_mathlib.py::TestFactorial::test_negative_large_raises PASSED        [ 27%]
+test_mathlib.py::TestIsPalindrome::test_simple_palindrome PASSED         [ 31%]
+test_mathlib.py::TestIsPalindrome::test_non_palindrome PASSED            [ 36%]
+test_mathlib.py::TestIsPalindrome::test_case_insensitive PASSED          [ 40%]
+test_mathlib.py::TestIsPalindrome::test_spaces_ignored PASSED            [ 45%]
+test_mathlib.py::TestIsPalindrome::test_single_character PASSED          [ 50%]
+test_mathlib.py::TestIsPalindrome::test_empty_string PASSED              [ 54%]
+test_mathlib.py::TestIsPalindrome::test_two_same_chars PASSED            [ 59%]
+test_mathlib.py::TestIsPalindrome::test_two_different_chars PASSED       [ 63%]
+test_mathlib.py::TestClamp::test_value_within_range PASSED               [ 68%]
+test_mathlib.py::TestClamp::test_value_below_low PASSED                  [ 72%]
+test_mathlib.py::TestClamp::test_value_above_high PASSED                 [ 77%]
+test_mathlib.py::TestClamp::test_value_equals_low PASSED                 [ 81%]
+test_mathlib.py::TestClamp::test_value_equals_high PASSED                [ 86%]
+test_mathlib.py::TestClamp::test_low_equals_high PASSED                  [ 90%]
+test_mathlib.py::TestClamp::test_negative_range PASSED                   [ 95%]
+test_mathlib.py::TestClamp::test_floats PASSED                           [100%]
+
+============================== 22 passed in 0.05s ==============================

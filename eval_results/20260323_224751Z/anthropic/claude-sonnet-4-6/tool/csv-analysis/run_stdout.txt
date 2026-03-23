@@ -1,0 +1,3 @@
+Books: count=2, total=44.98, avg=22.49
+Clothing: count=3, total=184.97, avg=61.66
+Electronics: count=3, total=2149.97, avg=716.66

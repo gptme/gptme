@@ -1,0 +1,9 @@
+Model,Test,Case,Passed,Duration
+,,env_parser.py exists,true,0.0
+,,DB_HOST=localhost present,true,0.0
+,,DB_NAME quotes stripped,true,0.0
+,,APP_SECRET quotes stripped,true,0.0
+,,inline comment stripped,true,0.0
+,,commented line excluded,true,0.0
+,,exactly 6 output lines,true,0.0
+,,clean exit,true,0.0

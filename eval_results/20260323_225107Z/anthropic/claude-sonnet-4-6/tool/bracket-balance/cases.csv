@@ -1,0 +1,9 @@
+Model,Test,Case,Passed,Duration
+,,brackets.py exists,true,0.0
+,,(())(()) valid,true,0.0
+,,([{}]) valid,true,0.0
+,,((] invalid,true,0.0
+,,{[}] invalid,true,0.0
+,,((( unclosed,true,0.0
+,,((] error at pos 3,true,0.0
+,,clean exit,true,0.0

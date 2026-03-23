@@ -1,0 +1,1 @@
+{"results": {"get_items": [{"name": "apple", "price": 1.5}, {"name": "banana", "price": 0.75}], "post_item": {"name": "cherry", "price": 3.0}, "get_after_post": [{"name": "apple", "price": 1.5}, {"name": "banana", "price": 0.75}, {"name": "cherry", "price": 3.0}]}}
