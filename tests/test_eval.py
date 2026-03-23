@@ -56,6 +56,37 @@ def test_no_duplicate_test_names():
     )
 
 
+def test_suite_autodiscovery():
+    """Verify auto-discovery finds all practical suites and preserves ordering."""
+    # All practical suites should be discovered
+    practical_suites = [name for name in suites if name.startswith("practical")]
+    assert len(practical_suites) >= 14, (
+        f"Expected at least 14 practical suites, got {len(practical_suites)}: {practical_suites}"
+    )
+
+    # Verify numeric ordering: practical, practical2, ..., practical14
+    expected_order = ["practical"] + [f"practical{i}" for i in range(2, 15)]
+    assert practical_suites == expected_order, (
+        f"Practical suites not in expected order.\n"
+        f"  Expected: {expected_order}\n"
+        f"  Got:      {practical_suites}"
+    )
+
+    # Core suites should always be present
+    for core_suite in ("basic", "init_projects", "browser"):
+        assert core_suite in suites, f"Core suite '{core_suite}' missing"
+
+    # Every suite should have at least one test
+    for name, suite_tests in suites.items():
+        assert len(suite_tests) > 0, f"Suite '{name}' has no tests"
+
+    # Verify total test count matches flattened list
+    total_from_suites = sum(len(t) for t in suites.values())
+    assert len(tests) == total_from_suites, (
+        f"Flattened tests ({len(tests)}) != sum of suites ({total_from_suites})"
+    )
+
+
 def test_list_tests():
     """Test that --list prints available suites and tests."""
     runner = CliRunner()
