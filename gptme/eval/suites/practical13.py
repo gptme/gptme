@@ -41,8 +41,10 @@ def check_stats_mean(ctx):
 
 
 def check_stats_median(ctx):
-    """stdout should contain 'median: 7.0' or 'median: 7'."""
-    return bool(re.search(r"\bmedian:\s*7(?:\.0)?(?![\d.])", ctx.stdout, re.IGNORECASE))
+    """stdout should contain 'median: 7', '7.0', '7.00', etc."""
+    return bool(
+        re.search(r"\bmedian:\s*7(?:\.0+)?(?![\d.])", ctx.stdout, re.IGNORECASE)
+    )
 
 
 def check_stats_mode(ctx):
