@@ -36,8 +36,8 @@ def check_stats_file(ctx):
 
 
 def check_stats_mean(ctx):
-    """stdout should contain 'mean: 6.2'."""
-    return bool(re.search(r"\bmean:\s*6\.2\b", ctx.stdout, re.IGNORECASE))
+    """stdout should contain 'mean: 6.2' (trailing zeros accepted, e.g. 6.20)."""
+    return bool(re.search(r"\bmean:\s*6\.20*\b", ctx.stdout, re.IGNORECASE))
 
 
 def check_stats_median(ctx):
@@ -82,17 +82,17 @@ def check_pascal_row1(ctx):
 
 def check_pascal_row3(ctx):
     """Row 3 should contain '1 2 1'."""
-    return bool(re.search(r"1\s+2\s+1", ctx.stdout))
+    return bool(re.search(r"\b1\s+2\s+1\b", ctx.stdout))
 
 
 def check_pascal_row5(ctx):
     """Row 5 should contain '1 4 6 4 1'."""
-    return bool(re.search(r"1\s+4\s+6\s+4\s+1", ctx.stdout))
+    return bool(re.search(r"\b1\s+4\s+6\s+4\s+1\b", ctx.stdout))
 
 
 def check_pascal_row6(ctx):
     """Row 6 should contain '1 5 10 10 5 1'."""
-    return bool(re.search(r"1\s+5\s+10\s+10\s+5\s+1", ctx.stdout))
+    return bool(re.search(r"\b1\s+5\s+10\s+10\s+5\s+1\b", ctx.stdout))
 
 
 def check_pascal_exit(ctx):
