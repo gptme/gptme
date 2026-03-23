@@ -175,6 +175,93 @@ def test_tools_info():
     assert "not found" in result.output
 
 
+def test_models_list():
+    """Test the models list command."""
+    import json
+
+    runner = CliRunner()
+
+    # Test basic list
+    result = runner.invoke(main, ["models", "list"])
+    assert result.exit_code == 0
+    assert "models" in result.output.lower()
+
+    # Test simple format
+    result = runner.invoke(main, ["models", "list", "--simple"])
+    assert result.exit_code == 0
+    # Simple format should have provider/model on each line
+    lines = [line for line in result.output.strip().splitlines() if "/" in line]
+    assert len(lines) > 0
+
+    # Test JSON output
+    result = runner.invoke(main, ["models", "list", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert isinstance(data, list)
+    assert len(data) > 0
+    # Check required fields in first model
+    model = data[0]
+    assert "provider" in model
+    assert "model" in model
+    assert "full" in model
+    assert "context" in model
+    assert isinstance(model["context"], int)
+
+    # Test JSON with provider filter
+    result = runner.invoke(
+        main, ["models", "list", "--json", "--provider", "anthropic"]
+    )
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert isinstance(data, list)
+    assert all(m["provider"] == "anthropic" for m in data)
+    assert len(data) > 0
+
+    # Test JSON with vision filter
+    result = runner.invoke(main, ["models", "list", "--json", "--vision"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert all(m["supports_vision"] for m in data)
+
+    # Test JSON with reasoning filter
+    result = runner.invoke(main, ["models", "list", "--json", "--reasoning"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert all(m["supports_reasoning"] for m in data)
+
+
+def test_models_info():
+    """Test the models info command."""
+    import json
+
+    runner = CliRunner()
+
+    # Test basic info
+    result = runner.invoke(main, ["models", "info", "anthropic/claude-sonnet-4-6"])
+    assert result.exit_code == 0
+    assert "claude-sonnet-4-6" in result.output
+    assert "anthropic" in result.output
+
+    # Test JSON output
+    result = runner.invoke(
+        main, ["models", "info", "anthropic/claude-sonnet-4-6", "--json"]
+    )
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data["provider"] == "anthropic"
+    assert data["model"] == "claude-sonnet-4-6"
+    assert data["full"] == "anthropic/claude-sonnet-4-6"
+    assert isinstance(data["context"], int)
+    assert data["supports_vision"] is True
+    assert "price_input" in data
+    assert "price_output" in data
+
+    # Test unknown model (falls back to defaults — exit code 0)
+    result = runner.invoke(main, ["models", "info", "nonexistent/model"])
+    assert result.exit_code == 0
+    assert "nonexistent" in result.output
+
+
 def test_profile_validate_success(mocker):
     """Test profile validate command when all profiles are valid."""
     runner = CliRunner()

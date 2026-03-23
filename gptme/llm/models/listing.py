@@ -1,6 +1,7 @@
+import json
 import logging
 import time
-from typing import cast
+from typing import Any, cast
 
 from .data import MODELS
 from .resolution import get_model
@@ -12,6 +13,31 @@ from .types import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _model_to_dict(model: ModelMeta) -> dict[str, Any]:
+    """Convert a ModelMeta to a JSON-serializable dict."""
+    d: dict[str, Any] = {
+        "provider": str(model.provider),
+        "model": model.model,
+        "full": model.full,
+        "context": model.context,
+    }
+    if model.max_output is not None:
+        d["max_output"] = model.max_output
+    d["supports_streaming"] = model.supports_streaming
+    d["supports_vision"] = model.supports_vision
+    d["supports_reasoning"] = model.supports_reasoning
+    if model.supports_parallel_tool_calls:
+        d["supports_parallel_tool_calls"] = True
+    if model.price_input or model.price_output:
+        d["price_input"] = model.price_input
+        d["price_output"] = model.price_output
+    if model.knowledge_cutoff:
+        d["knowledge_cutoff"] = model.knowledge_cutoff.isoformat()
+    if model.deprecated:
+        d["deprecated"] = True
+    return d
 
 
 def _get_models_for_provider(
@@ -243,6 +269,7 @@ def list_models(
     simple_format: bool = False,
     dynamic_fetch: bool = True,
     available_only: bool = False,
+    json_output: bool = False,
 ) -> None:
     """
     List available models with optional filtering.
@@ -256,10 +283,22 @@ def list_models(
         simple_format: Output one model per line as provider/model
         dynamic_fetch: Fetch dynamic models from APIs where available
         available_only: Only show models from configured providers
+        json_output: Output as JSON
     """
     configured = _get_configured_providers() if available_only else None
 
-    if simple_format:
+    if json_output:
+        all_models = get_model_list(
+            provider_filter=provider_filter,
+            vision_only=vision_only,
+            reasoning_only=reasoning_only,
+            include_deprecated=include_deprecated,
+            dynamic_fetch=dynamic_fetch,
+        )
+        if configured is not None:
+            all_models = [m for m in all_models if m.provider in configured]
+        print(json.dumps([_model_to_dict(m) for m in all_models], indent=2))
+    elif simple_format:
         # Simple format: just get all models and print them
         all_models = get_model_list(
             provider_filter=provider_filter,
