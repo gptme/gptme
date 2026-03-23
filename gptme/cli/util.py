@@ -9,7 +9,9 @@ Command groups are split into separate modules for maintainability:
 
 import io
 import logging
+import os
 import sys
+import time
 from contextlib import redirect_stderr
 from pathlib import Path
 
@@ -92,9 +94,6 @@ def providers_test(provider_name: str):
 
     Connects to the provider's API and lists available models.
     """
-    import os
-    import time
-
     config = get_config()
 
     # Find the provider config

@@ -125,16 +125,12 @@ class TestProvidersTest:
         assert "not found" in result.output
         assert "gptme.toml" in result.output
 
-    def test_missing_api_key_env(self, mock_config, make_provider):
+    def test_missing_api_key_env(self, mock_config, make_provider, monkeypatch):
         """Test when API key env var is not set."""
         mock_config.user.providers = [make_provider(api_key_env="MISSING_KEY_VAR")]
+        monkeypatch.delenv("MISSING_KEY_VAR", raising=False)
         runner = CliRunner()
-        with patch.dict("os.environ", {}, clear=False):
-            # Ensure the var is NOT in env
-            import os
-
-            os.environ.pop("MISSING_KEY_VAR", None)
-            result = runner.invoke(main, ["providers", "test", "test-provider"])
+        result = runner.invoke(main, ["providers", "test", "test-provider"])
         assert result.exit_code == 1
         assert "not set" in result.output
 
