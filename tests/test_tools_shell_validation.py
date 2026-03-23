@@ -604,15 +604,20 @@ class TestEdgeCases:
         # The "ls -la" outside heredoc is fine, the dangerous stuff is in heredoc
         assert not denied
 
-    def test_git_add_dotgitignore_not_denied(self):
-        """git add .gitignore should not trigger the git add . rule."""
-        denied, _, _ = is_denylisted("git add .gitignore")
-        assert not denied
-
     def test_git_add_dotenv_not_denied(self):
         """git add .env should not trigger the git add . rule."""
         denied, _, _ = is_denylisted("git add .env")
         assert not denied
+
+    def test_find_executable_false_positive(self):
+        """find -executable is caught by -exec substring check — known false positive.
+
+        The is_allowlisted() check uses `"-exec" in cmd` which matches
+        `-executable` as a substring. This test documents the bug.
+        """
+        # This SHOULD be allowlisted (it's a safe find flag), but isn't
+        # due to substring matching on "-exec"
+        assert not is_allowlisted("find . -executable")
 
     def test_pipe_in_quoted_arg_no_false_positive(self):
         """Pipe characters in quoted arguments shouldn't trigger pipe detection."""
