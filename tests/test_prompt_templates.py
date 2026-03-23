@@ -527,7 +527,15 @@ class TestPromptUser:
         """XML format produces structured tags."""
         from gptme.prompts import prompt_user
 
-        msgs = list(prompt_user(tool_format="xml"))
+        mock_config = MagicMock()
+        mock_config.user.user.name = "Alice"
+        mock_config.user.user.about = "A developer"
+        mock_config.user.user.response_preference = "Be concise"
+        mock_config.user.prompt.about_user = None
+        mock_config.user.prompt.response_preference = None
+
+        with patch("gptme.prompts.templates.get_config", return_value=mock_config):
+            msgs = list(prompt_user(tool_format="xml"))
         content = msgs[0].content
         assert "<user>" in content
         assert "<name>" in content
