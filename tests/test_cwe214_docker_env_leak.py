@@ -29,8 +29,9 @@ def _get_docker_cmd_from_reexec(env_values: dict[str, str]) -> list[str]:
 
     def fake_subprocess_run(cmd, **kwargs):
         """Capture the docker run command."""
+        nonlocal captured_cmd
         if isinstance(cmd, list) and "run" in cmd:
-            captured_cmd.extend(cmd)
+            captured_cmd = list(cmd)
         mock_result = MagicMock()
         mock_result.returncode = 0
         mock_result.stdout = ""

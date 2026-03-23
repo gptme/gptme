@@ -182,13 +182,13 @@ def docker_reexec(argv: list[str]) -> None:
     # Run and exit with same code, ensuring env file cleanup
     try:
         result = subprocess.run(docker_cmd, check=False)
+        sys.exit(result.returncode)
     finally:
         if env_file_path is not None:
             try:
                 os.unlink(env_file_path)
             except OSError:
                 pass
-    sys.exit(result.returncode)
 
 
 project_dir = Path(__file__).parent.parent.parent
