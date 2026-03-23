@@ -557,7 +557,6 @@ class TestGetInstalledExtras:
 class TestGetAvailableProviders:
     """Tests for get_available_providers."""
 
-    @patch("gptme.info.get_available_providers.__module__", "gptme.info")
     def test_returns_provider_names(self):
         with patch("gptme.llm.list_available_providers") as mock_providers:
             mock_providers.return_value = [
@@ -568,9 +567,8 @@ class TestGetAvailableProviders:
             assert result == ["openai", "anthropic"]
 
     def test_error_returns_empty(self):
-        with (
-            patch.dict("sys.modules", {"gptme.llm": None}),
-            patch("gptme.info.get_available_providers", return_value=[]),
+        with patch(
+            "gptme.llm.list_available_providers", side_effect=Exception("error")
         ):
             result = get_available_providers()
             assert result == []
@@ -737,8 +735,8 @@ class TestGetConfigInfo:
         mock_project_cfg.return_value = MagicMock()
         with patch("gptme.info.Path.cwd", return_value=tmp_path):
             info = get_config_info()
-            if "project_config" in info:
-                assert "gptme.toml" in info["project_config"]
+            assert "project_config" in info
+            assert "gptme.toml" in info["project_config"]
 
 
 # ─── format_version_info tests ──────────────────────────────────────────────
