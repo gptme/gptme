@@ -120,13 +120,15 @@ def check_date_hist_file(ctx):
 
 def check_date_hist_monday_count(ctx):
     """Monday should show 5 occurrences."""
-    return "5" in ctx.stdout and "Monday" in ctx.stdout
+    return any("Monday" in line and "5" in line for line in ctx.stdout.splitlines())
 
 
 def check_date_hist_busiest(ctx):
     """Output should identify Monday as the busiest day."""
-    stdout_lower = ctx.stdout.lower()
-    return "monday" in stdout_lower and "busiest" in stdout_lower
+    return any(
+        "monday" in line.lower() and "busiest" in line.lower()
+        for line in ctx.stdout.splitlines()
+    )
 
 
 def check_date_hist_all_days(ctx):
