@@ -24,16 +24,17 @@ suites: dict[str, list[EvalSpec]] = {
 _package_dir = Path(__file__).parent
 _explicit = {"basic", "browser", "init_projects", "__init__"}
 
-for _info in sorted(
-    pkgutil.iter_modules([str(_package_dir)]),
-    key=lambda m: (
-        # Sort practical suites numerically: practical, practical2, ..., practical14
-        int(m.name.removeprefix("practical") or "1")
-        if m.name.startswith("practical")
-        else 0,
-        m.name,
-    ),
-):
+
+def _suite_sort_key(m: pkgutil.ModuleInfo) -> tuple[int, str]:
+    """Sort key: practical suites sorted numerically, others grouped at 0."""
+    if m.name.startswith("practical"):
+        suffix = m.name.removeprefix("practical")
+        if not suffix or suffix.isdigit():
+            return (int(suffix) if suffix else 1, m.name)
+    return (0, m.name)
+
+
+for _info in sorted(pkgutil.iter_modules([str(_package_dir)]), key=_suite_sort_key):
     if _info.name in _explicit:
         continue
     try:
