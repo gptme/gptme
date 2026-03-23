@@ -245,7 +245,7 @@ jobs:
       run: poetry run playwright install chromium
 
     - name: Run API tests only
-      uses: nick-fields/retry@v3
+      uses: nick-fields/retry@v4
       env:
         TERM: xterm
         MODEL: ${{ matrix.model }}
