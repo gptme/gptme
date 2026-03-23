@@ -326,7 +326,12 @@ def execute(
             run_start = time.time()
             env = DockerExecutionEnv() if use_docker else SimpleExecutionEnv()
             try:
-                env.upload(files)
+                # Restore original fixture files before running checks.
+                # The model may have overwritten them during generation
+                # (e.g. creating its own test data to verify the script).
+                fixture_files = test.get("files", {})
+                files_for_run = {**files, **fixture_files}
+                env.upload(files_for_run)
                 logger.debug(f"Running check: {test['run']}")
                 stdout_run, stderr_run, exit_code = env.run(test["run"])
                 time_run = time.time() - run_start
