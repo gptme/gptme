@@ -11,6 +11,8 @@ import threading
 import unittest.mock
 from typing import Any
 
+import pytest
+
 from gptme.hooks.registry import (
     HookRegistry,
     clear_hooks,
@@ -513,8 +515,6 @@ class TestErrorHandling:
             _make_error_hook(SessionCompleteException("done")),
         )
 
-        import pytest
-
         with pytest.raises(SessionCompleteException):
             list(registry.trigger(HookType.STEP_PRE))
 
@@ -566,7 +566,7 @@ class TestAsyncHooks:
 
         messages = list(registry.trigger(HookType.STEP_PRE))
         assert messages == []  # async messages are logged, not yielded
-        event.wait(timeout=2.0)
+        assert event.wait(timeout=2.0), "Async hook did not execute"
 
     def test_async_and_sync_hooks_together(self):
         """Sync hooks yield messages; async hooks run in background."""
@@ -615,7 +615,7 @@ class TestAsyncHooks:
         messages = list(registry.trigger(HookType.STEP_PRE))
         assert messages == []
         # Give thread time to complete
-        error_event.wait(timeout=2.0)
+        assert error_event.wait(timeout=2.0), "Async error hook did not execute"
 
 
 # ── HookRegistry: Priority Sorting (Hook.__lt__) ────────────────────
@@ -690,7 +690,8 @@ class TestClearHooks:
         registry.register("a", HookType.SESSION_START, _make_noop_hook())
         registry.register("b", HookType.SESSION_END, _make_noop_hook())
 
-        registry.hooks.clear()
+        registry.unregister("a")
+        registry.unregister("b")
         assert registry.get_hooks() == []
 
     def test_clear_by_type(self):
@@ -698,7 +699,7 @@ class TestClearHooks:
         registry.register("a", HookType.SESSION_START, _make_noop_hook())
         registry.register("b", HookType.SESSION_END, _make_noop_hook())
 
-        registry.hooks[HookType.SESSION_START] = []
+        registry.unregister("a", HookType.SESSION_START)
         assert len(registry.get_hooks(HookType.SESSION_START)) == 0
         assert len(registry.get_hooks(HookType.SESSION_END)) == 1
 
@@ -713,8 +714,8 @@ class TestModuleAPI:
         """Reset registry before each test."""
         set_registry(HookRegistry())
 
-    def test_get_registry_creates_if_needed(self):
-        """get_registry should create a new registry if none exists."""
+    def test_get_registry_returns_existing(self):
+        """get_registry should return the already-set registry."""
         registry = get_registry()
         assert isinstance(registry, HookRegistry)
 
@@ -911,9 +912,8 @@ class TestEdgeCases:
     def test_trigger_on_empty_hook_list(self):
         """Triggering a type with no hooks registered should return empty."""
         registry = HookRegistry()
-        # Register for one type but trigger another
+        # Register for one type but trigger another (STEP_PRE has no hooks)
         registry.register("a", HookType.SESSION_START, _make_noop_hook())
-        registry.hooks[HookType.STEP_PRE] = []  # explicit empty list
 
         messages = list(registry.trigger(HookType.STEP_PRE))
         assert messages == []
