@@ -153,3 +153,54 @@ def test_multiple_keys_not_leaked():
         assert secret not in cmd_str, (
             f"Secret for {key} found in docker command line. Command: {cmd}"
         )
+
+
+def test_env_file_contains_expected_content():
+    """The temporary env file should contain the expected KEY=VALUE entries.
+
+    Content is verified *inside* the subprocess.run mock while the file
+    still exists on disk (before cleanup).
+    """
+    test_secrets = {
+        "OPENAI_API_KEY": "sk-test-openai-key",
+        "ANTHROPIC_API_KEY": "sk-ant-test-key",
+    }
+
+    env_file_content = None
+
+    def capture_env_file_content(cmd, **kwargs):
+        nonlocal env_file_content
+        if isinstance(cmd, list) and "--env-file" in cmd:
+            idx = cmd.index("--env-file")
+            if idx + 1 < len(cmd):
+                with open(cmd[idx + 1]) as f:
+                    env_file_content = f.read()
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = ""
+        return mock_result
+
+    patched_env = dict(os.environ)
+    for k, v in test_secrets.items():
+        patched_env[k] = v
+
+    with (
+        patch("subprocess.run", side_effect=capture_env_file_content),
+        patch("subprocess.check_output", return_value="/fake/git/root\n"),
+        patch.dict(os.environ, patched_env, clear=False),
+        patch("sys.exit"),
+    ):
+        mock_config = MagicMock()
+        mock_config.get_env = lambda key, default=None: patched_env.get(key, default)
+
+        with patch("gptme.eval.main.get_config", return_value=mock_config):
+            from gptme.eval.main import docker_reexec
+
+            docker_reexec(["gptme-eval", "--some-arg"])
+
+    assert env_file_content is not None, "Expected env file to be written"
+    for key, value in test_secrets.items():
+        expected_line = f"{key}={value}"
+        assert expected_line in env_file_content, (
+            f'Expected "{expected_line}" in env file content, got: {env_file_content}'
+        )

@@ -167,9 +167,15 @@ def docker_reexec(argv: list[str]) -> None:
     ] + argv
 
     env_var_names = [e.split("=", 1)[0] for e in env_entries]
+    # Replace the actual temp path with a placeholder in the log to avoid
+    # leaking the env file location to log sinks (see CWE-214).
+    logged_cmd = [
+        "<env-file>" if i > 0 and docker_cmd[i - 1] == "--env-file" else tok
+        for i, tok in enumerate(docker_cmd)
+    ]
     logger.info(
         "Re-executing inside Docker: %s (env vars: %s)",
-        " ".join(docker_cmd),
+        " ".join(logged_cmd),
         ", ".join(env_var_names) if env_var_names else "none",
     )
 
