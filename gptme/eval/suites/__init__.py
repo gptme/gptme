@@ -26,29 +26,45 @@ _explicit = {"basic", "browser", "init_projects", "__init__"}
 
 
 def _suite_sort_key(m: pkgutil.ModuleInfo) -> tuple[int, str]:
-    """Sort key: practical suites sorted numerically, others grouped at 0."""
+    """Sort key: practical suites sorted numerically, others grouped at 0.
+
+    Numeric practical suites (practical, practical2, ...) sort first among
+    practical suites (keys 1..N). Non-numeric practical* names (e.g.
+    practical_bonus) sort after all numeric ones (key 10000). All other
+    suites sort before practical suites (key 0).
+    """
     if m.name.startswith("practical"):
         suffix = m.name.removeprefix("practical")
         if not suffix or suffix.isdigit():
             return (int(suffix) if suffix else 1, m.name)
+        # non-numeric practical* — sort after all numeric practical suites
+        return (10000, m.name)
     return (0, m.name)
 
 
-for _info in sorted(pkgutil.iter_modules([str(_package_dir)]), key=_suite_sort_key):
-    if _info.name in _explicit:
-        continue
-    try:
-        _mod = importlib.import_module(f".{_info.name}", __package__)
-    except Exception:
-        logger.warning(
-            "Failed to import eval suite module %s", _info.name, exc_info=True
-        )
-        continue
-    _tests = getattr(_mod, "tests", None)
-    if _tests is not None and isinstance(_tests, list):
-        suites[_info.name] = _tests
-    else:
-        logger.debug("Skipping %s: no 'tests' list found", _info.name)
+def _discover_suites() -> None:
+    """Auto-discover and register suite modules from this package directory.
+
+    Wrapped in a function to avoid leaking loop variables into module namespace.
+    """
+    for info in sorted(pkgutil.iter_modules([str(_package_dir)]), key=_suite_sort_key):
+        if info.name in _explicit:
+            continue
+        try:
+            mod = importlib.import_module(f".{info.name}", __package__)
+        except Exception:
+            logger.warning(
+                "Failed to import eval suite module %s", info.name, exc_info=True
+            )
+            continue
+        mod_tests = getattr(mod, "tests", None)
+        if mod_tests is not None and isinstance(mod_tests, list):
+            suites[info.name] = mod_tests
+        else:
+            logger.debug("Skipping %s: no 'tests' list found", info.name)
+
+
+_discover_suites()
 
 
 tests: list[EvalSpec] = [test for suite in suites.values() for test in suite]
