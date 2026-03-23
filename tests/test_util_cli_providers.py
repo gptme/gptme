@@ -105,7 +105,7 @@ class TestProvidersTest:
         """Test when provider name doesn't match any config."""
         runner = CliRunner()
         result = runner.invoke(main, ["providers", "test", "nonexistent"])
-        assert result.exit_code == 0
+        assert result.exit_code == 1
         assert "not found" in result.output
 
     def test_provider_not_found_shows_available(self, mock_config, make_provider):
@@ -113,7 +113,7 @@ class TestProvidersTest:
         mock_config.user.providers = [make_provider(name="my-llm")]
         runner = CliRunner()
         result = runner.invoke(main, ["providers", "test", "wrong-name"])
-        assert result.exit_code == 0
+        assert result.exit_code == 1
         assert "not found" in result.output
         assert "my-llm" in result.output
 
@@ -121,7 +121,7 @@ class TestProvidersTest:
         """Test missing provider when no providers configured at all."""
         runner = CliRunner()
         result = runner.invoke(main, ["providers", "test", "nonexistent"])
-        assert result.exit_code == 0
+        assert result.exit_code == 1
         assert "not found" in result.output
         assert "gptme.toml" in result.output
 
@@ -135,7 +135,7 @@ class TestProvidersTest:
 
             os.environ.pop("MISSING_KEY_VAR", None)
             result = runner.invoke(main, ["providers", "test", "test-provider"])
-        assert result.exit_code == 0
+        assert result.exit_code == 1
         assert "not set" in result.output
 
     def test_successful_connection(self, mock_config, make_provider):
@@ -199,7 +199,7 @@ class TestProvidersTest:
             runner = CliRunner()
             result = runner.invoke(main, ["providers", "test", "test-provider"])
 
-        assert result.exit_code == 0
+        assert result.exit_code == 1
         assert "Connection failed" in result.output
         assert "Connection refused" in result.output
 
@@ -225,6 +225,30 @@ class TestProvidersTest:
         assert "model-9" in result.output
         assert "model-10" not in result.output
         assert "5 more" in result.output
+
+    def test_hyphenated_provider_name_env_var(self, mock_config, make_provider):
+        """Test that hyphenated provider names produce valid env var names."""
+        mock_config.user.providers = [
+            make_provider(name="my-local-llm")  # hyphens → underscores
+        ]
+
+        mock_client = Mock()
+        mock_client.models.list.return_value = []
+
+        with (
+            patch.dict("os.environ", {"MY_LOCAL_LLM_API_KEY": "env-key"}),
+            patch("openai.OpenAI", return_value=mock_client) as mock_cls,
+        ):
+            runner = CliRunner()
+            result = runner.invoke(main, ["providers", "test", "my-local-llm"])
+
+        assert result.exit_code == 0
+        assert "Connected" in result.output
+        mock_cls.assert_called_once_with(
+            api_key="env-key",
+            base_url="http://localhost:8000/v1",
+            timeout=10,
+        )
 
     def test_api_key_from_env_default(self, mock_config, make_provider):
         """Test API key resolution from default env var (PROVIDER_NAME_API_KEY)."""

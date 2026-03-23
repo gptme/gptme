@@ -67,7 +67,10 @@ class ProviderConfig:
         if self.api_key_env:
             return config.get_env_required(self.api_key_env)
         # Default to provider name in uppercase
-        return config.get_env(f"{self.name.upper()}_API_KEY") or "default-key"
+        return (
+            config.get_env(f"{self.name.upper().replace('-', '_')}_API_KEY")
+            or "default-key"
+        )
 
 
 @dataclass

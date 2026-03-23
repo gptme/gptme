@@ -75,7 +75,9 @@ def providers_list():
         elif provider.api_key_env:
             click.echo(f"   API Key: ${provider.api_key_env}")
         else:
-            click.echo(f"   API Key: ${provider.name.upper()}_API_KEY (default)")
+            click.echo(
+                f"   API Key: ${provider.name.upper().replace('-', '_')}_API_KEY (default)"
+            )
 
         if provider.default_model:
             click.echo(f"   Default Model: {provider.default_model}")
@@ -111,7 +113,7 @@ def providers_test(provider_name: str):
             click.echo("[[providers]]")
             click.echo(f'name = "{provider_name}"')
             click.echo('base_url = "http://localhost:8000/v1"')
-        return
+        sys.exit(1)
 
     click.echo(f"🔌 Testing provider: {provider_name}")
     click.echo(f"   Base URL: {provider_cfg.base_url}")
@@ -127,9 +129,9 @@ def providers_test(provider_name: str):
         key_source = f"${provider_cfg.api_key_env}"
         if not api_key:
             click.echo(f"   ❌ API key env var {key_source} is not set")
-            return
+            sys.exit(1)
     else:
-        env_var = f"{provider_name.upper()}_API_KEY"
+        env_var = f"{provider_name.upper().replace('-', '_')}_API_KEY"
         api_key = os.environ.get(env_var)
         key_source = f"${env_var}"
         if not api_key:
@@ -175,6 +177,7 @@ def providers_test(provider_name: str):
 
     except Exception as e:
         click.echo(f"   ❌ Connection failed: {e}")
+        sys.exit(1)
 
 
 @main.group()
