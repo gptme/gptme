@@ -172,7 +172,7 @@ tests: list["EvalSpec"] = [
         "expect": {
             "rle.py exists": check_rle_file,
             "AAABBBCCCC → 3A3B4C": check_rle_encoded_aaabbbcccc,
-            "ABCDEEEEE → ABCD4E": check_rle_encoded_single_chars,
+            "ABCDEEEE → ABCD4E": check_rle_encoded_single_chars,
             "WWWWWWWWWW → 10W": check_rle_encoded_ten_w,
             "round-trip: AAABBBCCCC restored": check_rle_roundtrip,
             "clean exit": check_rle_exit,
