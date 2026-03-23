@@ -201,8 +201,8 @@ def check_tsv_bob_escaped_quotes(ctx):
 def check_tsv_header_preserved(ctx):
     """Header row (name,age,bio) should be first line."""
     csv_content = ctx.files.get("data.csv", "")
-    first_line = csv_content.splitlines()[0] if csv_content else ""
-    return first_line == "name,age,bio"
+    lines = csv_content.splitlines()
+    return lines[0] == "name,age,bio" if lines else False
 
 
 def check_tsv_exit(ctx):
