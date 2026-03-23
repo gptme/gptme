@@ -127,9 +127,12 @@ class TestGetProjectContextCmdOutput:
         """Very large output is truncated before processing."""
         from gptme.prompts.context_cmd import get_project_context_cmd_output
 
-        # Generate a large script that outputs >100k chars
+        # Generate output >100k chars; mock len_tokens to avoid slow tokenization
         large_text = "x" * 200_000
-        with patch("gptme.prompts.context_cmd.subprocess.run") as mock_run:
+        with (
+            patch("gptme.prompts.context_cmd.subprocess.run") as mock_run,
+            patch("gptme.prompts.context_cmd.len_tokens", return_value=50_000),
+        ):
             mock_result = MagicMock()
             mock_result.returncode = 0
             mock_result.stdout = large_text
