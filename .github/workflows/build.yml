@@ -40,7 +40,7 @@ jobs:
 
     - name: Set environment variables
       run: |
-        echo "OWNER_LC=${OWNER,,}" >>${GITHUB_ENV}
+        echo "OWNER_LC=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')" >>${GITHUB_ENV}
         # Sanitize the ref name to be used as a Docker tag
         REF_NAME="${TAG_INPUT:-${GITHUB_REF_NAME}}"
         SANITIZED_REF_NAME=$(echo "${REF_NAME}" | tr '/' '-')
@@ -205,7 +205,7 @@ jobs:
         TAG="${{ inputs.tag || github.ref_name }}"
         VERSION="${TAG#v}"
         OS_SUFFIX="${{ runner.os }}-${{ runner.arch }}"
-        OS_SUFFIX="${OS_SUFFIX,,}"
+        OS_SUFFIX=$(echo "$OS_SUFFIX" | tr '[:upper:]' '[:lower:]')
         ASSET_BASE="gptme-server-bin-${VERSION}-${OS_SUFFIX}"
         # Include version + lowercase platform in release asset names so scheduled
         # dev releases don't publish ambiguous binaries like `gptme-server-Linux-X64`.

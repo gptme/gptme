@@ -50,7 +50,7 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Set environment variables
-      run: echo "OWNER_LC=${OWNER,,}" >>${GITHUB_ENV}
+      run: echo "OWNER_LC=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')" >>${GITHUB_ENV}
 
     - name: Pull Docker image
       run: |
