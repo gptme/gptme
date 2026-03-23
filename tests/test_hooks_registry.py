@@ -6,7 +6,9 @@ context-local isolation, and module-level API functions in
 gptme/hooks/registry.py.
 """
 
+import logging
 import threading
+import unittest.mock
 from typing import Any
 
 from gptme.hooks.registry import (
@@ -777,7 +779,10 @@ class TestContextIsolation:
         results = {}
 
         def thread_func(thread_id):
-            # Each thread gets its own registry
+            # Set a fresh registry in this thread's context to test ContextVar isolation:
+            # ContextVar.set() only updates the calling context, so other threads'
+            # registries are unaffected.
+            set_registry(HookRegistry())
             registry = get_registry()
             registry.register(
                 f"hook-{thread_id}",
@@ -928,16 +933,23 @@ class TestEdgeCases:
         messages = list(registry.trigger(HookType.STEP_PRE))
         assert messages == []
 
-    def test_slow_hook_logged(self):
-        """Hooks taking > 5s should trigger a warning (we test the timing path)."""
+    def test_slow_hook_logged(self, caplog):
+        """Hooks taking > 5s should log a warning."""
         registry = HookRegistry()
 
-        def fast_hook(*args, **kwargs):
+        def noop_hook(*args, **kwargs):
             return None
 
-        registry.register("fast", HookType.STEP_PRE, fast_hook)
-        # Just verify it doesn't crash — timing warning tested via log inspection
-        list(registry.trigger(HookType.STEP_PRE))
+        registry.register("slow", HookType.STEP_PRE, noop_hook)
+
+        # Mock time() to simulate a hook that takes 6 seconds
+        with (
+            unittest.mock.patch("gptme.hooks.registry.time", side_effect=[0.0, 6.0]),
+            caplog.at_level(logging.WARNING, logger="gptme.hooks.registry"),
+        ):
+            list(registry.trigger(HookType.STEP_PRE))
+
+        assert any("long time" in msg for msg in caplog.messages)
 
     def test_hook_generator_with_mixed_types(self):
         """Generator yielding both Messages and non-Messages."""
