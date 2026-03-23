@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, TypedDict, cast, get_args
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast, get_args
 
 from typing_extensions import NotRequired
 
@@ -23,6 +23,9 @@ class ModelConfig:
 
     def __str__(self) -> str:
         return f"{self.model}@{self.tool_format}"
+
+    def to_dict(self) -> dict[str, str]:
+        return {"model": self.model, "tool_format": self.tool_format}
 
     @classmethod
     def from_spec(
@@ -66,6 +69,9 @@ class CaseResult:
     passed: bool
     duration: float
 
+    def to_dict(self) -> dict[str, Any]:
+        return {"name": self.name, "passed": self.passed, "duration": self.duration}
+
 
 @dataclass
 class EvalResult:
@@ -84,6 +90,19 @@ class EvalResult:
     log_dir: Path
     workspace_dir: Path
     cost: "CostSummary | None" = field(default=None)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-compatible dict."""
+        d: dict[str, Any] = {
+            "name": self.name,
+            "status": self.status,
+            "passed": all(c.passed for c in self.results) if self.results else False,
+            "cases": [c.to_dict() for c in self.results],
+            "timings": self.timings,
+        }
+        if self.cost is not None:
+            d["cost"] = self.cost.to_dict()
+        return d
 
 
 class EvalSpec(TypedDict):
