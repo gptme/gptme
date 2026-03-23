@@ -1,6 +1,8 @@
 """Tests for the eval trends tracking script."""
 
 import csv
+import json
+import sys
 from pathlib import Path
 
 from gptme.eval.trends import (
@@ -9,6 +11,7 @@ from gptme.eval.trends import (
     format_diff,
     format_table,
     load_all_results,
+    main,
     parse_run_timestamp,
 )
 
@@ -361,3 +364,89 @@ def test_at_format_in_model_name(tmp_path):
     trends = compute_trends(results)
     assert len(trends["regressions"]) == 1
     assert trends["regressions"][0]["model"] == "model-a@tool"
+
+
+def test_regressions_filter_applied_in_json_mode(tmp_path, monkeypatch, capsys):
+    """--regressions flag filters output even when --format json is used."""
+    _create_eval_results(
+        tmp_path,
+        [
+            {
+                "dir": "20260101_000000Z",
+                "rows": [
+                    ("model-a", "markdown", "test-pass-to-fail", "true"),
+                    ("model-a", "markdown", "test-fail-to-pass", "false"),
+                ],
+            },
+            {
+                "dir": "20260102_000000Z",
+                "rows": [
+                    ("model-a", "markdown", "test-pass-to-fail", "false"),
+                    ("model-a", "markdown", "test-fail-to-pass", "true"),
+                ],
+            },
+        ],
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "eval_trends",
+            "--results-dir",
+            str(tmp_path),
+            "--regressions",
+            "--format",
+            "json",
+        ],
+    )
+    main()
+    data = json.loads(capsys.readouterr().out)
+    assert len(data["regressions"]) == 1
+    assert data["regressions"][0]["test"] == "test-pass-to-fail"
+    assert data["improvements"] == [], (
+        "improvements should be empty when --regressions is set"
+    )
+    assert data["flaky"] == [], "flaky should be empty when --regressions is set"
+
+
+def test_improvements_filter_applied_in_json_mode(tmp_path, monkeypatch, capsys):
+    """--improvements flag filters output even when --format json is used."""
+    _create_eval_results(
+        tmp_path,
+        [
+            {
+                "dir": "20260101_000000Z",
+                "rows": [
+                    ("model-a", "markdown", "test-pass-to-fail", "true"),
+                    ("model-a", "markdown", "test-fail-to-pass", "false"),
+                ],
+            },
+            {
+                "dir": "20260102_000000Z",
+                "rows": [
+                    ("model-a", "markdown", "test-pass-to-fail", "false"),
+                    ("model-a", "markdown", "test-fail-to-pass", "true"),
+                ],
+            },
+        ],
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "eval_trends",
+            "--results-dir",
+            str(tmp_path),
+            "--improvements",
+            "--format",
+            "json",
+        ],
+    )
+    main()
+    data = json.loads(capsys.readouterr().out)
+    assert len(data["improvements"]) == 1
+    assert data["improvements"][0]["test"] == "test-fail-to-pass"
+    assert data["regressions"] == [], (
+        "regressions should be empty when --improvements is set"
+    )
+    assert data["flaky"] == [], "flaky should be empty when --improvements is set"
