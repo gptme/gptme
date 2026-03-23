@@ -13,10 +13,12 @@ Usage (via eval CLI):
 
 import argparse
 import csv
+import html
 import io
 import json
 import sys
 from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Test suite membership — tests not in either set count toward Overall only
@@ -341,8 +343,6 @@ def format_markdown_table(ranked: list[dict]) -> str:
 
 def format_html_page(ranked: list[dict]) -> str:
     """Format results as a self-contained HTML page for publishing."""
-    from datetime import datetime, timezone
-
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     total_models = len(ranked)
     max_tests = max((s["total_tests"] for s in ranked), default=0)
@@ -465,13 +465,8 @@ def format_html_page(ranked: list[dict]) -> str:
 
 
 def _html_escape(s: str) -> str:
-    """Minimal HTML escaping for untrusted model names."""
-    return (
-        s.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-    )
+    """HTML escaping for untrusted model names."""
+    return html.escape(s)
 
 
 def format_json(ranked: list[dict]) -> str:
