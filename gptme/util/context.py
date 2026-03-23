@@ -579,24 +579,36 @@ def _find_potential_paths(content: str) -> list[str]:
     paths = []
 
     def is_path_like(word: str) -> bool:
-        """Helper to check if a word looks like a path"""
+        """Helper to check if a word looks like a path.
+
+        Supports the ``@`` prefix convention (e.g. ``@src/file.py``) used by
+        Claude Code and other AI tools to reference files and directories.
+        """
+        # Strip leading @ for detection (actual stripping happens in caller)
+        w = word.lstrip("@") if word.startswith("@") else word
         return (
+            # @-prefixed reference (must have content after @)
+            (word.startswith("@") and len(w) > 0)
             # Absolute/home/relative paths
-            any(word.startswith(s) for s in ["/", "~/", "./"])
+            or any(w.startswith(s) for s in ["/", "~/", "./"])
             # URLs
-            or word.startswith("http")
+            or w.startswith("http")
             # Contains slash (for backtick-wrapped paths)
-            or "/" in word
+            or "/" in w
             # Files in current directory or subdirectories
-            or any(word.split("/", 1)[0] == file for file in cwd_files)
+            or any(w.split("/", 1)[0] == file for file in cwd_files)
         )
+
+    def _strip_at_prefix(word: str) -> str:
+        """Strip leading @ from path references (e.g. @src/file.py -> src/file.py)."""
+        return word.removeprefix("@")
 
     # First find backtick-wrapped content
     for match in re.finditer(r"`([^`]+)`", content_no_xml):
         word = match.group(1).strip()
         word = word.rstrip("?").rstrip(".").rstrip(",").rstrip("!")
         if is_path_like(word):
-            paths.append(word)
+            paths.append(_strip_at_prefix(word))
 
     # Then find non-backtick-wrapped words
     # Remove backtick-wrapped content first to avoid double-processing
@@ -608,7 +620,7 @@ def _find_potential_paths(content: str) -> list[str]:
             continue
 
         if is_path_like(word):
-            paths.append(word)
+            paths.append(_strip_at_prefix(word))
 
     return paths
 

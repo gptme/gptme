@@ -103,6 +103,57 @@ def test_find_potential_paths_punctuation():
     assert "https://example.com" in paths
 
 
+def test_find_potential_paths_at_prefix(tmp_path, monkeypatch):
+    """Test that @-prefixed paths are detected and the @ is stripped."""
+    (tmp_path / "main.py").touch()
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src/utils.py").touch()
+    monkeypatch.chdir(tmp_path)
+
+    content = """
+    Check @src/utils.py for the implementation.
+    Also look at @/absolute/path and @./relative/path.
+    In backticks: `@main.py` and `@~/home/config`.
+    """
+
+    paths = _find_potential_paths(content)
+
+    # @ prefix should be stripped in the returned paths
+    assert "src/utils.py" in paths
+    assert "/absolute/path" in paths
+    assert "./relative/path" in paths
+    assert "main.py" in paths
+    assert "~/home/config" in paths
+
+    # Original @-prefixed forms should NOT be in the result
+    assert "@src/utils.py" not in paths
+    assert "@main.py" not in paths
+
+
+def test_find_potential_paths_at_prefix_bare_at():
+    """Test that bare @ without a path is not detected."""
+    content = "Send email to bob@ or use @ symbol"
+    paths = _find_potential_paths(content)
+    # bare @ or email-like should not be matched
+    assert not any("@" in p or p == "" for p in paths)
+
+
+def test_include_paths_at_prefix(tmp_path, monkeypatch):
+    """Integration test: @file.txt in user prompt → file content included."""
+    from gptme.message import Message
+    from gptme.util.context import include_paths
+
+    monkeypatch.chdir(tmp_path)
+    test_file = tmp_path / "config.toml"
+    test_file.write_text("[settings]\nkey = 'value'\n")
+
+    msg = Message("user", "Please review @config.toml")
+    result = include_paths(msg)
+
+    # File content should be included in the message
+    assert "key = 'value'" in result.content
+
+
 def test_embed_attached_file_content_separator(tmp_path):
     """File contents should be separated from message content by double newlines."""
     from gptme.message import Message
