@@ -109,12 +109,13 @@ class TestIsPackageInstalled:
             assert result is True
             mock_find.assert_any_call("opentelemetry")
 
-    def test_underscore_name_tries_variant(self):
-        """Package with underscore should try underscore variant too."""
+    def test_underscore_name_no_redundant_variant(self):
+        """Pure-underscore name has no distinct hyphen/underscore variant — only tried once."""
         with patch("importlib.util.find_spec") as mock_find:
-            mock_find.side_effect = [None, MagicMock()]
+            mock_find.return_value = None
             result = _is_package_installed("my_package")
-            assert result is True
+            assert result is False
+            mock_find.assert_called_once_with("my_package")
 
     def test_simple_name_no_variants(self):
         """Package with no hyphens/underscores tries only original."""

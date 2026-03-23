@@ -131,9 +131,11 @@ def _is_package_installed(name: str) -> bool:
     # Names to try: original, with underscores, and base name for namespace packages
     names_to_try = [name]
 
-    # Add underscore variant
-    if "-" in name or "_" in name:
-        names_to_try.append(name.replace("-", "_"))
+    # Add underscore variant (only if it differs from the original name)
+    if "-" in name:
+        normalized = name.replace("-", "_")
+        if normalized not in names_to_try:
+            names_to_try.append(normalized)
 
     # For namespace packages (e.g., "opentelemetry-api"), try bare namespace
     if "-" in name:
