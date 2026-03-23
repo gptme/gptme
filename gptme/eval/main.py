@@ -622,21 +622,24 @@ def main(
     if not evals_to_run:
         evals_to_run = tests_default
 
-    print("=== Running evals ===")
+    if not json_output:
+        print("=== Running evals ===")
     model_results = run_evals(
         evals_to_run, model_configs, timeout, parallel, use_docker
     )
-    print("=== Finished ===")
+    if not json_output:
+        print("=== Finished ===")
 
     if json_output:
-        json_data = results_to_json(model_results)
+        commit_hash = _get_commit_hash()
+        json_data = results_to_json(model_results, commit_hash=commit_hash)
         print(json.dumps(json_data, indent=2))
+    else:
+        print("\n=== Model Results ===")
+        print_model_results(model_results)
 
-    print("\n=== Model Results ===")
-    print_model_results(model_results)
-
-    print("\n=== Model Comparison ===")
-    print_model_results_table(model_results)
+        print("\n=== Model Comparison ===")
+        print_model_results_table(model_results)
 
     # Write results to CSV (and JSON if flag set)
     write_results(model_results, write_json=json_output)
@@ -773,13 +776,8 @@ def results_to_json(
     }
 
 
-def write_results(
-    model_results: dict[ModelConfig, list[EvalResult]],
-    write_json: bool = False,
-):
-    timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%SZ")
-    # get current commit hash and dirty status, like: a8b2ef0-dirty
-    # try git first, fall back to package version
+def _get_commit_hash() -> str:
+    """Get current commit hash and dirty status, like: a8b2ef0-dirty."""
     git_result = subprocess.run(
         ["git", "describe", "--always", "--dirty", "--exclude", "'*'"],
         check=False,
@@ -788,15 +786,22 @@ def write_results(
         cwd=project_dir,
     )
     if git_result.returncode == 0 and git_result.stdout.strip():
-        commit_hash = git_result.stdout.strip()
-    else:
-        # not in a git repo, use package version
-        from importlib.metadata import PackageNotFoundError, version
+        return git_result.stdout.strip()
+    # not in a git repo, use package version
+    from importlib.metadata import PackageNotFoundError, version
 
-        try:
-            commit_hash = f"v{version('gptme')}"
-        except PackageNotFoundError:
-            commit_hash = "unknown"
+    try:
+        return f"v{version('gptme')}"
+    except PackageNotFoundError:
+        return "unknown"
+
+
+def write_results(
+    model_results: dict[ModelConfig, list[EvalResult]],
+    write_json: bool = False,
+):
+    timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%SZ")
+    commit_hash = _get_commit_hash()
     eval_results_dir = Path(
         os.environ.get("EVAL_RESULTS_DIR", project_dir / "eval_results")
     )
@@ -856,12 +861,15 @@ def write_results(
                 writer.writerow(row)
                 _write_case_results(test_dir / "cases.csv", result.results)
 
+    # When --json is active, status messages go to stderr to keep stdout clean JSON
+    _status_file = sys.stderr if write_json else sys.stdout
+
     if write_json:
         json_data = results_to_json(model_results, commit_hash=commit_hash)
         json_filename = results_dir / "eval_results.json"
         with open(json_filename, "w") as f:
             json.dump(json_data, f, indent=2)
-        print(f"\nJSON results saved to {json_filename.resolve()}")
+        print(f"\nJSON results saved to {json_filename.resolve()}", file=_status_file)
 
-    print(f"\nResults saved to {csv_filename.resolve()}")
-    print(f"Output files saved in {results_dir.resolve()}")
+    print(f"\nResults saved to {csv_filename.resolve()}", file=_status_file)
+    print(f"Output files saved in {results_dir.resolve()}", file=_status_file)
