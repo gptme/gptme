@@ -43,19 +43,23 @@ def _get_docker_cmd_from_reexec(env_values: dict[str, str]) -> list[str]:
     # Build a patched environment with the test keys
     patched_env = {**os.environ, **env_values}
 
+    # Mock get_config so it returns our env values.
+    # Patch at gptme.eval.main.get_config (where docker_reexec looks it up)
+    # *and* at gptme.config.get_config (the canonical location) so the mock
+    # is effective regardless of import resolution order in CI workers.
+    mock_config = MagicMock()
+    mock_config.get_env = lambda key, default=None: patched_env.get(key, default)
+
     with (
         patch("subprocess.run", side_effect=fake_subprocess_run),
         patch("subprocess.check_output", side_effect=fake_check_output),
         patch.dict(os.environ, patched_env, clear=False),
         patch("sys.exit"),  # prevent SystemExit
+        patch("gptme.eval.main.get_config", return_value=mock_config),
+        patch("gptme.config.get_config", return_value=mock_config),
     ):
-        # Need to also mock get_config so it returns our env values
-        mock_config = MagicMock()
-        mock_config.get_env = lambda key, default=None: patched_env.get(key, default)
-
-        with patch.object(_eval_main_mod, "get_config", return_value=mock_config):
-            docker_reexec = _eval_main_mod.docker_reexec
-            docker_reexec(["gptme-eval", "--some-arg"])
+        docker_reexec = _eval_main_mod.docker_reexec
+        docker_reexec(["gptme-eval", "--some-arg"])
 
     return captured_cmd
 
@@ -119,19 +123,19 @@ def test_env_file_has_restrictive_permissions():
         return mock_result
 
     patched_env = {**os.environ, test_key: test_secret}
+    mock_config = MagicMock()
+    mock_config.get_env = lambda key, default=None: patched_env.get(key, default)
 
     with (
         patch("subprocess.run", side_effect=capture_env_file),
         patch("subprocess.check_output", return_value="/fake/git/root\n"),
         patch.dict(os.environ, patched_env, clear=False),
         patch("sys.exit"),
+        patch("gptme.eval.main.get_config", return_value=mock_config),
+        patch("gptme.config.get_config", return_value=mock_config),
     ):
-        mock_config = MagicMock()
-        mock_config.get_env = lambda key, default=None: patched_env.get(key, default)
-
-        with patch.object(_eval_main_mod, "get_config", return_value=mock_config):
-            docker_reexec = _eval_main_mod.docker_reexec
-            docker_reexec(["gptme-eval", "--some-arg"])
+        docker_reexec = _eval_main_mod.docker_reexec
+        docker_reexec(["gptme-eval", "--some-arg"])
 
     assert env_file_path is not None, "Expected --env-file to be used"
     assert env_file_mode == 0o600, (
@@ -182,19 +186,19 @@ def test_env_file_contains_expected_content():
         return mock_result
 
     patched_env = {**os.environ, **test_secrets}
+    mock_config = MagicMock()
+    mock_config.get_env = lambda key, default=None: patched_env.get(key, default)
 
     with (
         patch("subprocess.run", side_effect=capture_env_file_content),
         patch("subprocess.check_output", return_value="/fake/git/root\n"),
         patch.dict(os.environ, patched_env, clear=False),
         patch("sys.exit"),
+        patch("gptme.eval.main.get_config", return_value=mock_config),
+        patch("gptme.config.get_config", return_value=mock_config),
     ):
-        mock_config = MagicMock()
-        mock_config.get_env = lambda key, default=None: patched_env.get(key, default)
-
-        with patch.object(_eval_main_mod, "get_config", return_value=mock_config):
-            docker_reexec = _eval_main_mod.docker_reexec
-            docker_reexec(["gptme-eval", "--some-arg"])
+        docker_reexec = _eval_main_mod.docker_reexec
+        docker_reexec(["gptme-eval", "--some-arg"])
 
     assert env_file_content is not None, "Expected env file to be written"
     for key, value in test_secrets.items():
