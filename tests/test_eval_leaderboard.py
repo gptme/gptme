@@ -15,6 +15,7 @@ from gptme.eval.leaderboard import (
     format_rst_table,
     generate_leaderboard,
     load_results,
+    main,
     normalize_model,
     parse_model_format,
 )
@@ -45,6 +46,8 @@ def test_normalize_model():
     """Known models get human-readable names."""
     assert normalize_model("openai/gpt-4o") == "GPT-4o"
     assert normalize_model("anthropic/claude-sonnet-4-20250514") == "Claude Sonnet 4"
+    assert normalize_model("anthropic/claude-sonnet-4-5") == "Claude Sonnet 4.5"
+    assert normalize_model("openrouter/openai/gpt-4o-mini") == "GPT-4o Mini (OR)"
     # Unknown models pass through unchanged
     assert normalize_model("some/unknown-model") == "some/unknown-model"
 
@@ -579,6 +582,24 @@ def test_format_html_escapes_model_names(tmp_path):
     html = format_html_page(ranked)
     assert "<script>" not in html
     assert "&lt;script&gt;" in html
+
+
+def test_main_graceful_on_missing_results(tmp_path, capsys, monkeypatch):
+    """CLI main() prints placeholder instead of crashing when no results exist."""
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "leaderboard",
+            "--results-dir",
+            str(tmp_path / "nonexistent"),
+            "--format",
+            "rst",
+        ],
+    )
+    # main() should not raise or sys.exit
+    main()
+    captured = capsys.readouterr()
+    assert "No eval results available" in captured.out
 
 
 def test_generate_leaderboard_html(tmp_path):

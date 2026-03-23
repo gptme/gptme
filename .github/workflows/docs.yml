@@ -42,6 +42,13 @@ jobs:
         run: |
           poetry install -E browser -E server
 
+      - name: Fetch eval results for leaderboard
+        run: |
+          # Fetch eval results from the dedicated eval-results branch
+          # so the docs build can generate the model leaderboard table
+          git fetch origin eval-results --depth=1
+          git checkout origin/eval-results -- eval_results/ || echo "No eval results available"
+
       - name: Build docs
         run: make docs
 

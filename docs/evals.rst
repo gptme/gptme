@@ -44,7 +44,7 @@ Model Leaderboard
 
 The table below shows pass rates across our eval suites for each model (best tool format per model). Models are ranked by overall pass rate, with breakdowns by suite type.
 
-.. command-output:: python scripts/eval_leaderboard.py --format rst --min-tests 4
+.. command-output:: python -m gptme.eval.leaderboard --results-dir eval_results --format rst --min-tests 4
    :cwd: ..
    :shell:
 
@@ -60,9 +60,10 @@ To generate this table locally:
 
 .. code-block:: bash
 
-    python scripts/eval_leaderboard.py --format rst
-    python scripts/eval_leaderboard.py --format csv    # for data analysis
-    python scripts/eval_leaderboard.py --format markdown  # for GitHub/blog
+    gptme eval --leaderboard --leaderboard-format rst
+    gptme eval --leaderboard --leaderboard-format csv       # for data analysis
+    gptme eval --leaderboard --leaderboard-format markdown   # for GitHub/blog
+    gptme eval --leaderboard --leaderboard-format html       # self-contained HTML page
 
 
 Usage
@@ -147,11 +148,21 @@ Run all practical suites at once (useful for benchmarking):
 Raw Results
 -----------
 
-Full per-test results from all eval runs:
+Full per-test results from all eval runs are stored as CSV files in ``eval_results/`` subdirectories.
+Results are published to the ``eval-results`` branch of the repository.
 
-.. command-output:: gptme-eval eval_results/*/eval_results.csv
-   :cwd: ..
-   :shell:
+To view raw results locally:
+
+.. code-block:: bash
+
+    # View latest results
+    cat eval_results/*/eval_results.csv | head -50
+
+    # Export leaderboard as CSV for analysis
+    gptme eval --leaderboard --leaderboard-format csv
+
+    # Export as JSON for programmatic use
+    gptme eval --leaderboard --leaderboard-format json
 
 
 Other evals

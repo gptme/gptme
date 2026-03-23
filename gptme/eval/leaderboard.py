@@ -112,6 +112,10 @@ def normalize_model(model: str) -> str:
         "openrouter/x-ai/grok-4-fast:free": "Grok 4 Fast",
         "openrouter/x-ai/grok-code-fast-1": "Grok Code Fast",
         "openrouter/z-ai/glm-5": "GLM-5",
+        # OpenRouter-proxied versions of direct-API models
+        "openrouter/openai/gpt-4o-mini": "GPT-4o Mini (OR)",
+        # Model IDs without date suffix
+        "anthropic/claude-sonnet-4-5": "Claude Sonnet 4.5",
     }
     return replacements.get(model, model)
 
@@ -564,8 +568,18 @@ def main():
             min_tests=args.min_tests,
         )
     except (FileNotFoundError, ValueError) as e:
-        print(str(e), file=sys.stderr)
-        sys.exit(1)
+        # Print a placeholder instead of failing — allows docs builds to succeed
+        # even when eval results are not available
+        print(f"*No leaderboard data available ({e})*", file=sys.stderr)
+        if args.format == "rst":
+            print("*No eval results available. Run evals to populate the leaderboard.*")
+        elif args.format == "html":
+            print("<p><em>No eval results available.</em></p>")
+        elif args.format == "json":
+            print('{"models": [], "error": "' + str(e).replace('"', '\\"') + '"}')
+        else:
+            print("*No eval results available.*")
+        return
     if args.format == "csv":
         print(output, end="")
     else:
