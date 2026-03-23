@@ -125,7 +125,7 @@ def check_ipv4_224_multicast(ctx):
 
 
 def check_ipv4_class_a(ctx):
-    """10.0.0.5 should be class A (first octet 1-126 or 10.x)."""
+    """10.0.0.5 should be class A (first octet 1-126)."""
     for line in ctx.stdout.splitlines():
         if re.search(r"10\.0\.0\.5\s+[Aa]\b", line):
             return True
@@ -254,7 +254,8 @@ tests: list["EvalSpec"] = [
             "Write a Python script `ipv4_classify.py` that reads IPv4 addresses "
             "from `ips.txt` (one per line) and classifies each. For each address, "
             "print one line with: the IP address, its class (A/B/C/D/E based on "
-            "first octet: 1-126=A, 128-191=B, 192-223=C, 224-239=D, 240-255=E), "
+            "first octet: 1-126=A, 128-191=B, 192-223=C, 224-239=D, 240-255=E; "
+            "use '-' for 127.x.x.x loopback which has no standard class), "
             "and its type (private if in 10.0.0.0/8, 172.16.0.0/12, or "
             "192.168.0.0/16; loopback if 127.x.x.x; multicast if class D; "
             "otherwise public). Format: 'IP CLASS TYPE' (e.g. '10.0.0.5 A private')."
