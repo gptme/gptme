@@ -1092,6 +1092,7 @@ class TestInitModelBuiltinProviders:
             "deepseek",
             "nvidia",
             "local",
+            "openai-subscription",
         ],
     )
     @patch("gptme.init.set_default_model")
@@ -1139,6 +1140,7 @@ class TestInitModelBuiltinProviders:
             "deepseek",
             "nvidia",
             "local",
+            "openai-subscription",
         ],
     )
     @patch("gptme.init.set_default_model")
@@ -1249,15 +1251,22 @@ class TestInitLogging:
         from gptme.init import init_logging
 
         mock_filter = MagicMock()
-        with patch.dict(
-            "sys.modules",
-            {
-                "gptme.util._telemetry": MagicMock(
-                    get_connection_error_filter=MagicMock(return_value=mock_filter)
-                )
-            },
+        with (
+            patch.dict(
+                "sys.modules",
+                {
+                    "gptme.util._telemetry": MagicMock(
+                        get_connection_error_filter=MagicMock(return_value=mock_filter)
+                    )
+                },
+            ),
+            patch("logging.getLogger") as mock_get_logger,
         ):
+            mock_otel_logger = MagicMock()
+            mock_get_logger.return_value = mock_otel_logger
             init_logging(verbose=False)
+            mock_get_logger.assert_any_call("opentelemetry")
+            mock_otel_logger.addFilter.assert_called_once_with(mock_filter)
 
     def test_otel_filter_skipped_when_unavailable(self):
         """When opentelemetry is not installed, filter setup should be silently skipped."""
