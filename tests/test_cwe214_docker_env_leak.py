@@ -10,8 +10,6 @@ secrets never appear on the command line.
 
 import os
 import stat
-import sys
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 

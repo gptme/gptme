@@ -140,8 +140,14 @@ def docker_reexec(argv: list[str]) -> None:
             with os.fdopen(fd, "w") as f:
                 f.write("\n".join(env_entries) + "\n")
         except BaseException:
-            os.close(fd)
-            os.unlink(env_file_path)
+            # os.fdopen took ownership of fd; the context manager already
+            # closed it (even on exception), so do NOT call os.close(fd)
+            # here — that would raise EBADF and shadow the real error.
+            try:
+                os.unlink(env_file_path)
+            except OSError:
+                pass
+            env_file_path = None
             raise
         env_file_args = ["--env-file", env_file_path]
 
