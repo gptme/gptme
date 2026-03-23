@@ -406,22 +406,30 @@ class TestPromptComposition:
         assert "non-interactive" in combined.lower()
 
     def test_prompt_short_no_examples(self):
-        """prompt_short passes examples=False to prompt_tools."""
+        """prompt_short passes examples=False, so examples are excluded."""
         from gptme.prompts.templates import prompt_short
+        from gptme.tools import ToolSpec
 
-        tools = [self._make_tool()]
+        # Create tool WITH examples to ensure the flag actually matters
+        tool = ToolSpec(
+            name="test-tool",
+            desc="A test tool",
+            instructions="Test instructions",
+            examples="User: example usage\nAssistant: example response",
+        )
         msgs = list(
             prompt_short(
                 interactive=True,
-                tools=tools,
+                tools=[tool],
                 tool_format="markdown",
             )
         )
         combined = "\n".join(m.content for m in msgs)
 
-        # Tool should be mentioned but without examples section
+        # Tool should be mentioned but examples section must be excluded
         assert "test-tool" in combined
         assert "### Examples" not in combined
+        assert "example usage" not in combined
 
 
 # ---------------------------------------------------------------------------
