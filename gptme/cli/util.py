@@ -445,11 +445,9 @@ def tools_info(
     if as_json:
         d = tool_to_dict(tool)
         # Include full instructions and examples for info output
-        if tool.instructions:
-            d["instructions"] = tool.instructions.strip()
+        d["instructions"] = tool.instructions.strip() if tool.instructions else ""
         examples = tool.get_examples()
-        if examples:
-            d["examples"] = examples.strip()
+        d["examples"] = examples.strip() if examples else ""
         print(json.dumps(d, indent=2))
         return
 

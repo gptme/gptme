@@ -165,7 +165,7 @@ def test_tools_list():
     data = json.loads(result.output)
     assert isinstance(data, list)
     assert len(data) > 0
-    # Check required fields
+    # Check required fields (stable schema — all keys always present)
     tool = data[0]
     assert "name" in tool
     assert "desc" in tool
@@ -173,6 +173,12 @@ def test_tools_list():
     assert isinstance(tool["available"], bool)
     assert "block_types" in tool
     assert isinstance(tool["block_types"], list)
+    assert "functions" in tool
+    assert isinstance(tool["functions"], list)
+    assert "commands" in tool
+    assert isinstance(tool["commands"], list)
+    assert "is_mcp" in tool
+    assert isinstance(tool["is_mcp"], bool)
     # Default --available filter: all tools should be available
     assert all(t["available"] for t in data)
 
@@ -202,7 +208,7 @@ def test_tools_info():
     assert result.exit_code != 0  # returns non-zero for not found tool
     assert "not found" in result.output
 
-    # Test JSON output
+    # Test JSON output (stable schema — instructions/examples always present)
     result = runner.invoke(main, ["tools", "info", "shell", "--json"])
     assert result.exit_code == 0
     data = json.loads(result.output)
@@ -213,6 +219,8 @@ def test_tools_info():
     assert len(data["instructions"]) > 0
     assert "examples" in data
     assert isinstance(data["examples"], str)
+    assert "is_mcp" in data
+    assert isinstance(data["is_mcp"], bool)
 
 
 def test_models_list():

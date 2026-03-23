@@ -44,28 +44,17 @@ def tool_to_dict(tool: "ToolSpec") -> dict[str, Any]:
 
     Returns a dict with tool metadata suitable for machine consumption.
     """
-    d: dict[str, Any] = {
+    return {
         "name": tool.name,
         "desc": tool.desc,
         "available": tool.is_available,
         "disabled_by_default": tool.disabled_by_default,
         "block_types": tool.block_types,
         "has_execute": bool(tool.execute),
+        "functions": [f.__name__ for f in tool.functions] if tool.functions else [],
+        "commands": list(tool.commands.keys()) if tool.commands else [],
+        "is_mcp": bool(tool.is_mcp),
     }
-
-    # Include function names if the tool exposes callable functions
-    if tool.functions:
-        d["functions"] = [f.__name__ for f in tool.functions]
-
-    # Include command names if the tool registers slash commands
-    if tool.commands:
-        d["commands"] = list(tool.commands.keys())
-
-    # MCP flag
-    if tool.is_mcp:
-        d["is_mcp"] = True
-
-    return d
 
 
 def format_tool_summary(
