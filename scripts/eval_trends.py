@@ -6,7 +6,7 @@ across runs. Highlights tests that regressed (used to pass, now fail) or
 improved (used to fail, now pass).
 
 Usage:
-    python scripts/eval_trends.py [--model MODEL] [--last N] [--format table|json|csv]
+    python scripts/eval_trends.py [--model MODEL] [--last N] [--format table|json]
     python scripts/eval_trends.py --regressions          # show only regressions
     python scripts/eval_trends.py --improvements         # show only improvements
     python scripts/eval_trends.py --model claude-sonnet   # filter by model substring
@@ -132,20 +132,18 @@ def compute_trends(
                 "total_runs": total,
             }
 
-            if previous["passed"] and not latest["passed"]:
+            # Check pass_rate first to catch intermittent tests before binary direction.
+            # Require at least 4 runs to avoid misclassifying single-change tests as flaky.
+            if total >= 4 and 0.1 < pass_rate < 0.9:
+                flaky.append(entry)
+            elif previous["passed"] and not latest["passed"]:
                 regressions.append(entry)
             elif not previous["passed"] and latest["passed"]:
                 improvements.append(entry)
             elif latest["passed"]:
-                if pass_rate < 0.9:
-                    flaky.append(entry)
-                else:
-                    stable_pass.append(entry)
+                stable_pass.append(entry)
             else:
-                if pass_rate > 0.1:
-                    flaky.append(entry)
-                else:
-                    stable_fail.append(entry)
+                stable_fail.append(entry)
 
     return {
         "regressions": regressions,
@@ -195,6 +193,7 @@ def compute_diff(results: list[dict], model_filter: str | None = None) -> dict:
         unchanged_pass = []
         unchanged_fail = []
         new_tests = []
+        removed_tests = []
 
         all_tests = sorted(set(latest_results) | set(prev_results))
         for test in all_tests:
@@ -212,6 +211,8 @@ def compute_diff(results: list[dict], model_filter: str | None = None) -> dict:
                     unchanged_fail.append(test)
             elif in_latest and not in_prev:
                 new_tests.append({"test": test, "passed": latest_results[test]})
+            elif in_prev and not in_latest:
+                removed_tests.append({"test": test, "was_passing": prev_results[test]})
 
         diffs[model_key] = {
             "latest_run": latest_run,
@@ -221,6 +222,7 @@ def compute_diff(results: list[dict], model_filter: str | None = None) -> dict:
             "unchanged_pass": len(unchanged_pass),
             "unchanged_fail": len(unchanged_fail),
             "new_tests": new_tests,
+            "removed_tests": removed_tests,
         }
 
     return diffs
@@ -298,6 +300,13 @@ def format_diff(diffs: dict) -> str:
                 for t in diff["new_tests"]
             )
 
+        if diff.get("removed_tests"):
+            lines.append(f"  ~ Removed tests ({len(diff['removed_tests'])}):")
+            lines.extend(
+                f"    ~ {t['test']} (was {'PASS' if t['was_passing'] else 'FAIL'})"
+                for t in diff["removed_tests"]
+            )
+
         lines.append(
             f"  Unchanged: {diff['unchanged_pass']} pass, {diff['unchanged_fail']} fail"
         )
@@ -348,6 +357,13 @@ def main():
         help="Output format",
     )
     args = parser.parse_args()
+
+    if not args.results_dir.is_dir():
+        print(f"Results directory not found: {args.results_dir}", file=sys.stderr)
+        sys.exit(1)
+
+    if args.diff and args.last is not None:
+        print("Warning: --last is ignored in --diff mode.", file=sys.stderr)
 
     results = load_all_results(args.results_dir)
     if not results:

@@ -321,7 +321,7 @@ def test_empty_results(tmp_path):
 
 
 def test_flaky_detection(tmp_path):
-    """Tests with intermittent results are detected as flaky."""
+    """Tests with intermittent results (pass_rate 10-90%) are detected as flaky."""
     rows_run1 = [("model-a", "markdown", "flaky-test", "true")]
     rows_run2 = [("model-a", "markdown", "flaky-test", "false")]
     rows_run3 = [("model-a", "markdown", "flaky-test", "true")]
@@ -340,11 +340,9 @@ def test_flaky_detection(tmp_path):
     )
     results = load_all_results(tmp_path)
     trends = compute_trends(results)
-    # Latest is pass, previous is fail = improvement, but pass_rate is 60% = flaky
-    # Actually: latest=true, previous=false → improvement, pass_rate=0.6
-    # improvements category but pass_rate < 0.9 would be flaky if it were stable_pass
-    # Let me check: it's an improvement (false->true), so it goes to improvements list
-    assert len(trends["improvements"]) == 1
+    # pass_rate=0.6 (3 of 5) → classified as flaky regardless of last-two-run direction
+    assert len(trends["flaky"]) == 1
+    assert len(trends["improvements"]) == 0
 
 
 def test_at_format_in_model_name(tmp_path):
