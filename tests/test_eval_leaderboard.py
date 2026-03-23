@@ -489,3 +489,27 @@ def test_generate_leaderboard_json(tmp_path):
     )
     data = json.loads(output)
     assert data["models"][0]["pass_rate"] == 0.75
+
+
+def test_generate_leaderboard_invalid_format(tmp_path):
+    """generate_leaderboard() raises ValueError for unknown format strings."""
+    _create_eval_results(
+        tmp_path,
+        [
+            {
+                "dir": "run1",
+                "rows": [
+                    ("openai/gpt-4o", "tool", "hello", "true"),
+                    ("openai/gpt-4o", "tool", "prime100", "true"),
+                    ("openai/gpt-4o", "tool", "fix-bug", "false"),
+                    ("openai/gpt-4o", "tool", "hello-patch", "true"),
+                ],
+            }
+        ],
+    )
+    with pytest.raises(ValueError, match="Unknown format"):
+        generate_leaderboard(
+            results_dir=tmp_path,
+            output_format="html",
+            min_tests=3,
+        )

@@ -396,7 +396,11 @@ def generate_leaderboard(
         "markdown": format_markdown_table,
         "json": format_json,
     }
-    formatter = formatters.get(output_format, format_rst_table)
+    formatter = formatters.get(output_format)
+    if formatter is None:
+        raise ValueError(
+            f"Unknown format: {output_format!r}. Valid formats: {list(formatters)}"
+        )
     return formatter(ranked)
 
 
@@ -411,8 +415,8 @@ def main():
     parser.add_argument(
         "--format",
         choices=["rst", "csv", "markdown", "json"],
-        default="rst",
-        help="Output format (default: rst)",
+        default="markdown",
+        help="Output format (default: markdown)",
     )
     parser.add_argument(
         "--min-tests",
