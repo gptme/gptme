@@ -278,6 +278,7 @@ tests: list["EvalSpec"] = [
     {
         "name": "json-diff",
         "files": {"old.json": _OLD_JSON, "new.json": _NEW_JSON},
+        "restore_files": ["old.json", "new.json"],
         "run": "python diff_json.py old.json new.json",
         "prompt": (
             "Write diff_json.py that compares two JSON files and reports the "

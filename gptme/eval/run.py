@@ -326,11 +326,18 @@ def execute(
             run_start = time.time()
             env = DockerExecutionEnv() if use_docker else SimpleExecutionEnv()
             try:
-                # Restore original fixture files before running checks.
-                # The model may have overwritten them during generation
-                # (e.g. creating its own test data to verify the script).
-                fixture_files = test.get("files", {})
-                files_for_run = {**files, **fixture_files}
+                # Restore specific input fixture files before running checks.
+                # Some tests provide input files (e.g. old.json/new.json for json-diff)
+                # that the model may accidentally overwrite as a side-effect of testing
+                # its own script. Use `restore_files` in the EvalSpec to list any such
+                # files. Do NOT list files the model is supposed to modify (e.g. hello.py
+                # in hello-patch), as those need to stay modified.
+                restore_files = test.get("restore_files", [])
+                all_fixtures = test["files"]
+                files_for_run = {
+                    **files,
+                    **{k: v for k, v in all_fixtures.items() if k in restore_files},
+                }
                 env.upload(files_for_run)
                 logger.debug(f"Running check: {test['run']}")
                 stdout_run, stderr_run, exit_code = env.run(test["run"])

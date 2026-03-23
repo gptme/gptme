@@ -116,3 +116,11 @@ class EvalSpec(TypedDict):
     prompt: str
     expect: dict[str, Callable[[ResultContext], bool]]
     tools: NotRequired[list[str]]
+    restore_files: NotRequired[list[str]]
+    """Files to restore to original fixture content before the run phase.
+
+    Use this for input files that the model may overwrite as a side-effect during
+    generation (e.g. creating test data to verify a script), but where the run phase
+    needs the original fixture content. Do NOT list files the model is supposed to
+    modify as the goal of the task.
+    """
