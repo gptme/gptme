@@ -447,7 +447,7 @@ def aggregate_and_display_results(result_files: list[str]):
 )
 @click.option(
     "--leaderboard-format",
-    type=click.Choice(["rst", "csv", "markdown", "json"]),
+    type=click.Choice(["rst", "csv", "markdown", "json", "html"]),
     default="markdown",
     help="Output format for the leaderboard (default: markdown).",
 )

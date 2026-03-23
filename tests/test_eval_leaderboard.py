@@ -9,6 +9,7 @@ import pytest
 from gptme.eval.leaderboard import (
     aggregate_results,
     format_csv_table,
+    format_html_page,
     format_json,
     format_markdown_table,
     format_rst_table,
@@ -510,6 +511,97 @@ def test_generate_leaderboard_invalid_format(tmp_path):
     with pytest.raises(ValueError, match="Unknown format"):
         generate_leaderboard(
             results_dir=tmp_path,
-            output_format="html",
+            output_format="xml",
             min_tests=3,
         )
+
+
+def test_format_html_page(tmp_path):
+    """HTML output produces a self-contained page with expected structure."""
+    _create_eval_results(
+        tmp_path,
+        [
+            {
+                "dir": "run1",
+                "rows": [
+                    ("openai/gpt-4o", "markdown", "hello", "true"),
+                    ("openai/gpt-4o", "markdown", "prime100", "true"),
+                    ("openai/gpt-4o", "markdown", "hello-patch", "false"),
+                    ("openai/gpt-4o", "markdown", "hello-ask", "true"),
+                    ("anthropic/claude-sonnet-4-20250514", "tool", "hello", "true"),
+                    ("anthropic/claude-sonnet-4-20250514", "tool", "prime100", "true"),
+                    (
+                        "anthropic/claude-sonnet-4-20250514",
+                        "tool",
+                        "hello-patch",
+                        "true",
+                    ),
+                    ("anthropic/claude-sonnet-4-20250514", "tool", "hello-ask", "true"),
+                ],
+            }
+        ],
+    )
+    results = load_results(tmp_path)
+    ranked = aggregate_results(results, min_tests=3)
+    html = format_html_page(ranked)
+    # Valid HTML structure
+    assert "<!DOCTYPE html>" in html
+    assert "<title>gptme Eval Leaderboard</title>" in html
+    assert "</html>" in html
+    # Contains model names (normalized)
+    assert "GPT-4o" in html
+    assert "Claude Sonnet 4" in html
+    # Contains pass rate badges
+    assert "badge-green" in html
+    # Contains ranking numbers
+    assert "<td class='rank'>1</td>" in html
+    assert "<td class='rank'>2</td>" in html
+    # Claude should be #1 (100% > 75%)
+    assert html.index("Claude Sonnet 4") < html.index("GPT-4o")
+
+
+def test_format_html_escapes_model_names(tmp_path):
+    """HTML output escapes special characters in model names."""
+    _create_eval_results(
+        tmp_path,
+        [
+            {
+                "dir": "run1",
+                "rows": [
+                    ("some/<script>evil</script>", "tool", f"test-{i}", "true")
+                    for i in range(5)
+                ],
+            }
+        ],
+    )
+    results = load_results(tmp_path)
+    ranked = aggregate_results(results, min_tests=3)
+    html = format_html_page(ranked)
+    assert "<script>" not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_generate_leaderboard_html(tmp_path):
+    """generate_leaderboard() with html format produces valid HTML."""
+    _create_eval_results(
+        tmp_path,
+        [
+            {
+                "dir": "run1",
+                "rows": [
+                    ("openai/gpt-4o", "tool", "hello", "true"),
+                    ("openai/gpt-4o", "tool", "prime100", "true"),
+                    ("openai/gpt-4o", "tool", "fix-bug", "true"),
+                    ("openai/gpt-4o", "tool", "hello-patch", "false"),
+                ],
+            }
+        ],
+    )
+    output = generate_leaderboard(
+        results_dir=tmp_path,
+        output_format="html",
+        min_tests=3,
+    )
+    assert "<!DOCTYPE html>" in output
+    assert "GPT-4o" in output
+    assert "gptme Eval Leaderboard" in output

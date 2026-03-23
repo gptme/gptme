@@ -5,10 +5,10 @@ Reads eval_results/*/eval_results.csv files and generates a comparison table
 showing pass rates per model across test suites.
 
 Usage (standalone):
-    python -m gptme.eval.leaderboard [--format rst|csv|markdown|json] [--min-tests N]
+    python -m gptme.eval.leaderboard [--format rst|csv|markdown|json|html] [--min-tests N]
 
 Usage (via eval CLI):
-    gptme eval --leaderboard [--leaderboard-format rst|csv|markdown|json]
+    gptme eval --leaderboard [--leaderboard-format rst|csv|markdown|json|html]
 """
 
 import argparse
@@ -339,6 +339,141 @@ def format_markdown_table(ranked: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def format_html_page(ranked: list[dict]) -> str:
+    """Format results as a self-contained HTML page for publishing."""
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    total_models = len(ranked)
+    max_tests = max((s["total_tests"] for s in ranked), default=0)
+
+    rows_html = []
+    for i, stats in enumerate(ranked):
+        display_name = normalize_model(stats["model"])
+        fmt = stats["format"] or "default"
+        pct = stats["pass_rate"] * 100
+
+        if pct >= 80:
+            badge_class = "badge-green"
+        elif pct >= 50:
+            badge_class = "badge-yellow"
+        else:
+            badge_class = "badge-red"
+
+        basic = (
+            f"{stats['basic_passed']}/{stats['basic_total']}"
+            if stats["basic_total"] > 0
+            else "-"
+        )
+        practical = (
+            f"{stats['practical_passed']}/{stats['practical_total']}"
+            if stats["practical_total"] > 0
+            else "-"
+        )
+
+        rows_html.append(
+            f"<tr>"
+            f"<td class='rank'>{i + 1}</td>"
+            f"<td class='model'>{_html_escape(display_name)}</td>"
+            f"<td>{_html_escape(fmt)}</td>"
+            f"<td><span class='badge {badge_class}'>{pct:.0f}%</span></td>"
+            f"<td>{stats['total_passed']}/{stats['total_tests']}</td>"
+            f"<td>{basic}</td>"
+            f"<td>{practical}</td>"
+            f"<td><div class='bar' style='width:{pct:.0f}%'></div></td>"
+            f"</tr>"
+        )
+
+    rows_str = "\n        ".join(rows_html)
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gptme Eval Leaderboard</title>
+<style>
+  :root {{
+    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --text: #e6edf3; --muted: #8b949e;
+    --green: #3fb950; --yellow: #d29922; --red: #f85149;
+    --accent: #58a6ff;
+  }}
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+  body {{
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--text); padding: 2rem 1rem;
+  }}
+  .container {{ max-width: 960px; margin: 0 auto; }}
+  h1 {{ font-size: 1.5rem; margin-bottom: 0.25rem; }}
+  h1 a {{ color: var(--accent); text-decoration: none; }}
+  h1 a:hover {{ text-decoration: underline; }}
+  .meta {{ color: var(--muted); font-size: 0.85rem; margin-bottom: 1.5rem; }}
+  table {{
+    width: 100%; border-collapse: collapse;
+    background: var(--surface); border-radius: 6px; overflow: hidden;
+  }}
+  th, td {{ padding: 0.6rem 0.75rem; text-align: left; border-bottom: 1px solid var(--border); }}
+  th {{ background: var(--bg); font-size: 0.8rem; text-transform: uppercase;
+       letter-spacing: 0.05em; color: var(--muted); }}
+  tr:last-child td {{ border-bottom: none; }}
+  .rank {{ color: var(--muted); width: 2rem; text-align: center; }}
+  .model {{ font-weight: 600; }}
+  .badge {{
+    display: inline-block; padding: 0.15rem 0.5rem; border-radius: 12px;
+    font-size: 0.8rem; font-weight: 600;
+  }}
+  .badge-green {{ background: rgba(63,185,80,0.15); color: var(--green); }}
+  .badge-yellow {{ background: rgba(210,153,34,0.15); color: var(--yellow); }}
+  .badge-red {{ background: rgba(248,81,73,0.15); color: var(--red); }}
+  td:last-child {{ width: 120px; }}
+  .bar {{
+    height: 8px; border-radius: 4px; background: var(--accent);
+    min-width: 2px; transition: width 0.3s;
+  }}
+  footer {{ margin-top: 1.5rem; color: var(--muted); font-size: 0.8rem; text-align: center; }}
+  footer a {{ color: var(--accent); text-decoration: none; }}
+  @media (max-width: 640px) {{
+    th, td {{ padding: 0.4rem; font-size: 0.85rem; }}
+    td:last-child {{ display: none; }}
+    th:last-child {{ display: none; }}
+  }}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1><a href="https://gptme.org">gptme</a> Eval Leaderboard</h1>
+  <p class="meta">{total_models} models &middot; up to {max_tests} tests &middot; updated {now}</p>
+  <table>
+    <thead>
+      <tr>
+        <th>#</th><th>Model</th><th>Format</th><th>Rate</th>
+        <th>Passed</th><th>Basic</th><th>Practical</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+        {rows_str}
+    </tbody>
+  </table>
+  <footer>
+    Generated by <a href="https://github.com/gptme/gptme">gptme</a> eval suite
+    &middot; <code>gptme eval --leaderboard --leaderboard-format html</code>
+  </footer>
+</div>
+</body>
+</html>"""
+
+
+def _html_escape(s: str) -> str:
+    """Minimal HTML escaping for untrusted model names."""
+    return (
+        s.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
 def format_json(ranked: list[dict]) -> str:
     """Format results as JSON for programmatic use."""
     models = [
@@ -372,7 +507,7 @@ def generate_leaderboard(
 
     Args:
         results_dir: Path to eval_results directory with timestamped subdirs.
-        output_format: One of "rst", "csv", "markdown", "json".
+        output_format: One of "rst", "csv", "markdown", "json", "html".
         min_tests: Minimum number of tests for a model to appear.
 
     Returns:
@@ -395,6 +530,7 @@ def generate_leaderboard(
         "csv": format_csv_table,
         "markdown": format_markdown_table,
         "json": format_json,
+        "html": format_html_page,
     }
     formatter = formatters.get(output_format)
     if formatter is None:
@@ -414,7 +550,7 @@ def main():
     )
     parser.add_argument(
         "--format",
-        choices=["rst", "csv", "markdown", "json"],
+        choices=["rst", "csv", "markdown", "json", "html"],
         default="markdown",
         help="Output format (default: markdown)",
     )
