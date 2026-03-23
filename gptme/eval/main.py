@@ -454,11 +454,15 @@ def main(
         results_dir = Path(
             os.environ.get("EVAL_RESULTS_DIR", project_dir / "eval_results")
         )
-        output = generate_leaderboard(
-            results_dir=results_dir,
-            output_format=leaderboard_format,
-            min_tests=min_tests,
-        )
+        try:
+            output = generate_leaderboard(
+                results_dir=results_dir,
+                output_format=leaderboard_format,
+                min_tests=min_tests,
+            )
+        except (FileNotFoundError, ValueError) as e:
+            print(str(e), file=sys.stderr)
+            sys.exit(1)
         if leaderboard_format == "csv":
             print(output, end="")
         else:

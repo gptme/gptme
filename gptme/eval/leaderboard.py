@@ -8,7 +8,7 @@ Usage (standalone):
     python -m gptme.eval.leaderboard [--format rst|csv|markdown|json] [--min-tests N]
 
 Usage (via eval CLI):
-    gptme eval --leaderboard [--format rst|csv|markdown|json]
+    gptme eval --leaderboard [--leaderboard-format rst|csv|markdown|json]
 """
 
 import argparse
@@ -365,7 +365,7 @@ def format_json(ranked: list[dict]) -> str:
 
 def generate_leaderboard(
     results_dir: Path,
-    output_format: str = "rst",
+    output_format: str = "markdown",
     min_tests: int = 4,
 ) -> str:
     """Generate a leaderboard from eval results.
@@ -379,20 +379,16 @@ def generate_leaderboard(
         Formatted leaderboard string.
 
     Raises:
-        SystemExit: If no results or no models meet the min_tests threshold.
+        FileNotFoundError: If results_dir does not exist or contains no results.
+        ValueError: If no models meet the min_tests threshold.
     """
     results = load_results(results_dir)
     if not results:
-        print("No eval results found.", file=sys.stderr)
-        sys.exit(1)
+        raise FileNotFoundError(f"No eval results found in {results_dir}")
 
     ranked = aggregate_results(results, min_tests=min_tests)
     if not ranked:
-        print(
-            f"No models with >= {min_tests} tests found.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+        raise ValueError(f"No models with >= {min_tests} tests found.")
 
     formatters = {
         "rst": format_rst_table,
@@ -426,11 +422,15 @@ def main():
     )
     args = parser.parse_args()
 
-    output = generate_leaderboard(
-        results_dir=args.results_dir,
-        output_format=args.format,
-        min_tests=args.min_tests,
-    )
+    try:
+        output = generate_leaderboard(
+            results_dir=args.results_dir,
+            output_format=args.format,
+            min_tests=args.min_tests,
+        )
+    except (FileNotFoundError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
     if args.format == "csv":
         print(output, end="")
     else:
