@@ -30,6 +30,7 @@ gptme-auth = "gptme.cli.auth:main"
 gptme-onboard = "gptme.cli.onboard:main"
 gptme-wut = "gptme.cli.wut:main"
 gptme-dspy = "gptme.eval.dspy:main"
+gptme-eval-trends = "gptme.eval.trends:main"
 
 [tool.poetry]
 packages = [

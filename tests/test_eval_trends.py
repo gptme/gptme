@@ -1,12 +1,9 @@
 """Tests for the eval trends tracking script."""
 
 import csv
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
-
-from eval_trends import (
+from gptme.eval.trends import (
     compute_diff,
     compute_trends,
     format_diff,
