@@ -503,7 +503,10 @@ def tools_call(tool_name: str, function_name: str, arg: list[str]):
         kwargs = {}
         for arg_str in arg:
             if "=" not in arg_str:
-                print(f"Error: Argument must be in key=value format, got: {arg_str}")
+                click.echo(
+                    f"Error: Argument must be in key=value format, got: {arg_str}",
+                    err=True,
+                )
                 sys.exit(1)
             key, value = arg_str.split("=", 1)
             kwargs[key] = value
@@ -511,7 +514,7 @@ def tools_call(tool_name: str, function_name: str, arg: list[str]):
             return_val = function[0](**kwargs)
             print(return_val)
         except TypeError as e:
-            print(f"Error calling function: {e}")
+            click.echo(f"Error calling function: {e}", err=True)
             sys.exit(1)
 
 
