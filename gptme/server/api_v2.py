@@ -219,6 +219,20 @@ def api_conversation_put(conversation_id: str):
 
     req_json = flask.request.json or {}
 
+    # Validate auto_confirm type early, before any side effects (disk I/O).
+    # Reject strings/floats/etc. to avoid truthy coercion (e.g. "false" → 999).
+    auto_confirm = req_json.get("auto_confirm", False)
+    if type(auto_confirm) not in (bool, int):
+        return (
+            flask.jsonify(
+                {
+                    "error": "Invalid 'auto_confirm' value",
+                    "message": "'auto_confirm' must be a boolean or integer",
+                }
+            ),
+            400,
+        )
+
     # Create the log directory
     logdir.mkdir(parents=True)
 
@@ -276,24 +290,13 @@ def api_conversation_put(conversation_id: str):
     # Create a session for this conversation
     session = SessionManager.create_session(conversation_id)
 
-    # Validate auto_confirm type explicitly (bool OR int).
-    # Reject strings/floats/etc. to avoid truthy coercion (e.g. "false" → 999).
-    auto_confirm = req_json.get("auto_confirm", False)
-    if type(auto_confirm) not in (bool, int):
-        return (
-            flask.jsonify(
-                {
-                    "error": "Invalid 'auto_confirm' value",
-                    "message": "'auto_confirm' must be a boolean or integer",
-                }
-            ),
-            400,
-        )
+    # Apply auto_confirm setting (already type-validated above)
     if type(auto_confirm) is bool:
         if auto_confirm:
             session.auto_confirm_count = 999  # Essentially unlimited
     elif auto_confirm > 0:
         session.auto_confirm_count = auto_confirm
+    # int <= 0 is treated the same as omitting the field (no auto-confirm)
 
     return flask.jsonify(
         {"status": "ok", "conversation_id": conversation_id, "session_id": session.id}

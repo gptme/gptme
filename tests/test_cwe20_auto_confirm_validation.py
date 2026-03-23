@@ -12,7 +12,6 @@ and the tool-confirm "auto" action lack equivalent checks.
 This test verifies that:
 1. String values like "false" are rejected (not coerced to truthy).
 2. Only bool and int types are accepted for auto_confirm.
-3. The tool-confirm "auto" count is type-validated as int.
 """
 
 import random
