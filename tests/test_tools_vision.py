@@ -167,9 +167,9 @@ class TestViewImageErrors:
         assert "not found" in msg.content.lower()
         assert len(msg.files) == 0
 
-    def test_nonexistent_string_path(self):
+    def test_nonexistent_string_path(self, tmp_path: Path):
         """Non-existent string path should return error message."""
-        msg = view_image("/tmp/absolutely_nonexistent_image_12345.png")
+        msg = view_image(str(tmp_path / "nonexistent.png"))
         assert msg.role == "system"
         assert "not found" in msg.content.lower()
 
