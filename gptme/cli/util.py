@@ -8,6 +8,7 @@ Command groups are split into separate modules for maintainability:
 """
 
 import io
+import json
 import logging
 import sys
 from contextlib import redirect_stderr
@@ -16,7 +17,7 @@ from pathlib import Path
 import click
 
 from ..config import get_config
-from ..llm.models import list_models
+from ..llm.models import list_models, model_to_dict
 from ..message import Message
 from ..util.context import include_paths
 from .cmd_chats import chats
@@ -461,7 +462,6 @@ def models_list(
 def models_info(model_name: str, as_json: bool):
     """Show detailed information about a specific model."""
     from ..llm.models import get_model  # fmt: skip
-    from ..llm.models.listing import _model_to_dict  # fmt: skip
 
     try:
         model = get_model(model_name)
@@ -470,9 +470,7 @@ def models_info(model_name: str, as_json: bool):
         sys.exit(1)
 
     if as_json:
-        import json
-
-        print(json.dumps(_model_to_dict(model), indent=2))
+        print(json.dumps(model_to_dict(model), indent=2))
         return
 
     print(f"Model: {model.full}")

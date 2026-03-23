@@ -14,6 +14,7 @@ from .listing import (
     _get_models_for_provider,
     get_model_list,
     list_models,
+    model_to_dict,
 )
 from .resolution import (
     _default_model_var,
@@ -67,5 +68,6 @@ __all__ = [
     "is_custom_provider",
     "list_models",
     "log_warn_once",
+    "model_to_dict",
     "set_default_model",
 ]

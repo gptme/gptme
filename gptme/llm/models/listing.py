@@ -15,7 +15,7 @@ from .types import (
 logger = logging.getLogger(__name__)
 
 
-def _model_to_dict(model: ModelMeta) -> dict[str, Any]:
+def model_to_dict(model: ModelMeta) -> dict[str, Any]:
     """Convert a ModelMeta to a JSON-serializable dict."""
     d: dict[str, Any] = {
         "provider": str(model.provider),
@@ -28,8 +28,7 @@ def _model_to_dict(model: ModelMeta) -> dict[str, Any]:
     d["supports_streaming"] = model.supports_streaming
     d["supports_vision"] = model.supports_vision
     d["supports_reasoning"] = model.supports_reasoning
-    if model.supports_parallel_tool_calls:
-        d["supports_parallel_tool_calls"] = True
+    d["supports_parallel_tool_calls"] = model.supports_parallel_tool_calls
     if model.price_input or model.price_output:
         d["price_input"] = model.price_input
         d["price_output"] = model.price_output
@@ -297,7 +296,7 @@ def list_models(
         )
         if configured is not None:
             all_models = [m for m in all_models if m.provider in configured]
-        print(json.dumps([_model_to_dict(m) for m in all_models], indent=2))
+        print(json.dumps([model_to_dict(m) for m in all_models], indent=2))
     elif simple_format:
         # Simple format: just get all models and print them
         all_models = get_model_list(
