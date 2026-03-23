@@ -340,18 +340,19 @@ class TestGetExtrasCache:
 
         # Reset cache
         gptme.info._EXTRAS_CACHE = None
-        with patch.object(gptme.info, "_parse_extras_from_metadata") as mock_parse:
-            mock_parse.return_value = [
-                ExtraInfo(name="test", installed=False, description="test")
-            ]
-            result1 = gptme.info._get_extras()
-            result2 = gptme.info._get_extras()
-            # Should only parse once
-            mock_parse.assert_called_once()
-            assert result1 is result2
-
-        # Clean up
-        gptme.info._EXTRAS_CACHE = None
+        try:
+            with patch.object(gptme.info, "_parse_extras_from_metadata") as mock_parse:
+                mock_parse.return_value = [
+                    ExtraInfo(name="test", installed=False, description="test")
+                ]
+                result1 = gptme.info._get_extras()
+                result2 = gptme.info._get_extras()
+                # Should only parse once
+                mock_parse.assert_called_once()
+                assert result1 is result2
+        finally:
+            # Clean up cache even if assertions fail
+            gptme.info._EXTRAS_CACHE = None
 
 
 # ─── get_install_info tests ──────────────────────────────────────────────────
@@ -547,7 +548,7 @@ class TestGetInstalledExtras:
             )
         ]
         # numpy installed, others not
-        mock_installed.side_effect = [True]
+        mock_installed.side_effect = [True, False, False]
         result = get_installed_extras()
         assert result[0].installed is True
 
