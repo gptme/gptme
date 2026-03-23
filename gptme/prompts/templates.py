@@ -226,9 +226,10 @@ def prompt_project(
         content = f"<name>{xml_escape(project)}</name>\n{'<info>' + xml_escape(project_info) + '</info>' if project_info else ''}"
         yield Message("system", _xml_section("project", content))
     else:
+        info_section = f"\n\n{project_info}" if project_info else ""
         yield Message(
             "system",
-            f"## Current Project: {project}\n\n{project_info}",
+            f"## Current Project: {project}{info_section}",
         )
 
 

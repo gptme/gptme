@@ -334,6 +334,18 @@ class TestPromptGptme:
 class TestPromptComposition:
     """Tests for prompt_full and prompt_short composition in templates.py."""
 
+    @pytest.fixture(autouse=True)
+    def _isolate_from_live_config(self):
+        """Mock project config lookups so tests don't depend on the live repo."""
+        with (
+            patch("gptme.prompts.templates.get_project_git_dir", return_value=None),
+            patch(
+                "gptme.prompts.templates.get_project_config",
+                return_value=MagicMock(base_prompt=None),
+            ),
+        ):
+            yield
+
     def _make_tool(self):
         """Create a minimal ToolSpec for testing."""
         from gptme.tools import ToolSpec
@@ -590,6 +602,8 @@ class TestPromptProject:
 
         assert len(msgs) == 1
         assert "bare-project" in msgs[0].content
+        # project_info is None — verify no literal "None" string in the output
+        assert "None" not in msgs[0].content
 
 
 # ---------------------------------------------------------------------------
