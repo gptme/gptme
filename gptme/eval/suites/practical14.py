@@ -127,7 +127,7 @@ def check_ipv4_224_multicast(ctx):
 def check_ipv4_class_a(ctx):
     """10.0.0.5 should be class A (first octet 1-126 or 10.x)."""
     for line in ctx.stdout.splitlines():
-        if "10.0.0.5" in line and re.search(r"\bA\b", line):
+        if "10.0.0.5" in line and re.search(r"\bA\b", line, re.IGNORECASE):
             return True
     return False
 
@@ -135,7 +135,7 @@ def check_ipv4_class_a(ctx):
 def check_ipv4_class_c(ctx):
     """192.168.1.1 should be class C (first octet 192-223)."""
     for line in ctx.stdout.splitlines():
-        if "192.168.1.1" in line and re.search(r"\bC\b", line):
+        if "192.168.1.1" in line and re.search(r"\bC\b", line, re.IGNORECASE):
             return True
     return False
 
@@ -212,9 +212,9 @@ def check_brackets_unclosed(ctx):
 
 
 def check_brackets_error_pos(ctx):
-    """'((]' error should reference position 2 or 3 (0-indexed or 1-indexed)."""
+    """'((]' error should reference position 3 (1-indexed, per prompt spec)."""
     for line in ctx.stdout.splitlines():
-        if "((]" in line and re.search(r"\b[23]\b", line):
+        if "((]" in line and re.search(r"\b3\b", line):
             return True
     return False
 
