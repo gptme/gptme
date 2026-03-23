@@ -9,6 +9,7 @@ secrets never appear on the command line.
 """
 
 import os
+import stat
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -92,24 +93,25 @@ def test_env_file_used_instead():
 
 
 def test_env_file_has_restrictive_permissions():
-    """The temporary env file should have mode 0600 (owner read/write only)."""
-    import stat
-    import tempfile
+    """The temporary env file should have mode 0600 (owner read/write only).
 
+    Permissions are checked *inside* the subprocess.run mock while the file
+    still exists on disk (before the ``finally: os.unlink`` cleanup runs).
+    """
     test_key = "OPENAI_API_KEY"
     test_secret = "sk-test-secret-key-12345"
 
     env_file_path = None
-
-    # We need to intercept the env file creation
-    original_run = None
+    env_file_mode = None
 
     def capture_env_file(cmd, **kwargs):
-        nonlocal env_file_path
+        nonlocal env_file_path, env_file_mode
         if isinstance(cmd, list) and "--env-file" in cmd:
             idx = cmd.index("--env-file")
             if idx + 1 < len(cmd):
                 env_file_path = cmd[idx + 1]
+                # File still exists here — check permissions now
+                env_file_mode = stat.S_IMODE(os.stat(env_file_path).st_mode)
         mock_result = MagicMock()
         mock_result.returncode = 0
         mock_result.stdout = ""
@@ -132,9 +134,10 @@ def test_env_file_has_restrictive_permissions():
 
             docker_reexec(["gptme-eval", "--some-arg"])
 
-    # The env file should have been created (and cleaned up)
-    # We can't check permissions after cleanup, but we verify --env-file was used
     assert env_file_path is not None, "Expected --env-file to be used"
+    assert env_file_mode == 0o600, (
+        f"Expected env file permissions 0o600, got 0o{env_file_mode:o}"
+    )
 
 
 def test_multiple_keys_not_leaked():

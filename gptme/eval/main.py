@@ -124,21 +124,26 @@ def docker_reexec(argv: list[str]) -> None:
         if value:
             env_entries.append(f"{var}={value}")
 
-    # Write env vars to a secure temporary file for --env-file
-    env_file = None
+    # Write env vars to a secure temporary file for --env-file.
+    # Use tempfile.mkstemp() which atomically creates the file with 0o600
+    # permissions (via os.O_CREAT | os.O_EXCL), avoiding the TOCTOU race
+    # that NamedTemporaryFile + deferred chmod would introduce.
+    env_file_path: str | None = None
     env_file_args: list[str] = []
     if env_entries:
-        env_file = tempfile.NamedTemporaryFile(
-            mode="w",
+        fd, env_file_path = tempfile.mkstemp(
             prefix="gptme-docker-env-",
             suffix=".env",
-            delete=False,
+            text=True,
         )
-        # Restrict permissions to owner-only before writing secrets
-        os.chmod(env_file.name, 0o600)
-        env_file.write("\n".join(env_entries) + "\n")
-        env_file.close()
-        env_file_args = ["--env-file", env_file.name]
+        try:
+            with os.fdopen(fd, "w") as f:
+                f.write("\n".join(env_entries) + "\n")
+        except BaseException:
+            os.close(fd)
+            os.unlink(env_file_path)
+            raise
+        env_file_args = ["--env-file", env_file_path]
 
     # Construct docker run command
     docker_cmd = [
@@ -166,9 +171,9 @@ def docker_reexec(argv: list[str]) -> None:
     try:
         result = subprocess.run(docker_cmd, check=False)
     finally:
-        if env_file is not None:
+        if env_file_path is not None:
             try:
-                os.unlink(env_file.name)
+                os.unlink(env_file_path)
             except OSError:
                 pass
     sys.exit(result.returncode)
