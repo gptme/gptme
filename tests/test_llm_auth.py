@@ -117,7 +117,7 @@ class TestGetServerToken:
         original = gptme.server.auth._server_token
         try:
             gptme.server.auth._server_token = None
-            with patch.dict(os.environ, {}, clear=True):
+            with patch.dict(os.environ, {}):
                 os.environ.pop("GPTME_SERVER_TOKEN", None)
                 token = gptme.server.auth.get_server_token()
                 assert token is not None
@@ -131,7 +131,7 @@ class TestGetServerToken:
         original = gptme.server.auth._server_token
         try:
             gptme.server.auth._server_token = None
-            with patch.dict(os.environ, {}, clear=True):
+            with patch.dict(os.environ, {}):
                 os.environ.pop("GPTME_SERVER_TOKEN", None)
                 token1 = gptme.server.auth.get_server_token()
                 token2 = gptme.server.auth.get_server_token()
@@ -551,12 +551,18 @@ class TestIsPortAvailable:
     def test_available_port(self):
         from gptme.llm.llm_openai_subscription import _is_port_available
 
-        # Find a port that's likely available
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("127.0.0.1", 0))
-            port = s.getsockname()[1]
-        # Port should be free now that the socket is closed
-        assert _is_port_available(port) is True
+        # Hold one socket to get a free port number, then check a different
+        # OS-assigned port while this socket is still open — avoids TOCTOU.
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as held:
+            held.bind(("127.0.0.1", 0))
+            held_port = held.getsockname()[1]
+            # Obtain a second free port by letting the OS pick another one
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                probe.bind(("127.0.0.1", 0))
+                free_port = probe.getsockname()[1]
+            # probe is released; held keeps it from being reused immediately
+            assert free_port != held_port
+            assert _is_port_available(free_port) is True
 
     def test_unavailable_port(self):
         from gptme.llm.llm_openai_subscription import _is_port_available
@@ -633,7 +639,7 @@ class TestGptmeProviderEdgeCases:
         with patch("gptme.llm.llm_gptme._get_token_path", return_value=token_path):
             assert _load_token() is None
 
-    def test_url_normalization_trailing_slash(self, tmp_path: Path):
+    def test_url_normalization_trailing_slash(self):
         """server_url with trailing slash should normalize correctly."""
         from gptme.llm.llm_gptme import get_base_url
 
@@ -645,7 +651,7 @@ class TestGptmeProviderEdgeCases:
         with patch("gptme.llm.llm_gptme._load_token", return_value=token_data):
             assert get_base_url(config) == "https://custom.gptme.ai/v1"
 
-    def test_url_normalization_already_has_v1_slash(self, tmp_path: Path):
+    def test_url_normalization_already_has_v1_slash(self):
         """server_url already ending in /v1/ should not double-suffix."""
         from gptme.llm.llm_gptme import get_base_url
 
