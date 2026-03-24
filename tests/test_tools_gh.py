@@ -61,7 +61,7 @@ class TestExtractPrUrl:
 
     def test_from_args_with_offset(self):
         url = _extract_pr_url(
-            ["pr", "checks", "https://github.com/o/r/pull/3"], None, arg_offset=2
+            ["checks", "https://github.com/o/r/pull/3"], None, arg_offset=1
         )
         assert url == "https://github.com/o/r/pull/3"
 
@@ -311,6 +311,7 @@ class TestWaitForChecks:
             "Waiting for checks on commit deadbee" in m.content for m in messages
         )
         assert any("All checks passed" in m.content for m in messages)
+        mock_sleep.assert_not_called()
 
     @patch("gptme.tools.gh._get_pr_check_runs")
     def test_error_from_get_pr(self, mock_get_pr):
@@ -372,6 +373,7 @@ class TestWaitForChecks:
         messages = list(_wait_for_checks("owner", "repo", url))
 
         assert any("Error fetching checks" in m.content for m in messages)
+        mock_sleep.assert_not_called()
 
 
 # --- _handle_pr_status ---
