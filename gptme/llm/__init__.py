@@ -256,6 +256,7 @@ def _stream(
         )
         return _StreamWithMetadata(gen, model)
     if provider == "openai-subscription":
+        # TODO: max_tokens not yet forwarded to openai-subscription
         gen = stream_subscription(messages, _get_base_model(model), tools)
         return _StreamWithMetadata(gen, model)
     # Note: Validation-only fallback for streaming is complex

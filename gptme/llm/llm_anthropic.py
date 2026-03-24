@@ -410,17 +410,20 @@ def chat(
             "Must be a valid integer."
         ) from parse_err
     max_tokens = max_tokens or model_meta.max_output or 4096
-    # Anthropic requires max_tokens > budget_tokens when extended thinking is active
+    # Anthropic requires max_tokens > budget_tokens when extended thinking is active.
+    # Respect the caller's max_tokens budget by reducing thinking_budget to fit,
+    # rather than inflating max_tokens (which would defeat caller's cost-saving intent).
     if use_thinking and max_tokens <= thinking_budget:
-        clamped = thinking_budget + 1
+        new_budget = max_tokens - 1
         logger.warning(
-            "max_tokens=%d is not greater than thinking_budget=%d; "
-            "clamping to %d to prevent Anthropic API error",
+            "max_tokens=%d cannot accommodate thinking_budget=%d; "
+            "reducing thinking_budget to %d. Set %s to a smaller value to avoid this.",
             max_tokens,
             thinking_budget,
-            clamped,
+            new_budget,
+            ENV_REASONING_BUDGET,
         )
-        max_tokens = clamped
+        thinking_budget = new_budget
 
     response = _anthropic.messages.create(
         model=api_model,
@@ -520,17 +523,20 @@ def stream(
             "Must be a valid integer."
         ) from parse_err
     max_tokens = max_tokens or model_meta.max_output or 4096
-    # Anthropic requires max_tokens > budget_tokens when extended thinking is active
+    # Anthropic requires max_tokens > budget_tokens when extended thinking is active.
+    # Respect the caller's max_tokens budget by reducing thinking_budget to fit,
+    # rather than inflating max_tokens (which would defeat caller's cost-saving intent).
     if use_thinking and max_tokens <= thinking_budget:
-        clamped = thinking_budget + 1
+        new_budget = max_tokens - 1
         logger.warning(
-            "max_tokens=%d is not greater than thinking_budget=%d; "
-            "clamping to %d to prevent Anthropic API error",
+            "max_tokens=%d cannot accommodate thinking_budget=%d; "
+            "reducing thinking_budget to %d. Set %s to a smaller value to avoid this.",
             max_tokens,
             thinking_budget,
-            clamped,
+            new_budget,
+            ENV_REASONING_BUDGET,
         )
-        max_tokens = clamped
+        thinking_budget = new_budget
 
     with _anthropic.messages.stream(
         model=api_model,
