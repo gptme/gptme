@@ -19,6 +19,7 @@ from ..constants import TEMPERATURE, TOP_P
 from ..message import Message, MessageMetadata, UsageData, msgs2dicts
 from ..telemetry import record_llm_request
 from ..tools.base import ToolSpec
+from .constants import _MIN_RESPONSE_TOKENS
 from .models import ModelMeta, get_model
 from .utils import (
     apply_cache_control,
@@ -158,9 +159,6 @@ def _record_usage(
     return metadata
 
 
-_MIN_RESPONSE_TOKENS = 256  # Minimum tokens reserved for actual response content
-
-
 def _adjust_thinking_budget(
     max_tokens: int, thinking_budget: int, use_thinking: bool
 ) -> tuple[int, bool]:
@@ -173,7 +171,7 @@ def _adjust_thinking_budget(
     Always reserves at least _MIN_RESPONSE_TOKENS for the actual response;
     disables thinking entirely when max_tokens is too small to be useful.
     """
-    if not use_thinking or max_tokens > thinking_budget:
+    if not use_thinking or max_tokens >= thinking_budget + _MIN_RESPONSE_TOKENS:
         return thinking_budget, use_thinking
     new_budget = max_tokens - _MIN_RESPONSE_TOKENS
     if new_budget <= 0:

@@ -17,6 +17,7 @@ from ..constants import TEMPERATURE, TOP_P
 from ..message import Message, MessageMetadata, UsageData, msgs2dicts
 from ..telemetry import _calculate_llm_cost, record_llm_request
 from ..tools import ToolSpec
+from .constants import _MIN_RESPONSE_TOKENS
 from .models import (
     CustomProvider,
     ModelMeta,
@@ -591,7 +592,6 @@ def extra_headers(provider: Provider) -> dict[str, str]:
 
 
 _OPENROUTER_REASONING_DEFAULT = 20000
-_MIN_RESPONSE_TOKENS = 256  # Minimum tokens reserved for actual response content
 
 
 def extra_body(
