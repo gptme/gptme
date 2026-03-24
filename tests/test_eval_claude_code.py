@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from gptme.eval.agents.claude_code import (
+    WORKSPACE_INSTRUCTION,
     ClaudeCodeAgent,
     is_claude_code_model,
     parse_claude_code_model,
@@ -93,7 +94,8 @@ def test_agent_act_with_files():
         cmd = call_args[0][0]
         assert cmd[0] == "/usr/bin/claude"
         assert "-p" in cmd
-        assert "fix the code" in cmd
+        prompt_arg = cmd[cmd.index("-p") + 1]
+        assert prompt_arg == WORKSPACE_INSTRUCTION + "fix the code"
         assert "--model" in cmd
         assert "claude-sonnet-4-6" in cmd
         assert call_args[1]["cwd"] == agent.workspace_dir
@@ -229,9 +231,9 @@ def test_agent_docker_mode():
             timeout=agent.timeout,
         )
         mock_env.start_container.assert_called_once()
-        # Verify run_claude_code was called
+        # Verify run_claude_code was called with workspace instruction prepended
         mock_env.run_claude_code.assert_called_once_with(
-            prompt="test prompt",
+            prompt=WORKSPACE_INSTRUCTION + "test prompt",
             model="claude-sonnet-4-6",
             tools=None,
             max_turns=30,
@@ -272,7 +274,7 @@ def test_agent_docker_mode_with_tools():
 
         mock_env.start_container.assert_called_once()
         mock_env.run_claude_code.assert_called_once_with(
-            prompt="test",
+            prompt=WORKSPACE_INSTRUCTION + "test",
             model="claude-sonnet-4-6",
             tools=["shell", "read"],
             max_turns=30,

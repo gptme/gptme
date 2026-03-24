@@ -27,6 +27,13 @@ logger = logging.getLogger(__name__)
 
 CLAUDE_CODE_MODEL_PREFIX = "claude-code/"
 
+WORKSPACE_INSTRUCTION = (
+    "IMPORTANT: You are running inside an isolated eval workspace "
+    "(cwd is the workspace). All files you create MUST use RELATIVE "
+    "paths (e.g. 'server.py') — NEVER use absolute paths. "
+    "Files saved with absolute paths will not be found by the eval checker.\n\n"
+)
+
 
 def is_claude_code_model(model: str) -> bool:
     """Check if a model string requests the Claude Code agent."""
@@ -89,13 +96,7 @@ class ClaudeCodeAgent(Agent):
 
         # Prepend workspace instruction to prompt so Claude Code also
         # uses relative paths for file creation inside the eval workspace.
-        workspace_instruction = (
-            "IMPORTANT: You are running inside an isolated eval workspace "
-            "(cwd is the workspace). All files you create MUST use RELATIVE "
-            "paths (e.g. 'server.py') — NEVER use absolute paths. "
-            "Files saved with absolute paths will not be found by the eval checker.\n\n"
-        )
-        eval_prompt = workspace_instruction + prompt
+        eval_prompt = WORKSPACE_INSTRUCTION + prompt
 
         CostTracker.start_session(f"claude-code-eval:{self.cc_model}")
 
@@ -165,13 +166,7 @@ class ClaudeCodeAgent(Agent):
         logger.debug(f"Working in {store.working_dir} (Docker mode)")
 
         # Prepend workspace instruction for Docker mode too
-        workspace_instruction = (
-            "IMPORTANT: You are running inside an isolated eval workspace "
-            "(cwd is the workspace). All files you create MUST use RELATIVE "
-            "paths (e.g. 'server.py') — NEVER use absolute paths. "
-            "Files saved with absolute paths will not be found by the eval checker.\n\n"
-        )
-        eval_prompt = workspace_instruction + prompt
+        eval_prompt = WORKSPACE_INSTRUCTION + prompt
 
         docker_env = DockerClaudeCodeEnv(
             host_dir=self.workspace_dir,

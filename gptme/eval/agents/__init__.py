@@ -79,6 +79,16 @@ class GPTMe(Agent):
         print("\n--- Start of generation (Docker-isolated) ---")
         logger.debug(f"Working in {store.working_dir} (Docker mode)")
 
+        # Prepend workspace instruction so the agent uses relative paths
+        workspace_instruction = (
+            "IMPORTANT: You are running inside an isolated eval workspace. "
+            "All files you create MUST use RELATIVE paths (e.g. 'server.py', "
+            "'analyze.py') — NEVER use absolute paths. "
+            "Files saved with absolute paths will not be found by the eval checker. "
+            "The working directory is already set to the eval workspace.\n\n"
+        )
+        eval_prompt = workspace_instruction + prompt
+
         # Create Docker environment with workspace and logs mounted
         docker_env = DockerGPTMeEnv(
             host_dir=self.workspace_dir,
@@ -88,7 +98,7 @@ class GPTMe(Agent):
         try:
             # Run gptme inside Docker
             stdout, stderr, exit_code = docker_env.run_gptme(
-                prompt=prompt,
+                prompt=eval_prompt,
                 model=self.model,
                 tool_format=self.tool_format,
                 tools=self.tools,
@@ -138,7 +148,7 @@ class GPTMe(Agent):
                 "'analyze.py') — NEVER use absolute paths. "
                 "Files saved with absolute paths will not be found by the eval checker. "
                 "The working directory is already set to the eval workspace.\n\n"
-                "If you have trouble and dont seem to make progress, stop trying."
+                "If you have trouble and don't seem to make progress, stop trying."
             )
             prompt_sys_msgs[0] = prompt_sys_msgs[0].replace(
                 content=prompt_sys_msgs[0].content + eval_instructions
