@@ -397,7 +397,7 @@ def aggregate_and_display_results(result_files: list[str]):
 @click.option(
     "--timeout",
     "-t",
-    default=30,
+    default=60,
     type=click.IntRange(min=1),
     help="Timeout for code generation (seconds)",
 )
