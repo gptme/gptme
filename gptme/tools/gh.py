@@ -452,15 +452,15 @@ def execute_gh(
 
 instructions = """Interact with GitHub via the GitHub CLI (gh).
 
-For reading issues with full context (body + comments):
+For reading issues with body + comments:
 ```gh issue view <issue_url>
 ```
 
-For reading PRs with full context (review comments, code context, suggestions):
+For reading PRs with review comments and code context:
 ```gh pr view <pr_url>
 ```
 
-To get a quick status check of CI checks (with run IDs for failed checks):
+To get CI check status (with run IDs for failed checks):
 ```gh pr status <pr_url> [commit_sha]
 ```
 
@@ -468,22 +468,16 @@ To wait for all CI checks to complete:
 ```gh pr checks <pr_url> [commit_sha]
 ```
 
-The optional commit_sha allows checking a specific commit instead of the PR head.
-This is useful for checking previous commits without waiting for new builds.
+The optional commit_sha checks a specific commit instead of the PR head.
 
-For multi-line comments, use `--body-file` with a single-quoted heredoc:
+For multi-line comments, use `--body-file` with a heredoc:
 ```shell
 gh issue comment NUM --repo owner/repo --body-file - << 'EOF'
 ## Summary
-Line 1
-
-Line 2
+Body here
 EOF
 ```
-Never use `--body "text\\nmore text"`:
-- `\\n` in double-quoted strings is literal backslash-n, not a newline.
-- `$` in double-quoted strings triggers variable expansion (e.g. `$42,000` → `,000`).
-The single-quoted `<< 'EOF'` heredoc prevents both issues.
+Avoid `--body "text\\nmore text"`: `\\n` posts literally, `$` triggers expansion.
 
 For other operations, use the `shell` tool with the `gh` command."""
 
