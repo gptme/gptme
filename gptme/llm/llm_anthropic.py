@@ -158,6 +158,9 @@ def _record_usage(
     return metadata
 
 
+_MIN_RESPONSE_TOKENS = 256  # Minimum tokens reserved for actual response content
+
+
 def _adjust_thinking_budget(
     max_tokens: int, thinking_budget: int, use_thinking: bool
 ) -> tuple[int, bool]:
@@ -166,25 +169,32 @@ def _adjust_thinking_budget(
     Anthropic requires max_tokens > budget_tokens when extended thinking is active.
     We honor the caller's max_tokens limit by reducing thinking_budget to fit,
     rather than inflating max_tokens (which defeats cost-saving intent).
+
+    Always reserves at least _MIN_RESPONSE_TOKENS for the actual response;
+    disables thinking entirely when max_tokens is too small to be useful.
     """
     if not use_thinking or max_tokens > thinking_budget:
         return thinking_budget, use_thinking
-    if max_tokens <= 1:
-        # Cannot fit even 1 thinking token — disable extended thinking entirely.
+    new_budget = max_tokens - _MIN_RESPONSE_TOKENS
+    if new_budget <= 0:
+        # Not enough room for thinking AND a useful response — disable thinking.
         logger.warning(
-            "max_tokens=%d is too small to accommodate any thinking tokens; "
+            "max_tokens=%d is too small to accommodate thinking tokens "
+            "and a useful response (min %d tokens); "
             "disabling extended thinking. Increase max_tokens or unset %s.",
             max_tokens,
+            _MIN_RESPONSE_TOKENS,
             ENV_REASONING_BUDGET,
         )
         return thinking_budget, False
-    new_budget = max_tokens - 1  # >= 1 since max_tokens >= 2
     logger.warning(
         "max_tokens=%d cannot accommodate thinking_budget=%d; "
-        "reducing thinking_budget to %d. Set %s to a smaller value to avoid this.",
+        "reducing thinking_budget to %d (reserving %d tokens for response). "
+        "Set %s to a smaller value to avoid this.",
         max_tokens,
         thinking_budget,
         new_budget,
+        _MIN_RESPONSE_TOKENS,
         ENV_REASONING_BUDGET,
     )
     return new_budget, use_thinking
