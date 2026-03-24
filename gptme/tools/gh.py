@@ -292,10 +292,10 @@ def _format_check_results(check_runs: list, head_sha: str, pr_number: int) -> st
     return output
 
 
-def _extract_pr_url(
+def _extract_url(
     args: list[str] | None, kwargs: dict[str, str] | None, arg_offset: int = 2
 ) -> str | None:
-    """Extract PR URL from args or kwargs."""
+    """Extract a GitHub URL from args or kwargs."""
     if args and len(args) > arg_offset:
         return args[arg_offset]
     if kwargs:
@@ -307,7 +307,7 @@ def _handle_pr_status(
     args: list[str] | None, kwargs: dict[str, str] | None
 ) -> Generator[Message, None, None]:
     """Handle `gh pr status <url> [commit_sha]` command."""
-    url = _extract_pr_url(args, kwargs)
+    url = _extract_url(args, kwargs)
     if not url:
         yield Message("system", "Error: No PR URL provided")
         return
@@ -372,7 +372,7 @@ def execute_gh(
         yield from _handle_pr_status(args, kwargs)
 
     elif args and len(args) >= 2 and args[0] == "pr" and args[1] == "checks":
-        url = _extract_pr_url(args, kwargs)
+        url = _extract_url(args, kwargs)
         if not url:
             yield Message("system", "Error: No PR URL provided")
             return
@@ -392,7 +392,7 @@ def execute_gh(
         )
 
     elif args and len(args) >= 2 and args[0] == "pr" and args[1] == "view":
-        url = _extract_pr_url(args, kwargs)
+        url = _extract_url(args, kwargs)
         if not url:
             yield Message("system", "Error: No PR URL provided")
             return
@@ -413,7 +413,7 @@ def execute_gh(
                     "Error: Failed to fetch PR content. Make sure 'gh' CLI is installed and authenticated.",
                 )
     elif args and len(args) >= 2 and args[0] == "issue" and args[1] == "view":
-        url = _extract_pr_url(args, kwargs)
+        url = _extract_url(args, kwargs)
         if not url:
             yield Message("system", "Error: No issue URL provided")
             return
@@ -452,11 +452,11 @@ def execute_gh(
 
 instructions = """Interact with GitHub via the GitHub CLI (gh).
 
-For reading issues with body + comments:
+Use `gh issue view <issue_url>` to read an issue with its full body and all comments in a single call — this gives richer context than shell-based `gh issue view` and avoids extra round-trips:
 ```gh issue view <issue_url>
 ```
 
-For reading PRs with review comments and code context:
+Use `gh pr view <pr_url>` to read a PR with its description, review comments, and code context:
 ```gh pr view <pr_url>
 ```
 
@@ -578,14 +578,6 @@ EOF''',
 > User: show issues
 > Assistant:
 {ToolUse("shell", [], "gh issue list --repo $REPO").to_output(tool_format)}
-
-> User: read issue with comments
-> Assistant:
-{
-        ToolUse("shell", [], "gh issue view $ISSUE --repo $REPO --comments").to_output(
-            tool_format
-        )
-    }
 
 > User: show recent workflows
 > Assistant:

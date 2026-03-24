@@ -1,7 +1,7 @@
 """Unit tests for the gh tool (gptme/tools/gh.py).
 
 Tests _get_pr_check_runs, _wait_for_checks, _format_check_results,
-_extract_pr_url, _handle_pr_status, and execute_gh with mocked subprocess.
+_extract_url, _handle_pr_status, and execute_gh with mocked subprocess.
 """
 
 import json
@@ -9,7 +9,7 @@ import subprocess
 from unittest.mock import MagicMock, patch
 
 from gptme.tools.gh import (
-    _extract_pr_url,
+    _extract_url,
     _format_check_results,
     _get_pr_check_runs,
     _handle_pr_status,
@@ -47,32 +47,32 @@ def _mock_subprocess_run(stdout: str, returncode: int = 0):
     return result
 
 
-# --- _extract_pr_url ---
+# --- _extract_url ---
 
 
-class TestExtractPrUrl:
+class TestExtractUrl:
     def test_from_args(self):
-        url = _extract_pr_url(["pr", "status", "https://github.com/o/r/pull/1"], None)
+        url = _extract_url(["pr", "status", "https://github.com/o/r/pull/1"], None)
         assert url == "https://github.com/o/r/pull/1"
 
     def test_from_kwargs(self):
-        url = _extract_pr_url(None, {"url": "https://github.com/o/r/pull/2"})
+        url = _extract_url(None, {"url": "https://github.com/o/r/pull/2"})
         assert url == "https://github.com/o/r/pull/2"
 
     def test_from_args_with_offset(self):
-        url = _extract_pr_url(
+        url = _extract_url(
             ["checks", "https://github.com/o/r/pull/3"], None, arg_offset=1
         )
         assert url == "https://github.com/o/r/pull/3"
 
     def test_no_url_none_args(self):
-        assert _extract_pr_url(None, None) is None
+        assert _extract_url(None, None) is None
 
     def test_no_url_short_args(self):
-        assert _extract_pr_url(["pr", "status"], None) is None
+        assert _extract_url(["pr", "status"], None) is None
 
     def test_no_url_empty_kwargs(self):
-        assert _extract_pr_url(None, {}) is None
+        assert _extract_url(None, {}) is None
 
 
 # --- _get_pr_check_runs ---
