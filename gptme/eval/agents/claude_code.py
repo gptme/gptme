@@ -87,12 +87,22 @@ class ClaudeCodeAgent(Agent):
                 "Install it from https://docs.anthropic.com/en/docs/claude-code"
             )
 
+        # Prepend workspace instruction to prompt so Claude Code also
+        # uses relative paths for file creation inside the eval workspace.
+        workspace_instruction = (
+            "IMPORTANT: You are running inside an isolated eval workspace "
+            "(cwd is the workspace). All files you create MUST use RELATIVE "
+            "paths (e.g. 'server.py') — NEVER use absolute paths. "
+            "Files saved with absolute paths will not be found by the eval checker.\n\n"
+        )
+        eval_prompt = workspace_instruction + prompt
+
         CostTracker.start_session(f"claude-code-eval:{self.cc_model}")
 
         cmd = [
             claude_bin,
             "-p",
-            prompt,
+            eval_prompt,
             "--output-format",
             "json",
             "--model",
@@ -154,6 +164,15 @@ class ClaudeCodeAgent(Agent):
         print("\n--- Start of generation (Claude Code, Docker-isolated) ---")
         logger.debug(f"Working in {store.working_dir} (Docker mode)")
 
+        # Prepend workspace instruction for Docker mode too
+        workspace_instruction = (
+            "IMPORTANT: You are running inside an isolated eval workspace "
+            "(cwd is the workspace). All files you create MUST use RELATIVE "
+            "paths (e.g. 'server.py') — NEVER use absolute paths. "
+            "Files saved with absolute paths will not be found by the eval checker.\n\n"
+        )
+        eval_prompt = workspace_instruction + prompt
+
         docker_env = DockerClaudeCodeEnv(
             host_dir=self.workspace_dir,
             timeout=self.timeout,
@@ -173,7 +192,7 @@ class ClaudeCodeAgent(Agent):
             docker_env.start_container()
             CostTracker.start_session(f"claude-code-eval:{self.cc_model}")
             stdout, stderr, exit_code = docker_env.run_claude_code(
-                prompt=prompt,
+                prompt=eval_prompt,
                 model=self.cc_model,
                 tools=self.tools,
                 max_turns=self.max_turns,

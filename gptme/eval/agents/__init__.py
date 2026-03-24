@@ -129,11 +129,19 @@ class GPTMe(Agent):
             context_mode="selective",  # skip workspace files to prevent contamination from user's gptme config
         )
 
-        # Modify the first (core) system prompt to add eval-specific instruction
+        # Modify the first (core) system prompt to add eval-specific instructions
         if prompt_sys_msgs:
+            eval_instructions = (
+                "\n\n"
+                "IMPORTANT: You are running inside an isolated eval workspace. "
+                "All files you create MUST use RELATIVE paths (e.g. 'server.py', "
+                "'analyze.py') — NEVER use absolute paths. "
+                "Files saved with absolute paths will not be found by the eval checker. "
+                "The working directory is already set to the eval workspace.\n\n"
+                "If you have trouble and dont seem to make progress, stop trying."
+            )
             prompt_sys_msgs[0] = prompt_sys_msgs[0].replace(
-                content=prompt_sys_msgs[0].content
-                + "\n\nIf you have trouble and dont seem to make progress, stop trying."
+                content=prompt_sys_msgs[0].content + eval_instructions
             )
         try:
             gptme_chat(
