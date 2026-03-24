@@ -414,7 +414,7 @@ def chat(
     # Respect the caller's max_tokens budget by reducing thinking_budget to fit,
     # rather than inflating max_tokens (which would defeat caller's cost-saving intent).
     if use_thinking and max_tokens <= thinking_budget:
-        new_budget = max_tokens - 1
+        new_budget = max(1, max_tokens - 1)
         logger.warning(
             "max_tokens=%d cannot accommodate thinking_budget=%d; "
             "reducing thinking_budget to %d. Set %s to a smaller value to avoid this.",
@@ -527,7 +527,7 @@ def stream(
     # Respect the caller's max_tokens budget by reducing thinking_budget to fit,
     # rather than inflating max_tokens (which would defeat caller's cost-saving intent).
     if use_thinking and max_tokens <= thinking_budget:
-        new_budget = max_tokens - 1
+        new_budget = max(1, max_tokens - 1)
         logger.warning(
             "max_tokens=%d cannot accommodate thinking_budget=%d; "
             "reducing thinking_budget to %d. Set %s to a smaller value to avoid this.",
