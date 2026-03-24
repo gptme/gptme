@@ -455,6 +455,7 @@ def stream(
     model: str,
     tools: list[ToolSpec] | None,
     output_schema: type[BaseModel] | None = None,
+    max_tokens: int | None = None,
 ) -> Generator[str, None, MessageMetadata | None]:
     import anthropic.types  # fmt: skip
     from anthropic import NOT_GIVEN  # fmt: skip
@@ -507,7 +508,7 @@ def stream(
             f"Invalid {ENV_REASONING_BUDGET} value: {thinking_budget_str!r}. "
             "Must be a valid integer."
         ) from parse_err
-    max_tokens = model_meta.max_output or 4096
+    max_tokens = max_tokens or model_meta.max_output or 4096
 
     with _anthropic.messages.stream(
         model=api_model,
