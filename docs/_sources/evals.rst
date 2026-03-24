@@ -54,7 +54,7 @@ The table below shows pass rates across our eval suites for each model (best too
 - *Basic* tests cover fundamental tool use (file I/O, shell, git, Python).
 - *Practical* tests cover real-world programming tasks (APIs, data processing, refactoring).
 - Models with fewer than 4 tests are excluded.
-- Results use a 60-second timeout per test. Some models may perform better with longer timeouts.
+- Results use a 300-second timeout per test. Some models may perform better with longer timeouts.
 
 To generate this table locally:
 
