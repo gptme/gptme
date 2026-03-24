@@ -410,6 +410,17 @@ def chat(
             "Must be a valid integer."
         ) from parse_err
     max_tokens = max_tokens or model_meta.max_output or 4096
+    # Anthropic requires max_tokens > budget_tokens when extended thinking is active
+    if use_thinking and max_tokens <= thinking_budget:
+        clamped = thinking_budget + 1
+        logger.warning(
+            "max_tokens=%d is not greater than thinking_budget=%d; "
+            "clamping to %d to prevent Anthropic API error",
+            max_tokens,
+            thinking_budget,
+            clamped,
+        )
+        max_tokens = clamped
 
     response = _anthropic.messages.create(
         model=api_model,
@@ -509,6 +520,17 @@ def stream(
             "Must be a valid integer."
         ) from parse_err
     max_tokens = max_tokens or model_meta.max_output or 4096
+    # Anthropic requires max_tokens > budget_tokens when extended thinking is active
+    if use_thinking and max_tokens <= thinking_budget:
+        clamped = thinking_budget + 1
+        logger.warning(
+            "max_tokens=%d is not greater than thinking_budget=%d; "
+            "clamping to %d to prevent Anthropic API error",
+            max_tokens,
+            thinking_budget,
+            clamped,
+        )
+        max_tokens = clamped
 
     with _anthropic.messages.stream(
         model=api_model,

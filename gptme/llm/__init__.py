@@ -202,6 +202,7 @@ def _chat_complete(
             max_tokens=max_tokens,
         )
     if provider == "openai-subscription":
+        # TODO: max_tokens not yet forwarded to openai-subscription
         content = chat_subscription(messages, _get_base_model(model), tools)
         return content, {"model": model}
 
