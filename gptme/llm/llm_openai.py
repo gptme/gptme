@@ -513,6 +513,7 @@ def chat(
     model: str,
     tools: list[ToolSpec] | None,
     output_schema=None,
+    max_tokens: int | None = None,
 ) -> tuple[str, MessageMetadata | None]:
     # This will generate code and such, so we need appropriate temperature and top_p params
     # top_p controls diversity, temperature controls randomness
@@ -545,6 +546,8 @@ def chat(
         optional_kwargs["tools"] = tools_dict
     if response_format is not None:
         optional_kwargs["response_format"] = response_format
+    if max_tokens is not None:
+        optional_kwargs["max_tokens"] = max_tokens
 
     response = client.chat.completions.create(
         model=api_model.split("@")[0],

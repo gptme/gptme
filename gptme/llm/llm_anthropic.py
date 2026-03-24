@@ -364,6 +364,7 @@ def chat(
     model: str,
     tools: list[ToolSpec] | None,
     output_schema: type[BaseModel] | None = None,
+    max_tokens: int | None = None,
 ) -> tuple[str, MessageMetadata | None]:
     from anthropic import NOT_GIVEN  # fmt: skip
 
@@ -408,7 +409,7 @@ def chat(
             f"Invalid {ENV_REASONING_BUDGET} value: {thinking_budget_str!r}. "
             "Must be a valid integer."
         ) from parse_err
-    max_tokens = model_meta.max_output or 4096
+    max_tokens = max_tokens or model_meta.max_output or 4096
 
     response = _anthropic.messages.create(
         model=api_model,
