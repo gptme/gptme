@@ -85,7 +85,8 @@ class GPTMe(Agent):
             "All files you create MUST use RELATIVE paths (e.g. 'server.py', "
             "'analyze.py') — NEVER use absolute paths. "
             "Files saved with absolute paths will not be found by the eval checker. "
-            "The working directory is already set to the eval workspace.\n\n"
+            "The working directory is already set to the eval workspace. "
+            "If you have trouble and don't seem to make progress, stop trying.\n\n"
         )
         eval_prompt = workspace_instruction + prompt
 
