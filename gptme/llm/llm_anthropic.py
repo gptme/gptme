@@ -414,16 +414,26 @@ def chat(
     # Respect the caller's max_tokens budget by reducing thinking_budget to fit,
     # rather than inflating max_tokens (which would defeat caller's cost-saving intent).
     if use_thinking and max_tokens <= thinking_budget:
-        new_budget = max(1, max_tokens - 1)
-        logger.warning(
-            "max_tokens=%d cannot accommodate thinking_budget=%d; "
-            "reducing thinking_budget to %d. Set %s to a smaller value to avoid this.",
-            max_tokens,
-            thinking_budget,
-            new_budget,
-            ENV_REASONING_BUDGET,
-        )
-        thinking_budget = new_budget
+        if max_tokens <= 1:
+            # Cannot fit even 1 thinking token — disable extended thinking entirely.
+            use_thinking = False
+            logger.warning(
+                "max_tokens=%d is too small to accommodate any thinking tokens; "
+                "disabling extended thinking. Increase max_tokens or unset %s.",
+                max_tokens,
+                ENV_REASONING_BUDGET,
+            )
+        else:
+            new_budget = max_tokens - 1  # >= 1 since max_tokens >= 2
+            logger.warning(
+                "max_tokens=%d cannot accommodate thinking_budget=%d; "
+                "reducing thinking_budget to %d. Set %s to a smaller value to avoid this.",
+                max_tokens,
+                thinking_budget,
+                new_budget,
+                ENV_REASONING_BUDGET,
+            )
+            thinking_budget = new_budget
 
     response = _anthropic.messages.create(
         model=api_model,
@@ -527,16 +537,26 @@ def stream(
     # Respect the caller's max_tokens budget by reducing thinking_budget to fit,
     # rather than inflating max_tokens (which would defeat caller's cost-saving intent).
     if use_thinking and max_tokens <= thinking_budget:
-        new_budget = max(1, max_tokens - 1)
-        logger.warning(
-            "max_tokens=%d cannot accommodate thinking_budget=%d; "
-            "reducing thinking_budget to %d. Set %s to a smaller value to avoid this.",
-            max_tokens,
-            thinking_budget,
-            new_budget,
-            ENV_REASONING_BUDGET,
-        )
-        thinking_budget = new_budget
+        if max_tokens <= 1:
+            # Cannot fit even 1 thinking token — disable extended thinking entirely.
+            use_thinking = False
+            logger.warning(
+                "max_tokens=%d is too small to accommodate any thinking tokens; "
+                "disabling extended thinking. Increase max_tokens or unset %s.",
+                max_tokens,
+                ENV_REASONING_BUDGET,
+            )
+        else:
+            new_budget = max_tokens - 1  # >= 1 since max_tokens >= 2
+            logger.warning(
+                "max_tokens=%d cannot accommodate thinking_budget=%d; "
+                "reducing thinking_budget to %d. Set %s to a smaller value to avoid this.",
+                max_tokens,
+                thinking_budget,
+                new_budget,
+                ENV_REASONING_BUDGET,
+            )
+            thinking_budget = new_budget
 
     with _anthropic.messages.stream(
         model=api_model,

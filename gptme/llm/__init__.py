@@ -203,6 +203,11 @@ def _chat_complete(
         )
     if provider == "openai-subscription":
         # TODO: max_tokens not yet forwarded to openai-subscription
+        if max_tokens is not None:
+            logger.warning(
+                "max_tokens=%d is not forwarded to openai-subscription provider and will be ignored.",
+                max_tokens,
+            )
         content = chat_subscription(messages, _get_base_model(model), tools)
         return content, {"model": model}
 
@@ -257,12 +262,16 @@ def _stream(
         return _StreamWithMetadata(gen, model)
     if provider == "openai-subscription":
         # TODO: max_tokens not yet forwarded to openai-subscription
+        if max_tokens is not None:
+            logger.warning(
+                "max_tokens=%d is not forwarded to openai-subscription provider and will be ignored.",
+                max_tokens,
+            )
         gen = stream_subscription(messages, _get_base_model(model), tools)
         return _StreamWithMetadata(gen, model)
     # Note: Validation-only fallback for streaming is complex
     # For now, unsupported providers don't support output_schema in streaming mode
     if output_schema is not None:
-        logger = logging.getLogger(__name__)
         logger.warning(
             f"Provider {provider} does not support output_schema in streaming mode"
         )
