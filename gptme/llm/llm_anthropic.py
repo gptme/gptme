@@ -364,6 +364,7 @@ def chat(
     model: str,
     tools: list[ToolSpec] | None,
     output_schema: type[BaseModel] | None = None,
+    max_tokens: int | None = None,
 ) -> tuple[str, MessageMetadata | None]:
     from anthropic import NOT_GIVEN  # fmt: skip
 
@@ -408,7 +409,9 @@ def chat(
             f"Invalid {ENV_REASONING_BUDGET} value: {thinking_budget_str!r}. "
             "Must be a valid integer."
         ) from parse_err
-    max_tokens = model_meta.max_output or 4096
+    effective_max_tokens = (
+        max_tokens if max_tokens is not None else (model_meta.max_output or 4096)
+    )
 
     response = _anthropic.messages.create(
         model=api_model,
@@ -416,7 +419,7 @@ def chat(
         system=system_messages,
         temperature=TEMPERATURE if not model_meta.supports_reasoning else 1,
         top_p=TOP_P if not model_meta.supports_reasoning else NOT_GIVEN,
-        max_tokens=max_tokens,
+        max_tokens=effective_max_tokens,
         tools=tools_dict or NOT_GIVEN,
         thinking=(
             {"type": "enabled", "budget_tokens": thinking_budget}
@@ -454,6 +457,7 @@ def stream(
     model: str,
     tools: list[ToolSpec] | None,
     output_schema: type[BaseModel] | None = None,
+    max_tokens: int | None = None,
 ) -> Generator[str, None, MessageMetadata | None]:
     import anthropic.types  # fmt: skip
     from anthropic import NOT_GIVEN  # fmt: skip
@@ -506,7 +510,9 @@ def stream(
             f"Invalid {ENV_REASONING_BUDGET} value: {thinking_budget_str!r}. "
             "Must be a valid integer."
         ) from parse_err
-    max_tokens = model_meta.max_output or 4096
+    effective_max_tokens = (
+        max_tokens if max_tokens is not None else (model_meta.max_output or 4096)
+    )
 
     with _anthropic.messages.stream(
         model=api_model,
@@ -514,7 +520,7 @@ def stream(
         system=system_messages,
         temperature=TEMPERATURE if not model_meta.supports_reasoning else 1,
         top_p=TOP_P if not model_meta.supports_reasoning else NOT_GIVEN,
-        max_tokens=max_tokens,
+        max_tokens=effective_max_tokens,
         tools=tools_dict or NOT_GIVEN,
         thinking=(
             {"type": "enabled", "budget_tokens": thinking_budget}
