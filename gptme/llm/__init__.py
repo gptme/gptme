@@ -98,6 +98,8 @@ def reply(
     on_token: Callable[[str], None] | None = None,
     max_tokens: int | None = None,
 ) -> Message:
+    if max_tokens is not None and max_tokens <= 0:
+        raise ValueError(f"max_tokens must be a positive integer, got {max_tokens}")
     # Trigger GENERATION_PRE hooks and collect context messages
     from ..hooks import HookType, trigger_hook
 
