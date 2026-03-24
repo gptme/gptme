@@ -735,9 +735,11 @@ class TestExtractRecentTools:
             Message(role="assistant", content=f"```tool{i}\ncmd\n```\n")
             for i in range(20)
         ]
-        # Default limit=10, so only last 10 messages
+        # limit=10 means only the last 10 messages are checked
         tools = _extract_recent_tools(log, limit=10)
-        assert len(tools) <= 10
+        assert len(tools) == 10  # exactly 10 unique tools from last 10 messages
+        assert "tool19" in tools  # last message's tool included
+        assert "tool9" not in tools  # messages before the limit excluded
 
 
 class TestExtractMessageContent:
@@ -775,6 +777,9 @@ class TestExtractMessageContent:
 
 
 class TestSessionStats:
+    def teardown_method(self):
+        _reset_session_stats()
+
     def test_initial_stats(self):
         stats = LessonSessionStats()
         assert stats.total_matched == 0
