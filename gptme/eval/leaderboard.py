@@ -44,26 +44,61 @@ BASIC_TESTS = {
 }
 
 PRACTICAL_TESTS = {
+    # practical (original)
     "build-api",
     "parse-log",
     "add-error-handling",
+    # practical2
     "sort-and-filter",
     "template-fill",
     "validate-csv",
+    # practical3
     "write-tests-calculator",
     "sqlite-store",
+    # practical4
     "group-by",
     "schedule-overlaps",
     "topo-sort",
+    # practical5
     "rename-function",
     "data-pipeline",
     "regex-scrub",
+    # practical6
     "csv-analysis",
     "word-frequency",
     "merge-configs",
+    # practical7
     "ini-to-json",
     "json-diff",
     "changelog-gen",
+    # practical8
+    "url-stats",
+    "markdown-toc",
+    "json-flatten",
+    # practical9
+    "env-parser",
+    "yaml-merge",
+    "git-log-stats",
+    # practical10
+    "semver-sort",
+    "date-histogram",
+    "tsv-to-csv",
+    # practical11
+    "roman-numerals",
+    "run-length-encoding",
+    "anagram-groups",
+    # practical12
+    "frequent-words",
+    "collatz-sequence",
+    "log-level-stats",
+    # practical13
+    "summary-stats",
+    "pascal-triangle",
+    "caesar-cipher",
+    # practical14
+    "matrix-transpose",
+    "ipv4-classify",
+    "bracket-balance",
 }
 
 

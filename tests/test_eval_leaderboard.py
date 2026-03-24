@@ -626,3 +626,50 @@ def test_generate_leaderboard_html(tmp_path):
     assert "<!DOCTYPE html>" in output
     assert "GPT-4o" in output
     assert "gptme Eval Leaderboard" in output
+
+
+def test_practical_tests_sync():
+    """PRACTICAL_TESTS set stays in sync with actual practical suite definitions.
+
+    If this test fails, a new practical suite was added but its test names
+    weren't added to PRACTICAL_TESTS in leaderboard.py.
+    """
+    from gptme.eval.leaderboard import BASIC_TESTS, PRACTICAL_TESTS
+    from gptme.eval.suites import suites
+
+    # Collect test names from all practical suites
+    actual_practical = set()
+    for suite_name, suite_tests in suites.items():
+        if suite_name.startswith("practical"):
+            for test in suite_tests:
+                actual_practical.add(test["name"])
+
+    # Collect test names from basic suite
+    actual_basic = set()
+    for test in suites.get("basic", []):
+        actual_basic.add(test["name"])
+
+    missing_practical = actual_practical - PRACTICAL_TESTS
+    extra_practical = PRACTICAL_TESTS - actual_practical
+    missing_basic = actual_basic - BASIC_TESTS
+    extra_basic = BASIC_TESTS - actual_basic
+
+    errors = []
+    if missing_practical:
+        errors.append(
+            f"Tests in practical suites but not in PRACTICAL_TESTS: {sorted(missing_practical)}"
+        )
+    if extra_practical:
+        errors.append(
+            f"Tests in PRACTICAL_TESTS but not in any practical suite: {sorted(extra_practical)}"
+        )
+    if missing_basic:
+        errors.append(
+            f"Tests in basic suite but not in BASIC_TESTS: {sorted(missing_basic)}"
+        )
+    if extra_basic:
+        errors.append(
+            f"Tests in BASIC_TESTS but not in any basic suite: {sorted(extra_basic)}"
+        )
+
+    assert not errors, "\n".join(errors)
