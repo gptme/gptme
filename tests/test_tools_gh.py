@@ -552,3 +552,67 @@ class TestExecuteGh:
         messages = list(execute_gh(None, ["pr", "checks", "https://invalid.com"], None))
         assert len(messages) == 1
         assert "Invalid GitHub URL" in messages[0].content
+
+    # --- gh issue view ---
+
+    def test_issue_view_no_url(self):
+        """gh issue view with no URL."""
+        messages = list(execute_gh(None, ["issue", "view"], None))
+        assert len(messages) == 1
+        assert "No issue URL" in messages[0].content
+
+    @patch("gptme.tools.gh.get_github_issue_content")
+    def test_issue_view_success(self, mock_content):
+        """gh issue view returns content."""
+        mock_content.return_value = "Issue content here"
+        messages = list(
+            execute_gh(
+                None,
+                ["issue", "view", "https://github.com/owner/repo/issues/42"],
+                None,
+            )
+        )
+        assert len(messages) == 1
+        assert messages[0].content == "Issue content here"
+        mock_content.assert_called_once_with("owner", "repo", "42")
+
+    def test_issue_view_invalid_url(self):
+        """gh issue view with invalid URL."""
+        messages = list(
+            execute_gh(None, ["issue", "view", "https://invalid.com"], None)
+        )
+        assert len(messages) == 1
+        assert "Invalid GitHub URL" in messages[0].content
+
+    def test_issue_view_pr_url_rejected(self):
+        """gh issue view with a PR URL gives helpful error."""
+        messages = list(
+            execute_gh(
+                None,
+                ["issue", "view", "https://github.com/owner/repo/pull/123"],
+                None,
+            )
+        )
+        assert len(messages) == 1
+        assert "not a GitHub issue URL" in messages[0].content
+        assert "gh pr view" in messages[0].content
+
+    @patch("gptme.tools.gh.get_github_issue_content")
+    def test_issue_view_fetch_failure(self, mock_content):
+        """gh issue view when fetch fails."""
+        mock_content.return_value = None
+        messages = list(
+            execute_gh(
+                None,
+                ["issue", "view", "https://github.com/owner/repo/issues/42"],
+                None,
+            )
+        )
+        assert len(messages) == 1
+        assert "Failed to fetch issue content" in messages[0].content
+
+    def test_unknown_command_lists_issue_view(self):
+        """Error message for unknown command includes gh issue view."""
+        messages = list(execute_gh(None, ["unknown", "command"], None))
+        assert len(messages) == 1
+        assert "gh issue view" in messages[0].content

@@ -5,7 +5,11 @@ import time
 from collections.abc import Generator
 
 from ..message import Message
-from ..util.gh import get_github_pr_content, parse_github_url
+from ..util.gh import (
+    get_github_issue_content,
+    get_github_pr_content,
+    parse_github_url,
+)
 from . import Parameter, ToolSpec, ToolUse
 
 
@@ -408,16 +412,51 @@ def execute_gh(
                     "system",
                     "Error: Failed to fetch PR content. Make sure 'gh' CLI is installed and authenticated.",
                 )
+    elif args and len(args) >= 2 and args[0] == "issue" and args[1] == "view":
+        url = _extract_pr_url(args, kwargs)
+        if not url:
+            yield Message("system", "Error: No issue URL provided")
+            return
+
+        github_info = parse_github_url(url)
+        if not github_info:
+            yield Message(
+                "system",
+                f"Error: Invalid GitHub URL: {url}\n\nExpected format: https://github.com/owner/repo/issues/number",
+            )
+            return
+
+        if github_info["type"] != "issues":
+            yield Message(
+                "system",
+                f"Error: URL is not a GitHub issue URL (got {github_info['type']}). Use `gh pr view` for pull requests.",
+            )
+            return
+
+        content = get_github_issue_content(
+            github_info["owner"], github_info["repo"], github_info["number"]
+        )
+        if content:
+            yield Message("system", content)
+        else:
+            yield Message(
+                "system",
+                "Error: Failed to fetch issue content. Make sure 'gh' CLI is installed and authenticated.",
+            )
     else:
         yield Message(
             "system",
-            "Error: Unknown gh command. Available: gh pr view <url>, gh pr status <url>, gh pr checks <url>",
+            "Error: Unknown gh command. Available: gh issue view <url>, gh pr view <url>, gh pr status <url>, gh pr checks <url>",
         )
 
 
 instructions = """Interact with GitHub via the GitHub CLI (gh).
 
-For reading PRs with full context (review comments, code context, suggestions), use:
+For reading issues with full context (body + comments):
+```gh issue view <issue_url>
+```
+
+For reading PRs with full context (review comments, code context, suggestions):
 ```gh pr view <pr_url>
 ```
 
@@ -451,6 +490,14 @@ For other operations, use the `shell` tool with the `gh` command."""
 
 def examples(tool_format):
     return f"""
+> User: read issue with full context including comments
+> Assistant:
+{
+        ToolUse(
+            "gh", ["issue", "view", "https://github.com/owner/repo/issues/42"], None
+        ).to_output(tool_format)
+    }
+
 > User: read PR with full context including review comments
 > Assistant:
 {
@@ -572,7 +619,7 @@ tool: ToolSpec = ToolSpec(
         Parameter(
             name="url",
             type="string",
-            description="GitHub PR URL (e.g., https://github.com/owner/repo/pull/123)",
+            description="GitHub issue or PR URL (e.g., https://github.com/owner/repo/issues/42 or .../pull/123)",
             required=True,
         ),
     ],
