@@ -187,6 +187,8 @@ def _chat_complete(
     output_schema: type | None = None,
     max_tokens: int | None = None,
 ) -> tuple[str, MessageMetadata | None]:
+    if max_tokens is not None and max_tokens <= 0:
+        raise ValueError(f"max_tokens must be a positive integer, got {max_tokens}")
     provider = get_provider_from_model(model)
 
     # Providers with native constrained decoding support
