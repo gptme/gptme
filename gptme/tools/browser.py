@@ -53,6 +53,7 @@ Provider Native Search:
 """
 
 import base64
+import binascii
 import importlib
 import importlib.metadata
 import importlib.util
@@ -764,9 +765,20 @@ def _read_github_repo(url: str) -> str:
             check=False,
         )
         if readme_result.returncode == 0:
-            readme_data = json.loads(readme_result.stdout)
-            readme_content = base64.b64decode(readme_data["content"]).decode("utf-8")
-            lines += ["## README", "", readme_content]
+            try:
+                readme_data = json.loads(readme_result.stdout)
+                readme_content = base64.b64decode(readme_data["content"]).decode(
+                    "utf-8"
+                )
+            except (
+                binascii.Error,
+                json.JSONDecodeError,
+                KeyError,
+                UnicodeDecodeError,
+            ) as e:
+                logger.warning(f"Failed to parse README for {full_repo}: {e}")
+            else:
+                lines += ["## README", "", readme_content]
         else:
             logger.debug(f"No README found: {readme_result.stderr}")
 
