@@ -19,12 +19,11 @@ logo = project_root / "media" / "logo.png"
 
 @pytest.fixture(scope="session", autouse=True)
 def tmp_data_dir():
-    tmpdir = TemporaryDirectory().name
-    Path(tmpdir).mkdir(parents=True, exist_ok=True)
-
-    # set the environment variable
-    print(f"setting XDG_DATA_HOME to {tmpdir}")
-    os.environ["XDG_DATA_HOME"] = tmpdir
+    with TemporaryDirectory() as tmpdir:
+        # set the environment variable
+        print(f"setting XDG_DATA_HOME to {tmpdir}")
+        os.environ["XDG_DATA_HOME"] = tmpdir
+        yield tmpdir
 
 
 @pytest.fixture(scope="session")
