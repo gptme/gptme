@@ -6,6 +6,7 @@ Originally prototyped as scripts/gh-pr-view-with-pr-comments.py (since removed)
 
 import json
 import logging
+import re
 import shutil
 import subprocess
 import urllib.parse
@@ -221,8 +222,6 @@ def parse_github_ref(
         return result
 
     # Try owner/repo#number format
-    import re
-
     match = re.match(r"^([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)#(\d+)$", ref)
     if match:
         return {

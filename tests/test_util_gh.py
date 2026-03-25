@@ -331,4 +331,4 @@ def test_gh_tool_read_pr_invalid_url():
     assert len(results) == 1
     assert results[0].role == "system"
     assert "Error" in results[0].content
-    assert "Invalid GitHub URL" in results[0].content
+    assert "Could not parse GitHub reference" in results[0].content
