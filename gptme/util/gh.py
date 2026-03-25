@@ -9,6 +9,7 @@ import logging
 import shutil
 import subprocess
 import urllib.parse
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +153,98 @@ def _get_github_actions_status(owner: str, repo: str, sha: str) -> str | None:
     except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError) as e:
         logger.debug(f"Failed to get GitHub Actions status: {e}")
         return None
+
+
+def _get_repo_from_git_remote(
+    workspace: Path | None = None,
+) -> tuple[str, str] | None:
+    """Detect owner/repo from the git remote 'origin' URL.
+
+    Returns:
+        Tuple of (owner, repo) or None if detection fails.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=str(workspace) if workspace else None,
+        )
+        remote_url = result.stdout.strip()
+
+        # Handle SSH format: git@github.com:owner/repo.git
+        if remote_url.startswith("git@github.com:"):
+            path = remote_url[len("git@github.com:") :]
+            path = path.removesuffix(".git")
+            parts = path.split("/")
+            if len(parts) == 2:
+                return parts[0], parts[1]
+
+        # Handle HTTPS format: https://github.com/owner/repo.git
+        parsed = urllib.parse.urlparse(remote_url)
+        if parsed.netloc == "github.com":
+            path_parts = parsed.path.strip("/").removesuffix(".git").split("/")
+            if len(path_parts) == 2:
+                return path_parts[0], path_parts[1]
+    except (subprocess.CalledProcessError, ValueError, AttributeError):
+        pass
+    return None
+
+
+def parse_github_ref(
+    ref: str,
+    workspace: Path | None = None,
+    default_type: str = "issues",
+) -> dict[str, str] | None:
+    """Parse a GitHub reference into owner, repo, type, and number.
+
+    Supports multiple formats:
+    - Full URL: https://github.com/owner/repo/issues/42
+    - Short ref: owner/repo#42
+    - Bare number with repo context: #42 or 42 (requires workspace with git remote)
+
+    Args:
+        ref: The GitHub reference string to parse.
+        workspace: Optional workspace path for inferring owner/repo from git remote.
+        default_type: Default type when not inferable ('issues' or 'pull').
+
+    Returns:
+        Dict with 'owner', 'repo', 'type' ('issues' or 'pull'), 'number'
+        or None if the reference could not be parsed.
+    """
+    ref = ref.strip()
+
+    # Try full URL first
+    result = parse_github_url(ref)
+    if result:
+        return result
+
+    # Try owner/repo#number format
+    import re
+
+    match = re.match(r"^([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)#(\d+)$", ref)
+    if match:
+        return {
+            "owner": match.group(1),
+            "repo": match.group(2),
+            "type": default_type,
+            "number": match.group(3),
+        }
+
+    # Try #number or bare number format (needs workspace context)
+    match = re.match(r"^#?(\d+)$", ref)
+    if match:
+        repo_info = _get_repo_from_git_remote(workspace)
+        if repo_info:
+            return {
+                "owner": repo_info[0],
+                "repo": repo_info[1],
+                "type": default_type,
+                "number": match.group(1),
+            }
+
+    return None
 
 
 def parse_github_url(url: str) -> dict[str, str] | None:

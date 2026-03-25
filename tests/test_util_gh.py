@@ -1,9 +1,13 @@
 """Tests for GitHub utility functions."""
 
+from unittest.mock import patch
+
 import pytest
 
 from gptme.util.gh import (
+    _get_repo_from_git_remote,
     get_github_pr_content,
+    parse_github_ref,
     parse_github_url,
 )
 
@@ -36,6 +40,158 @@ def test_parse_github_url_invalid():
     """Test parsing non-GitHub URLs."""
     assert parse_github_url("https://example.com") is None
     assert parse_github_url("https://github.com/owner") is None
+
+
+# --- Tests for parse_github_ref ---
+
+
+def test_parse_github_ref_full_url():
+    """Full URLs delegate to parse_github_url."""
+    result = parse_github_ref("https://github.com/gptme/gptme/pull/42")
+    assert result == {
+        "owner": "gptme",
+        "repo": "gptme",
+        "type": "pull",
+        "number": "42",
+    }
+
+
+def test_parse_github_ref_short_ref():
+    """owner/repo#N format."""
+    result = parse_github_ref("gptme/gptme-contrib#580")
+    assert result == {
+        "owner": "gptme",
+        "repo": "gptme-contrib",
+        "type": "issues",
+        "number": "580",
+    }
+
+
+def test_parse_github_ref_short_ref_default_type():
+    """owner/repo#N respects default_type."""
+    result = parse_github_ref("gptme/gptme#100", default_type="pull")
+    assert result == {
+        "owner": "gptme",
+        "repo": "gptme",
+        "type": "pull",
+        "number": "100",
+    }
+
+
+def _mock_git_remote(url: str):
+    """Helper to mock subprocess.run for git remote get-url."""
+    import subprocess
+
+    def fake_run(cmd, **kwargs):
+        if cmd == ["git", "remote", "get-url", "origin"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=url + "\n", stderr="")
+        raise subprocess.CalledProcessError(1, cmd)
+
+    return fake_run
+
+
+def test_parse_github_ref_hash_number():
+    """#N format with mocked git remote."""
+    with patch(
+        "gptme.util.gh.subprocess.run",
+        side_effect=_mock_git_remote("git@github.com:gptme/gptme.git"),
+    ):
+        result = parse_github_ref("#42")
+    assert result == {
+        "owner": "gptme",
+        "repo": "gptme",
+        "type": "issues",
+        "number": "42",
+    }
+
+
+def test_parse_github_ref_bare_number():
+    """Bare number format with mocked git remote."""
+    with patch(
+        "gptme.util.gh.subprocess.run",
+        side_effect=_mock_git_remote("https://github.com/owner/repo.git"),
+    ):
+        result = parse_github_ref("123", default_type="pull")
+    assert result == {
+        "owner": "owner",
+        "repo": "repo",
+        "type": "pull",
+        "number": "123",
+    }
+
+
+def test_parse_github_ref_bare_number_no_remote():
+    """Bare number without git remote returns None."""
+    import subprocess
+
+    def fail_run(cmd, **kwargs):
+        raise subprocess.CalledProcessError(1, cmd)
+
+    with patch("gptme.util.gh.subprocess.run", side_effect=fail_run):
+        result = parse_github_ref("42")
+    assert result is None
+
+
+def test_parse_github_ref_invalid():
+    """Invalid refs return None."""
+    assert parse_github_ref("not-a-ref") is None
+    assert parse_github_ref("") is None
+    assert parse_github_ref("just/words") is None
+
+
+# --- Tests for _get_repo_from_git_remote ---
+
+
+def test_get_repo_from_git_remote_ssh():
+    """SSH remote URL."""
+    with patch(
+        "gptme.util.gh.subprocess.run",
+        side_effect=_mock_git_remote("git@github.com:gptme/gptme.git"),
+    ):
+        result = _get_repo_from_git_remote()
+    assert result == ("gptme", "gptme")
+
+
+def test_get_repo_from_git_remote_https():
+    """HTTPS remote URL."""
+    with patch(
+        "gptme.util.gh.subprocess.run",
+        side_effect=_mock_git_remote("https://github.com/owner/repo.git"),
+    ):
+        result = _get_repo_from_git_remote()
+    assert result == ("owner", "repo")
+
+
+def test_get_repo_from_git_remote_https_no_dotgit():
+    """HTTPS remote URL without .git suffix."""
+    with patch(
+        "gptme.util.gh.subprocess.run",
+        side_effect=_mock_git_remote("https://github.com/owner/repo"),
+    ):
+        result = _get_repo_from_git_remote()
+    assert result == ("owner", "repo")
+
+
+def test_get_repo_from_git_remote_no_remote():
+    """No remote returns None."""
+    import subprocess
+
+    def fail_run(cmd, **kwargs):
+        raise subprocess.CalledProcessError(1, cmd)
+
+    with patch("gptme.util.gh.subprocess.run", side_effect=fail_run):
+        result = _get_repo_from_git_remote()
+    assert result is None
+
+
+def test_get_repo_from_git_remote_non_github():
+    """Non-GitHub remote returns None."""
+    with patch(
+        "gptme.util.gh.subprocess.run",
+        side_effect=_mock_git_remote("https://gitlab.com/owner/repo.git"),
+    ):
+        result = _get_repo_from_git_remote()
+    assert result is None
 
 
 @pytest.mark.slow
