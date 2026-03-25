@@ -7,6 +7,15 @@ from gptme.llm.llm_openai_subscription import SubscriptionAuth, stream
 from gptme.message import Message
 
 
+def _make_auth() -> SubscriptionAuth:
+    return SubscriptionAuth(
+        access_token="test-token",
+        refresh_token=None,
+        account_id="test-account",
+        expires_at=9_999_999_999.0,
+    )
+
+
 class _FakeSSEStreamResponse:
     def __init__(self, events: list[dict[str, Any]]) -> None:
         self.status_code = 200
@@ -19,12 +28,7 @@ class _FakeSSEStreamResponse:
 
 
 def _run_stream(events: list[dict[str, Any]]) -> str:
-    auth = SubscriptionAuth(
-        access_token="test-token",
-        refresh_token=None,
-        account_id="test-account",
-        expires_at=9_999_999_999.0,
-    )
+    auth = _make_auth()
     response = _FakeSSEStreamResponse(events)
 
     with (
@@ -120,3 +124,37 @@ def test_stream_no_double_wrap_when_both_mechanisms_fire():
     assert output.count("<think>") == 1
     assert output.count("</think>") == 1
     assert "Done." in output
+
+
+def test_stream_forwards_max_tokens_as_max_output_tokens():
+    """max_tokens passed to stream() must appear as max_output_tokens in the POST body."""
+    response = _FakeSSEStreamResponse([{"type": "response.done"}])
+
+    with (
+        patch("gptme.llm.llm_openai_subscription.get_auth", return_value=_make_auth()),
+        patch(
+            "gptme.llm.llm_openai_subscription.requests.post", return_value=response
+        ) as mock_post,
+    ):
+        list(
+            stream([Message(role="user", content="hello")], "gpt-5.4", max_tokens=1000)
+        )
+
+    request_json = mock_post.call_args.kwargs["json"]
+    assert request_json["max_output_tokens"] == 1000
+
+
+def test_stream_omits_max_output_tokens_when_not_provided():
+    """When max_tokens is not given, max_output_tokens must not appear in the POST body."""
+    response = _FakeSSEStreamResponse([{"type": "response.done"}])
+
+    with (
+        patch("gptme.llm.llm_openai_subscription.get_auth", return_value=_make_auth()),
+        patch(
+            "gptme.llm.llm_openai_subscription.requests.post", return_value=response
+        ) as mock_post,
+    ):
+        list(stream([Message(role="user", content="hello")], "gpt-5.4"))
+
+    request_json = mock_post.call_args.kwargs["json"]
+    assert "max_output_tokens" not in request_json

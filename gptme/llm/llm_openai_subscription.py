@@ -519,6 +519,7 @@ def _transform_to_codex_request(
     model: str,
     stream: bool = True,
     reasoning_level: str | None = None,
+    max_output_tokens: int | None = None,
 ) -> dict[str, Any]:
     """Build a Responses API request body from pre-converted input items.
 
@@ -545,7 +546,7 @@ def _transform_to_codex_request(
         "\n\n".join(system_parts) if system_parts else "You are a helpful assistant."
     )
 
-    return {
+    body: dict[str, Any] = {
         "model": base_model,
         "instructions": instructions,
         "input": api_input,
@@ -555,6 +556,9 @@ def _transform_to_codex_request(
             "effort": reasoning_level,
         },
     }
+    if max_output_tokens is not None:
+        body["max_output_tokens"] = max_output_tokens
+    return body
 
 
 def _parse_sse_response(line: bytes | str) -> dict[str, Any] | None:
@@ -579,6 +583,7 @@ def stream(
     messages: list[Message],
     model: str,
     tools: list[Any] | None = None,
+    max_tokens: int | None = None,
     **kwargs: Any,
 ) -> Generator[str, None, None]:
     """Stream completion from ChatGPT subscription API."""
@@ -590,6 +595,7 @@ def stream(
         input_items=api_messages,
         model=model,
         stream=True,
+        max_output_tokens=max_tokens,
     )
 
     if tools:
