@@ -59,19 +59,20 @@ def test_extract_main_content_passes_noise_selector_as_argument():
             assert selector == "body"
             return "<body>body text</body>"
 
-    page = cast(Page, FakePage())
+    fake_page = FakePage()
+    page = cast(Page, fake_page)
 
     result = _extract_main_content(page)
 
     assert result == "<body>body text</body>"
-    assert any(arg == "[aria-hidden='true']" for _, arg in page.evaluate_calls)
+    assert any(arg == "[aria-hidden='true']" for _, arg in fake_page.evaluate_calls)
     assert all(
         "querySelectorAll(selector)" in expression
-        for expression, _ in page.evaluate_calls
+        for expression, _ in fake_page.evaluate_calls
     )
     assert all(
         "[aria-hidden='true']" not in expression
-        for expression, _ in page.evaluate_calls
+        for expression, _ in fake_page.evaluate_calls
     )
 
 
