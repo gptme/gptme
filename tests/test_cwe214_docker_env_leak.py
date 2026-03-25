@@ -139,6 +139,8 @@ def test_env_file_has_restrictive_permissions():
         docker_reexec(["gptme-eval", "--some-arg"])
 
     assert env_file_path is not None, "Expected --env-file to be used"
+    # The production code calls os.chmod(path, 0o600) after writing,
+    # so the mode is unconditionally 0o600 regardless of umask.
     assert env_file_mode == 0o600, (
         f"Expected env file permissions 0o600, got 0o{env_file_mode:o}"
     )

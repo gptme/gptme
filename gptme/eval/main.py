@@ -125,9 +125,12 @@ def docker_reexec(argv: list[str]) -> None:
             env_entries.append(f"{var}={value}")
 
     # Write env vars to a secure temporary file for --env-file.
-    # Use tempfile.mkstemp() which atomically creates the file with 0o600
-    # permissions (via os.O_CREAT | os.O_EXCL), avoiding the TOCTOU race
-    # that NamedTemporaryFile + deferred chmod would introduce.
+    # Use tempfile.mkstemp() which atomically creates the file via
+    # os.O_CREAT | os.O_EXCL, avoiding the TOCTOU race that
+    # NamedTemporaryFile + deferred chmod would introduce.
+    # Note: mkstemp requests 0o600 but the kernel applies the process
+    # umask, so we follow up with an explicit os.chmod() to guarantee
+    # the permissions unconditionally.
     env_file_path: str | None = None
     env_file_args: list[str] = []
     if env_entries:
@@ -149,6 +152,8 @@ def docker_reexec(argv: list[str]) -> None:
                 pass
             env_file_path = None
             raise
+        # Unconditionally enforce 0o600 — mkstemp’s mode is subject to umask.
+        os.chmod(env_file_path, 0o600)
         env_file_args = ["--env-file", env_file_path]
 
     # Construct docker run command
