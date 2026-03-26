@@ -306,7 +306,8 @@ class TestExecuteJobsCommand:
         assert "s" in msgs[0].content
 
     def test_long_command_truncated(self):
-        long_cmd = "echo " + "x" * 100
+        # Keep the job alive long enough to survive cleanup in execute_jobs_command().
+        long_cmd = "sleep 60 # " + "x" * 100
         start_background_job(long_cmd)
         msgs = list(execute_jobs_command())
         assert "..." in msgs[0].content
