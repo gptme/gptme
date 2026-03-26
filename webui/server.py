@@ -8,10 +8,15 @@ enabling proper single-page application routing.
 import http.server
 import os
 import socketserver
+from functools import partial
 
 
 class SPAHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     """HTTP request handler with SPA routing support."""
+
+    def list_directory(self, path):
+        self.send_error(404)
+        return None
 
     def do_GET(self):
         """Handle GET requests with SPA fallback."""
@@ -55,9 +60,11 @@ class SPAHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         return http.server.SimpleHTTPRequestHandler.do_GET(self)
 
 
-def run_server(port=5701, bind="0.0.0.0"):
+def run_server(port=5701, bind="127.0.0.1"):
     """Run the HTTP server."""
-    with socketserver.TCPServer((bind, port), SPAHTTPRequestHandler) as httpd:
+    web_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dist")
+    handler = partial(SPAHTTPRequestHandler, directory=web_root)
+    with socketserver.TCPServer((bind, port), handler) as httpd:
         print(f"Serving on {bind}:{port}")
         print("SPA routing enabled - serving index.html for non-asset routes")
         try:
