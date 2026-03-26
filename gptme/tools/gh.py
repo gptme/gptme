@@ -874,8 +874,10 @@ instructions = """Interact with GitHub via the GitHub CLI (gh).
 
 Refs: full URLs, `owner/repo#N`, `#N`, or bare `N` (when in a git repo).
 
-Create issues:
-```gh issue create --repo owner/repo --title "Bug report" --body "Details here" --label bug,urgent
+Create/read issues and PRs:
+```gh issue create --repo owner/repo --title "Title" --body "Details"
+gh issue view owner/repo#42
+gh pr view owner/repo#123
 ```
 
 List issues/PRs:
@@ -884,18 +886,13 @@ gh pr list --repo owner/repo --state open --limit 20
 ```
 
 Search issues/PRs across repos:
-```gh search issues "bug fix" --repo owner/repo --state open --limit 10
-gh search prs "feature" --author username --state open
-```
-
-Read issue/PR:
-```gh issue view owner/repo#42
-gh pr view owner/repo#123
+```gh search issues "query" --repo owner/repo --state open
+gh search prs "query" --author username --state open
 ```
 
 Comment on issues/PRs:
-```gh issue comment owner/repo#42 --body "Comment text"
-gh pr comment owner/repo#123 --body "LGTM, merging"
+```gh issue comment owner/repo#42 --body "Comment"
+gh pr comment owner/repo#123 --body "LGTM"
 ```
 
 Inspect code changes:
@@ -903,14 +900,11 @@ Inspect code changes:
 ```
 
 Merge a pull request (default: squash):
-```gh pr merge owner/repo#123
-gh pr merge owner/repo#123 --rebase
-gh pr merge owner/repo#123 --squash --auto --delete-branch --match-head-commit abc1234
+```gh pr merge owner/repo#123 --squash --auto --delete-branch
 ```
 
 CI status:
-```gh pr status <ref> [commit_sha]
-gh pr checks <ref> [commit_sha]
+```gh pr checks <ref>
 gh run view <run-id>
 ```
 
