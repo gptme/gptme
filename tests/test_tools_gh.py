@@ -631,6 +631,18 @@ class TestExecuteGh:
         assert len(messages) == 1
         assert "Could not parse" in messages[0].content
 
+    def test_pr_diff_issue_url(self):
+        """gh pr diff with an issue URL returns a clear error."""
+        messages = list(
+            execute_gh(
+                None,
+                ["pr", "diff", "https://github.com/owner/repo/issues/1"],
+                None,
+            )
+        )
+        assert len(messages) == 1
+        assert "not a GitHub PR" in messages[0].content
+
     @patch("gptme.tools.gh.get_github_pr_diff")
     def test_pr_diff_success(self, mock_diff):
         """gh pr diff returns diff content."""

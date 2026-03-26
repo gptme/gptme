@@ -408,6 +408,13 @@ def execute_gh(
             )
             return
 
+        if github_info["type"] != "pull":
+            yield Message(
+                "system",
+                f"Error: Reference is not a GitHub PR (got {github_info['type']}). Use `gh issue view` for issues.",
+            )
+            return
+
         content = get_github_pr_diff(
             github_info["owner"], github_info["repo"], github_info["number"]
         )
