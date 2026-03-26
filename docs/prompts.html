@@ -693,7 +693,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fcb94b440e0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f98ebc5c220&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1281,6 +1281,10 @@ For CI check completion:
 <span class="sb">```gh</span><span class="w"> </span>pr checks &lt;ref&gt; [commit_sha]
 <span class="sb">```</span>
 
+To view failed CI logs for a specific run (extracts relevant error sections):
+<span class="sb">```gh</span><span class="w"> </span>run view &lt;run-id&gt;
+<span class="sb">```</span>
+
 For multi-line comments, use <span class="sb">`--body-file`</span> to avoid <span class="sb">`\n`</span> literal issues:
 <span class="sb">```shell</span>
 gh<span class="w"> </span>issue<span class="w"> </span>comment<span class="w"> </span>NUM<span class="w"> </span>--repo<span class="w"> </span>owner/repo<span class="w"> </span>--body-file<span class="w"> </span>-<span class="w"> </span><span class="s">&lt;&lt; &#39;EOF&#39;</span>
@@ -1323,10 +1327,9 @@ For other operations, use the <span class="sb">`shell`</span> tool with <span cl
 
 <span class="k">&gt; </span><span class="ge">User: show me the failed build logs</span>
 <span class="k">&gt; </span><span class="ge">Assistant:</span>
-<span class="sb">```shell</span>
-gh<span class="w"> </span>run<span class="w"> </span>view<span class="w"> </span><span class="m">12345678</span><span class="w"> </span>--log-failed
+<span class="sb">```gh</span><span class="w"> </span>run view 12345678
+<span class="s">None</span>
 <span class="sb">```</span>
-
 <span class="k">&gt; </span><span class="ge">User: wait for CI checks to complete on a PR</span>
 <span class="k">&gt; </span><span class="ge">Assistant:</span>
 <span class="sb">```gh</span><span class="w"> </span>pr checks https://github.com/owner/repo/pull/123
@@ -2267,7 +2270,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 12474</p>
+<p>Tokens: 12498</p>
 </dd></dl>
 
 <dl class="py function">
