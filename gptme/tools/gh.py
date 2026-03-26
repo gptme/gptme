@@ -627,7 +627,13 @@ def execute_gh(
             return
 
         limit_str = search_flags.get("limit", "20")
-        limit = int(limit_str) if limit_str.isdecimal() else 20
+        if not limit_str.isdecimal():
+            yield Message(
+                "system",
+                f"Error: --limit requires a positive integer, got {limit_str!r}.",
+            )
+            return
+        limit = int(limit_str)
 
         if search_type == "issues":
             content = search_github_issues(

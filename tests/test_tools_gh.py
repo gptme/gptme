@@ -1125,6 +1125,19 @@ class TestSearchDispatch:
         assert "Flag --state requires a value" in messages[0].content
         mock_search.assert_not_called()
 
+    def test_search_invalid_limit(self):
+        """gh search rejects non-integer --limit values explicitly."""
+        for bad_limit in ["abc", "-5", "1.5"]:
+            messages = list(
+                execute_gh(
+                    None,
+                    ["search", "issues", "auth", "--limit", bad_limit],
+                    None,
+                )
+            )
+            assert len(messages) == 1, f"Expected 1 message for limit={bad_limit!r}"
+            assert "--limit requires a positive integer" in messages[0].content
+
     @patch("gptme.tools.gh.search_github_issues")
     def test_search_failure(self, mock_search):
         """gh search returns error on failure."""
