@@ -299,6 +299,26 @@ class TestGetModelWithPlugin:
 
 
 class TestPluginRouting:
+    def test_init_llm_calls_custom_plugin_init_without_lazy_openai_init(self):
+        from gptme.llm import init_llm
+        from gptme.llm.models import CustomProvider
+
+        init_fn = MagicMock()
+        plugin = _make_plugin(name="myprovider", init=init_fn)
+
+        with (
+            patch(
+                "importlib.metadata.entry_points",
+                return_value=[_make_entry_point(plugin)],
+            ),
+            patch("gptme.llm.has_openai_client", return_value=False),
+            patch("gptme.llm.init_openai") as mock_init_openai,
+        ):
+            init_llm(CustomProvider("myprovider"))
+
+        init_fn.assert_called_once()
+        mock_init_openai.assert_not_called()
+
     def test_chat_complete_routes_plugin_provider_through_openai(self):
         from gptme.llm import _chat_complete
 

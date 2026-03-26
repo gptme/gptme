@@ -21,7 +21,7 @@ from .llm_anthropic import get_client as get_anthropic_client
 from .llm_anthropic import init as init_anthropic
 from .llm_anthropic import stream as stream_anthropic
 from .llm_openai import chat as chat_openai
-from .llm_openai import get_client as get_openai_client
+from .llm_openai import has_client as has_openai_client
 from .llm_openai import init as init_openai
 from .llm_openai import stream as stream_openai
 from .llm_openai_subscription import chat as chat_subscription
@@ -74,10 +74,10 @@ def init_llm(provider: Provider):
     config = get_config()
 
     # Check if it's a built-in OpenAI-compatible provider
-    if provider in PROVIDERS_OPENAI and not get_openai_client(provider):
+    if provider in PROVIDERS_OPENAI and not has_openai_client(provider):
         init_openai(provider, config)
     # Check if it's a custom provider (OpenAI-compatible)
-    elif is_custom_provider(provider) and not get_openai_client(provider):
+    elif is_custom_provider(provider) and not has_openai_client(provider):
         init_openai(provider, config)
     elif provider == "anthropic" and not get_anthropic_client():
         init_anthropic(config)
@@ -85,7 +85,7 @@ def init_llm(provider: Provider):
         _subscription_initialized = init_subscription(config)
     elif (
         plugin := get_provider_plugin(str(provider))
-    ) is not None and not get_openai_client(provider):
+    ) is not None and not has_openai_client(provider):
         if plugin.init is not None:
             plugin.init(config)
         else:

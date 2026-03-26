@@ -343,6 +343,11 @@ def get_client(provider: Provider) -> "OpenAI":
     return clients[provider]
 
 
+def has_client(provider: Provider) -> bool:
+    """Return whether a client already exists without triggering lazy init."""
+    return provider in clients
+
+
 def _prep_o1(msgs: Iterable[Message]) -> Generator[Message, None, None]:
     # prepare messages for OpenAI O1, which doesn't support the system role
     # and requires the first message to be from the user

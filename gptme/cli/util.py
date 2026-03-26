@@ -19,7 +19,7 @@ from pathlib import Path
 import click
 
 from ..config import get_config
-from ..llm.models import list_models, model_to_dict
+from ..llm.models import get_model_list, list_models, model_to_dict
 from ..message import Message
 from ..util.context import include_paths
 from .cmd_chats import chats
@@ -580,6 +580,31 @@ def models_list(
     as_json: bool,
 ):
     """List available models."""
+
+    if as_json:
+        # Keep JSON output machine-readable even if provider discovery logs warnings.
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            from ..llm import list_available_providers  # fmt: skip
+
+            configured = (
+                {
+                    configured_provider
+                    for configured_provider, _ in list_available_providers()
+                }
+                if available
+                else None
+            )
+            models = get_model_list(
+                provider_filter=provider,
+                vision_only=vision,
+                reasoning_only=reasoning,
+                include_deprecated=include_deprecated,
+                dynamic_fetch=True,
+            )
+        if configured is not None:
+            models = [model for model in models if model.provider in configured]
+        click.echo(json.dumps([model_to_dict(model) for model in models], indent=2))
+        return
 
     list_models(
         provider_filter=provider,
