@@ -1154,6 +1154,19 @@ class TestSearchDispatch:
         mock_search.assert_called_once()
         assert mock_search.call_args[0][0] == "fix auth bug"
 
+    def test_search_prs_rejects_assignee(self):
+        """gh search prs rejects --assignee with a clear error (not silently ignored)."""
+        messages = list(
+            execute_gh(
+                None,
+                ["search", "prs", "auth", "--assignee", "alice"],
+                None,
+            )
+        )
+        assert len(messages) == 1
+        assert "--assignee is not supported for PR search" in messages[0].content
+        assert "--author" in messages[0].content
+
     @patch("gptme.tools.gh.search_github_issues")
     def test_search_issues_flags_between_words(self, mock_search):
         """Flags interspersed with query words are parsed correctly."""

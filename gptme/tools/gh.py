@@ -635,6 +635,13 @@ def execute_gh(
             return
         limit = int(limit_str)
 
+        if search_type == "prs" and search_flags.get("assignee"):
+            yield Message(
+                "system",
+                "Error: --assignee is not supported for PR search (GitHub API limitation). Use --author to filter by PR author.",
+            )
+            return
+
         if search_type == "issues":
             content = search_github_issues(
                 query,
