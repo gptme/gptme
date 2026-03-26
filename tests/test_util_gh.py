@@ -12,6 +12,7 @@ from gptme.util.gh import (
     get_github_pr_content,
     get_github_pr_list,
     get_github_run_logs,
+    merge_github_pr,
     parse_github_ref,
     parse_github_url,
     search_github_issues,
@@ -934,3 +935,211 @@ class TestSearchGithubPrs:
         assert "gptme/gptme#123 Ghost-authored PR" in result
         assert "@None" not in result
         assert "[]" not in result
+
+
+# --- merge_github_pr ---
+
+
+class TestMergeGithubPr:
+    @patch("gptme.util.gh.subprocess.run")
+    def test_squash_merge_success(self, mock_run):
+        """Default squash merge succeeds and fetches merge SHA."""
+        merge_result = MagicMock(
+            stdout="✓ Squashed and merged pull request #42", returncode=0
+        )
+        api_result = MagicMock(stdout="abc1234def5678\n", returncode=0)
+        mock_run.side_effect = [merge_result, api_result]
+
+        result = merge_github_pr("owner", "repo", 42)
+        assert result["success"] is True
+        assert "42" in str(result["message"])
+        assert result["sha"] == "abc1234def5678"
+
+        # Verify squash flag was used
+        merge_cmd = mock_run.call_args_list[0][0][0]
+        assert "--squash" in merge_cmd
+        assert "--repo" in merge_cmd
+        assert "owner/repo" in merge_cmd
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_rebase_merge(self, mock_run):
+        """Rebase merge uses --rebase flag."""
+        merge_result = MagicMock(stdout="✓ Rebased and merged", returncode=0)
+        api_result = MagicMock(stdout="sha123\n", returncode=0)
+        mock_run.side_effect = [merge_result, api_result]
+
+        result = merge_github_pr("owner", "repo", 42, method="rebase")
+        assert result["success"] is True
+        merge_cmd = mock_run.call_args_list[0][0][0]
+        assert "--rebase" in merge_cmd
+        assert "--squash" not in merge_cmd
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_merge_method(self, mock_run):
+        """Regular merge uses --merge flag."""
+        merge_result = MagicMock(stdout="✓ Merged", returncode=0)
+        api_result = MagicMock(stdout="sha456\n", returncode=0)
+        mock_run.side_effect = [merge_result, api_result]
+
+        result = merge_github_pr("owner", "repo", 42, method="merge")
+        assert result["success"] is True
+        merge_cmd = mock_run.call_args_list[0][0][0]
+        assert "--merge" in merge_cmd
+
+    def test_invalid_method(self):
+        """Invalid merge method returns error without calling subprocess."""
+        result = merge_github_pr("owner", "repo", 42, method="fast-forward")
+        assert result["success"] is False
+        assert "Invalid merge method" in str(result["message"])
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_auto_merge(self, mock_run):
+        """Auto-merge flag is passed correctly and skips SHA fetch."""
+        merge_result = MagicMock(
+            stdout="✓ Pull request #42 will be automatically merged",
+            returncode=0,
+        )
+        mock_run.return_value = merge_result
+
+        result = merge_github_pr("owner", "repo", 42, auto=True)
+        assert result["success"] is True
+        merge_cmd = mock_run.call_args[0][0]
+        assert "--auto" in merge_cmd
+        # Should not fetch SHA for auto-merge (only 1 subprocess call)
+        assert mock_run.call_count == 1
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_delete_branch(self, mock_run):
+        """Delete-branch flag is passed correctly."""
+        merge_result = MagicMock(stdout="✓ Merged", returncode=0)
+        api_result = MagicMock(stdout="sha789\n", returncode=0)
+        mock_run.side_effect = [merge_result, api_result]
+
+        merge_github_pr("owner", "repo", 42, delete_branch=True)
+        merge_cmd = mock_run.call_args_list[0][0][0]
+        assert "--delete-branch" in merge_cmd
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_match_head_commit(self, mock_run):
+        """Match-head-commit safety check is passed correctly."""
+        merge_result = MagicMock(stdout="✓ Merged", returncode=0)
+        api_result = MagicMock(stdout="sha000\n", returncode=0)
+        mock_run.side_effect = [merge_result, api_result]
+
+        merge_github_pr("owner", "repo", 42, match_head_commit="abc123")
+        merge_cmd = mock_run.call_args_list[0][0][0]
+        assert "--match-head-commit" in merge_cmd
+        assert "abc123" in merge_cmd
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_merge_conflict_error(self, mock_run):
+        """Merge conflict produces helpful error message."""
+        import subprocess as sp
+
+        error = sp.CalledProcessError(1, "gh")
+        error.stderr = "Pull request is not mergeable: merge conflict"
+        mock_run.side_effect = error
+
+        result = merge_github_pr("owner", "repo", 42)
+        assert result["success"] is False
+        assert "merge conflicts" in str(result["message"]).lower()
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_required_checks_error(self, mock_run):
+        """Required status check failure suggests --auto."""
+        import subprocess as sp
+
+        error = sp.CalledProcessError(1, "gh")
+        error.stderr = "required status check has not passed"
+        mock_run.side_effect = error
+
+        result = merge_github_pr("owner", "repo", 42)
+        assert result["success"] is False
+        assert "--auto" in str(result["message"])
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_head_changed_error(self, mock_run):
+        """HEAD mismatch suggests --match-head-commit."""
+        import subprocess as sp
+
+        error = sp.CalledProcessError(1, "gh")
+        error.stderr = "expected head sha did not match"
+        mock_run.side_effect = error
+
+        result = merge_github_pr("owner", "repo", 42)
+        assert result["success"] is False
+        assert "--match-head-commit" in str(result["message"])
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_draft_pr_error(self, mock_run):
+        """Draft PR produces helpful error."""
+        import subprocess as sp
+
+        error = sp.CalledProcessError(1, "gh")
+        error.stderr = "pull request is in draft state"
+        mock_run.side_effect = error
+
+        result = merge_github_pr("owner", "repo", 42)
+        assert result["success"] is False
+        assert "draft" in str(result["message"]).lower()
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_generic_error(self, mock_run):
+        """Unknown errors include stderr in message."""
+        import subprocess as sp
+
+        error = sp.CalledProcessError(1, "gh")
+        error.stderr = "something unexpected happened"
+        mock_run.side_effect = error
+
+        result = merge_github_pr("owner", "repo", 42)
+        assert result["success"] is False
+        assert "something unexpected" in str(result["message"])
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_sha_fetch_failure_nonfatal(self, mock_run):
+        """Merge succeeds even if SHA fetch fails (non-critical)."""
+        import subprocess as sp
+
+        merge_result = MagicMock(stdout="✓ Merged", returncode=0)
+        mock_run.side_effect = [
+            merge_result,
+            sp.CalledProcessError(1, "gh"),  # SHA fetch fails
+        ]
+
+        result = merge_github_pr("owner", "repo", 42)
+        assert result["success"] is True
+        assert "sha" not in result
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_null_sha_ignored(self, mock_run):
+        """Null SHA from API is not included in result."""
+        merge_result = MagicMock(stdout="✓ Merged", returncode=0)
+        api_result = MagicMock(stdout="null\n", returncode=0)
+        mock_run.side_effect = [merge_result, api_result]
+
+        result = merge_github_pr("owner", "repo", 42)
+        assert result["success"] is True
+        assert "sha" not in result
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_string_pr_number(self, mock_run):
+        """PR number can be passed as string."""
+        merge_result = MagicMock(stdout="✓ Merged", returncode=0)
+        api_result = MagicMock(stdout="sha123\n", returncode=0)
+        mock_run.side_effect = [merge_result, api_result]
+
+        result = merge_github_pr("owner", "repo", "42")
+        assert result["success"] is True
+        merge_cmd = mock_run.call_args_list[0][0][0]
+        assert "42" in merge_cmd
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_url_in_result(self, mock_run):
+        """Result includes PR URL."""
+        merge_result = MagicMock(stdout="✓ Merged", returncode=0)
+        api_result = MagicMock(stdout="sha123\n", returncode=0)
+        mock_run.side_effect = [merge_result, api_result]
+
+        result = merge_github_pr("owner", "repo", 42)
+        assert result["url"] == "https://github.com/owner/repo/pull/42"

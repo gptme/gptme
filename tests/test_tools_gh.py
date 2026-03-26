@@ -12,6 +12,7 @@ from gptme.tools.gh import (
     _extract_url,
     _format_check_results,
     _get_pr_check_runs,
+    _handle_pr_merge,
     _handle_pr_status,
     _parse_list_flags,
     _resolve_ref,
@@ -1181,3 +1182,243 @@ class TestSearchDispatch:
         mock_search.assert_called_once()
         assert mock_search.call_args[0][0] == "auth bug"
         assert mock_search.call_args[1]["repo"] == "o/r"
+
+    # --- gh pr merge ---
+
+    @patch("gptme.tools.gh._handle_pr_merge")
+    def test_dispatch_merge(self, mock_merge):
+        """gh pr merge dispatches to _handle_pr_merge."""
+        mock_merge.return_value = iter([])
+        list(
+            execute_gh(
+                None,
+                ["pr", "merge", "https://github.com/owner/repo/pull/1"],
+                None,
+            )
+        )
+        mock_merge.assert_called_once()
+
+    def test_pr_merge_no_ref(self):
+        """gh pr merge with no reference gives error."""
+        messages = list(execute_gh(None, ["pr", "merge"], None))
+        assert len(messages) == 1
+        assert "No PR reference provided" in messages[0].content
+
+    def test_pr_merge_invalid_ref(self):
+        """gh pr merge with invalid reference gives parse error."""
+        messages = list(execute_gh(None, ["pr", "merge", "https://invalid.com"], None))
+        assert len(messages) == 1
+        assert "Could not parse GitHub reference" in messages[0].content
+
+    @patch("gptme.tools.gh.merge_github_pr")
+    def test_pr_merge_success(self, mock_merge):
+        """gh pr merge returns success with SHA."""
+        mock_merge.return_value = {
+            "success": True,
+            "message": "✓ Squashed and merged pull request #42",
+            "url": "https://github.com/owner/repo/pull/42",
+            "sha": "abc1234",
+        }
+        messages = list(
+            execute_gh(
+                None,
+                ["pr", "merge", "https://github.com/owner/repo/pull/42"],
+                None,
+            )
+        )
+        assert len(messages) == 1
+        assert "merged" in messages[0].content.lower()
+        assert "abc1234" in messages[0].content
+
+    @patch("gptme.tools.gh.merge_github_pr")
+    def test_pr_merge_failure(self, mock_merge):
+        """gh pr merge returns error on failure."""
+        mock_merge.return_value = {
+            "success": False,
+            "message": "Cannot merge PR #42: merge conflicts exist.",
+        }
+        messages = list(
+            execute_gh(
+                None,
+                ["pr", "merge", "https://github.com/owner/repo/pull/42"],
+                None,
+            )
+        )
+        assert len(messages) == 1
+        assert "Error:" in messages[0].content
+        assert "merge conflicts" in messages[0].content
+
+    @patch("gptme.tools.gh.merge_github_pr")
+    def test_pr_merge_squash_default(self, mock_merge):
+        """gh pr merge defaults to squash."""
+        mock_merge.return_value = {"success": True, "message": "Merged"}
+        list(
+            execute_gh(
+                None,
+                ["pr", "merge", "https://github.com/owner/repo/pull/42"],
+                None,
+            )
+        )
+        assert mock_merge.call_args[1]["method"] == "squash"
+
+    @patch("gptme.tools.gh.merge_github_pr")
+    def test_pr_merge_rebase_flag(self, mock_merge):
+        """gh pr merge --rebase passes rebase method."""
+        mock_merge.return_value = {"success": True, "message": "Merged"}
+        list(
+            execute_gh(
+                None,
+                ["pr", "merge", "https://github.com/owner/repo/pull/42", "--rebase"],
+                None,
+            )
+        )
+        assert mock_merge.call_args[1]["method"] == "rebase"
+
+    @patch("gptme.tools.gh.merge_github_pr")
+    def test_pr_merge_auto_flag(self, mock_merge):
+        """gh pr merge --auto enables auto-merge."""
+        mock_merge.return_value = {"success": True, "message": "Auto-merge enabled"}
+        list(
+            execute_gh(
+                None,
+                [
+                    "pr",
+                    "merge",
+                    "https://github.com/owner/repo/pull/42",
+                    "--squash",
+                    "--auto",
+                ],
+                None,
+            )
+        )
+        assert mock_merge.call_args[1]["auto"] is True
+
+    @patch("gptme.tools.gh.merge_github_pr")
+    def test_pr_merge_delete_branch(self, mock_merge):
+        """gh pr merge --delete-branch passes flag."""
+        mock_merge.return_value = {"success": True, "message": "Merged"}
+        list(
+            execute_gh(
+                None,
+                [
+                    "pr",
+                    "merge",
+                    "https://github.com/owner/repo/pull/42",
+                    "--delete-branch",
+                ],
+                None,
+            )
+        )
+        assert mock_merge.call_args[1]["delete_branch"] is True
+
+    @patch("gptme.tools.gh.merge_github_pr")
+    def test_pr_merge_match_head_commit(self, mock_merge):
+        """gh pr merge --match-head-commit passes SHA."""
+        mock_merge.return_value = {"success": True, "message": "Merged"}
+        list(
+            execute_gh(
+                None,
+                [
+                    "pr",
+                    "merge",
+                    "https://github.com/owner/repo/pull/42",
+                    "--match-head-commit",
+                    "abc123",
+                ],
+                None,
+            )
+        )
+        assert mock_merge.call_args[1]["match_head_commit"] == "abc123"
+
+    @patch("gptme.tools.gh.merge_github_pr")
+    def test_pr_merge_short_ref(self, mock_merge):
+        """gh pr merge works with owner/repo#N reference."""
+        mock_merge.return_value = {"success": True, "message": "Merged"}
+        list(execute_gh(None, ["pr", "merge", "owner/repo#42"], None))
+        mock_merge.assert_called_once()
+        assert mock_merge.call_args[0] == ("owner", "repo", "42")
+
+    def test_unknown_command_lists_pr_merge(self):
+        """Error message for unknown commands includes gh pr merge."""
+        messages = list(execute_gh(None, ["foo", "bar"], None))
+        assert "gh pr merge" in messages[0].content
+
+
+# --- _handle_pr_merge unit tests ---
+
+
+class TestHandlePrMerge:
+    @patch("gptme.tools.gh.merge_github_pr")
+    def test_success_with_sha(self, mock_merge):
+        """Success output includes merge SHA."""
+        mock_merge.return_value = {
+            "success": True,
+            "message": "✓ Merged",
+            "url": "https://github.com/o/r/pull/1",
+            "sha": "deadbeef",
+        }
+        messages = list(
+            _handle_pr_merge(["pr", "merge", "https://github.com/o/r/pull/1"], None)
+        )
+        assert len(messages) == 1
+        assert "deadbeef" in messages[0].content
+
+    @patch("gptme.tools.gh.merge_github_pr")
+    def test_success_without_sha(self, mock_merge):
+        """Success output works without SHA (auto-merge case)."""
+        mock_merge.return_value = {
+            "success": True,
+            "message": "✓ Auto-merge enabled",
+            "url": "https://github.com/o/r/pull/1",
+        }
+        messages = list(
+            _handle_pr_merge(
+                ["pr", "merge", "https://github.com/o/r/pull/1", "--auto"], None
+            )
+        )
+        assert len(messages) == 1
+        assert "Auto-merge" in messages[0].content
+        assert "Merge commit" not in messages[0].content
+
+    @patch("gptme.tools.gh.merge_github_pr")
+    def test_failure(self, mock_merge):
+        """Failure output starts with Error:."""
+        mock_merge.return_value = {
+            "success": False,
+            "message": "Cannot merge: conflicts",
+        }
+        messages = list(
+            _handle_pr_merge(["pr", "merge", "https://github.com/o/r/pull/1"], None)
+        )
+        assert len(messages) == 1
+        assert messages[0].content.startswith("Error:")
+
+    def test_no_ref(self):
+        """Missing reference gives error."""
+        messages = list(_handle_pr_merge(["pr", "merge"], None))
+        assert len(messages) == 1
+        assert "No PR reference provided" in messages[0].content
+
+    @patch("gptme.tools.gh.merge_github_pr")
+    def test_all_flags_combined(self, mock_merge):
+        """All flags can be combined."""
+        mock_merge.return_value = {"success": True, "message": "Merged"}
+        list(
+            _handle_pr_merge(
+                [
+                    "pr",
+                    "merge",
+                    "o/r#42",
+                    "--rebase",
+                    "--auto",
+                    "--delete-branch",
+                    "--match-head-commit",
+                    "sha123",
+                ],
+                None,
+            )
+        )
+        assert mock_merge.call_args[1]["method"] == "rebase"
+        assert mock_merge.call_args[1]["auto"] is True
+        assert mock_merge.call_args[1]["delete_branch"] is True
+        assert mock_merge.call_args[1]["match_head_commit"] == "sha123"

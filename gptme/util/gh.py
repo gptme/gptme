@@ -1262,3 +1262,127 @@ def search_github_prs(
     except json.JSONDecodeError as e:
         logger.warning(f"Failed to parse PR search JSON: {e}")
         return None
+
+
+def merge_github_pr(
+    owner: str,
+    repo: str,
+    pr_number: str | int,
+    *,
+    method: str = "squash",
+    auto: bool = False,
+    delete_branch: bool = False,
+    match_head_commit: str | None = None,
+) -> dict[str, str | bool]:
+    """Merge a GitHub pull request.
+
+    Args:
+        owner: Repository owner
+        repo: Repository name
+        pr_number: Pull request number
+        method: Merge method — "squash", "rebase", or "merge"
+        auto: Enable auto-merge (merges when checks pass)
+        delete_branch: Delete head branch after merge
+        match_head_commit: Only merge if HEAD matches this SHA (safety check)
+
+    Returns:
+        dict with keys: success (bool), message (str), and optionally
+        sha (str) for the merge commit, or url (str) for the PR.
+    """
+    if method not in ("squash", "rebase", "merge"):
+        return {
+            "success": False,
+            "message": f"Invalid merge method: {method}. Use squash, rebase, or merge.",
+        }
+
+    cmd = [
+        "gh",
+        "pr",
+        "merge",
+        str(pr_number),
+        "--repo",
+        f"{owner}/{repo}",
+        f"--{method}",
+    ]
+
+    if auto:
+        cmd.append("--auto")
+    if delete_branch:
+        cmd.append("--delete-branch")
+    if match_head_commit:
+        cmd.extend(["--match-head-commit", match_head_commit])
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        stdout = result.stdout.strip()
+
+        # Try to extract merge commit SHA from gh output
+        # gh pr merge typically outputs something like:
+        #   "✓ Squashed and merged pull request #123"
+        #   or with auto: "✓ Pull request #123 will be automatically merged..."
+        response: dict[str, str | bool] = {
+            "success": True,
+            "message": stdout or f"Pull request #{pr_number} merged successfully.",
+            "url": f"https://github.com/{owner}/{repo}/pull/{pr_number}",
+        }
+
+        # Fetch merge commit SHA if the merge already happened (not auto)
+        if not auto:
+            try:
+                api_result = subprocess.run(
+                    [
+                        "gh",
+                        "api",
+                        f"/repos/{owner}/{repo}/pulls/{pr_number}",
+                        "--jq",
+                        ".merge_commit_sha",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                sha = api_result.stdout.strip()
+                if sha and sha != "null":
+                    response["sha"] = sha
+            except subprocess.CalledProcessError:
+                pass  # Non-critical — merge succeeded, just can't fetch SHA
+
+        return response
+
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.strip() if e.stderr else ""
+        # Provide helpful messages for common failure modes
+        if "merge conflict" in stderr.lower() or "not mergeable" in stderr.lower():
+            return {
+                "success": False,
+                "message": f"Cannot merge PR #{pr_number}: merge conflicts exist. Resolve conflicts first.",
+            }
+        if "required status check" in stderr.lower():
+            return {
+                "success": False,
+                "message": f"Cannot merge PR #{pr_number}: required status checks have not passed. Use --auto to merge when checks pass.",
+            }
+        if (
+            "head branch was modified" in stderr.lower()
+            or "expected head sha" in stderr.lower()
+        ):
+            return {
+                "success": False,
+                "message": f"Cannot merge PR #{pr_number}: HEAD commit changed since check. Verify the current HEAD and retry with --match-head-commit.",
+            }
+        if "pull request is in draft" in stderr.lower():
+            return {
+                "success": False,
+                "message": f"Cannot merge PR #{pr_number}: PR is still in draft. Convert to ready-for-review first.",
+            }
+
+        return {
+            "success": False,
+            "message": f"Failed to merge PR #{pr_number}: {stderr or str(e)}",
+        }
