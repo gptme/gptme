@@ -83,9 +83,7 @@ def init_llm(provider: Provider):
         init_anthropic(config)
     elif provider == "openai-subscription" and not _subscription_initialized:
         _subscription_initialized = init_subscription(config)
-    elif is_plugin_provider(str(provider)) and not get_openai_client(provider):
-        plugin = get_provider_plugin(str(provider))
-        assert plugin is not None
+    elif (plugin := get_provider_plugin(str(provider))) is not None and not get_openai_client(provider):
         if plugin.init is not None:
             plugin.init(config)
         else:
@@ -209,8 +207,8 @@ def _chat_complete(
     provider = get_provider_from_model(model)
 
     # Providers with native constrained decoding support
-    # Custom providers are OpenAI-compatible, so route them through the OpenAI path
-    if provider in PROVIDERS_OPENAI or is_custom_provider(provider):
+    # Custom providers and plugin providers are OpenAI-compatible, route through OpenAI path
+    if provider in PROVIDERS_OPENAI or is_custom_provider(provider) or is_plugin_provider(str(provider)):
         return chat_openai(
             messages, model, tools, output_schema=output_schema, max_tokens=max_tokens
         )
@@ -262,8 +260,8 @@ def _stream(
     max_tokens: int | None = None,
 ) -> _StreamWithMetadata:
     provider = get_provider_from_model(model)
-    # Custom providers are OpenAI-compatible, so route them through the OpenAI path
-    if provider in PROVIDERS_OPENAI or is_custom_provider(provider):
+    # Custom providers and plugin providers are OpenAI-compatible, route through OpenAI path
+    if provider in PROVIDERS_OPENAI or is_custom_provider(provider) or is_plugin_provider(str(provider)):
         gen = stream_openai(
             messages, model, tools, output_schema=output_schema, max_tokens=max_tokens
         )
