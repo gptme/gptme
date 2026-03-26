@@ -1100,6 +1100,14 @@ class TestSearchDispatch:
         assert "No search query" in messages[0].content
 
     @patch("gptme.tools.gh.search_github_issues")
+    def test_search_flag_without_value(self, mock_search):
+        """Dangling search flags return an explicit error."""
+        messages = list(execute_gh(None, ["search", "issues", "auth", "--state"], None))
+        assert len(messages) == 1
+        assert "Flag --state requires a value" in messages[0].content
+        mock_search.assert_not_called()
+
+    @patch("gptme.tools.gh.search_github_issues")
     def test_search_failure(self, mock_search):
         """gh search returns error on failure."""
         mock_search.return_value = None

@@ -1095,7 +1095,7 @@ def search_github_issues(
         "--limit",
         str(limit),
         "--json",
-        "number,title,state,repository,author,labels,updatedAt,url",
+        "number,title,state,repository,author,labels,updatedAt",
     ]
 
     if repo:
@@ -1197,7 +1197,7 @@ def search_github_prs(
         "--limit",
         str(limit),
         "--json",
-        "number,title,state,repository,author,labels,updatedAt,url",
+        "number,title,state,repository,author,labels,updatedAt",
     ]
 
     if repo:

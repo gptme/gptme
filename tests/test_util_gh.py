@@ -792,6 +792,10 @@ class TestSearchGithubIssues:
         assert "alice" in cmd
         assert "--label" in cmd
         assert "bug" in cmd
+        json_idx = cmd.index("--json")
+        assert (
+            cmd[json_idx + 1] == "number,title,state,repository,author,labels,updatedAt"
+        )
 
     @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
     @patch("gptme.util.gh.subprocess.run")
@@ -895,6 +899,10 @@ class TestSearchGithubPrs:
         assert "--state" in cmd
         assert "merged" in cmd
         assert "--author" in cmd
+        json_idx = cmd.index("--json")
+        assert (
+            cmd[json_idx + 1] == "number,title,state,repository,author,labels,updatedAt"
+        )
 
     @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
     @patch("gptme.util.gh.subprocess.run")
