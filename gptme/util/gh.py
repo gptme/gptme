@@ -622,3 +622,270 @@ def get_github_pr_content(url: str) -> str | None:
     except subprocess.CalledProcessError as e:
         logger.warning(f"Failed to get GitHub PR content: {e}")
         return None
+
+
+# Default token budget for CI log output
+DEFAULT_LOG_MAX_TOKENS = 4000
+
+
+def _extract_failure_sections(log_text: str) -> str:
+    """Extract the most relevant failure sections from CI log output.
+
+    Looks for error patterns, test failures, and build errors,
+    keeping surrounding context lines for readability.
+    """
+    lines = log_text.splitlines()
+    if not lines:
+        return log_text
+
+    # Patterns that indicate failure-relevant lines
+    error_patterns = [
+        r"(?i)error[:\[\s]",
+        r"(?i)failed",
+        r"(?i)failure",
+        r"(?i)FAILED",
+        r"(?i)assert(ion)?error",
+        r"(?i)traceback",
+        r"(?i)exception",
+        r"(?i)ModuleNotFoundError",
+        r"(?i)ImportError",
+        r"(?i)SyntaxError",
+        r"(?i)TypeError",
+        r"(?i)ValueError",
+        r"(?i)KeyError",
+        r"(?i)AttributeError",
+        r"(?i)exit code [1-9]",
+        r"(?i)Process completed with exit code [1-9]",
+        r"(?i)##\[error\]",
+    ]
+    compiled = [re.compile(p) for p in error_patterns]
+
+    # Find lines matching error patterns
+    error_line_indices: set[int] = set()
+    for i, line in enumerate(lines):
+        for pattern in compiled:
+            if pattern.search(line):
+                error_line_indices.add(i)
+                break
+
+    if not error_line_indices:
+        # No specific error patterns found — return tail of output
+        tail_lines = 80
+        if len(lines) <= tail_lines:
+            return log_text
+        return f"[... {len(lines) - tail_lines} lines omitted ...]\n" + "\n".join(
+            lines[-tail_lines:]
+        )
+
+    # Collect error lines with context (3 before, 3 after)
+    context_radius = 3
+    selected: set[int] = set()
+    for idx in error_line_indices:
+        for offset in range(-context_radius, context_radius + 1):
+            target = idx + offset
+            if 0 <= target < len(lines):
+                selected.add(target)
+
+    # Build output with gap indicators
+    sorted_indices = sorted(selected)
+    result_lines: list[str] = []
+    prev_idx = -2  # sentinel
+    for idx in sorted_indices:
+        if idx > prev_idx + 1:
+            gap = idx - prev_idx - 1
+            if prev_idx >= 0 and gap > 0:
+                result_lines.append(f"[... {gap} lines omitted ...]")
+        result_lines.append(lines[idx])
+        prev_idx = idx
+
+    # If there are lines after the last selected
+    remaining = len(lines) - 1 - sorted_indices[-1]
+    if remaining > 0:
+        result_lines.append(f"[... {remaining} lines omitted ...]")
+
+    return "\n".join(result_lines)
+
+
+def get_github_run_logs(
+    run_id: str, max_tokens: int = DEFAULT_LOG_MAX_TOKENS
+) -> str | None:
+    """Get failed job logs from a GitHub Actions run.
+
+    Fetches the run metadata and failed job logs, extracting
+    the most relevant failure information.
+
+    Args:
+        run_id: The workflow run ID (numeric string)
+        max_tokens: Maximum tokens for the output (default: 4000)
+
+    Returns:
+        Formatted string with run info and failure logs, or None on error
+    """
+    if not shutil.which("gh"):
+        logger.debug("gh CLI not available")
+        return None
+
+    try:
+        # Get run metadata
+        run_result = subprocess.run(
+            [
+                "gh",
+                "run",
+                "view",
+                run_id,
+                "--json",
+                "databaseId,displayTitle,event,headBranch,conclusion,status,"
+                "workflowName,createdAt,updatedAt,url,jobs",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        run_data = json.loads(run_result.stdout)
+
+        status = run_data.get("status", "unknown")
+        conclusion = run_data.get("conclusion", "unknown")
+        title = run_data.get("displayTitle", "")
+        workflow = run_data.get("workflowName", "")
+        branch = run_data.get("headBranch", "")
+        url = run_data.get("url", "")
+
+        # Build header
+        output = f"## Run {run_id}: {title}\n\n"
+        output += f"**Workflow**: {workflow}\n"
+        output += f"**Branch**: {branch}\n"
+        output += f"**Status**: {status} ({conclusion})\n"
+        if url:
+            output += f"**URL**: {url}\n"
+
+        # Get job details
+        jobs = run_data.get("jobs", [])
+        if not jobs:
+            output += "\nNo job data available."
+            return output
+
+        # Summarize all jobs
+        output += "\n### Jobs\n"
+        failed_jobs: list[dict] = []
+        for job in jobs:
+            name = job.get("name", "Unknown")
+            job_conclusion = job.get("conclusion", "unknown")
+            job_status = job.get("status", "unknown")
+            emoji = {
+                "success": "✅",
+                "failure": "❌",
+                "cancelled": "🚫",
+                "skipped": "⏭️",
+            }.get(job_conclusion, "❓" if job_status == "completed" else "🔄")
+            output += f"  {emoji} {name}: {job_conclusion or job_status}\n"
+
+            if job_conclusion == "failure":
+                failed_jobs.append(job)
+
+        if not failed_jobs:
+            if conclusion == "success":
+                output += "\nAll jobs passed."
+            else:
+                output += f"\nNo failed jobs found (run conclusion: {conclusion})."
+            return output
+
+        # Fetch logs for failed jobs
+        output += "\n### Failed Job Logs\n"
+
+        # Budget tokens across failed jobs
+        tokens_per_job = max(max_tokens // max(len(failed_jobs), 1), 500)
+
+        for job in failed_jobs:
+            job_id = job.get("databaseId", "")
+            job_name = job.get("name", "Unknown")
+
+            if not job_id:
+                output += f"\n#### {job_name}\nNo job ID available.\n"
+                continue
+
+            output += f"\n#### {job_name}\n"
+
+            # Show failed steps
+            steps = job.get("steps", [])
+            for step in steps:
+                if step.get("conclusion") == "failure":
+                    step_name = step.get("name", "Unknown step")
+                    output += f"  ❌ Failed step: {step_name}\n"
+
+            # Fetch actual logs
+            try:
+                log_result = subprocess.run(
+                    ["gh", "run", "view", run_id, "--log-failed"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+                if log_result.returncode == 0 and log_result.stdout.strip():
+                    log_text = log_result.stdout
+
+                    # Filter to this job's logs if multiple jobs
+                    # gh run view --log-failed prefixes lines with job/step names
+                    job_lines = []
+                    other_lines = []
+                    for line in log_text.splitlines():
+                        # gh format: "jobname\tstepname\tlog line"
+                        if line.startswith(job_name + "\t") or not failed_jobs[1:]:
+                            job_lines.append(line)
+                        else:
+                            other_lines.append(line)
+
+                    relevant_text = "\n".join(job_lines) if job_lines else log_text
+
+                    # Extract failure sections
+                    extracted = _extract_failure_sections(relevant_text)
+
+                    # Truncate to budget
+                    max_chars = tokens_per_job * 4
+                    if len(extracted) > max_chars:
+                        cut = extracted.rfind("\n", 0, max_chars)
+                        cut = cut + 1 if cut != -1 else max_chars
+                        truncated = len(extracted) - cut
+                        extracted = (
+                            extracted[:cut] + f"\n[... {truncated} chars truncated — "
+                            f"use `gh run view {run_id} --log-failed` for full logs]\n"
+                        )
+
+                    output += f"\n```\n{extracted}\n```\n"
+                else:
+                    # Fallback: try per-job log via API
+                    api_result = subprocess.run(
+                        [
+                            "gh",
+                            "api",
+                            f"/repos/{{owner}}/{{repo}}/actions/jobs/{job_id}/logs",
+                        ],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    if api_result.returncode == 0 and api_result.stdout.strip():
+                        extracted = _extract_failure_sections(api_result.stdout)
+                        max_chars = tokens_per_job * 4
+                        if len(extracted) > max_chars:
+                            extracted = extracted[:max_chars] + "\n[... truncated]\n"
+                        output += f"\n```\n{extracted}\n```\n"
+                    else:
+                        output += (
+                            f"\nCould not fetch logs. "
+                            f"Try: `gh run view {run_id} --log-failed`\n"
+                        )
+            except subprocess.CalledProcessError:
+                output += (
+                    f"\nFailed to fetch logs. "
+                    f"Try: `gh run view {run_id} --log-failed`\n"
+                )
+
+        return output
+
+    except subprocess.CalledProcessError as e:
+        logger.warning(f"Failed to get run info: {e}")
+        return None
+    except json.JSONDecodeError as e:
+        logger.warning(f"Failed to parse run JSON: {e}")
+        return None

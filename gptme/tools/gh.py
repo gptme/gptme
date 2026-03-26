@@ -9,6 +9,7 @@ from ..util.gh import (
     get_github_issue_content,
     get_github_pr_content,
     get_github_pr_diff,
+    get_github_run_logs,
     parse_github_ref,
     parse_github_url,
 )
@@ -487,10 +488,34 @@ def execute_gh(
                 "system",
                 "Error: Failed to fetch issue content. Make sure 'gh' CLI is installed and authenticated.",
             )
+    elif args and len(args) >= 2 and args[0] == "run" and args[1] == "view":
+        if not args or len(args) < 3:
+            yield Message(
+                "system", "Error: No run ID provided. Usage: gh run view <run-id>"
+            )
+            return
+
+        run_id = args[2]
+        if not run_id.isdigit():
+            yield Message(
+                "system",
+                f"Error: Invalid run ID '{run_id}'. Run IDs are numeric (e.g. 12345678).",
+            )
+            return
+
+        content = get_github_run_logs(run_id)
+        if content:
+            yield Message("system", content)
+        else:
+            yield Message(
+                "system",
+                f"Error: Failed to fetch run {run_id}. Make sure 'gh' CLI is installed and authenticated.",
+            )
+
     else:
         yield Message(
             "system",
-            "Error: Unknown gh command. Available: gh issue view <ref>, gh pr view <ref>, gh pr diff <ref>, gh pr status <ref>, gh pr checks <ref>\n\nReferences can be URLs, owner/repo#N, #N, or bare numbers.",
+            "Error: Unknown gh command. Available: gh issue view <ref>, gh pr view <ref>, gh pr diff <ref>, gh pr status <ref>, gh pr checks <ref>, gh run view <run-id>\n\nReferences can be URLs, owner/repo#N, #N, or bare numbers.",
         )
 
 
@@ -516,6 +541,10 @@ For CI check status (with run IDs for failed checks):
 
 For CI check completion:
 ```gh pr checks <ref> [commit_sha]
+```
+
+To view failed CI logs for a specific run (extracts relevant error sections):
+```gh run view <run-id>
 ```
 
 For multi-line comments, use `--body-file` to avoid `\\n` literal issues:
@@ -572,7 +601,23 @@ def examples(tool_format):
 
 > User: show me the failed build logs
 > Assistant:
-{ToolUse("shell", [], "gh run view 12345678 --log-failed").to_output(tool_format)}
+{ToolUse("gh", ["run", "view", "12345678"], None).to_output(tool_format)}
+> System: ## Run 12345678: Fix auth flow
+> System:
+> System: **Workflow**: CI
+> System: **Branch**: fix/auth
+> System: **Status**: completed (failure)
+> System:
+> System: ### Jobs
+> System:   ✅ lint: success
+> System:   ❌ test: failure
+> System:
+> System: ### Failed Job Logs
+> System:
+> System: #### test
+> System:   ❌ Failed step: Run tests
+> System:
+> System: [extracted error sections with context]
 
 > User: wait for CI checks to complete on a PR
 > Assistant:

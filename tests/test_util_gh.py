@@ -1,12 +1,15 @@
 """Tests for GitHub utility functions."""
 
-from unittest.mock import patch
+import json
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from gptme.util.gh import (
+    _extract_failure_sections,
     _get_repo_from_git_remote,
     get_github_pr_content,
+    get_github_run_logs,
     parse_github_ref,
     parse_github_url,
 )
@@ -332,3 +335,201 @@ def test_gh_tool_read_pr_invalid_url():
     assert results[0].role == "system"
     assert "Error" in results[0].content
     assert "Could not parse GitHub reference" in results[0].content
+
+
+# --- _extract_failure_sections ---
+
+
+class TestExtractFailureSections:
+    def test_empty_input(self):
+        assert _extract_failure_sections("") == ""
+
+    def test_no_errors_short(self):
+        """Short log with no error patterns returns as-is."""
+        text = "line 1\nline 2\nline 3"
+        assert _extract_failure_sections(text) == text
+
+    def test_no_errors_long_returns_tail(self):
+        """Long log with no error patterns returns tail."""
+        lines = [f"line {i}" for i in range(200)]
+        text = "\n".join(lines)
+        result = _extract_failure_sections(text)
+        assert "lines omitted" in result
+        assert "line 199" in result
+
+    def test_extracts_error_with_context(self):
+        """Extracts error line with surrounding context."""
+        lines = [
+            "setup done",
+            "running test 1",
+            "running test 2",
+            "running test 3",
+            "ERROR: test 3 failed",
+            "cleaning up",
+            "done",
+        ]
+        text = "\n".join(lines)
+        result = _extract_failure_sections(text)
+        assert "ERROR: test 3 failed" in result
+        assert "running test 1" in result  # context before
+        assert "done" in result  # context after
+
+    def test_extracts_traceback(self):
+        """Picks up Python traceback patterns."""
+        lines = [
+            "ok line 1",
+            "ok line 2",
+            "ok line 3",
+            "ok line 4",
+            "ok line 5",
+            "Traceback (most recent call last):",
+            '  File "test.py", line 10',
+            "    assert x == 1",
+            "AssertionError: 0 != 1",
+            "ok line 6",
+        ]
+        text = "\n".join(lines)
+        result = _extract_failure_sections(text)
+        assert "Traceback" in result
+        assert "AssertionError" in result
+
+    def test_extracts_exit_code(self):
+        """Picks up non-zero exit code patterns."""
+        text = "running build\ncompiling\nProcess completed with exit code 1\ndone"
+        result = _extract_failure_sections(text)
+        assert "exit code 1" in result
+
+    def test_multiple_errors_merged(self):
+        """Multiple errors are all extracted."""
+        lines = ["ok"] * 10
+        lines[3] = "ERROR: first failure"
+        lines[7] = "FAILED: second failure"
+        text = "\n".join(lines)
+        result = _extract_failure_sections(text)
+        assert "first failure" in result
+        assert "second failure" in result
+
+    def test_gap_indicators(self):
+        """Gaps between error sections show line count."""
+        lines = ["ok"] * 30
+        lines[5] = "ERROR: early"
+        lines[25] = "ERROR: late"
+        text = "\n".join(lines)
+        result = _extract_failure_sections(text)
+        assert "lines omitted" in result
+
+
+# --- get_github_run_logs ---
+
+
+class TestGetGithubRunLogs:
+    def _make_run_json(self, conclusion="failure", jobs=None):
+        """Create mock run JSON response."""
+        data = {
+            "databaseId": 12345,
+            "displayTitle": "Test PR",
+            "event": "pull_request",
+            "headBranch": "fix/bug",
+            "conclusion": conclusion,
+            "status": "completed",
+            "workflowName": "CI",
+            "createdAt": "2026-03-26T00:00:00Z",
+            "updatedAt": "2026-03-26T00:05:00Z",
+            "url": "https://github.com/owner/repo/actions/runs/12345",
+            "jobs": jobs or [],
+        }
+        return json.dumps(data)
+
+    def _make_job(self, name, conclusion="success", job_id=100, steps=None):
+        return {
+            "name": name,
+            "conclusion": conclusion,
+            "status": "completed",
+            "databaseId": job_id,
+            "steps": steps or [],
+        }
+
+    @patch("gptme.util.gh.shutil.which", return_value=None)
+    def test_no_gh_returns_none(self, _mock_which):
+        assert get_github_run_logs("12345") is None
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_success_run_no_failures(self, mock_run, _mock_which):
+        """Successful run shows all jobs passed."""
+        jobs = [self._make_job("lint"), self._make_job("test")]
+        mock_run.return_value = MagicMock(
+            stdout=self._make_run_json("success", jobs),
+            returncode=0,
+        )
+        result = get_github_run_logs("12345")
+        assert result is not None
+        assert "Run 12345" in result
+        assert "All jobs passed" in result
+        assert "✅" in result
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_failed_run_with_logs(self, mock_run, _mock_which):
+        """Failed run extracts failure logs."""
+        failed_step = {"name": "Run tests", "conclusion": "failure"}
+        jobs = [
+            self._make_job("lint"),
+            self._make_job("test", "failure", 200, [failed_step]),
+        ]
+        run_json = self._make_run_json("failure", jobs)
+        log_output = "test\tRun tests\tERROR: assertion failed\n"
+
+        mock_run.side_effect = [
+            MagicMock(stdout=run_json, returncode=0),  # gh run view --json
+            MagicMock(stdout=log_output, returncode=0),  # gh run view --log-failed
+        ]
+
+        result = get_github_run_logs("12345")
+        assert result is not None
+        assert "❌ test: failure" in result
+        assert "Failed step: Run tests" in result
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_failed_run_log_fetch_fails(self, mock_run, _mock_which):
+        """When log fetch fails, shows fallback message."""
+        jobs = [self._make_job("test", "failure", 200)]
+        run_json = self._make_run_json("failure", jobs)
+
+        mock_run.side_effect = [
+            MagicMock(stdout=run_json, returncode=0),  # gh run view --json
+            MagicMock(stdout="", returncode=1),  # gh run view --log-failed
+            MagicMock(stdout="", returncode=1),  # gh api fallback
+        ]
+
+        result = get_github_run_logs("12345")
+        assert result is not None
+        assert "Could not fetch logs" in result
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_no_jobs_available(self, mock_run, _mock_which):
+        """Run with empty jobs list."""
+        mock_run.return_value = MagicMock(
+            stdout=self._make_run_json("failure", []),
+            returncode=0,
+        )
+        result = get_github_run_logs("12345")
+        assert result is not None
+        assert "No job data" in result
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_run_header_fields(self, mock_run, _mock_which):
+        """Verify header contains expected metadata."""
+        jobs = [self._make_job("lint")]
+        mock_run.return_value = MagicMock(
+            stdout=self._make_run_json("success", jobs),
+            returncode=0,
+        )
+        result = get_github_run_logs("12345")
+        assert result is not None
+        assert "**Workflow**: CI" in result
+        assert "**Branch**: fix/bug" in result
+        assert "completed (success)" in result

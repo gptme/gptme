@@ -677,3 +677,40 @@ class TestExecuteGh:
         messages = list(execute_gh(None, ["unknown", "command"], None))
         assert len(messages) == 1
         assert "gh pr diff" in messages[0].content
+
+    # --- gh run view ---
+
+    def test_run_view_no_id(self):
+        """gh run view with no run ID."""
+        messages = list(execute_gh(None, ["run", "view"], None))
+        assert len(messages) == 1
+        assert "No run ID provided" in messages[0].content
+
+    def test_run_view_invalid_id(self):
+        """gh run view with non-numeric ID."""
+        messages = list(execute_gh(None, ["run", "view", "not-a-number"], None))
+        assert len(messages) == 1
+        assert "Invalid run ID" in messages[0].content
+
+    @patch("gptme.tools.gh.get_github_run_logs")
+    def test_run_view_success(self, mock_logs):
+        """gh run view returns formatted logs."""
+        mock_logs.return_value = "## Run 12345: Test\n\n❌ test: failure"
+        messages = list(execute_gh(None, ["run", "view", "12345"], None))
+        assert len(messages) == 1
+        assert "Run 12345" in messages[0].content
+        mock_logs.assert_called_once_with("12345")
+
+    @patch("gptme.tools.gh.get_github_run_logs")
+    def test_run_view_fetch_failure(self, mock_logs):
+        """gh run view when fetch fails."""
+        mock_logs.return_value = None
+        messages = list(execute_gh(None, ["run", "view", "12345"], None))
+        assert len(messages) == 1
+        assert "Failed to fetch run" in messages[0].content
+
+    def test_unknown_command_lists_run_view(self):
+        """Error message for unknown command includes gh run view."""
+        messages = list(execute_gh(None, ["unknown", "command"], None))
+        assert len(messages) == 1
+        assert "gh run view" in messages[0].content
