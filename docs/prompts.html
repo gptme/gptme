@@ -693,7 +693,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f8844648220&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fe02cd64360&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1261,31 +1261,27 @@ Use a code block with the language tag: <span class="sb">`form`</span> followed 
 
 Refs: full URLs, <span class="sb">`owner/repo#N`</span>, <span class="sb">`#N`</span>, or bare <span class="sb">`N`</span> (when in a git repo).
 
-Use <span class="sb">`gh issue view &lt;ref&gt;`</span> to read an issue with full body and all comments:
+List issues/PRs (--repo, --state, --label, --limit):
+<span class="sb">```gh</span><span class="w"> </span>issue list --repo owner/repo --state open --limit 20
+<span class="s">gh pr list --repo owner/repo --state open --limit 20</span>
+<span class="sb">```</span>
+
+Read issue/PR with full body and comments:
 <span class="sb">```gh</span><span class="w"> </span>issue view owner/repo#42
+<span class="s">gh pr view owner/repo#123</span>
 <span class="sb">```</span>
 
-Use <span class="sb">`gh pr view &lt;ref&gt;`</span> to read a PR with description, reviews, and code context:
-<span class="sb">```gh</span><span class="w"> </span>pr view owner/repo#123
-<span class="sb">```</span>
-
-Use <span class="sb">`gh pr diff &lt;ref&gt;`</span> to inspect code changes without extra shell round-trips — diffstat + unified diff, auto-truncated for large PRs:
+Inspect code changes (diffstat + unified diff):
 <span class="sb">```gh</span><span class="w"> </span>pr diff owner/repo#123
 <span class="sb">```</span>
 
-For CI check status (with run IDs for failed checks):
+CI status (run IDs for failed checks):
 <span class="sb">```gh</span><span class="w"> </span>pr status &lt;ref&gt; [commit_sha]
+<span class="s">gh pr checks &lt;ref&gt; [commit_sha]</span>
+<span class="s">gh run view &lt;run-id&gt;</span>
 <span class="sb">```</span>
 
-For CI check completion:
-<span class="sb">```gh</span><span class="w"> </span>pr checks &lt;ref&gt; [commit_sha]
-<span class="sb">```</span>
-
-To view failed CI logs for a specific run (extracts relevant error sections):
-<span class="sb">```gh</span><span class="w"> </span>run view &lt;run-id&gt;
-<span class="sb">```</span>
-
-For multi-line comments, use <span class="sb">`--body-file`</span> to avoid <span class="sb">`\n`</span> literal issues:
+Multi-line comments (avoids <span class="sb">`\n`</span> literal issues):
 <span class="sb">```shell</span>
 gh<span class="w"> </span>issue<span class="w"> </span>comment<span class="w"> </span>NUM<span class="w"> </span>--repo<span class="w"> </span>owner/repo<span class="w"> </span>--body-file<span class="w"> </span>-<span class="w"> </span><span class="s">&lt;&lt; &#39;EOF&#39;</span>
 <span class="s">Body here</span>
@@ -1359,8 +1355,14 @@ gh<span class="w"> </span>issue<span class="w"> </span>comment<span class="w"> <
 
 <span class="k">&gt; </span><span class="ge">User: show issues</span>
 <span class="k">&gt; </span><span class="ge">Assistant:</span>
-<span class="sb">```shell</span>
-gh<span class="w"> </span>issue<span class="w"> </span>list<span class="w"> </span>--repo<span class="w"> </span><span class="nv">$REPO</span>
+<span class="sb">```gh</span><span class="w"> </span>issue list --repo owner/repo
+<span class="s">None</span>
+<span class="sb">```</span>
+
+<span class="k">&gt; </span><span class="ge">User: show open PRs</span>
+<span class="k">&gt; </span><span class="ge">Assistant:</span>
+<span class="sb">```gh</span><span class="w"> </span>pr list --repo owner/repo
+<span class="s">None</span>
 <span class="sb">```</span>
 
 <span class="k">&gt; </span><span class="ge">User: show recent workflows</span>
@@ -2270,7 +2272,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 12498</p>
+<p>Tokens: 12486</p>
 </dd></dl>
 
 <dl class="py function">
