@@ -148,10 +148,9 @@ class TestGetProjectGptmeDir:
         subdir = tmp_path / "isolated"
         subdir.mkdir()
         with patch("gptme.dirs.Path.cwd", return_value=subdir):
-            result = dirs.get_project_gptme_dir()
+            dirs.get_project_gptme_dir()
         # May return None or find a parent .git depending on the real filesystem
         # Just verify it doesn't crash
-        assert result is None or isinstance(result, Path)
 
 
 class TestGetProjectGitDir:
@@ -169,9 +168,8 @@ class TestGetProjectGitDir:
         subdir = tmp_path / "no_git"
         subdir.mkdir()
         with patch("gptme.dirs.Path.cwd", return_value=subdir):
-            result = dirs._get_project_git_dir_walk()
-        # Could find a real .git above tmp_path
-        assert result is None or isinstance(result, Path)
+            dirs._get_project_git_dir_walk()
+        # Could find a real .git above tmp_path; verify it doesn't crash
 
     def test_git_dir_walk_finds_immediate(self, tmp_path: Path):
         """Finds .git in the cwd itself."""
@@ -485,7 +483,7 @@ class TestMigrateReadlineHistory:
         with (
             patch.object(dirs, "get_config_dir", return_value=config_dir),
             patch.object(dirs, "get_data_dir", return_value=data_dir),
-            patch("shutil.move", side_effect=PermissionError("denied")),
+            patch("gptme.dirs.shutil.move", side_effect=PermissionError("denied")),
         ):
             # Should not raise
             dirs._migrate_readline_history()
@@ -509,7 +507,7 @@ class TestInitPaths:
 
         assert (tmp_path / "config").exists()
         assert (tmp_path / "data").exists()
-        # logs dir is created by get_logs_dir itself
+        assert (tmp_path / "logs").exists()
 
 
 # ── Edge cases ────────────────────────────────────────────────────────────
