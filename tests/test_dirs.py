@@ -312,7 +312,7 @@ class TestGetWorkspace:
         with (
             patch.dict(os.environ, env, clear=True),
             patch(
-                "subprocess.run",
+                "gptme.dirs.subprocess.run",
                 side_effect=[toplevel_result, subprocess.TimeoutExpired("git", 5)],
             ),
         ):
@@ -376,7 +376,7 @@ class TestGetWorkspace:
         with (
             patch.dict(os.environ, env, clear=True),
             patch(
-                "subprocess.run",
+                "gptme.dirs.subprocess.run",
                 side_effect=[toplevel_result, FileNotFoundError("git")],
             ),
         ):
