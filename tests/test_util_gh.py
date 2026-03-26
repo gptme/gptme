@@ -418,6 +418,15 @@ class TestExtractFailureSections:
         result = _extract_failure_sections(text)
         assert "lines omitted" in result
 
+    def test_leading_gap_indicator(self):
+        """Leading omitted lines get an omission marker."""
+        lines = ["ok"] * 20
+        lines[10] = "ERROR: late"
+        text = "\n".join(lines)
+        result = _extract_failure_sections(text)
+        assert result.startswith("[... 7 lines omitted ...]\n")
+        assert "ERROR: late" in result
+
 
 # --- get_github_run_logs ---
 

@@ -689,11 +689,11 @@ def _extract_failure_sections(log_text: str) -> str:
     # Build output with gap indicators
     sorted_indices = sorted(selected)
     result_lines: list[str] = []
-    prev_idx = -2  # sentinel
+    prev_idx = -1
     for idx in sorted_indices:
         if idx > prev_idx + 1:
             gap = idx - prev_idx - 1
-            if prev_idx >= 0 and gap > 0:
+            if gap > 0:
                 result_lines.append(f"[... {gap} lines omitted ...]")
         result_lines.append(lines[idx])
         prev_idx = idx
