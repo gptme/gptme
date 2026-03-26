@@ -489,7 +489,7 @@ def execute_gh(
                 "Error: Failed to fetch issue content. Make sure 'gh' CLI is installed and authenticated.",
             )
     elif args and len(args) >= 2 and args[0] == "run" and args[1] == "view":
-        if not args or len(args) < 3:
+        if len(args) < 3:
             yield Message(
                 "system", "Error: No run ID provided. Usage: gh run view <run-id>"
             )

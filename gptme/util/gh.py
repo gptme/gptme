@@ -792,6 +792,20 @@ def get_github_run_logs(
         # Fetch logs for failed jobs
         output += "\n### Failed Job Logs\n"
 
+        # Fetch all failed logs once (gh run view --log-failed returns
+        # logs for ALL failed jobs in a single call)
+        log_result = subprocess.run(
+            ["gh", "run", "view", run_id, "--log-failed"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        all_log_text = (
+            log_result.stdout
+            if log_result.returncode == 0 and log_result.stdout.strip()
+            else ""
+        )
+
         # Budget tokens across failed jobs
         tokens_per_job = max(max_tokens // max(len(failed_jobs), 1), 500)
 
@@ -812,74 +826,55 @@ def get_github_run_logs(
                     step_name = step.get("name", "Unknown step")
                     output += f"  ❌ Failed step: {step_name}\n"
 
-            # Fetch actual logs
-            try:
-                log_result = subprocess.run(
-                    ["gh", "run", "view", run_id, "--log-failed"],
+            if all_log_text:
+                # Filter to this job's logs if multiple jobs
+                # gh format: "jobname\tstepname\tlog line"
+                job_lines = [
+                    line
+                    for line in all_log_text.splitlines()
+                    if line.startswith(job_name + "\t") or len(failed_jobs) == 1
+                ]
+
+                relevant_text = "\n".join(job_lines) if job_lines else all_log_text
+
+                # Extract failure sections
+                extracted = _extract_failure_sections(relevant_text)
+
+                # Truncate to budget
+                max_chars = tokens_per_job * 4
+                if len(extracted) > max_chars:
+                    cut = extracted.rfind("\n", 0, max_chars)
+                    cut = cut + 1 if cut != -1 else max_chars
+                    truncated = len(extracted) - cut
+                    extracted = (
+                        extracted[:cut] + f"\n[... {truncated} chars truncated — "
+                        f"use `gh run view {run_id} --log-failed` for full logs]\n"
+                    )
+
+                output += f"\n```\n{extracted}\n```\n"
+            else:
+                # Fallback: try per-job log via API
+                api_result = subprocess.run(
+                    [
+                        "gh",
+                        "api",
+                        f"/repos/{{owner}}/{{repo}}/actions/jobs/{job_id}/logs",
+                    ],
                     capture_output=True,
                     text=True,
                     check=False,
                 )
-
-                if log_result.returncode == 0 and log_result.stdout.strip():
-                    log_text = log_result.stdout
-
-                    # Filter to this job's logs if multiple jobs
-                    # gh run view --log-failed prefixes lines with job/step names
-                    job_lines = []
-                    other_lines = []
-                    for line in log_text.splitlines():
-                        # gh format: "jobname\tstepname\tlog line"
-                        if line.startswith(job_name + "\t") or not failed_jobs[1:]:
-                            job_lines.append(line)
-                        else:
-                            other_lines.append(line)
-
-                    relevant_text = "\n".join(job_lines) if job_lines else log_text
-
-                    # Extract failure sections
-                    extracted = _extract_failure_sections(relevant_text)
-
-                    # Truncate to budget
+                if api_result.returncode == 0 and api_result.stdout.strip():
+                    extracted = _extract_failure_sections(api_result.stdout)
                     max_chars = tokens_per_job * 4
                     if len(extracted) > max_chars:
-                        cut = extracted.rfind("\n", 0, max_chars)
-                        cut = cut + 1 if cut != -1 else max_chars
-                        truncated = len(extracted) - cut
-                        extracted = (
-                            extracted[:cut] + f"\n[... {truncated} chars truncated — "
-                            f"use `gh run view {run_id} --log-failed` for full logs]\n"
-                        )
-
+                        extracted = extracted[:max_chars] + "\n[... truncated]\n"
                     output += f"\n```\n{extracted}\n```\n"
                 else:
-                    # Fallback: try per-job log via API
-                    api_result = subprocess.run(
-                        [
-                            "gh",
-                            "api",
-                            f"/repos/{{owner}}/{{repo}}/actions/jobs/{job_id}/logs",
-                        ],
-                        capture_output=True,
-                        text=True,
-                        check=False,
+                    output += (
+                        f"\nCould not fetch logs. "
+                        f"Try: `gh run view {run_id} --log-failed`\n"
                     )
-                    if api_result.returncode == 0 and api_result.stdout.strip():
-                        extracted = _extract_failure_sections(api_result.stdout)
-                        max_chars = tokens_per_job * 4
-                        if len(extracted) > max_chars:
-                            extracted = extracted[:max_chars] + "\n[... truncated]\n"
-                        output += f"\n```\n{extracted}\n```\n"
-                    else:
-                        output += (
-                            f"\nCould not fetch logs. "
-                            f"Try: `gh run view {run_id} --log-failed`\n"
-                        )
-            except subprocess.CalledProcessError:
-                output += (
-                    f"\nFailed to fetch logs. "
-                    f"Try: `gh run view {run_id} --log-failed`\n"
-                )
 
         return output
 
