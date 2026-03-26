@@ -372,7 +372,7 @@ class TestToolUseFormatting:
     def test_to_xml_escapes_args(self):
         tu = ToolUse("save", ['file "name".py'], "content", start=0)
         result = tu.to_output("xml")
-        # quoteattr switches to single quotes around the attribute value here
+        # quoteattr wraps in single-quotes when the value contains double-quotes
         assert "args='file \"name\".py'" in result
 
 
@@ -553,16 +553,19 @@ tool_b = ToolSpec(name="tool_b", desc="Second")
 # ── set/get tool_format ────────────────────────────────────────────
 
 
+@pytest.fixture()
+def restore_tool_format():
+    original = get_tool_format()
+    yield
+    set_tool_format(original)
+
+
 class TestToolFormat:
-    def test_set_and_get(self):
-        original = get_tool_format()
-        try:
-            set_tool_format("xml")
-            assert get_tool_format() == "xml"
-            set_tool_format("tool")
-            assert get_tool_format() == "tool"
-        finally:
-            set_tool_format(original)
+    def test_set_and_get(self, restore_tool_format):
+        set_tool_format("xml")
+        assert get_tool_format() == "xml"
+        set_tool_format("tool")
+        assert get_tool_format() == "tool"
 
 
 # ── Parameter ──────────────────────────────────────────────────────
