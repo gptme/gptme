@@ -397,14 +397,14 @@ class TestHandlePrStatus:
     def test_no_url(self):
         messages = list(_handle_pr_status(["pr", "status"], None))
         assert len(messages) == 1
-        assert "No PR URL" in messages[0].content
+        assert "No PR reference provided" in messages[0].content
 
     def test_invalid_url(self):
         messages = list(
             _handle_pr_status(["pr", "status", "https://invalid.com"], None)
         )
         assert len(messages) == 1
-        assert "Invalid GitHub URL" in messages[0].content
+        assert "Could not parse GitHub reference" in messages[0].content
 
     @patch("gptme.tools.gh._get_pr_check_runs")
     def test_error(self, mock_get_pr):
@@ -504,12 +504,12 @@ class TestExecuteGh:
     def test_pr_checks_no_url(self):
         messages = list(execute_gh(None, ["pr", "checks"], None))
         assert len(messages) == 1
-        assert "No PR URL" in messages[0].content
+        assert "No PR reference provided" in messages[0].content
 
     def test_pr_view_no_url(self):
         messages = list(execute_gh(None, ["pr", "view"], None))
         assert len(messages) == 1
-        assert "No PR URL" in messages[0].content
+        assert "No PR reference provided" in messages[0].content
 
     @patch("gptme.tools.gh.get_github_pr_content")
     def test_pr_view_success(self, mock_content):
@@ -531,7 +531,7 @@ class TestExecuteGh:
         mock_content.return_value = None
         messages = list(execute_gh(None, ["pr", "view", "https://invalid.com"], None))
         assert len(messages) == 1
-        assert "Invalid GitHub URL" in messages[0].content
+        assert "Could not parse GitHub reference" in messages[0].content
 
     @patch("gptme.tools.gh.get_github_pr_content")
     def test_pr_view_fetch_failure(self, mock_content):
@@ -551,7 +551,7 @@ class TestExecuteGh:
         """gh pr checks with invalid URL."""
         messages = list(execute_gh(None, ["pr", "checks", "https://invalid.com"], None))
         assert len(messages) == 1
-        assert "Invalid GitHub URL" in messages[0].content
+        assert "Could not parse GitHub reference" in messages[0].content
 
     # --- gh issue view ---
 
@@ -559,7 +559,7 @@ class TestExecuteGh:
         """gh issue view with no URL."""
         messages = list(execute_gh(None, ["issue", "view"], None))
         assert len(messages) == 1
-        assert "No issue URL" in messages[0].content
+        assert "No issue reference provided" in messages[0].content
 
     @patch("gptme.tools.gh.get_github_issue_content")
     def test_issue_view_success(self, mock_content):
@@ -582,7 +582,7 @@ class TestExecuteGh:
             execute_gh(None, ["issue", "view", "https://invalid.com"], None)
         )
         assert len(messages) == 1
-        assert "Invalid GitHub URL" in messages[0].content
+        assert "Could not parse GitHub reference" in messages[0].content
 
     def test_issue_view_pr_url_rejected(self):
         """gh issue view with a PR URL gives helpful error."""
