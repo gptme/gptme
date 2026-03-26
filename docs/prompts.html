@@ -693,7 +693,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f7d14b6db20&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7effc828dd00&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1261,19 +1261,25 @@ Use a code block with the language tag: <span class="sb">`form`</span> followed 
 
 Refs: full URLs, <span class="sb">`owner/repo#N`</span>, <span class="sb">`#N`</span>, or bare <span class="sb">`N`</span> (when in a git repo).
 
+Create/read issues and PRs:
+<span class="sb">```gh</span><span class="w"> </span>issue create --repo owner/repo --title &quot;Title&quot; --body &quot;Details&quot;
+<span class="s">gh issue view owner/repo#42</span>
+<span class="s">gh pr view owner/repo#123</span>
+<span class="sb">```</span>
+
 List issues/PRs:
 <span class="sb">```gh</span><span class="w"> </span>issue list --repo owner/repo --state open --limit 20
 <span class="s">gh pr list --repo owner/repo --state open --limit 20</span>
 <span class="sb">```</span>
 
 Search issues/PRs across repos:
-<span class="sb">```gh</span><span class="w"> </span>search issues &quot;bug fix&quot; --repo owner/repo --state open --limit 10
-<span class="s">gh search prs &quot;feature&quot; --author username --state open</span>
+<span class="sb">```gh</span><span class="w"> </span>search issues &quot;query&quot; --repo owner/repo --state open
+<span class="s">gh search prs &quot;query&quot; --author username --state open</span>
 <span class="sb">```</span>
 
-Read issue/PR:
-<span class="sb">```gh</span><span class="w"> </span>issue view owner/repo#42
-<span class="s">gh pr view owner/repo#123</span>
+Comment on issues/PRs:
+<span class="sb">```gh</span><span class="w"> </span>issue comment owner/repo#42 --body &quot;Comment&quot;
+<span class="s">gh pr comment owner/repo#123 --body &quot;LGTM&quot;</span>
 <span class="sb">```</span>
 
 Inspect code changes:
@@ -1281,22 +1287,12 @@ Inspect code changes:
 <span class="sb">```</span>
 
 Merge a pull request (default: squash):
-<span class="sb">```gh</span><span class="w"> </span>pr merge owner/repo#123
-<span class="s">gh pr merge owner/repo#123 --rebase</span>
-<span class="s">gh pr merge owner/repo#123 --squash --auto --delete-branch --match-head-commit abc1234</span>
+<span class="sb">```gh</span><span class="w"> </span>pr merge owner/repo#123 --squash --auto --delete-branch
 <span class="sb">```</span>
 
 CI status:
-<span class="sb">```gh</span><span class="w"> </span>pr status &lt;ref&gt; [commit_sha]
-<span class="s">gh pr checks &lt;ref&gt; [commit_sha]</span>
+<span class="sb">```gh</span><span class="w"> </span>pr checks &lt;ref&gt;
 <span class="s">gh run view &lt;run-id&gt;</span>
-<span class="sb">```</span>
-
-Multi-line comments:
-<span class="sb">```shell</span>
-gh<span class="w"> </span>issue<span class="w"> </span>comment<span class="w"> </span>NUM<span class="w"> </span>--repo<span class="w"> </span>owner/repo<span class="w"> </span>--body-file<span class="w"> </span>-<span class="w"> </span><span class="s">&lt;&lt; &#39;EOF&#39;</span>
-<span class="s">Body here</span>
-<span class="s">EOF</span>
 <span class="sb">```</span>
 
 For other operations, use the <span class="sb">`shell`</span> tool with <span class="sb">`gh`</span>.
@@ -1359,21 +1355,21 @@ For other operations, use the <span class="sb">`shell`</span> tool with <span cl
 gh<span class="w"> </span>repo<span class="w"> </span>create<span class="w"> </span><span class="nv">$REPO</span><span class="w"> </span>--public<span class="w"> </span>--source<span class="w"> </span>.<span class="w"> </span>--push
 <span class="sb">```</span>
 
-<span class="k">&gt; </span><span class="ge">User: post a multi-line comment on issue 42</span>
+<span class="k">&gt; </span><span class="ge">User: create an issue to track this bug</span>
 <span class="k">&gt; </span><span class="ge">Assistant:</span>
-<span class="sb">```shell</span>
-gh<span class="w"> </span>issue<span class="w"> </span>comment<span class="w"> </span><span class="m">42</span><span class="w"> </span>--repo<span class="w"> </span><span class="nv">$REPO</span><span class="w"> </span>--body-file<span class="w"> </span>-<span class="w"> </span><span class="s">&lt;&lt; &#39;EOF&#39;</span>
-
-<span class="s">## Summary</span>
-
-<span class="s">Work is complete. Here are the details:</span>
-<span class="s">- Fixed the bug</span>
-<span class="s">- Added tests</span>
-
-<span class="s">See PR #123 for the implementation.</span>
-<span class="s">EOF</span>
+<span class="sb">```gh</span><span class="w"> </span>issue create --repo owner/repo --title Fix login timeout --body Login times out after 30s on slow connections. --label bug
+<span class="s">None</span>
 <span class="sb">```</span>
-
+<span class="k">&gt; </span><span class="ge">User: comment on issue 42 that the fix is ready</span>
+<span class="k">&gt; </span><span class="ge">Assistant:</span>
+<span class="sb">```gh</span><span class="w"> </span>issue comment owner/repo#42 --body Fix implemented in PR #50. Ready for review.
+<span class="s">None</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">User: leave a review comment on PR 123</span>
+<span class="k">&gt; </span><span class="ge">Assistant:</span>
+<span class="sb">```gh</span><span class="w"> </span>pr comment owner/repo#123 --body LGTM! Tests pass and code looks clean.
+<span class="s">None</span>
+<span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">User: show issues</span>
 <span class="k">&gt; </span><span class="ge">Assistant:</span>
 <span class="sb">```gh</span><span class="w"> </span>issue list --repo owner/repo
@@ -2305,7 +2301,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 12711</p>
+<p>Tokens: 12749</p>
 </dd></dl>
 
 <dl class="py function">
