@@ -5,7 +5,11 @@ from contextvars import copy_context
 
 import pytest
 
-from gptme.util.interrupt import clear_interruptible, set_interruptible
+from gptme.util.interrupt import (
+    _interruptible_var,
+    clear_interruptible,
+    set_interruptible,
+)
 
 
 class TestInterruptibleState:
@@ -53,16 +57,16 @@ class TestContextVarIsolation:
         def thread_set():
             # Thread sets interruptible in its own context
             set_interruptible()
-            results["thread"] = "set"
+            results["thread_state"] = _interruptible_var.get()
             barrier.wait()
             barrier.wait()
 
         def thread_clear():
             # This thread starts in default (non-interruptible) state
             # The other thread's state should not affect this one
-            results["clear_thread"] = "isolated"
             barrier.wait()
-            clear_interruptible()
+            # Read state while thread_set has called set_interruptible — should still be False
+            results["clear_thread_state"] = _interruptible_var.get()
             barrier.wait()
 
         t1 = threading.Thread(target=thread_set)
@@ -72,8 +76,8 @@ class TestContextVarIsolation:
         t1.join()
         t2.join()
 
-        assert results["thread"] == "set"
-        assert results["clear_thread"] == "isolated"
+        assert results["thread_state"] is True
+        assert results["clear_thread_state"] is False
 
     def test_copy_context_inherits_state(self):
         """copy_context() captures the current ContextVar state."""
@@ -84,11 +88,11 @@ class TestContextVarIsolation:
         def check_state():
             # Inside a copied context, we should see the parent's state
             # (copy_context captures current values)
-            state_in_copy["checked"] = True
+            state_in_copy["interruptible"] = _interruptible_var.get()
 
         ctx = copy_context()
         ctx.run(check_state)
-        assert state_in_copy["checked"] is True
+        assert state_in_copy["interruptible"] is True
 
         clear_interruptible()  # cleanup
 
@@ -98,13 +102,16 @@ class TestContextVarIsolation:
 
         def run_in_copy():
             set_interruptible()
-            results["copy_ran"] = True
+            results["copy_state"] = _interruptible_var.get()
 
+        clear_interruptible()  # ensure original context starts as False
         ctx = copy_context()
         ctx.run(run_in_copy)
 
+        # Copy saw the change
+        assert results["copy_state"] is True
         # Original context should not be affected by changes in copy
-        assert results["copy_ran"] is True
+        assert _interruptible_var.get() is False
 
 
 class TestImportedFunctions:
@@ -140,7 +147,7 @@ class TestImportedFunctions:
 class TestHandleKeyboardInterrupt:
     """Tests for handle_keyboard_interrupt behavior."""
 
-    def test_handle_raises_in_testing_env(self, monkeypatch):
+    def test_handle_raises_in_testing_env(self):
         """In pytest environment (PYTEST_CURRENT_TEST set), interrupt always raises."""
         import os
 
@@ -152,7 +159,7 @@ class TestHandleKeyboardInterrupt:
         with pytest.raises(KeyboardInterrupt):
             handle_keyboard_interrupt(None, None)
 
-    def test_handle_does_not_raise_in_non_main_thread(self, monkeypatch):
+    def test_handle_does_not_raise_in_non_main_thread(self):
         """handle_keyboard_interrupt does not raise in non-main threads."""
         from gptme.util.interrupt import handle_keyboard_interrupt
 
