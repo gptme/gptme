@@ -191,9 +191,9 @@ def get_model(model: str) -> ModelMeta:
         if plugin:
             # Look up exact model in plugin's model list
             for m in plugin.models:
-                if (
-                    m.model == model
-                    or m.model.split("/", 1)[-1] == model.split("/", 1)[-1]
+                if m.model == model or (
+                    m.model.startswith(f"{provider_prefix}/")
+                    and m.model.split("/", 1)[-1] == model.split("/", 1)[-1]
                 ):
                     return m
             # Model not found in plugin list - return generic metadata so it still works

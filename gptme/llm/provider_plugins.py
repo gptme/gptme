@@ -13,12 +13,16 @@ from __future__ import annotations
 
 import logging
 from functools import lru_cache
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .models.types import ProviderPlugin
 
 logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=1)
-def discover_provider_plugins() -> tuple:
+def discover_provider_plugins() -> tuple[ProviderPlugin, ...]:
     """Discover provider plugins registered via the ``gptme.providers`` entry point group.
 
     Results are cached after the first call.  Use :func:`clear_plugin_cache` in
@@ -61,7 +65,7 @@ def clear_plugin_cache() -> None:
     discover_provider_plugins.cache_clear()
 
 
-def get_provider_plugin(name: str):
+def get_provider_plugin(name: str) -> ProviderPlugin | None:
     """Return the :class:`~gptme.llm.models.types.ProviderPlugin` with the given name.
 
     Returns ``None`` if no plugin with that name is registered.

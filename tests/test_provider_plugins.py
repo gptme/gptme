@@ -23,6 +23,7 @@ from gptme.llm.provider_plugins import (
     get_provider_plugin,
     is_plugin_provider,
 )
+from gptme.message import Message
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -273,3 +274,84 @@ class TestGetModelWithPlugin:
 
         assert result.context == 128_000
         assert result.model == "myprovider/unknown-model"
+
+    def test_get_model_does_not_match_other_provider_suffix(self):
+        """Suffix fallback should only match models registered for the same plugin prefix."""
+        from gptme.llm.models.resolution import get_model
+
+        plugin = _make_plugin(
+            name="myprovider",
+            models=[
+                ModelMeta(
+                    provider="unknown",
+                    model="otherprovider/fast-model",
+                    context=64_000,
+                )
+            ],
+        )
+        with patch(
+            "importlib.metadata.entry_points", return_value=[_make_entry_point(plugin)]
+        ):
+            result = get_model("myprovider/fast-model")
+
+        assert result.context == 128_000
+        assert result.model == "myprovider/fast-model"
+
+
+class TestPluginRouting:
+    def test_chat_complete_routes_plugin_provider_through_openai(self):
+        from gptme.llm import _chat_complete
+
+        plugin = _make_plugin(name="myprovider")
+        messages = [Message("user", "hello")]
+        expected = ("ok", {"model": "myprovider/test-model-v1"})
+
+        with (
+            patch(
+                "importlib.metadata.entry_points",
+                return_value=[_make_entry_point(plugin)],
+            ),
+            patch("gptme.llm.chat_openai", return_value=expected) as mock_chat_openai,
+        ):
+            result = _chat_complete(messages, "myprovider/test-model-v1", None)
+
+        assert result == expected
+        mock_chat_openai.assert_called_once_with(
+            messages,
+            "myprovider/test-model-v1",
+            None,
+            output_schema=None,
+            max_tokens=None,
+        )
+
+    def test_stream_routes_plugin_provider_through_openai(self):
+        from gptme.llm import _stream
+
+        plugin = _make_plugin(name="myprovider")
+        messages = [Message("user", "hello")]
+
+        def fake_stream(*args, **kwargs):
+            yield "chunk-1"
+            return {"model": "myprovider/test-model-v1"}
+
+        with (
+            patch(
+                "importlib.metadata.entry_points",
+                return_value=[_make_entry_point(plugin)],
+            ),
+            patch(
+                "gptme.llm.stream_openai", side_effect=fake_stream
+            ) as mock_stream_openai,
+        ):
+            stream = _stream(messages, "myprovider/test-model-v1", None)
+            chunks = list(stream)
+
+        assert chunks == ["chunk-1"]
+        assert stream.metadata == {"model": "myprovider/test-model-v1"}
+        mock_stream_openai.assert_called_once_with(
+            messages,
+            "myprovider/test-model-v1",
+            None,
+            output_schema=None,
+            max_tokens=None,
+        )
