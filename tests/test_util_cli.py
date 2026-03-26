@@ -316,6 +316,44 @@ def test_models_list_json_suppresses_provider_noise(mocker):
     assert parsed[0]["full"] == "openai/gpt-5"
 
 
+def test_models_list_json_available_keeps_plugin_models(mocker):
+    """Plugin models should pass the CLI --json --available filter."""
+    import json
+
+    runner = CliRunner()
+    mocker.patch(
+        "gptme.cli.util.get_model_list",
+        return_value=[
+            SimpleNamespace(
+                provider="unknown",
+                provider_key="minimax",
+                model="minimax/abab6.5s-chat",
+                full="minimax/abab6.5s-chat",
+                context=245760,
+                max_output=None,
+                supports_streaming=True,
+                supports_vision=False,
+                supports_reasoning=False,
+                supports_parallel_tool_calls=False,
+                price_input=0,
+                price_output=0,
+                knowledge_cutoff=None,
+                deprecated=False,
+            )
+        ],
+    )
+    mocker.patch(
+        "gptme.llm.list_available_providers",
+        return_value=[("minimax", True)],
+    )
+
+    result = runner.invoke(main, ["models", "list", "--json", "--available"])
+
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert [model["model"] for model in parsed] == ["minimax/abab6.5s-chat"]
+
+
 def test_models_info():
     """Test the models info command."""
     import json

@@ -602,7 +602,7 @@ def models_list(
                 dynamic_fetch=True,
             )
         if configured is not None:
-            models = [model for model in models if model.provider in configured]
+            models = [model for model in models if model.provider_key in configured]
         click.echo(json.dumps([model_to_dict(model) for model in models], indent=2))
         return
 

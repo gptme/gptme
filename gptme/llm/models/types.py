@@ -125,6 +125,15 @@ class ModelMeta:
             return self.model
         return f"{self.provider}/{self.model}"
 
+    @property
+    def provider_key(self) -> str:
+        """Return the provider identifier used for availability filtering."""
+        if self.provider != "unknown":
+            return str(self.provider)
+        if "/" in self.model:
+            return self.model.split("/", 1)[0]
+        return "unknown"
+
 
 @dataclass
 class ProviderPlugin:

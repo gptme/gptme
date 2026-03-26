@@ -1,3 +1,4 @@
+import json
 from unittest.mock import patch
 
 import pytest
@@ -252,6 +253,28 @@ def test_list_models_simple_available(mock_configured, capsys):
     assert all("anthropic/" in line for line in lines)
     # Should not contain any other provider
     assert not any("openai/" in line for line in lines)
+
+
+@patch("gptme.llm.models.listing._get_configured_providers")
+@patch("gptme.llm.models.listing.get_model_list")
+def test_list_models_json_available_keeps_plugin_models(
+    mock_get_model_list, mock_configured, capsys
+):
+    """Plugin models should survive --available filtering via their model prefix."""
+    mock_configured.return_value = {"minimax"}
+    mock_get_model_list.return_value = [
+        ModelMeta(
+            provider="unknown",
+            model="minimax/abab6.5s-chat",
+            context=245_760,
+        )
+    ]
+
+    list_models(json_output=True, available_only=True)
+    output = capsys.readouterr().out
+    data = json.loads(output)
+
+    assert [model["model"] for model in data] == ["minimax/abab6.5s-chat"]
 
 
 # --- Tests for closest-match heuristic ---

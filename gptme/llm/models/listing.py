@@ -295,7 +295,7 @@ def list_models(
             dynamic_fetch=dynamic_fetch,
         )
         if configured is not None:
-            all_models = [m for m in all_models if m.provider in configured]
+            all_models = [m for m in all_models if m.provider_key in configured]
         print(json.dumps([model_to_dict(m) for m in all_models], indent=2))
     elif simple_format:
         # Simple format: just get all models and print them
@@ -307,7 +307,7 @@ def list_models(
             dynamic_fetch=dynamic_fetch,
         )
         if configured is not None:
-            all_models = [m for m in all_models if m.provider in configured]
+            all_models = [m for m in all_models if m.provider_key in configured]
         _print_simple_format(all_models)
     else:
         # Detailed format: print by provider with formatting
