@@ -6,6 +6,7 @@ Covers:
 - Command handlers (bg, jobs, output, kill)
 """
 
+import re
 import subprocess
 import sys
 import time
@@ -57,7 +58,7 @@ class TestAppendToBuffer:
     def test_overflow_truncates_from_front(self):
         """When buffer exceeds _MAX_BUFFER_SIZE, oldest entries are dropped."""
         job = _make_job()
-        # Fill with chunks that total > _MAX_BUFFER_SIZE
+        # Fill with chunks that total exactly _MAX_BUFFER_SIZE
         chunk = "x" * (_MAX_BUFFER_SIZE // 2)
         job._append_to_buffer(job.stdout_buffer, chunk)
         job._append_to_buffer(job.stdout_buffer, chunk)
@@ -302,8 +303,7 @@ class TestExecuteJobsCommand:
         """Jobs running <60s show seconds."""
         start_background_job("sleep 60")
         msgs = list(execute_jobs_command())
-        # Should contain e.g. "0.0s"
-        assert "s" in msgs[0].content
+        assert re.search(r"\(\d+\.\d+s\):", msgs[0].content), msgs[0].content
 
     def test_long_command_truncated(self):
         # Keep the job alive long enough to survive cleanup in execute_jobs_command().
@@ -334,6 +334,8 @@ class TestExecuteOutputCommand:
         msgs = list(execute_output_command(str(job.id)))
         assert len(msgs) == 1
         assert "Running" in msgs[0].content
+        assert "No output yet" in msgs[0].content
+        assert "stdout" not in msgs[0].content
         job.kill()
 
     def test_finished_job_output(self):
@@ -346,11 +348,13 @@ class TestExecuteOutputCommand:
         assert "Finished" in msgs[0].content
 
     def test_no_output_message(self):
-        """A job that hasn't produced output yet shows 'No output yet'."""
-        job = start_background_job("sleep 60")
+        """A finished job with no output still shows the placeholder message."""
+        job = start_background_job("true")
+        job.process.wait(timeout=5)
+        time.sleep(0.3)
         msgs = list(execute_output_command(str(job.id)))
+        assert "Finished" in msgs[0].content
         assert "No output yet" in msgs[0].content
-        job.kill()
 
     def test_long_stdout_truncated(self):
         """Stdout longer than 8000 chars should be truncated."""
@@ -495,8 +499,8 @@ def _make_job() -> BackgroundJob:
     """Create a BackgroundJob with a dummy no-op process for unit testing."""
     proc = subprocess.Popen(
         ["true"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
         stdin=subprocess.DEVNULL,
     )
     return BackgroundJob(
