@@ -497,7 +497,7 @@ def execute_gh(
 
         state = flags.get("state", "open")
         limit_str = flags.get("limit", "20")
-        limit = int(limit_str) if limit_str.isdigit() else 20
+        limit = int(limit_str) if limit_str.isdecimal() else 20
         labels = flags.get("label", "").split(",") if flags.get("label") else None
 
         content = get_github_issue_list(
@@ -534,7 +534,7 @@ def execute_gh(
 
         state = flags.get("state", "open")
         limit_str = flags.get("limit", "20")
-        limit = int(limit_str) if limit_str.isdigit() else 20
+        limit = int(limit_str) if limit_str.isdecimal() else 20
 
         content = get_github_pr_list(owner, repo, state=state, limit=limit)
         if content:
@@ -611,39 +611,27 @@ instructions = """Interact with GitHub via the GitHub CLI (gh).
 
 Refs: full URLs, `owner/repo#N`, `#N`, or bare `N` (when in a git repo).
 
-Use `gh issue list` to list issues in a repository:
+List issues/PRs (--repo, --state, --label, --limit):
 ```gh issue list --repo owner/repo --state open --limit 20
+gh pr list --repo owner/repo --state open --limit 20
 ```
 
-Use `gh pr list` to list pull requests in a repository:
-```gh pr list --repo owner/repo --state open --limit 20
-```
-
-Use `gh issue view <ref>` to read an issue with full body and all comments:
+Read issue/PR with full body and comments:
 ```gh issue view owner/repo#42
+gh pr view owner/repo#123
 ```
 
-Use `gh pr view <ref>` to read a PR with description, reviews, and code context:
-```gh pr view owner/repo#123
-```
-
-Use `gh pr diff <ref>` to inspect code changes without extra shell round-trips — diffstat + unified diff, auto-truncated for large PRs:
+Inspect code changes (diffstat + unified diff):
 ```gh pr diff owner/repo#123
 ```
 
-For CI check status (with run IDs for failed checks):
+CI status (run IDs for failed checks):
 ```gh pr status <ref> [commit_sha]
+gh pr checks <ref> [commit_sha]
+gh run view <run-id>
 ```
 
-For CI check completion:
-```gh pr checks <ref> [commit_sha]
-```
-
-To view failed CI logs for a specific run (extracts relevant error sections):
-```gh run view <run-id>
-```
-
-For multi-line comments, use `--body-file` to avoid `\\n` literal issues:
+Multi-line comments (avoids `\\n` literal issues):
 ```shell
 gh issue comment NUM --repo owner/repo --body-file - << 'EOF'
 Body here

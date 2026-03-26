@@ -407,7 +407,8 @@ def get_github_issue_list(
         issues = json.loads(result.stdout)
 
         if not issues:
-            return f"No {state} issues found in {owner}/{repo}."
+            state_desc = "matching" if state == "all" else state
+            return f"No {state_desc} issues found in {owner}/{repo}."
 
         output = f"Issues in {owner}/{repo} ({state}):\n\n"
         for issue in issues:
@@ -485,7 +486,8 @@ def get_github_pr_list(
         prs = json.loads(result.stdout)
 
         if not prs:
-            return f"No {state} pull requests found in {owner}/{repo}."
+            state_desc = "matching" if state == "all" else state
+            return f"No {state_desc} pull requests found in {owner}/{repo}."
 
         output = f"Pull requests in {owner}/{repo} ({state}):\n\n"
         for pr in prs:
