@@ -60,9 +60,18 @@ def discover_all_plugins(
     # Dedup against folder plugins — an editable-install (pip install -e .) will
     # register the same plugin both as a folder plugin and an entry-point plugin.
     folder_names = {p.name for p in plugins}
-    plugins.extend(
-        p for p in discover_entrypoint_plugins() if p.name not in folder_names
-    )
+    for ep_plugin in discover_entrypoint_plugins():
+        if ep_plugin.name in folder_names:
+            # Warn if the entry-point version has capabilities the folder adapter doesn't carry
+            if ep_plugin.provider or ep_plugin.tools:
+                logger.debug(
+                    "Folder plugin %r shadows entry-point plugin with non-empty "
+                    "provider/tools — those capabilities will be skipped. "
+                    "If this is not an editable-install, update your plugin manifest.",
+                    ep_plugin.name,
+                )
+        else:
+            plugins.append(ep_plugin)
 
     # 3. Legacy provider entry points (gptme.providers)
     # Only include if not already registered via gptme.plugins
@@ -120,6 +129,7 @@ def _folder_plugin_to_gptme_plugin(plugin: Plugin) -> GptmePlugin:
 
 def _make_hook_registrar(hook_modules: list[str]):
     """Create a callable that registers hooks from the given module names."""
+    hook_modules = list(hook_modules)  # defensive copy
 
     def registrar():
         for module_name in hook_modules:
@@ -140,6 +150,7 @@ def _make_hook_registrar(hook_modules: list[str]):
 
 def _make_command_registrar(command_modules: list[str]):
     """Create a callable that registers commands from the given module names."""
+    command_modules = list(command_modules)  # defensive copy
 
     def registrar():
         for module_name in command_modules:

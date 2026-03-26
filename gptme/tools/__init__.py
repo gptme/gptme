@@ -332,15 +332,16 @@ def get_available_tools(include_mcp: bool = True) -> list[ToolSpec]:
         # Add tool modules from unified plugins (entry-point plugins)
         from ..plugins.registry import get_all_plugins
 
-        for plugin in get_all_plugins():
+        all_plugins = get_all_plugins()
+        for plugin in all_plugins:
             for mod in plugin.tool_modules:
                 if mod not in tool_modules:
                     tool_modules.append(mod)
 
         available_tools = list(_discover_tools(tool_modules))
 
-        # Add direct ToolSpec instances from unified plugins
-        for plugin in get_all_plugins():
+        # Add direct ToolSpec instances from unified plugins, then sort everything together
+        for plugin in all_plugins:
             available_tools.extend(plugin.tools)
 
         available_tools.sort()
