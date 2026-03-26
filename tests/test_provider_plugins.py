@@ -407,3 +407,47 @@ class TestPluginRouting:
             output_schema=None,
             max_tokens=None,
         )
+
+
+class TestPluginModelListing:
+    """Tests that plugin provider models appear in model listing commands."""
+
+    def test_get_model_list_includes_plugin_models(self):
+        """Plugin provider models must appear in get_model_list() output."""
+        from gptme.llm.models.listing import get_model_list
+
+        plugin = _make_plugin(name="myprovider")
+        with patch(
+            "importlib.metadata.entry_points", return_value=[_make_entry_point(plugin)]
+        ):
+            models = get_model_list(dynamic_fetch=False)
+
+        model_names = [m.model for m in models]
+        assert "myprovider/test-model-v1" in model_names
+
+    def test_get_models_for_provider_returns_plugin_models_directly(self):
+        """_get_models_for_provider() should return plugin.models for plugin providers."""
+        from gptme.llm.models.listing import _get_models_for_provider
+        from gptme.llm.models.types import CustomProvider
+
+        plugin = _make_plugin(name="myprovider")
+        with patch(
+            "importlib.metadata.entry_points", return_value=[_make_entry_point(plugin)]
+        ):
+            result = _get_models_for_provider(CustomProvider("myprovider"))
+
+        assert len(result) == 1
+        assert result[0].model == "myprovider/test-model-v1"
+
+    def test_get_model_list_plugin_filter_by_provider(self):
+        """provider_filter should work correctly for plugin providers."""
+        from gptme.llm.models.listing import get_model_list
+
+        plugin = _make_plugin(name="myprovider")
+        with patch(
+            "importlib.metadata.entry_points", return_value=[_make_entry_point(plugin)]
+        ):
+            models = get_model_list(provider_filter="myprovider", dynamic_fetch=False)
+
+        assert len(models) == 1
+        assert models[0].model == "myprovider/test-model-v1"
