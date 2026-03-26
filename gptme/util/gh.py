@@ -286,6 +286,81 @@ def transform_github_url(url: str) -> str:
     return url
 
 
+DEFAULT_DIFF_MAX_TOKENS = 4000
+
+
+def get_github_pr_diff(
+    owner: str, repo: str, number: str, max_tokens: int = DEFAULT_DIFF_MAX_TOKENS
+) -> str | None:
+    """Get GitHub PR diff with stat summary, truncated to fit token budget.
+
+    Returns a formatted string with:
+    1. A diffstat summary (always shown in full)
+    2. The full unified diff, truncated if it exceeds the token budget
+
+    Args:
+        owner: Repository owner
+        repo: Repository name
+        number: PR number
+        max_tokens: Maximum tokens for the diff body (default: 4000)
+    """
+    if not shutil.which("gh"):
+        logger.debug("gh CLI not available for GitHub PR diff")
+        return None
+
+    repo_ref = f"{owner}/{repo}"
+
+    try:
+        # Get stat summary (compact, always shown in full)
+        stat_result = subprocess.run(
+            ["gh", "pr", "diff", number, "--repo", repo_ref, "--stat"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        # Get full unified diff
+        diff_result = subprocess.run(
+            ["gh", "pr", "diff", number, "--repo", repo_ref],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        stat_text = stat_result.stdout.strip()
+        diff_text = diff_result.stdout
+
+        if not diff_text.strip():
+            return f"PR #{number} diff:\n\nNo changes."
+
+        # Build output: stat header + diff body
+        output = f"PR #{number} diff:\n\n"
+        if stat_text:
+            output += f"{stat_text}\n\n"
+
+        # Truncate diff if needed (token estimate: chars/4)
+        max_chars = max_tokens * 4
+        if len(diff_text) <= max_chars:
+            output += diff_text
+        else:
+            # Truncate at last newline boundary to avoid mid-line cuts
+            cut = diff_text.rfind("\n", 0, max_chars)
+            cut = cut + 1 if cut != -1 else max_chars
+            truncated_chars = len(diff_text) - cut
+            truncated_tokens = truncated_chars // 4
+            output += diff_text[:cut]
+            output += (
+                f"\n\n[... diff truncated: {truncated_chars} chars "
+                f"(~{truncated_tokens} tokens) omitted — "
+                f"use shell `gh pr diff {number} --repo {repo_ref}` for full diff]\n"
+            )
+
+        return output
+    except subprocess.CalledProcessError as e:
+        logger.warning(f"Failed to get PR diff: {e}")
+        return None
+
+
 def get_github_issue_content(owner: str, repo: str, number: str) -> str | None:
     """Get GitHub issue content using gh CLI."""
     if not shutil.which("gh"):

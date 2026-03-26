@@ -8,6 +8,7 @@ from ..message import Message
 from ..util.gh import (
     get_github_issue_content,
     get_github_pr_content,
+    get_github_pr_diff,
     parse_github_ref,
     parse_github_url,
 )
@@ -393,6 +394,31 @@ def execute_gh(
             github_info["owner"], github_info["repo"], url, commit_sha=commit_sha
         )
 
+    elif args and len(args) >= 2 and args[0] == "pr" and args[1] == "diff":
+        ref = _extract_url(args, kwargs)
+        if not ref:
+            yield Message("system", "Error: No PR reference provided")
+            return
+
+        github_info = parse_github_ref(ref, default_type="pull")
+        if not github_info:
+            yield Message(
+                "system",
+                f"Error: Could not parse GitHub reference: {ref}\n\nAccepted formats: URL, owner/repo#N, #N, or N",
+            )
+            return
+
+        content = get_github_pr_diff(
+            github_info["owner"], github_info["repo"], github_info["number"]
+        )
+        if content:
+            yield Message("system", content)
+        else:
+            yield Message(
+                "system",
+                "Error: Failed to fetch PR diff. Make sure 'gh' CLI is installed and authenticated.",
+            )
+
     elif args and len(args) >= 2 and args[0] == "pr" and args[1] == "view":
         ref = _extract_url(args, kwargs)
         if not ref:
@@ -457,44 +483,42 @@ def execute_gh(
     else:
         yield Message(
             "system",
-            "Error: Unknown gh command. Available: gh issue view <ref>, gh pr view <ref>, gh pr status <ref>, gh pr checks <ref>\n\nReferences can be URLs, owner/repo#N, #N, or bare numbers.",
+            "Error: Unknown gh command. Available: gh issue view <ref>, gh pr view <ref>, gh pr diff <ref>, gh pr status <ref>, gh pr checks <ref>\n\nReferences can be URLs, owner/repo#N, #N, or bare numbers.",
         )
 
 
 instructions = """Interact with GitHub via the GitHub CLI (gh).
 
-References can be full URLs, short refs (`owner/repo#N`), or bare numbers (`#N` / `N` when in a git repo).
+Refs: full URLs, `owner/repo#N`, `#N`, or bare `N` (when in a git repo).
 
-Use `gh issue view <ref>` to read an issue with its full body and all comments:
-```gh issue view https://github.com/owner/repo/issues/42
-```
+Use `gh issue view <ref>` to read an issue with full body and all comments:
 ```gh issue view owner/repo#42
 ```
 
-Use `gh pr view <ref>` to read a PR with its description, review comments, and code context:
+Use `gh pr view <ref>` to read a PR with description, reviews, and code context:
 ```gh pr view owner/repo#123
 ```
 
-To get CI check status (with run IDs for failed checks):
+Use `gh pr diff <ref>` to inspect code changes without extra shell round-trips — diffstat + unified diff, auto-truncated for large PRs:
+```gh pr diff owner/repo#123
+```
+
+For CI check status (with run IDs for failed checks):
 ```gh pr status <ref> [commit_sha]
 ```
 
-To wait for all CI checks to complete:
+For CI check completion:
 ```gh pr checks <ref> [commit_sha]
 ```
 
-The optional commit_sha checks a specific commit instead of the PR head.
-
-For multi-line comments, use `--body-file` with a heredoc:
+For multi-line comments, use `--body-file` to avoid `\\n` literal issues:
 ```shell
 gh issue comment NUM --repo owner/repo --body-file - << 'EOF'
-## Summary
 Body here
 EOF
 ```
-Avoid `--body "text\\nmore text"`: `\\n` posts literally, `$` triggers expansion.
 
-For other operations, use the `shell` tool with the `gh` command."""
+For other operations, use the `shell` tool with `gh`."""
 
 
 def examples(tool_format):
@@ -506,6 +530,10 @@ def examples(tool_format):
 > User: read PR #123 on owner/repo
 > Assistant:
 {ToolUse("gh", ["pr", "view", "owner/repo#123"], None).to_output(tool_format)}
+
+> User: show the code changes in this PR
+> Assistant:
+{ToolUse("gh", ["pr", "diff", "owner/repo#123"], None).to_output(tool_format)}
 
 > User: check CI status for this PR
 > Assistant:

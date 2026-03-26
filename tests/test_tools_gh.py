@@ -616,3 +616,52 @@ class TestExecuteGh:
         messages = list(execute_gh(None, ["unknown", "command"], None))
         assert len(messages) == 1
         assert "gh issue view" in messages[0].content
+
+    # --- gh pr diff ---
+
+    def test_pr_diff_no_url(self):
+        """gh pr diff with no URL."""
+        messages = list(execute_gh(None, ["pr", "diff"], None))
+        assert len(messages) == 1
+        assert "No PR URL" in messages[0].content
+
+    def test_pr_diff_invalid_url(self):
+        """gh pr diff with invalid URL."""
+        messages = list(execute_gh(None, ["pr", "diff", "https://invalid.com"], None))
+        assert len(messages) == 1
+        assert "Invalid GitHub URL" in messages[0].content
+
+    @patch("gptme.tools.gh.get_github_pr_diff")
+    def test_pr_diff_success(self, mock_diff):
+        """gh pr diff returns diff content."""
+        mock_diff.return_value = "PR #1 diff:\n\n file.py | 5 +++++\n\n+new code"
+        messages = list(
+            execute_gh(
+                None,
+                ["pr", "diff", "https://github.com/owner/repo/pull/1"],
+                None,
+            )
+        )
+        assert len(messages) == 1
+        assert "PR #1 diff" in messages[0].content
+        mock_diff.assert_called_once_with("owner", "repo", "1")
+
+    @patch("gptme.tools.gh.get_github_pr_diff")
+    def test_pr_diff_fetch_failure(self, mock_diff):
+        """gh pr diff when fetch fails."""
+        mock_diff.return_value = None
+        messages = list(
+            execute_gh(
+                None,
+                ["pr", "diff", "https://github.com/owner/repo/pull/1"],
+                None,
+            )
+        )
+        assert len(messages) == 1
+        assert "Failed to fetch PR diff" in messages[0].content
+
+    def test_unknown_command_lists_pr_diff(self):
+        """Error message for unknown command includes gh pr diff."""
+        messages = list(execute_gh(None, ["unknown", "command"], None))
+        assert len(messages) == 1
+        assert "gh pr diff" in messages[0].content

@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from gptme.util.gh import get_github_pr_content
+from gptme.util.gh import get_github_pr_content, get_github_pr_diff
 
 
 @pytest.fixture
@@ -730,3 +730,116 @@ More analysis at the end."""
     # even though it was in the middle of the truncated content
     assert "Suggested change:" in result
     assert "fixed_code = True" in result
+
+
+# --- get_github_pr_diff ---
+
+
+class TestGetGithubPrDiff:
+    """Tests for get_github_pr_diff utility function."""
+
+    @patch("gptme.util.gh.shutil.which")
+    def test_no_gh_cli(self, mock_which):
+        """Returns None if gh CLI is not available."""
+        mock_which.return_value = None
+        result = get_github_pr_diff("owner", "repo", "1")
+        assert result is None
+
+    @patch("gptme.util.gh.subprocess.run")
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    def test_basic_diff(self, mock_which, mock_run):
+        """Returns stat + diff for a normal PR."""
+        stat_output = " file.py | 3 +++\n 1 file changed, 3 insertions(+)"
+        diff_output = (
+            "diff --git a/file.py b/file.py\n"
+            "--- a/file.py\n"
+            "+++ b/file.py\n"
+            "@@ -1,3 +1,6 @@\n"
+            " existing\n"
+            "+new line 1\n"
+            "+new line 2\n"
+            "+new line 3\n"
+        )
+        mock_run.side_effect = [
+            MagicMock(stdout=stat_output, returncode=0),
+            MagicMock(stdout=diff_output, returncode=0),
+        ]
+
+        result = get_github_pr_diff("owner", "repo", "42")
+        assert result is not None
+        assert "PR #42 diff:" in result
+        assert "file.py | 3 +++" in result
+        assert "+new line 1" in result
+
+    @patch("gptme.util.gh.subprocess.run")
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    def test_empty_diff(self, mock_which, mock_run):
+        """Returns 'No changes' message for empty diff."""
+        mock_run.side_effect = [
+            MagicMock(stdout="", returncode=0),
+            MagicMock(stdout="", returncode=0),
+        ]
+
+        result = get_github_pr_diff("owner", "repo", "1")
+        assert result is not None
+        assert "No changes" in result
+
+    @patch("gptme.util.gh.subprocess.run")
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    def test_large_diff_truncated(self, mock_which, mock_run):
+        """Large diffs are truncated with a clear message."""
+        stat_output = " file.py | 1000 +++\n 1 file changed"
+        # Create a diff larger than default budget (4000 tokens = 16000 chars)
+        diff_output = "diff --git a/file.py b/file.py\n" + ("+x\n" * 10000)
+        mock_run.side_effect = [
+            MagicMock(stdout=stat_output, returncode=0),
+            MagicMock(stdout=diff_output, returncode=0),
+        ]
+
+        result = get_github_pr_diff("owner", "repo", "1")
+        assert result is not None
+        assert "diff truncated" in result
+        assert "gh pr diff" in result  # hints at full command
+
+    @patch("gptme.util.gh.subprocess.run")
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    def test_small_diff_not_truncated(self, mock_which, mock_run):
+        """Small diffs are returned in full without truncation."""
+        stat_output = " file.py | 1 +\n 1 file changed"
+        diff_output = "diff --git a/file.py b/file.py\n+short change\n"
+        mock_run.side_effect = [
+            MagicMock(stdout=stat_output, returncode=0),
+            MagicMock(stdout=diff_output, returncode=0),
+        ]
+
+        result = get_github_pr_diff("owner", "repo", "1")
+        assert result is not None
+        assert "truncated" not in result
+        assert "+short change" in result
+
+    @patch("gptme.util.gh.subprocess.run")
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    def test_custom_max_tokens(self, mock_which, mock_run):
+        """Respects custom max_tokens parameter."""
+        stat_output = " file.py | 50 +++\n 1 file changed"
+        diff_output = "diff --git a/file.py b/file.py\n" + ("+" + "x" * 100 + "\n") * 20
+        mock_run.side_effect = [
+            MagicMock(stdout=stat_output, returncode=0),
+            MagicMock(stdout=diff_output, returncode=0),
+        ]
+
+        # Very small budget → should truncate
+        result = get_github_pr_diff("owner", "repo", "1", max_tokens=100)
+        assert result is not None
+        assert "truncated" in result
+
+    @patch("gptme.util.gh.subprocess.run")
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    def test_api_error(self, mock_which, mock_run):
+        """Returns None on API error."""
+        import subprocess as sp
+
+        mock_run.side_effect = sp.CalledProcessError(1, "gh")
+
+        result = get_github_pr_diff("owner", "repo", "1")
+        assert result is None
