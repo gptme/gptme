@@ -435,7 +435,7 @@ def get_github_issue_list(
 
             output += line + "\n"
 
-        output += f"\nShowing {len(issues)} of {state} issues."
+        output += f"\nShowing {len(issues)} {state} issues."
         return output
 
     except subprocess.CalledProcessError as e:
@@ -522,7 +522,7 @@ def get_github_pr_list(
 
             output += line + "\n"
 
-        output += f"\nShowing {len(prs)} of {state} pull requests."
+        output += f"\nShowing {len(prs)} {state} pull requests."
         return output
 
     except subprocess.CalledProcessError as e:
