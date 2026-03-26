@@ -252,9 +252,12 @@ class TestReadStoredContent:
         result = read_stored_content(logdir, "nonexistent")
         assert result is None
 
-    def test_binary_file_returns_none(self, logdir: Path, binary_file: Path):
-        """Binary files that can't be decoded return None."""
-        file_hash, _ = store_file(logdir, binary_file)
+    def test_binary_file_decode_fails(self, logdir: Path, binary_file: Path):
+        """Binary files with invalid UTF-8 sequences return None."""
+        # Use bytes that are invalid UTF-8 (and invalid in most encodings)
+        invalid_utf8 = logdir.parent / "invalid.bin"
+        invalid_utf8.write_bytes(b"\xc3\x28\xfe\xff")  # Invalid UTF-8 sequences
+        file_hash, _ = store_file(logdir, invalid_utf8)
         result = read_stored_content(logdir, file_hash, suffix=".bin")
         assert result is None  # UnicodeDecodeError handled
 

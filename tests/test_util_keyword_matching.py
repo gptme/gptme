@@ -39,14 +39,21 @@ class TestKeywordToPattern:
         assert _keyword_to_pattern(" * ") is None
 
     def test_wildcard_in_middle(self):
-        """* matches zero or more word characters."""
+        """* matches zero or more word characters between literal spaces.
+
+        The pattern `at * seconds` becomes `at \\w* seconds` — the spaces
+        flanking the wildcard are literal, so zero-width \\w* expansion
+        produces `at  seconds` (two spaces). Single-space `at seconds`
+        does NOT match because the wildcard's surrounding spaces are both
+        required.
+        """
         pattern = _keyword_to_pattern("process killed at * seconds")
         assert pattern is not None
         assert pattern.search("process killed at 120 seconds") is not None
         assert pattern.search("PROCESS KILLED AT 5 SECONDS") is not None
-        # Zero-length match still requires surrounding spaces
-        # "at  seconds" (two spaces) would match, "at seconds" (one space) won't
+        # Zero-width wildcard still leaves both literal spaces → "at  seconds"
         assert pattern.search("process killed at  seconds") is not None
+        # Single space omits the wildcard slot entirely → no match
         assert pattern.search("process killed at seconds") is None
 
     def test_wildcard_at_end(self):
@@ -194,9 +201,10 @@ class TestCompilePatternCached:
 
     def test_caching_returns_same_object(self):
         """Cache returns the exact same compiled pattern object."""
-        _compile_pattern_cached.cache_clear()
-        p1 = _compile_pattern_cached(r"test\d+")
-        p2 = _compile_pattern_cached(r"test\d+")
+        # Use a unique pattern unlikely to collide with other tests
+        unique = r"cache_test_\d+_unique_sentinel"
+        p1 = _compile_pattern_cached(unique)
+        p2 = _compile_pattern_cached(unique)
         assert p1 is p2
 
 
