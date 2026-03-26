@@ -14,6 +14,8 @@ from gptme.tools.gh import (
     _get_pr_check_runs,
     _handle_pr_status,
     _parse_list_flags,
+    _resolve_ref,
+    _resolve_repo_for_list,
     _wait_for_checks,
     execute_gh,
 )
@@ -890,3 +892,108 @@ class TestPrList:
         messages = list(execute_gh(None, ["unknown", "command"], None))
         assert len(messages) == 1
         assert "gh pr list" in messages[0].content
+
+
+# --- _resolve_ref ---
+
+
+class TestResolveRef:
+    def test_success_with_url(self):
+        """Valid GitHub URL resolves to github_info."""
+        info, err = _resolve_ref(
+            ["pr", "view", "https://github.com/owner/repo/pull/42"],
+            None,
+            "pull",
+        )
+        assert err is None
+        assert info is not None
+        assert info["owner"] == "owner"
+        assert info["repo"] == "repo"
+        assert info["number"] == "42"
+
+    def test_success_with_short_ref(self):
+        """Short reference owner/repo#N resolves correctly."""
+        info, err = _resolve_ref(
+            ["issue", "view", "owner/repo#99"],
+            None,
+            "issues",
+        )
+        assert err is None
+        assert info is not None
+        assert info["owner"] == "owner"
+        assert info["repo"] == "repo"
+
+    def test_no_ref_provided(self):
+        """Missing ref returns error with custom entity name."""
+        info, err = _resolve_ref(["pr", "view"], None, "pull", "PR reference")
+        assert info is None
+        assert err is not None
+        assert "No PR reference provided" in err.content
+
+    def test_no_ref_default_entity(self):
+        """Missing ref uses default entity name."""
+        info, err = _resolve_ref(["pr", "view"], None, "pull")
+        assert info is None
+        assert err is not None
+        assert "No reference provided" in err.content
+
+    def test_invalid_ref(self):
+        """Unparseable ref returns error."""
+        info, err = _resolve_ref(["pr", "view", "https://invalid.com"], None, "pull")
+        assert info is None
+        assert err is not None
+        assert "Could not parse GitHub reference" in err.content
+
+    def test_from_kwargs(self):
+        """Ref can be provided via kwargs."""
+        info, err = _resolve_ref(
+            None,
+            {"url": "https://github.com/owner/repo/pull/1"},
+            "pull",
+        )
+        assert err is None
+        assert info is not None
+        assert info["owner"] == "owner"
+
+
+# --- _resolve_repo_for_list ---
+
+
+class TestResolveRepoForList:
+    def test_repo_from_flag(self):
+        """--repo flag provides owner/repo."""
+        owner, repo, flags, err = _resolve_repo_for_list(
+            ["issue", "list", "--repo", "owner/repo"]
+        )
+        assert err is None
+        assert owner == "owner"
+        assert repo == "repo"
+        assert flags["repo"] == "owner/repo"
+
+    @patch("gptme.tools.gh._get_repo_from_git_remote")
+    def test_repo_from_git_remote(self, mock_remote):
+        """Without --repo, falls back to git remote."""
+        mock_remote.return_value = ("remote-owner", "remote-repo")
+        owner, repo, flags, err = _resolve_repo_for_list(["issue", "list"])
+        assert err is None
+        assert owner == "remote-owner"
+        assert repo == "remote-repo"
+
+    @patch("gptme.tools.gh._get_repo_from_git_remote")
+    def test_no_repo_detected(self, mock_remote):
+        """No --repo and no git remote returns error."""
+        mock_remote.return_value = None
+        owner, repo, flags, err = _resolve_repo_for_list(["issue", "list"])
+        assert owner is None
+        assert repo is None
+        assert err is not None
+        assert "Could not determine repository" in err.content
+
+    def test_flags_preserved(self):
+        """Other flags are parsed and returned."""
+        owner, repo, flags, err = _resolve_repo_for_list(
+            ["pr", "list", "--repo", "o/r", "--state", "closed", "--limit", "5"]
+        )
+        assert err is None
+        assert flags["state"] == "closed"
+        assert flags["limit"] == "5"

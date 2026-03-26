@@ -323,28 +323,79 @@ def _extract_url(
     return None
 
 
+def _resolve_ref(
+    args: list[str] | None,
+    kwargs: dict[str, str] | None,
+    default_type: str,
+    entity_name: str = "reference",
+) -> tuple[dict[str, str] | None, Message | None]:
+    """Extract and parse a GitHub reference from args/kwargs.
+
+    Returns (github_info, error_message). If github_info is None,
+    the caller should yield the error message and return.
+    """
+    ref = _extract_url(args, kwargs)
+    if not ref:
+        return None, Message("system", f"Error: No {entity_name} provided")
+
+    github_info = parse_github_ref(ref, default_type=default_type)
+    if not github_info:
+        return None, Message(
+            "system",
+            f"Error: Could not parse GitHub reference: {ref}\n\n"
+            "Accepted formats: URL, owner/repo#N, #N, or N",
+        )
+
+    return github_info, None
+
+
+def _resolve_repo_for_list(
+    args: list[str],
+) -> tuple[str | None, str | None, dict[str, str], Message | None]:
+    """Parse repo and flags for list commands.
+
+    Returns (owner, repo, flags, error_message). If owner is None,
+    the caller should yield the error message and return.
+    """
+    flags = _parse_list_flags(args)
+    owner: str | None = None
+    repo: str | None = None
+    repo_flag = flags.get("repo")
+    if repo_flag and "/" in repo_flag:
+        owner, repo = repo_flag.split("/", 1)
+    else:
+        repo_info = _get_repo_from_git_remote()
+        if repo_info:
+            owner, repo = repo_info
+
+    if not owner or not repo:
+        return (
+            None,
+            None,
+            flags,
+            Message(
+                "system",
+                "Error: Could not determine repository. Use --repo owner/repo or run from a git repo.",
+            ),
+        )
+
+    return owner, repo, flags, None
+
+
 def _handle_pr_status(
     args: list[str] | None, kwargs: dict[str, str] | None
 ) -> Generator[Message, None, None]:
     """Handle `gh pr status <ref> [commit_sha]` command."""
-    ref = _extract_url(args, kwargs)
-    if not ref:
-        yield Message("system", "Error: No PR reference provided")
+    info, err = _resolve_ref(args, kwargs, "pull", "PR reference")
+    if err:
+        yield err
         return
 
+    assert info is not None
     commit_sha = args[3] if args and len(args) > 3 else None
-
-    github_info = parse_github_ref(ref, default_type="pull")
-    if not github_info:
-        yield Message(
-            "system",
-            f"Error: Could not parse GitHub reference: {ref}\n\nAccepted formats: URL, owner/repo#N, #N, or N",
-        )
-        return
-
-    pr_number = int(github_info["number"])
-    owner = github_info["owner"]
-    repo = github_info["repo"]
+    pr_number = int(info["number"])
+    owner = info["owner"]
+    repo = info["repo"]
 
     if commit_sha:
         try:
@@ -392,50 +443,33 @@ def execute_gh(
         yield from _handle_pr_status(args, kwargs)
 
     elif args and len(args) >= 2 and args[0] == "pr" and args[1] == "checks":
-        ref = _extract_url(args, kwargs)
-        if not ref:
-            yield Message("system", "Error: No PR reference provided")
+        info, err = _resolve_ref(args, kwargs, "pull", "PR reference")
+        if err:
+            yield err
             return
 
+        assert info is not None
         commit_sha = args[3] if args and len(args) > 3 else None
-
-        github_info = parse_github_ref(ref, default_type="pull")
-        if not github_info:
-            yield Message(
-                "system",
-                f"Error: Could not parse GitHub reference: {ref}\n\nAccepted formats: URL, owner/repo#N, #N, or N",
-            )
-            return
-
-        url = f"https://github.com/{github_info['owner']}/{github_info['repo']}/pull/{github_info['number']}"
+        url = f"https://github.com/{info['owner']}/{info['repo']}/pull/{info['number']}"
         yield from _wait_for_checks(
-            github_info["owner"], github_info["repo"], url, commit_sha=commit_sha
+            info["owner"], info["repo"], url, commit_sha=commit_sha
         )
 
     elif args and len(args) >= 2 and args[0] == "pr" and args[1] == "diff":
-        ref = _extract_url(args, kwargs)
-        if not ref:
-            yield Message("system", "Error: No PR reference provided")
+        info, err = _resolve_ref(args, kwargs, "pull", "PR reference")
+        if err:
+            yield err
             return
 
-        github_info = parse_github_ref(ref, default_type="pull")
-        if not github_info:
+        assert info is not None
+        if info["type"] != "pull":
             yield Message(
                 "system",
-                f"Error: Could not parse GitHub reference: {ref}\n\nAccepted formats: URL, owner/repo#N, #N, or N",
+                f"Error: Reference is not a GitHub PR (got {info['type']}). Use `gh issue view` for issues.",
             )
             return
 
-        if github_info["type"] != "pull":
-            yield Message(
-                "system",
-                f"Error: Reference is not a GitHub PR (got {github_info['type']}). Use `gh issue view` for issues.",
-            )
-            return
-
-        content = get_github_pr_diff(
-            github_info["owner"], github_info["repo"], github_info["number"]
-        )
+        content = get_github_pr_diff(info["owner"], info["repo"], info["number"])
         if content:
             yield Message("system", content)
         else:
@@ -445,27 +479,20 @@ def execute_gh(
             )
 
     elif args and len(args) >= 2 and args[0] == "pr" and args[1] == "view":
-        ref = _extract_url(args, kwargs)
-        if not ref:
-            yield Message("system", "Error: No PR reference provided")
+        info, err = _resolve_ref(args, kwargs, "pull", "PR reference")
+        if err:
+            yield err
             return
 
-        github_info = parse_github_ref(ref, default_type="pull")
-        if not github_info:
+        assert info is not None
+        if info["type"] != "pull":
             yield Message(
                 "system",
-                f"Error: Could not parse GitHub reference: {ref}\n\nAccepted formats: URL, owner/repo#N, #N, or N",
+                f"Error: Reference is not a GitHub PR (got {info['type']}). Use `gh issue view` for issues.",
             )
             return
 
-        if github_info["type"] != "pull":
-            yield Message(
-                "system",
-                f"Error: Reference is not a GitHub PR (got {github_info['type']}). Use `gh issue view` for issues.",
-            )
-            return
-
-        url = f"https://github.com/{github_info['owner']}/{github_info['repo']}/pull/{github_info['number']}"
+        url = f"https://github.com/{info['owner']}/{info['repo']}/pull/{info['number']}"
         content = get_github_pr_content(url)
         if content:
             yield Message("system", content)
@@ -474,27 +501,14 @@ def execute_gh(
                 "system",
                 "Error: Failed to fetch PR content. Make sure 'gh' CLI is installed and authenticated.",
             )
+
     elif args and len(args) >= 2 and args[0] == "issue" and args[1] == "list":
-        flags = _parse_list_flags(args)
-
-        # Get owner/repo from --repo flag or git remote
-        owner: str | None = None
-        repo: str | None = None
-        repo_flag = flags.get("repo")
-        if repo_flag and "/" in repo_flag:
-            owner, repo = repo_flag.split("/", 1)
-        else:
-            repo_info = _get_repo_from_git_remote()
-            if repo_info:
-                owner, repo = repo_info
-
-        if not owner or not repo:
-            yield Message(
-                "system",
-                "Error: Could not determine repository. Use --repo owner/repo or run from a git repo.",
-            )
+        owner, repo, flags, err = _resolve_repo_for_list(args)
+        if err:
+            yield err
             return
 
+        assert owner is not None and repo is not None
         state = flags.get("state", "open")
         limit_str = flags.get("limit", "20")
         limit = int(limit_str) if limit_str.isdecimal() else 20
@@ -512,26 +526,12 @@ def execute_gh(
             )
 
     elif args and len(args) >= 2 and args[0] == "pr" and args[1] == "list":
-        flags = _parse_list_flags(args)
-
-        # Get owner/repo from --repo flag or git remote
-        owner = None
-        repo = None
-        repo_flag = flags.get("repo")
-        if repo_flag and "/" in repo_flag:
-            owner, repo = repo_flag.split("/", 1)
-        else:
-            repo_info = _get_repo_from_git_remote()
-            if repo_info:
-                owner, repo = repo_info
-
-        if not owner or not repo:
-            yield Message(
-                "system",
-                "Error: Could not determine repository. Use --repo owner/repo or run from a git repo.",
-            )
+        owner, repo, flags, err = _resolve_repo_for_list(args)
+        if err:
+            yield err
             return
 
+        assert owner is not None and repo is not None
         state = flags.get("state", "open")
         limit_str = flags.get("limit", "20")
         limit = int(limit_str) if limit_str.isdecimal() else 20
@@ -546,29 +546,20 @@ def execute_gh(
             )
 
     elif args and len(args) >= 2 and args[0] == "issue" and args[1] == "view":
-        ref = _extract_url(args, kwargs)
-        if not ref:
-            yield Message("system", "Error: No issue reference provided")
+        info, err = _resolve_ref(args, kwargs, "issues", "issue reference")
+        if err:
+            yield err
             return
 
-        github_info = parse_github_ref(ref, default_type="issues")
-        if not github_info:
+        assert info is not None
+        if info["type"] != "issues":
             yield Message(
                 "system",
-                f"Error: Could not parse GitHub reference: {ref}\n\nAccepted formats: URL, owner/repo#N, #N, or N",
+                f"Error: URL is not a GitHub issue URL (got {info['type']}). Use `gh pr view` for pull requests.",
             )
             return
 
-        if github_info["type"] != "issues":
-            yield Message(
-                "system",
-                f"Error: URL is not a GitHub issue URL (got {github_info['type']}). Use `gh pr view` for pull requests.",
-            )
-            return
-
-        content = get_github_issue_content(
-            github_info["owner"], github_info["repo"], github_info["number"]
-        )
+        content = get_github_issue_content(info["owner"], info["repo"], info["number"])
         if content:
             yield Message("system", content)
         else:
