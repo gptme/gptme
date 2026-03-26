@@ -9,10 +9,18 @@ Tests cover:
 - tool spec: registration and parameters
 """
 
+import os
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+# File permission tests are meaningless when running as root (root bypasses chmod)
+skip_if_root = pytest.mark.skipif(
+    sys.platform != "win32" and os.getuid() == 0,
+    reason="File permission tests are not meaningful when running as root",
+)
 
 from gptme.message import Message
 from gptme.tools.morph import (
@@ -82,6 +90,7 @@ class TestPreviewMorph:
         assert result is not None
         assert "-line2" in result
 
+    @skip_if_root
     def test_exception_during_read(self, tmp_path: Path):
         """Preview handles read errors gracefully."""
         f = tmp_path / "unreadable.py"
@@ -147,6 +156,7 @@ class TestExecuteMorphImpl:
         with pytest.raises(ValueError, match="No such file"):
             list(execute_morph_impl("content", tmp_path / "missing.py", "original"))
 
+    @skip_if_root
     def test_permission_denied_raises(self, tmp_path: Path):
         """Raises ValueError when file is not writable."""
         f = tmp_path / "readonly.py"
@@ -340,6 +350,7 @@ class TestExecuteMorph:
         messages = mock_chat.call_args[0][0]
         assert "<update>from kwargs</update>" in messages[0].content
 
+    @skip_if_root
     def test_permission_denied_returns_error(self, tmp_path: Path):
         """Returns error when file can't be read."""
         f = tmp_path / "noperm.py"
