@@ -16,7 +16,7 @@ Third-party packages can register LLM providers via Python entry points, making 
     [project.entry-points."gptme.providers"]
     minimax = "gptme_provider_minimax:provider"
 
-Where ``provider`` is a :class:`~gptme.llm.models.types.ProviderPlugin` instance.
+Where ``provider`` is a ``ProviderPlugin`` instance.
 
 **Usage:** Once installed, use the provider name as the model prefix::
 
@@ -46,7 +46,7 @@ Field             Required Description
 ``name``           Yes      Unique provider name (e.g. ``"minimax"``)
 ``api_key_env``    Yes      Environment variable holding the API key
 ``base_url``       Yes      OpenAI-compatible API base URL
-``models``         No       List of :class:`~gptme.llm.models.types.ModelMeta` objects
+``models``         No       List of ``ModelMeta`` objects
 ``init``           No       Custom init function ``(Config) -> None``; if ``None``,
                            auto-initialised as OpenAI client from ``base_url`` + key
 ================= ======== ==========================================================
