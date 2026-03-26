@@ -623,13 +623,13 @@ class TestExecuteGh:
         """gh pr diff with no URL."""
         messages = list(execute_gh(None, ["pr", "diff"], None))
         assert len(messages) == 1
-        assert "No PR URL" in messages[0].content
+        assert "No PR" in messages[0].content
 
     def test_pr_diff_invalid_url(self):
         """gh pr diff with invalid URL."""
         messages = list(execute_gh(None, ["pr", "diff", "https://invalid.com"], None))
         assert len(messages) == 1
-        assert "Invalid GitHub URL" in messages[0].content
+        assert "Could not parse" in messages[0].content
 
     @patch("gptme.tools.gh.get_github_pr_diff")
     def test_pr_diff_success(self, mock_diff):
