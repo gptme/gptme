@@ -15,7 +15,8 @@ class SPAHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     """HTTP request handler with SPA routing support."""
 
     def list_directory(self, path):
-        self.send_error(404)
+        """Disable directory listing."""
+        self.send_error(403, "Directory listing not allowed")
         return None
 
     def do_GET(self):
@@ -63,6 +64,10 @@ class SPAHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
 def run_server(port=5701, bind="127.0.0.1"):
     """Run the HTTP server."""
     web_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dist")
+    if not os.path.isdir(web_root):
+        raise FileNotFoundError(
+            f"Web root '{web_root}' not found. Run 'npm run build' first."
+        )
     handler = partial(SPAHTTPRequestHandler, directory=web_root)
     with socketserver.TCPServer((bind, port), handler) as httpd:
         print(f"Serving on {bind}:{port}")
