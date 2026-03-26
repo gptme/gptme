@@ -813,6 +813,28 @@ class TestSearchGithubIssues:
 
     @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
     @patch("gptme.util.gh.subprocess.run")
+    def test_null_author_and_labels(self, mock_run, _mock_which):
+        issues = [
+            {
+                "number": 7,
+                "title": "Deleted user issue",
+                "state": "OPEN",
+                "repository": {"nameWithOwner": "owner/repo"},
+                "author": None,
+                "labels": None,
+                "updatedAt": "2026-03-26T08:00:00Z",
+                "url": "https://github.com/owner/repo/issues/7",
+            },
+        ]
+        mock_run.return_value = MagicMock(stdout=json.dumps(issues), returncode=0)
+        result = search_github_issues("deleted")
+        assert result is not None
+        assert "owner/repo#7 Deleted user issue" in result
+        assert "@None" not in result
+        assert "[]" not in result
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
     def test_custom_limit(self, mock_run, _mock_which):
         mock_run.return_value = MagicMock(stdout="[]", returncode=0)
         search_github_issues("query", limit=5)
@@ -882,3 +904,25 @@ class TestSearchGithubPrs:
         mock_run.side_effect = sp.CalledProcessError(1, "gh")
         result = search_github_prs("query")
         assert result is None
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_null_author_and_labels(self, mock_run, _mock_which):
+        prs = [
+            {
+                "number": 123,
+                "title": "Ghost-authored PR",
+                "state": "OPEN",
+                "repository": {"nameWithOwner": "gptme/gptme"},
+                "author": None,
+                "labels": None,
+                "updatedAt": "2026-03-26T12:00:00Z",
+                "url": "https://github.com/gptme/gptme/pull/123",
+            },
+        ]
+        mock_run.return_value = MagicMock(stdout=json.dumps(prs), returncode=0)
+        result = search_github_prs("ghost")
+        assert result is not None
+        assert "gptme/gptme#123 Ghost-authored PR" in result
+        assert "@None" not in result
+        assert "[]" not in result

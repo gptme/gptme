@@ -1127,8 +1127,14 @@ def search_github_issues(
                 if isinstance(repo_info, dict)
                 else ""
             )
-            author_login = issue.get("author", {}).get("login", "")
-            labels_list = [lbl.get("name", "") for lbl in issue.get("labels", [])]
+            author_info = issue.get("author") or {}
+            author_login = (
+                author_info.get("login", "") if isinstance(author_info, dict) else ""
+            )
+            labels = issue.get("labels") or []
+            labels_list = [
+                lbl.get("name", "") for lbl in labels if isinstance(lbl, dict)
+            ]
             updated = issue.get("updatedAt", "")[:10]
 
             line = f"  {repo_name}#{number} {title}"
@@ -1221,8 +1227,14 @@ def search_github_prs(
                 if isinstance(repo_info, dict)
                 else ""
             )
-            author_login = pr.get("author", {}).get("login", "")
-            labels_list = [lbl.get("name", "") for lbl in pr.get("labels", [])]
+            author_info = pr.get("author") or {}
+            author_login = (
+                author_info.get("login", "") if isinstance(author_info, dict) else ""
+            )
+            labels = pr.get("labels") or []
+            labels_list = [
+                lbl.get("name", "") for lbl in labels if isinstance(lbl, dict)
+            ]
             updated = pr.get("updatedAt", "")[:10]
 
             line = f"  {repo_name}#{number} {title}"
