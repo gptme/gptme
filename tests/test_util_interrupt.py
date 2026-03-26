@@ -11,6 +11,17 @@ from gptme.util.interrupt import (
     set_interruptible,
 )
 
+THREAD_TIMEOUT = 2.0
+BARRIER_TIMEOUT = 2.0
+
+
+@pytest.fixture(autouse=True)
+def reset_interruptible_state():
+    """Reset interruptible state before and after each test."""
+    clear_interruptible()
+    yield
+    clear_interruptible()
+
 
 class TestInterruptibleState:
     """Tests for set_interruptible and clear_interruptible state management."""
@@ -52,30 +63,40 @@ class TestContextVarIsolation:
     def test_context_isolation_between_threads(self):
         """Interrupt state is isolated between threads via ContextVar."""
         results = {}
-        barrier = threading.Barrier(2)
+        thread_errors = []
+        barrier = threading.Barrier(2, timeout=BARRIER_TIMEOUT)
 
         def thread_set():
-            # Thread sets interruptible in its own context
-            set_interruptible()
-            results["thread_state"] = _interruptible_var.get()
-            barrier.wait()
-            barrier.wait()
+            try:
+                # Thread sets interruptible in its own context
+                set_interruptible()
+                results["thread_state"] = _interruptible_var.get()
+                barrier.wait()
+                barrier.wait()
+            except BaseException as exc:  # pragma: no branch
+                thread_errors.append(exc)
 
         def thread_clear():
-            # This thread starts in default (non-interruptible) state
-            # The other thread's state should not affect this one
-            barrier.wait()
-            # Read state while thread_set has called set_interruptible — should still be False
-            results["clear_thread_state"] = _interruptible_var.get()
-            barrier.wait()
+            try:
+                # This thread starts in default (non-interruptible) state
+                # The other thread's state should not affect this one
+                barrier.wait()
+                # Read state while thread_set has called set_interruptible — should still be False
+                results["clear_thread_state"] = _interruptible_var.get()
+                barrier.wait()
+            except BaseException as exc:  # pragma: no branch
+                thread_errors.append(exc)
 
         t1 = threading.Thread(target=thread_set)
         t2 = threading.Thread(target=thread_clear)
         t1.start()
         t2.start()
-        t1.join()
-        t2.join()
+        t1.join(timeout=THREAD_TIMEOUT)
+        t2.join(timeout=THREAD_TIMEOUT)
 
+        assert not t1.is_alive()
+        assert not t2.is_alive()
+        assert thread_errors == []
         assert results["thread_state"] is True
         assert results["clear_thread_state"] is False
 
@@ -178,8 +199,9 @@ class TestHandleKeyboardInterrupt:
 
         t = threading.Thread(target=worker)
         t.start()
-        t.join(timeout=2)
+        t.join(timeout=THREAD_TIMEOUT)
 
         # In non-main thread, should not raise
+        assert not t.is_alive()
         assert not raised.is_set()
         assert completed.is_set()
