@@ -693,7 +693,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f4eaee44360&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f006d78c540&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1266,6 +1266,11 @@ List issues/PRs (--repo, --state, --label, --limit):
 <span class="s">gh pr list --repo owner/repo --state open --limit 20</span>
 <span class="sb">```</span>
 
+Search issues/PRs across repos (--repo, --state, --author, --label, --limit):
+<span class="sb">```gh</span><span class="w"> </span>search issues &quot;bug fix&quot; --repo owner/repo --state open --limit 10
+<span class="s">gh search prs &quot;feature&quot; --author username --state open</span>
+<span class="sb">```</span>
+
 Read issue/PR with full body and comments:
 <span class="sb">```gh</span><span class="w"> </span>issue view owner/repo#42
 <span class="s">gh pr view owner/repo#123</span>
@@ -1362,6 +1367,18 @@ gh<span class="w"> </span>issue<span class="w"> </span>comment<span class="w"> <
 <span class="k">&gt; </span><span class="ge">User: show open PRs</span>
 <span class="k">&gt; </span><span class="ge">Assistant:</span>
 <span class="sb">```gh</span><span class="w"> </span>pr list --repo owner/repo
+<span class="s">None</span>
+<span class="sb">```</span>
+
+<span class="k">&gt; </span><span class="ge">User: search for authentication issues in owner/repo</span>
+<span class="k">&gt; </span><span class="ge">Assistant:</span>
+<span class="sb">```gh</span><span class="w"> </span>search issues authentication --repo owner/repo
+<span class="s">None</span>
+<span class="sb">```</span>
+
+<span class="k">&gt; </span><span class="ge">User: find my open PRs</span>
+<span class="k">&gt; </span><span class="ge">Assistant:</span>
+<span class="sb">```gh</span><span class="w"> </span>search prs fix --author @me --state open
 <span class="s">None</span>
 <span class="sb">```</span>
 
@@ -2272,7 +2289,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 12486</p>
+<p>Tokens: 12619</p>
 </dd></dl>
 
 <dl class="py function">
