@@ -71,6 +71,11 @@ class GptmePlugin:
     init: Callable[[Config], None] | None = None
     """Optional plugin-level initialization.  Called once at discovery time
     with the full :class:`~gptme.config.Config`, before subsystem init.
-    Plugin-specific config is typically stored under ``[plugin.<name>]`` and is
-    accessible via ``config.project.plugin.get("<name>", {})`` and
-    ``config.user.plugin.get("<name>", {})``."""
+    Plugin-specific config is stored under ``[plugin.<name>]`` in the TOML
+    config files and is accessible via::
+
+        user_cfg = config.user.plugin.get("<name>", {})
+        project_cfg = config.project.plugin.get("<name>", {}) if config.project else {}
+
+    Note that ``config.project`` may be ``None`` when no project config is
+    present, so always guard access with a ``if config.project`` check."""
