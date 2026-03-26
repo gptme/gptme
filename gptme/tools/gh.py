@@ -741,39 +741,38 @@ instructions = """Interact with GitHub via the GitHub CLI (gh).
 
 Refs: full URLs, `owner/repo#N`, `#N`, or bare `N` (when in a git repo).
 
-List issues/PRs (--repo, --state, --label, --limit):
+List issues/PRs:
 ```gh issue list --repo owner/repo --state open --limit 20
 gh pr list --repo owner/repo --state open --limit 20
 ```
 
-Search issues/PRs across repos (--repo, --state, --author, --label, --limit):
+Search issues/PRs across repos:
 ```gh search issues "bug fix" --repo owner/repo --state open --limit 10
 gh search prs "feature" --author username --state open
 ```
 
-Read issue/PR with full body and comments:
+Read issue/PR:
 ```gh issue view owner/repo#42
 gh pr view owner/repo#123
 ```
 
-Inspect code changes (diffstat + unified diff):
+Inspect code changes:
 ```gh pr diff owner/repo#123
 ```
 
 Merge a pull request (default: squash):
 ```gh pr merge owner/repo#123
 gh pr merge owner/repo#123 --rebase
-gh pr merge owner/repo#123 --squash --auto --delete-branch
-gh pr merge owner/repo#123 --match-head-commit abc1234
+gh pr merge owner/repo#123 --squash --auto --delete-branch --match-head-commit abc1234
 ```
 
-CI status (run IDs for failed checks):
+CI status:
 ```gh pr status <ref> [commit_sha]
 gh pr checks <ref> [commit_sha]
 gh run view <run-id>
 ```
 
-Multi-line comments (avoids `\\n` literal issues):
+Multi-line comments:
 ```shell
 gh issue comment NUM --repo owner/repo --body-file - << 'EOF'
 Body here
