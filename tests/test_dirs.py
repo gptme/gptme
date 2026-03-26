@@ -139,7 +139,20 @@ class TestGetProjectGptmeDir:
         (tmp_path / ".git").mkdir()
         subdir = tmp_path / "src"
         subdir.mkdir()
-        with patch("gptme.dirs.Path.cwd", return_value=subdir):
+        # Block gptme.toml detection outside tmp_path: the walk traverses the real
+        # filesystem above tmp_path, which would find the gptme repo's own gptme.toml
+        # when tests run inside the checkout.
+        _orig_exists = Path.exists
+
+        def _exists(p: Path) -> bool:
+            if p.name == "gptme.toml" and not str(p).startswith(str(tmp_path)):
+                return False
+            return _orig_exists(p)
+
+        with (
+            patch("gptme.dirs.Path.cwd", return_value=subdir),
+            patch.object(Path, "exists", _exists),
+        ):
             result = dirs.get_project_gptme_dir()
         assert result == tmp_path
 
