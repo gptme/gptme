@@ -8,6 +8,7 @@ enabling proper single-page application routing.
 import http.server
 import os
 import socketserver
+from urllib.parse import urlsplit
 
 
 class SPAHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
@@ -27,8 +28,9 @@ class SPAHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         # If file doesn't exist and it's not an asset, serve index.html
         if not os.path.exists(path):
             # Check if this looks like an asset request
+            request_path = urlsplit(self.path).path.lower()
             is_asset = any(
-                self.path.endswith(ext)
+                request_path.endswith(ext)
                 for ext in [
                     ".js",
                     ".css",
