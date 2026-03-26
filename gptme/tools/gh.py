@@ -602,19 +602,21 @@ def execute_gh(
         search_flags: dict[str, str] = {}
         i = 2
         while i < len(args):
-            if args[i].startswith("--"):
-                if i + 1 >= len(args):
+            arg = args[i]
+            if arg.startswith("--"):
+                if i + 1 >= len(args) or args[i + 1].startswith("--"):
                     yield Message(
                         "system",
-                        f"Error: Flag {args[i]} requires a value. Usage: gh search {search_type} <query> [--repo owner/repo] [--state open|closed] [--author user] [--label name] [--limit N]",
+                        f"Error: Flag {arg} requires a value. Usage: gh search {search_type} <query> [--repo owner/repo] [--state open|closed] [--author user] [--label name] [--limit N]",
                     )
                     return
-                flag_name = args[i][2:]
+                flag_name = arg[2:]
                 search_flags[flag_name] = args[i + 1]
                 i += 2
-            else:
-                query_parts.append(args[i])
-                i += 1
+                continue
+
+            query_parts.append(arg)
+            i += 1
 
         query = " ".join(query_parts)
         if not query:

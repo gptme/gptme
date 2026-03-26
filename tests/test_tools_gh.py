@@ -1099,6 +1099,24 @@ class TestSearchDispatch:
         assert len(messages) == 1
         assert "No search query" in messages[0].content
 
+    def test_search_trailing_flag_errors(self):
+        """gh search rejects flags without values."""
+        messages = list(execute_gh(None, ["search", "issues", "auth", "--state"], None))
+        assert len(messages) == 1
+        assert "Flag --state requires a value" in messages[0].content
+
+    def test_search_flag_followed_by_flag_errors(self):
+        """gh search rejects flags whose next token is another flag."""
+        messages = list(
+            execute_gh(
+                None,
+                ["search", "issues", "auth", "--state", "--author", "bob"],
+                None,
+            )
+        )
+        assert len(messages) == 1
+        assert "Flag --state requires a value" in messages[0].content
+
     @patch("gptme.tools.gh.search_github_issues")
     def test_search_flag_without_value(self, mock_search):
         """Dangling search flags return an explicit error."""
