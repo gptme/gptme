@@ -1058,3 +1058,195 @@ def get_github_run_logs(
     except json.JSONDecodeError as e:
         logger.warning(f"Failed to parse run JSON: {e}")
         return None
+
+
+def search_github_issues(
+    query: str,
+    repo: str | None = None,
+    state: str | None = None,
+    author: str | None = None,
+    assignee: str | None = None,
+    label: str | None = None,
+    limit: int = 20,
+) -> str | None:
+    """Search GitHub issues across repositories.
+
+    Args:
+        query: Search query string (GitHub search syntax)
+        repo: Optional repo filter (owner/repo)
+        state: Optional state filter: open, closed
+        author: Optional author filter
+        assignee: Optional assignee filter
+        label: Optional label filter
+        limit: Maximum results (default: 20)
+
+    Returns:
+        Formatted search results string, or None on error
+    """
+    if not shutil.which("gh"):
+        logger.debug("gh CLI not available for issue search")
+        return None
+
+    cmd = [
+        "gh",
+        "search",
+        "issues",
+        query,
+        "--limit",
+        str(limit),
+        "--json",
+        "number,title,state,repository,author,labels,updatedAt,url",
+    ]
+
+    if repo:
+        cmd.extend(["--repo", repo])
+    if state:
+        cmd.extend(["--state", state])
+    if author:
+        cmd.extend(["--author", author])
+    if assignee:
+        cmd.extend(["--assignee", assignee])
+    if label:
+        cmd.extend(["--label", label])
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        issues = json.loads(result.stdout)
+
+        if not issues:
+            return f'No issues found for query: "{query}"'
+
+        output = f'Search results for issues: "{query}"\n\n'
+        for issue in issues:
+            number = issue.get("number", "?")
+            title = issue.get("title", "")
+            issue_state = issue.get("state", "").upper()
+            repo_info = issue.get("repository", {})
+            repo_name = (
+                repo_info.get("nameWithOwner", "")
+                if isinstance(repo_info, dict)
+                else ""
+            )
+            author_login = issue.get("author", {}).get("login", "")
+            labels_list = [lbl.get("name", "") for lbl in issue.get("labels", [])]
+            updated = issue.get("updatedAt", "")[:10]
+
+            line = f"  {repo_name}#{number} {title}"
+            meta_parts = []
+            if issue_state:
+                meta_parts.append(issue_state)
+            if labels_list:
+                meta_parts.append(f"[{', '.join(labels_list)}]")
+            if author_login:
+                meta_parts.append(f"by @{author_login}")
+            if updated:
+                meta_parts.append(f"updated:{updated}")
+
+            if meta_parts:
+                line += f"  ({' | '.join(meta_parts)})"
+
+            output += line + "\n"
+
+        output += f"\nShowing {len(issues)} results."
+        return output
+
+    except subprocess.CalledProcessError as e:
+        logger.warning(f"Failed to search issues: {e}")
+        return None
+    except json.JSONDecodeError as e:
+        logger.warning(f"Failed to parse issue search JSON: {e}")
+        return None
+
+
+def search_github_prs(
+    query: str,
+    repo: str | None = None,
+    state: str | None = None,
+    author: str | None = None,
+    label: str | None = None,
+    limit: int = 20,
+) -> str | None:
+    """Search GitHub pull requests across repositories.
+
+    Args:
+        query: Search query string (GitHub search syntax)
+        repo: Optional repo filter (owner/repo)
+        state: Optional state filter: open, closed, merged
+        author: Optional author filter
+        label: Optional label filter
+        limit: Maximum results (default: 20)
+
+    Returns:
+        Formatted search results string, or None on error
+    """
+    if not shutil.which("gh"):
+        logger.debug("gh CLI not available for PR search")
+        return None
+
+    cmd = [
+        "gh",
+        "search",
+        "prs",
+        query,
+        "--limit",
+        str(limit),
+        "--json",
+        "number,title,state,repository,author,labels,updatedAt,url",
+    ]
+
+    if repo:
+        cmd.extend(["--repo", repo])
+    if state:
+        cmd.extend(["--state", state])
+    if author:
+        cmd.extend(["--author", author])
+    if label:
+        cmd.extend(["--label", label])
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        prs = json.loads(result.stdout)
+
+        if not prs:
+            return f'No pull requests found for query: "{query}"'
+
+        output = f'Search results for PRs: "{query}"\n\n'
+        for pr in prs:
+            number = pr.get("number", "?")
+            title = pr.get("title", "")
+            pr_state = pr.get("state", "").upper()
+            repo_info = pr.get("repository", {})
+            repo_name = (
+                repo_info.get("nameWithOwner", "")
+                if isinstance(repo_info, dict)
+                else ""
+            )
+            author_login = pr.get("author", {}).get("login", "")
+            labels_list = [lbl.get("name", "") for lbl in pr.get("labels", [])]
+            updated = pr.get("updatedAt", "")[:10]
+
+            line = f"  {repo_name}#{number} {title}"
+            meta_parts = []
+            if pr_state:
+                meta_parts.append(pr_state)
+            if labels_list:
+                meta_parts.append(f"[{', '.join(labels_list)}]")
+            if author_login:
+                meta_parts.append(f"by @{author_login}")
+            if updated:
+                meta_parts.append(f"updated:{updated}")
+
+            if meta_parts:
+                line += f"  ({' | '.join(meta_parts)})"
+
+            output += line + "\n"
+
+        output += f"\nShowing {len(prs)} results."
+        return output
+
+    except subprocess.CalledProcessError as e:
+        logger.warning(f"Failed to search PRs: {e}")
+        return None
+    except json.JSONDecodeError as e:
+        logger.warning(f"Failed to parse PR search JSON: {e}")
+        return None

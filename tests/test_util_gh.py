@@ -14,6 +14,8 @@ from gptme.util.gh import (
     get_github_run_logs,
     parse_github_ref,
     parse_github_url,
+    search_github_issues,
+    search_github_prs,
 )
 
 
@@ -720,3 +722,163 @@ class TestGetGithubRunLogs:
         assert "**Workflow**: CI" in result
         assert "**Branch**: fix/bug" in result
         assert "completed (success)" in result
+
+
+# --- search_github_issues ---
+
+
+class TestSearchGithubIssues:
+    @patch("gptme.util.gh.shutil.which", return_value=None)
+    def test_no_gh_returns_none(self, _mock_which):
+        assert search_github_issues("query") is None
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_empty_results(self, mock_run, _mock_which):
+        mock_run.return_value = MagicMock(stdout="[]", returncode=0)
+        result = search_github_issues("nonexistent query")
+        assert result is not None
+        assert "No issues found" in result
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_issues_returned(self, mock_run, _mock_which):
+        issues = [
+            {
+                "number": 42,
+                "title": "Fix authentication bug",
+                "state": "OPEN",
+                "repository": {"nameWithOwner": "owner/repo"},
+                "author": {"login": "alice"},
+                "labels": [{"name": "bug"}],
+                "updatedAt": "2026-03-20T10:00:00Z",
+                "url": "https://github.com/owner/repo/issues/42",
+            },
+            {
+                "number": 99,
+                "title": "Auth token expired",
+                "state": "CLOSED",
+                "repository": {"nameWithOwner": "org/other"},
+                "author": {"login": "bob"},
+                "labels": [],
+                "updatedAt": "2026-03-18T08:00:00Z",
+                "url": "https://github.com/org/other/issues/99",
+            },
+        ]
+        mock_run.return_value = MagicMock(stdout=json.dumps(issues), returncode=0)
+        result = search_github_issues("auth")
+        assert result is not None
+        assert "owner/repo#42 Fix authentication bug" in result
+        assert "org/other#99 Auth token expired" in result
+        assert "OPEN" in result
+        assert "CLOSED" in result
+        assert "[bug]" in result
+        assert "@alice" in result
+        assert "Showing 2" in result
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_flags_passed_to_cli(self, mock_run, _mock_which):
+        mock_run.return_value = MagicMock(stdout="[]", returncode=0)
+        search_github_issues(
+            "query", repo="owner/repo", state="open", author="alice", label="bug"
+        )
+        cmd = mock_run.call_args[0][0]
+        assert "--repo" in cmd
+        assert "owner/repo" in cmd
+        assert "--state" in cmd
+        assert "open" in cmd
+        assert "--author" in cmd
+        assert "alice" in cmd
+        assert "--label" in cmd
+        assert "bug" in cmd
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_assignee_flag(self, mock_run, _mock_which):
+        mock_run.return_value = MagicMock(stdout="[]", returncode=0)
+        search_github_issues("query", assignee="bob")
+        cmd = mock_run.call_args[0][0]
+        assert "--assignee" in cmd
+        assert "bob" in cmd
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_subprocess_failure(self, mock_run, _mock_which):
+        import subprocess as sp
+
+        mock_run.side_effect = sp.CalledProcessError(1, "gh")
+        result = search_github_issues("query")
+        assert result is None
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_custom_limit(self, mock_run, _mock_which):
+        mock_run.return_value = MagicMock(stdout="[]", returncode=0)
+        search_github_issues("query", limit=5)
+        cmd = mock_run.call_args[0][0]
+        limit_idx = cmd.index("--limit")
+        assert cmd[limit_idx + 1] == "5"
+
+
+# --- search_github_prs ---
+
+
+class TestSearchGithubPrs:
+    @patch("gptme.util.gh.shutil.which", return_value=None)
+    def test_no_gh_returns_none(self, _mock_which):
+        assert search_github_prs("query") is None
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_empty_results(self, mock_run, _mock_which):
+        mock_run.return_value = MagicMock(stdout="[]", returncode=0)
+        result = search_github_prs("nonexistent query")
+        assert result is not None
+        assert "No pull requests found" in result
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_prs_returned(self, mock_run, _mock_which):
+        prs = [
+            {
+                "number": 123,
+                "title": "feat: add search command",
+                "state": "OPEN",
+                "repository": {"nameWithOwner": "gptme/gptme"},
+                "author": {"login": "bob"},
+                "labels": [{"name": "enhancement"}],
+                "updatedAt": "2026-03-26T12:00:00Z",
+                "url": "https://github.com/gptme/gptme/pull/123",
+            },
+        ]
+        mock_run.return_value = MagicMock(stdout=json.dumps(prs), returncode=0)
+        result = search_github_prs("search")
+        assert result is not None
+        assert "gptme/gptme#123 feat: add search command" in result
+        assert "OPEN" in result
+        assert "[enhancement]" in result
+        assert "@bob" in result
+        assert "Showing 1" in result
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_flags_passed_to_cli(self, mock_run, _mock_which):
+        mock_run.return_value = MagicMock(stdout="[]", returncode=0)
+        search_github_prs("query", repo="owner/repo", state="merged", author="alice")
+        cmd = mock_run.call_args[0][0]
+        assert cmd[1] == "search"
+        assert cmd[2] == "prs"
+        assert "--repo" in cmd
+        assert "--state" in cmd
+        assert "merged" in cmd
+        assert "--author" in cmd
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_subprocess_failure(self, mock_run, _mock_which):
+        import subprocess as sp
+
+        mock_run.side_effect = sp.CalledProcessError(1, "gh")
+        result = search_github_prs("query")
+        assert result is None

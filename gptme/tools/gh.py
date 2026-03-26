@@ -15,6 +15,8 @@ from ..util.gh import (
     get_github_run_logs,
     parse_github_ref,
     parse_github_url,
+    search_github_issues,
+    search_github_prs,
 )
 from . import Parameter, ToolSpec, ToolUse
 
@@ -591,10 +593,66 @@ def execute_gh(
                 f"Error: Failed to fetch run {run_id}. Make sure 'gh' CLI is installed and authenticated.",
             )
 
+    elif (
+        args and len(args) >= 2 and args[0] == "search" and args[1] in ("issues", "prs")
+    ):
+        search_type = args[1]
+        # Parse query and search_flags from remaining args
+        query_parts: list[str] = []
+        search_flags: dict[str, str] = {}
+        i = 2
+        while i < len(args):
+            if args[i].startswith("--") and i + 1 < len(args):
+                flag_name = args[i][2:]
+                search_flags[flag_name] = args[i + 1]
+                i += 2
+            else:
+                query_parts.append(args[i])
+                i += 1
+
+        query = " ".join(query_parts)
+        if not query:
+            yield Message(
+                "system",
+                f"Error: No search query provided. Usage: gh search {search_type} <query> [--repo owner/repo] [--state open|closed] [--author user] [--label name] [--limit N]",
+            )
+            return
+
+        limit_str = search_flags.get("limit", "20")
+        limit = int(limit_str) if limit_str.isdecimal() else 20
+
+        if search_type == "issues":
+            content = search_github_issues(
+                query,
+                repo=search_flags.get("repo"),
+                state=search_flags.get("state"),
+                author=search_flags.get("author"),
+                assignee=search_flags.get("assignee"),
+                label=search_flags.get("label"),
+                limit=limit,
+            )
+        else:
+            content = search_github_prs(
+                query,
+                repo=search_flags.get("repo"),
+                state=search_flags.get("state"),
+                author=search_flags.get("author"),
+                label=search_flags.get("label"),
+                limit=limit,
+            )
+
+        if content:
+            yield Message("system", content)
+        else:
+            yield Message(
+                "system",
+                f"Error: Failed to search {search_type}. Make sure 'gh' CLI is installed and authenticated.",
+            )
+
     else:
         yield Message(
             "system",
-            "Error: Unknown gh command. Available: gh issue list [--repo owner/repo], gh issue view <ref>, gh pr list [--repo owner/repo], gh pr view <ref>, gh pr diff <ref>, gh pr status <ref>, gh pr checks <ref>, gh run view <run-id>\n\nReferences can be URLs, owner/repo#N, #N, or bare numbers.",
+            "Error: Unknown gh command. Available: gh issue list, gh issue view, gh pr list, gh pr view, gh pr diff, gh pr status, gh pr checks, gh run view, gh search issues, gh search prs\n\nReferences can be URLs, owner/repo#N, #N, or bare numbers.",
         )
 
 
@@ -605,6 +663,11 @@ Refs: full URLs, `owner/repo#N`, `#N`, or bare `N` (when in a git repo).
 List issues/PRs (--repo, --state, --label, --limit):
 ```gh issue list --repo owner/repo --state open --limit 20
 gh pr list --repo owner/repo --state open --limit 20
+```
+
+Search issues/PRs across repos (--repo, --state, --author, --label, --limit):
+```gh search issues "bug fix" --repo owner/repo --state open --limit 10
+gh search prs "feature" --author username --state open
 ```
 
 Read issue/PR with full body and comments:
@@ -744,6 +807,22 @@ EOF''',
 > User: show open PRs
 > Assistant:
 {ToolUse("gh", ["pr", "list", "--repo", "owner/repo"], None).to_output(tool_format)}
+
+> User: search for authentication issues in owner/repo
+> Assistant:
+{
+        ToolUse(
+            "gh", ["search", "issues", "authentication", "--repo", "owner/repo"], None
+        ).to_output(tool_format)
+    }
+
+> User: find my open PRs
+> Assistant:
+{
+        ToolUse(
+            "gh", ["search", "prs", "fix", "--author", "@me", "--state", "open"], None
+        ).to_output(tool_format)
+    }
 
 > User: show recent workflows
 > Assistant:
