@@ -424,6 +424,27 @@ Plugins can be distributed as:
 
       cp -r my_plugin ~/.config/gptme/plugins/
 
+.. rubric:: Entry Points (Published Packages)
+
+For ``pip install``-able packages that need to register components automatically, gptme supports Python entry points. This is the standard mechanism used by pytest plugins, setuptools console_scripts, etc.
+
+Currently supported entry point groups:
+
+======================= ==========================================================
+Group                   Registers
+======================= ==========================================================
+``gptme.providers``     LLM provider plugins (see :doc:`providers`)
+======================= ==========================================================
+
+**Example** (in the plugin package's ``pyproject.toml``)::
+
+    [project.entry-points."gptme.providers"]
+    minimax = "gptme_provider_minimax:provider"
+
+Entry points are discovered automatically at startup — no configuration needed beyond installing the package. This complements the folder-based plugin system: use entry points for published packages, folder-based plugins for local/user-local extensions.
+
+See `issue #1849 <https://github.com/gptme/gptme/issues/1849>`_ for plans to extend entry-points to tools, hooks, and commands.
+
 Migration from TOOL_MODULES
 ----------------------------
 

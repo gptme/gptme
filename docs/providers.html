@@ -467,6 +467,66 @@
 <p class="admonition-title">Note</p>
 <p>We are in the process of adding support for configurable <a class="reference external" href="custom-providers">custom providers</a>.</p>
 </div>
+<p class="rubric">Provider Plugins (Entry Points)</p>
+<p>Third-party packages can register LLM providers via Python entry points, making them available immediately after <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span></code> without any configuration changes.</p>
+<p><strong>How it works:</strong> A plugin package declares an entry point in the <code class="docutils literal notranslate"><span class="pre">gptme.providers</span></code> group:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">[</span><span class="n">project</span><span class="o">.</span><span class="n">entry</span><span class="o">-</span><span class="n">points</span><span class="o">.</span><span class="s2">&quot;gptme.providers&quot;</span><span class="p">]</span>
+<span class="n">minimax</span> <span class="o">=</span> <span class="s2">&quot;gptme_provider_minimax:provider&quot;</span>
+</pre></div>
+</div>
+<p>Where <code class="docutils literal notranslate"><span class="pre">provider</span></code> is a <code class="docutils literal notranslate"><span class="pre">ProviderPlugin</span></code> instance.</p>
+<p><strong>Usage:</strong> Once installed, use the provider name as the model prefix:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="n">gptme</span><span class="o">-</span><span class="n">provider</span><span class="o">-</span><span class="n">minimax</span>
+<span class="n">gptme</span> <span class="s2">&quot;hello&quot;</span> <span class="o">-</span><span class="n">m</span> <span class="n">minimax</span><span class="o">/</span><span class="n">abab6</span><span class="mf">.5</span><span class="n">s</span><span class="o">-</span><span class="n">chat</span>
+</pre></div>
+</div>
+<p><strong>Creating a provider plugin:</strong></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">gptme.llm.models</span> <span class="kn">import</span> <span class="n">ModelMeta</span><span class="p">,</span> <span class="n">ProviderPlugin</span>
+
+<span class="n">provider</span> <span class="o">=</span> <span class="n">ProviderPlugin</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;minimax&quot;</span><span class="p">,</span>                          <span class="c1"># Unique provider name</span>
+    <span class="n">api_key_env</span><span class="o">=</span><span class="s2">&quot;MINIMAX_API_KEY&quot;</span><span class="p">,</span>           <span class="c1"># Env var for API key</span>
+    <span class="n">base_url</span><span class="o">=</span><span class="s2">&quot;https://api.minimax.chat/v1&quot;</span><span class="p">,</span>  <span class="c1"># OpenAI-compatible endpoint</span>
+    <span class="n">models</span><span class="o">=</span><span class="p">[</span>
+        <span class="n">ModelMeta</span><span class="p">(</span><span class="n">provider</span><span class="o">=</span><span class="s2">&quot;unknown&quot;</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s2">&quot;minimax/abab6.5s-chat&quot;</span><span class="p">,</span> <span class="n">context</span><span class="o">=</span><span class="mi">245_760</span><span class="p">),</span>
+    <span class="p">],</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>ProviderPlugin fields:</strong></p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Field</p></th>
+<th class="head"><p>Required</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">name</span></code></p></td>
+<td><p>Yes</p></td>
+<td><p>Unique provider name (e.g. <code class="docutils literal notranslate"><span class="pre">&quot;minimax&quot;</span></code>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">api_key_env</span></code></p></td>
+<td><p>Yes</p></td>
+<td><p>Environment variable holding the API key</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">base_url</span></code></p></td>
+<td><p>Yes</p></td>
+<td><p>OpenAI-compatible API base URL</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">models</span></code></p></td>
+<td><p>No</p></td>
+<td><p>List of <code class="docutils literal notranslate"><span class="pre">ModelMeta</span></code> objects</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">init</span></code></p></td>
+<td><p>No</p></td>
+<td><p>Custom <code class="docutils literal notranslate"><span class="pre">(Config)</span> <span class="pre">-&gt;</span> <span class="pre">None</span></code>; <code class="docutils literal notranslate"><span class="pre">None</span></code> = auto-init OpenAI client</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>If <code class="docutils literal notranslate"><span class="pre">init</span></code> is provided, it <strong>must</strong> register an OpenAI-compatible client before returning, or gptme will raise a <code class="docutils literal notranslate"><span class="pre">RuntimeError</span></code>.</p>
+<p>Plugin providers are auto-initialised on first use and routed through the OpenAI client path. See <a class="reference internal" href="plugins.html"><span class="doc">Plugin System</span></a> for the broader plugin architecture and <a class="reference external" href="https://github.com/gptme/gptme/issues/1849">issue #1849</a> for plans to extend entry-points to other component types.</p>
 <p>You can find our model recommendations on the <a class="reference internal" href="evals.html"><span class="doc">Evals</span></a> page.</p>
 <div class="toctree-wrapper compound">
 <ul>
