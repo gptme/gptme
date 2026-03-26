@@ -372,8 +372,8 @@ class TestToolUseFormatting:
     def test_to_xml_escapes_args(self):
         tu = ToolUse("save", ['file "name".py'], "content", start=0)
         result = tu.to_output("xml")
-        # quoteattr handles the escaping
-        assert "file" in result
+        # quoteattr switches to single quotes around the attribute value here
+        assert "args='file \"name\".py'" in result
 
 
 # ── ToolUse._iter_from_xml ─────────────────────────────────────────
@@ -468,11 +468,11 @@ class TestToolUseToolFormat:
 
 class TestGetPath:
     def test_from_args(self):
-        path = get_path("content", ["save", "test.py"], None)
+        path = get_path("content", ["save test.py"], None)
         assert path == Path("test.py")
 
     def test_from_args_with_space(self):
-        path = get_path("content", ["save", "my file.py"], None)
+        path = get_path("content", ["save my file.py"], None)
         assert path == Path("my file.py")
 
     def test_from_kwargs(self):
@@ -488,11 +488,11 @@ class TestGetPath:
         assert "~" not in str(path)
 
     def test_append_prefix(self):
-        path = get_path("content", ["append", "log.txt"], None)
+        path = get_path("content", ["append log.txt"], None)
         assert path == Path("log.txt")
 
     def test_patch_prefix(self):
-        path = get_path("diff content", ["patch", "src/main.py"], None)
+        path = get_path("diff content", ["patch src/main.py"], None)
         assert path == Path("src/main.py")
 
 
