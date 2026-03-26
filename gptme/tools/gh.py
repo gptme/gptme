@@ -407,6 +407,13 @@ def execute_gh(
             )
             return
 
+        if github_info["type"] != "pull":
+            yield Message(
+                "system",
+                f"Error: Reference is not a GitHub PR (got {github_info['type']}). Use `gh issue view` for issues.",
+            )
+            return
+
         url = f"https://github.com/{github_info['owner']}/{github_info['repo']}/pull/{github_info['number']}"
         content = get_github_pr_content(url)
         if content:

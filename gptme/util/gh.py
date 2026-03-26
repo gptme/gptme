@@ -188,7 +188,7 @@ def _get_repo_from_git_remote(
             path_parts = parsed.path.strip("/").removesuffix(".git").split("/")
             if len(path_parts) == 2:
                 return path_parts[0], path_parts[1]
-    except (subprocess.CalledProcessError, ValueError, AttributeError):
+    except (subprocess.CalledProcessError, OSError, ValueError, AttributeError):
         pass
     return None
 
