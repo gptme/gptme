@@ -693,7 +693,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fdcf8f87f60&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fcb94b440e0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1259,38 +1259,36 @@ Use a code block with the language tag: <span class="sb">`form`</span> followed 
 
 <span class="gs">**Instructions:**</span> Interact with GitHub via the GitHub CLI (gh).
 
-References can be full URLs, short refs (<span class="sb">`owner/repo#N`</span>), or bare numbers (<span class="sb">`#N`</span> / <span class="sb">`N`</span> when in a git repo).
+Refs: full URLs, <span class="sb">`owner/repo#N`</span>, <span class="sb">`#N`</span>, or bare <span class="sb">`N`</span> (when in a git repo).
 
-Use <span class="sb">`gh issue view &lt;ref&gt;`</span> to read an issue with its full body and all comments:
-<span class="sb">```gh</span><span class="w"> </span>issue view https://github.com/owner/repo/issues/42
-<span class="sb">```</span>
+Use <span class="sb">`gh issue view &lt;ref&gt;`</span> to read an issue with full body and all comments:
 <span class="sb">```gh</span><span class="w"> </span>issue view owner/repo#42
 <span class="sb">```</span>
 
-Use <span class="sb">`gh pr view &lt;ref&gt;`</span> to read a PR with its description, review comments, and code context:
+Use <span class="sb">`gh pr view &lt;ref&gt;`</span> to read a PR with description, reviews, and code context:
 <span class="sb">```gh</span><span class="w"> </span>pr view owner/repo#123
 <span class="sb">```</span>
 
-To get CI check status (with run IDs for failed checks):
+Use <span class="sb">`gh pr diff &lt;ref&gt;`</span> to inspect code changes without extra shell round-trips — diffstat + unified diff, auto-truncated for large PRs:
+<span class="sb">```gh</span><span class="w"> </span>pr diff owner/repo#123
+<span class="sb">```</span>
+
+For CI check status (with run IDs for failed checks):
 <span class="sb">```gh</span><span class="w"> </span>pr status &lt;ref&gt; [commit_sha]
 <span class="sb">```</span>
 
-To wait for all CI checks to complete:
+For CI check completion:
 <span class="sb">```gh</span><span class="w"> </span>pr checks &lt;ref&gt; [commit_sha]
 <span class="sb">```</span>
 
-The optional commit_sha checks a specific commit instead of the PR head.
-
-For multi-line comments, use <span class="sb">`--body-file`</span> with a heredoc:
+For multi-line comments, use <span class="sb">`--body-file`</span> to avoid <span class="sb">`\n`</span> literal issues:
 <span class="sb">```shell</span>
 gh<span class="w"> </span>issue<span class="w"> </span>comment<span class="w"> </span>NUM<span class="w"> </span>--repo<span class="w"> </span>owner/repo<span class="w"> </span>--body-file<span class="w"> </span>-<span class="w"> </span><span class="s">&lt;&lt; &#39;EOF&#39;</span>
-<span class="s">## Summary</span>
 <span class="s">Body here</span>
 <span class="s">EOF</span>
 <span class="sb">```</span>
-Avoid <span class="sb">`--body &quot;text\nmore text&quot;`</span>: <span class="sb">`\n`</span> posts literally, <span class="sb">`$`</span> triggers expansion.
 
-For other operations, use the <span class="sb">`shell`</span> tool with the <span class="sb">`gh`</span> command.
+For other operations, use the <span class="sb">`shell`</span> tool with <span class="sb">`gh`</span>.
 
 <span class="gu">### Examples</span>
 
@@ -1303,6 +1301,12 @@ For other operations, use the <span class="sb">`shell`</span> tool with the <spa
 <span class="k">&gt; </span><span class="ge">User: read PR #123 on owner/repo</span>
 <span class="k">&gt; </span><span class="ge">Assistant:</span>
 <span class="sb">```gh</span><span class="w"> </span>pr view owner/repo#123
+<span class="s">None</span>
+<span class="sb">```</span>
+
+<span class="k">&gt; </span><span class="ge">User: show the code changes in this PR</span>
+<span class="k">&gt; </span><span class="ge">Assistant:</span>
+<span class="sb">```gh</span><span class="w"> </span>pr diff owner/repo#123
 <span class="s">None</span>
 <span class="sb">```</span>
 
@@ -2263,7 +2267,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 12466</p>
+<p>Tokens: 12474</p>
 </dd></dl>
 
 <dl class="py function">
