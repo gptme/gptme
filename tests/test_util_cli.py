@@ -289,6 +289,7 @@ def test_models_list_json_suppresses_provider_noise(mocker):
         return [
             SimpleNamespace(
                 provider="openai",
+                provider_key="openai",
                 model="gpt-5",
                 full="openai/gpt-5",
                 context=400000,
