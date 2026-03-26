@@ -1,5 +1,4 @@
 import re
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import (
@@ -13,6 +12,8 @@ from typing import (
 from typing_extensions import NotRequired
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from ...config import Config
     from ...tools.base import ToolFormat
 

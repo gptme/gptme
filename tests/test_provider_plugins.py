@@ -7,8 +7,11 @@ get_model() resolution for plugin providers, and init_llm() routing.
 from __future__ import annotations
 
 import importlib.metadata
-from collections.abc import Callable
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 import pytest
 
