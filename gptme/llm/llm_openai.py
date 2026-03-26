@@ -302,7 +302,7 @@ def init(provider: Provider, config: Config):
         api_key = config.get_env("OPENAI_API_KEY") or "ollama"
         clients[provider] = OpenAI(api_key=api_key, base_url=api_base, timeout=timeout)
     else:
-        # Check if this is a custom provider
+        # Check if this is a custom provider (config-file based)
         custom_provider = next(
             (p for p in config.user.providers if p.name == provider), None
         )
@@ -314,7 +314,24 @@ def init(provider: Provider, config: Config):
                 timeout=timeout,
             )
         else:
-            raise ValueError(f"Unknown provider: {provider}")
+            # Check if this is a plugin provider (entry-point based)
+            from .provider_plugins import get_provider_plugin  # fmt: skip
+
+            plugin = get_provider_plugin(str(provider))
+            if plugin:
+                api_key = config.get_env(plugin.api_key_env) or ""
+                if not api_key:
+                    raise KeyError(
+                        f"Missing environment variable {plugin.api_key_env} "
+                        f"required by provider plugin {plugin.name!r}"
+                    )
+                clients[provider] = OpenAI(
+                    api_key=api_key,
+                    base_url=plugin.base_url,
+                    timeout=timeout,
+                )
+            else:
+                raise ValueError(f"Unknown provider: {provider}")
 
     assert clients[provider], f"Provider {provider} not initialized"
 

@@ -37,6 +37,11 @@ from .models import (
     get_model,
     is_custom_provider,
 )
+from .provider_plugins import (
+    get_plugin_api_keys,
+    get_provider_plugin,
+    is_plugin_provider,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +83,14 @@ def init_llm(provider: Provider):
         init_anthropic(config)
     elif provider == "openai-subscription" and not _subscription_initialized:
         _subscription_initialized = init_subscription(config)
+    elif is_plugin_provider(str(provider)) and not get_openai_client(provider):
+        plugin = get_provider_plugin(str(provider))
+        assert plugin is not None
+        if plugin.init is not None:
+            plugin.init(config)
+        else:
+            # Auto-init as OpenAI-compatible client (handled by llm_openai.init)
+            init_openai(provider, config)
     else:
         logger.debug(f"Provider {provider} already initialized or unknown")
 
@@ -169,6 +182,10 @@ def get_provider_from_model(model: str) -> Provider:
 
     # Check custom providers from config - wrap in CustomProvider
     if is_custom_provider(provider_str):
+        return CustomProvider(provider_str)
+
+    # Check plugin providers - also wrap in CustomProvider so OpenAI routing applies
+    if is_plugin_provider(provider_str):
         return CustomProvider(provider_str)
 
     raise ValueError(f"Unknown provider: {provider_str}")
@@ -533,6 +550,11 @@ def list_available_providers() -> list[tuple[Provider, str]]:
     _token_path = _config_dir / "gptme" / "oauth" / "openai_subscription.json"
     if _token_path.exists():
         available.append((cast(Provider, "openai-subscription"), "oauth"))
+
+    # Include plugin providers that have their API key configured
+    for plugin_name, env_var in get_plugin_api_keys().items():
+        if config.get_env(env_var):
+            available.append((CustomProvider(plugin_name), env_var))
 
     return available
 
