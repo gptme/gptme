@@ -12,8 +12,11 @@ from gptme.tools.gh import (
     _extract_url,
     _format_check_results,
     _get_pr_check_runs,
+    _handle_comment,
+    _handle_issue_create,
     _handle_pr_merge,
     _handle_pr_status,
+    _parse_flags,
     _parse_list_flags,
     _resolve_ref,
     _resolve_repo_for_list,
@@ -1422,3 +1425,302 @@ class TestHandlePrMerge:
         assert mock_merge.call_args[1]["auto"] is True
         assert mock_merge.call_args[1]["delete_branch"] is True
         assert mock_merge.call_args[1]["match_head_commit"] == "sha123"
+
+
+# --- _parse_flags tests ---
+
+
+class TestParseFlags:
+    """Tests for _parse_flags helper."""
+
+    def test_empty_args(self):
+        positional, flags = _parse_flags(["issue", "create"], start=2)
+        assert positional == []
+        assert flags == {}
+
+    def test_flags_only(self):
+        positional, flags = _parse_flags(
+            ["issue", "create", "--title", "Bug", "--body", "Details"], start=2
+        )
+        assert positional == []
+        assert flags == {"title": "Bug", "body": "Details"}
+
+    def test_mixed_positional_and_flags(self):
+        positional, flags = _parse_flags(
+            ["issue", "comment", "owner/repo#42", "--body", "Hello"], start=2
+        )
+        assert positional == ["owner/repo#42"]
+        assert flags == {"body": "Hello"}
+
+    def test_boolean_flag(self):
+        positional, flags = _parse_flags(
+            ["pr", "merge", "ref", "--auto", "--squash"], start=2
+        )
+        assert "ref" in positional
+        assert flags["auto"] == "true"
+        assert flags["squash"] == "true"
+
+
+# --- _handle_issue_create tests ---
+
+
+class TestHandleIssueCreate:
+    """Tests for _handle_issue_create."""
+
+    @patch("gptme.tools.gh.create_github_issue")
+    @patch("gptme.tools.gh._get_repo_from_git_remote", return_value=None)
+    def test_no_repo(self, mock_remote, mock_create):
+        """Error when no repo can be determined."""
+        messages = list(_handle_issue_create(["issue", "create", "--title", "Bug"]))
+        assert len(messages) == 1
+        assert "Could not determine repository" in messages[0].content
+        mock_create.assert_not_called()
+
+    @patch("gptme.tools.gh.create_github_issue")
+    def test_no_title(self, mock_create):
+        """Error when --title is missing."""
+        messages = list(
+            _handle_issue_create(["issue", "create", "--repo", "owner/repo"])
+        )
+        assert len(messages) == 1
+        assert "--title is required" in messages[0].content
+        mock_create.assert_not_called()
+
+    @patch("gptme.tools.gh.create_github_issue")
+    def test_success_with_repo_flag(self, mock_create):
+        """Successful issue creation with --repo flag."""
+        mock_create.return_value = {
+            "success": True,
+            "number": 42,
+            "url": "https://github.com/owner/repo/issues/42",
+            "message": "Created issue #42: Fix bug",
+        }
+        messages = list(
+            _handle_issue_create(
+                [
+                    "issue",
+                    "create",
+                    "--repo",
+                    "owner/repo",
+                    "--title",
+                    "Fix bug",
+                    "--body",
+                    "Description",
+                ]
+            )
+        )
+        assert len(messages) == 1
+        assert "✓" in messages[0].content
+        assert "Created issue #42" in messages[0].content
+        mock_create.assert_called_once_with(
+            "owner", "repo", "Fix bug", "Description", labels=None, assignees=None
+        )
+
+    @patch("gptme.tools.gh.create_github_issue")
+    def test_with_labels_and_assignees(self, mock_create):
+        """Labels and assignees are parsed correctly."""
+        mock_create.return_value = {
+            "success": True,
+            "number": 1,
+            "url": "https://github.com/o/r/issues/1",
+            "message": "Created issue #1: Test",
+        }
+        list(
+            _handle_issue_create(
+                [
+                    "issue",
+                    "create",
+                    "--repo",
+                    "o/r",
+                    "--title",
+                    "Test",
+                    "--label",
+                    "bug,urgent",
+                    "--assignee",
+                    "alice,bob",
+                ]
+            )
+        )
+        mock_create.assert_called_once_with(
+            "o", "r", "Test", "", labels=["bug", "urgent"], assignees=["alice", "bob"]
+        )
+
+    @patch("gptme.tools.gh.create_github_issue")
+    @patch("gptme.tools.gh._get_repo_from_git_remote", return_value=("auto", "repo"))
+    def test_auto_detect_repo(self, mock_remote, mock_create):
+        """Repo auto-detected from git remote when --repo not given."""
+        mock_create.return_value = {
+            "success": True,
+            "number": 5,
+            "url": "https://github.com/auto/repo/issues/5",
+            "message": "Created issue #5: Auto",
+        }
+        messages = list(_handle_issue_create(["issue", "create", "--title", "Auto"]))
+        assert "✓" in messages[0].content
+        mock_create.assert_called_once_with(
+            "auto", "repo", "Auto", "", labels=None, assignees=None
+        )
+
+    @patch("gptme.tools.gh.create_github_issue")
+    def test_failure(self, mock_create):
+        """Error message on failure."""
+        mock_create.return_value = {
+            "success": False,
+            "number": 0,
+            "url": "",
+            "message": "Permission denied",
+        }
+        messages = list(
+            _handle_issue_create(["issue", "create", "--repo", "o/r", "--title", "X"])
+        )
+        assert "Error:" in messages[0].content
+        assert "Permission denied" in messages[0].content
+
+
+# --- _handle_comment tests ---
+
+
+class TestHandleComment:
+    """Tests for _handle_comment (issue and PR commenting)."""
+
+    @patch("gptme.tools.gh.comment_on_github")
+    def test_issue_comment_success(self, mock_comment):
+        """Successful issue comment."""
+        mock_comment.return_value = {
+            "success": True,
+            "url": "https://github.com/o/r/issues/42#issuecomment-123",
+            "message": "Commented on issue #42",
+        }
+        messages = list(
+            _handle_comment(["issue", "comment", "o/r#42", "--body", "Fixed in PR #50"])
+        )
+        assert len(messages) == 1
+        assert "✓" in messages[0].content
+        assert "Commented on issue #42" in messages[0].content
+        mock_comment.assert_called_once_with(
+            "o", "r", 42, "Fixed in PR #50", kind="issue"
+        )
+
+    @patch("gptme.tools.gh.comment_on_github")
+    def test_pr_comment_success(self, mock_comment):
+        """Successful PR comment."""
+        mock_comment.return_value = {
+            "success": True,
+            "url": "https://github.com/o/r/pull/10#issuecomment-456",
+            "message": "Commented on pr #10",
+        }
+        messages = list(_handle_comment(["pr", "comment", "o/r#10", "--body", "LGTM"]))
+        assert len(messages) == 1
+        assert "✓" in messages[0].content
+        mock_comment.assert_called_once_with("o", "r", 10, "LGTM", kind="pr")
+
+    def test_missing_ref(self):
+        """Error when reference is missing."""
+        messages = list(_handle_comment(["issue", "comment"]))
+        assert "Missing reference" in messages[0].content
+
+    def test_missing_body(self):
+        """Error when --body is missing."""
+        messages = list(_handle_comment(["issue", "comment", "o/r#42"]))
+        assert "--body is required" in messages[0].content
+
+    def test_invalid_ref(self):
+        """Error when reference cannot be parsed."""
+        messages = list(
+            _handle_comment(["issue", "comment", "invalid", "--body", "text"])
+        )
+        assert "Could not parse reference" in messages[0].content
+
+    @patch("gptme.tools.gh.comment_on_github")
+    def test_comment_failure(self, mock_comment):
+        """Error message on failure."""
+        mock_comment.return_value = {
+            "success": False,
+            "url": "",
+            "message": "Failed to comment on issue #42: Not Found",
+        }
+        messages = list(
+            _handle_comment(["issue", "comment", "o/r#42", "--body", "text"])
+        )
+        assert "Error:" in messages[0].content
+        assert "Not Found" in messages[0].content
+
+    @patch("gptme.tools.gh.comment_on_github")
+    def test_comment_with_url(self, mock_comment):
+        """URL reference works for commenting."""
+        mock_comment.return_value = {
+            "success": True,
+            "url": "",
+            "message": "Commented on issue #42",
+        }
+        list(
+            _handle_comment(
+                [
+                    "issue",
+                    "comment",
+                    "https://github.com/owner/repo/issues/42",
+                    "--body",
+                    "Hi",
+                ]
+            )
+        )
+        mock_comment.assert_called_once_with("owner", "repo", 42, "Hi", kind="issue")
+
+
+# --- execute_gh integration tests for new commands ---
+
+
+class TestExecuteGhNewCommands:
+    """Integration tests for issue create and comment via execute_gh."""
+
+    @patch("gptme.tools.gh.create_github_issue")
+    def test_execute_issue_create(self, mock_create):
+        """execute_gh dispatches gh issue create correctly."""
+        mock_create.return_value = {
+            "success": True,
+            "number": 99,
+            "url": "https://github.com/o/r/issues/99",
+            "message": "Created issue #99: Test",
+        }
+        messages = list(
+            execute_gh(
+                None,
+                ["issue", "create", "--repo", "o/r", "--title", "Test", "--body", "B"],
+                None,
+            )
+        )
+        assert any("✓" in m.content for m in messages)
+
+    @patch("gptme.tools.gh.comment_on_github")
+    def test_execute_issue_comment(self, mock_comment):
+        """execute_gh dispatches gh issue comment correctly."""
+        mock_comment.return_value = {
+            "success": True,
+            "url": "",
+            "message": "Commented on issue #1",
+        }
+        messages = list(
+            execute_gh(
+                None,
+                ["issue", "comment", "o/r#1", "--body", "Done"],
+                None,
+            )
+        )
+        assert any("✓" in m.content for m in messages)
+
+    @patch("gptme.tools.gh.comment_on_github")
+    def test_execute_pr_comment(self, mock_comment):
+        """execute_gh dispatches gh pr comment correctly."""
+        mock_comment.return_value = {
+            "success": True,
+            "url": "",
+            "message": "Commented on pr #5",
+        }
+        messages = list(
+            execute_gh(
+                None,
+                ["pr", "comment", "o/r#5", "--body", "Reviewed"],
+                None,
+            )
+        )
+        assert any("✓" in m.content for m in messages)

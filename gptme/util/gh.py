@@ -1386,3 +1386,112 @@ def merge_github_pr(
             "success": False,
             "message": f"Failed to merge PR #{pr_number}: {stderr or str(e)}",
         }
+
+
+def create_github_issue(
+    owner: str,
+    repo: str,
+    title: str,
+    body: str = "",
+    labels: list[str] | None = None,
+    assignees: list[str] | None = None,
+) -> dict[str, object]:
+    """Create a GitHub issue using the gh CLI.
+
+    Returns:
+        Dict with keys: success (bool), number (int), url (str), message (str)
+    """
+    cmd = [
+        "gh",
+        "issue",
+        "create",
+        "--repo",
+        f"{owner}/{repo}",
+        "--title",
+        title,
+    ]
+    if body:
+        cmd.extend(["--body", body])
+    if labels:
+        cmd.extend(["--label", ",".join(labels)])
+    if assignees:
+        cmd.extend(["--assignee", ",".join(assignees)])
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        # gh issue create outputs the URL on success
+        url = result.stdout.strip()
+        # Extract issue number from URL (e.g. https://github.com/owner/repo/issues/42)
+        number = url.rsplit("/", 1)[-1] if "/" in url else ""
+        return {
+            "success": True,
+            "number": int(number) if number.isdigit() else 0,
+            "url": url,
+            "message": f"Created issue #{number}: {title}",
+        }
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.strip() if e.stderr else ""
+        return {
+            "success": False,
+            "number": 0,
+            "url": "",
+            "message": f"Failed to create issue: {stderr or str(e)}",
+        }
+
+
+def comment_on_github(
+    owner: str,
+    repo: str,
+    number: int,
+    body: str,
+    kind: str = "issue",
+) -> dict[str, object]:
+    """Comment on a GitHub issue or PR using the gh CLI.
+
+    Args:
+        owner: Repository owner
+        repo: Repository name
+        number: Issue or PR number
+        body: Comment body text
+        kind: "issue" or "pr"
+
+    Returns:
+        Dict with keys: success (bool), url (str), message (str)
+    """
+    subcmd = "issue" if kind == "issue" else "pr"
+    cmd = [
+        "gh",
+        subcmd,
+        "comment",
+        str(number),
+        "--repo",
+        f"{owner}/{repo}",
+        "--body",
+        body,
+    ]
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        url = result.stdout.strip()
+        return {
+            "success": True,
+            "url": url,
+            "message": f"Commented on {subcmd} #{number}",
+        }
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.strip() if e.stderr else ""
+        return {
+            "success": False,
+            "url": "",
+            "message": f"Failed to comment on {subcmd} #{number}: {stderr or str(e)}",
+        }

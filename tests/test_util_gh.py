@@ -1,6 +1,7 @@
 """Tests for GitHub utility functions."""
 
 import json
+import subprocess
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -8,6 +9,8 @@ import pytest
 from gptme.util.gh import (
     _extract_failure_sections,
     _get_repo_from_git_remote,
+    comment_on_github,
+    create_github_issue,
     get_github_issue_list,
     get_github_pr_content,
     get_github_pr_list,
@@ -1143,3 +1146,138 @@ class TestMergeGithubPr:
 
         result = merge_github_pr("owner", "repo", 42)
         assert result["url"] == "https://github.com/owner/repo/pull/42"
+
+
+# --- create_github_issue tests ---
+
+
+class TestCreateGitHubIssue:
+    """Tests for create_github_issue."""
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_success_minimal(self, mock_run):
+        """Successful issue creation with minimal args."""
+        mock_run.return_value = MagicMock(
+            stdout="https://github.com/owner/repo/issues/42\n",
+            returncode=0,
+        )
+        result = create_github_issue("owner", "repo", "Bug report")
+        assert result["success"] is True
+        assert result["number"] == 42
+        assert "issues/42" in str(result["url"])
+        cmd = mock_run.call_args[0][0]
+        assert "issue" in cmd
+        assert "create" in cmd
+        assert "--title" in cmd
+        assert "Bug report" in cmd
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_success_with_body_labels_assignees(self, mock_run):
+        """All optional fields passed to gh CLI."""
+        mock_run.return_value = MagicMock(
+            stdout="https://github.com/o/r/issues/1\n", returncode=0
+        )
+        result = create_github_issue(
+            "o", "r", "Title", body="Body", labels=["bug", "p1"], assignees=["alice"]
+        )
+        assert result["success"] is True
+        cmd = mock_run.call_args[0][0]
+        assert "--body" in cmd
+        idx = cmd.index("--body")
+        assert cmd[idx + 1] == "Body"
+        assert "--label" in cmd
+        idx = cmd.index("--label")
+        assert cmd[idx + 1] == "bug,p1"
+        assert "--assignee" in cmd
+        idx = cmd.index("--assignee")
+        assert cmd[idx + 1] == "alice"
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_no_body(self, mock_run):
+        """Empty body omits --body flag."""
+        mock_run.return_value = MagicMock(
+            stdout="https://github.com/o/r/issues/1\n", returncode=0
+        )
+        create_github_issue("o", "r", "Title", body="")
+        cmd = mock_run.call_args[0][0]
+        assert "--body" not in cmd
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_failure(self, mock_run):
+        """CalledProcessError returns failure dict."""
+        mock_run.side_effect = subprocess.CalledProcessError(
+            1, "gh", stderr="Not Found"
+        )
+        result = create_github_issue("o", "r", "Title")
+        assert result["success"] is False
+        assert "Not Found" in str(result["message"])
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_non_numeric_url(self, mock_run):
+        """Handles unexpected URL format gracefully."""
+        mock_run.return_value = MagicMock(stdout="unexpected output\n", returncode=0)
+        result = create_github_issue("o", "r", "Title")
+        assert result["success"] is True
+        assert result["number"] == 0  # Can't parse number
+
+
+# --- comment_on_github tests ---
+
+
+class TestCommentOnGitHub:
+    """Tests for comment_on_github."""
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_issue_comment_success(self, mock_run):
+        """Successful issue comment."""
+        mock_run.return_value = MagicMock(
+            stdout="https://github.com/o/r/issues/42#issuecomment-123\n",
+            returncode=0,
+        )
+        result = comment_on_github("o", "r", 42, "Hello", kind="issue")
+        assert result["success"] is True
+        assert "issue #42" in str(result["message"])
+        cmd = mock_run.call_args[0][0]
+        assert cmd[1] == "issue"
+        assert cmd[2] == "comment"
+        assert cmd[3] == "42"
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_pr_comment_success(self, mock_run):
+        """Successful PR comment."""
+        mock_run.return_value = MagicMock(
+            stdout="https://github.com/o/r/pull/10#issuecomment-456\n",
+            returncode=0,
+        )
+        result = comment_on_github("o", "r", 10, "LGTM", kind="pr")
+        assert result["success"] is True
+        cmd = mock_run.call_args[0][0]
+        assert cmd[1] == "pr"
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_comment_body_passed(self, mock_run):
+        """Comment body is passed correctly."""
+        mock_run.return_value = MagicMock(stdout="", returncode=0)
+        comment_on_github("o", "r", 1, "Multi\nline\nbody", kind="issue")
+        cmd = mock_run.call_args[0][0]
+        idx = cmd.index("--body")
+        assert cmd[idx + 1] == "Multi\nline\nbody"
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_comment_failure(self, mock_run):
+        """CalledProcessError returns failure dict."""
+        mock_run.side_effect = subprocess.CalledProcessError(
+            1, "gh", stderr="Forbidden"
+        )
+        result = comment_on_github("o", "r", 42, "text", kind="issue")
+        assert result["success"] is False
+        assert "Forbidden" in str(result["message"])
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_repo_flag(self, mock_run):
+        """--repo flag is constructed correctly."""
+        mock_run.return_value = MagicMock(stdout="", returncode=0)
+        comment_on_github("owner", "repo", 5, "Hi", kind="pr")
+        cmd = mock_run.call_args[0][0]
+        idx = cmd.index("--repo")
+        assert cmd[idx + 1] == "owner/repo"
