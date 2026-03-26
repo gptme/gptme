@@ -39,12 +39,14 @@ def discover_entrypoint_plugins() -> tuple[GptmePlugin, ...]:
 
         if isinstance(obj, GptmePlugin):
             plugins.append(obj)
+            logger.debug("Loaded entry-point plugin: %s", obj.name)
         elif callable(obj):
             # Support factory functions that return GptmePlugin
             try:
                 result = obj()
                 if isinstance(result, GptmePlugin):
                     plugins.append(result)
+                    logger.debug("Loaded entry-point plugin: %s", result.name)
                 else:
                     logger.warning(
                         "Plugin factory %r returned %r instead of GptmePlugin; skipping",
@@ -59,11 +61,6 @@ def discover_entrypoint_plugins() -> tuple[GptmePlugin, ...]:
                 ep.name,
                 type(obj).__name__,
             )
-            continue
-
-        logger.debug(
-            "Loaded entry-point plugin: %s", plugins[-1].name if plugins else ep.name
-        )
 
     return tuple(plugins)
 

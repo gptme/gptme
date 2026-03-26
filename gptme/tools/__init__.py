@@ -337,11 +337,13 @@ def get_available_tools(include_mcp: bool = True) -> list[ToolSpec]:
                 if mod not in tool_modules:
                     tool_modules.append(mod)
 
-        available_tools = sorted(_discover_tools(tool_modules))
+        available_tools = list(_discover_tools(tool_modules))
 
         # Add direct ToolSpec instances from unified plugins
         for plugin in get_all_plugins():
             available_tools.extend(plugin.tools)
+
+        available_tools.sort()
 
         if include_mcp:
             available_tools.extend(create_mcp_tools(config))

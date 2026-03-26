@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 _all_plugins: list[GptmePlugin] = []
 _initialized = False
+_initialized_plugins: set[str] = set()
 
 
 def get_all_plugins() -> list[GptmePlugin]:
@@ -74,9 +75,10 @@ def discover_all_plugins(
 
     config = get_config()
     for p in plugins:
-        if p.init:
+        if p.init and p.name not in _initialized_plugins:
             try:
                 p.init(config)
+                _initialized_plugins.add(p.name)
             except Exception as exc:
                 logger.warning("Plugin %r init failed: %s", p.name, exc)
 
@@ -89,6 +91,7 @@ def clear_registry() -> None:
     """Clear the plugin registry.  Useful in tests."""
     global _initialized
     _all_plugins.clear()
+    _initialized_plugins.clear()
     _initialized = False
 
 
