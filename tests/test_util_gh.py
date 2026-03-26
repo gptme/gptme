@@ -1194,13 +1194,14 @@ class TestCreateGitHubIssue:
 
     @patch("gptme.util.gh.subprocess.run")
     def test_no_body(self, mock_run):
-        """Empty body omits --body flag."""
+        """Empty body still passes --body '' to avoid non-TTY interactive prompt."""
         mock_run.return_value = MagicMock(
             stdout="https://github.com/o/r/issues/1\n", returncode=0
         )
         create_github_issue("o", "r", "Title", body="")
         cmd = mock_run.call_args[0][0]
-        assert "--body" not in cmd
+        assert "--body" in cmd
+        assert cmd[cmd.index("--body") + 1] == ""
 
     @patch("gptme.util.gh.subprocess.run")
     def test_failure(self, mock_run):

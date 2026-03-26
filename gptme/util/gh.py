@@ -1410,8 +1410,7 @@ def create_github_issue(
         "--title",
         title,
     ]
-    if body:
-        cmd.extend(["--body", body])
+    cmd.extend(["--body", body])
     if labels:
         cmd.extend(["--label", ",".join(labels)])
     if assignees:

@@ -531,7 +531,13 @@ def _handle_issue_create(
     # Resolve repo
     repo_flag = flags.get("repo", "")
     owner, repo = "", ""
-    if "/" in repo_flag:
+    if repo_flag:
+        if "/" not in repo_flag:
+            yield Message(
+                "system",
+                "Error: --repo must be in owner/repo format.",
+            )
+            return
         owner, repo = repo_flag.split("/", 1)
     else:
         repo_info = _get_repo_from_git_remote()
@@ -574,7 +580,7 @@ def _handle_comment(
     ref_type = "issues" if kind == "issue" else "pull"
 
     # Need at least: gh issue/pr comment <ref> --body "..."
-    if len(args) < 3:
+    if len(args) < 3 or args[2].startswith("--"):
         yield Message(
             "system",
             f'Error: Missing reference. Usage: gh {kind} comment <owner/repo#N> --body "Comment text"',
