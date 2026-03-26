@@ -8,6 +8,7 @@ Merges plugins from all discovery mechanisms into a single list:
 
 from __future__ import annotations
 
+import importlib
 import logging
 from typing import TYPE_CHECKING
 
@@ -134,7 +135,7 @@ def _make_hook_registrar(hook_modules: list[str]):
     def registrar():
         for module_name in hook_modules:
             try:
-                module = __import__(module_name, fromlist=["register"])
+                module = importlib.import_module(module_name)
                 if hasattr(module, "register"):
                     module.register()
                     logger.debug("Registered hooks from %s", module_name)
@@ -155,7 +156,7 @@ def _make_command_registrar(command_modules: list[str]):
     def registrar():
         for module_name in command_modules:
             try:
-                module = __import__(module_name, fromlist=["register"])
+                module = importlib.import_module(module_name)
                 if hasattr(module, "register"):
                     module.register()
                     logger.debug("Registered commands from %s", module_name)

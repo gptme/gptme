@@ -127,7 +127,9 @@ class TestRegistrars:
         mock_module = MagicMock()
         mock_module.register = MagicMock()
 
-        with patch("builtins.__import__", return_value=mock_module):
+        with patch(
+            "gptme.plugins.registry.importlib.import_module", return_value=mock_module
+        ):
             registrar = _make_hook_registrar(["fake.hooks"])
             registrar()
 
@@ -137,13 +139,18 @@ class TestRegistrars:
         """Hook registrar warns when module has no register()."""
         mock_module = MagicMock(spec=[])  # No register attribute
 
-        with patch("builtins.__import__", return_value=mock_module):
+        with patch(
+            "gptme.plugins.registry.importlib.import_module", return_value=mock_module
+        ):
             registrar = _make_hook_registrar(["fake.hooks"])
             registrar()  # Should not raise
 
     def test_hook_registrar_handles_import_error(self):
         """Hook registrar handles import errors gracefully."""
-        with patch("builtins.__import__", side_effect=ImportError("nope")):
+        with patch(
+            "gptme.plugins.registry.importlib.import_module",
+            side_effect=ImportError("nope"),
+        ):
             registrar = _make_hook_registrar(["nonexistent.hooks"])
             registrar()  # Should not raise
 
@@ -152,7 +159,9 @@ class TestRegistrars:
         mock_module = MagicMock()
         mock_module.register = MagicMock()
 
-        with patch("builtins.__import__", return_value=mock_module):
+        with patch(
+            "gptme.plugins.registry.importlib.import_module", return_value=mock_module
+        ):
             registrar = _make_command_registrar(["fake.commands"])
             registrar()
 
