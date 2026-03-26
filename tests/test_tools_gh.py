@@ -13,6 +13,7 @@ from gptme.tools.gh import (
     _format_check_results,
     _get_pr_check_runs,
     _handle_pr_status,
+    _parse_list_flags,
     _wait_for_checks,
     execute_gh,
 )
@@ -714,3 +715,178 @@ class TestExecuteGh:
         messages = list(execute_gh(None, ["unknown", "command"], None))
         assert len(messages) == 1
         assert "gh run view" in messages[0].content
+
+
+# --- _parse_list_flags ---
+
+
+class TestParseListFlags:
+    def test_empty_args(self):
+        """No flags returns empty dict."""
+        assert _parse_list_flags(["issue", "list"]) == {}
+
+    def test_repo_flag(self):
+        flags = _parse_list_flags(["issue", "list", "--repo", "owner/repo"])
+        assert flags == {"repo": "owner/repo"}
+
+    def test_multiple_flags(self):
+        flags = _parse_list_flags(
+            ["issue", "list", "--repo", "o/r", "--state", "closed", "--limit", "10"]
+        )
+        assert flags == {"repo": "o/r", "state": "closed", "limit": "10"}
+
+    def test_label_flag(self):
+        flags = _parse_list_flags(["issue", "list", "--label", "bug,enhancement"])
+        assert flags == {"label": "bug,enhancement"}
+
+
+# --- gh issue list ---
+
+
+class TestIssueList:
+    @patch("gptme.tools.gh._get_repo_from_git_remote")
+    @patch("gptme.tools.gh.get_github_issue_list")
+    def test_issue_list_with_repo(self, mock_list, mock_remote):
+        """gh issue list --repo owner/repo returns structured output."""
+        mock_list.return_value = "Issues in owner/repo (open):\n\n  #1 Test issue"
+        messages = list(
+            execute_gh(None, ["issue", "list", "--repo", "owner/repo"], None)
+        )
+        assert len(messages) == 1
+        assert "Issues in owner/repo" in messages[0].content
+        mock_list.assert_called_once_with(
+            "owner", "repo", state="open", labels=None, limit=20
+        )
+        mock_remote.assert_not_called()
+
+    @patch("gptme.tools.gh._get_repo_from_git_remote")
+    @patch("gptme.tools.gh.get_github_issue_list")
+    def test_issue_list_auto_detect_repo(self, mock_list, mock_remote):
+        """gh issue list without --repo uses git remote."""
+        mock_remote.return_value = ("auto-owner", "auto-repo")
+        mock_list.return_value = "Issues in auto-owner/auto-repo (open):\n\n  #1 Issue"
+        messages = list(execute_gh(None, ["issue", "list"], None))
+        assert len(messages) == 1
+        mock_remote.assert_called_once()
+        mock_list.assert_called_once_with(
+            "auto-owner", "auto-repo", state="open", labels=None, limit=20
+        )
+
+    @patch("gptme.tools.gh._get_repo_from_git_remote")
+    def test_issue_list_no_repo_detected(self, mock_remote):
+        """gh issue list without --repo and no git remote fails gracefully."""
+        mock_remote.return_value = None
+        messages = list(execute_gh(None, ["issue", "list"], None))
+        assert len(messages) == 1
+        assert "Could not determine repository" in messages[0].content
+
+    @patch("gptme.tools.gh._get_repo_from_git_remote")
+    @patch("gptme.tools.gh.get_github_issue_list")
+    def test_issue_list_with_filters(self, mock_list, mock_remote):
+        """gh issue list with --state, --label, --limit flags."""
+        mock_list.return_value = "Issues in o/r (closed):\n\n  #5 Closed issue"
+        messages = list(
+            execute_gh(
+                None,
+                [
+                    "issue",
+                    "list",
+                    "--repo",
+                    "o/r",
+                    "--state",
+                    "closed",
+                    "--label",
+                    "bug",
+                    "--limit",
+                    "5",
+                ],
+                None,
+            )
+        )
+        assert len(messages) == 1
+        mock_list.assert_called_once_with(
+            "o", "r", state="closed", labels=["bug"], limit=5
+        )
+
+    @patch("gptme.tools.gh._get_repo_from_git_remote")
+    @patch("gptme.tools.gh.get_github_issue_list")
+    def test_issue_list_fetch_failure(self, mock_list, mock_remote):
+        """gh issue list when fetch fails."""
+        mock_list.return_value = None
+        messages = list(
+            execute_gh(None, ["issue", "list", "--repo", "owner/repo"], None)
+        )
+        assert len(messages) == 1
+        assert "Failed to list issues" in messages[0].content
+
+
+# --- gh pr list ---
+
+
+class TestPrList:
+    @patch("gptme.tools.gh._get_repo_from_git_remote")
+    @patch("gptme.tools.gh.get_github_pr_list")
+    def test_pr_list_with_repo(self, mock_list, mock_remote):
+        """gh pr list --repo owner/repo returns structured output."""
+        mock_list.return_value = "Pull requests in owner/repo (open):\n\n  #10 PR"
+        messages = list(execute_gh(None, ["pr", "list", "--repo", "owner/repo"], None))
+        assert len(messages) == 1
+        assert "Pull requests in owner/repo" in messages[0].content
+        mock_list.assert_called_once_with("owner", "repo", state="open", limit=20)
+        mock_remote.assert_not_called()
+
+    @patch("gptme.tools.gh._get_repo_from_git_remote")
+    @patch("gptme.tools.gh.get_github_pr_list")
+    def test_pr_list_auto_detect_repo(self, mock_list, mock_remote):
+        """gh pr list without --repo uses git remote."""
+        mock_remote.return_value = ("auto-owner", "auto-repo")
+        mock_list.return_value = (
+            "Pull requests in auto-owner/auto-repo (open):\n\n  #1 PR"
+        )
+        messages = list(execute_gh(None, ["pr", "list"], None))
+        assert len(messages) == 1
+        mock_remote.assert_called_once()
+
+    @patch("gptme.tools.gh._get_repo_from_git_remote")
+    def test_pr_list_no_repo_detected(self, mock_remote):
+        """gh pr list without --repo and no git remote fails gracefully."""
+        mock_remote.return_value = None
+        messages = list(execute_gh(None, ["pr", "list"], None))
+        assert len(messages) == 1
+        assert "Could not determine repository" in messages[0].content
+
+    @patch("gptme.tools.gh._get_repo_from_git_remote")
+    @patch("gptme.tools.gh.get_github_pr_list")
+    def test_pr_list_with_state_and_limit(self, mock_list, mock_remote):
+        """gh pr list with --state and --limit flags."""
+        mock_list.return_value = "Pull requests in o/r (merged):\n\n  #2 Merged PR"
+        messages = list(
+            execute_gh(
+                None,
+                ["pr", "list", "--repo", "o/r", "--state", "merged", "--limit", "10"],
+                None,
+            )
+        )
+        assert len(messages) == 1
+        mock_list.assert_called_once_with("o", "r", state="merged", limit=10)
+
+    @patch("gptme.tools.gh._get_repo_from_git_remote")
+    @patch("gptme.tools.gh.get_github_pr_list")
+    def test_pr_list_fetch_failure(self, mock_list, mock_remote):
+        """gh pr list when fetch fails."""
+        mock_list.return_value = None
+        messages = list(execute_gh(None, ["pr", "list", "--repo", "owner/repo"], None))
+        assert len(messages) == 1
+        assert "Failed to list pull requests" in messages[0].content
+
+    def test_unknown_command_lists_issue_list(self):
+        """Error message for unknown command includes gh issue list."""
+        messages = list(execute_gh(None, ["unknown", "command"], None))
+        assert len(messages) == 1
+        assert "gh issue list" in messages[0].content
+
+    def test_unknown_command_lists_pr_list(self):
+        """Error message for unknown command includes gh pr list."""
+        messages = list(execute_gh(None, ["unknown", "command"], None))
+        assert len(messages) == 1
+        assert "gh pr list" in messages[0].content

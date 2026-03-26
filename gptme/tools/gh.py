@@ -6,9 +6,12 @@ from collections.abc import Generator
 
 from ..message import Message
 from ..util.gh import (
+    _get_repo_from_git_remote,
     get_github_issue_content,
+    get_github_issue_list,
     get_github_pr_content,
     get_github_pr_diff,
+    get_github_pr_list,
     get_github_run_logs,
     parse_github_ref,
     parse_github_url,
@@ -295,6 +298,20 @@ def _format_check_results(check_runs: list, head_sha: str, pr_number: int) -> st
     return output
 
 
+def _parse_list_flags(args: list[str], start: int = 2) -> dict[str, str]:
+    """Parse --flag value pairs from args starting at given index."""
+    flags: dict[str, str] = {}
+    i = start
+    while i < len(args):
+        if args[i].startswith("--") and i + 1 < len(args):
+            key = args[i][2:]  # Strip --
+            flags[key] = args[i + 1]
+            i += 2
+        else:
+            i += 1
+    return flags
+
+
 def _extract_url(
     args: list[str] | None, kwargs: dict[str, str] | None, arg_offset: int = 2
 ) -> str | None:
@@ -457,6 +474,77 @@ def execute_gh(
                 "system",
                 "Error: Failed to fetch PR content. Make sure 'gh' CLI is installed and authenticated.",
             )
+    elif args and len(args) >= 2 and args[0] == "issue" and args[1] == "list":
+        flags = _parse_list_flags(args)
+
+        # Get owner/repo from --repo flag or git remote
+        owner: str | None = None
+        repo: str | None = None
+        repo_flag = flags.get("repo")
+        if repo_flag and "/" in repo_flag:
+            owner, repo = repo_flag.split("/", 1)
+        else:
+            repo_info = _get_repo_from_git_remote()
+            if repo_info:
+                owner, repo = repo_info
+
+        if not owner or not repo:
+            yield Message(
+                "system",
+                "Error: Could not determine repository. Use --repo owner/repo or run from a git repo.",
+            )
+            return
+
+        state = flags.get("state", "open")
+        limit_str = flags.get("limit", "20")
+        limit = int(limit_str) if limit_str.isdigit() else 20
+        labels = flags.get("label", "").split(",") if flags.get("label") else None
+
+        content = get_github_issue_list(
+            owner, repo, state=state, labels=labels, limit=limit
+        )
+        if content:
+            yield Message("system", content)
+        else:
+            yield Message(
+                "system",
+                f"Error: Failed to list issues for {owner}/{repo}.",
+            )
+
+    elif args and len(args) >= 2 and args[0] == "pr" and args[1] == "list":
+        flags = _parse_list_flags(args)
+
+        # Get owner/repo from --repo flag or git remote
+        owner = None
+        repo = None
+        repo_flag = flags.get("repo")
+        if repo_flag and "/" in repo_flag:
+            owner, repo = repo_flag.split("/", 1)
+        else:
+            repo_info = _get_repo_from_git_remote()
+            if repo_info:
+                owner, repo = repo_info
+
+        if not owner or not repo:
+            yield Message(
+                "system",
+                "Error: Could not determine repository. Use --repo owner/repo or run from a git repo.",
+            )
+            return
+
+        state = flags.get("state", "open")
+        limit_str = flags.get("limit", "20")
+        limit = int(limit_str) if limit_str.isdigit() else 20
+
+        content = get_github_pr_list(owner, repo, state=state, limit=limit)
+        if content:
+            yield Message("system", content)
+        else:
+            yield Message(
+                "system",
+                f"Error: Failed to list pull requests for {owner}/{repo}.",
+            )
+
     elif args and len(args) >= 2 and args[0] == "issue" and args[1] == "view":
         ref = _extract_url(args, kwargs)
         if not ref:
@@ -515,13 +603,21 @@ def execute_gh(
     else:
         yield Message(
             "system",
-            "Error: Unknown gh command. Available: gh issue view <ref>, gh pr view <ref>, gh pr diff <ref>, gh pr status <ref>, gh pr checks <ref>, gh run view <run-id>\n\nReferences can be URLs, owner/repo#N, #N, or bare numbers.",
+            "Error: Unknown gh command. Available: gh issue list [--repo owner/repo], gh issue view <ref>, gh pr list [--repo owner/repo], gh pr view <ref>, gh pr diff <ref>, gh pr status <ref>, gh pr checks <ref>, gh run view <run-id>\n\nReferences can be URLs, owner/repo#N, #N, or bare numbers.",
         )
 
 
 instructions = """Interact with GitHub via the GitHub CLI (gh).
 
 Refs: full URLs, `owner/repo#N`, `#N`, or bare `N` (when in a git repo).
+
+Use `gh issue list` to list issues in a repository:
+```gh issue list --repo owner/repo --state open --limit 20
+```
+
+Use `gh pr list` to list pull requests in a repository:
+```gh pr list --repo owner/repo --state open --limit 20
+```
 
 Use `gh issue view <ref>` to read an issue with full body and all comments:
 ```gh issue view owner/repo#42
@@ -664,7 +760,11 @@ EOF''',
 
 > User: show issues
 > Assistant:
-{ToolUse("shell", [], "gh issue list --repo $REPO").to_output(tool_format)}
+{ToolUse("gh", ["issue", "list", "--repo", "owner/repo"], None).to_output(tool_format)}
+
+> User: show open PRs
+> Assistant:
+{ToolUse("gh", ["pr", "list", "--repo", "owner/repo"], None).to_output(tool_format)}
 
 > User: show recent workflows
 > Assistant:

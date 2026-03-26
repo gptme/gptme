@@ -361,6 +361,176 @@ def get_github_pr_diff(
         return None
 
 
+def get_github_issue_list(
+    owner: str,
+    repo: str,
+    state: str = "open",
+    labels: list[str] | None = None,
+    limit: int = 20,
+) -> str | None:
+    """List GitHub issues with structured, token-efficient output.
+
+    Args:
+        owner: Repository owner
+        repo: Repository name
+        state: Filter by state: open, closed, all (default: open)
+        labels: Optional list of label names to filter by
+        limit: Maximum number of issues to return (default: 20)
+
+    Returns:
+        Formatted string with issue listing, or None on error
+    """
+    if not shutil.which("gh"):
+        logger.debug("gh CLI not available for issue listing")
+        return None
+
+    cmd = [
+        "gh",
+        "issue",
+        "list",
+        "--repo",
+        f"{owner}/{repo}",
+        "--state",
+        state,
+        "--limit",
+        str(limit),
+        "--json",
+        "number,title,state,labels,author,updatedAt,assignees",
+    ]
+
+    if labels:
+        for label in labels:
+            cmd.extend(["--label", label])
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        issues = json.loads(result.stdout)
+
+        if not issues:
+            return f"No {state} issues found in {owner}/{repo}."
+
+        output = f"Issues in {owner}/{repo} ({state}):\n\n"
+        for issue in issues:
+            number = issue.get("number", "?")
+            title = issue.get("title", "")
+            labels_list = [label.get("name", "") for label in issue.get("labels", [])]
+            author = issue.get("author", {}).get("login", "")
+            assignees = [a.get("login", "") for a in issue.get("assignees", [])]
+            updated = issue.get("updatedAt", "")[:10]
+
+            line = f"  #{number} {title}"
+            meta_parts = []
+            if labels_list:
+                meta_parts.append(f"[{', '.join(labels_list)}]")
+            if author:
+                meta_parts.append(f"by @{author}")
+            if assignees:
+                meta_parts.append(f"assigned:{','.join(f'@{a}' for a in assignees)}")
+            if updated:
+                meta_parts.append(f"updated:{updated}")
+
+            if meta_parts:
+                line += f"  ({' | '.join(meta_parts)})"
+
+            output += line + "\n"
+
+        output += f"\nShowing {len(issues)} of {state} issues."
+        return output
+
+    except subprocess.CalledProcessError as e:
+        logger.warning(f"Failed to list issues: {e}")
+        return None
+    except json.JSONDecodeError as e:
+        logger.warning(f"Failed to parse issue list JSON: {e}")
+        return None
+
+
+def get_github_pr_list(
+    owner: str,
+    repo: str,
+    state: str = "open",
+    limit: int = 20,
+) -> str | None:
+    """List GitHub pull requests with structured, token-efficient output.
+
+    Args:
+        owner: Repository owner
+        repo: Repository name
+        state: Filter by state: open, closed, merged, all (default: open)
+        limit: Maximum number of PRs to return (default: 20)
+
+    Returns:
+        Formatted string with PR listing, or None on error
+    """
+    if not shutil.which("gh"):
+        logger.debug("gh CLI not available for PR listing")
+        return None
+
+    cmd = [
+        "gh",
+        "pr",
+        "list",
+        "--repo",
+        f"{owner}/{repo}",
+        "--state",
+        state,
+        "--limit",
+        str(limit),
+        "--json",
+        "number,title,state,author,updatedAt,headRefName,isDraft,reviewDecision",
+    ]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        prs = json.loads(result.stdout)
+
+        if not prs:
+            return f"No {state} pull requests found in {owner}/{repo}."
+
+        output = f"Pull requests in {owner}/{repo} ({state}):\n\n"
+        for pr in prs:
+            number = pr.get("number", "?")
+            title = pr.get("title", "")
+            author = pr.get("author", {}).get("login", "")
+            branch = pr.get("headRefName", "")
+            is_draft = pr.get("isDraft", False)
+            review = pr.get("reviewDecision", "")
+            updated = pr.get("updatedAt", "")[:10]
+
+            line = f"  #{number} {title}"
+            meta_parts = []
+            if is_draft:
+                meta_parts.append("DRAFT")
+            if review:
+                review_display = {
+                    "APPROVED": "✅approved",
+                    "CHANGES_REQUESTED": "❌changes requested",
+                    "REVIEW_REQUIRED": "🔍review needed",
+                }.get(review, review.lower())
+                meta_parts.append(review_display)
+            if author:
+                meta_parts.append(f"by @{author}")
+            if branch:
+                meta_parts.append(f"branch:{branch}")
+            if updated:
+                meta_parts.append(f"updated:{updated}")
+
+            if meta_parts:
+                line += f"  ({' | '.join(meta_parts)})"
+
+            output += line + "\n"
+
+        output += f"\nShowing {len(prs)} of {state} pull requests."
+        return output
+
+    except subprocess.CalledProcessError as e:
+        logger.warning(f"Failed to list PRs: {e}")
+        return None
+    except json.JSONDecodeError as e:
+        logger.warning(f"Failed to parse PR list JSON: {e}")
+        return None
+
+
 def get_github_issue_content(owner: str, repo: str, number: str) -> str | None:
     """Get GitHub issue content using gh CLI."""
     if not shutil.which("gh"):

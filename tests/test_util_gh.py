@@ -8,7 +8,9 @@ import pytest
 from gptme.util.gh import (
     _extract_failure_sections,
     _get_repo_from_git_remote,
+    get_github_issue_list,
     get_github_pr_content,
+    get_github_pr_list,
     get_github_run_logs,
     parse_github_ref,
     parse_github_url,
@@ -335,6 +337,145 @@ def test_gh_tool_read_pr_invalid_url():
     assert results[0].role == "system"
     assert "Error" in results[0].content
     assert "Could not parse GitHub reference" in results[0].content
+
+
+# --- get_github_issue_list ---
+
+
+class TestGetGithubIssueList:
+    @patch("gptme.util.gh.shutil.which", return_value=None)
+    def test_no_gh_returns_none(self, _mock_which):
+        assert get_github_issue_list("owner", "repo") is None
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_empty_results(self, mock_run, _mock_which):
+        mock_run.return_value = MagicMock(stdout="[]", returncode=0)
+        result = get_github_issue_list("owner", "repo")
+        assert result is not None
+        assert "No open issues" in result
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_issues_returned(self, mock_run, _mock_which):
+        issues = [
+            {
+                "number": 42,
+                "title": "Fix the widget",
+                "state": "OPEN",
+                "labels": [{"name": "bug"}],
+                "author": {"login": "alice"},
+                "assignees": [{"login": "bob"}],
+                "updatedAt": "2026-03-20T10:00:00Z",
+            },
+            {
+                "number": 7,
+                "title": "Add feature",
+                "state": "OPEN",
+                "labels": [],
+                "author": {"login": "carol"},
+                "assignees": [],
+                "updatedAt": "2026-03-19T08:00:00Z",
+            },
+        ]
+        mock_run.return_value = MagicMock(stdout=json.dumps(issues), returncode=0)
+        result = get_github_issue_list("owner", "repo")
+        assert result is not None
+        assert "#42 Fix the widget" in result
+        assert "#7 Add feature" in result
+        assert "[bug]" in result
+        assert "@alice" in result
+        assert "@bob" in result
+        assert "Showing 2" in result
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_labels_passed_to_cli(self, mock_run, _mock_which):
+        mock_run.return_value = MagicMock(stdout="[]", returncode=0)
+        get_github_issue_list("owner", "repo", labels=["bug", "enhancement"])
+        cmd = mock_run.call_args[0][0]
+        assert "--label" in cmd
+        # Both labels should be separate --label flags
+        label_indices = [i for i, v in enumerate(cmd) if v == "--label"]
+        assert len(label_indices) == 2
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_subprocess_failure(self, mock_run, _mock_which):
+        import subprocess as sp
+
+        mock_run.side_effect = sp.CalledProcessError(1, "gh")
+        result = get_github_issue_list("owner", "repo")
+        assert result is None
+
+
+# --- get_github_pr_list ---
+
+
+class TestGetGithubPrList:
+    @patch("gptme.util.gh.shutil.which", return_value=None)
+    def test_no_gh_returns_none(self, _mock_which):
+        assert get_github_pr_list("owner", "repo") is None
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_empty_results(self, mock_run, _mock_which):
+        mock_run.return_value = MagicMock(stdout="[]", returncode=0)
+        result = get_github_pr_list("owner", "repo")
+        assert result is not None
+        assert "No open pull requests" in result
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_prs_returned(self, mock_run, _mock_which):
+        prs = [
+            {
+                "number": 10,
+                "title": "Add new feature",
+                "state": "OPEN",
+                "author": {"login": "alice"},
+                "headRefName": "feat/new-feature",
+                "isDraft": False,
+                "reviewDecision": "APPROVED",
+                "updatedAt": "2026-03-25T12:00:00Z",
+            },
+            {
+                "number": 11,
+                "title": "WIP: draft work",
+                "state": "OPEN",
+                "author": {"login": "bob"},
+                "headRefName": "wip/draft",
+                "isDraft": True,
+                "reviewDecision": "",
+                "updatedAt": "2026-03-24T08:00:00Z",
+            },
+        ]
+        mock_run.return_value = MagicMock(stdout=json.dumps(prs), returncode=0)
+        result = get_github_pr_list("owner", "repo")
+        assert result is not None
+        assert "#10 Add new feature" in result
+        assert "✅approved" in result
+        assert "#11 WIP: draft work" in result
+        assert "DRAFT" in result
+        assert "Showing 2" in result
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_state_passed_to_cli(self, mock_run, _mock_which):
+        mock_run.return_value = MagicMock(stdout="[]", returncode=0)
+        get_github_pr_list("owner", "repo", state="merged")
+        cmd = mock_run.call_args[0][0]
+        state_idx = cmd.index("--state")
+        assert cmd[state_idx + 1] == "merged"
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
+    def test_subprocess_failure(self, mock_run, _mock_which):
+        import subprocess as sp
+
+        mock_run.side_effect = sp.CalledProcessError(1, "gh")
+        result = get_github_pr_list("owner", "repo")
+        assert result is None
 
 
 # --- _extract_failure_sections ---
