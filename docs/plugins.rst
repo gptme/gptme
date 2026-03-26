@@ -57,8 +57,8 @@ Plugin-owned config lives under ``[plugin.<name>]``. For example:
    timeout = 30
 
 Plugin ``init(config)`` hooks can read that config via
-``config.project.plugin.get("my_plugin", {})`` and
-``config.user.plugin.get("my_plugin", {})``.
+``config.project.plugin.get("my_plugin", {}) if config.project else {}`` and
+``config.user.plugin.get("my_plugin", {}) if config.user else {}``.
 
 Skills vs Plugins
 -----------------

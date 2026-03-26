@@ -57,7 +57,12 @@ def discover_all_plugins(
         )
 
     # 2. Entry-point plugins (new gptme.plugins group)
-    plugins.extend(discover_entrypoint_plugins())
+    # Dedup against folder plugins — an editable-install (pip install -e .) will
+    # register the same plugin both as a folder plugin and an entry-point plugin.
+    folder_names = {p.name for p in plugins}
+    plugins.extend(
+        p for p in discover_entrypoint_plugins() if p.name not in folder_names
+    )
 
     # 3. Legacy provider entry points (gptme.providers)
     # Only include if not already registered via gptme.plugins
@@ -93,6 +98,10 @@ def clear_registry() -> None:
     _all_plugins.clear()
     _initialized_plugins.clear()
     _initialized = False
+    # Also clear the entrypoints LRU cache so re-discovery picks up changes.
+    from .entrypoints import clear_entrypoint_cache
+
+    clear_entrypoint_cache()
 
 
 def _folder_plugin_to_gptme_plugin(plugin: Plugin) -> GptmePlugin:
