@@ -199,14 +199,15 @@ class TestGetProjectGitDir:
             stdout=str(tmp_path) + "\n",
             stderr="",
         )
-        with patch("subprocess.run", return_value=mock_result):
+        with patch("gptme.dirs.subprocess.run", return_value=mock_result):
             result = dirs._get_project_git_dir_call()
         assert result == tmp_path
 
     def test_git_dir_call_failure(self):
         """_get_project_git_dir_call returns None on git failure."""
         with patch(
-            "subprocess.run", side_effect=subprocess.CalledProcessError(128, "git")
+            "gptme.dirs.subprocess.run",
+            side_effect=subprocess.CalledProcessError(128, "git"),
         ):
             result = dirs._get_project_git_dir_call()
         assert result is None
@@ -237,7 +238,7 @@ class TestGetWorkspace:
         env.pop("GPTME_WORKSPACE", None)
         with (
             patch.dict(os.environ, env, clear=True),
-            patch("subprocess.run", return_value=mock_result),
+            patch("gptme.dirs.subprocess.run", return_value=mock_result),
         ):
             result = dirs.get_workspace()
         assert result == git_root
@@ -264,7 +265,9 @@ class TestGetWorkspace:
         env.pop("GPTME_WORKSPACE", None)
         with (
             patch.dict(os.environ, env, clear=True),
-            patch("subprocess.run", side_effect=[toplevel_result, super_result]),
+            patch(
+                "gptme.dirs.subprocess.run", side_effect=[toplevel_result, super_result]
+            ),
         ):
             result = dirs.get_workspace()
         assert result == parent_repo
@@ -287,7 +290,9 @@ class TestGetWorkspace:
         env.pop("GPTME_WORKSPACE", None)
         with (
             patch.dict(os.environ, env, clear=True),
-            patch("subprocess.run", side_effect=[toplevel_result, super_result]),
+            patch(
+                "gptme.dirs.subprocess.run", side_effect=[toplevel_result, super_result]
+            ),
         ):
             result = dirs.get_workspace()
         assert result == submodule
@@ -320,7 +325,7 @@ class TestGetWorkspace:
         env.pop("GPTME_WORKSPACE", None)
         with (
             patch.dict(os.environ, env, clear=True),
-            patch("subprocess.run", side_effect=FileNotFoundError("git")),
+            patch("gptme.dirs.subprocess.run", side_effect=FileNotFoundError("git")),
             patch("gptme.dirs.Path.cwd", return_value=tmp_path),
         ):
             result = dirs.get_workspace()
@@ -332,7 +337,10 @@ class TestGetWorkspace:
         env.pop("GPTME_WORKSPACE", None)
         with (
             patch.dict(os.environ, env, clear=True),
-            patch("subprocess.run", side_effect=subprocess.TimeoutExpired("git", 5)),
+            patch(
+                "gptme.dirs.subprocess.run",
+                side_effect=subprocess.TimeoutExpired("git", 5),
+            ),
             patch("gptme.dirs.Path.cwd", return_value=tmp_path),
         ):
             result = dirs.get_workspace()
@@ -347,7 +355,7 @@ class TestGetWorkspace:
         env.pop("GPTME_WORKSPACE", None)
         with (
             patch.dict(os.environ, env, clear=True),
-            patch("subprocess.run", return_value=mock_result),
+            patch("gptme.dirs.subprocess.run", return_value=mock_result),
             patch("gptme.dirs.Path.cwd", return_value=tmp_path),
         ):
             result = dirs.get_workspace()
@@ -392,7 +400,9 @@ class TestGetWorkspace:
         env.pop("GPTME_WORKSPACE", None)
         with (
             patch.dict(os.environ, env, clear=True),
-            patch("subprocess.run", side_effect=[toplevel_result, super_result]),
+            patch(
+                "gptme.dirs.subprocess.run", side_effect=[toplevel_result, super_result]
+            ),
         ):
             result = dirs.get_workspace()
         # returncode != 0, so the if branch is skipped, falls through to return git_root
@@ -557,7 +567,9 @@ class TestEdgeCases:
         env.pop("GPTME_WORKSPACE", None)
         with (
             patch.dict(os.environ, env, clear=True),
-            patch("subprocess.run", side_effect=[toplevel_result, super_result]),
+            patch(
+                "gptme.dirs.subprocess.run", side_effect=[toplevel_result, super_result]
+            ),
         ):
             result = dirs.get_workspace()
         assert result == tmp_path
