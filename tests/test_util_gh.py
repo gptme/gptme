@@ -492,6 +492,43 @@ class TestGetGithubRunLogs:
 
     @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
     @patch("gptme.util.gh.subprocess.run")
+    def test_multiple_failed_jobs_fetch_logs_once(self, mock_run, _mock_which):
+        """Shared failed-job logs are fetched once and reused per job."""
+        jobs = [
+            self._make_job(
+                "lint",
+                "failure",
+                200,
+                [{"name": "ruff", "conclusion": "failure"}],
+            ),
+            self._make_job(
+                "test",
+                "failure",
+                201,
+                [{"name": "pytest", "conclusion": "failure"}],
+            ),
+        ]
+        run_json = self._make_run_json("failure", jobs)
+        log_output = (
+            "lint\truff\tERROR: lint failed\ntest\tpytest\tERROR: assertion failed\n"
+        )
+
+        mock_run.side_effect = [
+            MagicMock(stdout=run_json, returncode=0),  # gh run view --json
+            MagicMock(stdout=log_output, returncode=0),  # gh run view --log-failed
+        ]
+
+        result = get_github_run_logs("12345")
+
+        assert result is not None
+        assert "#### lint" in result
+        assert "#### test" in result
+        assert "lint failed" in result
+        assert "assertion failed" in result
+        assert mock_run.call_count == 2
+
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    @patch("gptme.util.gh.subprocess.run")
     def test_failed_run_log_fetch_fails(self, mock_run, _mock_which):
         """When log fetch fails, shows fallback message."""
         jobs = [self._make_job("test", "failure", 200)]
