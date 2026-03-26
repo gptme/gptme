@@ -47,8 +47,7 @@ Field             Required Description
 ``api_key_env``    Yes      Environment variable holding the API key
 ``base_url``       Yes      OpenAI-compatible API base URL
 ``models``         No       List of ``ModelMeta`` objects
-``init``           No       Custom init function ``(Config) -> None``; if ``None``,
-                           auto-initialised as OpenAI client from ``base_url`` + key
+``init``           No       Custom ``(Config) -> None``; ``None`` = auto-init OpenAI client
 ================= ======== ==========================================================
 
 If ``init`` is provided, it **must** register an OpenAI-compatible client before returning, or gptme will raise a ``RuntimeError``.
