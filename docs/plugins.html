@@ -543,6 +543,15 @@
 </pre></div>
 </div>
 <p>Project-level plugin paths are relative to the workspace root.</p>
+<p>Plugin-owned config lives under <code class="docutils literal notranslate"><span class="pre">[plugin.&lt;name&gt;]</span></code>. For example:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[plugin.my_plugin]</span>
+<span class="n">api_base</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://example.com&quot;</span>
+<span class="n">timeout</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">30</span>
+</pre></div>
+</div>
+<p>Plugin <code class="docutils literal notranslate"><span class="pre">init(config)</span></code> hooks can read that config via
+<code class="docutils literal notranslate"><span class="pre">config.project.plugin.get(&quot;my_plugin&quot;,</span> <span class="pre">{})</span> <span class="pre">if</span> <span class="pre">config.project</span> <span class="pre">else</span> <span class="pre">{}</span></code> and
+<code class="docutils literal notranslate"><span class="pre">config.user.plugin.get(&quot;my_plugin&quot;,</span> <span class="pre">{})</span> <span class="pre">if</span> <span class="pre">config.user</span> <span class="pre">else</span> <span class="pre">{}</span></code>.</p>
 </section>
 <section id="skills-vs-plugins">
 <h2>Skills vs Plugins<a class="headerlink" href="#skills-vs-plugins" title="Link to this heading">#</a></h2>

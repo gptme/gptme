@@ -5845,6 +5845,18 @@ Plugins can be configured at two levels:
 
 Project-level plugin paths are relative to the workspace root.
 
+Plugin-owned config lives under ``[plugin.<name>]``. For example:
+
+.. code-block:: toml
+
+   [plugin.my_plugin]
+   api_base = "https://example.com"
+   timeout = 30
+
+Plugin ``init(config)`` hooks can read that config via
+``config.project.plugin.get("my_plugin", {}) if config.project else {}`` and
+``config.user.plugin.get("my_plugin", {}) if config.user else {}``.
+
 Skills vs Plugins
 -----------------
 
