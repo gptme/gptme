@@ -299,7 +299,35 @@ class TestGetModelWithPlugin:
 
 
 class TestPluginRouting:
-    def test_init_llm_calls_custom_plugin_init_without_lazy_openai_init(self):
+    def test_init_llm_allows_custom_plugin_init_that_registers_client(self):
+        from gptme.llm import init_llm
+        from gptme.llm.models import CustomProvider
+
+        client_registered = False
+
+        def init_fn(_config):
+            nonlocal client_registered
+            client_registered = True
+
+        plugin = _make_plugin(name="myprovider", init=init_fn)
+
+        with (
+            patch(
+                "importlib.metadata.entry_points",
+                return_value=[_make_entry_point(plugin)],
+            ),
+            patch(
+                "gptme.llm.has_openai_client",
+                side_effect=lambda _provider: client_registered,
+            ),
+            patch("gptme.llm.init_openai") as mock_init_openai,
+        ):
+            init_llm(CustomProvider("myprovider"))
+
+        assert client_registered is True
+        mock_init_openai.assert_not_called()
+
+    def test_init_llm_rejects_custom_plugin_init_without_client_registration(self):
         from gptme.llm import init_llm
         from gptme.llm.models import CustomProvider
 
@@ -313,6 +341,10 @@ class TestPluginRouting:
             ),
             patch("gptme.llm.has_openai_client", return_value=False),
             patch("gptme.llm.init_openai") as mock_init_openai,
+            pytest.raises(
+                RuntimeError,
+                match="did not register an OpenAI-compatible client",
+            ),
         ):
             init_llm(CustomProvider("myprovider"))
 

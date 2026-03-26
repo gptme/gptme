@@ -174,9 +174,12 @@ class ProviderPlugin:
     init: "Callable[[Config], None] | None" = None
     """Optional custom initialisation function.
 
-    Called once before the first request is made.  If ``None``, the provider
-    is auto-initialised as an OpenAI-compatible client using :attr:`base_url`
-    and the key from :attr:`api_key_env`.
+    Called once before the first request is made.  Custom init functions must
+    register an OpenAI-compatible client for this provider before returning
+    (for example by calling ``gptme.llm.llm_openai.init(provider, config)``),
+    because plugin traffic is routed through the OpenAI client path.  If
+    ``None``, the provider is auto-initialised as an OpenAI-compatible client
+    using :attr:`base_url` and the key from :attr:`api_key_env`.
     """
 
 

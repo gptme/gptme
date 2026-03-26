@@ -88,6 +88,12 @@ def init_llm(provider: Provider):
     ) is not None and not has_openai_client(provider):
         if plugin.init is not None:
             plugin.init(config)
+            if not has_openai_client(provider):
+                raise RuntimeError(
+                    f"Plugin {plugin.name!r} init() did not register an "
+                    "OpenAI-compatible client. Call "
+                    "gptme.llm.llm_openai.init(provider, config) inside init()."
+                )
         else:
             # Auto-init as OpenAI-compatible client (handled by llm_openai.init)
             init_openai(provider, config)
