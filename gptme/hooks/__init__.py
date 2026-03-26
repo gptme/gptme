@@ -13,9 +13,6 @@ Individual hook implementations live in their own modules (e.g., ``cwd_changed``
 """
 
 import logging
-from pathlib import Path
-
-from ..plugins import register_plugin_hooks
 
 # Re-export confirm and elicitation types
 from .confirm import ConfirmAction as ConfirmAction
@@ -239,10 +236,15 @@ def init_hooks(
         else:
             logger.warning(f"Hook '{hook_name}' not found")
 
-    # Register plugin hooks
+    # Register plugin hooks (unified registry)
+    from ..plugins.registry import get_all_plugins
 
-    if config.project and config.project.plugins and config.project.plugins.paths:
-        register_plugin_hooks(
-            plugin_paths=[Path(p) for p in config.project.plugins.paths],
-            enabled_plugins=config.project.plugins.enabled or None,
-        )
+    for plugin in get_all_plugins():
+        if plugin.register_hooks:
+            try:
+                plugin.register_hooks()
+                logger.debug("Registered hooks from plugin: %s", plugin.name)
+            except Exception as e:
+                logger.warning(
+                    "Failed to register hooks for plugin %r: %s", plugin.name, e
+                )

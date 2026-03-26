@@ -1,12 +1,24 @@
 """Discovery and loading of third-party LLM provider plugins via entry points.
 
-Third-party packages can register providers by adding an entry point in the
-``gptme.providers`` group::
+Third-party packages can register providers in two ways:
 
-    [project.entry-points."gptme.providers"]
-    minimax = "gptme_provider_minimax:provider"
+1. **Unified plugins** (recommended) — via the ``gptme.plugins`` group::
 
-Where ``provider`` is a :class:`~gptme.llm.models.types.ProviderPlugin` instance.
+       [project.entry-points."gptme.plugins"]
+       my_plugin = "my_package:plugin"
+
+   Where ``plugin`` is a :class:`~gptme.plugins.plugin.GptmePlugin` with a
+   ``provider`` field.
+
+2. **Legacy provider plugins** — via the ``gptme.providers`` group::
+
+       [project.entry-points."gptme.providers"]
+       minimax = "gptme_provider_minimax:provider"
+
+   Where ``provider`` is a :class:`~gptme.llm.models.types.ProviderPlugin` instance.
+   This format is still supported for backward compatibility.
+
+Both paths are merged by the unified plugin registry.
 """
 
 from __future__ import annotations
@@ -21,15 +33,33 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-@lru_cache(maxsize=1)
 def discover_provider_plugins() -> tuple[ProviderPlugin, ...]:
-    """Discover provider plugins registered via the ``gptme.providers`` entry point group.
+    """Return all provider plugins from the unified registry.
 
-    Results are cached after the first call.  Use :func:`clear_plugin_cache` in
-    tests or when reloading plugins at runtime.
+    This includes providers from both ``gptme.plugins`` and legacy
+    ``gptme.providers`` entry-point groups, as well as folder-based plugins.
 
-    Returns:
-        Cached tuple of :class:`~gptme.llm.models.types.ProviderPlugin` instances.
+    Falls back to raw entry-point scanning if the registry has not been
+    initialized yet (e.g. during early model resolution before ``init()``).
+    """
+    from ..plugins.registry import _initialized, get_all_plugins
+
+    if _initialized:
+        return tuple(p.provider for p in get_all_plugins() if p.provider is not None)
+
+    # Fallback: registry not yet initialized, scan entry points directly
+    return _discover_provider_plugins_raw()
+
+
+@lru_cache(maxsize=1)
+def _discover_provider_plugins_raw() -> tuple[ProviderPlugin, ...]:
+    """Scan the legacy ``gptme.providers`` entry-point group directly.
+
+    This is the raw scanner used by the unified registry as a source, and
+    also serves as a fallback before the registry is initialized.
+
+    Results are cached after the first call.  Use :func:`clear_plugin_cache`
+    to reset.
     """
     from importlib.metadata import entry_points  # fmt: skip
 
@@ -62,7 +92,13 @@ def clear_plugin_cache() -> None:
 
     Useful in tests or when dynamically installing/removing plugins at runtime.
     """
-    discover_provider_plugins.cache_clear()
+    _discover_provider_plugins_raw.cache_clear()
+
+    from ..plugins.entrypoints import clear_entrypoint_cache
+    from ..plugins.registry import clear_registry
+
+    clear_entrypoint_cache()
+    clear_registry()
 
 
 def get_provider_plugin(name: str) -> ProviderPlugin | None:
