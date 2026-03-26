@@ -1,7 +1,9 @@
 import base64
 import os
 import shlex
+import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from abc import abstractmethod
@@ -46,6 +48,22 @@ class SimpleExecutionEnv(FileStore, ExecutionEnv):
     upload() and download() are inherited from FileStore.
     """
 
+    def __init__(self, working_dir: Path | None = None):
+        super().__init__(working_dir=working_dir)
+        self._bin_dir: Path | None = None
+        # Ensure 'python' command is available (macOS only has 'python3')
+        if not shutil.which("python"):
+            python3 = shutil.which("python3") or sys.executable
+            if python3:
+                self._bin_dir = Path(tempfile.mkdtemp(prefix="gptme-eval-bin-"))
+                (self._bin_dir / "python").symlink_to(python3)
+
+    def cleanup(self) -> None:
+        """Clean up working directory and helper bin directory."""
+        super().cleanup()
+        if self._bin_dir and self._bin_dir.exists():
+            shutil.rmtree(self._bin_dir, ignore_errors=True)
+
     def run(self, command, silent=True) -> tuple[str, str, int]:
         start = time.time()
         if not silent:
@@ -53,11 +71,16 @@ class SimpleExecutionEnv(FileStore, ExecutionEnv):
         # Use explicit shell invocation with list-based arguments for security.
         # This avoids shell=True which can be vulnerable to shell injection.
         # The command is passed to bash -c, similar to DockerExecutionEnv.
+        env = None
+        if self._bin_dir:
+            env = os.environ.copy()
+            env["PATH"] = str(self._bin_dir) + os.pathsep + env.get("PATH", "")
         p = subprocess.Popen(
             ["/bin/bash", "-c", command],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=self.working_dir,
+            env=env,
             text=True,
         )
         if not silent:
