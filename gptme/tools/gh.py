@@ -468,9 +468,15 @@ def _handle_pr_merge(
                 auto = True
             elif arg == "--delete-branch":
                 delete_branch = True
-            elif arg == "--match-head-commit" and i + 1 < len(args):
-                match_head = args[i + 1]
-                i += 1
+            elif arg == "--match-head-commit":
+                if i + 1 < len(args):
+                    match_head = args[i + 1]
+                    i += 1
+                else:
+                    yield Message(
+                        "system", "Error: --match-head-commit requires a SHA value"
+                    )
+                    return
             i += 1
 
     result = merge_github_pr(
