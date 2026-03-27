@@ -1,15 +1,14 @@
 """GitHub integration tool.
 
-Scope
------
-This tool provides **native wrappers** for a small set of GitHub operations
-that benefit from combining multiple API calls, structured output, or
-agent-safety guards.  Everything else passes through to the ``gh`` CLI.
+Use native handlers only when they help the assistant succeed more reliably
+than a raw ``gh`` command in the shell tool.  The native path is worth it when
+it collapses several API calls into one response, keeps CI state structured and
+actionable, or adds merge safety guards that are easy to miss in ad-hoc CLI use.
 
-Native operations (value over raw ``gh`` CLI):
+Native operations that materially help:
 
 - ``pr view``   — combines PR body, comments, review-thread resolution, CI,
-                   and mergeability in one call (requires several ``gh api`` calls)
+                   and mergeability in one call
 - ``pr status`` — structured check-run summary with actionable run IDs
 - ``pr checks`` — polls CI until completion with live progress updates
 - ``pr merge``  — squash default, ``--match-head-commit`` guard, auto-merge
@@ -17,9 +16,9 @@ Native operations (value over raw ``gh`` CLI):
 
 Adding a new native wrapper
 ---------------------------
-Before wrapping a ``gh`` subcommand, ask: "Does this do something the LLM
-can't already do with a single ``gh`` command in the shell tool?"  If not,
-don't add it — the pass-through handles it and avoids instruction bloat.
+Before wrapping a ``gh`` subcommand, ask: "Will this help the assistant do
+better than a single ``gh`` command in the shell tool?"  If not, don't add it
+— the pass-through already covers it without bloating instructions.
 
 Good candidates combine multiple API calls into one response, add safety
 guards, or poll/wait for completion.
@@ -604,20 +603,21 @@ def execute_gh(
         yield from _passthrough_gh(args, code)
 
 
-instructions = """Interact with GitHub via the `gh` CLI.
+instructions = """Use this tool for GitHub work when it improves the result over a raw shell call.
 
 Refs: full URLs, `owner/repo#N`, `#N`, or bare `N` (when in a git repo).
 
-Prefer the native handler only for operations where it adds value over raw CLI output:
-- `gh pr view <ref>` — PR body + comments + review threads (with resolution) + CI + mergeability
-- `gh pr status <ref> [commit_sha]` — structured CI check-run summary with run IDs
-- `gh pr checks <ref> [commit_sha]` — poll until all CI checks complete
-- `gh pr merge <ref> [--squash|--rebase|--merge] [--auto] [--delete-branch] [--match-head-commit SHA]` — merge with squash default
-- `gh run view <run-id>` — structured failed-job log extraction
+The native handler is most useful when it saves you multiple `gh api` calls or adds
+safety/structure that raw CLI output does not:
+- `gh pr view <ref>` — get PR body, comments, review threads (with resolution), CI, and mergeability in one response
+- `gh pr status <ref> [commit_sha]` — get structured CI check-run status with actionable run IDs
+- `gh pr checks <ref> [commit_sha]` — let the tool poll CI and report progress until checks settle
+- `gh pr merge <ref> [--squash|--rebase|--merge] [--auto] [--delete-branch] [--match-head-commit SHA]` — merge with squash-by-default and head-commit protection
+- `gh run view <run-id>` — get failed-job logs extracted from CI output
 
-All other `gh` subcommands pass through to the CLI unchanged, so normal `gh` usage
-still works without adding new wrappers (for example `gh issue list`, `gh pr diff`,
-or `gh search issues`)."""
+For simple GitHub commands, use normal `gh` syntax here and it will pass straight
+through to the CLI. That keeps the tool flexible without re-adding thin wrappers
+for commands like `gh issue list`, `gh pr diff`, or `gh search issues`."""
 
 
 def examples(tool_format):
