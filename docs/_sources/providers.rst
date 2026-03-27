@@ -100,6 +100,7 @@ Use the ``[env]`` section in the :ref:`global-config` file to store API keys usi
 - **Provider routing**: ``require_parameters`` is enabled, ensuring the routed provider supports all request parameters (tools, response format, etc.). This prevents silent failures when OpenRouter falls back to a provider that doesn't support function calling.
 - **Privacy**: ``data_collection`` defaults to ``"deny"``, preventing providers from training on your data. This aligns with gptme's privacy-first philosophy.
 - **Provider override**: Use ``model@provider`` syntax to pin a specific backend (e.g. ``anthropic/claude-sonnet-4-20250514@anthropic``).
+- **Quantization**: Optionally restrict to specific precision levels (e.g. ``fp16`` for quality, ``int4`` for cost savings). Set ``OPENROUTER_QUANTIZATION`` to a comma-separated list of accepted levels.
 
 **Configuration:**
 
@@ -112,6 +113,10 @@ Use the ``[env]`` section in the :ref:`global-config` file to store API keys usi
     # Override data collection preference (default: "deny")
     # Set to "allow" if you need providers that require data collection consent
     OPENROUTER_DATA_COLLECTION = "allow"
+
+    # Restrict to specific quantization levels (optional)
+    # Common values: fp16, bf16, fp8, int8, int4, unknown
+    OPENROUTER_QUANTIZATION = "fp16,bf16"
 
 .. rubric:: OpenAI Subscription
 

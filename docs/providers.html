@@ -575,6 +575,7 @@ gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span clas
 <li><p><strong>Provider routing</strong>: <code class="docutils literal notranslate"><span class="pre">require_parameters</span></code> is enabled, ensuring the routed provider supports all request parameters (tools, response format, etc.). This prevents silent failures when OpenRouter falls back to a provider that doesn’t support function calling.</p></li>
 <li><p><strong>Privacy</strong>: <code class="docutils literal notranslate"><span class="pre">data_collection</span></code> defaults to <code class="docutils literal notranslate"><span class="pre">&quot;deny&quot;</span></code>, preventing providers from training on your data. This aligns with gptme’s privacy-first philosophy.</p></li>
 <li><p><strong>Provider override</strong>: Use <code class="docutils literal notranslate"><span class="pre">model&#64;provider</span></code> syntax to pin a specific backend (e.g. <code class="docutils literal notranslate"><span class="pre">anthropic/claude-sonnet-4-20250514&#64;anthropic</span></code>).</p></li>
+<li><p><strong>Quantization</strong>: Optionally restrict to specific precision levels (e.g. <code class="docutils literal notranslate"><span class="pre">fp16</span></code> for quality, <code class="docutils literal notranslate"><span class="pre">int4</span></code> for cost savings). Set <code class="docutils literal notranslate"><span class="pre">OPENROUTER_QUANTIZATION</span></code> to a comma-separated list of accepted levels.</p></li>
 </ul>
 <p><strong>Configuration:</strong></p>
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="c1"># In gptme.toml or ~/.config/gptme/config.toml</span>
@@ -584,6 +585,10 @@ gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span clas
 <span class="c1"># Override data collection preference (default: &quot;deny&quot;)</span>
 <span class="c1"># Set to &quot;allow&quot; if you need providers that require data collection consent</span>
 <span class="n">OPENROUTER_DATA_COLLECTION</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;allow&quot;</span>
+
+<span class="c1"># Restrict to specific quantization levels (optional)</span>
+<span class="c1"># Common values: fp16, bf16, fp8, int8, int4, unknown</span>
+<span class="n">OPENROUTER_QUANTIZATION</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;fp16,bf16&quot;</span>
 </pre></div>
 </div>
 <p class="rubric">OpenAI Subscription</p>
