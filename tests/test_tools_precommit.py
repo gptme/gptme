@@ -20,6 +20,7 @@ import pytest
 
 from gptme.hooks import StopPropagation
 from gptme.message import Message
+from gptme.tools.autocommit import tool as autocommit_tool
 from gptme.tools.precommit import (
     _get_modified_files,
     check_precommit_available,
@@ -57,7 +58,7 @@ def _mock_subprocess_run(returncode: int = 0, stdout: str = "", stderr: str = ""
 
 def _mock_which(path: str | None = "/usr/bin/pre-commit"):
     """Return a patched shutil.which."""
-    return patch("shutil.which", return_value=path)
+    return patch("gptme.tools.precommit.shutil.which", return_value=path)
 
 
 # ── TestUseChecks ─────────────────────────────────────────────────────────
@@ -135,6 +136,21 @@ class TestUseChecks:
         with _mock_config({"GPTME_CHECK": "1"}), _mock_which():
             assert use_checks() is True
 
+    def test_warns_when_explicitly_enabled_without_config(
+        self, tmp_path: Path, monkeypatch, caplog: pytest.LogCaptureFixture
+    ):
+        """Warns when GPTME_CHECK=true but no config file exists."""
+        monkeypatch.chdir(tmp_path)
+        with (
+            caplog.at_level("WARNING"),
+            _mock_config({"GPTME_CHECK": "true"}),
+            _mock_which(),
+        ):
+            assert use_checks() is True
+        assert (
+            "GPTME_CHECK is enabled but no .pre-commit-config.yaml found" in caplog.text
+        )
+
 
 # ── TestRunChecksPerFile ──────────────────────────────────────────────────
 
@@ -144,7 +160,7 @@ class TestRunChecksPerFile:
 
     def test_default_is_disabled(self):
         """Per-file checks are disabled by default."""
-        with _mock_config({"GPTME_CHECK_PER_FILE": "false"}):
+        with _mock_config({}):
             assert run_checks_per_file() is False
 
     def test_enabled_with_true(self):
@@ -751,4 +767,7 @@ class TestToolSpec:
     def test_full_hook_higher_priority_than_autocommit(self):
         """Pre-commit (5) runs before autocommit (1) since higher = first."""
         _, _, priority = tool.hooks["precommit_full"]
-        assert priority >= 5
+        _, _, autocommit_priority = autocommit_tool.hooks["autocommit"]
+        assert priority == 5
+        assert autocommit_priority == 1
+        assert priority > autocommit_priority
