@@ -10,17 +10,25 @@ import tomlkit
 from gptme.config import MCPConfig, MCPServerConfig, UserConfig
 
 
-def test_mcp_cli_commands():
-    """Test MCP CLI command logic"""
+def test_mcp_cli_commands(monkeypatch):
+    """Test MCP CLI command logic without hitting the live registry."""
     from click.testing import CliRunner
 
     from gptme.cli.cmd_mcp import mcp_info
+    from gptme.mcp.registry import MCPRegistry
+
+    monkeypatch.setattr(
+        MCPRegistry,
+        "get_server_details",
+        lambda self, server_name: None,
+    )
 
     # Test with mock data - this would normally use the config system
     runner = CliRunner()
 
     # Test info command with non-existent server
     result = runner.invoke(mcp_info, ["nonexistent"])
+    assert result.exit_code == 0
     # Updated to match improved error message that searches registries
     assert "not configured locally" in result.output
     assert "not found in registries either" in result.output
