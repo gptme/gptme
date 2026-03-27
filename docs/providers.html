@@ -526,7 +526,11 @@
 </table>
 </div>
 <p>If <code class="docutils literal notranslate"><span class="pre">init</span></code> is provided, it <strong>must</strong> register an OpenAI-compatible client before returning, or gptme will raise a <code class="docutils literal notranslate"><span class="pre">RuntimeError</span></code>.</p>
-<p>Plugin providers are auto-initialised on first use and routed through the OpenAI client path. See <a class="reference internal" href="plugins.html"><span class="doc">Plugin System</span></a> for the broader plugin architecture and <a class="reference external" href="https://github.com/gptme/gptme/issues/1849">issue #1849</a> for plans to extend entry-points to other component types.</p>
+<p>Plugin providers are auto-initialised on first use and routed through the OpenAI client path.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>For new plugins, consider using the <a class="reference internal" href="plugins.html#unified-plugins"><span class="std std-ref">unified plugin system</span></a> (<code class="docutils literal notranslate"><span class="pre">gptme.plugins</span></code> entry-point group) instead. It lets a single package provide tools, hooks, commands, <strong>and</strong> a provider together. The <code class="docutils literal notranslate"><span class="pre">gptme.providers</span></code> group still works and is supported for backward compatibility.</p>
+</div>
 <p>You can find our model recommendations on the <a class="reference internal" href="evals.html"><span class="doc">Evals</span></a> page.</p>
 <div class="toctree-wrapper compound">
 <ul>

@@ -490,8 +490,8 @@
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-logging-plugin">Example: Logging Plugin</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-weather-plugin">Example: Weather Plugin</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#distribution">Distribution</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#unified-plugin-system-entry-points">Unified Plugin System (Entry Points)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#migration-from-tool-modules">Migration from TOOL_MODULES</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#future-hooks-and-commands">Future: Hooks and Commands</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#troubleshooting">Troubleshooting</a></li>
 </ul>
             </nav>
@@ -915,29 +915,153 @@ Weather<span class="w"> </span><span class="k">in</span><span class="w"> </span>
 </div>
 </li>
 </ol>
-<p class="rubric">Entry Points (Published Packages)</p>
-<p>For <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span></code>-able packages that need to register components automatically, gptme supports Python entry points. This is the standard mechanism used by pytest plugins, setuptools console_scripts, etc.</p>
-<p>Currently supported entry point groups:</p>
-<div class="pst-scrollable-table-container"><table class="table">
-<thead>
-<tr class="row-odd"><th class="head"><p>Group</p></th>
-<th class="head"><p>Registers</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">gptme.providers</span></code></p></td>
-<td><p>LLM provider plugins (see <a class="reference internal" href="providers.html"><span class="doc">Providers</span></a>)</p></td>
-</tr>
-</tbody>
-</table>
-</div>
-<p><strong>Example</strong> (in the plugin package’s <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>):</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">[</span><span class="n">project</span><span class="o">.</span><span class="n">entry</span><span class="o">-</span><span class="n">points</span><span class="o">.</span><span class="s2">&quot;gptme.providers&quot;</span><span class="p">]</span>
-<span class="n">minimax</span> <span class="o">=</span> <span class="s2">&quot;gptme_provider_minimax:provider&quot;</span>
+</section>
+<section id="unified-plugin-system-entry-points">
+<span id="unified-plugins"></span><h2>Unified Plugin System (Entry Points)<a class="headerlink" href="#unified-plugin-system-entry-points" title="Link to this heading">#</a></h2>
+<p>For <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span></code>-able packages, gptme supports a unified plugin interface via Python entry points. A single <code class="docutils literal notranslate"><span class="pre">GptmePlugin</span></code> dataclass lets a package expose <strong>any combination</strong> of tools, hooks, commands, and LLM providers — no folder structure required.</p>
+<p>This is the recommended approach for published packages. It uses the same mechanism as pytest plugins, setuptools console_scripts, etc.</p>
+<p class="rubric">GptmePlugin Dataclass</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">gptme.plugins.plugin</span> <span class="kn">import</span> <span class="n">GptmePlugin</span>
+
+<span class="n">GptmePlugin</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_plugin&quot;</span><span class="p">,</span>           <span class="c1"># Unique plugin name</span>
+    <span class="n">provider</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>              <span class="c1"># ProviderPlugin for LLM providers (optional)</span>
+    <span class="n">tool_modules</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;...&quot;</span><span class="p">],</span>       <span class="c1"># Module names containing ToolSpec instances (optional)</span>
+    <span class="n">tools</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">],</span>                <span class="c1"># Direct ToolSpec instances (optional)</span>
+    <span class="n">register_hooks</span><span class="o">=</span><span class="n">fn</span><span class="p">,</span>          <span class="c1"># Callable that registers hooks (optional)</span>
+    <span class="n">register_commands</span><span class="o">=</span><span class="n">fn</span><span class="p">,</span>       <span class="c1"># Callable that registers commands (optional)</span>
+    <span class="n">init</span><span class="o">=</span><span class="n">fn</span><span class="p">,</span>                    <span class="c1"># Callable(Config) for plugin initialization (optional)</span>
+<span class="p">)</span>
 </pre></div>
 </div>
-<p>Entry points are discovered automatically at startup — no configuration needed beyond installing the package. This complements the folder-based plugin system: use entry points for published packages, folder-based plugins for local/user-local extensions.</p>
-<p>See <a class="reference external" href="https://github.com/gptme/gptme/issues/1849">issue #1849</a> for plans to extend entry-points to tools, hooks, and commands.</p>
+<p>A plugin only needs to provide the capabilities it uses — all fields except <code class="docutils literal notranslate"><span class="pre">name</span></code> are optional.</p>
+<p class="rubric">Creating a Unified Plugin</p>
+<ol class="arabic simple">
+<li><p>Create a Python package with a <code class="docutils literal notranslate"><span class="pre">GptmePlugin</span></code> instance:</p></li>
+</ol>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># src/my_gptme_plugin/__init__.py</span>
+<span class="kn">from</span> <span class="nn">gptme.plugins.plugin</span> <span class="kn">import</span> <span class="n">GptmePlugin</span>
+<span class="kn">from</span> <span class="nn">gptme.tools.base</span> <span class="kn">import</span> <span class="n">ToolSpec</span>
+
+<span class="k">def</span> <span class="nf">greet</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;World&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Greet someone.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;Hello, </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">!&quot;</span>
+
+<span class="n">greet_tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;greet&quot;</span><span class="p">,</span>
+    <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;Greet someone by name&quot;</span><span class="p">,</span>
+    <span class="n">instructions</span><span class="o">=</span><span class="s2">&quot;Use this tool to greet people.&quot;</span><span class="p">,</span>
+    <span class="n">functions</span><span class="o">=</span><span class="p">[</span><span class="n">greet</span><span class="p">],</span>
+<span class="p">)</span>
+
+<span class="n">plugin</span> <span class="o">=</span> <span class="n">GptmePlugin</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_gptme_plugin&quot;</span><span class="p">,</span>
+    <span class="n">tools</span><span class="o">=</span><span class="p">[</span><span class="n">greet_tool</span><span class="p">],</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<ol class="arabic simple" start="2">
+<li><p>Register the entry point in <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>:</p></li>
+</ol>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[project]</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my-gptme-plugin&quot;</span>
+<span class="n">version</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.1.0&quot;</span>
+<span class="n">dependencies</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;gptme&quot;</span><span class="p">]</span>
+
+<span class="k">[project.entry-points.</span><span class="s2">&quot;gptme.plugins&quot;</span><span class="k">]</span>
+<span class="n">my_gptme_plugin</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my_gptme_plugin:plugin&quot;</span>
+</pre></div>
+</div>
+<ol class="arabic simple" start="3">
+<li><p>Install and use:</p></li>
+</ol>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>my-gptme-plugin
+gptme<span class="w"> </span><span class="s2">&quot;use the greet tool to say hello to Alice&quot;</span>
+</pre></div>
+</div>
+<p class="rubric">Full-Featured Plugin Example</p>
+<p>A plugin that provides a tool, a hook, a command, and an LLM provider:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># src/my_full_plugin/__init__.py</span>
+<span class="kn">from</span> <span class="nn">gptme.plugins.plugin</span> <span class="kn">import</span> <span class="n">GptmePlugin</span>
+<span class="kn">from</span> <span class="nn">gptme.tools.base</span> <span class="kn">import</span> <span class="n">ToolSpec</span>
+<span class="kn">from</span> <span class="nn">gptme.llm.models</span> <span class="kn">import</span> <span class="n">ModelMeta</span><span class="p">,</span> <span class="n">ProviderPlugin</span>
+
+<span class="c1"># Tool</span>
+<span class="k">def</span> <span class="nf">lookup</span><span class="p">(</span><span class="n">query</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Look up information.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;Result for: </span><span class="si">{</span><span class="n">query</span><span class="si">}</span><span class="s2">&quot;</span>
+
+<span class="n">lookup_tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;lookup&quot;</span><span class="p">,</span>
+    <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;Look up information&quot;</span><span class="p">,</span>
+    <span class="n">instructions</span><span class="o">=</span><span class="s2">&quot;Use this tool to search for information.&quot;</span><span class="p">,</span>
+    <span class="n">functions</span><span class="o">=</span><span class="p">[</span><span class="n">lookup</span><span class="p">],</span>
+<span class="p">)</span>
+
+<span class="c1"># Hook registration</span>
+<span class="k">def</span> <span class="nf">_register_hooks</span><span class="p">():</span>
+    <span class="kn">from</span> <span class="nn">gptme.hooks</span> <span class="kn">import</span> <span class="n">HookType</span><span class="p">,</span> <span class="n">register_hook</span>
+    <span class="kn">from</span> <span class="nn">gptme.message</span> <span class="kn">import</span> <span class="n">Message</span>
+
+    <span class="k">def</span> <span class="nf">on_session_start</span><span class="p">(</span><span class="n">logdir</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">initial_msgs</span><span class="p">):</span>
+        <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="s2">&quot;My plugin initialized!&quot;</span><span class="p">)</span>
+
+    <span class="n">register_hook</span><span class="p">(</span><span class="s2">&quot;my_plugin.start&quot;</span><span class="p">,</span> <span class="n">HookType</span><span class="o">.</span><span class="n">SESSION_START</span><span class="p">,</span> <span class="n">on_session_start</span><span class="p">)</span>
+
+<span class="c1"># Command registration</span>
+<span class="k">def</span> <span class="nf">_register_commands</span><span class="p">():</span>
+    <span class="kn">from</span> <span class="nn">gptme.commands</span> <span class="kn">import</span> <span class="n">register_command</span><span class="p">,</span> <span class="n">CommandContext</span>
+    <span class="kn">from</span> <span class="nn">gptme.message</span> <span class="kn">import</span> <span class="n">Message</span>
+
+    <span class="k">def</span> <span class="nf">status_handler</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">CommandContext</span><span class="p">):</span>
+        <span class="k">yield</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="s2">&quot;My plugin is running!&quot;</span><span class="p">)</span>
+
+    <span class="n">register_command</span><span class="p">(</span><span class="s2">&quot;my-status&quot;</span><span class="p">,</span> <span class="n">status_handler</span><span class="p">)</span>
+
+<span class="c1"># LLM provider (optional)</span>
+<span class="n">my_provider</span> <span class="o">=</span> <span class="n">ProviderPlugin</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_llm&quot;</span><span class="p">,</span>
+    <span class="n">api_key_env</span><span class="o">=</span><span class="s2">&quot;MY_LLM_API_KEY&quot;</span><span class="p">,</span>
+    <span class="n">base_url</span><span class="o">=</span><span class="s2">&quot;https://api.example.com/v1&quot;</span><span class="p">,</span>
+    <span class="n">models</span><span class="o">=</span><span class="p">[</span><span class="n">ModelMeta</span><span class="p">(</span><span class="n">provider</span><span class="o">=</span><span class="s2">&quot;unknown&quot;</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s2">&quot;my_llm/fast&quot;</span><span class="p">,</span> <span class="n">context</span><span class="o">=</span><span class="mi">128_000</span><span class="p">)],</span>
+<span class="p">)</span>
+
+<span class="c1"># Plugin initialization (optional)</span>
+<span class="k">def</span> <span class="nf">_init</span><span class="p">(</span><span class="n">config</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Called once at startup with the full gptme Config.&quot;&quot;&quot;</span>
+    <span class="c1"># Access plugin-specific config via:</span>
+    <span class="c1">#   config.user.plugin.get(&quot;my_full_plugin&quot;, {})</span>
+    <span class="k">pass</span>
+
+<span class="n">plugin</span> <span class="o">=</span> <span class="n">GptmePlugin</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_full_plugin&quot;</span><span class="p">,</span>
+    <span class="n">tools</span><span class="o">=</span><span class="p">[</span><span class="n">lookup_tool</span><span class="p">],</span>
+    <span class="n">register_hooks</span><span class="o">=</span><span class="n">_register_hooks</span><span class="p">,</span>
+    <span class="n">register_commands</span><span class="o">=</span><span class="n">_register_commands</span><span class="p">,</span>
+    <span class="n">provider</span><span class="o">=</span><span class="n">my_provider</span><span class="p">,</span>
+    <span class="n">init</span><span class="o">=</span><span class="n">_init</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p class="rubric">How Discovery Works</p>
+<p>The plugin registry merges three sources in order:</p>
+<ol class="arabic simple">
+<li><p><strong>Folder plugins</strong> — from paths configured in <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code></p></li>
+<li><p><strong>Entry-point plugins</strong> — from the <code class="docutils literal notranslate"><span class="pre">gptme.plugins</span></code> group (deduped against folder plugins)</p></li>
+<li><p><strong>Legacy provider plugins</strong> — from the <code class="docutils literal notranslate"><span class="pre">gptme.providers</span></code> group (backward compat)</p></li>
+</ol>
+<p>If the same plugin name appears in multiple sources, folder plugins take precedence over entry-point plugins (to support editable installs where both are present). The <code class="docutils literal notranslate"><span class="pre">plugins.enabled</span></code> allowlist in <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> can filter which plugins are loaded.</p>
+<p class="rubric">Factory Functions</p>
+<p>Entry points can reference either a <code class="docutils literal notranslate"><span class="pre">GptmePlugin</span></code> instance directly, or a callable (factory) that returns one:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[project.entry-points.</span><span class="s2">&quot;gptme.plugins&quot;</span><span class="k">]</span>
+<span class="c1"># Direct instance</span>
+<span class="n">my_plugin</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my_package:plugin&quot;</span>
+<span class="c1"># Factory function</span>
+<span class="n">my_plugin</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my_package:create_plugin&quot;</span>
+</pre></div>
+</div>
+<p class="rubric">Legacy Provider Entry Points</p>
+<p>The older <code class="docutils literal notranslate"><span class="pre">gptme.providers</span></code> entry-point group still works for provider-only plugins. For new plugins, prefer <code class="docutils literal notranslate"><span class="pre">gptme.plugins</span></code> with a <code class="docutils literal notranslate"><span class="pre">provider</span></code> field — it supports all plugin capabilities in a single registration. See <a class="reference internal" href="providers.html"><span class="doc">Providers</span></a> for details.</p>
 </section>
 <section id="migration-from-tool-modules">
 <h2>Migration from TOOL_MODULES<a class="headerlink" href="#migration-from-tool-modules" title="Link to this heading">#</a></h2>
@@ -955,15 +1079,6 @@ gptme
 </div>
 <p>Both approaches work and can coexist. The plugin system provides better organization and discoverability for complex tool collections.</p>
 </section>
-<section id="future-hooks-and-commands">
-<h2>Future: Hooks and Commands<a class="headerlink" href="#future-hooks-and-commands" title="Link to this heading">#</a></h2>
-<p>Future phases will add support for:</p>
-<ul class="simple">
-<li><p><strong>Hooks</strong>: Plugin-provided hooks for events (e.g., pre-generation, post-execution)</p></li>
-<li><p><strong>Commands</strong>: Plugin-provided commands for the gptme CLI</p></li>
-</ul>
-<p>Stay tuned for updates!</p>
-</section>
 <section id="troubleshooting">
 <h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading">#</a></h2>
 <p><strong>Plugin not discovered:</strong></p>
@@ -971,17 +1086,24 @@ gptme
 <li><p>Ensure plugin directory has <code class="docutils literal notranslate"><span class="pre">__init__.py</span></code></p></li>
 <li><p>Check plugin path is correctly configured in <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code></p></li>
 <li><p>Verify path is absolute or relative to config directory</p></li>
+<li><p>For entry-point plugins: verify the package is installed (<code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">list</span> <span class="pre">|</span> <span class="pre">grep</span> <span class="pre">my-plugin</span></code>)</p></li>
 </ul>
 <p><strong>Tools not loading:</strong></p>
 <ul class="simple">
-<li><p>Check <code class="docutils literal notranslate"><span class="pre">tools/</span></code> directory exists and has proper structure</p></li>
+<li><p>Check <code class="docutils literal notranslate"><span class="pre">tools/</span></code> directory exists and has proper structure (for folder plugins)</p></li>
 <li><p>Verify tool modules define <code class="docutils literal notranslate"><span class="pre">ToolSpec</span></code> instances</p></li>
-<li><p>Look for import errors in gptme logs</p></li>
+<li><p>Look for import errors in gptme logs (<code class="docutils literal notranslate"><span class="pre">GPTME_LOG_LEVEL=debug</span> <span class="pre">gptme</span></code>)</p></li>
 </ul>
 <p><strong>Plugin not enabled:</strong></p>
 <ul class="simple">
 <li><p>If using <code class="docutils literal notranslate"><span class="pre">plugins.enabled</span></code> allowlist, ensure plugin name is included</p></li>
 <li><p>Remove <code class="docutils literal notranslate"><span class="pre">enabled</span></code> list to load all discovered plugins</p></li>
+</ul>
+<p><strong>Entry-point plugin not found:</strong></p>
+<ul class="simple">
+<li><p>Verify the entry point is declared in <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code> under <code class="docutils literal notranslate"><span class="pre">[project.entry-points.&quot;gptme.plugins&quot;]</span></code></p></li>
+<li><p>Reinstall the package (<code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">-e</span> <span class="pre">.</span></code>) after adding or changing entry points</p></li>
+<li><p>Check that the exported object is a <code class="docutils literal notranslate"><span class="pre">GptmePlugin</span></code> instance or a callable returning one</p></li>
 </ul>
 </section>
 </section>
@@ -1064,8 +1186,8 @@ gptme
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-logging-plugin">Example: Logging Plugin</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-weather-plugin">Example: Weather Plugin</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#distribution">Distribution</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#unified-plugin-system-entry-points">Unified Plugin System (Entry Points)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#migration-from-tool-modules">Migration from TOOL_MODULES</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#future-hooks-and-commands">Future: Hooks and Commands</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#troubleshooting">Troubleshooting</a></li>
 </ul>
   </nav></div>

@@ -52,7 +52,11 @@ Field             Required Description
 
 If ``init`` is provided, it **must** register an OpenAI-compatible client before returning, or gptme will raise a ``RuntimeError``.
 
-Plugin providers are auto-initialised on first use and routed through the OpenAI client path. See :doc:`plugins` for the broader plugin architecture and `issue #1849 <https://github.com/gptme/gptme/issues/1849>`_ for plans to extend entry-points to other component types.
+Plugin providers are auto-initialised on first use and routed through the OpenAI client path.
+
+.. note::
+
+   For new plugins, consider using the :ref:`unified plugin system <unified-plugins>` (``gptme.plugins`` entry-point group) instead. It lets a single package provide tools, hooks, commands, **and** a provider together. The ``gptme.providers`` group still works and is supported for backward compatibility.
 
 You can find our model recommendations on the :doc:`evals` page.
 
