@@ -175,11 +175,6 @@ def _record_usage(usage, model: str) -> MessageMetadata | None:
     return metadata
 
 
-# TODO: improve provider routing for openrouter: https://openrouter.ai/docs/provider-routing
-# TODO: set required-parameters: https://openrouter.ai/docs/provider-routing#required-parameters-_beta_
-# TODO: set quantization: https://openrouter.ai/docs/provider-routing#quantization
-
-
 ALLOWED_FILE_EXTS = ["jpg", "jpeg", "png", "gif", "webp"]
 
 
@@ -651,12 +646,25 @@ def extra_body(
                     reasoning_budget = available
             if reasoning_budget > 0:
                 body["reasoning"] = {"enabled": True, "max_tokens": reasoning_budget}
+        # Provider routing preferences
+        # See: https://openrouter.ai/docs/provider-routing
+        provider_prefs: dict[str, Any] = {}
+
         if "@" in model_meta.model:
             provider_override = model_meta.model.split("@")[1]
-            body["provider"] = {
-                "order": [provider_override],
-                "allow_fallbacks": False,
-            }
+            provider_prefs["order"] = [provider_override]
+            provider_prefs["allow_fallbacks"] = False
+
+        # Ensure routed provider supports all request parameters (tools,
+        # response_format, etc.) — prevents silent failures when OpenRouter
+        # falls back to a provider that doesn't support function calling.
+        provider_prefs["require_parameters"] = True
+
+        # Privacy: deny provider data collection by default.
+        # Aligns with gptme's local-first, privacy-preserving philosophy.
+        provider_prefs["data_collection"] = "deny"
+
+        body["provider"] = provider_prefs
     return body
 
 

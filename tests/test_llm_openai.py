@@ -1424,3 +1424,78 @@ def test_prep_deepseek_reasoner_preserves_image_files():
     assert len(result[1].files) == 1
     assert Path("/path/to/screenshot.png") in result[1].files
     assert result[1].file_hashes.get("/path/to/screenshot.png") == "hash123"
+
+
+# --- Tests for extra_body (OpenRouter provider routing) ---
+
+
+class TestExtraBody:
+    """Tests for OpenRouter extra_body provider routing preferences."""
+
+    @staticmethod
+    def _make_model(model: str, **kwargs):  # type: ignore[no-untyped-def]
+        from gptme.llm.models.types import ModelMeta
+
+        return ModelMeta(
+            provider=kwargs.pop("provider", "openrouter"),
+            model=model,
+            context=kwargs.pop("context", 128000),
+            **kwargs,
+        )
+
+    def test_non_openrouter_returns_empty(self):
+        from gptme.llm.llm_openai import extra_body
+
+        meta = self._make_model("gpt-4o", provider="openai")
+        result = extra_body("openai", meta)
+        assert result == {}
+
+    def test_openrouter_has_require_parameters(self):
+        from gptme.llm.llm_openai import extra_body
+
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        result = extra_body("openrouter", meta)
+        assert result["provider"]["require_parameters"] is True
+
+    def test_openrouter_denies_data_collection(self):
+        from gptme.llm.llm_openai import extra_body
+
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        result = extra_body("openrouter", meta)
+        assert result["provider"]["data_collection"] == "deny"
+
+    def test_openrouter_provider_override_with_at_sign(self):
+        from gptme.llm.llm_openai import extra_body
+
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514@anthropic")
+        result = extra_body("openrouter", meta)
+        prov = result["provider"]
+        assert prov["order"] == ["anthropic"]
+        assert prov["allow_fallbacks"] is False
+        # Should still have require_parameters and data_collection
+        assert prov["require_parameters"] is True
+        assert prov["data_collection"] == "deny"
+
+    def test_openrouter_no_provider_override(self):
+        from gptme.llm.llm_openai import extra_body
+
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        result = extra_body("openrouter", meta)
+        prov = result["provider"]
+        assert "order" not in prov
+        assert "allow_fallbacks" not in prov
+
+    def test_openrouter_usage_accounting(self):
+        from gptme.llm.llm_openai import extra_body
+
+        meta = self._make_model("openai/gpt-4o")
+        result = extra_body("openrouter", meta)
+        assert result["usage"] == {"include": True}
+
+    def test_openrouter_reasoning_model(self):
+        from gptme.llm.llm_openai import extra_body
+
+        meta = self._make_model("openai/o3", supports_reasoning=True)
+        result = extra_body("openrouter", meta)
+        assert "reasoning" in result
+        assert result["reasoning"]["enabled"] is True
