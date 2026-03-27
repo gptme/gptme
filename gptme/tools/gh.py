@@ -603,21 +603,19 @@ def execute_gh(
         yield from _passthrough_gh(args, code)
 
 
-instructions = """Use this tool for GitHub work when it improves the result over a raw shell call.
+instructions = """Use this tool for GitHub work when it beats a raw shell call.
 
-Refs: full URLs, `owner/repo#N`, `#N`, or bare `N` (when in a git repo).
+Refs: full URLs, `owner/repo#N`, `#N`, or bare `N` in a git repo.
 
-The native handler is most useful when it saves you multiple `gh api` calls or adds
-safety/structure that raw CLI output does not:
-- `gh pr view <ref>` — get PR body, comments, review threads (with resolution), CI, and mergeability in one response
-- `gh pr status <ref> [commit_sha]` — get structured CI check-run status with actionable run IDs
-- `gh pr checks <ref> [commit_sha]` — let the tool poll CI and report progress until checks settle
-- `gh pr merge <ref> [--squash|--rebase|--merge] [--auto] [--delete-branch] [--match-head-commit SHA]` — merge with squash-by-default and head-commit protection
-- `gh run view <run-id>` — get failed-job logs extracted from CI output
+Prefer the native handler when it saves round-trips or adds safety:
+- `gh pr view <ref>` — PR body, comments, review threads, CI, and mergeability in one shot
+- `gh pr status <ref> [commit_sha]` — structured CI summary with run IDs
+- `gh pr checks <ref> [commit_sha]` — poll until checks settle
+- `gh pr merge <ref> [--squash|--rebase|--merge] [--auto] [--delete-branch] [--match-head-commit SHA]` — squash by default with head-commit protection
+- `gh run view <run-id>` — failed-job logs only
 
-For simple GitHub commands, use normal `gh` syntax here and it will pass straight
-through to the CLI. That keeps the tool flexible without re-adding thin wrappers
-for commands like `gh issue list`, `gh pr diff`, or `gh search issues`."""
+Any other valid `gh` subcommand passes through unchanged, including `gh issue list`,
+`gh pr diff`, and `gh search issues`."""
 
 
 def examples(tool_format):
