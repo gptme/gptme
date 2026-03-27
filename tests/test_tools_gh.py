@@ -15,6 +15,7 @@ from gptme.tools.gh import (
     _get_pr_check_runs,
     _handle_pr_merge,
     _handle_pr_status,
+    _passthrough_gh,
     _resolve_ref,
     _wait_for_checks,
     execute_gh,
@@ -499,12 +500,12 @@ class TestExecuteGh:
         )
         mock_wait.assert_called_once()
 
-    def test_unknown_command_passes_through_to_cli(self):
-        """Unknown commands are passed through to gh CLI (which reports its own error)."""
-        messages = list(execute_gh(None, ["unknown", "command"], None))
-        assert len(messages) == 1
-        # gh CLI reports its own error for unknown commands
-        assert "Error" in messages[0].content
+    @patch("gptme.tools.gh._passthrough_gh")
+    def test_unknown_command_passes_through_to_cli(self, mock_passthrough):
+        """Unknown commands dispatch to the gh CLI pass-through."""
+        mock_passthrough.return_value = iter([])
+        list(execute_gh(None, ["unknown", "command"], None))
+        mock_passthrough.assert_called_once_with(["unknown", "command"], None)
 
     def test_pr_checks_no_url(self):
         messages = list(execute_gh(None, ["pr", "checks"], None))
@@ -608,12 +609,66 @@ class TestExecuteGh:
 
     @patch("gptme.tools.gh.subprocess.run")
     def test_passthrough_error(self, mock_run):
-        """Pass-through reports gh CLI errors."""
-        mock_run.return_value = MagicMock(stdout="", stderr="not found", returncode=1)
+        """Pass-through reports gh CLI errors, including partial stdout."""
+        mock_run.return_value = MagicMock(
+            stdout="partial results", stderr="not found", returncode=1
+        )
         messages = list(execute_gh(None, ["bad", "command"], None))
         assert len(messages) == 1
         assert "Error (exit 1)" in messages[0].content
-        assert "not found" in messages[0].content
+        assert "stderr:\nnot found" in messages[0].content
+        assert "stdout:\npartial results" in messages[0].content
+
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_passthrough_code_string(self, mock_run):
+        """Code-string invocations are parsed and passed to gh."""
+        mock_run.return_value = MagicMock(stdout="ok", stderr="", returncode=0)
+        messages = list(_passthrough_gh(None, 'gh issue list --repo "o/r"'))
+        assert len(messages) == 1
+        assert messages[0].content == "ok"
+        mock_run.assert_called_once_with(
+            ["gh", "issue", "list", "--repo", "o/r"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+
+    def test_passthrough_parse_error(self):
+        """Malformed code-string invocations return a parse error."""
+        messages = list(_passthrough_gh(None, 'gh issue comment --body "unterminated'))
+        assert len(messages) == 1
+        assert "Error parsing command" in messages[0].content
+
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_passthrough_timeout(self, mock_run):
+        """Pass-through reports timeouts cleanly."""
+        mock_run.side_effect = subprocess.TimeoutExpired(["gh", "issue"], timeout=60)
+        messages = list(_passthrough_gh(["issue", "list"], None))
+        assert len(messages) == 1
+        assert "timed out after 60 seconds" in messages[0].content
+
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_passthrough_missing_cli(self, mock_run):
+        """Pass-through reports missing gh CLI cleanly."""
+        mock_run.side_effect = FileNotFoundError
+        messages = list(_passthrough_gh(["issue", "list"], None))
+        assert len(messages) == 1
+        assert "gh CLI not found" in messages[0].content
+
+    def test_passthrough_no_command(self):
+        """Pass-through rejects empty invocations explicitly."""
+        messages = list(_passthrough_gh(None, None))
+        assert len(messages) == 1
+        assert messages[0].content == "Error: No command provided"
+
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_passthrough_no_output(self, mock_run):
+        """Successful pass-throughs with empty stdout report no output explicitly."""
+        mock_run.return_value = MagicMock(stdout="", stderr="", returncode=0)
+        messages = list(_passthrough_gh(["issue", "list"], None))
+        assert len(messages) == 1
+        assert messages[0].content == "(no output)"
 
 
 # --- _resolve_ref ---

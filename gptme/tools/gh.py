@@ -492,7 +492,7 @@ def _passthrough_gh(
         yield Message("system", "Error: No command provided")
         return
 
-    logger.info(f"gh pass-through: {' '.join(cmd)}")
+    logger.info("gh pass-through: %s", shlex.join(cmd))
     try:
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=60, check=False
@@ -500,9 +500,14 @@ def _passthrough_gh(
         output = result.stdout.strip()
         stderr = result.stderr.strip()
         if result.returncode != 0:
-            msg = f"Error (exit {result.returncode})"
+            details = []
             if stderr:
-                msg += f": {stderr}"
+                details.append(f"stderr:\n{stderr}")
+            if output:
+                details.append(f"stdout:\n{output}")
+            msg = f"Error (exit {result.returncode})"
+            if details:
+                msg += "\n\n" + "\n\n".join(details)
             yield Message("system", msg)
         elif output:
             yield Message("system", output)
@@ -603,15 +608,16 @@ instructions = """Interact with GitHub via the `gh` CLI.
 
 Refs: full URLs, `owner/repo#N`, `#N`, or bare `N` (when in a git repo).
 
-Native operations (structured output, multi-API-call, or polling):
+Prefer the native handler only for operations where it adds value over raw CLI output:
 - `gh pr view <ref>` — PR body + comments + review threads (with resolution) + CI + mergeability
 - `gh pr status <ref> [commit_sha]` — structured CI check-run summary with run IDs
 - `gh pr checks <ref> [commit_sha]` — poll until all CI checks complete
 - `gh pr merge <ref> [--squash|--rebase|--merge] [--auto] [--delete-branch] [--match-head-commit SHA]` — merge with squash default
 - `gh run view <run-id>` — structured failed-job log extraction
 
-All other `gh` subcommands are passed through to the CLI directly, so you can use
-any valid `gh` command (e.g. `gh issue list`, `gh pr diff`, `gh search issues`, etc.)."""
+All other `gh` subcommands pass through to the CLI unchanged, so normal `gh` usage
+still works without adding new wrappers (for example `gh issue list`, `gh pr diff`,
+or `gh search issues`)."""
 
 
 def examples(tool_format):
