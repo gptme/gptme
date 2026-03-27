@@ -1550,6 +1550,7 @@ class TestExtraBody:
         from gptme.llm.llm_openai import extra_body
 
         monkeypatch.setenv("OPENROUTER_QUANTIZATION", "fp16")
+        monkeypatch.delenv("GPTME_OPENROUTER_QUANTIZATION", raising=False)
         meta = self._make_model("anthropic/claude-sonnet-4-20250514")
         result = extra_body("openrouter", meta)
         assert result["provider"]["quantizations"] == ["fp16"]
@@ -1558,6 +1559,7 @@ class TestExtraBody:
         from gptme.llm.llm_openai import extra_body
 
         monkeypatch.setenv("OPENROUTER_QUANTIZATION", "fp16,bf16,fp8")
+        monkeypatch.delenv("GPTME_OPENROUTER_QUANTIZATION", raising=False)
         meta = self._make_model("anthropic/claude-sonnet-4-20250514")
         result = extra_body("openrouter", meta)
         assert result["provider"]["quantizations"] == ["fp16", "bf16", "fp8"]
@@ -1566,6 +1568,7 @@ class TestExtraBody:
         from gptme.llm.llm_openai import extra_body
 
         monkeypatch.setenv("OPENROUTER_QUANTIZATION", " fp16 , int8 , int4 ")
+        monkeypatch.delenv("GPTME_OPENROUTER_QUANTIZATION", raising=False)
         meta = self._make_model("anthropic/claude-sonnet-4-20250514")
         result = extra_body("openrouter", meta)
         assert result["provider"]["quantizations"] == ["fp16", "int8", "int4"]
@@ -1574,6 +1577,7 @@ class TestExtraBody:
         from gptme.llm.llm_openai import extra_body
 
         monkeypatch.setenv("OPENROUTER_QUANTIZATION", "")
+        monkeypatch.delenv("GPTME_OPENROUTER_QUANTIZATION", raising=False)
         meta = self._make_model("anthropic/claude-sonnet-4-20250514")
         result = extra_body("openrouter", meta)
         assert "quantizations" not in result["provider"]
