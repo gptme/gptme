@@ -662,7 +662,9 @@ def extra_body(
 
         # Privacy: deny provider data collection by default.
         # Aligns with gptme's local-first, privacy-preserving philosophy.
-        provider_prefs["data_collection"] = "deny"
+        # Users can override with OPENROUTER_DATA_COLLECTION env var or config.
+        data_collection = get_config().get_env("OPENROUTER_DATA_COLLECTION", "deny")
+        provider_prefs["data_collection"] = data_collection
 
         body["provider"] = provider_prefs
     return body

@@ -1499,3 +1499,37 @@ class TestExtraBody:
         result = extra_body("openrouter", meta)
         assert "reasoning" in result
         assert result["reasoning"]["enabled"] is True
+
+    def test_openrouter_data_collection_env_override_allow(self, monkeypatch):
+        from gptme.llm.llm_openai import extra_body
+
+        monkeypatch.setenv("OPENROUTER_DATA_COLLECTION", "allow")
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        result = extra_body("openrouter", meta)
+        assert result["provider"]["data_collection"] == "allow"
+
+    def test_openrouter_data_collection_env_override_deny(self, monkeypatch):
+        from gptme.llm.llm_openai import extra_body
+
+        monkeypatch.setenv("OPENROUTER_DATA_COLLECTION", "deny")
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        result = extra_body("openrouter", meta)
+        assert result["provider"]["data_collection"] == "deny"
+
+    def test_openrouter_data_collection_default_without_env(self, monkeypatch):
+        from gptme.llm.llm_openai import extra_body
+
+        monkeypatch.delenv("OPENROUTER_DATA_COLLECTION", raising=False)
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        result = extra_body("openrouter", meta)
+        assert result["provider"]["data_collection"] == "deny"
+
+    def test_openrouter_data_collection_gptme_prefixed_env(self, monkeypatch):
+        """GPTME_OPENROUTER_DATA_COLLECTION takes precedence over bare form."""
+        from gptme.llm.llm_openai import extra_body
+
+        monkeypatch.setenv("GPTME_OPENROUTER_DATA_COLLECTION", "allow")
+        monkeypatch.delenv("OPENROUTER_DATA_COLLECTION", raising=False)
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        result = extra_body("openrouter", meta)
+        assert result["provider"]["data_collection"] == "allow"
