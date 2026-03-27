@@ -114,6 +114,8 @@ class TestAutocommit:
         result = autocommit()
 
         assert "Git operation failed" in result.content
+        # Verify the str(e) fallback content appears, not just the static prefix
+        assert str(err) in result.content
 
     @patch("gptme.tools.autocommit.subprocess.run")
     def test_keyboard_interrupt_propagated(self, mock_run: MagicMock):
