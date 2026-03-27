@@ -69,8 +69,7 @@ jobs:
         file: ./scripts/Dockerfile
         context: .
         push: false
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+        load: true
 
     # Push base image to registry if on master/tag
     - name: Push Docker image (base)
