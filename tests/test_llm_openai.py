@@ -1520,6 +1520,7 @@ class TestExtraBody:
         from gptme.llm.llm_openai import extra_body
 
         monkeypatch.delenv("OPENROUTER_DATA_COLLECTION", raising=False)
+        monkeypatch.delenv("GPTME_OPENROUTER_DATA_COLLECTION", raising=False)
         meta = self._make_model("anthropic/claude-sonnet-4-20250514")
         result = extra_body("openrouter", meta)
         assert result["provider"]["data_collection"] == "deny"
