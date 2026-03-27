@@ -93,6 +93,26 @@ Use the ``[env]`` section in the :ref:`global-config` file to store API keys usi
 - ``GROQ_API_KEY="your-api-key"``
 - ``DEEPSEEK_API_KEY="your-api-key"``
 
+.. rubric:: OpenRouter
+
+`OpenRouter <https://openrouter.ai/>`_ provides access to 100+ models through a single API key. gptme applies sensible defaults for OpenRouter requests:
+
+- **Provider routing**: ``require_parameters`` is enabled, ensuring the routed provider supports all request parameters (tools, response format, etc.). This prevents silent failures when OpenRouter falls back to a provider that doesn't support function calling.
+- **Privacy**: ``data_collection`` defaults to ``"deny"``, preventing providers from training on your data. This aligns with gptme's privacy-first philosophy.
+- **Provider override**: Use ``model@provider`` syntax to pin a specific backend (e.g. ``anthropic/claude-sonnet-4-20250514@anthropic``).
+
+**Configuration:**
+
+.. code-block:: toml
+
+    # In gptme.toml or ~/.config/gptme/config.toml
+    [env]
+    OPENROUTER_API_KEY = "your-api-key"
+
+    # Override data collection preference (default: "deny")
+    # Set to "allow" if you need providers that require data collection consent
+    OPENROUTER_DATA_COLLECTION = "allow"
+
 .. rubric:: OpenAI Subscription
 
 You can use your existing ChatGPT Plus/Pro subscription with gptme. This uses the ChatGPT backend API (Codex endpoint) instead of the OpenAI Platform API, allowing you to leverage your subscription for development.
