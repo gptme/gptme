@@ -693,7 +693,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f00cd459c60&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f12fee51c60&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1257,63 +1257,25 @@ Use a code block with the language tag: <span class="sb">`form`</span> followed 
 
 <span class="gs">**Description:**</span> Interact with GitHub
 
-<span class="gs">**Instructions:**</span> Interact with GitHub via the GitHub CLI (gh).
+<span class="gs">**Instructions:**</span> Use this tool when GitHub work needs fewer round-trips, structured CI data,
+or safer merges than a raw <span class="sb">`gh`</span> shell command.
 
-Refs: full URLs, <span class="sb">`owner/repo#N`</span>, <span class="sb">`#N`</span>, or bare <span class="sb">`N`</span> (when in a git repo).
+Refs: full URLs, <span class="sb">`owner/repo#N`</span>, <span class="sb">`#N`</span>, or bare <span class="sb">`N`</span> in a git repo.
 
-Create/read issues and PRs:
-<span class="sb">```gh</span><span class="w"> </span>issue create --repo owner/repo --title &quot;Title&quot; --body &quot;Details&quot;
-<span class="s">gh issue view owner/repo#42</span>
-<span class="s">gh pr view owner/repo#123</span>
-<span class="sb">```</span>
+Native paths help the agent finish GitHub tasks with less hallucination risk:
+<span class="k">-</span><span class="w"> </span><span class="sb">`gh pr view &lt;ref&gt;`</span> gets PR body, comments, review threads, CI, and mergeability in one result
+<span class="k">-</span><span class="w"> </span><span class="sb">`gh pr status &lt;ref&gt; [commit_sha]`</span> returns structured CI state with run IDs
+<span class="k">-</span><span class="w"> </span><span class="sb">`gh pr checks &lt;ref&gt; [commit_sha]`</span> waits for checks to settle
+<span class="k">-</span><span class="w"> </span><span class="sb">`gh pr merge &lt;ref&gt; ...`</span> adds squash-by-default and optional head-commit protection
+<span class="k">-</span><span class="w"> </span><span class="sb">`gh run view &lt;run-id&gt;`</span> extracts failed-job logs
 
-List issues/PRs:
-<span class="sb">```gh</span><span class="w"> </span>issue list --repo owner/repo --state open --limit 20
-<span class="s">gh pr list --repo owner/repo --state open --limit 20</span>
-<span class="sb">```</span>
-
-Search issues/PRs across repos:
-<span class="sb">```gh</span><span class="w"> </span>search issues &quot;query&quot; --repo owner/repo --state open
-<span class="s">gh search prs &quot;query&quot; --author username --state open</span>
-<span class="sb">```</span>
-
-Comment on issues/PRs:
-<span class="sb">```gh</span><span class="w"> </span>issue comment owner/repo#42 --body &quot;Comment&quot;
-<span class="s">gh pr comment owner/repo#123 --body &quot;LGTM&quot;</span>
-<span class="sb">```</span>
-
-Inspect code changes:
-<span class="sb">```gh</span><span class="w"> </span>pr diff owner/repo#123
-<span class="sb">```</span>
-
-Merge a pull request (default: squash):
-<span class="sb">```gh</span><span class="w"> </span>pr merge owner/repo#123 --squash --auto --delete-branch
-<span class="sb">```</span>
-
-CI status:
-<span class="sb">```gh</span><span class="w"> </span>pr checks &lt;ref&gt;
-<span class="s">gh run view &lt;run-id&gt;</span>
-<span class="sb">```</span>
-
-For other operations, use the <span class="sb">`shell`</span> tool with <span class="sb">`gh`</span>.
+All other valid <span class="sb">`gh`</span> subcommands pass through unchanged.
 
 <span class="gu">### Examples</span>
-
-<span class="k">&gt; </span><span class="ge">User: read issue #42 on owner/repo</span>
-<span class="k">&gt; </span><span class="ge">Assistant:</span>
-<span class="sb">```gh</span><span class="w"> </span>issue view owner/repo#42
-<span class="s">None</span>
-<span class="sb">```</span>
 
 <span class="k">&gt; </span><span class="ge">User: read PR #123 on owner/repo</span>
 <span class="k">&gt; </span><span class="ge">Assistant:</span>
 <span class="sb">```gh</span><span class="w"> </span>pr view owner/repo#123
-<span class="s">None</span>
-<span class="sb">```</span>
-
-<span class="k">&gt; </span><span class="ge">User: show the code changes in this PR</span>
-<span class="k">&gt; </span><span class="ge">Assistant:</span>
-<span class="sb">```gh</span><span class="w"> </span>pr diff owner/repo#123
 <span class="s">None</span>
 <span class="sb">```</span>
 
@@ -1322,94 +1284,59 @@ For other operations, use the <span class="sb">`shell`</span> tool with <span cl
 <span class="sb">```gh</span><span class="w"> </span>pr status https://github.com/owner/repo/pull/123
 <span class="s">None</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">User: check status of specific commit abc1234</span>
-<span class="k">&gt; </span><span class="ge">Assistant:</span>
-<span class="sb">```gh</span><span class="w"> </span>pr status https://github.com/owner/repo/pull/123 abc1234
-<span class="s">None</span>
-<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">Total: 6 checks</span>
+✅ 4 passed
+❌ 2 failed
+
+Failed runs:
+<span class="w">  </span><span class="k">-</span><span class="w"> </span>build (run 12345678)
+<span class="w">  </span><span class="k">-</span><span class="w"> </span>test (run 12345679)
+
+View logs: gh run view &lt;run_id&gt; --log-failed
 
 <span class="k">&gt; </span><span class="ge">User: show me the failed build logs</span>
 <span class="k">&gt; </span><span class="ge">Assistant:</span>
 <span class="sb">```gh</span><span class="w"> </span>run view 12345678
 <span class="s">None</span>
 <span class="sb">```</span>
+
 <span class="k">&gt; </span><span class="ge">User: wait for CI checks to complete on a PR</span>
 <span class="k">&gt; </span><span class="ge">Assistant:</span>
 <span class="sb">```gh</span><span class="w"> </span>pr checks https://github.com/owner/repo/pull/123
 <span class="s">None</span>
 <span class="sb">```</span>
+
 <span class="k">&gt; </span><span class="ge">User: merge PR #123 on owner/repo</span>
 <span class="k">&gt; </span><span class="ge">Assistant:</span>
 <span class="sb">```gh</span><span class="w"> </span>pr merge owner/repo#123
 <span class="s">None</span>
 <span class="sb">```</span>
+
 <span class="k">&gt; </span><span class="ge">User: auto-merge PR when checks pass, and delete the branch</span>
 <span class="k">&gt; </span><span class="ge">Assistant:</span>
 <span class="sb">```gh</span><span class="w"> </span>pr merge owner/repo#123 --squash --auto --delete-branch
 <span class="s">None</span>
 <span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">User: create a public repo from the current directory, and push. Note that --confirm and -y are deprecated, and no longer needed.</span>
-<span class="k">&gt; </span><span class="ge">Assistant:</span>
-<span class="sb">```shell</span>
-<span class="nv">REPO</span><span class="o">=</span><span class="k">$(</span>basename<span class="w"> </span><span class="k">$(</span><span class="nb">pwd</span><span class="k">))</span>
-gh<span class="w"> </span>repo<span class="w"> </span>create<span class="w"> </span><span class="nv">$REPO</span><span class="w"> </span>--public<span class="w"> </span>--source<span class="w"> </span>.<span class="w"> </span>--push
-<span class="sb">```</span>
 
-<span class="k">&gt; </span><span class="ge">User: create an issue to track this bug</span>
-<span class="k">&gt; </span><span class="ge">Assistant:</span>
-<span class="sb">```gh</span><span class="w"> </span>issue create --repo owner/repo --title Fix login timeout --body Login times out after 30s on slow connections. --label bug
-<span class="s">None</span>
-<span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">User: comment on issue 42 that the fix is ready</span>
-<span class="k">&gt; </span><span class="ge">Assistant:</span>
-<span class="sb">```gh</span><span class="w"> </span>issue comment owner/repo#42 --body Fix implemented in PR #50. Ready for review.
-<span class="s">None</span>
-<span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">User: leave a review comment on PR 123</span>
-<span class="k">&gt; </span><span class="ge">Assistant:</span>
-<span class="sb">```gh</span><span class="w"> </span>pr comment owner/repo#123 --body LGTM! Tests pass and code looks clean.
-<span class="s">None</span>
-<span class="sb">```</span>
-<span class="k">&gt; </span><span class="ge">User: show issues</span>
+<span class="k">&gt; </span><span class="ge">User: show issues (pass-through to gh CLI)</span>
 <span class="k">&gt; </span><span class="ge">Assistant:</span>
 <span class="sb">```gh</span><span class="w"> </span>issue list --repo owner/repo
 <span class="s">None</span>
 <span class="sb">```</span>
 
-<span class="k">&gt; </span><span class="ge">User: show open PRs</span>
-<span class="k">&gt; </span><span class="ge">Assistant:</span>
-<span class="sb">```gh</span><span class="w"> </span>pr list --repo owner/repo
-<span class="s">None</span>
-<span class="sb">```</span>
-
-<span class="k">&gt; </span><span class="ge">User: search for authentication issues in owner/repo</span>
-<span class="k">&gt; </span><span class="ge">Assistant:</span>
-<span class="sb">```gh</span><span class="w"> </span>search issues authentication --repo owner/repo
-<span class="s">None</span>
-<span class="sb">```</span>
-
-<span class="k">&gt; </span><span class="ge">User: find my open PRs</span>
-<span class="k">&gt; </span><span class="ge">Assistant:</span>
-<span class="sb">```gh</span><span class="w"> </span>search prs fix --author @me --state open
-<span class="s">None</span>
-<span class="sb">```</span>
-
-<span class="k">&gt; </span><span class="ge">User: show recent workflows</span>
+<span class="k">&gt; </span><span class="ge">User: post a multi-line comment on issue 42</span>
 <span class="k">&gt; </span><span class="ge">Assistant:</span>
 <span class="sb">```shell</span>
-gh<span class="w"> </span>run<span class="w"> </span>list<span class="w"> </span>--repo<span class="w"> </span><span class="nv">$REPO</span><span class="w"> </span>--limit<span class="w"> </span><span class="m">5</span>
-<span class="sb">```</span>
+gh<span class="w"> </span>issue<span class="w"> </span>comment<span class="w"> </span><span class="m">42</span><span class="w"> </span>--repo<span class="w"> </span>owner/repo<span class="w"> </span>--body-file<span class="w"> </span>-<span class="w"> </span><span class="s">&lt;&lt; &#39;EOF&#39;</span>
 
-<span class="k">&gt; </span><span class="ge">User: show workflow</span>
-<span class="k">&gt; </span><span class="ge">Assistant:</span>
-<span class="sb">```shell</span>
-gh<span class="w"> </span>run<span class="w"> </span>view<span class="w"> </span><span class="nv">$RUN</span><span class="w"> </span>--repo<span class="w"> </span><span class="nv">$REPO</span><span class="w"> </span>--log
-<span class="sb">```</span>
+<span class="s">## Summary</span>
 
-<span class="k">&gt; </span><span class="ge">User: wait for workflow to finish</span>
-<span class="k">&gt; </span><span class="ge">Assistant:</span>
-<span class="sb">```shell</span>
-gh<span class="w"> </span>run<span class="w"> </span>watch<span class="w"> </span><span class="nv">$RUN</span><span class="w"> </span>--repo<span class="w"> </span><span class="nv">$REPO</span>
+<span class="s">Work is complete. Here are the details:</span>
+<span class="s">- Fixed the bug</span>
+<span class="s">- Added tests</span>
+
+<span class="s">See PR #123 for the implementation.</span>
+<span class="s">EOF</span>
 <span class="sb">```</span>
 
 <span class="gu">## lessons</span>
@@ -2301,7 +2228,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 12749</p>
+<p>Tokens: 12261</p>
 </dd></dl>
 
 <dl class="py function">
