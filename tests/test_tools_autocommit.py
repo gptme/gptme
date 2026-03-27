@@ -311,16 +311,26 @@ class TestAutocommitOnMessageComplete:
 
         mock_check.assert_called_once_with(["msg1", "msg2"])
 
+    @pytest.mark.parametrize(
+        "exc",
+        [RuntimeError("something broke"), ValueError("bad value")],
+        ids=["RuntimeError", "ValueError"],
+    )
     @patch("gptme.tools.autocommit.autocommit")
     @patch("gptme.tools.autocommit.check_for_modifications")
     @patch("gptme.tools.autocommit.get_config")
     def test_catches_exception_in_autocommit(
-        self, mock_config: MagicMock, mock_check: MagicMock, mock_ac: MagicMock
+        self,
+        mock_config: MagicMock,
+        mock_check: MagicMock,
+        mock_ac: MagicMock,
+        exc: Exception,
     ):
-        """If autocommit() raises, the hook catches it and yields an error message."""
+        """If autocommit() raises any Exception subclass, the hook catches it,
+        yields a hidden error message, and includes 'Autocommit failed'."""
         mock_config.return_value.get_env_bool.return_value = True
         mock_check.return_value = True
-        mock_ac.side_effect = RuntimeError("something broke")
+        mock_ac.side_effect = exc
 
         manager = MagicMock()
         results = list(autocommit_on_message_complete(manager))
@@ -328,23 +338,6 @@ class TestAutocommitOnMessageComplete:
         assert len(results) == 1
         assert isinstance(results[0], Message)
         assert "Autocommit failed" in results[0].content
-        assert results[0].hide is True
-
-    @patch("gptme.tools.autocommit.autocommit")
-    @patch("gptme.tools.autocommit.check_for_modifications")
-    @patch("gptme.tools.autocommit.get_config")
-    def test_error_message_is_hidden(
-        self, mock_config: MagicMock, mock_check: MagicMock, mock_ac: MagicMock
-    ):
-        """Error messages from the hook are hidden (hide=True)."""
-        mock_config.return_value.get_env_bool.return_value = True
-        mock_check.return_value = True
-        mock_ac.side_effect = ValueError("bad")
-
-        manager = MagicMock()
-        results = list(autocommit_on_message_complete(manager))
-
-        assert isinstance(results[0], Message)
         assert results[0].hide is True
 
     @patch("gptme.tools.autocommit.check_for_modifications")
