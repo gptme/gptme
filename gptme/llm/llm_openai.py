@@ -609,6 +609,7 @@ def extra_headers(provider: Provider) -> dict[str, str]:
 
 
 _OPENROUTER_REASONING_DEFAULT = 20000
+_VALID_QUANTIZATIONS = {"fp16", "bf16", "fp8", "int8", "int4", "unknown"}
 
 
 def extra_body(
@@ -672,16 +673,16 @@ def extra_body(
         # See: https://openrouter.ai/docs/provider-routing#quantization
         quantization = get_config().get_env("OPENROUTER_QUANTIZATION")
         if quantization:
-            _VALID_QUANTIZATIONS = {"fp16", "bf16", "fp8", "int8", "int4", "unknown"}
             parsed = [q.strip() for q in quantization.split(",") if q.strip()]
-            invalid = [q for q in parsed if q not in _VALID_QUANTIZATIONS]
-            if invalid:
-                logger.warning(
-                    "Unknown OPENROUTER_QUANTIZATION value(s): %s. Valid values are: %s",
-                    ", ".join(invalid),
-                    ", ".join(sorted(_VALID_QUANTIZATIONS)),
-                )
-            provider_prefs["quantizations"] = parsed
+            if parsed:
+                invalid = [q for q in parsed if q not in _VALID_QUANTIZATIONS]
+                if invalid:
+                    logger.warning(
+                        "Unknown OPENROUTER_QUANTIZATION value(s): %s. Valid values are: %s",
+                        ", ".join(invalid),
+                        ", ".join(sorted(_VALID_QUANTIZATIONS)),
+                    )
+                provider_prefs["quantizations"] = parsed
 
         body["provider"] = provider_prefs
     return body
