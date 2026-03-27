@@ -441,7 +441,7 @@ Plugins can be distributed as:
 Unified Plugin System (Entry Points)
 -------------------------------------
 
-For ``pip install``-able packages, gptme supports a unified plugin interface via Python entry points. A single :class:`~gptme.plugins.plugin.GptmePlugin` dataclass lets a package expose **any combination** of tools, hooks, commands, and LLM providers — no folder structure required.
+For ``pip install``-able packages, gptme supports a unified plugin interface via Python entry points. A single ``GptmePlugin`` dataclass lets a package expose **any combination** of tools, hooks, commands, and LLM providers — no folder structure required.
 
 This is the recommended approach for published packages. It uses the same mechanism as pytest plugins, setuptools console_scripts, etc.
 
