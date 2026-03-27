@@ -666,6 +666,16 @@ def extra_body(
         data_collection = get_config().get_env("OPENROUTER_DATA_COLLECTION", "deny")
         provider_prefs["data_collection"] = data_collection
 
+        # Quantization preferences: restrict to specific precision levels.
+        # Useful for controlling quality (fp16) or cost (int4/int8).
+        # Set via OPENROUTER_QUANTIZATION env var as comma-separated values.
+        # See: https://openrouter.ai/docs/provider-routing#quantization
+        quantization = get_config().get_env("OPENROUTER_QUANTIZATION")
+        if quantization:
+            provider_prefs["quantizations"] = [
+                q.strip() for q in quantization.split(",") if q.strip()
+            ]
+
         body["provider"] = provider_prefs
     return body
 

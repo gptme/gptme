@@ -1534,3 +1534,54 @@ class TestExtraBody:
         meta = self._make_model("anthropic/claude-sonnet-4-20250514")
         result = extra_body("openrouter", meta)
         assert result["provider"]["data_collection"] == "allow"
+
+    # --- Quantization routing tests ---
+
+    def test_openrouter_no_quantization_by_default(self):
+        from gptme.llm.llm_openai import extra_body
+
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        result = extra_body("openrouter", meta)
+        assert "quantizations" not in result["provider"]
+
+    def test_openrouter_quantization_single(self, monkeypatch):
+        from gptme.llm.llm_openai import extra_body
+
+        monkeypatch.setenv("OPENROUTER_QUANTIZATION", "fp16")
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        result = extra_body("openrouter", meta)
+        assert result["provider"]["quantizations"] == ["fp16"]
+
+    def test_openrouter_quantization_multiple(self, monkeypatch):
+        from gptme.llm.llm_openai import extra_body
+
+        monkeypatch.setenv("OPENROUTER_QUANTIZATION", "fp16,bf16,fp8")
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        result = extra_body("openrouter", meta)
+        assert result["provider"]["quantizations"] == ["fp16", "bf16", "fp8"]
+
+    def test_openrouter_quantization_whitespace_handling(self, monkeypatch):
+        from gptme.llm.llm_openai import extra_body
+
+        monkeypatch.setenv("OPENROUTER_QUANTIZATION", " fp16 , int8 , int4 ")
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        result = extra_body("openrouter", meta)
+        assert result["provider"]["quantizations"] == ["fp16", "int8", "int4"]
+
+    def test_openrouter_quantization_empty_string_ignored(self, monkeypatch):
+        from gptme.llm.llm_openai import extra_body
+
+        monkeypatch.setenv("OPENROUTER_QUANTIZATION", "")
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        result = extra_body("openrouter", meta)
+        assert "quantizations" not in result["provider"]
+
+    def test_openrouter_quantization_gptme_prefixed_env(self, monkeypatch):
+        """GPTME_OPENROUTER_QUANTIZATION takes precedence over bare form."""
+        from gptme.llm.llm_openai import extra_body
+
+        monkeypatch.setenv("GPTME_OPENROUTER_QUANTIZATION", "int4")
+        monkeypatch.delenv("OPENROUTER_QUANTIZATION", raising=False)
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        result = extra_body("openrouter", meta)
+        assert result["provider"]["quantizations"] == ["int4"]
