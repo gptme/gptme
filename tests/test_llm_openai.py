@@ -1537,9 +1537,11 @@ class TestExtraBody:
 
     # --- Quantization routing tests ---
 
-    def test_openrouter_no_quantization_by_default(self):
+    def test_openrouter_no_quantization_by_default(self, monkeypatch):
         from gptme.llm.llm_openai import extra_body
 
+        monkeypatch.delenv("OPENROUTER_QUANTIZATION", raising=False)
+        monkeypatch.delenv("GPTME_OPENROUTER_QUANTIZATION", raising=False)
         meta = self._make_model("anthropic/claude-sonnet-4-20250514")
         result = extra_body("openrouter", meta)
         assert "quantizations" not in result["provider"]
