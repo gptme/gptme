@@ -603,19 +603,19 @@ def execute_gh(
         yield from _passthrough_gh(args, code)
 
 
-instructions = """Use this tool for GitHub work when it beats a raw shell call.
+instructions = """Use this tool when GitHub work needs fewer round-trips, structured CI data,
+or safer merges than a raw `gh` shell command.
 
 Refs: full URLs, `owner/repo#N`, `#N`, or bare `N` in a git repo.
 
-Prefer the native handler when it saves round-trips or adds safety:
-- `gh pr view <ref>` — PR body, comments, review threads, CI, and mergeability in one shot
-- `gh pr status <ref> [commit_sha]` — structured CI summary with run IDs
-- `gh pr checks <ref> [commit_sha]` — poll until checks settle
-- `gh pr merge <ref> [--squash|--rebase|--merge] [--auto] [--delete-branch] [--match-head-commit SHA]` — squash by default with head-commit protection
-- `gh run view <run-id>` — failed-job logs only
+Native paths help the agent finish GitHub tasks with less hallucination risk:
+- `gh pr view <ref>` gets PR body, comments, review threads, CI, and mergeability in one result
+- `gh pr status <ref> [commit_sha]` returns structured CI state with run IDs
+- `gh pr checks <ref> [commit_sha]` waits for checks to settle
+- `gh pr merge <ref> ...` adds squash-by-default and optional head-commit protection
+- `gh run view <run-id>` extracts failed-job logs
 
-Any other valid `gh` subcommand passes through unchanged, including `gh issue list`,
-`gh pr diff`, and `gh search issues`."""
+All other valid `gh` subcommands pass through unchanged."""
 
 
 def examples(tool_format):
