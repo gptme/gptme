@@ -83,8 +83,6 @@ jobs:
         file: ./scripts/Dockerfile
         context: .
         push: true
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
 
     # Build and push server image
     - name: Build and push Docker image (server)
@@ -98,8 +96,6 @@ jobs:
         build-args: |
           BASE=gptme:latest
         push: ${{ env.SHOULD_PUSH }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
 
     # Build and push eval image
     - name: Build and push Docker image (eval)
@@ -111,8 +107,6 @@ jobs:
         file: ./scripts/Dockerfile.eval
         context: .
         push: ${{ env.SHOULD_PUSH }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
 
     # Now the full eval image
     # NOTE: takes a long time and leads to a big (1GB+) image
