@@ -517,7 +517,7 @@ A plugin that provides a tool, a hook, a command, and an LLM provider:
    # src/my_full_plugin/__init__.py
    from gptme.plugins.plugin import GptmePlugin
    from gptme.tools.base import ToolSpec
-   from gptme.llm.models.types import ModelMeta, ProviderPlugin
+   from gptme.llm.models import ModelMeta, ProviderPlugin
 
    # Tool
    def lookup(query: str) -> str:
