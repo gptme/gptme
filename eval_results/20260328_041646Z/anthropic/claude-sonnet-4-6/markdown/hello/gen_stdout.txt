@@ -1,0 +1,30 @@
+
+--- Start of generation ---
+[04:15:56] Using model: anthropic/claude-sonnet-4-6                             
+           Using logdir:                                                        
+           ~/.local/share/gptme/logs/2026-03-28-gptme-evals-anthropic--claude-so
+           nnet-4-6-markdown-53e0e6c5                                           
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2026-03-28-gptme-evals-anthropic--claude-so
+           nnet-4-6-markdown-53e0e6c5/workspace                                 
+Skipped 2 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: write a script hello.py which prints "Hello, world!"
+Assistant: Thinking...                                                                                Assistant: 
+<think>       <think>
+Simple task - write a hello world script.
+<!-- think-sig: EuYBClsIDBgCKkB2x5OuK8kX9vfHKlHShaMRaezf/+YMKJHnT+L9/I4SimuLWp5VVFsUV94fTxlkTqlbNcxcw2pSugrisznZocodMhFjbGF1ZGUtc29ubmV0LTQtNjgAEgzGuRWgHdRj2oAuGeIaDOMECdM1EFcQYXS2/yIw5muTa3TcgShqB11ahP1Fz71gUB67O4cxJ+Hy8B4DCOvxZzGxfUNTAJORfPzVljEDKjlgxcS34iJJM4H4a0KuCWaTlYT98UatPHHKQifXXRO0lc4yNbyXNClinx7OyUfQYIRfD8/I3g+0StEYAQ== -->
+</think>        </think>
+
+```save hello.py
+print("Hello, world!")
+```                                                                                System: ✅ Saved to hello.py
+Assistant: Thinking...                                                                                Assistant: 
+<think>       <think>
+The file has been saved successfully.
+<!-- think-sig: EuIBClsIDBgCKkA2MOekiOVR005D4rlHHGWCSVKQ6qi6CKHjYrbew+I+AFBjl0FrjZ9ke0IZYuuB0nOIe4U9778D9eixf3r+aAPGMhFjbGF1ZGUtc29ubmV0LTQtNjgAEgzqci0UIeOXgp/PKKsaDBoKqDU/t80H8mRkTCIwBkhY1olJb8aBaZR9z65SgZn3Mcsdl919AanjAGPSQsPOrnraUWUqMWf3N+ioQJabKjU1SAP7tS5FruaKbm6gDcmAb1OnPizOouzPyHYWYq85bR9kg3O6zDyg2HC4ooqGQUOPQkTo5xgB -->
+</think>        </think>
+
+The script `hello.py` has been created. It prints `Hello, world!` when executed.                                                                                [04:15:58] Session: $0.01 | 2 turns | 1k context | 0% cached                    
+--- Finished generation ---
+
