@@ -260,6 +260,7 @@ new Vue({
       }, 150);
     },
     selectAutocompleteItem(item) {
+      clearTimeout(this.fileFetchTimeout);
       if (this.autocompleteType === "command") {
         // For commands, replace entire input
         this.newMessage = item + " ";
