@@ -11,6 +11,10 @@ from unittest.mock import patch
 
 import pytest
 
+pytest.importorskip(
+    "flask", reason="flask not installed, install server extras (-E server)"
+)
+
 from gptme.server.tasks_api import (
     Task,
     TaskStatus,
