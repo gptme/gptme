@@ -144,9 +144,10 @@ class TestCompleteHook:
         results = list(gen)
         assert results == []
 
-    def test_none_messages(self):
-        """No exception raised for None-like empty messages."""
-        gen = complete_hook([])
+    def test_system_only_messages(self):
+        """No exception when only system messages are present (no assistant turn)."""
+        messages = [_system("Session started."), _system("Tools loaded.")]
+        gen = complete_hook(messages)
         results = list(gen)
         assert results == []
 
@@ -262,21 +263,21 @@ class TestAutoReplyHook:
         """No action in interactive mode."""
         manager = _mock_manager([_assistant("hello")])
         gen = auto_reply_hook(manager, interactive=True, prompt_queue=None)
-        results = list(gen) if gen is not None else []
+        results = list(gen)
         assert results == []
 
     def test_queued_prompts_noop(self):
         """No action when prompt queue has items."""
         manager = _mock_manager([_assistant("hello")])
         gen = auto_reply_hook(manager, interactive=False, prompt_queue=["next prompt"])
-        results = list(gen) if gen is not None else []
+        results = list(gen)
         assert results == []
 
     def test_no_assistant_messages_noop(self):
         """No action when there are no assistant messages."""
         manager = _mock_manager([_user("hello")])
         gen = auto_reply_hook(manager, interactive=False, prompt_queue=None)
-        results = list(gen) if gen is not None else []
+        results = list(gen)
         assert results == []
 
     def test_assistant_with_tools_noop(self):
@@ -288,7 +289,7 @@ class TestAutoReplyHook:
             ]
         )
         gen = auto_reply_hook(manager, interactive=False, prompt_queue=None)
-        results = list(gen) if gen is not None else []
+        results = list(gen)
         assert results == []
 
     @patch("gptme.tools.complete.has_incomplete_todos", return_value=False)

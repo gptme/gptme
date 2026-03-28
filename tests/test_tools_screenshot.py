@@ -118,6 +118,7 @@ class TestIsAvailable:
         assert _is_available() is False
 
     @patch("gptme.tools.screenshot.IS_MACOS", False)
+    @patch("gptme.tools.screenshot.IS_WAYLAND", False)
     @patch("os.name", "posix")
     @patch("shutil.which")
     def test_linux_with_gnome_screenshot(self, mock_which):
@@ -150,6 +151,7 @@ class TestIsAvailable:
         assert _is_available() is False
 
     @patch("gptme.tools.screenshot.IS_MACOS", False)
+    @patch("gptme.tools.screenshot.IS_WAYLAND", False)
     @patch("os.name", "posix")
     @patch("shutil.which", return_value=None)
     def test_linux_no_tools(self, mock_which):
@@ -230,6 +232,7 @@ class TestScreenshotFunction:
         """Uses gnome-screenshot on Linux when available."""
         monkeypatch.setattr("gptme.tools.screenshot.OUTPUT_DIR", tmp_path)
         monkeypatch.setattr("gptme.tools.screenshot.IS_MACOS", False)
+        monkeypatch.setattr("gptme.tools.screenshot.IS_WAYLAND", False)
         monkeypatch.setattr("os.name", "posix")
         mock_which.side_effect = lambda cmd: (
             "/usr/bin/gnome-screenshot" if cmd == "gnome-screenshot" else None
@@ -267,9 +270,21 @@ class TestScreenshotFunction:
         """Raises NotImplementedError when no screenshot tool available."""
         monkeypatch.setattr("gptme.tools.screenshot.OUTPUT_DIR", tmp_path)
         monkeypatch.setattr("gptme.tools.screenshot.IS_MACOS", False)
+        monkeypatch.setattr("gptme.tools.screenshot.IS_WAYLAND", False)
         monkeypatch.setattr("os.name", "posix")
 
         with pytest.raises(NotImplementedError, match="No supported screenshot"):
+            screenshot()
+
+    def test_windows_raises(self, tmp_path: Path, monkeypatch):
+        """Raises NotImplementedError on Windows (not implemented)."""
+        monkeypatch.setattr("gptme.tools.screenshot.OUTPUT_DIR", tmp_path)
+        monkeypatch.setattr("gptme.tools.screenshot.IS_MACOS", False)
+        monkeypatch.setattr("os.name", "nt")
+
+        with pytest.raises(
+            NotImplementedError, match="only available on macOS and Linux"
+        ):
             screenshot()
 
 
