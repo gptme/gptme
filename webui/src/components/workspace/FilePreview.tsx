@@ -62,6 +62,7 @@ export function FilePreview({ file, conversationId }: FilePreviewProps) {
     try {
       setLoading(true);
       setError(null);
+      setDownloadError(null);
       const data = await previewFile(conversationId, file.path);
       setPreview(data);
     } catch (err) {
