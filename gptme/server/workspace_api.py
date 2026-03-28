@@ -51,6 +51,25 @@ class FileListResponse(BaseModel):
     files: list[FileMetadata] = Field(..., description="List of files and directories")
 
 
+class UploadedFileMetadata(BaseModel):
+    """Metadata for an uploaded file."""
+
+    name: str = Field(..., description="File name")
+    path: str = Field(
+        ..., description="Absolute filesystem path for use in message files"
+    )
+    type: Literal["file", "directory"] = Field(..., description="File type")
+    size: int = Field(..., description="File size in bytes")
+    modified: str = Field(..., description="Last modified timestamp (ISO format)")
+    mime_type: str | None = Field(None, description="MIME type (files only)")
+
+
+class UploadFileResponse(BaseModel):
+    """Response for file upload."""
+
+    files: list[UploadedFileMetadata] = Field(..., description="List of uploaded files")
+
+
 class FilePreviewResponse(BaseModel):
     """Response for file preview."""
 
@@ -235,7 +254,7 @@ def browse_workspace(conversation_id: str, subpath: str | None = None):
 @require_auth
 @api_doc_simple(
     responses={
-        200: FileListResponse,
+        200: UploadFileResponse,
         400: ErrorResponse,
         404: ErrorResponse,
         413: ErrorResponse,

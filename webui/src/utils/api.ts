@@ -765,8 +765,7 @@ export class ApiClient {
 
   async uploadFiles(
     conversationId: string,
-    files: File[],
-    path?: string
+    files: File[]
   ): Promise<{
     files: Array<{
       name: string;
@@ -784,9 +783,6 @@ export class ApiClient {
     const formData = new FormData();
     for (const file of files) {
       formData.append('file', file, file.name);
-    }
-    if (path) {
-      formData.append('path', path);
     }
 
     const headers: Record<string, string> = {};
