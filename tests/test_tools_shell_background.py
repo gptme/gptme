@@ -9,6 +9,8 @@ Tests cover:
 - Thread safety: concurrent job ID generation
 """
 
+import os
+import re
 import subprocess
 import threading
 import time
@@ -321,8 +323,9 @@ class TestCleanupFinishedJobs:
         job = start_background_job("true")
         job.process.wait(timeout=5)
         time.sleep(0.1)
-        # Job still tracked before cleanup
-        assert get_background_job(job.id) is not None or True  # may already be cleaned
+        # Job still tracked before cleanup (start_background_job calls cleanup internally,
+        # but only finished jobs from *previous* runs are cleaned; this job was just added)
+        assert get_background_job(job.id) is not None
         cleanup_finished_jobs()
         assert get_background_job(job.id) is None
 
@@ -434,7 +437,9 @@ class TestExecuteJobsCommand:
         time.sleep(0.1)
         msgs = _collect(execute_jobs_command())
         content = msgs[0].content
-        assert "s" in content  # elapsed time in seconds
+        assert re.search(r"\d+\.\d+s", content), (
+            f"Expected elapsed seconds format like '0.1s', got: {content!r}"
+        )
         job.kill()
 
 
@@ -565,10 +570,19 @@ class TestEdgeCases:
 
     def test_new_session_flag(self):
         """Verify jobs run in new process group (not killed by parent signals)."""
-        job = start_background_job("echo ok")
-        # On Linux, start_new_session=True creates new process group
-        job.process.wait(timeout=5)
-        assert job.process.returncode == 0
+        job = start_background_job("sleep 5")
+        pid = job.process.pid
+        # On Linux, start_new_session=True makes the process its own session/group leader
+        # so os.getpgid(pid) == pid
+        try:
+            pgid = os.getpgid(pid)
+            assert pgid == pid, (
+                f"Expected process {pid} to be its own group leader, got pgid={pgid}"
+            )
+        except ProcessLookupError:
+            pytest.skip("Process exited before pgid could be checked")
+        finally:
+            job.kill()
 
     def test_stdin_devnull(self):
         """Verify stdin is /dev/null (no hang on input)."""
@@ -604,5 +618,7 @@ class TestEdgeCases:
         job.start_time = time.time() - 120
         msgs = _collect(execute_jobs_command())
         content = msgs[0].content
-        assert "m" in content  # should show minutes
+        assert re.search(r"\d+\.\d+m", content), (
+            f"Expected elapsed minutes format like '2.0m', got: {content!r}"
+        )
         job.kill()
