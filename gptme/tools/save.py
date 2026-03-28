@@ -63,11 +63,18 @@ def examples_append(tool_format):
 
 
 def _read_text_safe(path: Path) -> str | None:
-    """Read file text, returning None for binary/non-UTF-8 files."""
+    """Read file text, returning None when the file is missing, unreadable, or not UTF-8 text."""
     try:
         return path.read_text()
     except (UnicodeDecodeError, PermissionError, OSError):
         return None
+
+
+def _get_preview_lang(path: Path) -> str | None:
+    """Use diff highlighting only when the existing file can be previewed as text."""
+    if not path.exists():
+        return None
+    return "diff" if _read_text_safe(path) is not None else None
 
 
 def preview_save(content: str, path: Path | None) -> str | None:
@@ -301,7 +308,7 @@ def _validate_and_execute(
         yield Message("system", "No path provided")
         return
 
-    preview_lang = "diff" if path.exists() else None
+    preview_lang = _get_preview_lang(path)
     confirm_msg = f"Save to {path}?" if operation == "save" else f"Append to {path}?"
     execute_fn = execute_save_impl if operation == "save" else execute_append_impl
     preview_fn = preview_save if operation == "save" else preview_append

@@ -2,7 +2,10 @@
 
 from pathlib import Path
 
+from gptme.message import Message
+from gptme.tools import save as save_tool
 from gptme.tools.save import (
+    _get_preview_lang,
     _read_text_safe,
     execute_append,
     execute_save,
@@ -252,3 +255,32 @@ def test_append_to_binary_file(tmp_path: Path):
     assert len(messages) == 1
     assert messages[0].role == "system"
     assert "Appended to" in messages[0].content
+    assert path.read_bytes() == b"existing\xff\xfenew line\n"
+
+
+def test_get_preview_lang_binary_file(tmp_path: Path):
+    """Test that binary files don't get diff preview highlighting."""
+    path = tmp_path / "binary.bin"
+    path.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\xff\xfe")
+    assert _get_preview_lang(path) is None
+
+
+def test_execute_save_skips_diff_preview_for_binary_file(tmp_path: Path, monkeypatch):
+    """Test that save passes no preview language for binary files."""
+    path = tmp_path / "binary.bin"
+    path.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\xff\xfe")
+    captured: dict[str, str | None] = {}
+
+    def fake_execute_with_confirmation(*args, **kwargs):
+        captured["preview_lang"] = kwargs["preview_lang"]
+        yield Message("system", "stub")
+
+    monkeypatch.setattr(
+        save_tool, "execute_with_confirmation", fake_execute_with_confirmation
+    )
+
+    messages = list(save_tool.execute_save("new content", [str(path)], None))
+
+    assert len(messages) == 1
+    assert messages[0].content == "stub"
+    assert captured["preview_lang"] is None
