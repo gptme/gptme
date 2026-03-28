@@ -322,6 +322,7 @@ new Vue({
 
       this.selectedConversation = path;
       // Clear autocomplete state when switching conversations
+      clearTimeout(this.fileFetchTimeout);
       this.fileCache = {};
       this.autocompleteType = null;
       this.autocompleteItems = [];
@@ -371,6 +372,7 @@ new Vue({
     },
     async sendMessage() {
       // Dismiss autocomplete before sending
+      clearTimeout(this.fileFetchTimeout);
       this.autocompleteType = null;
       this.autocompleteItems = [];
 
@@ -596,6 +598,7 @@ new Vue({
         }
         if (e.key === 'Escape') {
           e.preventDefault();
+          clearTimeout(this.fileFetchTimeout);
           this.autocompleteType = null;
           this.autocompleteItems = [];
           return;
