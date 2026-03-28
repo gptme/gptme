@@ -561,6 +561,58 @@ class TestExecuteGh:
 
     # --- gh issue view ---
 
+    def test_issue_view_no_ref(self):
+        """gh issue view with no reference."""
+        messages = list(execute_gh(None, ["issue", "view"], None))
+        assert len(messages) == 1
+        assert "No issue reference provided" in messages[0].content
+
+    def test_issue_view_invalid_url(self):
+        """gh issue view with invalid URL."""
+        messages = list(
+            execute_gh(None, ["issue", "view", "https://invalid.com"], None)
+        )
+        assert len(messages) == 1
+        assert "Could not parse GitHub reference" in messages[0].content
+
+    @patch("gptme.tools.gh.get_github_issue_content")
+    def test_issue_view_success(self, mock_content):
+        """gh issue view returns content."""
+        mock_content.return_value = "Issue content here"
+        messages = list(
+            execute_gh(
+                None,
+                ["issue", "view", "https://github.com/owner/repo/issues/42"],
+                None,
+            )
+        )
+        assert len(messages) == 1
+        assert messages[0].content == "Issue content here"
+        mock_content.assert_called_once_with("owner", "repo", "42")
+
+    @patch("gptme.tools.gh.get_github_issue_content")
+    def test_issue_view_shorthand_ref(self, mock_content):
+        """gh issue view with owner/repo#N shorthand."""
+        mock_content.return_value = "Issue body"
+        messages = list(execute_gh(None, ["issue", "view", "owner/repo#42"], None))
+        assert len(messages) == 1
+        assert messages[0].content == "Issue body"
+        mock_content.assert_called_once_with("owner", "repo", "42")
+
+    @patch("gptme.tools.gh.get_github_issue_content")
+    def test_issue_view_fetch_failure(self, mock_content):
+        """gh issue view when fetch fails."""
+        mock_content.return_value = None
+        messages = list(
+            execute_gh(
+                None,
+                ["issue", "view", "https://github.com/owner/repo/issues/42"],
+                None,
+            )
+        )
+        assert len(messages) == 1
+        assert "Failed to fetch issue content" in messages[0].content
+
     # --- gh run view ---
 
     def test_run_view_no_id(self):

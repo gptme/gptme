@@ -536,7 +536,11 @@ def get_github_pr_list(
 
 
 def get_github_issue_content(owner: str, repo: str, number: str) -> str | None:
-    """Get GitHub issue content using gh CLI."""
+    """Get GitHub issue content with comments and linked PRs using gh CLI.
+
+    Combines the issue body, all comments, and any linked pull requests
+    in a single response — saving the caller multiple round-trips.
+    """
     if not shutil.which("gh"):
         logger.debug("gh CLI not available for GitHub issue handling")
         return None
@@ -563,9 +567,54 @@ def get_github_issue_content(owner: str, repo: str, number: str) -> str | None:
         if comments_result.stdout.strip():
             content += "\n\n" + comments_result.stdout
 
+        # Fetch linked PRs via timeline events (best-effort)
+        linked_prs = _get_linked_prs(owner, repo, number)
+        if linked_prs:
+            content += "\n\nLinked pull requests:\n" + linked_prs
+
         return content
     except subprocess.CalledProcessError as e:
         logger.warning(f"Failed to get GitHub issue content: {e}")
+        return None
+
+
+def _get_linked_prs(owner: str, repo: str, issue_number: str) -> str | None:
+    """Fetch PRs linked to an issue via timeline events (best-effort)."""
+    try:
+        result = subprocess.run(
+            [
+                "gh",
+                "api",
+                f"/repos/{owner}/{repo}/issues/{issue_number}/timeline",
+                "--paginate",
+                "--jq",
+                (
+                    '[.[] | select(.event == "cross-referenced" and .source.issue.pull_request != null) '
+                    "| {number: .source.issue.number, title: .source.issue.title, "
+                    "state: .source.issue.state, repo: .source.issue.repository.full_name}] "
+                    "| unique_by(.number)"
+                ),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+
+        prs = json.loads(result.stdout)
+        if not prs:
+            return None
+
+        lines = []
+        for pr in prs:
+            state_icon = "✅" if pr["state"] == "closed" else "🔄"
+            repo_prefix = f"{pr['repo']}" if pr["repo"] != f"{owner}/{repo}" else ""
+            ref = f"{repo_prefix}#{pr['number']}" if repo_prefix else f"#{pr['number']}"
+            lines.append(f"  {state_icon} {ref}: {pr['title']}")
+        return "\n".join(lines)
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, KeyError):
         return None
 
 

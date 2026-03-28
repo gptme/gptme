@@ -7,12 +7,13 @@ actionable, or adds merge safety guards that are easy to miss in ad-hoc CLI use.
 
 Native operations that materially help:
 
-- ``pr view``   — combines PR body, comments, review-thread resolution, CI,
-                   and mergeability in one call
-- ``pr status`` — structured check-run summary with actionable run IDs
-- ``pr checks`` — polls CI until completion with live progress updates
-- ``pr merge``  — squash default, ``--match-head-commit`` guard, auto-merge
-- ``run view``  — extracts and structures failed log sections from CI runs
+- ``issue view`` — combines issue body and comments in one call
+- ``pr view``    — combines PR body, comments, review-thread resolution, CI,
+                    and mergeability in one call
+- ``pr status``  — structured check-run summary with actionable run IDs
+- ``pr checks``  — polls CI until completion with live progress updates
+- ``pr merge``   — squash default, ``--match-head-commit`` guard, auto-merge
+- ``run view``   — extracts and structures failed log sections from CI runs
 
 Adding a new native wrapper
 ---------------------------
@@ -34,6 +35,7 @@ from collections.abc import Generator
 
 from ..message import Message
 from ..util.gh import (
+    get_github_issue_content,
     get_github_pr_content,
     get_github_run_logs,
     merge_github_pr,
@@ -528,7 +530,7 @@ def execute_gh(
 ) -> Generator[Message, None, None]:
     """Execute GitHub operations.
 
-    Native handlers for high-value operations (pr view/status/checks/merge,
+    Native handlers for high-value operations (issue view, pr view/status/checks/merge,
     run view).  Everything else passes through to the gh CLI unchanged.
     """
     if args and len(args) >= 2 and args[0] == "pr" and args[1] == "merge":
@@ -574,6 +576,22 @@ def execute_gh(
                 "Error: Failed to fetch PR content. Make sure 'gh' CLI is installed and authenticated.",
             )
 
+    elif args and len(args) >= 2 and args[0] == "issue" and args[1] == "view":
+        info, err = _resolve_ref(args, kwargs, "issue", "issue reference")
+        if err:
+            yield err
+            return
+
+        assert info is not None
+        content = get_github_issue_content(info["owner"], info["repo"], info["number"])
+        if content:
+            yield Message("system", content)
+        else:
+            yield Message(
+                "system",
+                "Error: Failed to fetch issue content. Make sure 'gh' CLI is installed and authenticated.",
+            )
+
     elif args and len(args) >= 2 and args[0] == "run" and args[1] == "view":
         if len(args) < 3:
             yield Message(
@@ -609,6 +627,7 @@ or safer merges than a raw `gh` shell command.
 Refs: full URLs, `owner/repo#N`, `#N`, or bare `N` in a git repo.
 
 Native paths help the agent finish GitHub tasks with less hallucination risk:
+- `gh issue view <ref>` gets issue body and comments in one result
 - `gh pr view <ref>` gets PR body, comments, review threads, CI, and mergeability in one result
 - `gh pr status <ref> [commit_sha]` returns structured CI state with run IDs
 - `gh pr checks <ref> [commit_sha]` waits for checks to settle
@@ -668,6 +687,10 @@ View logs: gh run view <run_id> --log-failed
             None,
         ).to_output(tool_format)
     }
+
+> User: read issue #42 on owner/repo
+> Assistant:
+{ToolUse("gh", ["issue", "view", "owner/repo#42"], None).to_output(tool_format)}
 
 > User: show issues (pass-through to gh CLI)
 > Assistant:

@@ -9,7 +9,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from gptme.util.gh import get_github_pr_content, get_github_pr_diff
+from gptme.util.gh import (
+    _get_linked_prs,
+    get_github_issue_content,
+    get_github_pr_content,
+    get_github_pr_diff,
+)
 
 
 @pytest.fixture
@@ -842,4 +847,147 @@ class TestGetGithubPrDiff:
         mock_run.side_effect = sp.CalledProcessError(1, "gh")
 
         result = get_github_pr_diff("owner", "repo", "1")
+        assert result is None
+
+
+# --- get_github_issue_content ---
+
+
+class TestGetGitHubIssueContent:
+    @patch("gptme.util.gh.shutil.which", return_value=None)
+    def test_no_gh_cli(self, mock_which):
+        """Returns None when gh CLI is not installed."""
+        result = get_github_issue_content("owner", "repo", "42")
+        assert result is None
+
+    @patch("gptme.util.gh._get_linked_prs", return_value=None)
+    @patch("gptme.util.gh.subprocess.run")
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    def test_body_only(self, mock_which, mock_run, mock_linked):
+        """Returns issue body when there are no comments."""
+        issue_mock = MagicMock()
+        issue_mock.stdout = "Issue #42\nOpen\n\nBug description"
+        comments_mock = MagicMock()
+        comments_mock.stdout = ""
+        mock_run.side_effect = [issue_mock, comments_mock]
+
+        result = get_github_issue_content("owner", "repo", "42")
+        assert result == "Issue #42\nOpen\n\nBug description"
+
+    @patch("gptme.util.gh._get_linked_prs", return_value=None)
+    @patch("gptme.util.gh.subprocess.run")
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    def test_body_with_comments(self, mock_which, mock_run, mock_linked):
+        """Returns combined body and comments."""
+        issue_mock = MagicMock()
+        issue_mock.stdout = "Issue #42\nOpen\n\nBug description"
+        comments_mock = MagicMock()
+        comments_mock.stdout = "author1: I can reproduce this"
+        mock_run.side_effect = [issue_mock, comments_mock]
+
+        result = get_github_issue_content("owner", "repo", "42")
+        assert result is not None
+        assert "Bug description" in result
+        assert "I can reproduce this" in result
+
+    @patch("gptme.util.gh._get_linked_prs")
+    @patch("gptme.util.gh.subprocess.run")
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    def test_with_linked_prs(self, mock_which, mock_run, mock_linked):
+        """Includes linked PRs in output."""
+        issue_mock = MagicMock()
+        issue_mock.stdout = "Issue #42"
+        comments_mock = MagicMock()
+        comments_mock.stdout = ""
+        mock_run.side_effect = [issue_mock, comments_mock]
+        mock_linked.return_value = "  🔄 #100: Fix the bug"
+
+        result = get_github_issue_content("owner", "repo", "42")
+        assert result is not None
+        assert "Linked pull requests:" in result
+        assert "#100: Fix the bug" in result
+
+    @patch("gptme.util.gh.subprocess.run")
+    @patch("gptme.util.gh.shutil.which", return_value="/usr/bin/gh")
+    def test_subprocess_error(self, mock_which, mock_run):
+        """Returns None on subprocess error."""
+        import subprocess as sp
+
+        mock_run.side_effect = sp.CalledProcessError(1, "gh")
+
+        result = get_github_issue_content("owner", "repo", "42")
+        assert result is None
+
+
+# --- _get_linked_prs ---
+
+
+class TestGetLinkedPrs:
+    @patch("gptme.util.gh.subprocess.run")
+    def test_no_linked_prs(self, mock_run):
+        """Returns None when no linked PRs found."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="[]")
+        result = _get_linked_prs("owner", "repo", "42")
+        assert result is None
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_with_linked_prs(self, mock_run):
+        """Formats linked PRs with state icons."""
+        prs = [
+            {
+                "number": 100,
+                "title": "Fix the bug",
+                "state": "open",
+                "repo": "owner/repo",
+            },
+            {
+                "number": 101,
+                "title": "Another fix",
+                "state": "closed",
+                "repo": "owner/repo",
+            },
+        ]
+        mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(prs))
+        result = _get_linked_prs("owner", "repo", "42")
+        assert result is not None
+        assert "🔄 #100: Fix the bug" in result
+        assert "✅ #101: Another fix" in result
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_cross_repo_linked_pr(self, mock_run):
+        """Shows repo prefix for cross-repo PRs."""
+        prs = [
+            {
+                "number": 50,
+                "title": "Cross-repo fix",
+                "state": "open",
+                "repo": "other/repo",
+            },
+        ]
+        mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(prs))
+        result = _get_linked_prs("owner", "repo", "42")
+        assert result is not None
+        assert "other/repo#50" in result
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_api_failure(self, mock_run):
+        """Returns None on API failure."""
+        mock_run.return_value = MagicMock(returncode=1, stdout="")
+        result = _get_linked_prs("owner", "repo", "42")
+        assert result is None
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_timeout(self, mock_run):
+        """Returns None on timeout."""
+        import subprocess as sp
+
+        mock_run.side_effect = sp.TimeoutExpired("gh", 15)
+        result = _get_linked_prs("owner", "repo", "42")
+        assert result is None
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_malformed_json(self, mock_run):
+        """Returns None on malformed JSON."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="not json")
+        result = _get_linked_prs("owner", "repo", "42")
         assert result is None
