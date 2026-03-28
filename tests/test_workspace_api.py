@@ -49,16 +49,16 @@ def app():
 
 @pytest.fixture
 def mock_logmanager(tmp_path: Path):
-    """Mock LogManager.load to return a manager with a tmp workspace."""
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
+    """Mock LogManager.load to return a manager with a tmp logdir."""
+    logdir = tmp_path / "conv-id"
+    logdir.mkdir()
 
     manager = MagicMock()
-    manager.workspace = workspace
+    manager.logdir = logdir
 
     with patch("gptme.server.workspace_api.LogManager") as mock_cls:
         mock_cls.load.return_value = manager
-        yield manager, workspace
+        yield manager, logdir
 
 
 @pytest.fixture
@@ -76,7 +76,8 @@ class TestUploadEndpoint:
     """Tests for the file upload endpoint."""
 
     def test_upload_single_file(self, app, mock_logmanager, mock_auth) -> None:
-        _, workspace = mock_logmanager
+        _, logdir = mock_logmanager
+        attachments_dir = logdir / "attachments"
 
         with app.test_client() as client:
             data = {"file": (io.BytesIO(b"hello world"), "test.txt")}
@@ -90,10 +91,13 @@ class TestUploadEndpoint:
         result = resp.get_json()
         assert len(result["files"]) == 1
         assert result["files"][0]["name"] == "test.txt"
-        assert (workspace / "test.txt").read_text() == "hello world"
+        # path is absolute
+        assert result["files"][0]["path"] == str(attachments_dir / "test.txt")
+        assert (attachments_dir / "test.txt").read_text() == "hello world"
 
     def test_upload_multiple_files(self, app, mock_logmanager, mock_auth) -> None:
-        _, workspace = mock_logmanager
+        _, logdir = mock_logmanager
+        attachments_dir = logdir / "attachments"
 
         with app.test_client() as client:
             data = {
@@ -109,27 +113,8 @@ class TestUploadEndpoint:
         assert resp.status_code == 200
         result = resp.get_json()
         assert len(result["files"]) == 2
-        assert (workspace / "a.txt").read_text() == "content1"
-        assert (workspace / "b.txt").read_text() == "content2"
-
-    def test_upload_to_subdirectory(self, app, mock_logmanager, mock_auth) -> None:
-        _, workspace = mock_logmanager
-
-        with app.test_client() as client:
-            data = {
-                "file": (io.BytesIO(b"data"), "file.txt"),
-                "path": "subdir",
-            }
-            resp = client.post(
-                "/api/v2/conversations/test-conv/workspace/upload",
-                data=data,
-                content_type="multipart/form-data",
-            )
-
-        assert resp.status_code == 200
-        result = resp.get_json()
-        assert result["files"][0]["path"] == "subdir/file.txt"
-        assert (workspace / "subdir" / "file.txt").read_bytes() == b"data"
+        assert (attachments_dir / "a.txt").read_text() == "content1"
+        assert (attachments_dir / "b.txt").read_text() == "content2"
 
     def test_upload_no_files(self, app, mock_logmanager, mock_auth) -> None:
         with app.test_client() as client:
@@ -142,25 +127,9 @@ class TestUploadEndpoint:
         assert resp.status_code == 400
         assert "No files provided" in resp.get_json()["error"]
 
-    def test_upload_rejects_path_traversal(
-        self, app, mock_logmanager, mock_auth
-    ) -> None:
-        with app.test_client() as client:
-            data = {
-                "file": (io.BytesIO(b"evil"), "test.txt"),
-                "path": "../../etc",
-            }
-            resp = client.post(
-                "/api/v2/conversations/test-conv/workspace/upload",
-                data=data,
-                content_type="multipart/form-data",
-            )
-
-        assert resp.status_code == 400
-        assert "escapes" in resp.get_json()["error"]
-
     def test_upload_sanitizes_filename(self, app, mock_logmanager, mock_auth) -> None:
-        _, workspace = mock_logmanager
+        _, logdir = mock_logmanager
+        attachments_dir = logdir / "attachments"
 
         with app.test_client() as client:
             # Filename with path components should be stripped to just the name
@@ -174,8 +143,8 @@ class TestUploadEndpoint:
         assert resp.status_code == 200
         result = resp.get_json()
         assert result["files"][0]["name"] == "evil.txt"
-        # File should be in workspace root, not escaped
-        assert (workspace / "evil.txt").exists()
+        # File should be in attachments dir, not escaped
+        assert (attachments_dir / "evil.txt").exists()
 
     def test_upload_rejects_oversized_file(
         self, app, mock_logmanager, mock_auth
@@ -197,7 +166,8 @@ class TestUploadEndpoint:
         self, app, mock_logmanager, mock_auth
     ) -> None:
         """No files should be written if any file in the batch exceeds the size limit."""
-        _, workspace = mock_logmanager
+        _, logdir = mock_logmanager
+        attachments_dir = logdir / "attachments"
 
         small_content = b"small file"
         big_content = b"x" * (51 * 1024 * 1024)
@@ -214,27 +184,9 @@ class TestUploadEndpoint:
 
         assert resp.status_code == 413
         # small.txt must NOT have been written to disk
-        assert not (workspace / "small.txt").exists()
-
-    def test_upload_workspace_not_found(self, app, mock_auth) -> None:
-        manager = MagicMock()
-        manager.workspace = Path("/nonexistent")
-
-        with patch("gptme.server.workspace_api.LogManager") as mock_cls:
-            mock_cls.load.return_value = manager
-            with app.test_client() as client:
-                data = {"file": (io.BytesIO(b"data"), "test.txt")}
-                resp = client.post(
-                    "/api/v2/conversations/test-conv/workspace/upload",
-                    data=data,
-                    content_type="multipart/form-data",
-                )
-
-        assert resp.status_code == 404
+        assert not (attachments_dir / "small.txt").exists()
 
     def test_upload_skips_hidden_files(self, app, mock_logmanager, mock_auth) -> None:
-        _, workspace = mock_logmanager
-
         with app.test_client() as client:
             data = {"file": (io.BytesIO(b"hidden"), ".hidden")}
             resp = client.post(
@@ -248,7 +200,8 @@ class TestUploadEndpoint:
         assert "No valid files" in resp.get_json()["error"]
 
     def test_upload_binary_file(self, app, mock_logmanager, mock_auth) -> None:
-        _, workspace = mock_logmanager
+        _, logdir = mock_logmanager
+        attachments_dir = logdir / "attachments"
         binary_content = bytes(range(256))
 
         with app.test_client() as client:
@@ -260,4 +213,4 @@ class TestUploadEndpoint:
             )
 
         assert resp.status_code == 200
-        assert (workspace / "image.png").read_bytes() == binary_content
+        assert (attachments_dir / "image.png").read_bytes() == binary_content

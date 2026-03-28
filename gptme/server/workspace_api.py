@@ -244,24 +244,17 @@ def browse_workspace(conversation_id: str, subpath: str | None = None):
     tags=["workspace"],
 )
 def upload_files(conversation_id: str):
-    """Upload files to workspace.
+    """Upload files to conversation attachments.
 
-    Upload one or more files to a conversation's workspace directory.
-    Accepts multipart/form-data with file fields.
-    An optional 'path' form field specifies a subdirectory within the workspace.
+    Upload one or more files to a conversation's attachments directory
+    (<logdir>/attachments/). Accepts multipart/form-data with file fields.
+    Uploaded files are intended for the agent to read as context; the agent can
+    move them into the workspace if it needs to modify them.
+    Returns absolute file paths so they can be included directly in message files.
     """
     try:
         manager = LogManager.load(conversation_id, lock=False)
-        workspace = manager.workspace
-
-        if not workspace.is_dir():
-            return flask.jsonify({"error": "Workspace not found"}), 404
-
-        # Get optional subdirectory path
-        subdir = request.form.get("path", "")
-
-        # Validate and resolve target directory
-        target_dir = safe_workspace_path(workspace, subdir or None)
+        attachments_dir = manager.logdir / "attachments"
 
         if not request.files:
             return flask.jsonify({"error": "No files provided"}), 400
@@ -303,13 +296,24 @@ def upload_files(conversation_id: str):
             return flask.jsonify({"error": "No valid files uploaded"}), 400
 
         # Second pass: write all files (only reached if all files passed validation)
-        target_dir.mkdir(parents=True, exist_ok=True)
+        attachments_dir.mkdir(parents=True, exist_ok=True)
         uploaded: list[FileType] = []
         for filename, content in validated:
-            file_path = target_dir / filename
+            file_path = attachments_dir / filename
             file_path.write_bytes(content)
-            wfile = WorkspaceFile(file_path, workspace)
-            uploaded.append(wfile.to_dict())
+            stat = file_path.stat()
+            uploaded.append(
+                {
+                    "name": filename,
+                    "path": str(file_path),  # absolute path for unambiguous resolution
+                    "type": "file",
+                    "size": stat.st_size,
+                    "modified": datetime.fromtimestamp(
+                        stat.st_mtime, tz=timezone.utc
+                    ).isoformat(),
+                    "mime_type": mimetypes.guess_type(file_path)[0],
+                }
+            )
 
         return flask.jsonify({"files": uploaded})
 
