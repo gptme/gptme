@@ -321,8 +321,10 @@ new Vue({
       window.location.hash = path;
 
       this.selectedConversation = path;
-      // Clear file cache when switching conversations
+      // Clear autocomplete state when switching conversations
       this.fileCache = {};
+      this.autocompleteType = null;
+      this.autocompleteItems = [];
 
       const res = await fetch(`${apiRoot}/${path}`);
 
