@@ -8,8 +8,8 @@ Tests browse_workspace and preview_file endpoints, including:
 - Error handling
 """
 
-import random
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
@@ -307,7 +307,7 @@ class TestListDirectory:
 @pytest.fixture
 def workspace_conv(client: FlaskClient, tmp_path: Path):
     """Create a conversation with a workspace containing test files."""
-    convname = f"test-workspace-{random.randint(0, 1000000)}"
+    convname = f"test-workspace-{uuid4().hex[:8]}"
 
     # Create conversation
     response = client.put(
@@ -362,10 +362,16 @@ def workspace_conv(client: FlaskClient, tmp_path: Path):
         workspace_link.unlink()
     workspace_link.symlink_to(workspace)
 
-    return {
+    yield {
         "conversation_id": convname,
         "workspace": workspace,
     }
+
+    # Cleanup: remove the conversation log directory
+    import shutil
+
+    if manager.logdir.exists():
+        shutil.rmtree(manager.logdir)
 
 
 class TestBrowseWorkspaceEndpoint:
@@ -585,7 +591,7 @@ class TestWorkspaceEdgeCases:
 
     def test_empty_workspace(self, client: FlaskClient, tmp_path: Path):
         """Test browsing an empty workspace."""
-        convname = f"test-workspace-empty-{random.randint(0, 1000000)}"
+        convname = f"test-workspace-empty-{uuid4().hex[:8]}"
         response = client.put(
             f"/api/v2/conversations/{convname}",
             json={"prompt": "Test."},
@@ -690,7 +696,7 @@ class TestWorkspaceEdgeCases:
 
     def test_no_workspace_symlink_falls_back(self, client: FlaskClient):
         """Test browsing workspace when no symlink exists (falls back to logdir)."""
-        convname = f"test-no-workspace-{random.randint(0, 1000000)}"
+        convname = f"test-no-workspace-{uuid4().hex[:8]}"
         response = client.put(
             f"/api/v2/conversations/{convname}",
             json={"prompt": "Test."},
