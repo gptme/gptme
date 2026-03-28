@@ -14,6 +14,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+pytest.importorskip("playwright")
+
 from gptme.tools._browser_thread import (
     TIMEOUT,
     BrowserThread,
