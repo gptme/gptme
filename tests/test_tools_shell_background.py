@@ -425,7 +425,7 @@ class TestExecuteJobsCommand:
         job.kill()
 
     def test_shows_command_truncated(self):
-        long_cmd = "echo " + "x" * 100
+        long_cmd = "sleep 10 " + "#" + "x" * 100  # long command that stays running
         job = start_background_job(long_cmd)
         msgs = _collect(execute_jobs_command())
         content = msgs[0].content
