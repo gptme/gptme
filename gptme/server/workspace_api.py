@@ -229,6 +229,96 @@ def browse_workspace(conversation_id: str, subpath: str | None = None):
 
 
 @workspace_api.route(
+    "/api/v2/conversations/<string:conversation_id>/workspace/upload",
+    methods=["POST"],
+)
+@require_auth
+@api_doc_simple(
+    responses={
+        200: FileListResponse,
+        400: ErrorResponse,
+        404: ErrorResponse,
+        413: ErrorResponse,
+        500: ErrorResponse,
+    },
+    tags=["workspace"],
+)
+def upload_files(conversation_id: str):
+    """Upload files to workspace.
+
+    Upload one or more files to a conversation's workspace directory.
+    Accepts multipart/form-data with file fields.
+    An optional 'path' form field specifies a subdirectory within the workspace.
+    """
+    try:
+        manager = LogManager.load(conversation_id, lock=False)
+        workspace = manager.workspace
+
+        if not workspace.is_dir():
+            return flask.jsonify({"error": "Workspace not found"}), 404
+
+        # Get optional subdirectory path
+        subdir = request.form.get("path", "")
+
+        # Validate and resolve target directory
+        target_dir = safe_workspace_path(workspace, subdir or None)
+
+        if not request.files:
+            return flask.jsonify({"error": "No files provided"}), 400
+
+        # Size limit: 50MB per file
+        max_size = 50 * 1024 * 1024
+
+        uploaded: list[FileType] = []
+        # Collect files from all form field names (MultiDict may have duplicates)
+        all_files = []
+        for key in request.files:
+            all_files.extend(request.files.getlist(key))
+        for file in all_files:
+            if not file.filename:
+                continue
+
+            # Sanitize filename (prevent path traversal via filename)
+            filename = Path(file.filename).name
+            if not filename or filename.startswith("."):
+                continue
+
+            # Check file size by reading into memory
+            content = file.read()
+            if len(content) > max_size:
+                return (
+                    flask.jsonify(
+                        {
+                            "error": f"File '{filename}' exceeds 50MB limit "
+                            f"({len(content) / 1024 / 1024:.1f}MB)"
+                        }
+                    ),
+                    413,
+                )
+
+            # Ensure target directory exists
+            target_dir.mkdir(parents=True, exist_ok=True)
+
+            # Write file
+            file_path = target_dir / filename
+            file_path.write_bytes(content)
+
+            wfile = WorkspaceFile(file_path, workspace)
+            uploaded.append(wfile.to_dict())
+
+        if not uploaded:
+            return flask.jsonify({"error": "No valid files uploaded"}), 400
+
+        return flask.jsonify({"files": uploaded})
+
+    except ValueError as e:
+        return flask.jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.exception("Error uploading files")
+        return flask.jsonify({"error": str(e)}), 500
+
+
+@workspace_api.route(
     "/api/v2/conversations/<string:conversation_id>/workspace/<path:filepath>/preview"
 )
 @require_auth

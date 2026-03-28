@@ -763,6 +763,53 @@ export class ApiClient {
     }
   }
 
+  async uploadFiles(
+    conversationId: string,
+    files: File[],
+    path?: string
+  ): Promise<{
+    files: Array<{
+      name: string;
+      path: string;
+      type: string;
+      size: number;
+      modified: string;
+      mime_type: string | null;
+    }>;
+  }> {
+    if (!this.isConnected) {
+      throw new ApiClientError('Not connected to API');
+    }
+
+    const formData = new FormData();
+    for (const file of files) {
+      formData.append('file', file, file.name);
+    }
+    if (path) {
+      formData.append('path', path);
+    }
+
+    const headers: Record<string, string> = {};
+    if (this.authHeader) {
+      headers['Authorization'] = this.authHeader;
+    }
+    // Note: do NOT set Content-Type — browser sets it with boundary for multipart
+
+    const response = await fetch(
+      `${this.baseUrl}/api/v2/conversations/${conversationId}/workspace/upload`,
+      { method: 'POST', headers, body: formData }
+    );
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new ApiClientError(
+        isApiErrorResponse(data) ? data.error : `Upload failed: ${response.status}`,
+        response.status
+      );
+    }
+    return data;
+  }
+
   async step(
     logfile: string,
     model?: string,

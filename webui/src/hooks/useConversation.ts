@@ -364,6 +364,7 @@ export function useConversation(conversationId: string, serverId?: string) {
       role: 'user',
       content: message,
       timestamp: new Date().toISOString(),
+      ...(options?.files && options.files.length > 0 ? { files: options.files } : {}),
     };
 
     // Add message to conversation
