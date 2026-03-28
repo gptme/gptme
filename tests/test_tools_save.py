@@ -2,7 +2,13 @@
 
 from pathlib import Path
 
-from gptme.tools.save import execute_append, execute_save
+from gptme.tools.save import (
+    _read_text_safe,
+    execute_append,
+    execute_save,
+    preview_append,
+    preview_save,
+)
 
 
 def test_save_tool(tmp_path: Path):
@@ -187,3 +193,62 @@ def test_append_tool_path_traversal_symlink(tmp_path: Path):
         assert "Path traversal" in messages[0].content
     finally:
         os.chdir(original_cwd)
+
+
+def test_read_text_safe_utf8(tmp_path: Path):
+    """Test _read_text_safe with normal UTF-8 file."""
+    path = tmp_path / "normal.txt"
+    path.write_text("hello world\n")
+    assert _read_text_safe(path) == "hello world\n"
+
+
+def test_read_text_safe_binary(tmp_path: Path):
+    """Test _read_text_safe returns None for binary files."""
+    path = tmp_path / "binary.bin"
+    path.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\xff\xfe")
+    assert _read_text_safe(path) is None
+
+
+def test_read_text_safe_nonexistent(tmp_path: Path):
+    """Test _read_text_safe returns None for missing files."""
+    path = tmp_path / "missing.txt"
+    assert _read_text_safe(path) is None
+
+
+def test_preview_save_binary_file(tmp_path: Path):
+    """Test that preview_save handles binary files gracefully."""
+    path = tmp_path / "binary.bin"
+    path.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\xff\xfe")
+    # When overwriting a binary file with text, show the full new content
+    result = preview_save("new text content", path)
+    assert result == "new text content"
+
+
+def test_preview_append_binary_file(tmp_path: Path):
+    """Test that preview_append handles binary files gracefully."""
+    path = tmp_path / "binary.bin"
+    path.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\xff\xfe")
+    result = preview_append("appended text", path)
+    assert result == "appended text"
+
+
+def test_save_overwrites_binary_file(tmp_path: Path):
+    """Test that save can overwrite a binary file without crashing."""
+    path = tmp_path / "binary.bin"
+    path.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\xff\xfe")
+    messages = list(execute_save("new content", [str(path)], None))
+    assert len(messages) == 1
+    assert messages[0].role == "system"
+    assert "Saved to" in messages[0].content
+    assert path.read_text() == "new content\n"
+
+
+def test_append_to_binary_file(tmp_path: Path):
+    """Test that append handles binary files without crashing."""
+    path = tmp_path / "test.txt"
+    # Write valid text first, then corrupt it with binary
+    path.write_bytes(b"existing\xff\xfe")
+    messages = list(execute_append("new line", [str(path)], None))
+    assert len(messages) == 1
+    assert messages[0].role == "system"
+    assert "Appended to" in messages[0].content

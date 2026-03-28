@@ -30,7 +30,7 @@ instructions_format = {
 }
 
 instructions_append = """
-Append the given content to a file.`.
+Append the given content to a file.
 """.strip()
 
 instructions_format_append = {
@@ -62,11 +62,21 @@ def examples_append(tool_format):
 """.strip()
 
 
+def _read_text_safe(path: Path) -> str | None:
+    """Read file text, returning None for binary/non-UTF-8 files."""
+    try:
+        return path.read_text()
+    except (UnicodeDecodeError, PermissionError, OSError):
+        return None
+
+
 def preview_save(content: str, path: Path | None) -> str | None:
     """Prepare preview content for save operation."""
     assert path
     if path.exists():
-        current = path.read_text()
+        current = _read_text_safe(path)
+        if current is None:
+            return content  # can't diff binary files, show full content
         p = Patch(current, content)
         diff_str = p.diff_minimal()
         return diff_str if diff_str.strip() else None
@@ -77,7 +87,9 @@ def preview_append(content: str, path: Path | None) -> str | None:
     """Prepare preview content for append operation."""
     assert path
     if path.exists():
-        current = path.read_text()
+        current = _read_text_safe(path)
+        if current is None:
+            return content  # can't diff binary files, show new content only
         if not current.endswith("\n"):
             current += "\n"
     else:
@@ -136,7 +148,7 @@ def execute_save_impl(
     # Check if file exists and store original content for comparison
     # Note: User already confirmed via execute_with_confirmation() with diff preview
     overwrite = path.exists()
-    original_content = path.read_text() if overwrite else None
+    original_content = _read_text_safe(path) if overwrite else None
 
     # Check if folder exists
     missing_parent_created = False
@@ -241,7 +253,7 @@ def execute_append_impl(
         content += "\n"
 
     # Add newline before content if existing file doesn't end with one
-    before = path.read_text()
+    before = _read_text_safe(path) or ""
     if before and not before.endswith("\n"):
         content = "\n" + content
 
