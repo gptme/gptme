@@ -191,15 +191,11 @@ class TestDetermineTaskStatus:
 
     def test_preserves_status_on_error(self):
         task = self._make_task("active")
-        # Trigger an exception by passing bad data types
-        # The function catches exceptions and returns current status
-        with patch(
-            "gptme.server.tasks_api.determine_task_status",
-            side_effect=Exception("test"),
-        ):
-            # Direct call should handle gracefully
-            result = determine_task_status(task, {"pr_status": "MERGED"})
-            assert result == "completed"  # Original logic still works
+        # Pass malformed data: diff_stats=None causes AttributeError when
+        # the function calls None.get("files_changed", 0), triggering the
+        # except branch which returns task.status unchanged.
+        result = determine_task_status(task, {"diff_stats": None})
+        assert result == "active"  # Returns current task status on error
 
 
 # ── _find_git_workspace ─────────────────────────────────────────────
@@ -523,18 +519,17 @@ class TestTasksListAPI:
         assert resp.status_code == 200
         assert resp.json == []
 
-    def test_list_with_tasks(self, client, tmp_path: Path):
-        with patch("gptme.server.tasks_api.get_tasks_dir", return_value=tmp_path):
-            for i in range(2):
-                save_task(
-                    Task(
-                        id=f"api-task-{i}",
-                        content=f"Task {i}",
-                        created_at=f"2026-01-0{i + 1}T00:00:00Z",
-                        status="pending",
-                        target_type="stdout",
-                    )
+    def test_list_with_tasks(self, client):
+        for i in range(2):
+            save_task(
+                Task(
+                    id=f"api-task-{i}",
+                    content=f"Task {i}",
+                    created_at=f"2026-01-0{i + 1}T00:00:00Z",
+                    status="pending",
+                    target_type="stdout",
                 )
+            )
 
         resp = client.get("/api/v2/tasks")
         assert resp.status_code == 200
@@ -550,13 +545,12 @@ class TestTasksGetAPI:
         assert resp.status_code == 404
         assert "error" in resp.json
 
-    def test_get_existing(self, client, sample_task, tmp_path: Path):
-        with patch("gptme.server.tasks_api.get_tasks_dir", return_value=tmp_path):
-            resp = client.get(f"/api/v2/tasks/{sample_task.id}")
-            assert resp.status_code == 200
-            data = resp.json
-            assert data["id"] == "sample-task"
-            assert data["content"] == "Sample task for testing"
+    def test_get_existing(self, client, sample_task):
+        resp = client.get(f"/api/v2/tasks/{sample_task.id}")
+        assert resp.status_code == 200
+        data = resp.json
+        assert data["id"] == "sample-task"
+        assert data["content"] == "Sample task for testing"
 
 
 class TestTasksUpdateAPI:
@@ -569,102 +563,190 @@ class TestTasksUpdateAPI:
         )
         assert resp.status_code == 404
 
-    def test_update_content(self, client, sample_task, tmp_path: Path):
-        with patch("gptme.server.tasks_api.get_tasks_dir", return_value=tmp_path):
-            resp = client.put(
-                f"/api/v2/tasks/{sample_task.id}",
-                json={"content": "Updated content"},
-            )
-            assert resp.status_code == 200
+    def test_update_content(self, client, sample_task):
+        resp = client.put(
+            f"/api/v2/tasks/{sample_task.id}",
+            json={"content": "Updated content"},
+        )
+        assert resp.status_code == 200
 
-            # Verify persisted
-            loaded = load_task(sample_task.id)
-            assert loaded is not None
-            assert loaded.content == "Updated content"
+        # Verify persisted
+        loaded = load_task(sample_task.id)
+        assert loaded is not None
+        assert loaded.content == "Updated content"
 
-    def test_update_target_type(self, client, sample_task, tmp_path: Path):
-        with patch("gptme.server.tasks_api.get_tasks_dir", return_value=tmp_path):
-            resp = client.put(
-                f"/api/v2/tasks/{sample_task.id}",
-                json={"target_type": "pr", "target_repo": "owner/repo"},
-            )
-            assert resp.status_code == 200
+    def test_update_target_type(self, client, sample_task):
+        resp = client.put(
+            f"/api/v2/tasks/{sample_task.id}",
+            json={"target_type": "pr", "target_repo": "owner/repo"},
+        )
+        assert resp.status_code == 200
 
-            loaded = load_task(sample_task.id)
-            assert loaded is not None
-            assert loaded.target_type == "pr"
-            assert loaded.target_repo == "owner/repo"
+        loaded = load_task(sample_task.id)
+        assert loaded is not None
+        assert loaded.target_type == "pr"
+        assert loaded.target_repo == "owner/repo"
 
-    def test_update_metadata_merges(self, client, sample_task, tmp_path: Path):
-        with patch("gptme.server.tasks_api.get_tasks_dir", return_value=tmp_path):
-            # First set metadata
-            client.put(
-                f"/api/v2/tasks/{sample_task.id}",
-                json={"metadata": {"key1": "value1"}},
-            )
-            # Then update with new key
-            client.put(
-                f"/api/v2/tasks/{sample_task.id}",
-                json={"metadata": {"key2": "value2"}},
-            )
+    def test_update_metadata_merges(self, client, sample_task):
+        # First set metadata
+        client.put(
+            f"/api/v2/tasks/{sample_task.id}",
+            json={"metadata": {"key1": "value1"}},
+        )
+        # Then update with new key
+        client.put(
+            f"/api/v2/tasks/{sample_task.id}",
+            json={"metadata": {"key2": "value2"}},
+        )
 
-            loaded = load_task(sample_task.id)
-            assert loaded is not None
-            assert loaded.metadata["key1"] == "value1"
-            assert loaded.metadata["key2"] == "value2"
+        loaded = load_task(sample_task.id)
+        assert loaded is not None
+        assert loaded.metadata["key1"] == "value1"
+        assert loaded.metadata["key2"] == "value2"
 
-    def test_update_no_json(self, client, sample_task, tmp_path: Path):
-        with patch("gptme.server.tasks_api.get_tasks_dir", return_value=tmp_path):
-            resp = client.put(
-                f"/api/v2/tasks/{sample_task.id}",
-                content_type="application/json",
-            )
-            assert resp.status_code == 400
+    def test_update_no_json(self, client, sample_task):
+        resp = client.put(
+            f"/api/v2/tasks/{sample_task.id}",
+            content_type="application/json",
+        )
+        assert resp.status_code == 400
 
 
 class TestTasksArchiveAPI:
     """Tests for POST /api/v2/tasks/<task_id>/archive and /unarchive."""
 
-    def test_archive_task(self, client, sample_task, tmp_path: Path):
-        with patch("gptme.server.tasks_api.get_tasks_dir", return_value=tmp_path):
-            resp = client.post(f"/api/v2/tasks/{sample_task.id}/archive")
-            assert resp.status_code == 200
+    def test_archive_task(self, client, sample_task):
+        resp = client.post(f"/api/v2/tasks/{sample_task.id}/archive")
+        assert resp.status_code == 200
 
-            loaded = load_task(sample_task.id)
-            assert loaded is not None
-            assert loaded.archived is True
+        loaded = load_task(sample_task.id)
+        assert loaded is not None
+        assert loaded.archived is True
 
-    def test_archive_already_archived(self, client, sample_task, tmp_path: Path):
-        with patch("gptme.server.tasks_api.get_tasks_dir", return_value=tmp_path):
-            sample_task.archived = True
-            save_task(sample_task)
+    def test_archive_already_archived(self, client, sample_task):
+        sample_task.archived = True
+        save_task(sample_task)
 
-            resp = client.post(f"/api/v2/tasks/{sample_task.id}/archive")
-            assert resp.status_code == 400
-            assert "already archived" in resp.json["error"]
+        resp = client.post(f"/api/v2/tasks/{sample_task.id}/archive")
+        assert resp.status_code == 400
+        assert "already archived" in resp.json["error"]
 
     def test_archive_nonexistent(self, client):
         resp = client.post("/api/v2/tasks/nonexistent/archive")
         assert resp.status_code == 404
 
-    def test_unarchive_task(self, client, sample_task, tmp_path: Path):
-        with patch("gptme.server.tasks_api.get_tasks_dir", return_value=tmp_path):
-            sample_task.archived = True
-            save_task(sample_task)
+    def test_unarchive_task(self, client, sample_task):
+        sample_task.archived = True
+        save_task(sample_task)
 
-            resp = client.post(f"/api/v2/tasks/{sample_task.id}/unarchive")
-            assert resp.status_code == 200
+        resp = client.post(f"/api/v2/tasks/{sample_task.id}/unarchive")
+        assert resp.status_code == 200
 
-            loaded = load_task(sample_task.id)
-            assert loaded is not None
-            assert loaded.archived is False
+        loaded = load_task(sample_task.id)
+        assert loaded is not None
+        assert loaded.archived is False
 
-    def test_unarchive_not_archived(self, client, sample_task, tmp_path: Path):
-        with patch("gptme.server.tasks_api.get_tasks_dir", return_value=tmp_path):
-            resp = client.post(f"/api/v2/tasks/{sample_task.id}/unarchive")
-            assert resp.status_code == 400
-            assert "not archived" in resp.json["error"]
+    def test_unarchive_not_archived(self, client, sample_task):
+        resp = client.post(f"/api/v2/tasks/{sample_task.id}/unarchive")
+        assert resp.status_code == 400
+        assert "not archived" in resp.json["error"]
 
     def test_unarchive_nonexistent(self, client):
         resp = client.post("/api/v2/tasks/nonexistent/unarchive")
         assert resp.status_code == 404
+
+
+class TestTasksCreateAPI:
+    """Tests for POST /api/v2/tasks."""
+
+    def test_create_missing_content(self, client):
+        resp = client.post("/api/v2/tasks", json={"target_type": "stdout"})
+        assert resp.status_code == 400
+        assert "content" in resp.json["error"]
+
+    def test_create_no_json(self, client):
+        # Sending application/json content-type with no body → 400
+        resp = client.post("/api/v2/tasks", content_type="application/json")
+        assert resp.status_code == 400
+
+    def test_create_happy_path(self, client):
+        # Mock create_task_conversation to avoid real logdir/workspace creation.
+        # Mock get_task_info to avoid LogManager trying to load the fake conv ID.
+        mock_info = {
+            "id": "task-mock",
+            "content": "Write tests for the module",
+            "status": "pending",
+            "target_type": "stdout",
+            "conversation_ids": ["conv-mock-0"],
+            "archived": False,
+            "target_repo": None,
+            "metadata": {},
+            "created_at": "2026-01-01T00:00:00Z",
+        }
+        with (
+            patch(
+                "gptme.server.tasks_api.create_task_conversation",
+                return_value="conv-mock-0",
+            ),
+            patch(
+                "gptme.server.tasks_api.get_task_info",
+                return_value=mock_info,
+            ),
+        ):
+            resp = client.post(
+                "/api/v2/tasks",
+                json={"content": "Write tests for the module"},
+            )
+        assert resp.status_code == 201
+        data = resp.json
+        assert data["content"] == "Write tests for the module"
+        assert data["status"] == "pending"
+        assert "conv-mock-0" in data["conversation_ids"]
+
+    def test_create_with_target_repo(self, client):
+        with (
+            patch(
+                "gptme.server.tasks_api.create_task_conversation",
+                return_value="conv-mock-0",
+            ),
+            patch(
+                "gptme.server.tasks_api.get_task_info",
+                side_effect=lambda t: {**asdict(t)},
+            ),
+        ):
+            resp = client.post(
+                "/api/v2/tasks",
+                json={
+                    "content": "Fix the bug",
+                    "target_type": "pr",
+                    "target_repo": "owner/repo",
+                },
+            )
+        assert resp.status_code == 201
+        data = resp.json
+        assert data["target_type"] == "pr"
+        assert data["target_repo"] == "owner/repo"
+
+    def test_create_persists_task(self, client):
+        with (
+            patch(
+                "gptme.server.tasks_api.create_task_conversation",
+                return_value="conv-mock-0",
+            ),
+            patch(
+                "gptme.server.tasks_api.get_task_info",
+                side_effect=lambda t: {**asdict(t)},
+            ),
+        ):
+            resp = client.post(
+                "/api/v2/tasks",
+                json={"content": "Persist me"},
+            )
+        assert resp.status_code == 201
+        task_id = resp.json["id"]
+
+        # Verify persisted via GET (get_task_info is NOT mocked here, so it will
+        # try to load the log, fail gracefully, and return the saved task data)
+        get_resp = client.get(f"/api/v2/tasks/{task_id}")
+        assert get_resp.status_code == 200
+        assert get_resp.json["content"] == "Persist me"
