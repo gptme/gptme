@@ -48,10 +48,19 @@ new Vue({
 
     // Agent URLs from gptme.toml [agent.urls] (dashboard, repo, etc.)
     agentUrls: {},
+
+    // Autocomplete state
+    commands: [],              // Available slash commands from API
+    autocompleteType: null,    // null | 'command' | 'file'
+    autocompleteItems: [],     // Items to display in dropdown
+    autocompleteIndex: 0,      // Currently highlighted item
+    fileCache: {},             // Cache workspace file listings by directory
+    fileFetchTimeout: null,    // Debounce timer for file fetching
   },
   async mounted() {
-    // Load agent config (urls from gptme.toml [agent.urls])
+    // Load agent config and available commands
     this.loadAgentConfig();
+    this.loadCommands();
 
     // Check for embedded data first
     if (window.CHAT_DATA) {
@@ -88,6 +97,9 @@ new Vue({
       return this.conversations.sort(
         (a, b) => b[sortBy] - a[sortBy] * (reverse ? -1 : 1)
       );
+    },
+    showAutocomplete: function () {
+      return this.autocompleteType !== null && this.autocompleteItems.length > 0;
     },
     preparedChatLog: function () {
       // Set hide flag on initial system messages
@@ -147,6 +159,139 @@ new Vue({
       // Only allow http/https to prevent javascript: XSS in Vue 2 :href bindings
       return /^https?:\/\//i.test(url) ? url : '#';
     },
+
+    // --- Autocomplete ---
+
+    async loadCommands() {
+      try {
+        const res = await fetch("/api/v2/commands");
+        if (!res.ok) return;
+        const data = await res.json();
+        this.commands = data.commands || [];
+      } catch (e) {
+        console.debug("Could not load commands:", e);
+      }
+    },
+    onInput() {
+      const input = this.newMessage;
+      const trimmed = input.trim();
+
+      // Slash command completion: input starts with / and has no spaces
+      if (trimmed.startsWith("/") && !trimmed.includes(" ")) {
+        const query = trimmed.slice(1).toLowerCase();
+        this.autocompleteItems = this.commands.filter(cmd => {
+          const name = cmd.startsWith("/") ? cmd.slice(1) : cmd;
+          return name.toLowerCase().startsWith(query);
+        });
+        this.autocompleteType = this.autocompleteItems.length > 0 ? "command" : null;
+        this.autocompleteIndex = 0;
+        return;
+      }
+
+      // File path completion: find @token being typed
+      // Look for @ preceded by whitespace or at start of input
+      const textarea = this.$refs.chatInput;
+      if (textarea && this.selectedConversation) {
+        const cursorPos = textarea.selectionStart;
+        const textBeforeCursor = input.slice(0, cursorPos);
+        const atMatch = textBeforeCursor.match(/(^|\s)@(\S*)$/);
+        if (atMatch) {
+          const partialPath = atMatch[2];
+          this.fetchFileCompletions(partialPath);
+          return;
+        }
+      }
+
+      // No match — hide autocomplete
+      this.autocompleteType = null;
+      this.autocompleteItems = [];
+    },
+    async fetchFileCompletions(partialPath) {
+      // Debounce file fetching to avoid excessive API calls
+      clearTimeout(this.fileFetchTimeout);
+      this.fileFetchTimeout = setTimeout(async () => {
+        // Split into directory and filename prefix
+        const lastSlash = partialPath.lastIndexOf("/");
+        const dir = lastSlash >= 0 ? partialPath.slice(0, lastSlash) : "";
+        const prefix = lastSlash >= 0 ? partialPath.slice(lastSlash + 1) : partialPath;
+
+        try {
+          // Use workspace browse API
+          const dirParam = dir ? `/${dir}` : "";
+          const url = `/api/v2/conversations/${this.selectedConversation}/workspace${dirParam}`;
+
+          let files;
+          if (this.fileCache[url]) {
+            files = this.fileCache[url];
+          } else {
+            const res = await fetch(url);
+            if (!res.ok) {
+              this.autocompleteType = null;
+              this.autocompleteItems = [];
+              return;
+            }
+            const data = await res.json();
+            files = (data.files || []).map(f => ({
+              name: f.name,
+              path: f.path,
+              type: f.type,
+              display: dir ? `${dir}/${f.name}` : f.name,
+            }));
+            this.fileCache[url] = files;
+          }
+
+          // Filter by prefix
+          const filtered = files.filter(f =>
+            f.name.toLowerCase().startsWith(prefix.toLowerCase())
+          );
+
+          this.autocompleteItems = filtered.map(f => ({
+            label: f.display + (f.type === "directory" ? "/" : ""),
+            value: f.display + (f.type === "directory" ? "/" : ""),
+            type: f.type,
+          }));
+          this.autocompleteType = this.autocompleteItems.length > 0 ? "file" : null;
+          this.autocompleteIndex = 0;
+        } catch (e) {
+          console.debug("Could not fetch file completions:", e);
+          this.autocompleteType = null;
+          this.autocompleteItems = [];
+        }
+      }, 150);
+    },
+    selectAutocompleteItem(item) {
+      if (this.autocompleteType === "command") {
+        // For commands, replace entire input
+        this.newMessage = item + " ";
+      } else if (this.autocompleteType === "file") {
+        // For files, replace the @token in the input
+        const textarea = this.$refs.chatInput;
+        const cursorPos = textarea.selectionStart;
+        const textBeforeCursor = this.newMessage.slice(0, cursorPos);
+        const atMatch = textBeforeCursor.match(/(^|\s)@(\S*)$/);
+        if (atMatch) {
+          const matchStart = atMatch.index + atMatch[1].length; // position of @
+          const value = typeof item === "object" ? item.value : item;
+          const suffix = value.endsWith("/") ? "" : " ";
+          const before = this.newMessage.slice(0, matchStart);
+          const after = this.newMessage.slice(cursorPos);
+          this.newMessage = before + "@" + value + suffix + after;
+        }
+      }
+      this.autocompleteType = null;
+      this.autocompleteItems = [];
+      this.$nextTick(() => {
+        this.$refs.chatInput.focus();
+      });
+    },
+    getItemLabel(item) {
+      // Autocomplete items can be strings (commands) or objects (files)
+      if (typeof item === "string") return item;
+      return item.label || item.value || "";
+    },
+
+    // --- End Autocomplete ---
+
     async loadAgentConfig() {
       try {
         const res = await fetch("/api/config");
@@ -176,6 +321,9 @@ new Vue({
       window.location.hash = path;
 
       this.selectedConversation = path;
+      // Clear file cache when switching conversations
+      this.fileCache = {};
+
       const res = await fetch(`${apiRoot}/${path}`);
 
       // check for errors
@@ -220,6 +368,10 @@ new Vue({
       this.selectConversation(name);
     },
     async sendMessage() {
+      // Dismiss autocomplete before sending
+      this.autocompleteType = null;
+      this.autocompleteItems = [];
+
       const messageContent = this.newMessage;
       // Clear input immediately
       this.newMessage = "";
@@ -423,6 +575,30 @@ new Vue({
       return `${apiRoot}/${this.selectedConversation}/files/${sanitized}`;
     },
     handleKeyDown(e) {
+      // Autocomplete navigation
+      if (this.showAutocomplete && this.autocompleteItems.length > 0) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          this.autocompleteIndex = (this.autocompleteIndex + 1) % this.autocompleteItems.length;
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          this.autocompleteIndex = (this.autocompleteIndex - 1 + this.autocompleteItems.length) % this.autocompleteItems.length;
+          return;
+        }
+        if (e.key === 'Enter' || e.key === 'Tab') {
+          e.preventDefault();
+          this.selectAutocompleteItem(this.autocompleteItems[this.autocompleteIndex]);
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          this.autocompleteType = null;
+          this.autocompleteItems = [];
+          return;
+        }
+      }
       // If Enter is pressed without Shift
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();  // Prevent default newline
