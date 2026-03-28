@@ -575,6 +575,19 @@ class TestExecuteGh:
         assert len(messages) == 1
         assert "Could not parse GitHub reference" in messages[0].content
 
+    def test_issue_view_rejects_pr_url(self):
+        """gh issue view rejects PR references with a helpful message."""
+        messages = list(
+            execute_gh(
+                None,
+                ["issue", "view", "https://github.com/owner/repo/pull/42"],
+                None,
+            )
+        )
+        assert len(messages) == 1
+        assert "Reference is not a GitHub issue" in messages[0].content
+        assert "Use `gh pr view` for pull requests" in messages[0].content
+
     @patch("gptme.tools.gh.get_github_issue_content")
     def test_issue_view_success(self, mock_content):
         """gh issue view returns content."""

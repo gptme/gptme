@@ -583,6 +583,13 @@ def execute_gh(
             return
 
         assert info is not None
+        if info["type"] == "pull":
+            yield Message(
+                "system",
+                f"Error: Reference is not a GitHub issue (got {info['type']}). Use `gh pr view` for pull requests.",
+            )
+            return
+
         content = get_github_issue_content(info["owner"], info["repo"], info["number"])
         if content:
             yield Message("system", content)
