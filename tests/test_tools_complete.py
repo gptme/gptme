@@ -36,15 +36,18 @@ from gptme.tools.complete import (
 
 @pytest.fixture(autouse=True)
 def _init_complete_tool():
-    """Initialize tools with 'complete' enabled so ToolUse.iter_from_content can parse it.
+    """Initialize tools needed by these tests.
 
     The complete tool is disabled_by_default, so the tool registry won't
-    recognize ```complete``` blocks unless we explicitly load it.
+    recognize ```complete``` blocks unless we explicitly load it. This file also
+    uses ```save ...``` blocks to exercise "assistant used a tool" paths, so we
+    load that tool explicitly too instead of depending on broader test init.
+
     Must run per-test because conftest's clear_tools_before wipes the registry.
     """
     from gptme.tools import init_tools
 
-    init_tools(allowlist=["complete"])
+    init_tools(allowlist=["complete", "save"])
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────
