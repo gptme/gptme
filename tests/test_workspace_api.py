@@ -6,7 +6,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from gptme.server.workspace_api import safe_workspace_path
+# Skip if flask not installed - MUST be before any imports that use flask
+pytest.importorskip(
+    "flask", reason="flask not installed, install server extras (-E server)"
+)
+
+from gptme.server.workspace_api import safe_workspace_path  # fmt: skip
 
 
 class TestSafeWorkspacePath:
