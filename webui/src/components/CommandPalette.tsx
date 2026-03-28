@@ -23,6 +23,7 @@ import { useApi } from '@/contexts/ApiContext';
 import type { ConversationSummary } from '@/types/conversation';
 import { conversations$, selectedConversation$ } from '@/stores/conversations';
 import { exportConversationAsMarkdown, exportConversationAsJSON } from '@/utils/exportConversation';
+import { toast } from 'sonner';
 
 interface CommandAction {
   id: string;
@@ -189,8 +190,12 @@ export function CommandPalette() {
         action: () => {
           const convId = selectedConversation$.get();
           const conv = convId ? conversations$.get(convId)?.get() : null;
-          if (!conv?.data?.log?.length) return;
+          if (!conv?.data?.log?.length) {
+            toast.error('No messages to export');
+            return;
+          }
           exportConversationAsMarkdown(convId!, conv.data.name || convId!, conv.data.log);
+          toast.success('Exported as Markdown');
           setOpen(false);
         },
         group: 'Actions',
@@ -204,8 +209,12 @@ export function CommandPalette() {
         action: () => {
           const convId = selectedConversation$.get();
           const conv = convId ? conversations$.get(convId)?.get() : null;
-          if (!conv?.data?.log?.length) return;
+          if (!conv?.data?.log?.length) {
+            toast.error('No messages to export');
+            return;
+          }
           exportConversationAsJSON(convId!, conv.data.name || convId!, conv.data.log);
+          toast.success('Exported as JSON');
           setOpen(false);
         },
         group: 'Actions',

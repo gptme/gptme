@@ -235,7 +235,7 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
                     size="sm"
                     onClick={() => {
                       const conv = conversations$.get(conversationId)?.get();
-                      if (!conv?.data?.log) {
+                      if (!conv?.data?.log?.length) {
                         toast.error('No messages to export');
                         return;
                       }
@@ -256,7 +256,7 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
                     size="sm"
                     onClick={() => {
                       const conv = conversations$.get(conversationId)?.get();
-                      if (!conv?.data?.log) {
+                      if (!conv?.data?.log?.length) {
                         toast.error('No messages to export');
                         return;
                       }
