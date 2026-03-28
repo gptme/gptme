@@ -235,11 +235,11 @@ describe('FilePreview', () => {
   });
 
   it('clears download error on file switch', async () => {
-    // First render with error
     mockPreviewFile.mockResolvedValue({
       type: 'text',
       content: 'content',
     });
+    mockDownloadFile.mockRejectedValue(new Error('Download failed'));
 
     const { rerender } = render(<FilePreview file={textFile} conversationId={conversationId} />);
 
@@ -247,7 +247,13 @@ describe('FilePreview', () => {
       expect(screen.getByTitle('Download file')).toBeInTheDocument();
     });
 
-    // Now rerender with a different file — download error should be cleared
+    // Trigger a download error
+    fireEvent.click(screen.getByTitle('Download file'));
+    await waitFor(() => {
+      expect(screen.getByText('Download failed')).toBeInTheDocument();
+    });
+
+    // Switch to a different file — download error should be cleared
     mockPreviewFile.mockResolvedValue({
       type: 'text',
       content: 'other content',
@@ -258,6 +264,7 @@ describe('FilePreview', () => {
     await waitFor(() => {
       expect(screen.getByText('README.md')).toBeInTheDocument();
     });
+    expect(screen.queryByText('Download failed')).not.toBeInTheDocument();
   });
 
   it('detects markdown by .markdown extension', async () => {
