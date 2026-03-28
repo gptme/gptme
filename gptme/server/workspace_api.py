@@ -295,7 +295,7 @@ def preview_file(conversation_id: str, filepath: str):
 @require_auth
 @api_doc_simple(
     responses={
-        200: FileMetadata,  # actual response is raw file content
+        200: None,  # raw file content, not JSON
         400: ErrorResponse,
         404: ErrorResponse,
         500: ErrorResponse,
