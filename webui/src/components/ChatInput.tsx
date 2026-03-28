@@ -1,4 +1,5 @@
 import { Send, Loader2, Settings, X, Bot, Folder, Clock, Paperclip, File } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -376,6 +377,8 @@ export const ChatInput: FC<Props> = ({
         ]);
       } catch (error) {
         console.error('[ChatInput] File upload failed:', error);
+        const message = error instanceof Error ? error.message : 'Upload failed';
+        toast.error(`File upload failed: ${message}`);
       } finally {
         setIsUploading(false);
       }
@@ -535,7 +538,7 @@ export const ChatInput: FC<Props> = ({
         }
       }
     } else if (message.trim() || attachedFiles.length > 0) {
-      onSend(message || ' ', {
+      onSend(message, {
         model: effectiveModel === 'default' ? undefined : effectiveModel,
         stream: streamingEnabled,
         workspace: selectedWorkspace || undefined,

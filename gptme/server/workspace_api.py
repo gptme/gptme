@@ -269,11 +269,13 @@ def upload_files(conversation_id: str):
         # Size limit: 50MB per file
         max_size = 50 * 1024 * 1024
 
-        uploaded: list[FileType] = []
         # Collect files from all form field names (MultiDict may have duplicates)
         all_files = []
         for key in request.files:
             all_files.extend(request.files.getlist(key))
+
+        # First pass: validate all files before writing any (prevents partial-upload state)
+        validated: list[tuple[str, bytes]] = []
         for file in all_files:
             if not file.filename:
                 continue
@@ -295,19 +297,19 @@ def upload_files(conversation_id: str):
                     ),
                     413,
                 )
+            validated.append((filename, content))
 
-            # Ensure target directory exists
-            target_dir.mkdir(parents=True, exist_ok=True)
+        if not validated:
+            return flask.jsonify({"error": "No valid files uploaded"}), 400
 
-            # Write file
+        # Second pass: write all files (only reached if all files passed validation)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        uploaded: list[FileType] = []
+        for filename, content in validated:
             file_path = target_dir / filename
             file_path.write_bytes(content)
-
             wfile = WorkspaceFile(file_path, workspace)
             uploaded.append(wfile.to_dict())
-
-        if not uploaded:
-            return flask.jsonify({"error": "No valid files uploaded"}), 400
 
         return flask.jsonify({"files": uploaded})
 

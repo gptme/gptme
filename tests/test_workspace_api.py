@@ -193,6 +193,29 @@ class TestUploadEndpoint:
         assert resp.status_code == 413
         assert "exceeds 50MB" in resp.get_json()["error"]
 
+    def test_upload_rollback_on_oversized_file(
+        self, app, mock_logmanager, mock_auth
+    ) -> None:
+        """No files should be written if any file in the batch exceeds the size limit."""
+        _, workspace = mock_logmanager
+
+        small_content = b"small file"
+        big_content = b"x" * (51 * 1024 * 1024)
+        data = {
+            "file1": (io.BytesIO(small_content), "small.txt"),
+            "file2": (io.BytesIO(big_content), "big.bin"),
+        }
+        with app.test_client() as client:
+            resp = client.post(
+                "/api/v2/conversations/test-conv/workspace/upload",
+                data=data,
+                content_type="multipart/form-data",
+            )
+
+        assert resp.status_code == 413
+        # small.txt must NOT have been written to disk
+        assert not (workspace / "small.txt").exists()
+
     def test_upload_workspace_not_found(self, app, mock_auth) -> None:
         manager = MagicMock()
         manager.workspace = Path("/nonexistent")
