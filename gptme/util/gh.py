@@ -579,7 +579,13 @@ def get_github_issue_content(owner: str, repo: str, number: str) -> str | None:
 
 
 def _get_linked_prs(owner: str, repo: str, issue_number: str) -> str | None:
-    """Fetch PRs linked to an issue via timeline events (best-effort)."""
+    """Fetch PRs linked to an issue via timeline events (best-effort).
+
+    Uses NDJSON output (one object per line) instead of array wrapping,
+    because ``gh api --paginate --jq`` applies the jq filter per-page —
+    wrapping in ``[...]`` would produce multiple concatenated arrays that
+    ``json.loads`` cannot parse.
+    """
     try:
         result = subprocess.run(
             [
@@ -589,10 +595,9 @@ def _get_linked_prs(owner: str, repo: str, issue_number: str) -> str | None:
                 "--paginate",
                 "--jq",
                 (
-                    '[.[] | select(.event == "cross-referenced" and .source.issue.pull_request != null) '
+                    '.[] | select(.event == "cross-referenced" and .source.issue.pull_request != null) '
                     "| {number: .source.issue.number, title: .source.issue.title, "
-                    "state: .source.issue.state, repo: .source.issue.repository.full_name}] "
-                    "| unique_by(.number)"
+                    "state: .source.issue.state, repo: .source.issue.repository.full_name}"
                 ),
             ],
             capture_output=True,
@@ -603,7 +608,15 @@ def _get_linked_prs(owner: str, repo: str, issue_number: str) -> str | None:
         if result.returncode != 0 or not result.stdout.strip():
             return None
 
-        prs = json.loads(result.stdout)
+        # Parse NDJSON (one JSON object per line) and deduplicate
+        seen: set[int] = set()
+        prs: list[dict] = []
+        for line in result.stdout.strip().splitlines():
+            pr = json.loads(line)
+            if pr["number"] not in seen:
+                seen.add(pr["number"])
+                prs.append(pr)
+
         if not prs:
             return None
 

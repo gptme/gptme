@@ -926,28 +926,35 @@ class TestGetLinkedPrs:
     @patch("gptme.util.gh.subprocess.run")
     def test_no_linked_prs(self, mock_run):
         """Returns None when no linked PRs found."""
-        mock_run.return_value = MagicMock(returncode=0, stdout="[]")
+        mock_run.return_value = MagicMock(returncode=0, stdout="")
         result = _get_linked_prs("owner", "repo", "42")
         assert result is None
 
     @patch("gptme.util.gh.subprocess.run")
     def test_with_linked_prs(self, mock_run):
-        """Formats linked PRs with state icons."""
-        prs = [
-            {
-                "number": 100,
-                "title": "Fix the bug",
-                "state": "open",
-                "repo": "owner/repo",
-            },
-            {
-                "number": 101,
-                "title": "Another fix",
-                "state": "closed",
-                "repo": "owner/repo",
-            },
-        ]
-        mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(prs))
+        """Formats linked PRs with state icons (NDJSON input)."""
+        # NDJSON: one JSON object per line (as produced by gh api --paginate --jq)
+        ndjson = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "number": 100,
+                        "title": "Fix the bug",
+                        "state": "open",
+                        "repo": "owner/repo",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "number": 101,
+                        "title": "Another fix",
+                        "state": "closed",
+                        "repo": "owner/repo",
+                    }
+                ),
+            ]
+        )
+        mock_run.return_value = MagicMock(returncode=0, stdout=ndjson)
         result = _get_linked_prs("owner", "repo", "42")
         assert result is not None
         assert "🔄 #100: Fix the bug" in result
@@ -956,18 +963,46 @@ class TestGetLinkedPrs:
     @patch("gptme.util.gh.subprocess.run")
     def test_cross_repo_linked_pr(self, mock_run):
         """Shows repo prefix for cross-repo PRs."""
-        prs = [
+        ndjson = json.dumps(
             {
                 "number": 50,
                 "title": "Cross-repo fix",
                 "state": "open",
                 "repo": "other/repo",
-            },
-        ]
-        mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(prs))
+            }
+        )
+        mock_run.return_value = MagicMock(returncode=0, stdout=ndjson)
         result = _get_linked_prs("owner", "repo", "42")
         assert result is not None
         assert "other/repo#50" in result
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_deduplicates_across_pages(self, mock_run):
+        """Deduplicates PRs that appear on multiple pages."""
+        ndjson = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "number": 100,
+                        "title": "Fix",
+                        "state": "open",
+                        "repo": "owner/repo",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "number": 100,
+                        "title": "Fix",
+                        "state": "open",
+                        "repo": "owner/repo",
+                    }
+                ),
+            ]
+        )
+        mock_run.return_value = MagicMock(returncode=0, stdout=ndjson)
+        result = _get_linked_prs("owner", "repo", "42")
+        assert result is not None
+        assert result.count("#100") == 1
 
     @patch("gptme.util.gh.subprocess.run")
     def test_api_failure(self, mock_run):
