@@ -2,6 +2,16 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import { CommandPalette } from '../CommandPalette';
 
+// Mock ApiContext to avoid import.meta usage in connectionConfig.ts
+const mockSearchConversations = jest.fn().mockResolvedValue([]);
+jest.mock('@/contexts/ApiContext', () => ({
+  useApi: () => ({
+    api: {
+      searchConversations: mockSearchConversations,
+    },
+  }),
+}));
+
 // Mock UI command components
 jest.mock('../ui/command', () => ({
   CommandDialog: ({ children, open }: { children: React.ReactNode; open: boolean }) =>

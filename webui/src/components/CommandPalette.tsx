@@ -66,19 +66,28 @@ export function CommandPalette() {
       return;
     }
 
+    let cancelled = false;
     setIsSearching(true);
+    const currentSearch = search;
     searchTimerRef.current = setTimeout(async () => {
       try {
-        const results = await api.searchConversations(search, 10);
-        setConversationResults(results);
+        const results = await api.searchConversations(currentSearch, 10);
+        if (!cancelled) {
+          setConversationResults(results);
+        }
       } catch {
-        setConversationResults([]);
+        if (!cancelled) {
+          setConversationResults([]);
+        }
       } finally {
-        setIsSearching(false);
+        if (!cancelled) {
+          setIsSearching(false);
+        }
       }
     }, 200);
 
     return () => {
+      cancelled = true;
       if (searchTimerRef.current) {
         clearTimeout(searchTimerRef.current);
       }
