@@ -234,7 +234,7 @@ export function CommandPalette() {
               {conversationResults.map((conv) => (
                 <CommandItem
                   key={`conv-${conv.id}`}
-                  value={`conv-${conv.id}`}
+                  value={`conv-${conv.id} ${conv.name}`}
                   onSelect={() => {
                     navigate(`/chat/${conv.id}`);
                     setOpen(false);
