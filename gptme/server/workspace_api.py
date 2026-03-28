@@ -223,6 +223,8 @@ def browse_workspace(conversation_id: str, subpath: str | None = None):
 
     except ValueError as e:
         return flask.jsonify({"error": str(e)}), 400
+    except FileNotFoundError:
+        return flask.jsonify({"error": "Conversation not found"}), 404
     except Exception as e:
         logger.exception("Error browsing workspace")
         return flask.jsonify({"error": str(e)}), 500
@@ -280,6 +282,8 @@ def preview_file(conversation_id: str, filepath: str):
 
     except ValueError as e:
         return flask.jsonify({"error": str(e)}), 400
+    except FileNotFoundError:
+        return flask.jsonify({"error": "Conversation not found"}), 404
     except Exception as e:
         logger.exception("Error previewing file")
         return flask.jsonify({"error": str(e)}), 500

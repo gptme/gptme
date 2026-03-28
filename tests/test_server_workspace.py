@@ -429,8 +429,7 @@ class TestBrowseWorkspaceEndpoint:
     def test_nonexistent_conversation(self, client: FlaskClient):
         """Test browsing workspace of nonexistent conversation."""
         response = client.get("/api/v2/conversations/nonexistent-conv-999/workspace")
-        # Should return 404 or 500 depending on LogManager behavior
-        assert response.status_code in (404, 500)
+        assert response.status_code == 404
 
     def test_file_metadata_fields(self, client: FlaskClient, workspace_conv):
         """Test that file metadata contains all expected fields."""
@@ -567,7 +566,7 @@ class TestPreviewFileEndpoint:
         response = client.get(
             "/api/v2/conversations/nonexistent-conv-999/workspace/file.txt/preview"
         )
-        assert response.status_code in (404, 500)
+        assert response.status_code == 404
 
     def test_preview_hidden_file(self, client: FlaskClient, workspace_conv):
         """Test previewing a hidden file (should work - preview doesn't filter)."""
