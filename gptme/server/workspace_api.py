@@ -336,6 +336,8 @@ def upload_files(conversation_id: str):
 
         return flask.jsonify({"files": uploaded})
 
+    except FileNotFoundError:
+        return flask.jsonify({"error": "Conversation not found"}), 404
     except ValueError as e:
         return flask.jsonify({"error": str(e)}), 400
     except Exception as e:

@@ -199,6 +199,21 @@ class TestUploadEndpoint:
         assert resp.status_code == 400
         assert "No valid files" in resp.get_json()["error"]
 
+    def test_upload_returns_404_for_missing_conversation(self, app, mock_auth) -> None:
+        with patch("gptme.server.workspace_api.LogManager") as mock_cls:
+            mock_cls.load.side_effect = FileNotFoundError("missing conversation")
+
+            with app.test_client() as client:
+                data = {"file": (io.BytesIO(b"hello world"), "test.txt")}
+                resp = client.post(
+                    "/api/v2/conversations/missing/workspace/upload",
+                    data=data,
+                    content_type="multipart/form-data",
+                )
+
+        assert resp.status_code == 404
+        assert resp.get_json() == {"error": "Conversation not found"}
+
     def test_upload_binary_file(self, app, mock_logmanager, mock_auth) -> None:
         _, logdir = mock_logmanager
         attachments_dir = logdir / "attachments"

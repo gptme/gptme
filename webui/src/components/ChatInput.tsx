@@ -355,27 +355,41 @@ export const ChatInput: FC<Props> = ({
   );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const currentConversationIdRef = useRef(conversationId);
 
   // File attachment state
   interface AttachedFile {
     name: string;
-    path: string; // relative path in workspace after upload
+    path: string; // absolute path returned by the upload endpoint
   }
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
 
+  useEffect(() => {
+    currentConversationIdRef.current = conversationId;
+    setAttachedFiles([]);
+    setIsDragOver(false);
+  }, [conversationId]);
+
   const uploadAndAttach = useCallback(
     async (files: FileList | File[]) => {
       if (!conversationId || files.length === 0) return;
+      const uploadConversationId = conversationId;
       setIsUploading(true);
       try {
-        const result = await api.uploadFiles(conversationId, Array.from(files));
+        const result = await api.uploadFiles(uploadConversationId, Array.from(files));
+        if (currentConversationIdRef.current !== uploadConversationId) {
+          return;
+        }
         setAttachedFiles((prev) => [
           ...prev,
           ...result.files.map((f) => ({ name: f.name, path: f.path })),
         ]);
       } catch (error) {
+        if (currentConversationIdRef.current !== uploadConversationId) {
+          return;
+        }
         console.error('[ChatInput] File upload failed:', error);
         const message = error instanceof Error ? error.message : 'Upload failed';
         toast.error(`File upload failed: ${message}`);
