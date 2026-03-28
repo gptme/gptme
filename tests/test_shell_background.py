@@ -482,6 +482,7 @@ class TestEdgeCases:
         stdout, _ = job.get_output()
         assert "hello" in stdout  # valid portion preserved
 
+    @pytest.mark.slow
     def test_rapid_start_and_kill(self):
         """Starting and immediately killing should not hang or raise."""
         for _ in range(5):
