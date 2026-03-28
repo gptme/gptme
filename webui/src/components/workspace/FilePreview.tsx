@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Download, Loader2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useWorkspaceApi } from '@/utils/workspaceApi';
 import type { FileType, FilePreview } from '@/types/workspace';
 import { CodeDisplay } from '@/components/CodeDisplay';
+import { Button } from '@/components/ui/button';
 import { MarkdownPreviewTabs } from './MarkdownPreviewTabs';
 
 // Helper function to check if a file is a markdown file
@@ -11,6 +12,27 @@ function isMarkdownFileType(file: FileType): boolean {
   const fileName = file.name.toLowerCase();
   return (
     fileName.endsWith('.md') || fileName.endsWith('.markdown') || file.mime_type === 'text/markdown'
+  );
+}
+
+function FileHeader({ file, downloadUrl }: { file: FileType; downloadUrl: string }) {
+  return (
+    <div className="flex items-start justify-between border-b p-2">
+      <div>
+        <h3 className="font-medium">{file.name}</h3>
+        <div className="space-y-1 text-sm text-muted-foreground">
+          <div>
+            {(file.size / 1024).toFixed(1)} KB • {file.mime_type || 'Unknown type'}
+          </div>
+          <div>Modified {formatDistanceToNow(new Date(file.modified), { addSuffix: true })}</div>
+        </div>
+      </div>
+      <Button variant="ghost" size="icon" asChild title="Download file">
+        <a href={downloadUrl} download>
+          <Download className="h-4 w-4" />
+        </a>
+      </Button>
+    </div>
   );
 }
 
@@ -24,7 +46,7 @@ export function FilePreview({ file, conversationId }: FilePreviewProps) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const { previewFile } = useWorkspaceApi();
+  const { previewFile, getDownloadUrl } = useWorkspaceApi();
 
   const loadPreview = useCallback(async () => {
     try {
@@ -59,24 +81,14 @@ export function FilePreview({ file, conversationId }: FilePreviewProps) {
     return null;
   }
 
-  // Check if this is a markdown file
+  const downloadUrl = getDownloadUrl(conversationId, file.path);
   const isMarkdownFile = isMarkdownFileType(file);
 
   switch (preview.type) {
     case 'text':
       return (
         <div className="flex h-full flex-col">
-          <div className="border-b p-2">
-            <h3 className="font-medium">{file.name}</h3>
-            <div className="space-y-1 text-sm text-muted-foreground">
-              <div>
-                {(file.size / 1024).toFixed(1)} KB • {file.mime_type || 'Unknown type'}
-              </div>
-              <div>
-                Modified {formatDistanceToNow(new Date(file.modified), { addSuffix: true })}
-              </div>
-            </div>
-          </div>
+          <FileHeader file={file} downloadUrl={downloadUrl} />
           <div className="flex-1 overflow-auto">
             {isMarkdownFile ? (
               <MarkdownPreviewTabs
@@ -96,17 +108,7 @@ export function FilePreview({ file, conversationId }: FilePreviewProps) {
     case 'image':
       return (
         <div className="flex h-full flex-col">
-          <div className="border-b p-2">
-            <h3 className="font-medium">{file.name}</h3>
-            <div className="space-y-1 text-sm text-muted-foreground">
-              <div>
-                {(file.size / 1024).toFixed(1)} KB • {file.mime_type || 'Unknown type'}
-              </div>
-              <div>
-                Modified {formatDistanceToNow(new Date(file.modified), { addSuffix: true })}
-              </div>
-            </div>
-          </div>
+          <FileHeader file={file} downloadUrl={downloadUrl} />
           <div className="flex flex-1 items-center justify-center overflow-auto p-4">
             <img
               src={preview.content}
@@ -119,19 +121,9 @@ export function FilePreview({ file, conversationId }: FilePreviewProps) {
     case 'binary':
       return (
         <div className="flex h-full flex-col">
-          <div className="border-b p-2">
-            <h3 className="font-medium">{file.name}</h3>
-            <div className="space-y-1 text-sm text-muted-foreground">
-              <div>
-                {(file.size / 1024).toFixed(1)} KB • {file.mime_type || 'Unknown type'}
-              </div>
-              <div>
-                Modified {formatDistanceToNow(new Date(file.modified), { addSuffix: true })}
-              </div>
-            </div>
-          </div>
+          <FileHeader file={file} downloadUrl={downloadUrl} />
           <div className="flex flex-1 items-center justify-center">
-            <p className="text-muted-foreground">Binary file</p>
+            <p className="text-muted-foreground">Binary file — use the download button above</p>
           </div>
         </div>
       );

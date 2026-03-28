@@ -297,3 +297,80 @@ class TestUploadEndpoint:
         assert result["files"][0]["name"] == "report-1.pdf"
         assert (attachments_dir / "report.pdf").read_text() == "existing"
         assert (attachments_dir / "report-1.pdf").read_text() == "new"
+
+
+@pytest.fixture
+def mock_workspace(tmp_path: Path):
+    """Mock LogManager.load to return a manager with a workspace directory."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    manager = MagicMock()
+    manager.workspace = workspace
+
+    with patch("gptme.server.workspace_api.LogManager") as mock_cls:
+        mock_cls.load.return_value = manager
+        yield manager, workspace
+
+
+class TestDownloadEndpoint:
+    """Tests for the file download endpoint."""
+
+    def test_download_text_file(self, app, mock_workspace, mock_auth) -> None:
+        _, workspace = mock_workspace
+        (workspace / "readme.txt").write_text("hello world")
+
+        with app.test_client() as client:
+            resp = client.get(
+                "/api/v2/conversations/test-conv/workspace/readme.txt/download"
+            )
+
+        assert resp.status_code == 200
+        assert resp.data == b"hello world"
+        assert resp.headers["Content-Disposition"].startswith("attachment")
+        assert "readme.txt" in resp.headers["Content-Disposition"]
+
+    def test_download_binary_file(self, app, mock_workspace, mock_auth) -> None:
+        _, workspace = mock_workspace
+        content = bytes(range(256))
+        (workspace / "data.bin").write_bytes(content)
+
+        with app.test_client() as client:
+            resp = client.get(
+                "/api/v2/conversations/test-conv/workspace/data.bin/download"
+            )
+
+        assert resp.status_code == 200
+        assert resp.data == content
+
+    def test_download_file_not_found(self, app, mock_workspace, mock_auth) -> None:
+        with app.test_client() as client:
+            resp = client.get(
+                "/api/v2/conversations/test-conv/workspace/missing.txt/download"
+            )
+
+        assert resp.status_code == 404
+
+    def test_download_rejects_path_traversal(
+        self, app, mock_workspace, mock_auth
+    ) -> None:
+        with app.test_client() as client:
+            resp = client.get(
+                "/api/v2/conversations/test-conv/workspace/..%2F..%2Fetc%2Fpasswd/download"
+            )
+
+        assert resp.status_code == 400
+
+    def test_download_nested_file(self, app, mock_workspace, mock_auth) -> None:
+        _, workspace = mock_workspace
+        subdir = workspace / "src"
+        subdir.mkdir()
+        (subdir / "main.py").write_text("print('hi')")
+
+        with app.test_client() as client:
+            resp = client.get(
+                "/api/v2/conversations/test-conv/workspace/src/main.py/download"
+            )
+
+        assert resp.status_code == 200
+        assert resp.data == b"print('hi')"

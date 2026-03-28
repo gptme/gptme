@@ -48,9 +48,14 @@ export function useWorkspaceApi() {
       return response.json();
     }
 
+    function getDownloadUrl(conversationId: string, path: string): string {
+      return `${api.baseUrl}/api/v2/conversations/${conversationId}/workspace/${encodeURIComponent(path)}/download`;
+    }
+
     return {
       listWorkspace,
       previewFile,
+      getDownloadUrl,
     };
   }, [api.baseUrl, api.authHeader]);
 }
