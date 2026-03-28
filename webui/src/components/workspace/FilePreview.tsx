@@ -15,7 +15,7 @@ function isMarkdownFileType(file: FileType): boolean {
   );
 }
 
-function FileHeader({ file, downloadUrl }: { file: FileType; downloadUrl: string }) {
+function FileHeader({ file, onDownload }: { file: FileType; onDownload: () => void }) {
   return (
     <div className="flex items-start justify-between border-b p-2">
       <div>
@@ -27,10 +27,8 @@ function FileHeader({ file, downloadUrl }: { file: FileType; downloadUrl: string
           <div>Modified {formatDistanceToNow(new Date(file.modified), { addSuffix: true })}</div>
         </div>
       </div>
-      <Button variant="ghost" size="icon" asChild title="Download file">
-        <a href={downloadUrl} download>
-          <Download className="h-4 w-4" />
-        </a>
+      <Button variant="ghost" size="icon" title="Download file" onClick={onDownload}>
+        <Download className="h-4 w-4" />
       </Button>
     </div>
   );
@@ -46,7 +44,7 @@ export function FilePreview({ file, conversationId }: FilePreviewProps) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const { previewFile, getDownloadUrl } = useWorkspaceApi();
+  const { previewFile, downloadFile } = useWorkspaceApi();
 
   const loadPreview = useCallback(async () => {
     try {
@@ -60,6 +58,11 @@ export function FilePreview({ file, conversationId }: FilePreviewProps) {
       setLoading(false);
     }
   }, [file.path, conversationId, previewFile]);
+
+  const handleDownload = useCallback(
+    () => downloadFile(conversationId, file.path),
+    [downloadFile, conversationId, file.path]
+  );
 
   useEffect(() => {
     loadPreview();
@@ -81,14 +84,13 @@ export function FilePreview({ file, conversationId }: FilePreviewProps) {
     return null;
   }
 
-  const downloadUrl = getDownloadUrl(conversationId, file.path);
   const isMarkdownFile = isMarkdownFileType(file);
 
   switch (preview.type) {
     case 'text':
       return (
         <div className="flex h-full flex-col">
-          <FileHeader file={file} downloadUrl={downloadUrl} />
+          <FileHeader file={file} onDownload={handleDownload} />
           <div className="flex-1 overflow-auto">
             {isMarkdownFile ? (
               <MarkdownPreviewTabs
@@ -108,7 +110,7 @@ export function FilePreview({ file, conversationId }: FilePreviewProps) {
     case 'image':
       return (
         <div className="flex h-full flex-col">
-          <FileHeader file={file} downloadUrl={downloadUrl} />
+          <FileHeader file={file} onDownload={handleDownload} />
           <div className="flex flex-1 items-center justify-center overflow-auto p-4">
             <img
               src={preview.content}
@@ -121,7 +123,7 @@ export function FilePreview({ file, conversationId }: FilePreviewProps) {
     case 'binary':
       return (
         <div className="flex h-full flex-col">
-          <FileHeader file={file} downloadUrl={downloadUrl} />
+          <FileHeader file={file} onDownload={handleDownload} />
           <div className="flex flex-1 items-center justify-center">
             <p className="text-muted-foreground">Binary file — use the download button above</p>
           </div>

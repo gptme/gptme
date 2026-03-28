@@ -48,14 +48,33 @@ export function useWorkspaceApi() {
       return response.json();
     }
 
-    function getDownloadUrl(conversationId: string, path: string): string {
-      return `${api.baseUrl}/api/v2/conversations/${conversationId}/workspace/${encodeURIComponent(path)}/download`;
+    async function downloadFile(conversationId: string, path: string): Promise<void> {
+      const url = `${api.baseUrl}/api/v2/conversations/${conversationId}/workspace/${encodeURIComponent(path)}/download`;
+
+      const response = await fetch(url, {
+        headers: api.authHeader ? { Authorization: api.authHeader } : undefined,
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to download file');
+      }
+
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = path.split('/').pop() || 'download';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
     }
 
     return {
       listWorkspace,
       previewFile,
-      getDownloadUrl,
+      downloadFile,
     };
   }, [api.baseUrl, api.authHeader]);
 }
