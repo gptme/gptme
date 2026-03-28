@@ -79,8 +79,19 @@ class TestIsPdfUrl:
             assert _is_pdf_url("https://example.com/page") is False
 
     def test_pdf_extension_with_query_params(self):
-        assert _is_pdf_url("https://example.com/doc.pdf?v=2") is False
-        # Note: .pdf?v=2 doesn't end with .pdf, so it falls through to HEAD check
+        # .pdf?v=2 doesn't end with .pdf, so it falls through to HEAD check — mock it
+        with patch("gptme.tools.browser.requests") as mock_req:
+            mock_resp = MagicMock()
+            mock_resp.headers = {"Content-Type": "application/pdf"}
+            mock_req.head.return_value = mock_resp
+            mock_req.RequestException = Exception
+            assert _is_pdf_url("https://example.com/doc.pdf?v=2") is True
+        with patch("gptme.tools.browser.requests") as mock_req:
+            mock_resp = MagicMock()
+            mock_resp.headers = {"Content-Type": "text/html"}
+            mock_req.head.return_value = mock_resp
+            mock_req.RequestException = Exception
+            assert _is_pdf_url("https://example.com/doc.pdf?v=2") is False
 
 
 class TestIsGithubRepoUrl:
@@ -777,63 +788,63 @@ class TestBackendDelegation:
     def test_screenshot_url_no_browser(self):
         from gptme.tools.browser import screenshot_url
 
-        with pytest.raises((AssertionError, ValueError)):
+        with pytest.raises(AssertionError):
             screenshot_url("https://example.com")
 
     @patch("gptme.tools.browser.browser", None)
     def test_snapshot_url_no_browser(self):
         from gptme.tools.browser import snapshot_url
 
-        with pytest.raises((AssertionError, ValueError)):
+        with pytest.raises(AssertionError):
             snapshot_url("https://example.com")
 
     @patch("gptme.tools.browser.browser", None)
     def test_open_page_no_browser(self):
         from gptme.tools.browser import open_page
 
-        with pytest.raises((AssertionError, ValueError)):
+        with pytest.raises(AssertionError):
             open_page("https://example.com")
 
     @patch("gptme.tools.browser.browser", None)
     def test_close_page_no_browser(self):
         from gptme.tools.browser import close_page
 
-        with pytest.raises((AssertionError, ValueError)):
+        with pytest.raises(AssertionError):
             close_page()
 
     @patch("gptme.tools.browser.browser", None)
     def test_read_page_text_no_browser(self):
         from gptme.tools.browser import read_page_text
 
-        with pytest.raises((AssertionError, ValueError)):
+        with pytest.raises(AssertionError):
             read_page_text()
 
     @patch("gptme.tools.browser.browser", None)
     def test_click_element_no_browser(self):
         from gptme.tools.browser import click_element
 
-        with pytest.raises((AssertionError, ValueError)):
+        with pytest.raises(AssertionError):
             click_element("button")
 
     @patch("gptme.tools.browser.browser", None)
     def test_fill_element_no_browser(self):
         from gptme.tools.browser import fill_element
 
-        with pytest.raises((AssertionError, ValueError)):
+        with pytest.raises(AssertionError):
             fill_element("input", "text")
 
     @patch("gptme.tools.browser.browser", None)
     def test_scroll_page_no_browser(self):
         from gptme.tools.browser import scroll_page
 
-        with pytest.raises((AssertionError, ValueError)):
+        with pytest.raises(AssertionError):
             scroll_page("down")
 
     @patch("gptme.tools.browser.browser", None)
     def test_read_logs_no_browser(self):
         from gptme.tools.browser import read_logs
 
-        with pytest.raises((AssertionError, ValueError)):
+        with pytest.raises(AssertionError):
             read_logs()
 
 
