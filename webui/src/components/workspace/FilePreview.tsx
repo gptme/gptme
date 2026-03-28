@@ -59,10 +59,13 @@ export function FilePreview({ file, conversationId }: FilePreviewProps) {
     }
   }, [file.path, conversationId, previewFile]);
 
-  const handleDownload = useCallback(
-    () => downloadFile(conversationId, file.path),
-    [downloadFile, conversationId, file.path]
-  );
+  const handleDownload = useCallback(async () => {
+    try {
+      await downloadFile(conversationId, file.path);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Download failed');
+    }
+  }, [downloadFile, conversationId, file.path]);
 
   useEffect(() => {
     loadPreview();
