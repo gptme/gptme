@@ -168,6 +168,28 @@ def safe_workspace_path(workspace: Path, path: str | None = None) -> Path:
     return full_path
 
 
+def allocate_attachment_path(
+    attachments_dir: Path, filename: str, reserved_names: set[str] | None = None
+) -> Path:
+    """Allocate a non-conflicting path inside the attachments directory."""
+    reserved_names = reserved_names or set()
+    candidate = filename
+    candidate_path = attachments_dir / candidate
+    if candidate not in reserved_names and not candidate_path.exists():
+        return candidate_path
+
+    path = Path(filename)
+    suffix = "".join(path.suffixes)
+    stem = path.name[: -len(suffix)] if suffix else path.name
+    counter = 1
+    while True:
+        candidate = f"{stem}-{counter}{suffix}"
+        candidate_path = attachments_dir / candidate
+        if candidate not in reserved_names and not candidate_path.exists():
+            return candidate_path
+        counter += 1
+
+
 def list_directory(
     path: Path, workspace: Path, show_hidden: bool = False
 ) -> list[FileType]:
@@ -287,7 +309,8 @@ def upload_files(conversation_id: str):
             all_files.extend(request.files.getlist(key))
 
         # First pass: validate all files before writing any (prevents partial-upload state)
-        validated: list[tuple[str, bytes]] = []
+        validated: list[tuple[Path, bytes]] = []
+        reserved_names: set[str] = set()
         for file in all_files:
             if not file.filename:
                 continue
@@ -309,7 +332,11 @@ def upload_files(conversation_id: str):
                     ),
                     413,
                 )
-            validated.append((filename, content))
+            file_path = allocate_attachment_path(
+                attachments_dir, filename, reserved_names
+            )
+            reserved_names.add(file_path.name)
+            validated.append((file_path, content))
 
         if not validated:
             return flask.jsonify({"error": "No valid files uploaded"}), 400
@@ -317,13 +344,12 @@ def upload_files(conversation_id: str):
         # Second pass: write all files (only reached if all files passed validation)
         attachments_dir.mkdir(parents=True, exist_ok=True)
         uploaded: list[FileType] = []
-        for filename, content in validated:
-            file_path = attachments_dir / filename
+        for file_path, content in validated:
             file_path.write_bytes(content)
             stat = file_path.stat()
             uploaded.append(
                 {
-                    "name": filename,
+                    "name": file_path.name,
                     "path": str(file_path),  # absolute path for unambiguous resolution
                     "type": "file",
                     "size": stat.st_size,

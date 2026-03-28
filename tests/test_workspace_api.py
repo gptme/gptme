@@ -11,7 +11,7 @@ pytest.importorskip(
     "flask", reason="flask not installed, install server extras (-E server)"
 )
 
-from gptme.server.workspace_api import safe_workspace_path  # fmt: skip
+from gptme.server.workspace_api import allocate_attachment_path, safe_workspace_path
 
 
 class TestSafeWorkspacePath:
@@ -32,6 +32,26 @@ class TestSafeWorkspacePath:
     def test_rejects_absolute_path_outside(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="escapes workspace"):
             safe_workspace_path(tmp_path, "/etc/passwd")
+
+
+class TestAllocateAttachmentPath:
+    """Tests for attachment path collision handling."""
+
+    def test_returns_original_name_when_available(self, tmp_path: Path) -> None:
+        result = allocate_attachment_path(tmp_path, "report.pdf")
+        assert result == tmp_path / "report.pdf"
+
+    def test_suffixes_name_when_reserved(self, tmp_path: Path) -> None:
+        result = allocate_attachment_path(tmp_path, "report.pdf", {"report.pdf"})
+        assert result == tmp_path / "report-1.pdf"
+
+    def test_suffixes_name_when_file_already_exists(self, tmp_path: Path) -> None:
+        existing = tmp_path / "report.pdf"
+        existing.write_text("existing")
+
+        result = allocate_attachment_path(tmp_path, "report.pdf")
+
+        assert result == tmp_path / "report-1.pdf"
 
 
 @pytest.fixture
@@ -229,3 +249,51 @@ class TestUploadEndpoint:
 
         assert resp.status_code == 200
         assert (attachments_dir / "image.png").read_bytes() == binary_content
+
+    def test_upload_deduplicates_colliding_sanitized_names(
+        self, app, mock_logmanager, mock_auth
+    ) -> None:
+        _, logdir = mock_logmanager
+        attachments_dir = logdir / "attachments"
+
+        with app.test_client() as client:
+            data = {
+                "file1": (io.BytesIO(b"first"), "docs/report.pdf"),
+                "file2": (io.BytesIO(b"second"), "archive/report.pdf"),
+            }
+            resp = client.post(
+                "/api/v2/conversations/test-conv/workspace/upload",
+                data=data,
+                content_type="multipart/form-data",
+            )
+
+        assert resp.status_code == 200
+        result = resp.get_json()
+        assert [file["name"] for file in result["files"]] == [
+            "report.pdf",
+            "report-1.pdf",
+        ]
+        assert (attachments_dir / "report.pdf").read_text() == "first"
+        assert (attachments_dir / "report-1.pdf").read_text() == "second"
+
+    def test_upload_deduplicates_against_existing_attachments(
+        self, app, mock_logmanager, mock_auth
+    ) -> None:
+        _, logdir = mock_logmanager
+        attachments_dir = logdir / "attachments"
+        attachments_dir.mkdir()
+        (attachments_dir / "report.pdf").write_text("existing")
+
+        with app.test_client() as client:
+            data = {"file": (io.BytesIO(b"new"), "report.pdf")}
+            resp = client.post(
+                "/api/v2/conversations/test-conv/workspace/upload",
+                data=data,
+                content_type="multipart/form-data",
+            )
+
+        assert resp.status_code == 200
+        result = resp.get_json()
+        assert result["files"][0]["name"] == "report-1.pdf"
+        assert (attachments_dir / "report.pdf").read_text() == "existing"
+        assert (attachments_dir / "report-1.pdf").read_text() == "new"

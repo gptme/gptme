@@ -409,6 +409,10 @@ export const ChatInput: FC<Props> = ({
   const handleDragLeave = useCallback((e: DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    const relatedTarget = e.relatedTarget;
+    if (relatedTarget instanceof Node && e.currentTarget.contains(relatedTarget)) {
+      return;
+    }
     setIsDragOver(false);
   }, []);
 
