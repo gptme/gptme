@@ -586,6 +586,93 @@ class TestPreviewFileEndpoint:
         assert data["content"] == "secret"
 
 
+class TestDownloadFileEndpoint:
+    """Tests for the download_file API endpoint."""
+
+    def test_download_text_file(self, client: FlaskClient, workspace_conv):
+        """Test downloading a text file returns raw content."""
+        conv_id = workspace_conv["conversation_id"]
+        response = client.get(
+            f"/api/v2/conversations/{conv_id}/workspace/readme.txt/download"
+        )
+        assert response.status_code == 200
+        assert response.data == b"Hello World"
+        assert "text" in response.content_type
+        assert "attachment" in response.headers.get("Content-Disposition", "")
+        assert "readme.txt" in response.headers.get("Content-Disposition", "")
+
+    def test_download_binary_file(self, client: FlaskClient, workspace_conv):
+        """Test downloading a binary file returns raw bytes."""
+        conv_id = workspace_conv["conversation_id"]
+        response = client.get(
+            f"/api/v2/conversations/{conv_id}/workspace/binary.bin/download"
+        )
+        assert response.status_code == 200
+        assert response.data == b"\x00\x01\x02\xff" * 100
+        assert "application/octet-stream" in response.content_type
+        assert "binary.bin" in response.headers.get("Content-Disposition", "")
+
+    def test_download_image_file(self, client: FlaskClient, workspace_conv):
+        """Test downloading an image file."""
+        conv_id = workspace_conv["conversation_id"]
+        response = client.get(
+            f"/api/v2/conversations/{conv_id}/workspace/image.png/download"
+        )
+        assert response.status_code == 200
+        assert response.content_type.startswith("image/png")
+        assert response.data[:4] == b"\x89PNG"
+        assert "image.png" in response.headers.get("Content-Disposition", "")
+
+    def test_download_json_file(self, client: FlaskClient, workspace_conv):
+        """Test downloading a JSON file returns raw JSON content."""
+        conv_id = workspace_conv["conversation_id"]
+        response = client.get(
+            f"/api/v2/conversations/{conv_id}/workspace/data.json/download"
+        )
+        assert response.status_code == 200
+        assert response.data == b'{"key": "value"}'
+        assert "application/json" in response.content_type
+
+    def test_download_nested_file(self, client: FlaskClient, workspace_conv):
+        """Test downloading a file from a subdirectory."""
+        conv_id = workspace_conv["conversation_id"]
+        response = client.get(
+            f"/api/v2/conversations/{conv_id}/workspace/src/main.py/download"
+        )
+        assert response.status_code == 200
+        assert b"def main" in response.data
+        assert "main.py" in response.headers.get("Content-Disposition", "")
+
+    def test_download_nonexistent_file(self, client: FlaskClient, workspace_conv):
+        """Test downloading a file that doesn't exist returns 404."""
+        conv_id = workspace_conv["conversation_id"]
+        response = client.get(
+            f"/api/v2/conversations/{conv_id}/workspace/nonexistent.txt/download"
+        )
+        assert response.status_code == 404
+
+    def test_download_path_traversal_blocked(self, client: FlaskClient, workspace_conv):
+        """Test that path traversal is blocked in downloads."""
+        conv_id = workspace_conv["conversation_id"]
+        response = client.get(
+            f"/api/v2/conversations/{conv_id}/workspace/../../../etc/passwd/download"
+        )
+        assert response.status_code == 400
+
+    def test_download_nonexistent_conversation(self, client: FlaskClient):
+        """Test downloading from nonexistent conversation returns 404."""
+        response = client.get(
+            "/api/v2/conversations/nonexistent-conv-999/workspace/file.txt/download"
+        )
+        assert response.status_code == 404
+
+    def test_download_directory_returns_404(self, client: FlaskClient, workspace_conv):
+        """Test that downloading a directory returns 404."""
+        conv_id = workspace_conv["conversation_id"]
+        response = client.get(f"/api/v2/conversations/{conv_id}/workspace/src/download")
+        assert response.status_code == 404
+
+
 class TestWorkspaceEdgeCases:
     """Edge cases and error handling tests."""
 

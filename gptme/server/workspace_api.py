@@ -287,3 +287,51 @@ def preview_file(conversation_id: str, filepath: str):
     except Exception as e:
         logger.exception("Error previewing file")
         return flask.jsonify({"error": str(e)}), 500
+
+
+@workspace_api.route(
+    "/api/v2/conversations/<string:conversation_id>/workspace/<path:filepath>/download"
+)
+@require_auth
+@api_doc_simple(
+    responses={
+        200: FileMetadata,  # actual response is raw file content
+        400: ErrorResponse,
+        404: ErrorResponse,
+        500: ErrorResponse,
+    },
+    tags=["workspace"],
+)
+def download_file(conversation_id: str, filepath: str):
+    """Download workspace file.
+
+    Download raw file content from the conversation's workspace.
+    Returns the file with appropriate Content-Type and Content-Disposition
+    headers for direct download.
+    """
+    try:
+        manager = LogManager.load(conversation_id, lock=False)
+        workspace = manager.workspace
+
+        if not workspace.is_dir():
+            return flask.jsonify({"error": "Workspace not found"}), 404
+
+        path = safe_workspace_path(workspace, filepath)
+        if not path.is_file():
+            return flask.jsonify({"error": "File not found"}), 404
+
+        return flask.send_file(
+            path,
+            mimetype=WorkspaceFile(path, workspace).mime_type
+            or "application/octet-stream",
+            as_attachment=True,
+            download_name=path.name,
+        )
+
+    except ValueError as e:
+        return flask.jsonify({"error": str(e)}), 400
+    except FileNotFoundError:
+        return flask.jsonify({"error": "Conversation not found"}), 404
+    except Exception as e:
+        logger.exception("Error downloading file")
+        return flask.jsonify({"error": str(e)}), 500
