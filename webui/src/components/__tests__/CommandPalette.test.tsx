@@ -2,15 +2,14 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import { CommandPalette } from '../CommandPalette';
 
-// Mock ApiContext to avoid import.meta usage in connectionConfig.ts
-const mockSearchConversations = jest.fn().mockResolvedValue([]);
-jest.mock('@/contexts/ApiContext', () => ({
-  useApi: () => ({
-    api: {
-      searchConversations: mockSearchConversations,
-    },
-  }),
-}));
+// Mock ApiContext with a stable `api` reference to avoid infinite re-render loop.
+// useEffect in CommandPalette has [search, api] as deps — if useApi() returns a
+// new object on every render, api identity changes every render → effect fires
+// every render → setIsSearching(true) triggers re-render → infinite loop / OOM.
+jest.mock('@/contexts/ApiContext', () => {
+  const api = { searchConversations: jest.fn().mockResolvedValue([]) };
+  return { useApi: () => ({ api }) };
+});
 
 // Mock UI command components
 jest.mock('../ui/command', () => ({
