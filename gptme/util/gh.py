@@ -623,7 +623,14 @@ def _get_linked_prs(owner: str, repo: str, issue_number: str) -> str | None:
         lines = []
         for pr in prs:
             state_icon = "✅" if pr["state"] == "closed" else "🔄"
-            repo_prefix = f"{pr['repo']}" if pr["repo"] != f"{owner}/{repo}" else ""
+            repo_name = pr.get("repo")
+            repo_prefix = (
+                repo_name
+                if isinstance(repo_name, str)
+                and repo_name
+                and repo_name != f"{owner}/{repo}"
+                else ""
+            )
             ref = f"{repo_prefix}#{pr['number']}" if repo_prefix else f"#{pr['number']}"
             lines.append(f"  {state_icon} {ref}: {pr['title']}")
         return "\n".join(lines)

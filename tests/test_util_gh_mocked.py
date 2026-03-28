@@ -977,6 +977,23 @@ class TestGetLinkedPrs:
         assert "other/repo#50" in result
 
     @patch("gptme.util.gh.subprocess.run")
+    def test_deleted_repo_linked_pr(self, mock_run):
+        """Falls back to a local-style ref when the repo name is missing."""
+        ndjson = json.dumps(
+            {
+                "number": 51,
+                "title": "Deleted source repo",
+                "state": "closed",
+                "repo": None,
+            }
+        )
+        mock_run.return_value = MagicMock(returncode=0, stdout=ndjson)
+        result = _get_linked_prs("owner", "repo", "42")
+        assert result is not None
+        assert "✅ #51: Deleted source repo" in result
+        assert "None#51" not in result
+
+    @patch("gptme.util.gh.subprocess.run")
     def test_deduplicates_across_pages(self, mock_run):
         """Deduplicates PRs that appear on multiple pages."""
         ndjson = "\n".join(
