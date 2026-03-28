@@ -9,9 +9,20 @@ import {
   CommandList,
   CommandSeparator,
 } from './ui/command';
-import { Settings, Plus, FileText, Users, Sparkles, Home, MessageSquare } from 'lucide-react';
+import {
+  Settings,
+  Plus,
+  FileText,
+  Users,
+  Sparkles,
+  Home,
+  MessageSquare,
+  Download,
+} from 'lucide-react';
 import { useApi } from '@/contexts/ApiContext';
 import type { ConversationSummary } from '@/types/conversation';
+import { conversations$, selectedConversation$ } from '@/stores/conversations';
+import { exportConversationAsMarkdown, exportConversationAsJSON } from '@/utils/exportConversation';
 
 interface CommandAction {
   id: string;
@@ -168,6 +179,36 @@ export function CommandPalette() {
           setOpen(false);
         },
         group: 'Navigation',
+      },
+      {
+        id: 'export-markdown',
+        label: 'Export as Markdown',
+        description: 'Download current conversation as .md',
+        icon: <Download className="mr-2 h-4 w-4" />,
+        keywords: ['export', 'download', 'markdown', 'save', 'share'],
+        action: () => {
+          const convId = selectedConversation$.get();
+          const conv = convId ? conversations$.get(convId)?.get() : null;
+          if (!conv?.data?.log?.length) return;
+          exportConversationAsMarkdown(convId!, conv.data.name || convId!, conv.data.log);
+          setOpen(false);
+        },
+        group: 'Actions',
+      },
+      {
+        id: 'export-json',
+        label: 'Export as JSON',
+        description: 'Download current conversation as .json',
+        icon: <Download className="mr-2 h-4 w-4" />,
+        keywords: ['export', 'download', 'json', 'save', 'data'],
+        action: () => {
+          const convId = selectedConversation$.get();
+          const conv = convId ? conversations$.get(convId)?.get() : null;
+          if (!conv?.data?.log?.length) return;
+          exportConversationAsJSON(convId!, conv.data.name || convId!, conv.data.log);
+          setOpen(false);
+        },
+        group: 'Actions',
       },
     ],
     [navigate]
