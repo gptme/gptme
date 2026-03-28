@@ -299,6 +299,7 @@ class TestBrowserThreadStop:
         bt.thread.join(timeout=5)
         assert not bt.thread.is_alive()
         mock_browser.close.assert_called_once()
+        mock_pw.stop.assert_called_once()
 
     def test_stop_idempotent(self, mock_playwright):
         mock_pw, mock_browser = mock_playwright
@@ -325,11 +326,13 @@ class TestBrowserThreadTimeout:
         mock_pw, mock_browser = mock_playwright
         bt = BrowserThread()
         try:
-            # Patch TIMEOUT to a short value for testing
-            with patch("gptme.tools._browser_thread.TIMEOUT", 0.5):
+            # Patch TIMEOUT to a short value for testing; slow_func sleeps just
+            # long enough to exceed it but not so long that cleanup blocks (5 s
+            # previously).
+            with patch("gptme.tools._browser_thread.TIMEOUT", 0.1):
 
                 def slow_func(browser):
-                    time.sleep(5)
+                    time.sleep(0.2)
                     return "too late"
 
                 with pytest.raises(TimeoutError, match="timed out"):
