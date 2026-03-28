@@ -583,6 +583,22 @@ export class ApiClient {
     }
   }
 
+  async searchConversations(query: string, limit: number = 20): Promise<ConversationSummary[]> {
+    if (!this.isConnected) {
+      throw new ApiClientError('Not connected to API');
+    }
+    try {
+      return await this.fetchJson<ConversationSummary[]>(
+        `${this.baseUrl}/api/v2/conversations?search=${encodeURIComponent(query)}&limit=${limit}`
+      );
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw new ApiClientError('Request aborted', 499);
+      }
+      throw error;
+    }
+  }
+
   async getConversationsPaginated(
     pageParam: number = 0,
     pageSize: number = 20

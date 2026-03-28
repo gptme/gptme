@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   CommandDialog,
@@ -9,7 +9,9 @@ import {
   CommandList,
   CommandSeparator,
 } from './ui/command';
-import { Settings, Plus, Search, FileText, Users, Sparkles, Home } from 'lucide-react';
+import { Settings, Plus, FileText, Users, Sparkles, Home, MessageSquare } from 'lucide-react';
+import { useApi } from '@/contexts/ApiContext';
+import type { ConversationSummary } from '@/types/conversation';
 
 interface CommandAction {
   id: string;
@@ -24,7 +26,11 @@ interface CommandAction {
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [conversationResults, setConversationResults] = useState<ConversationSummary[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
   const navigate = useNavigate();
+  const { api } = useApi();
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Toggle command palette with Cmd+K or Ctrl+K
   useEffect(() => {
@@ -43,8 +49,41 @@ export function CommandPalette() {
   useEffect(() => {
     if (!open) {
       setSearch('');
+      setConversationResults([]);
+      setIsSearching(false);
     }
   }, [open]);
+
+  // Debounced conversation search
+  useEffect(() => {
+    if (searchTimerRef.current) {
+      clearTimeout(searchTimerRef.current);
+    }
+
+    if (!search || search.length < 2) {
+      setConversationResults([]);
+      setIsSearching(false);
+      return;
+    }
+
+    setIsSearching(true);
+    searchTimerRef.current = setTimeout(async () => {
+      try {
+        const results = await api.searchConversations(search, 10);
+        setConversationResults(results);
+      } catch {
+        setConversationResults([]);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 200);
+
+    return () => {
+      if (searchTimerRef.current) {
+        clearTimeout(searchTimerRef.current);
+      }
+    };
+  }, [search, api]);
 
   // Define available actions
   const actions = useMemo<CommandAction[]>(
@@ -57,19 +96,6 @@ export function CommandPalette() {
         keywords: ['new', 'chat', 'conversation', 'create'],
         action: () => {
           navigate('/');
-          setOpen(false);
-        },
-        group: 'Actions',
-      },
-      {
-        id: 'search-conversations',
-        label: 'Search Conversations',
-        description: 'Find past chats',
-        icon: <Search className="mr-2 h-4 w-4" />,
-        keywords: ['search', 'find', 'conversations', 'history'],
-        action: () => {
-          // TODO: Implement search modal
-          console.log('Search conversations');
           setOpen(false);
         },
         group: 'Actions',
@@ -138,17 +164,14 @@ export function CommandPalette() {
     [navigate]
   );
 
-  // Filter actions based on search query with performance optimization
+  // Filter actions based on search query
   const filteredActions = useMemo(() => {
     if (!search) return actions;
 
     const searchLower = search.toLowerCase();
     return actions.filter((action) => {
-      // Search in label
       if (action.label.toLowerCase().includes(searchLower)) return true;
-      // Search in description
       if (action.description?.toLowerCase().includes(searchLower)) return true;
-      // Search in keywords
       return action.keywords.some((keyword) => keyword.toLowerCase().includes(searchLower));
     });
   }, [search, actions]);
@@ -164,20 +187,65 @@ export function CommandPalette() {
     return Array.from(groups.entries());
   }, [filteredActions]);
 
-  // Handle action execution with useCallback for performance
+  // Handle action execution
   const handleSelect = useCallback((action: CommandAction) => {
     action.action();
+  }, []);
+
+  // Format relative time for conversation results
+  const formatRelativeTime = useCallback((timestamp: number) => {
+    const now = Date.now() / 1000;
+    const diff = now - timestamp;
+    if (diff < 60) return 'just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+    return new Date(timestamp * 1000).toLocaleDateString();
+  }, []);
+
+  // Strip leading date prefix from conversation name (matches ConversationList behavior)
+  const stripDatePrefix = useCallback((name: string) => {
+    return name.replace(/^\d{4}-\d{2}-\d{2}[- ]?/, '');
   }, []);
 
   return (
     <CommandDialog open={open} onOpenChange={setOpen}>
       <CommandInput
-        placeholder="Type a command or search..."
+        placeholder="Type a command or search conversations..."
         value={search}
         onValueChange={setSearch}
       />
       <CommandList>
-        <CommandEmpty>No results found.</CommandEmpty>
+        <CommandEmpty>{isSearching ? 'Searching...' : 'No results found.'}</CommandEmpty>
+
+        {/* Conversation search results */}
+        {conversationResults.length > 0 && (
+          <>
+            <CommandGroup heading="Conversations">
+              {conversationResults.map((conv) => (
+                <CommandItem
+                  key={`conv-${conv.id}`}
+                  value={`conv-${conv.id}`}
+                  onSelect={() => {
+                    navigate(`/chat/${conv.id}`);
+                    setOpen(false);
+                  }}
+                >
+                  <MessageSquare className="mr-2 h-4 w-4" />
+                  <div className="flex flex-1 flex-col overflow-hidden">
+                    <span className="truncate">{stripDatePrefix(conv.name)}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {conv.messages} messages · {formatRelativeTime(conv.modified)}
+                    </span>
+                  </div>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+            {groupedActions.length > 0 && <CommandSeparator />}
+          </>
+        )}
+
+        {/* Static actions */}
         {groupedActions.map(([groupName, groupActions], index) => (
           <div key={groupName}>
             {index > 0 && <CommandSeparator />}

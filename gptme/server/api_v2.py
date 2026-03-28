@@ -131,16 +131,33 @@ def api_config():
             "in": "query",
             "schema": {"type": "integer", "default": 100},
             "description": "Maximum number of conversations to return",
-        }
+        },
+        {
+            "name": "search",
+            "in": "query",
+            "schema": {"type": "string"},
+            "description": "Filter conversations by name (case-insensitive substring match)",
+        },
     ],
 )
 def api_conversations():
     """List conversations (V2).
 
     Get a list of user conversations with metadata using the V2 API.
+    Supports optional search filtering by conversation name.
     """
     limit = int(request.args.get("limit", 100))
-    conversations = list(islice(get_user_conversations(), limit))
+    search = request.args.get("search", "").strip().lower()
+
+    if search:
+        conversations = []
+        for conv in get_user_conversations():
+            if search in conv.name.lower() or search in conv.id.lower():
+                conversations.append(conv)
+                if len(conversations) >= limit:
+                    break
+    else:
+        conversations = list(islice(get_user_conversations(), limit))
     return flask.jsonify(conversations)
 
 

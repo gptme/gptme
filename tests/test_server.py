@@ -90,6 +90,80 @@ def test_api_conversation_list(client: FlaskClient):
     assert response.status_code == 200
 
 
+def test_api_conversation_list_with_limit(client: FlaskClient):
+    response = client.get("/api/v2/conversations?limit=5")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert isinstance(data, list)
+    assert len(data) <= 5
+
+
+def test_api_conversation_search(client: FlaskClient, tmp_path, monkeypatch):
+    """Test that search parameter filters conversations by name."""
+
+    # Use a temporary logs directory to avoid scanning real conversations
+    monkeypatch.setattr("gptme.logmanager.conversations.get_logs_dir", lambda: tmp_path)
+
+    # Create a conversation directory (avoid "test-" prefix which is filtered)
+    conv_dir = tmp_path / "my-search-target"
+    conv_dir.mkdir()
+    conv_file = conv_dir / "conversation.jsonl"
+    conv_file.write_text(
+        '{"role": "system", "content": "hello", "timestamp": "2026-01-01T00:00:00"}\n'
+    )
+
+    # Create another conversation that should NOT match
+    other_dir = tmp_path / "other-conversation"
+    other_dir.mkdir()
+    other_file = other_dir / "conversation.jsonl"
+    other_file.write_text(
+        '{"role": "system", "content": "hello", "timestamp": "2026-01-01T00:00:00"}\n'
+    )
+
+    # Search should find only the matching one
+    response = client.get("/api/v2/conversations?search=search-target")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert isinstance(data, list)
+    assert len(data) == 1
+    assert data[0]["id"] == "my-search-target"
+
+
+def test_api_conversation_search_no_results(client: FlaskClient, tmp_path, monkeypatch):
+    """Test that search with non-matching query returns empty list."""
+    monkeypatch.setattr("gptme.logmanager.conversations.get_logs_dir", lambda: tmp_path)
+
+    response = client.get(
+        "/api/v2/conversations?search=zzz-nonexistent-conversation-xyz"
+    )
+    assert response.status_code == 200
+    data = response.get_json()
+    assert isinstance(data, list)
+    assert len(data) == 0
+
+
+def test_api_conversation_search_case_insensitive(
+    client: FlaskClient, tmp_path, monkeypatch
+):
+    """Test that search is case-insensitive."""
+    monkeypatch.setattr("gptme.logmanager.conversations.get_logs_dir", lambda: tmp_path)
+
+    conv_dir = tmp_path / "MySearchConversation"
+    conv_dir.mkdir()
+    conv_file = conv_dir / "conversation.jsonl"
+    conv_file.write_text(
+        '{"role": "system", "content": "hello", "timestamp": "2026-01-01T00:00:00"}\n'
+    )
+
+    # Search with different casing
+    response = client.get("/api/v2/conversations?search=mysearchconversation")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert isinstance(data, list)
+    assert len(data) == 1
+    assert data[0]["id"] == "MySearchConversation"
+
+
 def test_api_conversation_get(conv, client: FlaskClient):
     response = client.get(f"/api/v2/conversations/{conv}")
     assert response.status_code == 200
