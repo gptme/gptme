@@ -174,7 +174,7 @@ new Vue({
     },
     onInput() {
       const input = this.newMessage;
-      const trimmed = input.trim();
+      const trimmed = input.trimStart();
 
       // Slash command completion: input starts with / and has no spaces
       if (trimmed.startsWith("/") && !trimmed.includes(" ")) {
@@ -231,7 +231,7 @@ new Vue({
               return;
             }
             const data = await res.json();
-            files = (data.files || []).map(f => ({
+            files = (Array.isArray(data) ? data : []).map(f => ({
               name: f.name,
               path: f.path,
               type: f.type,
