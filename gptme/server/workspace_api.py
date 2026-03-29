@@ -412,13 +412,14 @@ def serve_conversation_file(conversation_id: str, filepath: str):
             try:
                 path = safe_workspace_path(workspace, filepath)
             except ValueError:
+                # filepath is valid within logdir but escapes workspace
+                # (unusual config); fall through to 404
                 pass
 
         if not path.is_file():
             return flask.jsonify({"error": "File not found"}), 404
 
-        wfile = WorkspaceFile(path, logdir)
-        mime_type = wfile.mime_type or "application/octet-stream"
+        mime_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
         return flask.send_file(path, mimetype=mime_type)
 
     except FileNotFoundError:
