@@ -5,6 +5,12 @@ Covers _is_debug_errors_enabled, _abs_to_rel_workspace, and msg2dict.
 
 from pathlib import Path
 
+import pytest
+
+pytest.importorskip(
+    "flask", reason="flask not installed, install server extras (-E server)"
+)
+
 from gptme.message import Message
 from gptme.server.api_v2_common import (
     _abs_to_rel_workspace,

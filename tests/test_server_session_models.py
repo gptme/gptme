@@ -11,6 +11,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+pytest.importorskip(
+    "flask", reason="flask not installed, install server extras (-E server)"
+)
+
 if TYPE_CHECKING:
     from gptme.server.api_v2_common import ErrorEvent
 
