@@ -17,6 +17,8 @@ import { demoConversations } from '@/democonversations';
 
 interface Props {
   conversationName: string;
+  /** Optional friendly display name. Falls back to conversationName if not provided. */
+  displayName?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onDelete: () => void;
@@ -24,6 +26,7 @@ interface Props {
 
 export function DeleteConversationConfirmationDialog({
   conversationName,
+  displayName,
   open,
   onOpenChange,
   onDelete,
@@ -70,8 +73,8 @@ export function DeleteConversationConfirmationDialog({
         <DialogHeader>
           <DialogTitle>Delete Conversation</DialogTitle>
           <DialogDescription>
-            Are you sure you want to delete the conversation <strong>{conversationName}</strong>?
-            This action cannot be undone.
+            Are you sure you want to delete the conversation{' '}
+            <strong>{displayName || conversationName}</strong>? This action cannot be undone.
           </DialogDescription>
         </DialogHeader>
         {isError && (

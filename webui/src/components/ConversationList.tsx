@@ -75,6 +75,8 @@ export const ConversationList: FC<Props> = ({
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  // Guard against double-submit: onKeyDown(Enter) sets this before onBlur fires
+  const renameCommittedRef = useRef(false);
 
   const handleExportMarkdown = useCallback((conv: ConversationSummary) => {
     const storeConv = conversations$.get(conv.id)?.get();
@@ -103,12 +105,21 @@ export const ConversationList: FC<Props> = ({
   const handleStartRename = useCallback((conv: ConversationSummary) => {
     const storeConv = conversations$.get(conv.id)?.get();
     const currentName = storeConv?.data?.name || conv.name || conv.id;
+    renameCommittedRef.current = false;
     setRenamingId(conv.id);
     setRenameValue(currentName);
   }, []);
 
+  const handleRenameCancel = useCallback(() => {
+    renameCommittedRef.current = true;
+    setRenamingId(null);
+  }, []);
+
   const handleRenameSubmit = useCallback(
     async (convId: string) => {
+      if (renameCommittedRef.current) return;
+      renameCommittedRef.current = true;
+
       const trimmed = renameValue.trim();
       if (!trimmed) {
         setRenamingId(null);
@@ -268,7 +279,7 @@ export const ConversationList: FC<Props> = ({
                         e.preventDefault();
                         handleRenameSubmit(conv.id);
                       } else if (e.key === 'Escape') {
-                        setRenamingId(null);
+                        handleRenameCancel();
                       }
                     }}
                     onBlur={() => handleRenameSubmit(conv.id)}
@@ -521,6 +532,7 @@ export const ConversationList: FC<Props> = ({
       {deleteTarget && (
         <DeleteConversationConfirmationDialog
           conversationName={deleteTarget.id}
+          displayName={deleteTarget.name}
           open={!!deleteTarget}
           onOpenChange={(open) => {
             if (!open) setDeleteTarget(null);
