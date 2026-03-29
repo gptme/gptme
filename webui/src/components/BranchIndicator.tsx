@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { ForkInfo } from '@/utils/branchUtils';
 import type { FC } from 'react';
 
@@ -25,9 +26,18 @@ export const BranchIndicator: FC<BranchIndicatorProps> = ({ forkInfo, onSwitchBr
       >
         <ChevronLeft className="h-3 w-3" />
       </Button>
-      <span className="tabular-nums">
-        {currentIndex + 1}/{branchNames.length}
-      </span>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="cursor-default tabular-nums">
+              {currentIndex + 1}/{branchNames.length}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="text-xs">
+            {branchNames[currentIndex]}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
       <Button
         variant="ghost"
         size="sm"

@@ -164,4 +164,39 @@ describe('computeForkPoints', () => {
     const result = computeForkPoints('main', branches);
     expect(result.size).toBe(0);
   });
+
+  it('groups identical branches together (deduplicates in fork count)', () => {
+    // Real scenario: multiple edits where backups were taken at same state
+    const shared = [
+      msg('system', 'sys', '2024-01-01T00:00:00'),
+      msg('user', 'hi', '2024-01-01T00:01:00'),
+    ];
+    const branches = {
+      main: [
+        ...shared,
+        msg('assistant', 'reply-v3', '2024-01-01T00:04:00'),
+      ],
+      'main-edit-0': [
+        ...shared,
+        msg('assistant', 'reply-v1', '2024-01-01T00:02:00'),
+      ],
+      // edit-1 and edit-2 are identical (backup taken at same truncated state)
+      'main-edit-1': [...shared],
+      'main-edit-2': [...shared],
+    };
+
+    // When viewing main: edit-0 diverges at index 2 (fork at 1),
+    // edit-1 and edit-2 diverge at index 2 (no msg[2]) → fork at 1
+    // All 4 branches at fork point 1
+    const fromMain = computeForkPoints('main', branches);
+    expect(fromMain.size).toBe(1);
+    expect(fromMain.get(1)!.branchNames).toHaveLength(4);
+
+    // When viewing main-edit-2: main and edit-0 diverge (have msg[2]),
+    // but edit-1 is IDENTICAL to edit-2 — no divergence found
+    const fromEdit2 = computeForkPoints('main-edit-2', branches);
+    expect(fromEdit2.size).toBe(1);
+    // Only 3 branches: main-edit-2, main, main-edit-0 (edit-1 is identical, excluded)
+    expect(fromEdit2.get(1)!.branchNames).toHaveLength(3);
+  });
 });
