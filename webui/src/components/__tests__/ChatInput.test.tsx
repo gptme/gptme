@@ -109,9 +109,7 @@ describe('ChatInput', () => {
     const file = new File(['hello world'], 'test.txt', { type: 'text/plain' });
     fireEvent.change(fileInput!, { target: { files: [file] } });
 
-    await waitFor(() =>
-      expect(mockUploadFiles).toHaveBeenCalledWith('conv-a', expect.arrayContaining([file]))
-    );
+    // Files are buffered locally (not uploaded until send)
     await waitFor(() => expect(screen.getByText('test.txt')).toBeInTheDocument());
 
     rerender(<ChatInput conversationId="conv-b" onSend={onSend} autoFocus$={autoFocus$} />);
