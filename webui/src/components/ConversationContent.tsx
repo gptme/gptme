@@ -127,6 +127,14 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   // (used to show the scroll-to-bottom button)
   const isScrolledUp$ = useObservable(false);
 
+  // Compute fork points once (reactive: recomputes when branches/currentBranch change)
+  const forkPoints$ = useObservable(() => {
+    const branches = conversation$.data.branches?.get();
+    const currentBranch = conversation$.currentBranch?.get() || 'main';
+    if (!branches || Object.keys(branches).length <= 1) return new Map();
+    return computeForkPoints(currentBranch, branches);
+  });
+
   // Reset the autoScrollAborted flag when generation is complete or starts again
   useObserveEffect(conversation$?.isGenerating, () => {
     autoScrollAborted$.set(false);
@@ -287,11 +295,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
                 {/* Branch indicator at fork points */}
                 <Memo>
                   {() => {
-                    const branches = conversation$.data.branches?.get();
-                    const currentBranch = conversation$.currentBranch?.get() || 'main';
-                    if (!branches || Object.keys(branches).length <= 1) return null;
-                    const forkPoints = computeForkPoints(currentBranch, branches);
-                    const forkInfo = forkPoints.get(index);
+                    const forkInfo = forkPoints$.get().get(index);
                     if (!forkInfo) return null;
                     return (
                       <div className="mx-auto max-w-3xl">

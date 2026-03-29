@@ -7,6 +7,7 @@ Session management, tool execution, and agent creation are handled by separate m
 
 import logging
 import shutil
+from dataclasses import replace
 from datetime import datetime, timezone
 from itertools import islice
 from pathlib import Path
@@ -493,8 +494,6 @@ def api_conversation_edit_message(conversation_id: str, index: int):
 
     if msgs[index].role != "user":
         return flask.jsonify({"error": "Can only edit user messages"}), 400
-
-    from dataclasses import replace
 
     edited_msg = replace(msgs[index], content=content)
 

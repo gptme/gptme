@@ -320,6 +320,11 @@ export function useConversation(conversationId: string, serverId?: string) {
               }
               // Restore first pending tool (if any)
               if (state.pendingTools.length > 0) {
+                if (state.pendingTools.length > 1) {
+                  console.warn(
+                    '[useConversation] Multiple pending tools on reconnect — only restoring the first'
+                  );
+                }
                 const pt = state.pendingTools[0];
                 setPendingTool(conversationId, pt.tool_id, pt.tooluse);
                 if (!pt.auto_confirm) {
@@ -329,8 +334,9 @@ export function useConversation(conversationId: string, serverId?: string) {
             },
             onConversationEdited: (data) => {
               console.log('[useConversation] Conversation edited:', data);
-              replaceLog(conversationId, data.log);
               updateBranches(conversationId, data.branches);
+              // Reset to main branch (setCurrentBranch also replaces data.log)
+              setCurrentBranch(conversationId, 'main');
             },
           })
           .catch((err) => {
