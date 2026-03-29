@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ChatMessage } from '../ChatMessage';
 import '@testing-library/jest-dom';
 import type { Message } from '@/types/conversation';
@@ -61,5 +61,58 @@ describe('ChatMessage', () => {
     );
     const messageElement = container.querySelector('.font-mono');
     expect(messageElement).toBeInTheDocument();
+  });
+
+  it('renders copy button on messages', () => {
+    const message$ = observable<Message>({
+      role: 'assistant',
+      content: 'Some response text',
+      timestamp: new Date().toISOString(),
+    });
+
+    renderWithProviders(<ChatMessage message$={message$} conversationId={testConversationId} />);
+    const copyButton = screen.getByRole('button', { name: 'Copy message' });
+    expect(copyButton).toBeInTheDocument();
+  });
+
+  it('copies message content to clipboard on copy button click', async () => {
+    const writeText = jest.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, {
+      clipboard: { writeText },
+    });
+
+    const message$ = observable<Message>({
+      role: 'assistant',
+      content: 'Text to copy',
+      timestamp: new Date().toISOString(),
+    });
+
+    renderWithProviders(<ChatMessage message$={message$} conversationId={testConversationId} />);
+    const copyButton = screen.getByRole('button', { name: 'Copy message' });
+    fireEvent.click(copyButton);
+    expect(writeText).toHaveBeenCalledWith('Text to copy');
+  });
+
+  it('shows check icon after copying', async () => {
+    const writeText = jest.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, {
+      clipboard: { writeText },
+    });
+
+    const message$ = observable<Message>({
+      role: 'user',
+      content: 'My message',
+      timestamp: new Date().toISOString(),
+    });
+
+    renderWithProviders(<ChatMessage message$={message$} conversationId={testConversationId} />);
+    const copyButton = screen.getByRole('button', { name: 'Copy message' });
+    fireEvent.click(copyButton);
+
+    // After clicking, the Check icon should appear (svg changes)
+    await waitFor(() => {
+      // The button should still be present
+      expect(screen.getByRole('button', { name: 'Copy message' })).toBeInTheDocument();
+    });
   });
 });

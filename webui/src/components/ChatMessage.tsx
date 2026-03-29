@@ -1,4 +1,4 @@
-import { useEffect, useRef, type FC } from 'react';
+import { useEffect, useRef, useState, type FC } from 'react';
 import type { Message, StreamingMessage } from '@/types/conversation';
 import { MessageAvatar } from './MessageAvatar';
 import { useMessageChainType } from '@/utils/messageUtils';
@@ -8,6 +8,8 @@ import { ObservableHint, type Observable } from '@legendapp/state';
 import { Memo, useObservable, useObserveEffect } from '@legendapp/state/react';
 import * as smd from '@/utils/smd';
 import { customRenderer, type CustomRenderer } from '@/utils/markdownRenderer';
+import { Clipboard, Check } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 interface Props {
   message$: Observable<Message | StreamingMessage>;
@@ -179,6 +181,17 @@ export const ChatMessage: FC<Props> = ({
     );
   });
 
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    const content = message$.content.peek();
+    if (content) {
+      navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
   const chainType$ = useMessageChainType(message$, previousMessage$, nextMessage$);
   const messageClasses$ = useObservable(
     () => `
@@ -233,7 +246,16 @@ export const ChatMessage: FC<Props> = ({
                   userName={api.userInfo$.name?.get()}
                 />
                 <div className="md:px-12">
-                  <div className={messageClasses$.get()}>
+                  <div className={`group/message relative ${messageClasses$.get()}`}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleCopy}
+                      className="absolute right-1 top-1 z-10 h-7 w-7 p-0 opacity-0 transition-opacity hover:!opacity-100 group-hover/message:opacity-50"
+                      aria-label="Copy message"
+                    >
+                      {copied ? <Check size={14} /> : <Clipboard size={14} />}
+                    </Button>
                     <div className="px-3 py-1.5">
                       <Memo>
                         {() => {
