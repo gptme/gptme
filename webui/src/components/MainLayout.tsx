@@ -446,6 +446,11 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
       );
     }
 
+    // If a conversationId is in the URL but not loaded yet, show nothing (avoid flash)
+    if (conversationId) {
+      return null;
+    }
+
     return (
       <div className="flex h-full flex-1 items-center justify-center p-4">
         <WelcomeView onToggleHistory={() => leftPanelRef.current?.expand()} />
