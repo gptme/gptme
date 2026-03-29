@@ -4,11 +4,14 @@ import { User, Search, Menu } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Link } from 'react-router-dom';
 import { commandPaletteOpen$ } from '@/stores/commandPalette';
-import { toggleLeftSidebar } from '@/stores/sidebar';
+import { leftSidebarVisible$, toggleLeftSidebar } from '@/stores/sidebar';
+import { use$ } from '@legendapp/state/react';
 
 import type { FC } from 'react';
 
 export const MenuBar: FC = () => {
+  const leftSidebarOpen = use$(leftSidebarVisible$);
+
   return (
     <div className="flex h-9 items-center justify-between border-b px-2 sm:px-4">
       <div className="flex items-center space-x-1 sm:space-x-4">
@@ -17,7 +20,7 @@ export const MenuBar: FC = () => {
           size="icon"
           className="h-7 w-7 md:hidden"
           onClick={() => toggleLeftSidebar()}
-          aria-label="Open navigation"
+          aria-label={leftSidebarOpen ? 'Close navigation' : 'Open navigation'}
         >
           <Menu className="h-4 w-4" />
         </Button>
