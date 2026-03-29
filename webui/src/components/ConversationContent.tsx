@@ -6,7 +6,7 @@ import { useConversation } from '@/hooks/useConversation';
 
 import { InlineToolConfirmation } from './InlineToolConfirmation';
 import { InlineToolExecution } from './InlineToolExecution';
-import { For, useObservable, useObserveEffect } from '@legendapp/state/react';
+import { For, use$, useObservable, useObserveEffect } from '@legendapp/state/react';
 import { getObservableIndex } from '@legendapp/state';
 import { useApi } from '@/contexts/ApiContext';
 import { useSettings } from '@/contexts/SettingsContext';
@@ -178,6 +178,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
       });
     }
     autoScrollAborted$.set(false);
+    isScrolledUp$.set(false);
   };
 
   if (!conversation$) {
@@ -290,7 +291,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
       </div>
 
       {/* Scroll-to-bottom button — appears when user scrolls up from bottom */}
-      {isScrolledUp$.get() && (
+      {use$(isScrolledUp$) && (
         <button
           onClick={handleScrollToBottom}
           className="absolute bottom-44 right-6 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-border/50 bg-background/90 text-muted-foreground shadow-md transition-colors hover:bg-accent hover:text-accent-foreground"
