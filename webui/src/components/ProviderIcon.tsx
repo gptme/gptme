@@ -28,6 +28,10 @@ const PROVIDER_CONFIG = {
   },
 } as const;
 
+export function hasProviderIcon(provider: string): boolean {
+  return provider in PROVIDER_CONFIG;
+}
+
 export const ProviderIcon: FC<ProviderIconProps> = ({ provider, size = 14 }) => {
   const config = PROVIDER_CONFIG[provider as keyof typeof PROVIDER_CONFIG];
 

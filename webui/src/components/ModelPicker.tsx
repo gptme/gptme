@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/form';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
-import { ProviderIcon } from '@/components/ProviderIcon';
+import { ProviderIcon, hasProviderIcon } from '@/components/ProviderIcon';
 import { useModels, type ModelInfo } from '@/hooks/useModels';
 import type { Control, FieldPath, FieldValues } from 'react-hook-form';
 
@@ -33,8 +33,14 @@ const ModelItem: FC<{
   <div className="flex w-full items-center justify-between gap-2">
     <div className="flex min-w-0 flex-col">
       <div className="flex items-center gap-2">
-        {showProvider && <ProviderIcon provider={model.provider} />}
-        <span className="truncate">{model.model}</span>
+        {showProvider && hasProviderIcon(model.provider) && (
+          <ProviderIcon provider={model.provider} />
+        )}
+        <span className="truncate">
+          {showProvider && !hasProviderIcon(model.provider)
+            ? `${model.provider}/${model.model}`
+            : model.model}
+        </span>
         {isRecommended && <Star className="h-3 w-3 flex-shrink-0 fill-yellow-400 text-yellow-400" />}
       </div>
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -82,8 +88,15 @@ const ModelCommandList: FC<{
 }> = ({ value, onSelect }) => {
   const { availableRecommended, providerGroups, recommendedSet } = useModelGroups();
 
+  // Substring filter instead of cmdk's default fuzzy match
+  const filter = (value: string, search: string, keywords?: string[]) => {
+    const haystack = [value, ...(keywords || [])].join(' ').toLowerCase();
+    const terms = search.toLowerCase().split(/\s+/);
+    return terms.every((term) => haystack.includes(term)) ? 1 : 0;
+  };
+
   return (
-    <Command className="rounded-lg">
+    <Command className="rounded-lg" filter={filter}>
       <CommandInput placeholder="Search models..." />
       <CommandList className="max-h-[350px]">
         <CommandEmpty>No models found.</CommandEmpty>
@@ -113,7 +126,7 @@ const ModelCommandList: FC<{
             key={provider}
             heading={
               <span className="flex items-center gap-1.5">
-                <ProviderIcon provider={provider} size={12} />
+                {hasProviderIcon(provider) && <ProviderIcon provider={provider} size={12} />}
                 {provider}
               </span>
             }
