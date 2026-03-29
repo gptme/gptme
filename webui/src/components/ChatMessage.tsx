@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type FC } from 'react';
+import { useEffect, useRef, type FC } from 'react';
 import type { Message, StreamingMessage } from '@/types/conversation';
 import { MessageAvatar } from './MessageAvatar';
 import { useMessageChainType } from '@/utils/messageUtils';
@@ -66,8 +66,9 @@ export const ChatMessage: FC<Props> = ({
 }) => {
   const { api, connectionConfig } = useApi();
   const { settings } = useSettings();
-  const [isEditing, setIsEditing] = useState(false);
-  const [editContent, setEditContent] = useState('');
+  // Use observables (not useState) because these are read inside <Memo>
+  const isEditing$ = useObservable(false);
+  const editContent$ = useObservable('');
 
   const contentRef = useRef<HTMLDivElement>(null);
   const renderer$ = useObservable<CustomRenderer | null>(null);
@@ -294,13 +295,13 @@ export const ChatMessage: FC<Props> = ({
                       {onEdit &&
                         messageIndex !== undefined &&
                         message$.role.get() === 'user' &&
-                        !isEditing && (
+                        !isEditing$.get() && (
                           <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => {
-                              setEditContent(message$.content.get());
-                              setIsEditing(true);
+                              editContent$.set(message$.content.get());
+                              isEditing$.set(true);
                             }}
                             className="h-7 w-7 p-0"
                             aria-label="Edit message"
@@ -319,16 +320,16 @@ export const ChatMessage: FC<Props> = ({
                       </Button>
                     </div>
                     <div className="px-3 py-1.5">
-                      {isEditing ? (
+                      {isEditing$.get() ? (
                         <div className="flex flex-col gap-2">
                           <Textarea
-                            value={editContent}
-                            onChange={(e) => setEditContent(e.target.value)}
+                            value={editContent$.get()}
+                            onChange={(e) => editContent$.set(e.target.value)}
                             className="min-h-[60px] resize-none"
                             autoFocus
                             onKeyDown={(e) => {
                               if (e.key === 'Escape') {
-                                setIsEditing(false);
+                                isEditing$.set(false);
                               }
                             }}
                           />
@@ -336,10 +337,10 @@ export const ChatMessage: FC<Props> = ({
                             <Button
                               size="sm"
                               onClick={() => {
-                                onEdit?.(messageIndex!, editContent, false);
-                                setIsEditing(false);
+                                onEdit?.(messageIndex!, editContent$.get(), false);
+                                isEditing$.set(false);
                               }}
-                              disabled={!editContent.trim()}
+                              disabled={!editContent$.get().trim()}
                             >
                               Save
                             </Button>
@@ -347,14 +348,18 @@ export const ChatMessage: FC<Props> = ({
                               size="sm"
                               variant="secondary"
                               onClick={() => {
-                                onEdit?.(messageIndex!, editContent, true);
-                                setIsEditing(false);
+                                onEdit?.(messageIndex!, editContent$.get(), true);
+                                isEditing$.set(false);
                               }}
-                              disabled={!editContent.trim()}
+                              disabled={!editContent$.get().trim()}
                             >
                               Save & Re-run
                             </Button>
-                            <Button size="sm" variant="ghost" onClick={() => setIsEditing(false)}>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => isEditing$.set(false)}
+                            >
                               <X className="mr-1 h-3 w-3" />
                               Cancel
                             </Button>
