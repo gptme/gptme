@@ -21,7 +21,7 @@ export const MobileBottomNav: FC = () => {
       ? 'history'
       : location.pathname.startsWith('/agents')
         ? 'agents'
-        : location.pathname.startsWith('/workspaces')
+        : location.pathname.startsWith('/workspaces') || location.pathname.startsWith('/workspace')
           ? 'workspaces'
           : 'chat';
 

@@ -23,6 +23,7 @@ const Workspace: FC = () => {
             </p>
           </div>
         </div>
+        <MobileBottomNav />
       </div>
     );
   }
