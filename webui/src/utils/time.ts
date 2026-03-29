@@ -81,6 +81,13 @@ export function groupByDate<T>(
   return result;
 }
 
+/**
+ * Format a Date as an ISO date string (YYYY-MM-DD) in local time.
+ */
+export function toISODate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export function getRelativeTimeString(date: Date): string {
   const now = new Date();
   const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);

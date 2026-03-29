@@ -12,22 +12,20 @@ import {
   ArrowLeft,
   X,
   Loader2,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useApi } from '@/contexts/ApiContext';
 import { ActivityCalendar } from '@/components/ActivityCalendar';
-import { getRelativeTimeString } from '@/utils/time';
+import { getRelativeTimeString, toISODate } from '@/utils/time';
 import type { ConversationSummary } from '@/types/conversation';
 
 const PAGE_SIZE = 50;
 
-function toISODate(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-/** Fetch all conversations (high limit) for history overview */
+/** Fetch all conversation summaries for calendar/stats */
 function useAllConversations() {
   const { api, connectionConfig } = useApi();
   const isConnected = use$(api.isConnected$);
@@ -35,7 +33,7 @@ function useAllConversations() {
   return useQuery({
     queryKey: ['conversations-all', connectionConfig.baseUrl, isConnected],
     queryFn: async () => {
-      const result = await api.getConversationsPaginated(0, 10000);
+      const result = await api.getConversationsPaginated(0, 100000);
       return result.conversations;
     },
     enabled: isConnected,
@@ -114,6 +112,7 @@ export const HistoryView: FC = () => {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [selectedYear, setSelectedYear] = useState<number | null>(null); // null = current year view
   const sentinelRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -127,7 +126,28 @@ export const HistoryView: FC = () => {
     return map;
   }, [conversations]);
 
-  // Compute stats
+  // Determine available years from data
+  const availableYears = useMemo(() => {
+    const years = new Set<number>();
+    const currentYear = new Date().getFullYear();
+    years.add(currentYear);
+    for (const conv of conversations) {
+      years.add(new Date(conv.modified * 1000).getFullYear());
+    }
+    return [...years].sort((a, b) => b - a);
+  }, [conversations]);
+
+  // Calendar end date based on selected year
+  const calendarEndDate = useMemo(() => {
+    if (selectedYear === null || selectedYear === new Date().getFullYear()) {
+      return undefined; // default = today
+    }
+    return new Date(selectedYear, 11, 31); // Dec 31 of selected year
+  }, [selectedYear]);
+
+  const displayYear = selectedYear ?? new Date().getFullYear();
+
+  // Compute stats (scoped to selected year if not current)
   const stats = useMemo(() => {
     const totalConversations = conversations.length;
     const totalMessages = conversations.reduce((sum, c) => sum + c.messages, 0);
@@ -148,6 +168,15 @@ export const HistoryView: FC = () => {
 
     return { totalConversations, totalMessages, activeDays, streak };
   }, [conversations, activityData]);
+
+  // Year-scoped stats for the calendar header
+  const yearStats = useMemo(() => {
+    let count = 0;
+    for (const [date, n] of activityData) {
+      if (date.startsWith(String(displayYear))) count += n;
+    }
+    return count;
+  }, [activityData, displayYear]);
 
   // Filter conversations
   const filteredConversations = useMemo(() => {
@@ -170,10 +199,8 @@ export const HistoryView: FC = () => {
       );
     }
 
-    // Sort by most recent (make a copy only if not already filtered to avoid mutating)
     const sorted = filtered === conversations ? [...filtered] : filtered;
     sorted.sort((a, b) => b.modified - a.modified);
-
     return sorted;
   }, [conversations, selectedDate, searchQuery]);
 
@@ -214,6 +241,19 @@ export const HistoryView: FC = () => {
     [navigate]
   );
 
+  const handleYearPrev = useCallback(() => {
+    const minYear = availableYears[availableYears.length - 1] ?? new Date().getFullYear();
+    setSelectedYear((prev) => Math.max((prev ?? new Date().getFullYear()) - 1, minYear));
+  }, [availableYears]);
+
+  const handleYearNext = useCallback(() => {
+    const currentYear = new Date().getFullYear();
+    setSelectedYear((prev) => {
+      const next = (prev ?? currentYear) + 1;
+      return next >= currentYear ? null : next;
+    });
+  }, []);
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Header */}
@@ -237,7 +277,7 @@ export const HistoryView: FC = () => {
             <StatsCard
               icon={<MessageSquare className="h-5 w-5 text-muted-foreground" />}
               label="Conversations"
-              value={stats.totalConversations}
+              value={stats.totalConversations.toLocaleString()}
             />
             <StatsCard
               icon={<TrendingUp className="h-5 w-5 text-muted-foreground" />}
@@ -258,14 +298,43 @@ export const HistoryView: FC = () => {
 
           {/* Activity Calendar */}
           <div className="rounded-lg border bg-card p-4">
-            <h2 className="mb-3 text-sm font-medium text-muted-foreground">Activity</h2>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-medium text-muted-foreground">
+                {yearStats.toLocaleString()} conversations in {displayYear}
+              </h2>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={handleYearPrev}
+                  disabled={
+                    displayYear <= (availableYears[availableYears.length - 1] ?? displayYear)
+                  }
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="min-w-[3rem] text-center text-sm font-medium">{displayYear}</span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={handleYearNext}
+                  disabled={selectedYear === null}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
             {isLoading ? (
               <div className="flex h-[120px] items-center justify-center text-sm text-muted-foreground">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Loading activity data...
               </div>
             ) : (
               <ActivityCalendar
                 activityData={activityData}
+                endDate={calendarEndDate}
                 onDayClick={handleDayClick}
                 selectedDate={selectedDate}
               />
@@ -293,7 +362,7 @@ export const HistoryView: FC = () => {
               )}
               <div className="ml-auto flex items-center gap-2">
                 <span className="text-xs text-muted-foreground">
-                  {filteredConversations.length} conversation
+                  {filteredConversations.length.toLocaleString()} conversation
                   {filteredConversations.length !== 1 ? 's' : ''}
                 </span>
               </div>
@@ -316,6 +385,7 @@ export const HistoryView: FC = () => {
             <div ref={scrollRef} className="max-h-[600px] overflow-y-auto">
               {isLoading ? (
                 <div className="flex items-center justify-center p-8 text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Loading conversations...
                 </div>
               ) : filteredConversations.length === 0 ? (
@@ -344,7 +414,7 @@ export const HistoryView: FC = () => {
                   )}
                   {!hasMore && filteredConversations.length > PAGE_SIZE && (
                     <div className="py-3 text-center text-xs text-muted-foreground">
-                      All {filteredConversations.length} conversations loaded
+                      All {filteredConversations.length.toLocaleString()} conversations loaded
                     </div>
                   )}
                 </>

@@ -1,9 +1,12 @@
 import { type FC, useMemo } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { toISODate } from '@/utils/time';
 
 interface ActivityCalendarProps {
   /** Map of ISO date string (YYYY-MM-DD) to conversation count */
   activityData: Map<string, number>;
+  /** End date for the calendar (defaults to today) */
+  endDate?: Date;
   /** Number of weeks to show (default: 52) */
   weeks?: number;
   /** Called when a day cell is clicked */
@@ -44,25 +47,25 @@ function getColorClass(count: number, max: number): string {
   return 'fill-emerald-700 dark:fill-emerald-400';
 }
 
-function toISODate(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
 export const ActivityCalendar: FC<ActivityCalendarProps> = ({
   activityData,
+  endDate,
   weeks = 52,
   onDayClick,
   selectedDate,
 }) => {
   const { cells, monthLabels, maxCount, todayStr } = useMemo(() => {
     const today = new Date();
-    today.setHours(12, 0, 0, 0); // noon to avoid DST edge cases
+    today.setHours(12, 0, 0, 0);
     const todayStr = toISODate(today);
 
-    // Align start to Sunday of the week containing (today - (weeks-1) weeks)
-    // This gives us `weeks` columns: (weeks-1) full past weeks + current partial week
-    const startDay = new Date(today);
-    startDay.setDate(today.getDate() - today.getDay() - (weeks - 1) * 7);
+    const end = endDate ? new Date(endDate) : new Date(today);
+    end.setHours(12, 0, 0, 0);
+    const endStr = toISODate(end);
+
+    // Align start to Sunday, `weeks` columns back from end
+    const startDay = new Date(end);
+    startDay.setDate(end.getDate() - end.getDay() - (weeks - 1) * 7);
 
     const cells: { date: string; count: number; col: number; row: number }[] = [];
     const monthLabels: { label: string; col: number }[] = [];
@@ -72,8 +75,7 @@ export const ActivityCalendar: FC<ActivityCalendarProps> = ({
     const current = new Date(startDay);
     let dayIndex = 0;
 
-    while (toISODate(current) <= todayStr) {
-      // startDay is Sunday, so dayIndex 0=Sun, 1=Mon, ..., 6=Sat
+    while (toISODate(current) <= endStr) {
       const col = Math.floor(dayIndex / 7);
       const row = dayIndex % 7;
 
@@ -83,7 +85,6 @@ export const ActivityCalendar: FC<ActivityCalendarProps> = ({
 
       cells.push({ date: dateStr, count, col, row });
 
-      // Track month labels (on the first Sunday of each month)
       if (current.getMonth() !== lastMonth && row === 0) {
         lastMonth = current.getMonth();
         monthLabels.push({ label: MONTH_NAMES[current.getMonth()], col });
@@ -93,14 +94,13 @@ export const ActivityCalendar: FC<ActivityCalendarProps> = ({
       dayIndex++;
     }
 
-    // Ensure first month label exists
     if (monthLabels.length === 0 || monthLabels[0].col > 1) {
       const firstDate = new Date(startDay);
       monthLabels.unshift({ label: MONTH_NAMES[firstDate.getMonth()], col: 0 });
     }
 
     return { cells, monthLabels, maxCount, todayStr };
-  }, [activityData, weeks]);
+  }, [activityData, endDate, weeks]);
 
   const totalCols = cells.length > 0 ? Math.max(...cells.map((c) => c.col)) + 1 : 0;
   const svgWidth = DAY_LABEL_WIDTH + totalCols * CELL_STEP;
@@ -177,41 +177,17 @@ export const ActivityCalendar: FC<ActivityCalendarProps> = ({
       {/* Legend */}
       <div className="mt-2 flex items-center justify-end gap-1 text-xs text-muted-foreground">
         <span>Less</span>
-        <svg width={CELL_SIZE} height={CELL_SIZE}>
-          <rect width={CELL_SIZE} height={CELL_SIZE} rx={2} className="fill-muted" />
-        </svg>
-        <svg width={CELL_SIZE} height={CELL_SIZE}>
-          <rect
-            width={CELL_SIZE}
-            height={CELL_SIZE}
-            rx={2}
-            className="fill-emerald-200 dark:fill-emerald-900"
-          />
-        </svg>
-        <svg width={CELL_SIZE} height={CELL_SIZE}>
-          <rect
-            width={CELL_SIZE}
-            height={CELL_SIZE}
-            rx={2}
-            className="fill-emerald-400 dark:fill-emerald-700"
-          />
-        </svg>
-        <svg width={CELL_SIZE} height={CELL_SIZE}>
-          <rect
-            width={CELL_SIZE}
-            height={CELL_SIZE}
-            rx={2}
-            className="fill-emerald-500 dark:fill-emerald-500"
-          />
-        </svg>
-        <svg width={CELL_SIZE} height={CELL_SIZE}>
-          <rect
-            width={CELL_SIZE}
-            height={CELL_SIZE}
-            rx={2}
-            className="fill-emerald-700 dark:fill-emerald-400"
-          />
-        </svg>
+        {[
+          'fill-muted',
+          'fill-emerald-200 dark:fill-emerald-900',
+          'fill-emerald-400 dark:fill-emerald-700',
+          'fill-emerald-500 dark:fill-emerald-500',
+          'fill-emerald-700 dark:fill-emerald-400',
+        ].map((cls, i) => (
+          <svg key={i} width={CELL_SIZE} height={CELL_SIZE}>
+            <rect width={CELL_SIZE} height={CELL_SIZE} rx={2} className={cls} />
+          </svg>
+        ))}
         <span>More</span>
       </div>
     </div>
