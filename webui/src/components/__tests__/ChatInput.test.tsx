@@ -13,6 +13,7 @@ jest.mock('@/contexts/ApiContext', () => {
         uploadFiles: mockUploadFiles,
       },
       isConnected$: observable(true),
+      connectionConfig: { baseUrl: 'http://localhost:5700', authToken: null, useAuthToken: false },
     }),
   };
 });
@@ -22,6 +23,8 @@ jest.mock('@/stores/sidebar', () => {
   return {
     selectedAgent$: observable(null),
     selectedWorkspace$: observable(null),
+    rightSidebarVisible$: observable(false),
+    rightSidebarActiveTab$: observable(null),
   };
 });
 
@@ -41,7 +44,7 @@ jest.mock('@/stores/conversations', () => {
 });
 
 jest.mock('@/hooks/useModels', () => ({
-  useModels: () => ({ defaultModel: '' }),
+  useModels: () => ({ models: [], defaultModel: '', availableModels: [], recommendedModels: [], isLoading: false, error: null }),
 }));
 
 jest.mock('@/hooks/useWorkspaces', () => ({
@@ -66,6 +69,10 @@ jest.mock('@/hooks/useFileAutocomplete', () => ({
 jest.mock('@/components/ModelPicker', () => ({
   ModelPicker: () => null,
   ModelPickerField: () => null,
+}));
+
+jest.mock('@/hooks/useAgents', () => ({
+  useAgents: () => ({ agents: [], isLoading: false, error: null }),
 }));
 
 jest.mock('@/components/WorkspaceSelector', () => ({
