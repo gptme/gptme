@@ -79,8 +79,19 @@ export const ChatMessage: FC<Props> = ({
     if (!contentRef.current) return;
     const renderer = customRenderer(contentRef.current, false, true, settings.blocksDefaultOpen);
     renderer$.set(ObservableHint.opaque(renderer));
-    const parser = smd.parser(renderer);
-    parser$.set(ObservableHint.opaque(parser));
+    const newParser = smd.parser(renderer);
+    parser$.set(ObservableHint.opaque(newParser));
+
+    // Write existing content to the new parser (handles re-mount after edit mode)
+    const existingContent = message$.content.peek();
+    if (existingContent) {
+      previousContent$.set('');
+      smd.parser_write(newParser, existingContent);
+      smd.parser_end(newParser);
+      renderer$.set(null);
+      parser$.set(null);
+      previousContent$.set(existingContent);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contentRef.current, settings.blocksDefaultOpen]);
 
