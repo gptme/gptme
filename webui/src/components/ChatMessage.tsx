@@ -1,4 +1,4 @@
-import { useCallback, useRef, type FC } from 'react';
+import { useCallback, useRef, useState, type FC } from 'react';
 import type { Message, StreamingMessage } from '@/types/conversation';
 import { MessageAvatar } from './MessageAvatar';
 import { useMessageChainType } from '@/utils/messageUtils';
@@ -18,10 +18,14 @@ import {
   Play,
   RefreshCw,
   Trash2,
+  Download,
+  ExternalLink,
+  FileText,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 
 function formatTimestamp(timestamp: string): { short: string; full: string } {
   const date = new Date(timestamp);
@@ -186,6 +190,14 @@ export const ChatMessage: FC<Props> = ({
     }
   );
 
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [lightboxName, setLightboxName] = useState('');
+
+  const getFileExtension = (filename: string) => {
+    const ext = filename.split('.').pop()?.toLowerCase() || '';
+    return ext;
+  };
+
   const renderFiles = () => {
     if (!message$.files.get()?.length) return null;
 
@@ -201,64 +213,130 @@ export const ChatMessage: FC<Props> = ({
                 .filter((part) => part !== '..')
                 .join('/');
               const fileUrl = `${connectionConfig.baseUrl}/api/v2/conversations/${conversationId}/files/${sanitizedPath}`;
-              const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(filename);
+              const isImage = /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(filename);
 
               // Get just the filename without path for display
               const displayName = sanitizedPath.split('/').pop() || sanitizedPath;
+              const ext = getFileExtension(filename);
 
               if (isImage) {
                 return (
                   <div key={filename} className="max-w-md">
-                    <a
-                      href={fileUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="block cursor-zoom-in"
-                      title="Click to view full size"
-                    >
-                      <div className="relative">
-                        <img
-                          src={fileUrl}
-                          alt={displayName}
-                          className="rounded-md border border-border transition-opacity hover:opacity-90"
-                          onError={(e) => {
-                            const img = e.currentTarget;
-                            const errorDiv = img.parentElement?.querySelector('.error-message');
-                            if (errorDiv) {
-                              if (img.src.includes('..')) {
-                                errorDiv.textContent =
-                                  '⚠️ Cannot access files outside the workspace';
-                              } else {
-                                errorDiv.textContent = '⚠️ Failed to load image';
-                              }
-                              errorDiv.classList.remove('hidden');
-                            }
-                            img.classList.add('hidden');
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          className="block cursor-zoom-in text-left"
+                          onClick={() => {
+                            setLightboxUrl(fileUrl);
+                            setLightboxName(displayName);
                           }}
-                        />
-                        <div className="error-message hidden rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-600 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400"></div>
-                      </div>
-                    </a>
+                        >
+                          <div className="relative">
+                            <img
+                              src={fileUrl}
+                              alt={displayName}
+                              className="rounded-md border border-border transition-opacity hover:opacity-90"
+                              onError={(e) => {
+                                const img = e.currentTarget;
+                                const errorDiv = img.parentElement?.querySelector('.error-message');
+                                if (errorDiv) {
+                                  if (img.src.includes('..')) {
+                                    errorDiv.textContent =
+                                      '⚠️ Cannot access files outside the workspace';
+                                  } else {
+                                    errorDiv.textContent = '⚠️ Failed to load image';
+                                  }
+                                  errorDiv.classList.remove('hidden');
+                                }
+                                img.classList.add('hidden');
+                              }}
+                            />
+                            <div className="error-message hidden rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-600 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400"></div>
+                          </div>
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        <p className="font-medium">{displayName}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {ext.toUpperCase()} image — click to expand
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
                     <div className="mt-1 text-xs text-muted-foreground">{displayName}</div>
                   </div>
                 );
               }
 
               return (
-                <div key={filename} className="text-sm">
-                  <a
-                    href={fileUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-500 hover:underline"
-                  >
-                    📎 {displayName}
-                  </a>
+                <div key={filename}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="inline-flex items-center gap-2 rounded-md border border-border bg-muted/50 px-3 py-1.5 text-sm transition-colors hover:bg-muted">
+                        <FileText className="h-4 w-4 text-muted-foreground" />
+                        <span className="max-w-[200px] truncate">{displayName}</span>
+                        <a
+                          href={fileUrl}
+                          download={displayName}
+                          className="text-muted-foreground transition-colors hover:text-foreground"
+                          onClick={(e) => e.stopPropagation()}
+                          title="Download"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                        </a>
+                        <a
+                          href={fileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-muted-foreground transition-colors hover:text-foreground"
+                          onClick={(e) => e.stopPropagation()}
+                          title="Open in new tab"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </a>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      <p className="font-medium">{displayName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {ext ? ext.toUpperCase() + ' file' : 'File'} — {sanitizedPath}
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
               );
             });
           }}
         </Memo>
+
+        {/* Image lightbox dialog */}
+        <Dialog open={!!lightboxUrl} onOpenChange={(open) => !open && setLightboxUrl(null)}>
+          <DialogContent className="max-h-[90vh] max-w-[90vw] overflow-hidden p-0">
+            <div className="flex flex-col">
+              <div className="flex items-center justify-between border-b px-4 py-2">
+                <span className="truncate text-sm font-medium">{lightboxName}</span>
+                <a
+                  href={lightboxUrl || ''}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  Open original
+                </a>
+              </div>
+              <div className="flex items-center justify-center bg-black/5 p-4 dark:bg-white/5">
+                {lightboxUrl && (
+                  <img
+                    src={lightboxUrl}
+                    alt={lightboxName}
+                    className="max-h-[80vh] max-w-full rounded object-contain"
+                  />
+                )}
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   };
