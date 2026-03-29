@@ -29,7 +29,6 @@ import {
   getExportableMessages,
 } from '@/utils/exportConversation';
 import { toast } from 'sonner';
-import { use$ } from '@legendapp/state/react';
 import { settingsModal$ } from '@/stores/settingsModal';
 
 interface CommandAction {
@@ -43,8 +42,7 @@ interface CommandAction {
 }
 
 export function CommandPalette() {
-  const open = use$(commandPaletteOpen$);
-  const setOpen = commandPaletteOpen$.set;
+  const [open, setOpenState] = useState(false);
   const [search, setSearch] = useState('');
   const [conversationResults, setConversationResults] = useState<ConversationSummary[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -52,12 +50,28 @@ export function CommandPalette() {
   const { api } = useApi();
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Sync open state bidirectionally with the observable (for external control, e.g. MenuBar search button)
+  const setOpen = useCallback((value: boolean) => {
+    setOpenState(value);
+    commandPaletteOpen$.set(value);
+  }, []);
+
+  useEffect(() => {
+    return commandPaletteOpen$.onChange(({ value }) => {
+      setOpenState(value);
+    });
+  }, []);
+
   // Toggle command palette with Cmd+K or Ctrl+K
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        commandPaletteOpen$.set(!commandPaletteOpen$.get());
+        setOpenState((prev) => {
+          const next = !prev;
+          commandPaletteOpen$.set(next);
+          return next;
+        });
       }
     };
 

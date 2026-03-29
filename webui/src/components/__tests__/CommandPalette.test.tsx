@@ -11,6 +11,21 @@ jest.mock('@/contexts/ApiContext', () => {
   return { useApi: () => ({ api }) };
 });
 
+// Mock settingsModal$ store
+const mockSettingsModalOpenSet = jest.fn();
+jest.mock('@/stores/settingsModal', () => ({
+  settingsModal$: { open: { set: mockSettingsModalOpenSet } },
+}));
+
+// Mock commandPalette$ store
+jest.mock('@/stores/commandPalette', () => ({
+  commandPaletteOpen$: {
+    get: jest.fn(() => false),
+    set: jest.fn(),
+    onChange: jest.fn(() => () => {}),
+  },
+}));
+
 // Mock UI command components
 jest.mock('../ui/command', () => ({
   CommandDialog: ({ children, open }: { children: React.ReactNode; open: boolean }) =>
@@ -72,6 +87,7 @@ jest.mock('react-router-dom', () => {
 describe('CommandPalette', () => {
   beforeEach(() => {
     mockNavigate.mockClear();
+    mockSettingsModalOpenSet.mockClear();
   });
 
   afterEach(() => {
@@ -268,7 +284,7 @@ describe('CommandPalette', () => {
       expect(mockNavigate).toHaveBeenCalledWith('/');
     });
 
-    it('navigates to settings when selecting Settings', async () => {
+    it('opens settings modal when selecting Settings', async () => {
       renderCommandPalette();
 
       fireEvent.keyDown(document, { key: 'k', metaKey: true });
@@ -276,7 +292,7 @@ describe('CommandPalette', () => {
       const settings = await screen.findByText('Settings');
       fireEvent.click(settings);
 
-      expect(mockNavigate).toHaveBeenCalledWith('/settings');
+      expect(mockSettingsModalOpenSet).toHaveBeenCalledWith(true);
     });
 
     it('closes after action execution', async () => {
