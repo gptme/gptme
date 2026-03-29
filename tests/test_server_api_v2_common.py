@@ -93,14 +93,14 @@ class TestAbsToRelWorkspace:
 
     def test_path_inside_workspace(self, tmp_path):
         """Path inside workspace is returned as relative."""
-        workspace = tmp_path
+        workspace = tmp_path.resolve()  # resolve handles macOS /var -> /private/var
         file_path = workspace / "subdir" / "file.txt"
         result = _abs_to_rel_workspace(file_path, workspace)
         assert result == "subdir/file.txt"
 
     def test_path_directly_in_workspace(self, tmp_path):
         """Path directly in workspace root returns just the filename."""
-        workspace = tmp_path
+        workspace = tmp_path.resolve()  # resolve handles macOS /var -> /private/var
         file_path = workspace / "file.txt"
         result = _abs_to_rel_workspace(file_path, workspace)
         assert result == "file.txt"
@@ -114,7 +114,7 @@ class TestAbsToRelWorkspace:
 
     def test_string_path_inside_workspace(self, tmp_path):
         """String path inside workspace is converted to relative."""
-        workspace = tmp_path
+        workspace = tmp_path.resolve()  # resolve handles macOS /var -> /private/var
         file_str = str(workspace / "file.txt")
         result = _abs_to_rel_workspace(file_str, workspace)
         assert result == "file.txt"
@@ -135,7 +135,7 @@ class TestAbsToRelWorkspace:
 
     def test_deeply_nested_path(self, tmp_path):
         """Deeply nested path inside workspace uses forward slashes."""
-        workspace = tmp_path
+        workspace = tmp_path.resolve()  # resolve handles macOS /var -> /private/var
         file_path = workspace / "a" / "b" / "c" / "file.py"
         result = _abs_to_rel_workspace(file_path, workspace)
         assert result == "a/b/c/file.py"
@@ -180,7 +180,7 @@ class TestMsg2Dict:
 
     def test_message_with_files_in_workspace(self, tmp_path):
         """Files inside workspace are converted to relative paths."""
-        workspace = tmp_path
+        workspace = tmp_path.resolve()  # resolve handles macOS /var -> /private/var
         file_path = workspace / "image.png"
         file_path.touch()
         msg = Message(role="user", content="See this", files=[file_path])

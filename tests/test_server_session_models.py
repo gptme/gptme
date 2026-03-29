@@ -32,8 +32,13 @@ from gptme.tools.base import ToolUse
 
 
 @pytest.fixture(autouse=True)
-def reset_session_manager():
-    """Reset SessionManager class-level state before each test."""
+def reset_session_manager(monkeypatch):
+    """Reset SessionManager class-level state before each test.
+
+    Also stubs out trigger_hook to prevent remove_session from calling
+    LogManager.load (which would fail for fake conversation IDs).
+    """
+    monkeypatch.setattr("gptme.server.session_models.trigger_hook", lambda *a, **kw: [])
     SessionManager._sessions = {}
     SessionManager._conversation_sessions = defaultdict(set)
     yield
