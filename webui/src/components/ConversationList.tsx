@@ -419,7 +419,7 @@ export const ConversationList: FC<Props> = ({
 
     return (
       <ContextMenu>
-        <ContextMenuTrigger asChild>{conversationContent}</ContextMenuTrigger>
+        <ContextMenuTrigger>{conversationContent}</ContextMenuTrigger>
         <ContextMenuContent>
           <ContextMenuItem
             onClick={(e) => {
