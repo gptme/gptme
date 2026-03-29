@@ -137,15 +137,20 @@ export const HistoryView: FC = () => {
     return [...years].sort((a, b) => b - a);
   }, [conversations]);
 
-  // Calendar end date based on selected year
-  const calendarEndDate = useMemo(() => {
-    if (selectedYear === null || selectedYear === new Date().getFullYear()) {
-      return undefined; // default = today
+  // Calendar date range based on selected year
+  // null = "Last year" (52 weeks ending today), otherwise Jan 1–Dec 31 of that year
+  const calendarRange = useMemo(() => {
+    if (selectedYear === null) {
+      return { startDate: undefined, endDate: undefined }; // defaults in calendar: 52 weeks ending today
     }
-    return new Date(selectedYear, 11, 31); // Dec 31 of selected year
+    const currentYear = new Date().getFullYear();
+    return {
+      startDate: new Date(selectedYear, 0, 1),
+      endDate: selectedYear === currentYear ? undefined : new Date(selectedYear, 11, 31),
+    };
   }, [selectedYear]);
 
-  const displayYear = selectedYear ?? new Date().getFullYear();
+  const displayLabel = selectedYear === null ? 'Last year' : String(selectedYear);
 
   // Compute stats (scoped to selected year if not current)
   const stats = useMemo(() => {
@@ -169,14 +174,28 @@ export const HistoryView: FC = () => {
     return { totalConversations, totalMessages, activeDays, streak };
   }, [conversations, activityData]);
 
-  // Year-scoped stats for the calendar header
-  const yearStats = useMemo(() => {
+  // Scoped stats for the calendar header
+  const calendarStats = useMemo(() => {
+    if (selectedYear === null) {
+      // "Last year" = all activity in the 52-week window
+      const end = new Date();
+      end.setHours(12, 0, 0, 0);
+      const start = new Date(end);
+      start.setDate(end.getDate() - 52 * 7);
+      const startStr = toISODate(start);
+      const endStr = toISODate(end);
+      let count = 0;
+      for (const [date, n] of activityData) {
+        if (date >= startStr && date <= endStr) count += n;
+      }
+      return count;
+    }
     let count = 0;
     for (const [date, n] of activityData) {
-      if (date.startsWith(String(displayYear))) count += n;
+      if (date.startsWith(String(selectedYear))) count += n;
     }
     return count;
-  }, [activityData, displayYear]);
+  }, [activityData, selectedYear]);
 
   // Filter conversations
   const filteredConversations = useMemo(() => {
@@ -243,14 +262,19 @@ export const HistoryView: FC = () => {
 
   const handleYearPrev = useCallback(() => {
     const minYear = availableYears[availableYears.length - 1] ?? new Date().getFullYear();
-    setSelectedYear((prev) => Math.max((prev ?? new Date().getFullYear()) - 1, minYear));
+    const currentYear = new Date().getFullYear();
+    setSelectedYear((prev) => {
+      if (prev === null) return currentYear; // "Last year" → current year
+      return Math.max(prev - 1, minYear);
+    });
   }, [availableYears]);
 
   const handleYearNext = useCallback(() => {
     const currentYear = new Date().getFullYear();
     setSelectedYear((prev) => {
-      const next = (prev ?? currentYear) + 1;
-      return next >= currentYear ? null : next;
+      if (prev === null) return null; // already at latest
+      if (prev >= currentYear) return null; // go to "Last year"
+      return prev + 1;
     });
   }, []);
 
@@ -300,7 +324,7 @@ export const HistoryView: FC = () => {
           <div className="rounded-lg border bg-card p-4">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-medium text-muted-foreground">
-                {yearStats.toLocaleString()} conversations in {displayYear}
+                {calendarStats.toLocaleString()} conversations in {displayLabel.toLowerCase()}
               </h2>
               <div className="flex items-center gap-1">
                 <Button
@@ -309,12 +333,15 @@ export const HistoryView: FC = () => {
                   className="h-7 w-7"
                   onClick={handleYearPrev}
                   disabled={
-                    displayYear <= (availableYears[availableYears.length - 1] ?? displayYear)
+                    selectedYear !== null &&
+                    selectedYear <= (availableYears[availableYears.length - 1] ?? selectedYear)
                   }
                 >
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
-                <span className="min-w-[3rem] text-center text-sm font-medium">{displayYear}</span>
+                <span className="min-w-[4.5rem] text-center text-sm font-medium">
+                  {displayLabel}
+                </span>
                 <Button
                   variant="ghost"
                   size="icon"
@@ -334,7 +361,8 @@ export const HistoryView: FC = () => {
             ) : (
               <ActivityCalendar
                 activityData={activityData}
-                endDate={calendarEndDate}
+                startDate={calendarRange.startDate}
+                endDate={calendarRange.endDate}
                 onDayClick={handleDayClick}
                 selectedDate={selectedDate}
               />

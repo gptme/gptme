@@ -5,9 +5,11 @@ import { toISODate } from '@/utils/time';
 interface ActivityCalendarProps {
   /** Map of ISO date string (YYYY-MM-DD) to conversation count */
   activityData: Map<string, number>;
+  /** Start date for the calendar (aligned to its Sunday). If omitted, computed from weeks. */
+  startDate?: Date;
   /** End date for the calendar (defaults to today) */
   endDate?: Date;
-  /** Number of weeks to show (default: 52) */
+  /** Number of weeks to show when startDate is not provided (default: 52) */
   weeks?: number;
   /** Called when a day cell is clicked */
   onDayClick?: (date: string) => void;
@@ -49,6 +51,7 @@ function getColorClass(count: number, max: number): string {
 
 export const ActivityCalendar: FC<ActivityCalendarProps> = ({
   activityData,
+  startDate,
   endDate,
   weeks = 52,
   onDayClick,
@@ -63,9 +66,17 @@ export const ActivityCalendar: FC<ActivityCalendarProps> = ({
     end.setHours(12, 0, 0, 0);
     const endStr = toISODate(end);
 
-    // Align start to Sunday, `weeks` columns back from end
-    const startDay = new Date(end);
-    startDay.setDate(end.getDate() - end.getDay() - (weeks - 1) * 7);
+    // Align start to Sunday
+    let startDay: Date;
+    if (startDate) {
+      startDay = new Date(startDate);
+      startDay.setHours(12, 0, 0, 0);
+      // Align back to Sunday
+      startDay.setDate(startDay.getDate() - startDay.getDay());
+    } else {
+      startDay = new Date(end);
+      startDay.setDate(end.getDate() - end.getDay() - (weeks - 1) * 7);
+    }
 
     const cells: { date: string; count: number; col: number; row: number }[] = [];
     const monthLabels: { label: string; col: number }[] = [];
@@ -100,7 +111,7 @@ export const ActivityCalendar: FC<ActivityCalendarProps> = ({
     }
 
     return { cells, monthLabels, maxCount, todayStr };
-  }, [activityData, endDate, weeks]);
+  }, [activityData, startDate, endDate, weeks]);
 
   const totalCols = cells.length > 0 ? Math.max(...cells.map((c) => c.col)) + 1 : 0;
   const svgWidth = DAY_LABEL_WIDTH + totalCols * CELL_STEP;
