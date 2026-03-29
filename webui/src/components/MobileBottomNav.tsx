@@ -18,11 +18,14 @@ export const MobileBottomNav: FC = () => {
     <nav className="flex h-12 items-center justify-around border-t bg-background md:hidden">
       {navItems.map((item) => {
         const Icon = item.icon;
-        // Workspaces tab must also activate on /workspace/:id (singular) detail pages
+        // Workspaces tab must also activate on /workspace/:id (singular) detail pages.
+        // Chat tab must also activate on root path '/' which renders the same Index component.
         const isActive =
           item.id === 'workspaces'
             ? location.pathname.startsWith('/workspace')
-            : location.pathname.startsWith(item.path);
+            : item.id === 'chat'
+              ? location.pathname === '/' || location.pathname.startsWith('/chat')
+              : location.pathname.startsWith(item.path);
 
         return (
           <NavLink
