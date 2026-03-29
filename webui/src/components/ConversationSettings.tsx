@@ -2,7 +2,11 @@ import { useState, type FC } from 'react';
 import { DeleteConversationConfirmationDialog } from './DeleteConversationConfirmationDialog';
 import { Trash, Loader2, Download } from 'lucide-react';
 import { conversations$ } from '@/stores/conversations';
-import { exportConversationAsMarkdown, exportConversationAsJSON } from '@/utils/exportConversation';
+import {
+  exportConversationAsMarkdown,
+  exportConversationAsJSON,
+  getExportableMessages,
+} from '@/utils/exportConversation';
 import { toast } from 'sonner';
 import { ModelSelector } from './ModelSelector';
 import {
@@ -239,10 +243,17 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
                         toast.error('No messages to export');
                         return;
                       }
+
+                      const exportableMessages = getExportableMessages(conv.data.log);
+                      if (!exportableMessages.length) {
+                        toast.error('No visible messages to export');
+                        return;
+                      }
+
                       exportConversationAsMarkdown(
                         conversationId,
                         conv.data.name || conversationId,
-                        conv.data.log
+                        exportableMessages
                       );
                       toast.success('Exported as Markdown');
                     }}

@@ -22,7 +22,11 @@ import {
 import { useApi } from '@/contexts/ApiContext';
 import type { ConversationSummary } from '@/types/conversation';
 import { conversations$, selectedConversation$ } from '@/stores/conversations';
-import { exportConversationAsMarkdown, exportConversationAsJSON } from '@/utils/exportConversation';
+import {
+  exportConversationAsMarkdown,
+  exportConversationAsJSON,
+  getExportableMessages,
+} from '@/utils/exportConversation';
 import { toast } from 'sonner';
 
 interface CommandAction {
@@ -194,7 +198,12 @@ export function CommandPalette() {
             toast.error('No messages to export');
             return;
           }
-          exportConversationAsMarkdown(convId!, conv.data.name || convId!, conv.data.log);
+          const exportableMessages = getExportableMessages(conv.data.log);
+          if (!exportableMessages.length) {
+            toast.error('No visible messages to export');
+            return;
+          }
+          exportConversationAsMarkdown(convId!, conv.data.name || convId!, exportableMessages);
           toast.success('Exported as Markdown');
           setOpen(false);
         },

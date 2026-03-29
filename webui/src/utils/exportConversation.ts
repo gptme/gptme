@@ -1,21 +1,31 @@
 import type { Message } from '@/types/conversation';
 
+export interface ExportMarkdownOptions {
+  includeSystem?: boolean;
+  includeTimestamps?: boolean;
+}
+
+export function getExportableMessages(
+  messages: Message[],
+  options?: Pick<ExportMarkdownOptions, 'includeSystem'>
+): Message[] {
+  const { includeSystem = false } = options ?? {};
+  return messages.filter((msg) => !msg.hide && (includeSystem || msg.role !== 'system'));
+}
+
 /**
  * Format a conversation's messages as a Markdown document.
  */
 export function formatConversationAsMarkdown(
   name: string,
   messages: Message[],
-  options?: { includeSystem?: boolean; includeTimestamps?: boolean }
+  options?: ExportMarkdownOptions
 ): string {
-  const { includeSystem = false, includeTimestamps = true } = options ?? {};
+  const { includeTimestamps = true } = options ?? {};
 
   const lines: string[] = [`# ${name}`, ''];
 
-  for (const msg of messages) {
-    if (!includeSystem && msg.role === 'system') continue;
-    if (msg.hide) continue;
-
+  for (const msg of getExportableMessages(messages, options)) {
     const roleLabel = msg.role.charAt(0).toUpperCase() + msg.role.slice(1);
     let header = `## ${roleLabel}`;
     if (includeTimestamps && msg.timestamp) {
@@ -50,7 +60,7 @@ export function exportConversationAsMarkdown(
   conversationId: string,
   name: string,
   messages: Message[],
-  options?: { includeSystem?: boolean; includeTimestamps?: boolean }
+  options?: ExportMarkdownOptions
 ) {
   const markdown = formatConversationAsMarkdown(name, messages, options);
   // Sanitize filename: replace unsafe characters with dashes

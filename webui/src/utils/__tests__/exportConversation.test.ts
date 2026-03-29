@@ -3,6 +3,7 @@ import {
   downloadAsFile,
   exportConversationAsMarkdown,
   exportConversationAsJSON,
+  getExportableMessages,
 } from '../exportConversation';
 import type { Message } from '@/types/conversation';
 
@@ -21,6 +22,29 @@ const sampleMessages: Message[] = [
     timestamp: '2026-03-28T10:02:10Z',
   },
 ];
+
+describe('getExportableMessages', () => {
+  it('excludes system and hidden messages by default', () => {
+    const result = getExportableMessages(sampleMessages);
+    expect(result).toHaveLength(4);
+    expect(result.every((msg) => msg.role !== 'system')).toBe(true);
+    expect(result.every((msg) => !msg.hide)).toBe(true);
+  });
+
+  it('includes system messages when requested', () => {
+    const result = getExportableMessages(sampleMessages, { includeSystem: true });
+    expect(result).toHaveLength(5);
+    expect(result.some((msg) => msg.role === 'system')).toBe(true);
+  });
+
+  it('returns an empty array when all messages are hidden or system-only', () => {
+    const result = getExportableMessages([
+      { role: 'system', content: 'system only' },
+      { role: 'assistant', content: 'hidden assistant', hide: true },
+    ]);
+    expect(result).toEqual([]);
+  });
+});
 
 describe('formatConversationAsMarkdown', () => {
   it('formats messages as markdown excluding system by default', () => {
