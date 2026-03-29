@@ -1,11 +1,25 @@
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
 
+export interface MessageUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_read_tokens?: number;
+  cache_creation_tokens?: number;
+}
+
+export interface MessageMetadata {
+  model?: string;
+  cost?: number;
+  usage?: MessageUsage;
+}
+
 export interface Message {
   role: MessageRole;
   content: string;
   timestamp?: string;
   files?: string[];
   hide?: boolean;
+  metadata?: MessageMetadata;
   /** Client-only: tracks send status for optimistic messages */
   _status?: 'pending' | 'sent' | 'failed';
   /** Client-only: error message when _status is 'failed' */

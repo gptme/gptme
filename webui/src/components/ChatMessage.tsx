@@ -337,19 +337,54 @@ export const ChatMessage: FC<Props> = ({
                     </Memo>
                     <Memo>
                       {() => {
-                        const timestamp = (message$.get() as Message)?.timestamp;
-                        if (!timestamp) return null;
-                        const { short, full } = formatTimestamp(timestamp);
-                        if (!short) return null;
+                        const msg = message$.get() as Message;
+                        const timestamp = msg?.timestamp;
+                        const metadata = msg?.metadata;
+                        if (!timestamp && !metadata) return null;
+
+                        const time = timestamp ? formatTimestamp(timestamp) : null;
+                        const model = metadata?.model;
+                        const cost = metadata?.cost;
+                        const usage = metadata?.usage;
+
+                        // Build the short inline label: "model · time"
+                        const parts: string[] = [];
+                        if (model) parts.push(model);
+                        if (time?.short) parts.push(time.short);
+                        const shortLabel = parts.join(' · ');
+                        if (!shortLabel) return null;
+
+                        // Build rich tooltip content
+                        const tooltipLines: string[] = [];
+                        if (time?.full) tooltipLines.push(time.full);
+                        if (model) tooltipLines.push(`Model: ${model}`);
+                        if (cost != null) tooltipLines.push(`Cost: $${cost.toFixed(4)}`);
+                        if (usage) {
+                          if (usage.input_tokens)
+                            tooltipLines.push(`Input: ${usage.input_tokens.toLocaleString()} tokens`);
+                          if (usage.output_tokens)
+                            tooltipLines.push(`Output: ${usage.output_tokens.toLocaleString()} tokens`);
+                          if (usage.cache_read_tokens)
+                            tooltipLines.push(`Cache read: ${usage.cache_read_tokens.toLocaleString()} tokens`);
+                          if (usage.cache_creation_tokens)
+                            tooltipLines.push(`Cache write: ${usage.cache_creation_tokens.toLocaleString()} tokens`);
+                        }
+
                         return (
                           <TooltipProvider>
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <div className="h-0 select-none overflow-visible px-3 text-right text-[10px] leading-4 text-muted-foreground/50 opacity-0 transition-opacity group-hover/message:opacity-100">
-                                  {short}
+                                  {shortLabel}
                                 </div>
                               </TooltipTrigger>
-                              <TooltipContent side="bottom">{full}</TooltipContent>
+                              <TooltipContent side="bottom" className="max-w-xs">
+                                <div className="space-y-0.5 text-xs">
+                                  {tooltipLines.map((line, i) => (
+                                    <div key={i}>{line}</div>
+                                  ))}
+                                </div>
+                              </TooltipContent>
                             </Tooltip>
                           </TooltipProvider>
                         );
