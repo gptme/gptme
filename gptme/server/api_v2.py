@@ -26,6 +26,7 @@ from gptme.llm.models import (
 from gptme.prompts import get_prompt
 
 from ..commands import handle_cmd
+from ..config import get_project_config
 from ..dirs import get_logs_dir
 from ..logmanager import Log, LogManager, get_user_conversations
 from ..message import Message
@@ -675,6 +676,96 @@ def api_conversation_agent_avatar(conversation_id: str):
         return flask.jsonify({"error": "Avatar file not found"}), 404
 
     return flask.send_file(full_path)
+
+
+def _serve_agent_avatar(agent_path_str: str):
+    """Shared helper to serve an agent's avatar by its workspace path."""
+    from pathlib import Path
+
+    agent_path = Path(agent_path_str)
+    project_config = get_project_config(agent_path, quiet=True)
+    if not project_config or not project_config.agent:
+        return flask.jsonify({"error": "Agent not found"}), 404
+
+    avatar = project_config.agent.avatar
+    if not avatar:
+        return flask.jsonify({"error": "No avatar configured"}), 404
+
+    # If it's a URL, redirect to it
+    if avatar.startswith(("http://", "https://")):
+        return flask.redirect(avatar)
+
+    # Otherwise, serve the file from agent workspace
+    full_path = agent_path / avatar
+    try:
+        full_path.resolve().relative_to(agent_path.resolve())
+    except ValueError:
+        return flask.jsonify({"error": "Invalid avatar path"}), 400
+
+    if not full_path.exists():
+        return flask.jsonify({"error": "Avatar file not found"}), 404
+
+    return flask.send_file(full_path)
+
+
+@v2_api.route("/api/v2/agents", methods=["GET"])
+@require_auth
+@api_doc(
+    summary="List agents",
+    description="List agents discovered from conversation history",
+    responses={200: None},
+    tags=["agents"],
+)
+def api_agents():
+    """List agents extracted from conversations."""
+    agent_map: dict[str, dict] = {}
+    for conv in get_user_conversations():
+        if not conv.agent_path:
+            continue
+        path = conv.agent_path
+        if path not in agent_map:
+            agent_map[path] = {
+                "name": conv.agent_name or path.split("/")[-1],
+                "path": path,
+                "has_avatar": conv.agent_avatar is not None,
+                "urls": conv.agent_urls,
+                "conversation_count": 0,
+                "last_used": conv.modified,
+            }
+        entry = agent_map[path]
+        entry["conversation_count"] += 1
+        if conv.modified > entry["last_used"]:
+            entry["last_used"] = conv.modified
+            if conv.agent_urls:
+                entry["urls"] = conv.agent_urls
+            if conv.agent_avatar is not None:
+                entry["has_avatar"] = True
+    return flask.jsonify(list(agent_map.values()))
+
+
+@v2_api.route("/api/v2/agents/avatar", methods=["GET"])
+@require_auth
+@api_doc(
+    summary="Get agent avatar by path",
+    description="Serve an agent's avatar image by its workspace path",
+    responses={200: None, 404: ErrorResponse},
+    parameters=[
+        {
+            "name": "path",
+            "in": "query",
+            "required": True,
+            "schema": {"type": "string"},
+            "description": "Agent workspace path",
+        }
+    ],
+    tags=["agents"],
+)
+def api_agent_avatar():
+    """Serve an agent's avatar by workspace path."""
+    agent_path = request.args.get("path")
+    if not agent_path:
+        return flask.jsonify({"error": "path parameter required"}), 400
+    return _serve_agent_avatar(agent_path)
 
 
 @v2_api.route("/api/v2/user", methods=["GET"])
