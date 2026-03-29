@@ -727,10 +727,9 @@ export class ApiClient {
       timestamp: new Date().toISOString(),
     };
 
-    // Create placeholder conversation in store immediately
-    // Set needsInitialStep flag so useConversation triggers step() after subscribing
-    // This fixes the race condition where tokens were missed because step() was called
-    // before the chat page mounted and subscribed to events
+    // Create placeholder conversation in store immediately.
+    // needsInitialStep is always true: useConversation triggers step() after subscribing,
+    // which fixes the race condition where step() was called before the chat page mounted.
     initConversation(
       conversationId,
       {
@@ -741,37 +740,43 @@ export class ApiClient {
         branches: {},
         workspace: options?.workspace || '.',
       },
-      { needsInitialStep: !options?.pendingFiles?.length }
+      { needsInitialStep: true }
     );
 
-    // Await server-side creation to propagate errors properly
-    await this.createConversation(conversationId, [message], {
-      chat: {
-        model: options?.model,
-        stream: options?.stream,
-        workspace: options?.workspace || '.',
-      },
-    });
-
-    // Upload pending files after conversation exists, then re-send message with file paths
     if (options?.pendingFiles?.length) {
+      // When files are attached: create an empty conversation first (no message yet),
+      // upload files, then send ONE complete message with file paths.
+      // This avoids the duplicate-message bug where createConversation sent msg_no_files
+      // and sendMessage sent a second copy of msg_with_files.
+      await this.createConversation(conversationId, [], {
+        chat: {
+          model: options?.model,
+          stream: options?.stream,
+          workspace: options?.workspace || '.',
+        },
+      });
       try {
         const uploadResult = await this.uploadFiles(conversationId, options.pendingFiles);
         const filePaths = uploadResult.files.map((f) => f.path);
-        // Re-send the message with file attachments
-        const messageWithFiles: Message = { ...message, files: filePaths };
-        await this.sendMessage(conversationId, messageWithFiles);
+        await this.sendMessage(conversationId, { ...message, files: filePaths });
       } catch (error) {
         console.error('[API] Failed to upload pending files:', error);
-        // Continue without files — conversation already created
+        // Fall back: send original message without files
+        await this.sendMessage(conversationId, message);
       }
-      // Now trigger step (was deferred because of pending files)
-      await this.step(conversationId, options?.model, options?.stream);
+    } else {
+      // No files: create conversation with the initial message.
+      // useConversation will call step() after subscribing (needsInitialStep: true above).
+      await this.createConversation(conversationId, [message], {
+        chat: {
+          model: options?.model,
+          stream: options?.stream,
+          workspace: options?.workspace || '.',
+        },
+      });
     }
 
-    // NOTE: step() is NOT called here anymore (unless we had pending files)!
-    // The useConversation hook will call step() after subscribing to events,
-    // which fixes the race condition where first tokens were missed.
+    // NOTE: step() is NOT called here — useConversation calls it after subscribing to SSE.
 
     // Return ID immediately after server creation
     return conversationId;
