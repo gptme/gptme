@@ -537,6 +537,20 @@ export function useConversation(conversationId: string, serverId?: string) {
     }
   };
 
+  const deleteMessage = async (index: number) => {
+    try {
+      const result = await api.deleteMessage(conversationId, index);
+      replaceLog(conversationId, result.log);
+      if (result.branches) {
+        updateBranches(conversationId, result.branches);
+      }
+    } catch (error) {
+      console.error('Error deleting message:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Failed to delete message';
+      toast({ variant: 'destructive', title: 'Delete failed', description: errorMsg });
+    }
+  };
+
   const rerunFromMessage = async (index: number) => {
     if (!conversation$) return;
     const log = conversation$.data.log.get();
@@ -596,6 +610,7 @@ export function useConversation(conversationId: string, serverId?: string) {
     sendMessage,
     retryMessage,
     editMessage,
+    deleteMessage,
     rerunFromMessage,
     regenerateMessage,
     switchBranch,

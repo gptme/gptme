@@ -845,6 +845,16 @@ export class ApiClient {
     });
   }
 
+  async deleteMessage(logfile: string, index: number): Promise<ConversationResponse> {
+    if (!this.isConnected) {
+      throw new ApiClientError('Not connected to API');
+    }
+    const url = `${this.baseUrl}/api/v2/conversations/${logfile}/messages/${index}`;
+    return this.fetchJson<ConversationResponse>(url, {
+      method: 'DELETE',
+    });
+  }
+
   async rerunTools(logfile: string): Promise<{ status: string; tool_ids: string[] }> {
     if (!this.isConnected) {
       throw new ApiClientError('Not connected to API');

@@ -27,6 +27,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     sendMessage,
     retryMessage,
     editMessage,
+    deleteMessage,
     rerunFromMessage,
     regenerateMessage,
     switchBranch,
@@ -292,6 +293,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
                   agentName={agentName}
                   onRetry={retryMessage}
                   onEdit={editMessage}
+                  onDelete={deleteMessage}
                   onRerun={rerunFromMessage}
                   onRegenerate={regenerateMessage}
                   messageIndex={index}

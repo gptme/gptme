@@ -17,6 +17,7 @@ import {
   X,
   Play,
   RefreshCw,
+  Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -59,6 +60,7 @@ interface Props {
   agentName?: string;
   onRetry?: (message: Message) => void;
   onEdit?: (index: number, content: string, truncate: boolean) => void;
+  onDelete?: (index: number) => void;
   onRerun?: (index: number) => void;
   onRegenerate?: (index: number) => void;
   messageIndex?: number;
@@ -73,6 +75,7 @@ export const ChatMessage: FC<Props> = ({
   agentName,
   onRetry,
   onEdit,
+  onDelete,
   onRerun,
   onRegenerate,
   messageIndex,
@@ -365,35 +368,34 @@ export const ChatMessage: FC<Props> = ({
                             <Pencil size={14} />
                           </Button>
                         )}
-                      {messageIndex !== undefined &&
-                        message$.role.get() === 'assistant' && (
-                          <>
-                            {onRerun && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => onRerun(messageIndex)}
-                                className="h-7 w-7 p-0"
-                                aria-label="Re-run tools"
-                                title="Re-run tools"
-                              >
-                                <Play size={14} />
-                              </Button>
-                            )}
-                            {onRegenerate && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => onRegenerate(messageIndex)}
-                                className="h-7 w-7 p-0"
-                                aria-label="Regenerate"
-                                title="Regenerate response"
-                              >
-                                <RefreshCw size={14} />
-                              </Button>
-                            )}
-                          </>
-                        )}
+                      {messageIndex !== undefined && message$.role.get() === 'assistant' && (
+                        <>
+                          {onRerun && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => onRerun(messageIndex)}
+                              className="h-7 w-7 p-0"
+                              aria-label="Re-run tools"
+                              title="Re-run tools"
+                            >
+                              <Play size={14} />
+                            </Button>
+                          )}
+                          {onRegenerate && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => onRegenerate(messageIndex)}
+                              className="h-7 w-7 p-0"
+                              aria-label="Regenerate"
+                              title="Regenerate response"
+                            >
+                              <RefreshCw size={14} />
+                            </Button>
+                          )}
+                        </>
+                      )}
                       <Button
                         variant="ghost"
                         size="sm"
@@ -403,6 +405,20 @@ export const ChatMessage: FC<Props> = ({
                       >
                         {copied$.get() ? <Check size={14} /> : <Clipboard size={14} />}
                       </Button>
+                      {onDelete &&
+                        messageIndex !== undefined &&
+                        message$.role.get() !== 'system' && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onDelete(messageIndex)}
+                            className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                            aria-label="Delete message"
+                            title="Delete message"
+                          >
+                            <Trash2 size={14} />
+                          </Button>
+                        )}
                     </div>
                     <div className="px-3 py-1.5">
                       {isEditing$.get() ? (
@@ -440,11 +456,7 @@ export const ChatMessage: FC<Props> = ({
                             >
                               Save & Re-run
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => isEditing$.set(false)}
-                            >
+                            <Button size="sm" variant="ghost" onClick={() => isEditing$.set(false)}>
                               <X className="mr-1 h-3 w-3" />
                               Cancel
                             </Button>
@@ -523,13 +535,21 @@ export const ChatMessage: FC<Props> = ({
                         if (cost != null) tooltipLines.push(`Cost: $${cost.toFixed(4)}`);
                         if (usage) {
                           if (usage.input_tokens)
-                            tooltipLines.push(`Input: ${usage.input_tokens.toLocaleString()} tokens`);
+                            tooltipLines.push(
+                              `Input: ${usage.input_tokens.toLocaleString()} tokens`
+                            );
                           if (usage.output_tokens)
-                            tooltipLines.push(`Output: ${usage.output_tokens.toLocaleString()} tokens`);
+                            tooltipLines.push(
+                              `Output: ${usage.output_tokens.toLocaleString()} tokens`
+                            );
                           if (usage.cache_read_tokens)
-                            tooltipLines.push(`Cache read: ${usage.cache_read_tokens.toLocaleString()} tokens`);
+                            tooltipLines.push(
+                              `Cache read: ${usage.cache_read_tokens.toLocaleString()} tokens`
+                            );
                           if (usage.cache_creation_tokens)
-                            tooltipLines.push(`Cache write: ${usage.cache_creation_tokens.toLocaleString()} tokens`);
+                            tooltipLines.push(
+                              `Cache write: ${usage.cache_creation_tokens.toLocaleString()} tokens`
+                            );
                         }
 
                         return (
