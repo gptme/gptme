@@ -544,18 +544,46 @@ export function useConversation(conversationId: string, serverId?: string) {
 
     try {
       if (!isLastMessage) {
-        // Truncate after this message (creates backup branch), then step
+        // Truncate after this message (creates backup branch)
         const result = await api.editMessage(conversationId, index, undefined, true);
         replaceLog(conversationId, result.log);
         if (result.branches) {
           updateBranches(conversationId, result.branches);
         }
       }
-      await api.step(conversationId);
+      // Re-run tools from the (now last) assistant message
+      // This parses tool uses and sets them as pending, without calling the LLM
+      try {
+        await api.rerunTools(conversationId);
+      } catch {
+        // No tools found — fall back to step() (regenerate)
+        await api.step(conversationId);
+      }
     } catch (error) {
       console.error('Error re-running from message:', error);
       const errorMsg = error instanceof Error ? error.message : 'Failed to re-run';
       toast({ variant: 'destructive', title: 'Re-run failed', description: errorMsg });
+    }
+  };
+
+  const regenerateMessage = async (index: number) => {
+    if (!conversation$) return;
+    // Remove the assistant message and everything after, then step to regenerate
+    // Truncate at the message BEFORE this one (the user message)
+    const prevIndex = index - 1;
+    if (prevIndex < 0) return;
+
+    try {
+      const result = await api.editMessage(conversationId, prevIndex, undefined, true);
+      replaceLog(conversationId, result.log);
+      if (result.branches) {
+        updateBranches(conversationId, result.branches);
+      }
+      await api.step(conversationId);
+    } catch (error) {
+      console.error('Error regenerating message:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Failed to regenerate';
+      toast({ variant: 'destructive', title: 'Regenerate failed', description: errorMsg });
     }
   };
 
@@ -569,6 +597,7 @@ export function useConversation(conversationId: string, serverId?: string) {
     retryMessage,
     editMessage,
     rerunFromMessage,
+    regenerateMessage,
     switchBranch,
     confirmTool,
     interruptGeneration,

@@ -490,6 +490,110 @@ def api_conversation_tool_confirm(conversation_id: str):
 
 
 @sessions_api.route(
+    "/api/v2/conversations/<string:conversation_id>/rerun",
+    methods=["POST"],
+)
+@require_auth
+@api_doc(
+    summary="Re-run tools from an assistant message (V2)",
+    description="Parse tool uses from an assistant message and set them as pending for execution. "
+    "This re-creates the tool confirmation flow without calling the LLM.",
+    responses={200: StatusResponse, 400: ErrorResponse, 404: ErrorResponse},
+    parameters=[CONVERSATION_ID_PARAM],
+    tags=["sessions"],
+)
+def api_conversation_rerun(conversation_id: str):
+    """Re-run tools from the last assistant message.
+
+    Parses tool uses from the last assistant message content and sets them
+    as pending for confirmation/execution, without calling the LLM.
+    """
+    from ..tools import ToolUse
+
+    req_json = request.json or {}
+    session_id = req_json.get("session_id")
+
+    if not session_id:
+        return flask.jsonify({"error": "session_id is required"}), 400
+
+    session = SessionManager.get_session(session_id)
+    if not session:
+        return flask.jsonify({"error": f"Session not found: {session_id}"}), 404
+
+    if session.generating:
+        return flask.jsonify(
+            {"error": "Cannot rerun while generation is in progress"}
+        ), 409
+
+    # Load conversation and find the last assistant message
+    try:
+        manager = LogManager.load(conversation_id, lock=False)
+    except FileNotFoundError:
+        return flask.jsonify(
+            {"error": f"Conversation not found: {conversation_id}"}
+        ), 404
+
+    # Find the last assistant message
+    last_assistant = None
+    for msg in reversed(list(manager.log.messages)):
+        if msg.role == "assistant":
+            last_assistant = msg
+            break
+
+    if not last_assistant:
+        return flask.jsonify({"error": "No assistant message found"}), 400
+
+    # Parse tool uses from the message content
+    tooluses = list(ToolUse.iter_from_content(last_assistant.content))
+    if not tooluses:
+        return flask.jsonify(
+            {"error": "No tool uses found in the last assistant message"}
+        ), 400
+
+    # Set them as pending (same flow as step() tool detection)
+    for tooluse in tooluses:
+        tool_id = str(uuid.uuid4())
+        tool_exec = ToolExecution(
+            tool_id=tool_id,
+            tooluse=tooluse,
+            auto_confirm=session.auto_confirm_count > 0,
+        )
+        session.pending_tools[tool_id] = tool_exec
+
+        SessionManager.add_event(
+            conversation_id,
+            {
+                "type": "tool_pending",
+                "tool_id": tool_id,
+                "tooluse": {
+                    "tool": tooluse.tool,
+                    "args": tooluse.args,
+                    "content": tooluse.content,
+                },
+                "auto_confirm": tool_exec.auto_confirm,
+            },
+        )
+
+        if tool_exec.auto_confirm:
+            if session.auto_confirm_count > 0:
+                session.auto_confirm_count -= 1
+            logdir = get_logs_dir() / conversation_id
+            chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
+            model = str(chat_config.model or get_default_model())
+            start_tool_execution(
+                conversation_id, session, tool_id, tooluse, model, chat_config
+            )
+
+    return flask.jsonify(
+        {
+            "status": "ok",
+            "message": f"Re-running {len(tooluses)} tool(s)",
+            "tool_ids": list(session.pending_tools),
+        }
+    )
+
+
+@sessions_api.route(
     "/api/v2/conversations/<string:conversation_id>/elicit/respond",
     methods=["POST"],
 )

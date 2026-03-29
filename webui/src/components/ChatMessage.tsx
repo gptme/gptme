@@ -8,7 +8,16 @@ import { ObservableHint, type Observable } from '@legendapp/state';
 import { Memo, useObservable, useObserveEffect } from '@legendapp/state/react';
 import * as smd from '@/utils/smd';
 import { customRenderer, type CustomRenderer } from '@/utils/markdownRenderer';
-import { Clipboard, Check, AlertCircle, RotateCcw, Pencil, X, Play } from 'lucide-react';
+import {
+  Clipboard,
+  Check,
+  AlertCircle,
+  RotateCcw,
+  Pencil,
+  X,
+  Play,
+  RefreshCw,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -51,6 +60,7 @@ interface Props {
   onRetry?: (message: Message) => void;
   onEdit?: (index: number, content: string, truncate: boolean) => void;
   onRerun?: (index: number) => void;
+  onRegenerate?: (index: number) => void;
   messageIndex?: number;
 }
 
@@ -64,6 +74,7 @@ export const ChatMessage: FC<Props> = ({
   onRetry,
   onEdit,
   onRerun,
+  onRegenerate,
   messageIndex,
 }) => {
   const { api, connectionConfig } = useApi();
@@ -354,19 +365,34 @@ export const ChatMessage: FC<Props> = ({
                             <Pencil size={14} />
                           </Button>
                         )}
-                      {onRerun &&
-                        messageIndex !== undefined &&
+                      {messageIndex !== undefined &&
                         message$.role.get() === 'assistant' && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => onRerun(messageIndex)}
-                            className="h-7 w-7 p-0"
-                            aria-label="Re-run from here"
-                            title="Re-run from here"
-                          >
-                            <Play size={14} />
-                          </Button>
+                          <>
+                            {onRerun && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => onRerun(messageIndex)}
+                                className="h-7 w-7 p-0"
+                                aria-label="Re-run tools"
+                                title="Re-run tools"
+                              >
+                                <Play size={14} />
+                              </Button>
+                            )}
+                            {onRegenerate && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => onRegenerate(messageIndex)}
+                                className="h-7 w-7 p-0"
+                                aria-label="Regenerate"
+                                title="Regenerate response"
+                              >
+                                <RefreshCw size={14} />
+                              </Button>
+                            )}
+                          </>
                         )}
                       <Button
                         variant="ghost"

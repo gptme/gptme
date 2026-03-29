@@ -840,6 +840,20 @@ export class ApiClient {
     });
   }
 
+  async rerunTools(logfile: string): Promise<{ status: string; tool_ids: string[] }> {
+    if (!this.isConnected) {
+      throw new ApiClientError('Not connected to API');
+    }
+    const sessionId = this.sessions$.get(logfile);
+    if (!sessionId) {
+      throw new ApiClientError('No active session for this conversation');
+    }
+    return this.fetchJson(`${this.baseUrl}/api/v2/conversations/${logfile}/rerun`, {
+      method: 'POST',
+      body: JSON.stringify({ session_id: sessionId }),
+    });
+  }
+
   async uploadFiles(
     conversationId: string,
     files: File[]
