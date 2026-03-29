@@ -150,7 +150,7 @@ export const HistoryView: FC = () => {
     };
   }, [selectedYear]);
 
-  const displayLabel = selectedYear === null ? 'Last year' : String(selectedYear);
+  const displayLabel = selectedYear === null ? 'Past 12 months' : String(selectedYear);
 
   // Compute stats (scoped to selected year if not current)
   const stats = useMemo(() => {
@@ -324,7 +324,8 @@ export const HistoryView: FC = () => {
           <div className="rounded-lg border bg-card p-4">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-medium text-muted-foreground">
-                {calendarStats.toLocaleString()} conversations in {displayLabel.toLowerCase()}
+                {calendarStats.toLocaleString()} conversations in{' '}
+                {selectedYear === null ? 'the past 12 months' : selectedYear}
               </h2>
               <div className="flex items-center gap-1">
                 <Button
