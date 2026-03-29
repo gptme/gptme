@@ -125,12 +125,13 @@ def get_conversations() -> Generator[ConversationMeta, None, None]:
                     content = msg.get("content", "")
                     if content:
                         last_msg_role = role
-                        # Truncate to 100 chars, collapse whitespace
-                        preview = content[:100]
-                        if len(content) > 100:
-                            preview += "..."
-                        last_msg_preview = " ".join(preview.split())
-            except (json.JSONDecodeError, TypeError):
+                        # Collapse whitespace first, then truncate to 100 chars
+                        collapsed = " ".join(content.split())
+                        if len(collapsed) > 100:
+                            last_msg_preview = collapsed[:100] + "..."
+                        else:
+                            last_msg_preview = collapsed
+            except (json.JSONDecodeError, TypeError, AttributeError):
                 pass
 
         assert len(log) <= 1
