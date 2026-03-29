@@ -148,7 +148,7 @@ def api_conversations():
     """List conversations (V2).
 
     Get a list of user conversations with metadata using the V2 API.
-    Supports optional search filtering by conversation name.
+    Supports optional search filtering by conversation name, id, or last message preview.
     """
     limit = int(request.args.get("limit", 100))
     search = request.args.get("search", "").strip().lower()

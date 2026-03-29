@@ -7,7 +7,7 @@ import type { FC } from 'react';
 const navItems = [
   { id: 'chat', label: 'Chat', icon: MessageSquare, path: '/chat' },
   { id: 'history', label: 'History', icon: History, path: '/history' },
-  { id: 'search', label: 'Search', icon: Search, path: '' },
+  { id: 'search', label: 'Search', icon: Search, path: '' }, // path unused; opens command palette
   { id: 'tasks', label: 'Tasks', icon: Kanban, path: '/tasks' },
   { id: 'agents', label: 'Agents', icon: Bot, path: '/agents' },
   { id: 'workspaces', label: 'Workspaces', icon: FolderOpen, path: '/workspaces' },
