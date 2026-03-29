@@ -36,7 +36,13 @@ function FileHeader({
             <div>Modified {formatDistanceToNow(new Date(file.modified), { addSuffix: true })}</div>
           </div>
         </div>
-        <Button variant="ghost" size="icon" title="Download file" onClick={onDownload}>
+        <Button
+          variant="ghost"
+          size="icon"
+          title="Download file"
+          aria-label="Download file"
+          onClick={onDownload}
+        >
           <Download className="h-4 w-4" />
         </Button>
       </div>

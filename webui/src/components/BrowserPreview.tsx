@@ -101,7 +101,13 @@ export const BrowserPreview: FC<Props> = ({ defaultUrl = 'http://localhost:8080'
             className="flex-1 pl-8"
           />
         </div>
-        <Button variant="ghost" size="icon" onClick={handleRefresh} title="Refresh">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleRefresh}
+          title="Refresh"
+          aria-label="Refresh"
+        >
           <RefreshCw className="h-4 w-4" />
         </Button>
         <Button
@@ -109,6 +115,7 @@ export const BrowserPreview: FC<Props> = ({ defaultUrl = 'http://localhost:8080'
           size="icon"
           onClick={toggleMode}
           title={isMobile ? 'Switch to desktop' : 'Switch to mobile'}
+          aria-label={isMobile ? 'Switch to desktop' : 'Switch to mobile'}
         >
           {isMobile ? <Smartphone className="h-4 w-4" /> : <Monitor className="h-4 w-4" />}
         </Button>
@@ -117,6 +124,7 @@ export const BrowserPreview: FC<Props> = ({ defaultUrl = 'http://localhost:8080'
           size="icon"
           onClick={toggleConsole}
           title={showConsole ? 'Hide Console' : 'Show Console'}
+          aria-label={showConsole ? 'Hide console' : 'Show console'}
         >
           <Terminal className="h-4 w-4" />
         </Button>

@@ -180,7 +180,13 @@ export const UnifiedSidebar: FC<Props> = ({
         <div className="flex items-center gap-2 bg-background p-2">
           <span className="ml-1 font-medium">Chats</span>
           <div className="flex-1" />
-          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={handleNewConversation}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={handleNewConversation}
+            aria-label="New conversation"
+          >
             <PenSquare className="h-4 w-4" />
           </Button>
         </div>
@@ -196,10 +202,17 @@ export const UnifiedSidebar: FC<Props> = ({
               size="icon"
               className="h-6 w-6"
               onClick={() => setShowFilters(!showFilters)}
+              aria-label={showFilters ? 'Hide filters' : 'Show filters'}
             >
               <Filter className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onCreateTask}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={onCreateTask}
+              aria-label="Create task"
+            >
               <Plus className="h-4 w-4" />
             </Button>
           </div>

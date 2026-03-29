@@ -164,6 +164,7 @@ const SubmitButton: FC<{ isGenerating: boolean; isDisabled: boolean; hasText: bo
             : 'h-8 w-8 bg-green-600 text-green-100'
       }`}
       disabled={isDisabled}
+      aria-label={showStop ? 'Stop generation' : showQueue ? 'Queue message' : 'Send message'}
     >
       {showStop ? (
         <div className="flex items-center gap-2">
@@ -202,6 +203,7 @@ const WorkspaceBadge: FC<{ workspace: string; onRemove: () => void }> = ({
         size="sm"
         onClick={onRemove}
         className="h-4 w-4 p-0 hover:bg-destructive/20"
+        aria-label={`Remove workspace ${displayName}`}
       >
         <X className="h-2.5 w-2.5" />
       </Button>
@@ -220,6 +222,7 @@ const AgentBadge: FC<{ agent: Agent; onRemove: () => void }> = ({ agent, onRemov
       size="sm"
       onClick={onRemove}
       className="h-4 w-4 p-0 hover:bg-destructive/20"
+      aria-label={`Remove agent ${agent.name}`}
     >
       <X className="h-2.5 w-2.5" />
     </Button>
@@ -247,6 +250,7 @@ const QueuedMessageBadge: FC<{ message: string; onClear: () => void }> = ({ mess
         onClick={onClear}
         className="h-4 w-4 p-0 hover:bg-destructive/20"
         title="Clear queued message"
+        aria-label="Clear queued message"
       >
         <X className="h-2.5 w-2.5" />
       </Button>
@@ -267,6 +271,7 @@ const AttachedFileBadge: FC<{ name: string; onRemove: () => void }> = ({ name, o
       size="sm"
       onClick={onRemove}
       className="h-4 w-4 p-0 hover:bg-destructive/20"
+      aria-label={`Remove file ${name}`}
     >
       <X className="h-2.5 w-2.5" />
     </Button>
@@ -633,6 +638,7 @@ export const ChatInput: FC<Props> = ({
         type="file"
         multiple
         className="hidden"
+        aria-label="Attach files"
         onChange={(e) => {
           if (e.target.files && e.target.files.length > 0) {
             uploadAndAttach(e.target.files);

@@ -26,7 +26,7 @@ export const MenuBar: FC = () => {
             <Tooltip>
               <TooltipTrigger asChild>
                 <Link to="/account">
-                  <Button variant="ghost" size="icon" className="h-8 w-8">
+                  <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Dashboard">
                     <User className="h-4 w-4" />
                   </Button>
                 </Link>
