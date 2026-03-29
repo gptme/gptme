@@ -198,9 +198,13 @@ class TestThreadSafety:
         results = {}
         errors = []
 
+        # Barrier ensures all n_tools registrations complete before resolver starts
+        barrier = threading.Barrier(n_tools + 1)
+
         def register_and_wait(tool_id):
             try:
                 pending = register_pending(tool_id, mock_tool_use, None)
+                barrier.wait()
                 # Wait with timeout
                 pending.event.wait(timeout=5)
                 results[tool_id] = pending.result
@@ -208,8 +212,7 @@ class TestThreadSafety:
                 errors.append(e)
 
         def resolve_all():
-            # Small delay to let registrations happen first
-            time.sleep(0.05)
+            barrier.wait()  # Wait until all tools are registered
             for i in range(n_tools):
                 try:
                     resolve_pending(f"tool-{i}", ConfirmationResult.confirm())
@@ -324,13 +327,15 @@ class TestServerConfirmHook:
             ):
                 # Resolve the pending confirmation in a background thread
                 def resolve_soon():
-                    time.sleep(0.1)
-                    # Find the pending confirmation and resolve it
-                    with _lock:
-                        for pending in _pending_confirmations.values():
-                            pending.result = ConfirmationResult.confirm()
-                            pending.event.set()
-                            break
+                    # Poll until the hook registers its pending entry, then resolve
+                    for _ in range(200):  # up to 2 seconds
+                        time.sleep(0.01)
+                        with _lock:
+                            if _pending_confirmations:
+                                for pending in _pending_confirmations.values():
+                                    pending.result = ConfirmationResult.confirm()
+                                    pending.event.set()
+                                return
 
                 t = threading.Thread(target=resolve_soon)
                 t.start()
