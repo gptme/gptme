@@ -7,11 +7,13 @@ import {
   Settings,
   Bot,
   FolderOpen,
+  Search,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { toggleLeftSidebarCollapsed, leftSidebarCollapsed$ } from '@/stores/sidebar';
+import { commandPaletteOpen$ } from '@/stores/commandPalette';
 import { SettingsModal } from './SettingsModal';
 import type { Task } from '@/types/task';
 import type { FC } from 'react';
@@ -131,6 +133,22 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
               </Button>
             </TooltipTrigger>
             <TooltipContent side="right">Workspaces</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => commandPaletteOpen$.set(true)}
+              >
+                <Search className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Search (⌘K)</TooltipContent>
           </Tooltip>
         </TooltipProvider>
       </div>
