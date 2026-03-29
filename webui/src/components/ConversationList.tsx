@@ -176,6 +176,15 @@ export const ConversationList: FC<Props> = ({
                 >
                   {convState?.data?.name || conv.name || stripDate(conv.id)}
                 </div>
+                {conv.last_message_preview && (
+                  <div
+                    className="mb-1 truncate text-xs text-muted-foreground/70"
+                    title={conv.last_message_preview}
+                  >
+                    {conv.last_message_role === 'user' ? '→ ' : '← '}
+                    {conv.last_message_preview}
+                  </div>
+                )}
                 <div className="flex items-center space-x-3 text-xs text-muted-foreground">
                   <Tooltip>
                     <TooltipTrigger>

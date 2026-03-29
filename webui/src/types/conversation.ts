@@ -29,6 +29,8 @@ export interface ConversationSummary {
   agent_name?: string;
   agent_path?: string;
   agent_urls?: Record<string, string>;
+  last_message_role?: string;
+  last_message_preview?: string;
   serverId?: string; // which server this conversation is from (multi-backend)
   serverName?: string; // display name for the server label
 }

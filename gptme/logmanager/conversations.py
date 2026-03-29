@@ -51,6 +51,8 @@ class ConversationMeta:
     total_input_tokens: int = 0
     total_output_tokens: int = 0
     total_cache_read_tokens: int = 0
+    last_message_role: str | None = None
+    last_message_preview: str | None = None
 
     def format(self, metadata=False) -> str:
         """Format conversation metadata for display."""
@@ -80,12 +82,16 @@ def get_conversations() -> Generator[ConversationMeta, None, None]:
         conv_input_tokens = 0
         conv_output_tokens = 0
         conv_cache_read_tokens = 0
+        last_msg_line: bytes | None = None
         with open(conv_fn, "rb") as f:
             for line in f:
                 line = line.strip()
                 if not line:
                     continue
                 len_msgs += 1
+                # Remember last user/assistant line (parsed after loop)
+                if b'"user"' in line or b'"assistant"' in line:
+                    last_msg_line = line
                 if b'"metadata"' in line:
                     try:
                         msg = json.loads(line)
@@ -108,6 +114,25 @@ def get_conversations() -> Generator[ConversationMeta, None, None]:
                             conv_cache_read_tokens += cache_read
                     except (json.JSONDecodeError, TypeError):
                         pass
+        # Parse last user/assistant message for preview (single parse, after loop)
+        last_msg_role: str | None = None
+        last_msg_preview: str | None = None
+        if last_msg_line:
+            try:
+                msg = json.loads(last_msg_line)
+                role = msg.get("role")
+                if role in ("user", "assistant"):
+                    content = msg.get("content", "")
+                    if content:
+                        last_msg_role = role
+                        # Truncate to 100 chars, collapse whitespace
+                        preview = content[:100]
+                        if len(content) > 100:
+                            preview += "..."
+                        last_msg_preview = " ".join(preview.split())
+            except (json.JSONDecodeError, TypeError):
+                pass
+
         assert len(log) <= 1
         modified = conv_fn.stat().st_mtime
         first_timestamp = log[0].timestamp.timestamp() if log else modified
@@ -148,6 +173,8 @@ def get_conversations() -> Generator[ConversationMeta, None, None]:
             total_input_tokens=conv_input_tokens,
             total_output_tokens=conv_output_tokens,
             total_cache_read_tokens=conv_cache_read_tokens,
+            last_message_role=last_msg_role,
+            last_message_preview=last_msg_preview,
         )
 
 
