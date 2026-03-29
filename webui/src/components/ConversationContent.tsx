@@ -20,10 +20,8 @@ interface Props {
 }
 
 export const ConversationContent: FC<Props> = ({ conversationId, serverId, isReadOnly }) => {
-  const { conversation$, sendMessage, confirmTool, interruptGeneration } = useConversation(
-    conversationId,
-    serverId
-  );
+  const { conversation$, sendMessage, retryMessage, confirmTool, interruptGeneration } =
+    useConversation(conversationId, serverId);
   // State to track when to auto-focus the input
   const shouldFocus$ = useObservable(false);
   // Store the previous conversation ID to detect changes
@@ -273,6 +271,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
                 conversationId={conversationId}
                 agentAvatarUrl={agentAvatarUrl}
                 agentName={agentName}
+                onRetry={retryMessage}
               />
             );
           }}

@@ -6,6 +6,10 @@ export interface Message {
   timestamp?: string;
   files?: string[];
   hide?: boolean;
+  /** Client-only: tracks send status for optimistic messages */
+  _status?: 'pending' | 'sent' | 'failed';
+  /** Client-only: error message when _status is 'failed' */
+  _error?: string;
 }
 
 export interface StreamingMessage extends Message {

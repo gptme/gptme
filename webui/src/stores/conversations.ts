@@ -66,6 +66,39 @@ export function addMessage(id: string, message: Message | StreamingMessage) {
   }
 }
 
+/** Update the _status of the last message with the given timestamp */
+export function setMessageStatus(
+  id: string,
+  timestamp: string,
+  status: 'pending' | 'sent' | 'failed',
+  error?: string
+) {
+  const conv = conversations$.get(id);
+  if (!conv) return;
+  const log = conv.data.log.get();
+  // Find the message by timestamp (searching from end since it's usually the latest)
+  for (let i = log.length - 1; i >= 0; i--) {
+    if (log[i].timestamp === timestamp) {
+      conv.data.log[i]._status.set(status);
+      if (error !== undefined) {
+        conv.data.log[i]._error.set(error);
+      }
+      break;
+    }
+  }
+}
+
+/** Remove a message by timestamp */
+export function removeMessage(id: string, timestamp: string) {
+  const conv = conversations$.get(id);
+  if (!conv) return;
+  const log = conv.data.log.get();
+  const idx = log.findIndex((m) => m.timestamp === timestamp);
+  if (idx !== -1) {
+    conv.data.log.splice(idx, 1);
+  }
+}
+
 export function setGenerating(id: string, isGenerating: boolean) {
   updateConversation(id, { isGenerating });
 }
