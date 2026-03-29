@@ -1,4 +1,16 @@
-import { Send, Loader2, Settings, X, Bot, Folder, Clock, Paperclip, File } from 'lucide-react';
+import {
+  Send,
+  Loader2,
+  Settings,
+  X,
+  Bot,
+  Folder,
+  Clock,
+  Paperclip,
+  File,
+  ChevronDown,
+  SlidersHorizontal,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -14,6 +26,8 @@ import {
 import { useApi } from '@/contexts/ApiContext';
 import { Badge } from '@/components/ui/badge';
 import { ModelSelector } from '@/components/ModelSelector';
+import { ModelPicker } from '@/components/ModelPicker';
+import { ProviderIcon } from '@/components/ProviderIcon';
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Switch } from '@/components/ui/switch';
@@ -21,7 +35,12 @@ import { Label } from '@/components/ui/label';
 import { type Observable } from '@legendapp/state';
 import { Computed, use$ } from '@legendapp/state/react';
 import { conversations$ } from '@/stores/conversations';
-import { selectedAgent$, selectedWorkspace$ } from '@/stores/sidebar';
+import {
+  selectedAgent$,
+  selectedWorkspace$,
+  rightSidebarVisible$,
+  rightSidebarActiveTab$,
+} from '@/stores/sidebar';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { WorkspaceSelector } from '@/components/WorkspaceSelector';
 import type { WorkspaceProject, Agent } from '@/utils/workspaceUtils';
@@ -60,6 +79,7 @@ interface ChatOptionsProps {
   isDisabled: boolean;
   showWorkspaceSelector: boolean;
   onAddWorkspace?: (path: string) => void;
+  onOpenChatSettings?: () => void;
 }
 
 const ChatOptionsPanel: FC<ChatOptionsProps> = ({
@@ -73,6 +93,7 @@ const ChatOptionsPanel: FC<ChatOptionsProps> = ({
   isDisabled,
   showWorkspaceSelector,
   onAddWorkspace,
+  onOpenChatSettings,
 }) => (
   <div className="space-y-8">
     <div className="space-y-1">
@@ -103,6 +124,17 @@ const ChatOptionsPanel: FC<ChatOptionsProps> = ({
       setStreamingEnabled={setStreamingEnabled}
       isDisabled={isDisabled}
     />
+
+    {onOpenChatSettings && (
+      <button
+        type="button"
+        onClick={onOpenChatSettings}
+        className="flex w-full items-center gap-2 border-t pt-4 text-sm text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <SlidersHorizontal className="h-3.5 w-3.5" />
+        Chat settings
+      </button>
+    )}
   </div>
 );
 
@@ -121,6 +153,43 @@ const StreamingToggle: FC<{
     />
   </div>
 );
+
+const ModelBadge: FC<{
+  model: string;
+  models: { id: string; provider: string; model: string }[];
+  onModelChange: (model: string) => void;
+  isDisabled: boolean;
+}> = ({ model, models, onModelChange, isDisabled }) => {
+  const [open, setOpen] = useState(false);
+  const modelInfo = models.find((m) => m.id === model);
+  const displayName = modelInfo?.model || model.split('/').pop() || model;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-5 max-w-[200px] rounded-sm px-1.5 text-[10px] text-muted-foreground transition-all hover:bg-accent hover:text-muted-foreground hover:opacity-100"
+          disabled={isDisabled}
+        >
+          {modelInfo?.provider && <ProviderIcon provider={modelInfo.provider} size={10} />}
+          <span className="truncate">{displayName}</span>
+          <ChevronDown className="ml-0.5 h-2 w-2 flex-shrink-0" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80 p-0" align="start">
+        <ModelPicker
+          value={model}
+          onSelect={(id) => {
+            onModelChange(id);
+            setOpen(false);
+          }}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+};
 
 const OptionsButton: FC<{ isDisabled: boolean; children: React.ReactNode }> = ({
   isDisabled,
@@ -302,7 +371,7 @@ export const ChatInput: FC<Props> = ({
   const sidebarSelectedAgent = use$(selectedAgent$);
 
   // Use dynamic models instead of static list
-  const { defaultModel: apiDefaultModel } = useModels();
+  const { models: modelInfos, defaultModel: apiDefaultModel } = useModels();
 
   // Get conversation config to read the actual model
   const conversation$ = conversationId ? conversations$.get(conversationId) : null;
@@ -766,6 +835,15 @@ export const ChatInput: FC<Props> = ({
                 />
 
                 <div className="absolute bottom-1.5 left-1.5 flex items-center gap-2">
+                  <ModelBadge
+                    model={effectiveModel}
+                    models={modelInfos}
+                    onModelChange={(model: string) => {
+                      setSelectedModel(model);
+                      setHasExplicitModelSelection(true);
+                    }}
+                    isDisabled={isDisabled}
+                  />
                   <OptionsButton isDisabled={isDisabled}>
                     <ChatOptionsPanel
                       selectedModel={effectiveModel}
@@ -784,6 +862,14 @@ export const ChatInput: FC<Props> = ({
                         console.log('[ChatInput] Adding new workspace:', path);
                         addCustomWorkspace(path);
                       }}
+                      onOpenChatSettings={
+                        conversationId
+                          ? () => {
+                              rightSidebarActiveTab$.set('settings');
+                              rightSidebarVisible$.set(true);
+                            }
+                          : undefined
+                      }
                     />
                   </OptionsButton>
 

@@ -23,6 +23,7 @@ from gptme.llm.models import (
     _apply_model_filters,
     _get_models_for_provider,
     get_default_model,
+    get_recommended_model,
 )
 from gptme.prompts import get_prompt
 
@@ -520,10 +521,22 @@ def api_models():
             for model in models
         )
 
+    # Build recommended models list from core definitions
+    recommended: list[str] = []
+    for provider in providers_to_check:
+        try:
+            rec = get_recommended_model(provider)
+            full_id = f"{provider}/{rec}"
+            if any(m["id"] == full_id for m in models_data):
+                recommended.append(full_id)
+        except ValueError:
+            pass
+
     return flask.jsonify(
         {
             "models": models_data,
             "default": default_model.full if default_model else None,
+            "recommended": recommended,
         }
     )
 
