@@ -635,7 +635,11 @@ class LogManager:
         }
         if branches:
             d["branches"] = {
-                branch: [msg.to_dict() for msg in msgs]
+                branch: (
+                    [msg.to_dict() for msg in self.log]
+                    if branch == self.current_branch
+                    else [msg.to_dict() for msg in msgs]
+                )
                 for branch, msgs in self._branches.items()
             }
         return d

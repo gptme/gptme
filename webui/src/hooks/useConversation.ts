@@ -513,8 +513,17 @@ export function useConversation(conversationId: string, serverId?: string) {
 
   const editMessage = async (index: number, content: string, truncate: boolean = false) => {
     try {
-      await api.editMessage(conversationId, index, content, truncate);
-      // The conversation_edited SSE event will update the store
+      const result = await api.editMessage(conversationId, index, content, truncate);
+      // Use API response directly (SSE event may also arrive, but this is immediate)
+      replaceLog(conversationId, result.log);
+      if (result.branches) {
+        updateBranches(conversationId, result.branches);
+      }
+
+      // After truncation, trigger re-generation
+      if (truncate) {
+        await api.step(conversationId);
+      }
     } catch (error) {
       console.error('Error editing message:', error);
       const errorMsg = error instanceof Error ? error.message : 'Failed to edit message';

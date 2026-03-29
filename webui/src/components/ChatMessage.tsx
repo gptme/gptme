@@ -88,9 +88,34 @@ export const ChatMessage: FC<Props> = ({
   const previousContent$ = useObservable('');
   useObserveEffect(message$.content, ({ value }) => {
     const previousContent = previousContent$.get();
-    const newChars = value?.slice(previousContent.length);
+    const content = value || '';
+
+    // If content was replaced (not appended), reinitialize the parser
+    if (content && !content.startsWith(previousContent) && previousContent.length > 0) {
+      previousContent$.set('');
+      if (contentRef.current) {
+        contentRef.current.innerHTML = '';
+        const renderer = customRenderer(
+          contentRef.current,
+          false,
+          true,
+          settings.blocksDefaultOpen
+        );
+        renderer$.set(ObservableHint.opaque(renderer));
+        const newParser = smd.parser(renderer);
+        parser$.set(ObservableHint.opaque(newParser));
+        smd.parser_write(newParser, content);
+        smd.parser_end(newParser);
+        renderer$.set(null);
+        parser$.set(null);
+        previousContent$.set(content);
+      }
+      return;
+    }
+
+    const newChars = content.slice(previousContent.length);
     if (!newChars) return;
-    previousContent$.set(value || '');
+    previousContent$.set(content);
     if (!contentRef.current) return;
     const parser = parser$.get();
     if (!parser) return;
