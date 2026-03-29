@@ -511,13 +511,15 @@ export const ConversationList: FC<Props> = ({
               >
                 {group}
               </div>
-              {items.map((conv) => (
-                <ConversationItem
-                  key={conv.serverId ? `${conv.serverId}:${conv.id}` : conv.id}
-                  conv={conv}
-                  showLabel={showServerLabels}
-                />
-              ))}
+              <div className="space-y-2">
+                {items.map((conv) => (
+                  <ConversationItem
+                    key={conv.serverId ? `${conv.serverId}:${conv.id}` : conv.id}
+                    conv={conv}
+                    showLabel={showServerLabels}
+                  />
+                ))}
+              </div>
             </div>
           )
         )}

@@ -8,9 +8,9 @@ export function getDateGroup(date: Date, now: Date = new Date()): DateGroup {
   const startOfYesterday = new Date(startOfToday);
   startOfYesterday.setDate(startOfYesterday.getDate() - 1);
   const startOfWeek = new Date(startOfToday);
-  startOfWeek.setDate(startOfWeek.getDate() - 6); // Last 7 days including today
+  startOfWeek.setDate(startOfWeek.getDate() - 6); // "This Week" covers days 2-6 ago (Today/Yesterday handled first)
   const startOfMonth = new Date(startOfToday);
-  startOfMonth.setDate(startOfMonth.getDate() - 29); // Last 30 days including today
+  startOfMonth.setDate(startOfMonth.getDate() - 29); // "This Month" covers days 7-29 ago (This Week handled first)
 
   if (date >= startOfToday) return 'Today';
   if (date >= startOfYesterday) return 'Yesterday';
