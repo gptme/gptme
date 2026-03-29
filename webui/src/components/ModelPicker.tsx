@@ -1,5 +1,5 @@
-import { Star, Check } from 'lucide-react';
-import { useMemo, type FC } from 'react';
+import { Star, Check, ChevronsUpDown } from 'lucide-react';
+import { useMemo, useState, type FC } from 'react';
 import {
   Command,
   CommandEmpty,
@@ -8,13 +8,21 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command';
+import {
+  FormField,
+  FormItem,
+  FormLabel,
+  FormControl,
+  FormMessage,
+  FormDescription,
+} from '@/components/ui/form';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Button } from '@/components/ui/button';
 import { ProviderIcon } from '@/components/ProviderIcon';
 import { useModels, type ModelInfo } from '@/hooks/useModels';
+import type { Control, FieldPath, FieldValues } from 'react-hook-form';
 
-interface ModelPickerProps {
-  value?: string;
-  onSelect: (modelId: string) => void;
-}
+// --- Shared internals ---
 
 const ModelItem: FC<{
   model: ModelInfo;
@@ -39,7 +47,7 @@ const ModelItem: FC<{
   </div>
 );
 
-export const ModelPicker: FC<ModelPickerProps> = ({ value, onSelect }) => {
+function useModelGroups() {
   const { models, availableModels, recommendedModels } = useModels();
 
   const recommendedSet = useMemo(() => new Set(recommendedModels), [recommendedModels]);
@@ -64,6 +72,15 @@ export const ModelPicker: FC<ModelPickerProps> = ({ value, onSelect }) => {
     }
     return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
   }, [models, recommendedSet]);
+
+  return { models, availableRecommended, providerGroups, recommendedSet };
+}
+
+const ModelCommandList: FC<{
+  value?: string;
+  onSelect: (modelId: string) => void;
+}> = ({ value, onSelect }) => {
+  const { availableRecommended, providerGroups, recommendedSet } = useModelGroups();
 
   return (
     <Command className="rounded-lg">
@@ -111,7 +128,7 @@ export const ModelPicker: FC<ModelPickerProps> = ({ value, onSelect }) => {
                 <ModelItem
                   model={model}
                   isSelected={model.id === value}
-                  isRecommended={false}
+                  isRecommended={recommendedSet.has(model.id)}
                   showProvider={false}
                 />
               </CommandItem>
@@ -122,3 +139,78 @@ export const ModelPicker: FC<ModelPickerProps> = ({ value, onSelect }) => {
     </Command>
   );
 };
+
+// --- Public API ---
+
+/** Inline model picker (renders the Command list directly, no wrapper) */
+export const ModelPicker: FC<{
+  value?: string;
+  onSelect: (modelId: string) => void;
+}> = ({ value, onSelect }) => <ModelCommandList value={value} onSelect={onSelect} />;
+
+/** Model picker as a form field with popover trigger (for use in settings forms) */
+export function ModelPickerField<T extends FieldValues = FieldValues>({
+  control,
+  name,
+  disabled = false,
+  placeholder = 'Select model',
+  label = 'Model',
+}: {
+  control: Control<T>;
+  name: FieldPath<T>;
+  disabled?: boolean;
+  placeholder?: string;
+  label?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const { models } = useModels();
+
+  return (
+    <FormField
+      control={control}
+      name={name}
+      render={({ field }) => {
+        const modelInfo = models.find((m) => m.id === field.value);
+        return (
+          <FormItem className="flex flex-col">
+            <FormLabel>{label}</FormLabel>
+            <Popover open={open} onOpenChange={setOpen}>
+              <PopoverTrigger asChild>
+                <FormControl>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={open}
+                    disabled={disabled}
+                    className="w-full justify-between font-normal"
+                  >
+                    {field.value ? (
+                      <span className="flex items-center gap-2 truncate">
+                        {modelInfo?.provider && <ProviderIcon provider={modelInfo.provider} />}
+                        {modelInfo?.model || field.value}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">{placeholder}</span>
+                    )}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </FormControl>
+              </PopoverTrigger>
+              <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                <ModelCommandList
+                  value={field.value}
+                  onSelect={(id) => {
+                    field.onChange(id);
+                    setOpen(false);
+                  }}
+                />
+              </PopoverContent>
+            </Popover>
+            <FormDescription>The model to use.</FormDescription>
+            <FormMessage />
+          </FormItem>
+        );
+      }}
+    />
+  );
+}

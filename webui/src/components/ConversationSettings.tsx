@@ -8,7 +8,7 @@ import {
   getExportableMessages,
 } from '@/utils/exportConversation';
 import { toast } from 'sonner';
-import { ModelSelector } from './ModelSelector';
+import { ModelPickerField } from './ModelPicker';
 import {
   Form,
   FormField,
@@ -139,7 +139,7 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
               />
 
               {/* Model Field */}
-              <ModelSelector
+              <ModelPickerField
                 control={control}
                 name="chat.model"
                 disabled={isSubmitting}

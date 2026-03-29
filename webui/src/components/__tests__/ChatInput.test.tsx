@@ -63,8 +63,9 @@ jest.mock('@/hooks/useFileAutocomplete', () => ({
   }),
 }));
 
-jest.mock('@/components/ModelSelector', () => ({
-  ModelSelector: () => null,
+jest.mock('@/components/ModelPicker', () => ({
+  ModelPicker: () => null,
+  ModelPickerField: () => null,
 }));
 
 jest.mock('@/components/WorkspaceSelector', () => ({
