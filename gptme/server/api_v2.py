@@ -9,6 +9,7 @@ import logging
 import shutil
 from datetime import datetime, timezone
 from itertools import islice
+from pathlib import Path
 from typing import cast
 
 import flask
@@ -347,8 +348,12 @@ def api_conversation_post(conversation_id: str):
             404,
         )
 
+    # Convert file paths from JSON strings to Path objects
+    file_paths = [Path(f) for f in req_json.get("files", [])]
     msg = Message(
-        req_json["role"], req_json["content"], files=req_json.get("files", [])
+        req_json["role"],
+        req_json["content"],
+        files=file_paths,  # type: ignore[arg-type]  # list[Path] is valid for list[FilePath]
     )
 
     # Check if the message is a slash command (e.g. /help, /model, /tools)
