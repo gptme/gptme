@@ -45,8 +45,16 @@ import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { WorkspaceSelector } from '@/components/WorkspaceSelector';
 import type { WorkspaceProject, Agent } from '@/utils/workspaceUtils';
 import { useModels } from '@/hooks/useModels';
+import { useAgents } from '@/hooks/useAgents';
 import { useFileAutocomplete } from '@/hooks/useFileAutocomplete';
 import { FileAutocomplete } from '@/components/FileAutocomplete';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 export interface ChatOptions {
   model?: string;
@@ -73,6 +81,10 @@ interface ChatOptionsProps {
   setSelectedModel: (model: string) => void;
   selectedWorkspace: string;
   setSelectedWorkspace: (workspace: string) => void;
+  selectedAgent: Agent | null;
+  setSelectedAgent: (agent: Agent | null) => void;
+  availableAgents: Agent[];
+  baseUrl: string;
   streamingEnabled: boolean;
   setStreamingEnabled: (enabled: boolean) => void;
   availableWorkspaces: WorkspaceProject[];
@@ -87,6 +99,10 @@ const ChatOptionsPanel: FC<ChatOptionsProps> = ({
   setSelectedModel,
   selectedWorkspace,
   setSelectedWorkspace,
+  selectedAgent,
+  setSelectedAgent,
+  availableAgents,
+  baseUrl,
   streamingEnabled,
   setStreamingEnabled,
   availableWorkspaces,
@@ -106,6 +122,64 @@ const ChatOptionsPanel: FC<ChatOptionsProps> = ({
         placeholder="Select model"
       />
     </div>
+
+    {showWorkspaceSelector && availableAgents.length > 0 && (
+      <div className="space-y-1">
+        <Label>Agent</Label>
+        <Select
+          value={selectedAgent?.path || '_none'}
+          onValueChange={(val) => {
+            if (val === '_none') {
+              setSelectedAgent(null);
+            } else {
+              const agent = availableAgents.find((a) => a.path === val);
+              if (agent) setSelectedAgent(agent);
+            }
+          }}
+          disabled={isDisabled}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="No agent">
+              {selectedAgent ? (
+                <div className="flex items-center gap-2">
+                  {selectedAgent.hasAvatar ? (
+                    <img
+                      src={`${baseUrl}/api/v2/agents/avatar?path=${encodeURIComponent(selectedAgent.path)}`}
+                      alt={selectedAgent.name}
+                      className="h-4 w-4 rounded-full object-cover"
+                    />
+                  ) : (
+                    <Bot className="h-3.5 w-3.5" />
+                  )}
+                  <span>{selectedAgent.name}</span>
+                </div>
+              ) : (
+                'No agent'
+              )}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="_none">No agent</SelectItem>
+            {availableAgents.map((agent) => (
+              <SelectItem key={agent.path} value={agent.path}>
+                <div className="flex items-center gap-2">
+                  {agent.hasAvatar ? (
+                    <img
+                      src={`${baseUrl}/api/v2/agents/avatar?path=${encodeURIComponent(agent.path)}`}
+                      alt={agent.name}
+                      className="h-4 w-4 rounded-full object-cover"
+                    />
+                  ) : (
+                    <Bot className="h-3.5 w-3.5" />
+                  )}
+                  <span>{agent.name}</span>
+                </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    )}
 
     {showWorkspaceSelector && (
       <WorkspaceSelector
@@ -281,10 +355,22 @@ const WorkspaceBadge: FC<{ workspace: string; onRemove: () => void }> = ({
   );
 };
 
-const AgentBadge: FC<{ agent: Agent; onRemove: () => void }> = ({ agent, onRemove }) => (
+const AgentBadge: FC<{ agent: Agent; baseUrl: string; onRemove: () => void }> = ({
+  agent,
+  baseUrl,
+  onRemove,
+}) => (
   <Badge variant="secondary" className="flex items-center gap-1.5 pr-1">
     <div className="flex items-center gap-1.5">
-      <Bot className="h-3 w-3" />
+      {agent.hasAvatar ? (
+        <img
+          src={`${baseUrl}/api/v2/agents/avatar?path=${encodeURIComponent(agent.path)}`}
+          alt={agent.name}
+          className="h-4 w-4 rounded-full object-cover"
+        />
+      ) : (
+        <Bot className="h-3 w-3" />
+      )}
       <span className="text-xs">{agent.name}</span>
     </div>
     <Button
@@ -366,7 +452,7 @@ export const ChatInput: FC<Props> = ({
   value,
   onChange,
 }) => {
-  const { isConnected$ } = useApi();
+  const { isConnected$, connectionConfig } = useApi();
   const sidebarSelectedWorkspace = use$(selectedWorkspace$);
   const sidebarSelectedAgent = use$(selectedAgent$);
 
@@ -521,8 +607,9 @@ export const ChatInput: FC<Props> = ({
 
   const isConnected = use$(isConnected$);
 
-  // Get available workspaces using the reusable hook
-  const { workspaces: availableWorkspaces, addCustomWorkspace } = useWorkspaces(false); // Don't fetch, just subscribe to cache changes
+  // Get available workspaces and agents using reusable hooks
+  const { workspaces: availableWorkspaces, addCustomWorkspace } = useWorkspaces(false);
+  const { agents: availableAgents } = useAgents(false);
 
   // File autocomplete for @ mentions
   const fileAutocomplete = useFileAutocomplete({
@@ -583,19 +670,24 @@ export const ChatInput: FC<Props> = ({
     wasGenerating.current = isGenerating;
   }, [isGenerating, messageQueue, onSend]);
 
-  // Update workspace when sidebar selection changes (only for new conversations)
+  // Update workspace when sidebar/agent selection changes (only for new conversations)
+  // Agent selection defaults workspace to agent's path, but explicit workspace choice takes priority
   useEffect(() => {
     if (!conversationId && sidebarSelectedWorkspace) {
       setSelectedWorkspace(sidebarSelectedWorkspace);
       setWorkspaceExplicitlySelected(true);
-    } else if (!conversationId && sidebarSelectedAgent && sidebarSelectedAgent.path) {
+    } else if (
+      !conversationId &&
+      sidebarSelectedAgent &&
+      sidebarSelectedAgent.path &&
+      !workspaceExplicitlySelected
+    ) {
       setSelectedWorkspace(sidebarSelectedAgent.path);
-      setWorkspaceExplicitlySelected(false); // Agent-derived workspace, not explicit
     } else if (!conversationId && !sidebarSelectedWorkspace && !sidebarSelectedAgent) {
       setSelectedWorkspace('.');
       setWorkspaceExplicitlySelected(false);
     }
-  }, [conversationId, sidebarSelectedWorkspace, sidebarSelectedAgent]);
+  }, [conversationId, sidebarSelectedWorkspace, sidebarSelectedAgent, workspaceExplicitlySelected]);
 
   // Wrapper function for explicit workspace selection
   const handleWorkspaceChange = (workspace: string) => {
@@ -853,6 +945,10 @@ export const ChatInput: FC<Props> = ({
                       }}
                       selectedWorkspace={selectedWorkspace}
                       setSelectedWorkspace={handleWorkspaceChange}
+                      selectedAgent={sidebarSelectedAgent}
+                      setSelectedAgent={(agent) => selectedAgent$.set(agent)}
+                      availableAgents={availableAgents}
+                      baseUrl={connectionConfig.baseUrl.replace(/\/+$/, '')}
                       streamingEnabled={streamingEnabled}
                       setStreamingEnabled={setStreamingEnabled}
                       availableWorkspaces={availableWorkspaces}
@@ -891,6 +987,7 @@ export const ChatInput: FC<Props> = ({
                   {!conversationId && sidebarSelectedAgent && (
                     <AgentBadge
                       agent={sidebarSelectedAgent}
+                      baseUrl={connectionConfig.baseUrl.replace(/\/+$/, '')}
                       onRemove={() => selectedAgent$.set(null)}
                     />
                   )}
