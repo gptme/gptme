@@ -84,15 +84,17 @@ export function computeForkPoints(
   for (const [forkIndex, otherBranches] of divergenceMap) {
     const allBranches = [currentBranch, ...otherBranches];
 
-    // Sort by timestamp of the diverging message (the one after the fork)
+    // Sort by timestamp of the diverging message, with branch name as tiebreaker
+    // for deterministic order regardless of which branch is currently viewed
     allBranches.sort((a, b) => {
       const aMsg = branches[a]?.[forkIndex + 1];
       const bMsg = branches[b]?.[forkIndex + 1];
+      if (!aMsg && !bMsg) return a.localeCompare(b);
       if (!aMsg) return 1;
       if (!bMsg) return -1;
-      return (
-        new Date(aMsg.timestamp || '').getTime() - new Date(bMsg.timestamp || '').getTime()
-      );
+      const timeDiff =
+        new Date(aMsg.timestamp || '').getTime() - new Date(bMsg.timestamp || '').getTime();
+      return timeDiff !== 0 ? timeDiff : a.localeCompare(b);
     });
 
     result.set(forkIndex, {
