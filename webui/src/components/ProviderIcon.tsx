@@ -51,7 +51,7 @@ export const ProviderIcon: FC<ProviderIconProps> = ({ provider, size = 14 }) => 
                 style={{
                   color: config.color,
                 }}
-                className="inline-block"
+                className="inline-block dark:invert"
               />
             )}
           </TooltipTrigger>
