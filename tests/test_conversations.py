@@ -244,3 +244,52 @@ def test_detail_false_large_conversation(logs_dir):
 
     # Full mode has actual cost
     assert full[0].total_cost == 0.05
+
+
+def test_detail_false_multi_model_consistency(logs_dir):
+    """Both scan modes should return the same model for multi-model conversations."""
+    # Create a large conversation that switches models mid-way
+    messages: list[dict[str, object]] = [
+        {
+            "role": "system",
+            "content": "System prompt",
+            "timestamp": "2025-01-01T00:00:00Z",
+        },
+        {
+            "role": "assistant",
+            "content": "Early response",
+            "timestamp": "2025-01-01T00:00:01Z",
+            "metadata": {"model": "model-early", "cost": 0.01},
+        },
+    ]
+    # Pad to exceed _TAIL_BYTES (8192)
+    messages.extend(
+        {
+            "role": "user" if i % 2 == 0 else "assistant",
+            "content": f"Filler message {i}: {'y' * 100}",
+            "timestamp": f"2025-01-01T00:{i:02d}:00Z",
+        }
+        for i in range(100)
+    )
+    # Switch to a different model at the end
+    messages.append(
+        {
+            "role": "assistant",
+            "content": "Late response with new model",
+            "timestamp": "2025-01-01T01:41:00Z",
+            "metadata": {"model": "model-late", "cost": 0.02},
+        }
+    )
+    _make_conversation(logs_dir, "test-multi-model", messages)
+
+    conv_file = logs_dir / "test-multi-model" / "conversation.jsonl"
+    assert conv_file.stat().st_size > 8192
+
+    full = list(get_conversations(detail=True))
+    fast = list(get_conversations(detail=False))
+    assert len(full) == len(fast) == 1
+
+    # Both modes must return the same (most recent) model
+    assert full[0].model == "model-late"
+    assert fast[0].model == "model-late"
+    assert fast[0].model == full[0].model

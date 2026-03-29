@@ -153,9 +153,9 @@ def api_conversations():
     limit = int(request.args.get("limit", 100))
     search = request.args.get("search", "").strip().lower()
 
-    # Use fast tail-only scan for list/search — skips full JSONL parsing,
-    # only reads last 8KB of each file for preview/model. ~5-10x faster
-    # for large conversations since it avoids JSON-parsing every line.
+    # Use fast tail-only scan for list/search — reads last 8KB for
+    # preview/model, skips json.loads() on every metadata line.
+    # Full file is still read for line count, but without JSON parsing.
     if search:
         conversations = []
         for conv in get_user_conversations(detail=False):

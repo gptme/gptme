@@ -116,8 +116,8 @@ def _fast_scan_tail(
     Returns (message_count, model, last_user_or_assistant_line).
     """
     # Fast line count: count non-empty lines without JSON parsing.
-    # For large files this is ~5-10x faster than the full parse loop
-    # because it avoids json.loads() and substring matching on every line.
+    # The gain is from avoiding json.loads() on every metadata line;
+    # the full file is still read for the line count (I/O unchanged).
     len_msgs = 0
     with open(conv_fn, "rb") as f:
         for line in f:
@@ -159,6 +159,9 @@ def _full_scan(
 ) -> tuple[int, str | None, float, int, int, int, bytes | None]:
     """Full JSONL scan: counts messages and accumulates cost/token metadata.
 
+    Both scan modes return the most recently used model (last model wins),
+    which is more useful for display than the first model used.
+
     Returns (len_msgs, model, cost, input_tokens, output_tokens,
              cache_read_tokens, last_user_or_assistant_line).
     """
@@ -182,7 +185,7 @@ def _full_scan(
                     msg = json.loads(line)
                     meta = msg.get("metadata")
                     if meta:
-                        if not conv_model and meta.get("model"):
+                        if meta.get("model"):
                             conv_model = meta["model"]
                         conv_cost += meta.get("cost", 0) or 0
                         usage = meta.get("usage", {})
