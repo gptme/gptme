@@ -25,7 +25,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 
 function formatTimestamp(timestamp: string): { short: string; full: string } {
   const date = new Date(timestamp);
@@ -313,8 +313,8 @@ export const ChatMessage: FC<Props> = ({
         <Dialog open={!!lightboxUrl} onOpenChange={(open) => !open && setLightboxUrl(null)}>
           <DialogContent className="max-h-[90vh] max-w-[90vw] overflow-hidden p-0">
             <div className="flex flex-col">
-              <div className="flex items-center justify-between border-b px-4 py-2">
-                <span className="truncate text-sm font-medium">{lightboxName}</span>
+              <div className="flex items-center justify-between border-b px-4 py-2 pr-12">
+                <DialogTitle className="truncate text-sm font-medium">{lightboxName}</DialogTitle>
                 <a
                   href={lightboxUrl || ''}
                   target="_blank"
