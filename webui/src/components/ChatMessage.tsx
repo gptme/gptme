@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FC } from 'react';
+import { useEffect, useRef, type FC } from 'react';
 import type { Message, StreamingMessage } from '@/types/conversation';
 import { MessageAvatar } from './MessageAvatar';
 import { useMessageChainType } from '@/utils/messageUtils';
@@ -181,15 +181,15 @@ export const ChatMessage: FC<Props> = ({
     );
   });
 
-  const [copied, setCopied] = useState(false);
+  const copied$ = useObservable(false);
 
   const handleCopy = async () => {
     const content = message$.content.peek();
     if (content) {
       try {
         await navigator.clipboard.writeText(content);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        copied$.set(true);
+        setTimeout(() => copied$.set(false), 2000);
       } catch (err) {
         console.error('Failed to copy to clipboard:', err);
       }
@@ -258,7 +258,7 @@ export const ChatMessage: FC<Props> = ({
                       className="absolute right-1 top-1 z-10 h-7 w-7 p-0 opacity-0 transition-opacity hover:!opacity-100 group-hover/message:opacity-50"
                       aria-label="Copy message"
                     >
-                      {copied ? <Check size={14} /> : <Clipboard size={14} />}
+                      {copied$.get() ? <Check size={14} /> : <Clipboard size={14} />}
                     </Button>
                     <div className="px-3 py-1.5">
                       <Memo>

@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ChatMessage } from '../ChatMessage';
 import '@testing-library/jest-dom';
 import type { Message } from '@/types/conversation';
@@ -93,7 +93,7 @@ describe('ChatMessage', () => {
     expect(writeText).toHaveBeenCalledWith('Text to copy');
   });
 
-  it('triggers async clipboard write and sets success state', async () => {
+  it('shows check icon after successful copy', async () => {
     const writeText = jest.fn().mockResolvedValue(undefined);
     Object.assign(navigator, {
       clipboard: { writeText },
@@ -110,12 +110,16 @@ describe('ChatMessage', () => {
     const copyButton = screen.getByRole('button', { name: 'Copy message' });
     expect(copyButton).toBeInTheDocument();
 
-    fireEvent.click(copyButton);
+    await act(async () => {
+      fireEvent.click(copyButton);
+    });
 
-    // Verify the async clipboard write was called with correct content
     expect(writeText).toHaveBeenCalledWith('My message');
-    // The handler awaits the clipboard Promise before setting success state
-    // (verified by the complementary error-handling test below)
+
+    await waitFor(() => {
+      expect(copyButton.querySelector('svg.lucide-check')).toBeInTheDocument();
+      expect(copyButton.querySelector('svg.lucide-clipboard')).not.toBeInTheDocument();
+    });
   });
 
   it('does not show success icon when clipboard write fails', async () => {
@@ -134,19 +138,16 @@ describe('ChatMessage', () => {
     renderWithProviders(<ChatMessage message$={message$} conversationId={testConversationId} />);
 
     const copyButton = screen.getByRole('button', { name: 'Copy message' });
-    const svgBefore = copyButton.querySelector('svg');
-    const htmlBefore = svgBefore?.innerHTML;
+    await act(async () => {
+      fireEvent.click(copyButton);
+    });
 
-    fireEvent.click(copyButton);
-
-    // Wait for error to be logged
     await waitFor(() => {
       expect(consoleSpy).toHaveBeenCalledWith('Failed to copy to clipboard:', expect.any(Error));
     });
 
-    // Icon should remain unchanged after failure
-    const svgAfter = copyButton.querySelector('svg');
-    expect(svgAfter?.innerHTML).toBe(htmlBefore);
+    expect(copyButton.querySelector('svg.lucide-clipboard')).toBeInTheDocument();
+    expect(copyButton.querySelector('svg.lucide-check')).not.toBeInTheDocument();
 
     consoleSpy.mockRestore();
   });
