@@ -25,9 +25,14 @@ describe('getDateGroup', () => {
     expect(getDateGroup(new Date('2026-03-01T00:00:00'), now)).toBe('This Month');
   });
 
-  it('returns Older for 30+ days ago', () => {
-    expect(getDateGroup(new Date('2026-02-27T00:00:00'), now)).toBe('Older');
-    expect(getDateGroup(new Date('2025-01-01T00:00:00'), now)).toBe('Older');
+  it('returns month name for 30+ days ago (same year)', () => {
+    expect(getDateGroup(new Date('2026-02-15T00:00:00'), now)).toBe('February');
+    expect(getDateGroup(new Date('2026-01-10T00:00:00'), now)).toBe('January');
+  });
+
+  it('returns month and year for previous years', () => {
+    expect(getDateGroup(new Date('2025-12-01T00:00:00'), now)).toBe('December 2025');
+    expect(getDateGroup(new Date('2025-01-01T00:00:00'), now)).toBe('January 2025');
   });
 
   it('handles midnight boundary correctly', () => {
@@ -48,7 +53,7 @@ describe('groupByDate', () => {
 
   const toUnix = (d: string) => new Date(d).getTime() / 1000;
 
-  it('groups items into date categories', () => {
+  it('groups items into date categories with monthly drill-down', () => {
     const items: Item[] = [
       { id: 'a', ts: toUnix('2026-03-29T12:00:00') },
       { id: 'b', ts: toUnix('2026-03-28T10:00:00') },
@@ -63,7 +68,7 @@ describe('groupByDate', () => {
       'Yesterday',
       'This Week',
       'This Month',
-      'Older',
+      'January',
     ]);
     expect(groups[0].items.map((i) => i.id)).toEqual(['a']);
     expect(groups[1].items.map((i) => i.id)).toEqual(['b']);
@@ -83,7 +88,7 @@ describe('groupByDate', () => {
     ];
     const groups = groupByDate(items, (i) => i.ts, now);
     const groupNames = groups.map((g) => g.group);
-    expect(groupNames).toEqual(['Today', 'Older']);
+    expect(groupNames).toEqual(['Today', 'January']);
     expect(groupNames).not.toContain('Yesterday');
   });
 
@@ -106,7 +111,7 @@ describe('groupByDate', () => {
     ];
     const groups = groupByDate(items, (i) => i.ts, now);
     expect(groups[0].group).toBe('Today');
-    expect(groups[1].group).toBe('Older');
+    expect(groups[1].group).toBe('January 2025');
   });
 
   it('handles multiple items in same group', () => {
@@ -119,5 +124,15 @@ describe('groupByDate', () => {
     expect(groups).toHaveLength(1);
     expect(groups[0].group).toBe('Today');
     expect(groups[0].items).toHaveLength(3);
+  });
+
+  it('sorts month groups newest first', () => {
+    const items: Item[] = [
+      { id: 'jan', ts: toUnix('2026-01-15T10:00:00') },
+      { id: 'feb', ts: toUnix('2026-02-15T10:00:00') },
+      { id: 'dec', ts: toUnix('2025-12-15T10:00:00') },
+    ];
+    const groups = groupByDate(items, (i) => i.ts, now);
+    expect(groups.map((g) => g.group)).toEqual(['February', 'January', 'December 2025']);
   });
 });

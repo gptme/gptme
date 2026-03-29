@@ -9,6 +9,7 @@ import {
   FileText,
   FileJson,
   Trash2,
+  BookOpen,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -201,6 +202,11 @@ export const ConversationList: FC<Props> = ({
   if (!conversations) {
     return null;
   }
+
+  // Separate demo conversations from real ones
+  const demoIds = new Set(demoConversations.map((d) => d.id));
+  const realConversations = conversations.filter((c) => !demoIds.has(c.id));
+  const demos = conversations.filter((c) => demoIds.has(c.id));
 
   // strip leading YYYY-MM-DD from name if present
   function stripDate(name: string) {
@@ -501,10 +507,10 @@ export const ConversationList: FC<Props> = ({
         </div>
       )}
 
-      {/* Render conversations grouped by date */}
+      {/* Render real conversations grouped by date */}
       {!isLoading &&
         !isError &&
-        groupByDate<ConversationSummary>(conversations, (c) => c.created ?? c.modified).map(
+        groupByDate<ConversationSummary>(realConversations, (c) => c.created ?? c.modified).map(
           ({ group, items }) => (
             <div key={group}>
               <div
@@ -538,9 +544,24 @@ export const ConversationList: FC<Props> = ({
       <div ref={loadMoreSentinelRef} style={{ height: '1px' }} />
 
       {/* End message */}
-      {!hasNextPage && conversations.length > 0 && (
+      {!hasNextPage && realConversations.length > 0 && (
         <div className="py-4 text-center text-sm text-muted-foreground">
           You've reached the end of your conversations.
+        </div>
+      )}
+
+      {/* Demo conversations pinned at bottom */}
+      {!isLoading && !isError && demos.length > 0 && (
+        <div>
+          <div className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium text-muted-foreground">
+            <BookOpen className="h-3 w-3" />
+            Getting Started
+          </div>
+          <div className="space-y-2">
+            {demos.map((conv) => (
+              <ConversationItem key={conv.id} conv={conv} />
+            ))}
+          </div>
         </div>
       )}
 

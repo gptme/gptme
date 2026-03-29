@@ -70,9 +70,17 @@ export const AgentsList: FC<AgentsListProps> = ({
             >
               <div className="flex w-full items-center justify-between">
                 <div className="flex items-center space-x-2">
-                  <Bot
-                    className={`h-4 w-4 ${isSelected ? 'text-primary-foreground' : 'text-blue-500'}`}
-                  />
+                  {agent.avatarUrl ? (
+                    <img
+                      src={agent.avatarUrl}
+                      alt={agent.name}
+                      className="h-5 w-5 rounded-full object-cover"
+                    />
+                  ) : (
+                    <Bot
+                      className={`h-4 w-4 ${isSelected ? 'text-primary-foreground' : 'text-blue-500'}`}
+                    />
+                  )}
                   <span className="text-sm font-medium">{agent.name}</span>
                 </div>
                 <span

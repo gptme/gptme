@@ -46,6 +46,7 @@ class ConversationMeta:
     workspace: str
     agent_name: str | None = None
     agent_path: str | None = None
+    agent_avatar: str | None = None
     agent_urls: dict[str, str] | None = None
     model: str | None = None
     total_cost: float = 0.0
@@ -162,6 +163,11 @@ def get_conversations() -> Generator[ConversationMeta, None, None]:
             if agent_project_config and agent_project_config.agent
             else None
         )
+        agent_avatar = (
+            agent_project_config.agent.avatar
+            if agent_project_config and agent_project_config.agent
+            else None
+        )
         agent_urls = (
             agent_project_config.agent.urls
             if agent_project_config and agent_project_config.agent
@@ -179,6 +185,7 @@ def get_conversations() -> Generator[ConversationMeta, None, None]:
             workspace=str(chat_config.workspace),
             agent_name=agent_name,
             agent_path=str(agent_path) if agent_path else None,
+            agent_avatar=agent_avatar,
             agent_urls=agent_urls,
             model=conv_model,
             total_cost=conv_cost,

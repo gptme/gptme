@@ -1,7 +1,22 @@
-export type DateGroup = 'Today' | 'Yesterday' | 'This Week' | 'This Month' | 'Older';
+export type DateGroup = string;
+
+// Well-known groups that always appear in this order before monthly groups
+const RECENT_GROUPS = ['Today', 'Yesterday', 'This Week', 'This Month'] as const;
+
+/**
+ * Format a month group label, e.g. "March 2026" or "March" for the current year.
+ */
+function formatMonthGroup(date: Date, now: Date): string {
+  const month = date.toLocaleString('default', { month: 'long' });
+  if (date.getFullYear() === now.getFullYear()) {
+    return month;
+  }
+  return `${month} ${date.getFullYear()}`;
+}
 
 /**
  * Categorize a date into a display group for conversation list headers.
+ * Returns well-known groups for recent dates and month names for older ones.
  */
 export function getDateGroup(date: Date, now: Date = new Date()): DateGroup {
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -16,7 +31,7 @@ export function getDateGroup(date: Date, now: Date = new Date()): DateGroup {
   if (date >= startOfYesterday) return 'Yesterday';
   if (date >= startOfWeek) return 'This Week';
   if (date >= startOfMonth) return 'This Month';
-  return 'Older';
+  return formatMonthGroup(date, now);
 }
 
 /**
@@ -28,17 +43,42 @@ export function groupByDate<T>(
   getTimestamp: (item: T) => number,
   now: Date = new Date()
 ): { group: DateGroup; items: T[] }[] {
-  const groupOrder: DateGroup[] = ['Today', 'Yesterday', 'This Week', 'This Month', 'Older'];
   const groups = new Map<DateGroup, T[]>();
+  // Track the order in which month groups appear (for sorting)
+  const monthGroupDates = new Map<string, Date>();
 
   for (const item of items) {
     const date = new Date(getTimestamp(item) * 1000);
     const group = getDateGroup(date, now);
     if (!groups.has(group)) groups.set(group, []);
     groups.get(group)!.push(item);
+    // Track representative date for month groups (for ordering)
+    if (!RECENT_GROUPS.includes(group as (typeof RECENT_GROUPS)[number])) {
+      if (!monthGroupDates.has(group) || date > monthGroupDates.get(group)!) {
+        monthGroupDates.set(group, date);
+      }
+    }
   }
 
-  return groupOrder.filter((g) => groups.has(g)).map((g) => ({ group: g, items: groups.get(g)! }));
+  // Build ordered result: recent groups first (in fixed order), then month groups (newest first)
+  const result: { group: DateGroup; items: T[] }[] = [];
+
+  for (const g of RECENT_GROUPS) {
+    if (groups.has(g)) {
+      result.push({ group: g, items: groups.get(g)! });
+    }
+  }
+
+  // Sort month groups by date (most recent first)
+  const sortedMonthGroups = [...monthGroupDates.entries()]
+    .sort(([, a], [, b]) => b.getTime() - a.getTime())
+    .map(([group]) => group);
+
+  for (const g of sortedMonthGroups) {
+    result.push({ group: g, items: groups.get(g)! });
+  }
+
+  return result;
 }
 
 export function getRelativeTimeString(date: Date): string {

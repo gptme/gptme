@@ -29,6 +29,7 @@ export interface ConversationSummary {
   readonly?: boolean; // For demo conversations
   agent_name?: string;
   agent_path?: string;
+  agent_avatar?: string;
   agent_urls?: Record<string, string>;
   last_message_role?: 'user' | 'assistant';
   last_message_preview?: string;
