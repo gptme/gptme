@@ -261,6 +261,8 @@ class TestExtractiveCompress:
         # Diagnostic should favor error/exception sentences; implementation should
         # favor design/architecture sentences — so the outputs should differ.
         assert diag != impl
+        assert "exception" in diag.lower() or "debug" in diag.lower()
+        assert "design" in impl.lower() or "architecture" in impl.lower()
 
     def test_code_blocks_with_markers_in_sentences(self):
         """Code block markers embedded in sentences should be preserved."""
@@ -391,7 +393,8 @@ class TestAdaptiveCompressor:
             context_files=[f"api{i}.py" for i in range(5)],
             current_context=["class Foo:", "def bar:", "function baz:", "extra"],
         )
-        # current_context influences ratio selection — verify compression ran
+        # current_context should surface reference implementations in the rationale
         assert isinstance(result, CompressionResult)
-        assert result.compression_ratio > 0
+        assert 0.10 <= result.compression_ratio <= 0.50
         assert "Task Type:" in result.rationale
+        assert "Reference implementation available in workspace" in result.rationale
