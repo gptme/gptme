@@ -1,16 +1,26 @@
 import { ServerSelector } from './ServerSelector';
 import { Button } from './ui/button';
-import { User, Search } from 'lucide-react';
+import { User, Search, Menu } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Link } from 'react-router-dom';
 import { commandPaletteOpen$ } from '@/stores/commandPalette';
+import { toggleLeftSidebar } from '@/stores/sidebar';
 
 import type { FC } from 'react';
 
 export const MenuBar: FC = () => {
   return (
     <div className="flex h-9 items-center justify-between border-b px-2 sm:px-4">
-      <div className="flex items-center space-x-2 sm:space-x-4">
+      <div className="flex items-center space-x-1 sm:space-x-4">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 md:hidden"
+          onClick={() => toggleLeftSidebar()}
+          aria-label="Open navigation"
+        >
+          <Menu className="h-4 w-4" />
+        </Button>
         <Link
           to="/chat"
           className="flex items-center space-x-1 transition-opacity hover:opacity-80 sm:space-x-2"

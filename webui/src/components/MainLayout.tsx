@@ -68,10 +68,17 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
 
   // Mobile detection
   const [isMobile, setIsMobile] = useState(false);
+  const prevMobileRef = useRef(false);
 
   useEffect(() => {
     const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
+      const mobile = window.innerWidth < 768;
+      // Close left sidebar when entering mobile mode to prevent Sheet auto-opening
+      if (mobile && !prevMobileRef.current) {
+        leftSidebarVisible$.set(false);
+      }
+      prevMobileRef.current = mobile;
+      setIsMobile(mobile);
     };
 
     checkMobile();
