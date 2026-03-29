@@ -221,7 +221,7 @@ def _append_and_notify(manager: LogManager, session: ConversationSession, msg: M
         session.conversation_id,
         {
             "type": "message_added",
-            "message": msg2dict(msg, manager.workspace),
+            "message": msg2dict(msg, manager.workspace, manager.logdir),
         },
     )
 
@@ -458,7 +458,7 @@ async def _acp_step(
                 conversation_id,
                 {
                     "type": "generation_complete",
-                    "message": msg2dict(final_msg, manager.workspace),
+                    "message": msg2dict(final_msg, manager.workspace, manager.logdir),
                 },
             )
     except Exception as e:
@@ -665,7 +665,7 @@ def step(
             conversation_id,
             {
                 "type": "generation_complete",
-                "message": msg2dict(msg, manager.workspace),
+                "message": msg2dict(msg, manager.workspace, manager.logdir),
             },
         )
 

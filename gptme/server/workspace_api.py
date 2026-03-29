@@ -352,7 +352,9 @@ def upload_files(conversation_id: str):
             uploaded.append(
                 {
                     "name": file_path.name,
-                    "path": str(file_path),  # absolute path for unambiguous resolution
+                    "path": str(
+                        file_path.relative_to(manager.logdir)
+                    ),  # logdir-relative: "attachments/filename"
                     "type": "file",
                     "size": stat.st_size,
                     "modified": datetime.fromtimestamp(
@@ -370,6 +372,61 @@ def upload_files(conversation_id: str):
         return flask.jsonify({"error": str(e)}), 400
     except Exception as e:
         logger.exception("Error uploading files")
+        return flask.jsonify({"error": str(e)}), 500
+
+
+@workspace_api.route(
+    "/api/v2/conversations/<string:conversation_id>/files/<path:filepath>"
+)
+@require_auth
+@api_doc_simple(
+    responses={
+        200: None,  # raw file content
+        400: ErrorResponse,
+        404: ErrorResponse,
+        500: ErrorResponse,
+    },
+    tags=["workspace"],
+)
+def serve_conversation_file(conversation_id: str, filepath: str):
+    """Serve a file from a conversation.
+
+    Serves files from the conversation's workspace or logdir (e.g. attachments/).
+    Used by the webui to display images and linked files in messages.
+
+    Looks up files relative to the conversation's logdir first, then workspace.
+    """
+    try:
+        manager = LogManager.load(conversation_id, lock=False)
+        logdir = manager.logdir
+        workspace = manager.workspace
+
+        # Resolve path against logdir (covers workspace/ and attachments/)
+        try:
+            path = safe_workspace_path(logdir, filepath)
+        except ValueError:
+            return flask.jsonify({"error": "Path escapes conversation directory"}), 400
+
+        if not path.exists():
+            # Fallback: try workspace-relative (for backwards compat)
+            try:
+                path = safe_workspace_path(workspace, filepath)
+            except ValueError:
+                pass
+
+        if not path.is_file():
+            return flask.jsonify({"error": "File not found"}), 404
+
+        wfile = WorkspaceFile(path, logdir)
+        mime_type = wfile.mime_type or "application/octet-stream"
+        return flask.send_file(path, mimetype=mime_type)
+
+    except FileNotFoundError:
+        return flask.jsonify({"error": "Conversation not found"}), 404
+    except ValueError as e:
+        return flask.jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.exception("Error serving conversation file")
         return flask.jsonify({"error": str(e)}), 500
 
 

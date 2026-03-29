@@ -133,7 +133,7 @@ export const ChatMessage: FC<Props> = ({
                 .split('/')
                 .filter((part) => part !== '..')
                 .join('/');
-              const fileUrl = `${connectionConfig.baseUrl}/api/conversations/${conversationId}/files/${sanitizedPath}`;
+              const fileUrl = `${connectionConfig.baseUrl}/api/v2/conversations/${conversationId}/files/${sanitizedPath}`;
               const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(filename);
 
               // Get just the filename without path for display

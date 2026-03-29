@@ -184,11 +184,12 @@ def api_conversation(conversation_id: str):
     manager = LogManager.load(conversation_id, lock=False)
     log_dict = manager.to_dict(branches=True)
 
-    # make all paths absolute or relative to workspace (no "../")
+    # make all paths relative to workspace or logdir (no "../" or absolute paths)
     for msg in log_dict["log"]:
         if files := msg.get("files"):
             msg["files"] = [
-                _abs_to_rel_workspace(f, chat_config.workspace) for f in files
+                _abs_to_rel_workspace(f, chat_config.workspace, manager.logdir)
+                for f in files
             ]
 
     # Include agent info if available
@@ -371,7 +372,10 @@ def api_conversation_post(conversation_id: str):
         log.append(msg)
         SessionManager.add_event(
             conversation_id,
-            {"type": "message_added", "message": msg2dict(msg, log.workspace)},
+            {
+                "type": "message_added",
+                "message": msg2dict(msg, log.workspace, log.logdir),
+            },
         )
 
         # Execute the command and collect response messages
@@ -382,7 +386,10 @@ def api_conversation_post(conversation_id: str):
                 responses.append(resp)
                 SessionManager.add_event(
                     conversation_id,
-                    {"type": "message_added", "message": msg2dict(resp, log.workspace)},
+                    {
+                        "type": "message_added",
+                        "message": msg2dict(resp, log.workspace, log.logdir),
+                    },
                 )
         except (Exception, SystemExit) as e:
             logger.exception("Error executing command: %s", msg.content)
@@ -393,7 +400,7 @@ def api_conversation_post(conversation_id: str):
                 conversation_id,
                 {
                     "type": "message_added",
-                    "message": msg2dict(error_msg, log.workspace),
+                    "message": msg2dict(error_msg, log.workspace, log.logdir),
                 },
             )
 
@@ -408,7 +415,7 @@ def api_conversation_post(conversation_id: str):
         conversation_id,
         {
             "type": "message_added",
-            "message": msg2dict(msg, log.workspace),
+            "message": msg2dict(msg, log.workspace, log.logdir),
         },
     )
 

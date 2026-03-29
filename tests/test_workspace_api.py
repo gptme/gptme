@@ -111,8 +111,8 @@ class TestUploadEndpoint:
         result = resp.get_json()
         assert len(result["files"]) == 1
         assert result["files"][0]["name"] == "test.txt"
-        # path is absolute
-        assert result["files"][0]["path"] == str(attachments_dir / "test.txt")
+        # path is logdir-relative (e.g. "attachments/test.txt"), not absolute
+        assert result["files"][0]["path"] == "attachments/test.txt"
         assert (attachments_dir / "test.txt").read_text() == "hello world"
 
     def test_upload_multiple_files(self, app, mock_logmanager, mock_auth) -> None:
@@ -374,3 +374,86 @@ class TestDownloadEndpoint:
 
         assert resp.status_code == 200
         assert resp.data == b"print('hi')"
+
+
+@pytest.fixture
+def mock_logmanager_full(tmp_path: Path):
+    """Mock LogManager with both logdir and workspace (for serve endpoint tests)."""
+    logdir = tmp_path / "conv-id"
+    logdir.mkdir()
+    workspace = logdir / "workspace"
+    workspace.mkdir()
+
+    manager = MagicMock()
+    manager.logdir = logdir
+    manager.workspace = workspace
+
+    with patch("gptme.server.workspace_api.LogManager") as mock_cls:
+        mock_cls.load.return_value = manager
+        yield manager, logdir, workspace
+
+
+class TestServeConversationFileEndpoint:
+    """Tests for the /api/v2/conversations/<id>/files/<path> endpoint."""
+
+    def test_serve_attachment_file(self, app, mock_logmanager_full, mock_auth) -> None:
+        _, logdir, _ = mock_logmanager_full
+        attachments_dir = logdir / "attachments"
+        attachments_dir.mkdir()
+        (attachments_dir / "photo.jpg").write_bytes(b"\xff\xd8\xff")  # minimal JPEG
+
+        with app.test_client() as client:
+            resp = client.get(
+                "/api/v2/conversations/test-conv/files/attachments/photo.jpg"
+            )
+
+        assert resp.status_code == 200
+        assert resp.data == b"\xff\xd8\xff"
+
+    def test_serve_workspace_file(self, app, mock_logmanager_full, mock_auth) -> None:
+        _, logdir, workspace = mock_logmanager_full
+        (workspace / "script.py").write_text("print('hello')")
+
+        with app.test_client() as client:
+            resp = client.get(
+                "/api/v2/conversations/test-conv/files/workspace/script.py"
+            )
+
+        assert resp.status_code == 200
+        assert resp.data == b"print('hello')"
+
+    def test_serve_returns_404_for_missing_file(
+        self, app, mock_logmanager_full, mock_auth
+    ) -> None:
+        with app.test_client() as client:
+            resp = client.get(
+                "/api/v2/conversations/test-conv/files/attachments/missing.txt"
+            )
+
+        assert resp.status_code == 404
+
+    def test_serve_rejects_path_traversal(
+        self, app, mock_logmanager_full, mock_auth
+    ) -> None:
+        with app.test_client() as client:
+            resp = client.get(
+                "/api/v2/conversations/test-conv/files/..%2F..%2Fetc%2Fpasswd"
+            )
+
+        assert resp.status_code == 400
+
+    def test_serve_text_file_with_correct_mime(
+        self, app, mock_logmanager_full, mock_auth
+    ) -> None:
+        _, logdir, _ = mock_logmanager_full
+        attachments_dir = logdir / "attachments"
+        attachments_dir.mkdir()
+        (attachments_dir / "readme.txt").write_text("hello")
+
+        with app.test_client() as client:
+            resp = client.get(
+                "/api/v2/conversations/test-conv/files/attachments/readme.txt"
+            )
+
+        assert resp.status_code == 200
+        assert "text/plain" in resp.content_type
