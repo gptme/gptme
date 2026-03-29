@@ -291,11 +291,11 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
                   conversationId={conversationId}
                   agentAvatarUrl={agentAvatarUrl}
                   agentName={agentName}
-                  onRetry={retryMessage}
-                  onEdit={editMessage}
-                  onDelete={deleteMessage}
-                  onRerun={rerunFromMessage}
-                  onRegenerate={regenerateMessage}
+                  onRetry={isReadOnly ? undefined : retryMessage}
+                  onEdit={isReadOnly ? undefined : editMessage}
+                  onDelete={isReadOnly ? undefined : deleteMessage}
+                  onRerun={isReadOnly ? undefined : rerunFromMessage}
+                  onRegenerate={isReadOnly ? undefined : regenerateMessage}
                   messageIndex={index}
                 />
                 {/* Branch indicator at fork points */}

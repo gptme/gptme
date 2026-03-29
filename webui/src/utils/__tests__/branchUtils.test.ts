@@ -68,10 +68,7 @@ describe('computeForkPoints', () => {
 
   it('handles multiple edits creating multiple branches at same fork point', () => {
     const branches = {
-      main: [
-        msg('system', 'sys', '2024-01-01T00:00:00'),
-        msg('user', 'v3', '2024-01-01T00:03:00'),
-      ],
+      main: [msg('system', 'sys', '2024-01-01T00:00:00'), msg('user', 'v3', '2024-01-01T00:03:00')],
       'main-edit-1': [
         msg('system', 'sys', '2024-01-01T00:00:00'),
         msg('user', 'v2', '2024-01-01T00:02:00'),
@@ -95,10 +92,7 @@ describe('computeForkPoints', () => {
 
   it('sorts branches by diverging message timestamp (earliest first)', () => {
     const branches = {
-      main: [
-        msg('system', 'sys', '2024-01-01T00:00:00'),
-        msg('user', 'v3', '2024-01-01T00:03:00'),
-      ],
+      main: [msg('system', 'sys', '2024-01-01T00:00:00'), msg('user', 'v3', '2024-01-01T00:03:00')],
       'main-edit-1': [
         msg('system', 'sys', '2024-01-01T00:00:00'),
         msg('user', 'v2', '2024-01-01T00:02:00'),

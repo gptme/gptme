@@ -411,7 +411,15 @@ export const ChatMessage: FC<Props> = ({
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => onDelete(messageIndex)}
+                            onClick={() => {
+                              if (
+                                window.confirm(
+                                  'Delete this message? A backup branch will be created.'
+                                )
+                              ) {
+                                onDelete(messageIndex);
+                              }
+                            }}
                             className="h-7 w-7 p-0 text-destructive hover:text-destructive"
                             aria-label="Delete message"
                             title="Delete message"

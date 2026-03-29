@@ -44,7 +44,14 @@ jest.mock('@/stores/conversations', () => {
 });
 
 jest.mock('@/hooks/useModels', () => ({
-  useModels: () => ({ models: [], defaultModel: '', availableModels: [], recommendedModels: [], isLoading: false, error: null }),
+  useModels: () => ({
+    models: [],
+    defaultModel: '',
+    availableModels: [],
+    recommendedModels: [],
+    isLoading: false,
+    error: null,
+  }),
 }));
 
 jest.mock('@/hooks/useWorkspaces', () => ({

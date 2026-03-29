@@ -41,7 +41,9 @@ const ModelItem: FC<{
             ? `${model.provider}/${model.model}`
             : model.model}
         </span>
-        {isRecommended && <Star className="h-3 w-3 flex-shrink-0 fill-yellow-400 text-yellow-400" />}
+        {isRecommended && (
+          <Star className="h-3 w-3 flex-shrink-0 fill-yellow-400 text-yellow-400" />
+        )}
       </div>
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         {model.context > 0 && <span>{Math.round(model.context / 1000)}k ctx</span>}

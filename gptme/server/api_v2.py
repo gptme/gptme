@@ -50,7 +50,7 @@ def _validate_conversation_id(
 
 
 from .api_v2_agents import agents_api
-from .api_v2_common import ConversationEditedEvent, _abs_to_rel_workspace, msg2dict
+from .api_v2_common import _abs_to_rel_workspace, msg2dict
 from .api_v2_sessions import SessionManager, sessions_api
 from .auth import require_auth
 from .openapi_docs import (
@@ -613,13 +613,13 @@ def api_conversation_delete_message(conversation_id: str, index: int):
     # Emit SSE event (reuse conversation_edited — client handles log replacement)
     SessionManager.add_event(
         conversation_id,
-        ConversationEditedEvent(
-            type="conversation_edited",
-            index=index,
-            truncated=False,
-            log=log_dict.get("log", []),
-            branches=log_dict.get("branches", {}),
-        ),
+        {
+            "type": "conversation_edited",
+            "index": index,
+            "truncated": False,
+            "log": log_dict.get("log", []),
+            "branches": log_dict.get("branches", {}),
+        },
     )
 
     return flask.jsonify(log_dict)
