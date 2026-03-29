@@ -1,5 +1,5 @@
 import { MessageSquare, History, Kanban, Bot, FolderOpen } from 'lucide-react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import type { FC } from 'react';
 
@@ -12,29 +12,22 @@ const navItems = [
 ] as const;
 
 export const MobileBottomNav: FC = () => {
-  const navigate = useNavigate();
   const location = useLocation();
-
-  const currentSection = location.pathname.startsWith('/tasks')
-    ? 'tasks'
-    : location.pathname.startsWith('/history')
-      ? 'history'
-      : location.pathname.startsWith('/agents')
-        ? 'agents'
-        : location.pathname.startsWith('/workspaces') || location.pathname.startsWith('/workspace')
-          ? 'workspaces'
-          : 'chat';
 
   return (
     <nav className="flex h-12 items-center justify-around border-t bg-background md:hidden">
       {navItems.map((item) => {
         const Icon = item.icon;
-        const isActive = currentSection === item.id;
+        // Workspaces tab must also activate on /workspace/:id (singular) detail pages
+        const isActive =
+          item.id === 'workspaces'
+            ? location.pathname.startsWith('/workspace')
+            : location.pathname.startsWith(item.path);
 
         return (
-          <button
+          <NavLink
             key={item.id}
-            onClick={() => navigate(item.path)}
+            to={item.path}
             className={cn(
               'flex flex-1 flex-col items-center justify-center gap-0.5 py-1 text-muted-foreground transition-colors',
               isActive && 'text-foreground'
@@ -43,7 +36,7 @@ export const MobileBottomNav: FC = () => {
           >
             <Icon className="h-4 w-4" />
             <span className="text-[10px] leading-none">{item.label}</span>
-          </button>
+          </NavLink>
         );
       })}
     </nav>
