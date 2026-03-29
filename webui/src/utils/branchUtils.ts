@@ -1,7 +1,7 @@
 import type { Message } from '@/types/conversation';
 
 export interface ForkInfo {
-  /** Branch names available at this fork point, sorted by timestamp of next message */
+  /** Branch names available at this fork point, sorted by timestamp of diverging message */
   branchNames: string[];
   /** Index of current branch in branchNames */
   currentIndex: number;
@@ -9,68 +9,71 @@ export interface ForkInfo {
 
 /**
  * Compute fork points across branches.
- * A fork point is a message index where the NEXT message differs across branches.
- * Returns a Map from message index to ForkInfo.
  *
- * Algorithm (ported from old Vue UI):
- * For each message at index i on the current branch:
- *   1. Start with branches = [currentBranch]
- *   2. For each other branch: if message at i+1 has a different timestamp, add that branch
- *   3. Sort branches by timestamp of their i+1 message
- *   4. Only include in result if branches.length > 1
+ * For each other branch, find the FIRST message index where it diverges from the
+ * current branch (different timestamp or different length). The fork indicator is
+ * placed at the last COMMON message (index - 1), so the user sees it on the message
+ * just before the conversation splits.
+ *
+ * Each branch only appears at its first divergence point — not at every subsequent
+ * message (which would all differ because they're on separate branches).
  */
 export function computeForkPoints(
   currentBranch: string,
   branches: Record<string, Message[]>
 ): Map<number, ForkInfo> {
-  const result = new Map<number, ForkInfo>();
-
   const currentLog = branches[currentBranch];
-  if (!currentLog) return result;
+  if (!currentLog) return new Map();
 
   const branchNames = Object.keys(branches);
-  if (branchNames.length <= 1) return result;
+  if (branchNames.length <= 1) return new Map();
 
-  for (let i = 0; i < currentLog.length; i++) {
-    const forkBranches: string[] = [currentBranch];
-    const nextMsgCurrent = currentLog[i + 1];
+  // For each other branch, find the first divergence index
+  const divergenceMap = new Map<number, string[]>(); // forkIndex -> branch names
 
-    for (const branch of branchNames) {
-      if (branch === currentBranch) continue;
-      const branchLog = branches[branch];
-      if (!branchLog) continue;
+  for (const branch of branchNames) {
+    if (branch === currentBranch) continue;
+    const otherLog = branches[branch];
+    if (!otherLog) continue;
 
-      const nextMsgBranch = branchLog[i + 1];
+    const maxLen = Math.max(currentLog.length, otherLog.length);
+    for (let i = 0; i < maxLen; i++) {
+      const currentMsg = currentLog[i];
+      const otherMsg = otherLog[i];
 
-      // Fork if: current has a next but branch doesn't (or vice versa),
-      // or both have a next but with different timestamps
-      if (nextMsgCurrent && nextMsgBranch) {
-        if (nextMsgCurrent.timestamp !== nextMsgBranch.timestamp) {
-          forkBranches.push(branch);
+      // Divergence: one is missing, or timestamps differ
+      if (!currentMsg || !otherMsg || currentMsg.timestamp !== otherMsg.timestamp) {
+        // Fork point is the last common message (i-1), clamped to 0
+        const forkIndex = Math.max(0, i - 1);
+        if (!divergenceMap.has(forkIndex)) {
+          divergenceMap.set(forkIndex, []);
         }
-      } else if (nextMsgCurrent || nextMsgBranch) {
-        // One branch is longer than the other at this point
-        forkBranches.push(branch);
+        divergenceMap.get(forkIndex)!.push(branch);
+        break;
       }
     }
+  }
 
-    if (forkBranches.length > 1) {
-      // Sort by timestamp of next message (earlier first)
-      forkBranches.sort((a, b) => {
-        const aNext = branches[a]?.[i + 1];
-        const bNext = branches[b]?.[i + 1];
-        if (!aNext) return 1;
-        if (!bNext) return -1;
-        return (
-          new Date(aNext.timestamp || '').getTime() - new Date(bNext.timestamp || '').getTime()
-        );
-      });
+  // Build ForkInfo for each fork point
+  const result = new Map<number, ForkInfo>();
+  for (const [forkIndex, otherBranches] of divergenceMap) {
+    const allBranches = [currentBranch, ...otherBranches];
 
-      result.set(i, {
-        branchNames: forkBranches,
-        currentIndex: forkBranches.indexOf(currentBranch),
-      });
-    }
+    // Sort by timestamp of the diverging message (the one after the fork)
+    allBranches.sort((a, b) => {
+      const aMsg = branches[a]?.[forkIndex + 1];
+      const bMsg = branches[b]?.[forkIndex + 1];
+      if (!aMsg) return 1;
+      if (!bMsg) return -1;
+      return (
+        new Date(aMsg.timestamp || '').getTime() - new Date(bMsg.timestamp || '').getTime()
+      );
+    });
+
+    result.set(forkIndex, {
+      branchNames: allBranches,
+      currentIndex: allBranches.indexOf(currentBranch),
+    });
   }
 
   return result;
