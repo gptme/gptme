@@ -332,6 +332,20 @@ export class ApiClient {
       onError: (error: string) => void;
       onConfigChanged?: (config: ChatConfig, changedFields: string[]) => void;
       onConnected?: () => void;
+      onReconnectState?: (state: {
+        generating: boolean;
+        pendingTools: Array<{
+          tool_id: string;
+          tooluse: ToolUse;
+          auto_confirm: boolean;
+        }>;
+      }) => void;
+      onConversationEdited?: (data: {
+        index: number;
+        truncated: boolean;
+        log: Message[];
+        branches: Record<string, Message[]>;
+      }) => void;
     }
   ): Promise<void> {
     // Close any existing event stream for this conversation
@@ -481,6 +495,18 @@ export class ApiClient {
             clearTimeout(sessionIdTimeout);
             // Notify that connection is established
             callbacks.onConnected?.();
+            // Restore state on reconnect (pending tools, generating flag)
+            if (callbacks.onReconnectState && (data.pending_tools?.length || data.generating)) {
+              callbacks.onReconnectState({
+                generating: data.generating ?? false,
+                pendingTools: data.pending_tools ?? [],
+              });
+            }
+            break;
+
+          case 'conversation_edited':
+            console.log(`[ApiClient] Conversation edited:`, data);
+            callbacks.onConversationEdited?.(data);
             break;
 
           case 'interrupted':
@@ -794,6 +820,22 @@ export class ApiClient {
       }
       throw error;
     }
+  }
+
+  async editMessage(
+    logfile: string,
+    index: number,
+    content: string,
+    truncate: boolean = false
+  ): Promise<ConversationResponse> {
+    if (!this.isConnected) {
+      throw new ApiClientError('Not connected to API');
+    }
+    const url = `${this.baseUrl}/api/v2/conversations/${logfile}/messages/${index}${truncate ? '?truncate=1' : ''}`;
+    return this.fetchJson<ConversationResponse>(url, {
+      method: 'PATCH',
+      body: JSON.stringify({ content }),
+    });
   }
 
   async uploadFiles(

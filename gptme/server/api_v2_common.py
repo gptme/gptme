@@ -77,6 +77,7 @@ class BaseEvent(TypedDict):
         "interrupted",
         "error",
         "config_changed",
+        "conversation_edited",
     ]
 
 
@@ -84,6 +85,8 @@ class ConnectedEvent(BaseEvent):
     """Sent when a client connects to the event stream."""
 
     session_id: str
+    generating: NotRequired[bool]
+    pending_tools: NotRequired[list]
 
 
 class PingEvent(BaseEvent):
@@ -179,6 +182,15 @@ class ConfigChangedEvent(BaseEvent):
     changed_fields: list[str]
 
 
+class ConversationEditedEvent(BaseEvent):
+    """Sent when a message is edited (and optionally truncated)."""
+
+    index: int
+    truncated: bool
+    log: list
+    branches: dict
+
+
 # Union type for all possible events
 EventType = (
     ConnectedEvent
@@ -193,6 +205,7 @@ EventType = (
     | InterruptedEvent
     | ErrorEvent
     | ConfigChangedEvent
+    | ConversationEditedEvent
 )
 
 

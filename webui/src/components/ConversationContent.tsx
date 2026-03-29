@@ -3,10 +3,12 @@ import { useRef, useEffect } from 'react';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput, type ChatOptions } from './ChatInput';
 import { useConversation } from '@/hooks/useConversation';
+import { BranchIndicator } from './BranchIndicator';
+import { computeForkPoints } from '@/utils/branchUtils';
 
 import { InlineToolConfirmation } from './InlineToolConfirmation';
 import { InlineToolExecution } from './InlineToolExecution';
-import { For, use$, useObservable, useObserveEffect } from '@legendapp/state/react';
+import { For, Memo, use$, useObservable, useObserveEffect } from '@legendapp/state/react';
 import { getObservableIndex } from '@legendapp/state';
 import { useApi } from '@/contexts/ApiContext';
 import { useSettings } from '@/contexts/SettingsContext';
@@ -20,8 +22,15 @@ interface Props {
 }
 
 export const ConversationContent: FC<Props> = ({ conversationId, serverId, isReadOnly }) => {
-  const { conversation$, sendMessage, retryMessage, confirmTool, interruptGeneration } =
-    useConversation(conversationId, serverId);
+  const {
+    conversation$,
+    sendMessage,
+    retryMessage,
+    editMessage,
+    switchBranch,
+    confirmTool,
+    interruptGeneration,
+  } = useConversation(conversationId, serverId);
   // State to track when to auto-focus the input
   const shouldFocus$ = useObservable(false);
   // Store the previous conversation ID to detect changes
@@ -263,16 +272,37 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
             const agentName = conversation$.data.agent?.name?.get();
 
             return (
-              <ChatMessage
-                key={`${index}-${msg$.timestamp.get()}`}
-                message$={msg$}
-                previousMessage$={previousMessage$}
-                nextMessage$={nextMessage$}
-                conversationId={conversationId}
-                agentAvatarUrl={agentAvatarUrl}
-                agentName={agentName}
-                onRetry={retryMessage}
-              />
+              <div key={`${index}-${msg$.timestamp.get()}`}>
+                <ChatMessage
+                  message$={msg$}
+                  previousMessage$={previousMessage$}
+                  nextMessage$={nextMessage$}
+                  conversationId={conversationId}
+                  agentAvatarUrl={agentAvatarUrl}
+                  agentName={agentName}
+                  onRetry={retryMessage}
+                  onEdit={editMessage}
+                  messageIndex={index}
+                />
+                {/* Branch indicator at fork points */}
+                <Memo>
+                  {() => {
+                    const branches = conversation$.data.branches?.get();
+                    const currentBranch = conversation$.currentBranch?.get() || 'main';
+                    if (!branches || Object.keys(branches).length <= 1) return null;
+                    const forkPoints = computeForkPoints(currentBranch, branches);
+                    const forkInfo = forkPoints.get(index);
+                    if (!forkInfo) return null;
+                    return (
+                      <div className="mx-auto max-w-3xl">
+                        <div className="md:px-12">
+                          <BranchIndicator forkInfo={forkInfo} onSwitchBranch={switchBranch} />
+                        </div>
+                      </div>
+                    );
+                  }}
+                </Memo>
+              </div>
             );
           }}
         </For>

@@ -1,4 +1,4 @@
-import { useEffect, useRef, type FC } from 'react';
+import { useState, useEffect, useRef, type FC } from 'react';
 import type { Message, StreamingMessage } from '@/types/conversation';
 import { MessageAvatar } from './MessageAvatar';
 import { useMessageChainType } from '@/utils/messageUtils';
@@ -8,8 +8,9 @@ import { ObservableHint, type Observable } from '@legendapp/state';
 import { Memo, useObservable, useObserveEffect } from '@legendapp/state/react';
 import * as smd from '@/utils/smd';
 import { customRenderer, type CustomRenderer } from '@/utils/markdownRenderer';
-import { Clipboard, Check, AlertCircle, RotateCcw } from 'lucide-react';
+import { Clipboard, Check, AlertCircle, RotateCcw, Pencil, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 function formatTimestamp(timestamp: string): { short: string; full: string } {
@@ -48,6 +49,8 @@ interface Props {
   agentAvatarUrl?: string;
   agentName?: string;
   onRetry?: (message: Message) => void;
+  onEdit?: (index: number, content: string, truncate: boolean) => void;
+  messageIndex?: number;
 }
 
 export const ChatMessage: FC<Props> = ({
@@ -58,9 +61,13 @@ export const ChatMessage: FC<Props> = ({
   agentAvatarUrl,
   agentName,
   onRetry,
+  onEdit,
+  messageIndex,
 }) => {
   const { api, connectionConfig } = useApi();
   const { settings } = useSettings();
+  const [isEditing, setIsEditing] = useState(false);
+  const [editContent, setEditContent] = useState('');
 
   const contentRef = useRef<HTMLDivElement>(null);
   const renderer$ = useObservable<CustomRenderer | null>(null);
@@ -282,34 +289,99 @@ export const ChatMessage: FC<Props> = ({
                 />
                 <div className="md:px-12">
                   <div className={`group/message relative ${messageClasses$.get()}`}>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleCopy}
-                      className="absolute right-1 top-1 z-10 h-7 w-7 p-0 opacity-0 transition-opacity hover:!opacity-100 group-hover/message:opacity-50"
-                      aria-label="Copy message"
-                    >
-                      {copied$.get() ? <Check size={14} /> : <Clipboard size={14} />}
-                    </Button>
+                    {/* Action buttons (top-right) */}
+                    <div className="absolute right-1 top-1 z-10 flex gap-0.5 opacity-0 transition-opacity hover:!opacity-100 group-hover/message:opacity-50">
+                      {onEdit &&
+                        messageIndex !== undefined &&
+                        message$.role.get() === 'user' &&
+                        !isEditing && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setEditContent(message$.content.get());
+                              setIsEditing(true);
+                            }}
+                            className="h-7 w-7 p-0"
+                            aria-label="Edit message"
+                          >
+                            <Pencil size={14} />
+                          </Button>
+                        )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleCopy}
+                        className="h-7 w-7 p-0"
+                        aria-label="Copy message"
+                      >
+                        {copied$.get() ? <Check size={14} /> : <Clipboard size={14} />}
+                      </Button>
+                    </div>
                     <div className="px-3 py-1.5">
-                      <Memo>
-                        {() => {
-                          const isEmptyAssistantMessage =
-                            message$.role.get() === 'assistant' && !message$.content.get();
-
-                          return (
-                            <div
-                              ref={contentRef}
-                              className="chat-message prose prose-sm dark:prose-invert prose-pre:overflow-x-auto prose-pre:max-w-[calc(100vw-16rem)]"
+                      {isEditing ? (
+                        <div className="flex flex-col gap-2">
+                          <Textarea
+                            value={editContent}
+                            onChange={(e) => setEditContent(e.target.value)}
+                            className="min-h-[60px] resize-none"
+                            autoFocus
+                            onKeyDown={(e) => {
+                              if (e.key === 'Escape') {
+                                setIsEditing(false);
+                              }
+                            }}
+                          />
+                          <div className="flex items-center gap-2">
+                            <Button
+                              size="sm"
+                              onClick={() => {
+                                onEdit?.(messageIndex!, editContent, false);
+                                setIsEditing(false);
+                              }}
+                              disabled={!editContent.trim()}
                             >
-                              {isEmptyAssistantMessage && (
-                                <span className="text-muted-foreground">Thinking...</span>
-                              )}
-                            </div>
-                          );
-                        }}
-                      </Memo>
-                      {renderFiles()}
+                              Save
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => {
+                                onEdit?.(messageIndex!, editContent, true);
+                                setIsEditing(false);
+                              }}
+                              disabled={!editContent.trim()}
+                            >
+                              Save & Re-run
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => setIsEditing(false)}>
+                              <X className="mr-1 h-3 w-3" />
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <Memo>
+                            {() => {
+                              const isEmptyAssistantMessage =
+                                message$.role.get() === 'assistant' && !message$.content.get();
+
+                              return (
+                                <div
+                                  ref={contentRef}
+                                  className="chat-message prose prose-sm dark:prose-invert prose-pre:overflow-x-auto prose-pre:max-w-[calc(100vw-16rem)]"
+                                >
+                                  {isEmptyAssistantMessage && (
+                                    <span className="text-muted-foreground">Thinking...</span>
+                                  )}
+                                </div>
+                              );
+                            }}
+                          </Memo>
+                          {renderFiles()}
+                        </>
+                      )}
                     </div>
                     {/* Failed message indicator */}
                     <Memo>

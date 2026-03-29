@@ -15,6 +15,9 @@ import {
   addMessage,
   setMessageStatus,
   removeMessage,
+  replaceLog,
+  updateBranches,
+  setCurrentBranch,
   initConversation,
   selectedConversation$,
   updateConversationName,
@@ -305,11 +308,29 @@ export function useConversation(conversationId: string, serverId?: string) {
               if (needsStep) {
                 console.log('[useConversation] Triggering initial step after subscription');
                 setNeedsInitialStep(conversationId, false);
-                // Use the api from context to trigger step
                 api.step(conversationId).catch((error) => {
                   console.error('[useConversation] Error triggering initial step:', error);
                 });
               }
+            },
+            onReconnectState: (state) => {
+              console.log('[useConversation] Restoring state on reconnect:', state);
+              if (state.generating) {
+                setGenerating(conversationId, true);
+              }
+              // Restore first pending tool (if any)
+              if (state.pendingTools.length > 0) {
+                const pt = state.pendingTools[0];
+                setPendingTool(conversationId, pt.tool_id, pt.tooluse);
+                if (!pt.auto_confirm) {
+                  setGenerating(conversationId, false);
+                }
+              }
+            },
+            onConversationEdited: (data) => {
+              console.log('[useConversation] Conversation edited:', data);
+              replaceLog(conversationId, data.log);
+              updateBranches(conversationId, data.branches);
             },
           })
           .catch((err) => {
@@ -490,10 +511,27 @@ export function useConversation(conversationId: string, serverId?: string) {
     });
   };
 
+  const editMessage = async (index: number, content: string, truncate: boolean = false) => {
+    try {
+      await api.editMessage(conversationId, index, content, truncate);
+      // The conversation_edited SSE event will update the store
+    } catch (error) {
+      console.error('Error editing message:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Failed to edit message';
+      toast({ variant: 'destructive', title: 'Edit failed', description: errorMsg });
+    }
+  };
+
+  const switchBranch = (branchName: string) => {
+    setCurrentBranch(conversationId, branchName);
+  };
+
   return {
     conversation$,
     sendMessage,
     retryMessage,
+    editMessage,
+    switchBranch,
     confirmTool,
     interruptGeneration,
   };

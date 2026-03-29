@@ -125,8 +125,26 @@ def api_conversation_events(conversation_id: str):
             # Add this client to the session
             session.clients.add(client_id)
 
-            # Send initial connection event
-            yield f"data: {flask.json.dumps({'type': 'connected', 'session_id': session_id})}\n\n"
+            # Send initial connection event with pending tool state
+            connected_event = {
+                "type": "connected",
+                "session_id": session_id,
+                "generating": session.generating,
+                "pending_tools": [
+                    {
+                        "tool_id": tid,
+                        "tooluse": {
+                            "tool": te.tooluse.tool,
+                            "args": te.tooluse.args,
+                            "content": te.tooluse.content,
+                        },
+                        "auto_confirm": te.auto_confirm,
+                    }
+                    for tid, te in session.pending_tools.items()
+                    if te.status == ToolStatus.PENDING
+                ],
+            }
+            yield f"data: {flask.json.dumps(connected_event)}\n\n"
 
             # Send immediate ping to ensure connection is established right away
             yield f"data: {flask.json.dumps({'type': 'ping'})}\n\n"
