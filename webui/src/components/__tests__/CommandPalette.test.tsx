@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import { CommandPalette } from '../CommandPalette';
+import { settingsModal$ } from '@/stores/settingsModal';
 
 // Mock ApiContext with a stable `api` reference to avoid infinite re-render loop.
 // useEffect in CommandPalette has [search, api] as deps — if useApi() returns a
@@ -11,10 +12,9 @@ jest.mock('@/contexts/ApiContext', () => {
   return { useApi: () => ({ api }) };
 });
 
-// Mock settingsModal$ store
-const mockSettingsModalOpenSet = jest.fn();
+// Mock settingsModal$ store - use inline jest.fn() to avoid hoisting issues
 jest.mock('@/stores/settingsModal', () => ({
-  settingsModal$: { open: { set: mockSettingsModalOpenSet } },
+  settingsModal$: { open: { set: jest.fn() } },
 }));
 
 // Mock commandPalette$ store
@@ -87,7 +87,7 @@ jest.mock('react-router-dom', () => {
 describe('CommandPalette', () => {
   beforeEach(() => {
     mockNavigate.mockClear();
-    mockSettingsModalOpenSet.mockClear();
+    (settingsModal$.open.set as jest.Mock).mockClear();
   });
 
   afterEach(() => {
@@ -292,7 +292,7 @@ describe('CommandPalette', () => {
       const settings = await screen.findByText('Settings');
       fireEvent.click(settings);
 
-      expect(mockSettingsModalOpenSet).toHaveBeenCalledWith(true);
+      expect(settingsModal$.open.set).toHaveBeenCalledWith(true);
     });
 
     it('closes after action execution', async () => {
