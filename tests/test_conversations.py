@@ -8,7 +8,9 @@ import pytest
 from gptme.logmanager.conversations import ConversationMeta, get_conversations
 
 
-def _make_conversation(tmp_path: Path, conv_id: str, messages: list[dict]) -> Path:
+def _make_conversation(
+    tmp_path: Path, conv_id: str, messages: list[dict[str, object]]
+) -> Path:
     """Create a minimal conversation directory with JSONL messages."""
     conv_dir = tmp_path / conv_id
     conv_dir.mkdir()
@@ -155,3 +157,90 @@ def test_conversation_meta_defaults():
     )
     assert meta.last_message_role is None
     assert meta.last_message_preview is None
+
+
+def test_detail_false_matches_detail_true(logs_dir):
+    """detail=False should return same preview/model/messages as detail=True."""
+    messages: list[dict[str, object]] = [
+        {
+            "role": "system",
+            "content": "System prompt",
+            "timestamp": "2025-01-01T00:00:00Z",
+        },
+        {
+            "role": "user",
+            "content": "Hello world",
+            "timestamp": "2025-01-01T00:00:01Z",
+        },
+        {
+            "role": "assistant",
+            "content": "Hi there!",
+            "timestamp": "2025-01-01T00:00:02Z",
+            "metadata": {"model": "test-model", "cost": 0.01},
+        },
+    ]
+    _make_conversation(logs_dir, "test-detail", messages)
+
+    full = list(get_conversations(detail=True))
+    fast = list(get_conversations(detail=False))
+    assert len(full) == len(fast) == 1
+
+    # Preview, role, model, and message count should match
+    assert fast[0].last_message_role == full[0].last_message_role
+    assert fast[0].last_message_preview == full[0].last_message_preview
+    assert fast[0].messages == full[0].messages
+    assert fast[0].model == full[0].model
+    assert fast[0].id == full[0].id
+    assert fast[0].name == full[0].name
+
+
+def test_detail_false_large_conversation(logs_dir):
+    """detail=False uses tail scan for large files but still gets correct preview."""
+    # Create a conversation large enough to trigger tail scan (>8KB)
+    messages: list[dict[str, object]] = [
+        {
+            "role": "system",
+            "content": "System prompt",
+            "timestamp": "2025-01-01T00:00:00Z",
+        },
+    ]
+    # Add enough messages to exceed _TAIL_BYTES (8192)
+    messages.extend(
+        {
+            "role": "user" if i % 2 == 0 else "assistant",
+            "content": f"Message {i}: {'x' * 100}",
+            "timestamp": f"2025-01-01T00:{i:02d}:00Z",
+        }
+        for i in range(100)
+    )
+    # Add metadata at the end
+    messages.append(
+        {
+            "role": "assistant",
+            "content": "Final answer with details",
+            "timestamp": "2025-01-01T01:40:00Z",
+            "metadata": {"model": "test-model-v2", "cost": 0.05},
+        }
+    )
+    _make_conversation(logs_dir, "test-large", messages)
+
+    # Verify the file is larger than tail threshold
+    conv_file = logs_dir / "test-large" / "conversation.jsonl"
+    assert conv_file.stat().st_size > 8192
+
+    full = list(get_conversations(detail=True))
+    fast = list(get_conversations(detail=False))
+    assert len(full) == len(fast) == 1
+
+    # Core fields must match
+    assert fast[0].last_message_role == full[0].last_message_role
+    assert fast[0].last_message_preview == full[0].last_message_preview
+    assert fast[0].messages == full[0].messages
+    assert fast[0].model == full[0].model
+
+    # In fast mode, cost/token fields are zeroed
+    assert fast[0].total_cost == 0.0
+    assert fast[0].total_input_tokens == 0
+
+    # Full mode has actual cost
+    assert full[0].total_cost == 0.05

@@ -72,79 +72,180 @@ class ConversationMeta:
         return output
 
 
-def get_conversations() -> Generator[ConversationMeta, None, None]:
-    """Returns all conversations, excluding ones used for testing, evals, etc."""
+def _parse_preview(last_msg_line: bytes) -> tuple[str | None, str | None]:
+    """Parse a JSONL line into (role, preview) for display."""
+    try:
+        msg = json.loads(last_msg_line)
+        role = msg.get("role")
+        if role in ("user", "assistant"):
+            content = msg.get("content", "")
+            if content:
+                # Strip <think>/<thinking> tags and their content
+                content = re.sub(
+                    r"<think(?:ing)?>[\s\S]*?</think(?:ing)?>",
+                    "",
+                    content,
+                )
+                # Also strip unclosed opening tags and any trailing content
+                content = re.sub(r"<think(?:ing)?>[\s\S]*$", "", content)
+                content = content.strip()
+            if content:
+                # Collapse whitespace first, then truncate to 100 chars
+                collapsed = " ".join(content.split())
+                if len(collapsed) > 100:
+                    return role, collapsed[:100] + "..."
+                return role, collapsed
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        pass
+    return None, None
+
+
+# Tail size for fast metadata extraction.
+# 8KB covers ~20-40 chat messages, enough to find last user/assistant msg + model.
+_TAIL_BYTES = 8192
+
+
+def _fast_scan_tail(
+    conv_fn: Path, file_size: int
+) -> tuple[int, str | None, bytes | None]:
+    """Read only the tail of a JSONL file to extract preview and model.
+
+    For the message count, does a fast newline count over the full file
+    (much cheaper than JSON-parsing every line).
+
+    Returns (message_count, model, last_user_or_assistant_line).
+    """
+    # Fast line count: count non-empty lines without JSON parsing.
+    # For large files this is ~5-10x faster than the full parse loop
+    # because it avoids json.loads() and substring matching on every line.
+    len_msgs = 0
+    with open(conv_fn, "rb") as f:
+        for line in f:
+            if line.strip():
+                len_msgs += 1
+
+    # Read tail for preview + model
+    last_msg_line: bytes | None = None
+    conv_model: str | None = None
+    with open(conv_fn, "rb") as f:
+        if file_size > _TAIL_BYTES:
+            f.seek(file_size - _TAIL_BYTES)
+            f.readline()  # skip partial first line
+        tail_lines = f.readlines()
+
+    # Scan tail lines in reverse for last user/assistant message + model
+    for line in reversed(tail_lines):
+        line = line.strip()
+        if not line:
+            continue
+        if last_msg_line is None and (b'"user"' in line or b'"assistant"' in line):
+            last_msg_line = line
+        if conv_model is None and b'"metadata"' in line:
+            try:
+                msg = json.loads(line)
+                meta = msg.get("metadata")
+                if meta and meta.get("model"):
+                    conv_model = meta["model"]
+            except (json.JSONDecodeError, TypeError):
+                pass
+        if last_msg_line is not None and conv_model is not None:
+            break
+
+    return len_msgs, conv_model, last_msg_line
+
+
+def _full_scan(
+    conv_fn: Path,
+) -> tuple[int, str | None, float, int, int, int, bytes | None]:
+    """Full JSONL scan: counts messages and accumulates cost/token metadata.
+
+    Returns (len_msgs, model, cost, input_tokens, output_tokens,
+             cache_read_tokens, last_user_or_assistant_line).
+    """
+    len_msgs = 0
+    conv_model: str | None = None
+    conv_cost = 0.0
+    conv_input_tokens = 0
+    conv_output_tokens = 0
+    conv_cache_read_tokens = 0
+    last_msg_line: bytes | None = None
+    with open(conv_fn, "rb") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            len_msgs += 1
+            if b'"user"' in line or b'"assistant"' in line:
+                last_msg_line = line
+            if b'"metadata"' in line:
+                try:
+                    msg = json.loads(line)
+                    meta = msg.get("metadata")
+                    if meta:
+                        if not conv_model and meta.get("model"):
+                            conv_model = meta["model"]
+                        conv_cost += meta.get("cost", 0) or 0
+                        usage = meta.get("usage", {})
+                        src = usage or meta
+                        cache_read = src.get("cache_read_tokens", 0) or 0
+                        conv_input_tokens += (
+                            (src.get("input_tokens", 0) or 0)
+                            + cache_read
+                            + (src.get("cache_creation_tokens", 0) or 0)
+                        )
+                        conv_output_tokens += src.get("output_tokens", 0) or 0
+                        conv_cache_read_tokens += cache_read
+                except (json.JSONDecodeError, TypeError):
+                    pass
+    return (
+        len_msgs,
+        conv_model,
+        conv_cost,
+        conv_input_tokens,
+        conv_output_tokens,
+        conv_cache_read_tokens,
+        last_msg_line,
+    )
+
+
+def get_conversations(
+    *, detail: bool = True
+) -> Generator[ConversationMeta, None, None]:
+    """Returns all conversations, excluding ones used for testing, evals, etc.
+
+    Args:
+        detail: If True (default), performs a full JSONL scan to compute exact
+            costs, token counts, and model info. If False, reads only the tail
+            of each file for a faster scan — suitable for list/search endpoints
+            where cost/token aggregates are not displayed.
+    """
     for conv_fn in _conversation_files():
         log = Log.read_jsonl(conv_fn, limit=1)
-        # Count messages and extract model/cost/token metadata in a single pass.
-        # Only JSON-parses lines containing "metadata" for efficiency.
-        len_msgs = 0
-        conv_model: str | None = None
-        conv_cost = 0.0
-        conv_input_tokens = 0
-        conv_output_tokens = 0
-        conv_cache_read_tokens = 0
-        last_msg_line: bytes | None = None
-        with open(conv_fn, "rb") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                len_msgs += 1
-                # Remember last user/assistant line (parsed after loop)
-                if b'"user"' in line or b'"assistant"' in line:
-                    last_msg_line = line
-                if b'"metadata"' in line:
-                    try:
-                        msg = json.loads(line)
-                        meta = msg.get("metadata")
-                        if meta:
-                            if not conv_model and meta.get("model"):
-                                conv_model = meta["model"]
-                            conv_cost += meta.get("cost", 0) or 0
-                            # Token counts: nested under "usage" (new) or top-level (old)
-                            usage = meta.get("usage", {})
-                            src = usage or meta
-                            # Input = uncached + cache_read + cache_creation
-                            cache_read = src.get("cache_read_tokens", 0) or 0
-                            conv_input_tokens += (
-                                (src.get("input_tokens", 0) or 0)
-                                + cache_read
-                                + (src.get("cache_creation_tokens", 0) or 0)
-                            )
-                            conv_output_tokens += src.get("output_tokens", 0) or 0
-                            conv_cache_read_tokens += cache_read
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-        # Parse last user/assistant message for preview (single parse, after loop)
-        last_msg_role: str | None = None
-        last_msg_preview: str | None = None
-        if last_msg_line:
-            try:
-                msg = json.loads(last_msg_line)
-                role = msg.get("role")
-                if role in ("user", "assistant"):
-                    content = msg.get("content", "")
-                    if content:
-                        # Strip <think>/<thinking> tags and their content
-                        content = re.sub(
-                            r"<think(?:ing)?>[\s\S]*?</think(?:ing)?>",
-                            "",
-                            content,
-                        )
-                        # Also strip unclosed opening tags and any trailing content
-                        content = re.sub(r"<think(?:ing)?>[\s\S]*$", "", content)
-                        content = content.strip()
-                    if content:
-                        last_msg_role = role
-                        # Collapse whitespace first, then truncate to 100 chars
-                        collapsed = " ".join(content.split())
-                        if len(collapsed) > 100:
-                            last_msg_preview = collapsed[:100] + "..."
-                        else:
-                            last_msg_preview = collapsed
-            except (json.JSONDecodeError, TypeError, AttributeError):
-                pass
+
+        file_size = conv_fn.stat().st_size
+
+        if detail or file_size <= _TAIL_BYTES:
+            # Full scan: exact counts + cost/token aggregation
+            (
+                len_msgs,
+                conv_model,
+                conv_cost,
+                conv_input_tokens,
+                conv_output_tokens,
+                conv_cache_read_tokens,
+                last_msg_line,
+            ) = _full_scan(conv_fn)
+        else:
+            # Fast scan: tail-only for preview + model, fast line count
+            len_msgs, conv_model, last_msg_line = _fast_scan_tail(conv_fn, file_size)
+            conv_cost = 0.0
+            conv_input_tokens = 0
+            conv_output_tokens = 0
+            conv_cache_read_tokens = 0
+
+        last_msg_role, last_msg_preview = (
+            _parse_preview(last_msg_line) if last_msg_line else (None, None)
+        )
 
         assert len(log) <= 1
         modified = conv_fn.stat().st_mtime
@@ -197,9 +298,11 @@ def get_conversations() -> Generator[ConversationMeta, None, None]:
         )
 
 
-def get_user_conversations() -> Generator[ConversationMeta, None, None]:
+def get_user_conversations(
+    *, detail: bool = True
+) -> Generator[ConversationMeta, None, None]:
     """Returns all user conversations, excluding ones used for testing, evals, etc."""
-    for conv in get_conversations():
+    for conv in get_conversations(detail=detail):
         if any(conv.id.startswith(prefix) for prefix in ["tmp", "test-"]) or any(
             substr in conv.id for substr in ["gptme-evals-"]
         ):
@@ -210,6 +313,8 @@ def get_user_conversations() -> Generator[ConversationMeta, None, None]:
 def list_conversations(
     limit: int = 20,
     include_test: bool = False,
+    *,
+    detail: bool = True,
 ) -> list[ConversationMeta]:
     """
     List conversations with a limit.
@@ -217,9 +322,13 @@ def list_conversations(
     Args:
         limit: Maximum number of conversations to return
         include_test: Whether to include test conversations
+        detail: If True, performs full JSONL scan for costs/tokens.
+            If False, uses fast tail-only scan.
     """
     conversation_iter = (
-        get_conversations() if include_test else get_user_conversations()
+        get_conversations(detail=detail)
+        if include_test
+        else get_user_conversations(detail=detail)
     )
     return list(islice(conversation_iter, limit))
 
