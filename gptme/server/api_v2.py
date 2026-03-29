@@ -605,6 +605,20 @@ def api_conversation_delete_message(conversation_id: str, index: int):
         return flask.jsonify({"error": "Cannot delete system messages"}), 400
 
     new_msgs = msgs[:index] + msgs[index + 1 :]
+
+    # Validate role sequence: consecutive same-role messages break LLM APIs
+    non_system = [m for m in new_msgs if m.role != "system"]
+    for i in range(1, len(non_system)):
+        if non_system[i].role == non_system[i - 1].role:
+            return (
+                flask.jsonify(
+                    {
+                        "error": f"Deleting this message would create consecutive {non_system[i].role!r} messages, which is not supported by LLM APIs"
+                    }
+                ),
+                400,
+            )
+
     manager.edit(Log(new_msgs))
 
     # Build response with updated conversation
