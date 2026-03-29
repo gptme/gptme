@@ -10,6 +10,34 @@ import * as smd from '@/utils/smd';
 import { customRenderer, type CustomRenderer } from '@/utils/markdownRenderer';
 import { Clipboard, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+
+function formatTimestamp(timestamp: string): { short: string; full: string } {
+  const date = new Date(timestamp);
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+  const isThisYear = date.getFullYear() === now.getFullYear();
+
+  const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const full = date.toLocaleString([], {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+
+  if (isToday) {
+    return { short: timeStr, full };
+  }
+  const dateStr = date.toLocaleDateString([], {
+    month: 'short',
+    day: 'numeric',
+    ...(isThisYear ? {} : { year: 'numeric' }),
+  });
+  return { short: `${dateStr}, ${timeStr}`, full };
+}
 
 interface Props {
   message$: Observable<Message | StreamingMessage>;
@@ -279,6 +307,25 @@ export const ChatMessage: FC<Props> = ({
                         }}
                       </Memo>
                       {renderFiles()}
+                      <Memo>
+                        {() => {
+                          const timestamp = (message$.get() as Message)?.timestamp;
+                          if (!timestamp) return null;
+                          const { short, full } = formatTimestamp(timestamp);
+                          return (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="mt-0.5 select-none text-right text-[10px] text-muted-foreground/50 opacity-0 transition-opacity group-hover/message:opacity-100">
+                                    {short}
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent side="bottom">{full}</TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          );
+                        }}
+                      </Memo>
                     </div>
                   </div>
                 </div>
