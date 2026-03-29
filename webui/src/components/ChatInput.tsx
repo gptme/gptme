@@ -25,7 +25,6 @@ import {
 } from 'react';
 import { useApi } from '@/contexts/ApiContext';
 import { Badge } from '@/components/ui/badge';
-import { ModelSelector } from '@/components/ModelSelector';
 import { ModelPicker } from '@/components/ModelPicker';
 import { ProviderIcon } from '@/components/ProviderIcon';
 
@@ -77,8 +76,6 @@ interface Props {
 }
 
 interface ChatOptionsProps {
-  selectedModel: string;
-  setSelectedModel: (model: string) => void;
   selectedWorkspace: string;
   setSelectedWorkspace: (workspace: string) => void;
   selectedAgent: Agent | null;
@@ -95,8 +92,6 @@ interface ChatOptionsProps {
 }
 
 const ChatOptionsPanel: FC<ChatOptionsProps> = ({
-  selectedModel,
-  setSelectedModel,
   selectedWorkspace,
   setSelectedWorkspace,
   selectedAgent,
@@ -112,17 +107,6 @@ const ChatOptionsPanel: FC<ChatOptionsProps> = ({
   onOpenChatSettings,
 }) => (
   <div className="space-y-8">
-    <div className="space-y-1">
-      <Label>Model</Label>
-      <ModelSelector
-        value={selectedModel}
-        onValueChange={setSelectedModel}
-        disabled={isDisabled}
-        showFormField={false}
-        placeholder="Select model"
-      />
-    </div>
-
     {showWorkspaceSelector && availableAgents.length > 0 && (
       <div className="space-y-1">
         <Label>Agent</Label>
@@ -938,11 +922,6 @@ export const ChatInput: FC<Props> = ({
                   />
                   <OptionsButton isDisabled={isDisabled}>
                     <ChatOptionsPanel
-                      selectedModel={effectiveModel}
-                      setSelectedModel={(model: string) => {
-                        setSelectedModel(model);
-                        setHasExplicitModelSelection(true);
-                      }}
                       selectedWorkspace={selectedWorkspace}
                       setSelectedWorkspace={handleWorkspaceChange}
                       selectedAgent={sidebarSelectedAgent}
