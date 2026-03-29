@@ -16,20 +16,14 @@ import { useSettings } from '@/contexts/SettingsContext';
 import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
 import { ServerConfiguration } from '@/components/settings/ServerConfiguration';
-import { observable } from '@legendapp/state';
 import { use$ } from '@legendapp/state/react';
+import { settingsModal$, type SettingsCategory } from '@/stores/settingsModal';
+export type { SettingsCategory } from '@/stores/settingsModal';
+export { settingsModal$ } from '@/stores/settingsModal';
 
 interface SettingsModalProps {
   children?: React.ReactNode;
 }
-
-export type SettingsCategory = 'servers' | 'appearance' | 'audio' | 'content' | 'about';
-
-/** Observable to open the settings modal from outside (e.g. server dropdown). */
-export const settingsModal$ = observable({
-  open: false,
-  category: 'appearance' as SettingsCategory,
-});
 
 const categories = [
   {

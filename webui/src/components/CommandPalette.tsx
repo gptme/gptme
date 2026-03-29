@@ -30,7 +30,7 @@ import {
 } from '@/utils/exportConversation';
 import { toast } from 'sonner';
 import { use$ } from '@legendapp/state/react';
-import { settingsModal$ } from './SettingsModal';
+import { settingsModal$ } from '@/stores/settingsModal';
 
 interface CommandAction {
   id: string;

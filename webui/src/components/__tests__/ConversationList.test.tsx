@@ -202,7 +202,8 @@ describe('ConversationList', () => {
       const headers = screen.getAllByTestId('date-group-header');
       expect(headers.length).toBeGreaterThanOrEqual(2);
       expect(headers[0]).toHaveTextContent('Today');
-      expect(headers[headers.length - 1]).toHaveTextContent('Older');
+      // Monthly drill-down: "Older" group is broken into month names
+      expect(headers[headers.length - 1]).toHaveTextContent('February');
     });
 
     it('shows single group header when all conversations are from today', () => {
