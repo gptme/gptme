@@ -70,12 +70,12 @@ export const ActivityCalendar: FC<ActivityCalendarProps> = ({
     let maxCount = 0;
     let lastMonth = -1;
     const current = new Date(startDay);
+    let dayIndex = 0;
 
     while (toISODate(current) <= todayStr) {
-      const dayOfWeek = current.getDay(); // 0=Sun, 6=Sat
-      // Column = which week we're in (startDay is Sunday of week 0)
-      const col = Math.round((current.getTime() - startDay.getTime()) / (1000 * 60 * 60 * 24 * 7));
-      const row = dayOfWeek;
+      // startDay is Sunday, so dayIndex 0=Sun, 1=Mon, ..., 6=Sat
+      const col = Math.floor(dayIndex / 7);
+      const row = dayIndex % 7;
 
       const dateStr = toISODate(current);
       const count = activityData.get(dateStr) || 0;
@@ -84,12 +84,13 @@ export const ActivityCalendar: FC<ActivityCalendarProps> = ({
       cells.push({ date: dateStr, count, col, row });
 
       // Track month labels (on the first Sunday of each month)
-      if (current.getMonth() !== lastMonth && dayOfWeek === 0) {
+      if (current.getMonth() !== lastMonth && row === 0) {
         lastMonth = current.getMonth();
         monthLabels.push({ label: MONTH_NAMES[current.getMonth()], col });
       }
 
       current.setDate(current.getDate() + 1);
+      dayIndex++;
     }
 
     // Ensure first month label exists
