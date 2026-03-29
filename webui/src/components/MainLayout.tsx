@@ -462,7 +462,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
 
     return (
       <div className="flex h-full flex-1 items-center justify-center p-4">
-        <WelcomeView onToggleHistory={() => leftPanelRef.current?.expand()} />
+        <WelcomeView />
       </div>
     );
   };

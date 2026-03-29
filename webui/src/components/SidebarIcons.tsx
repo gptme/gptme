@@ -1,6 +1,7 @@
 import {
   MessageSquare,
   Kanban,
+  History,
   PanelLeftOpen,
   PanelLeftClose,
   Settings,
@@ -28,13 +29,17 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
   // Navigation state
   const currentSection = location.pathname.startsWith('/tasks')
     ? 'tasks'
-    : location.pathname.startsWith('/agents')
-      ? 'agents'
-      : location.pathname.startsWith('/workspaces')
-        ? 'workspaces'
-        : 'chat';
+    : location.pathname.startsWith('/history')
+      ? 'history'
+      : location.pathname.startsWith('/agents')
+        ? 'agents'
+        : location.pathname.startsWith('/workspaces')
+          ? 'workspaces'
+          : 'chat';
 
-  const handleNavigateToSection = (section: 'chat' | 'tasks' | 'agents' | 'workspaces') => {
+  const handleNavigateToSection = (
+    section: 'chat' | 'tasks' | 'history' | 'agents' | 'workspaces'
+  ) => {
     navigate(`/${section === 'chat' ? 'chat' : section}`);
   };
 
@@ -57,6 +62,22 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
               </Button>
             </TooltipTrigger>
             <TooltipContent side="right">Chat</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={currentSection === 'history' ? 'secondary' : 'ghost'}
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => handleNavigateToSection('history')}
+              >
+                <History className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">History</TooltipContent>
           </Tooltip>
         </TooltipProvider>
 

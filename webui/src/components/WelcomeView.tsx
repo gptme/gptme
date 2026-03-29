@@ -17,7 +17,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-export const WelcomeView = ({ onToggleHistory }: { onToggleHistory: () => void }) => {
+export const WelcomeView = () => {
   const [inputValue, setInputValue] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const navigate = useNavigate();
@@ -116,7 +116,7 @@ export const WelcomeView = ({ onToggleHistory }: { onToggleHistory: () => void }
             type="button"
             variant="ghost"
             size="sm"
-            onClick={onToggleHistory}
+            onClick={() => navigate('/history')}
             className="text-muted-foreground"
           >
             <History className="mr-2 h-4 w-4" />
