@@ -56,10 +56,11 @@ export const ActivityCalendar: FC<ActivityCalendarProps> = ({
 }) => {
   const { cells, monthLabels, maxCount } = useMemo(() => {
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    today.setHours(12, 0, 0, 0); // noon to avoid DST edge cases
 
-    // Find the start date: go back `weeks` weeks from end of this week
-    const endDay = new Date(today);
+    const todayStr = toISODate(today);
+
+    // Start on a Sunday, `weeks` weeks before the week containing today
     const startDay = new Date(today);
     startDay.setDate(startDay.getDate() - (weeks * 7 - 1) - startDay.getDay());
 
@@ -69,13 +70,11 @@ export const ActivityCalendar: FC<ActivityCalendarProps> = ({
     let maxCount = 0;
     let lastMonth = -1;
     const current = new Date(startDay);
+    let dayIndex = 0;
 
-    while (current <= endDay) {
+    while (toISODate(current) <= todayStr) {
       const dayOfWeek = current.getDay(); // 0=Sun
-      const daysSinceStart = Math.floor(
-        (current.getTime() - startDay.getTime()) / (1000 * 60 * 60 * 24)
-      );
-      const col = Math.floor(daysSinceStart / 7);
+      const col = Math.floor(dayIndex / 7);
       const row = dayOfWeek;
 
       const dateStr = toISODate(current);
@@ -93,6 +92,7 @@ export const ActivityCalendar: FC<ActivityCalendarProps> = ({
       }
 
       current.setDate(current.getDate() + 1);
+      dayIndex++;
     }
 
     return { cells, monthLabels, maxCount };
