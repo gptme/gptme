@@ -196,7 +196,6 @@ export const ConversationList: FC<Props> = ({
     return () => {
       if (observer.current) observer.current.disconnect();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasNextPage, fetchNextPage]); // isFetching accessed via ref to avoid observer recreation
 
   if (!conversations) {

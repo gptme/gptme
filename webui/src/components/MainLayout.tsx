@@ -243,13 +243,22 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
     const conversationMap = new Map<string, ConversationSummary>();
 
     // Add in order of preference: API items (most up-to-date), secondary, store items, demo items
-    // Use serverId:id for server-sourced conversations to preserve cross-server duplicates,
-    // but also track bare ids so store/demo entries (no serverId) don't duplicate API entries
+    // Server-sourced items use serverId:id compound key so the same conversation name on
+    // different servers is preserved.  Store/demo items (no serverId) use bare id and are
+    // skipped when a server-sourced copy with the same id already exists.
     const seenIds = new Set<string>();
     [...apiItems, ...secondaryConversations, ...storeConvs, ...demoItems].forEach((conv) => {
       const key = conv.serverId ? `${conv.serverId}:${conv.id}` : conv.id;
-      if (!conversationMap.has(key) && !seenIds.has(conv.id)) {
-        conversationMap.set(key, conv);
+      if (conv.serverId) {
+        // Server items: deduplicate by compound key only — allow same id across servers
+        if (!conversationMap.has(key)) {
+          conversationMap.set(key, conv);
+        }
+      } else {
+        // Store/demo items: also check bare id to avoid duplicating server entries
+        if (!conversationMap.has(key) && !seenIds.has(conv.id)) {
+          conversationMap.set(key, conv);
+        }
       }
       seenIds.add(conv.id);
     });
