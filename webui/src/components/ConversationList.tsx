@@ -476,16 +476,16 @@ export const ConversationList: FC<Props> = ({
     <div
       ref={scrollContainerRef}
       data-testid="conversation-list"
-      className="h-full space-y-2 overflow-y-auto overflow-x-hidden p-2"
+      className="h-full space-y-2 overflow-y-auto overflow-x-hidden"
     >
       {isLoading && (
-        <div className="flex items-center justify-center p-4 text-sm text-muted-foreground">
+        <div className="flex items-center justify-center px-2 py-4 text-sm text-muted-foreground">
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           Loading conversations...
         </div>
       )}
       {!isLoading && isError && (
-        <div className="space-y-2 p-4 text-sm text-destructive">
+        <div className="space-y-2 px-2 py-4 text-sm text-destructive">
           <div className="font-medium">Failed to load conversations</div>
           <div className="text-muted-foreground">{error?.message}</div>
           {onRetry && (
@@ -497,12 +497,12 @@ export const ConversationList: FC<Props> = ({
         </div>
       )}
       {!isLoading && !isError && !isConnected && conversations.length === 0 && (
-        <div className="p-2 text-sm text-muted-foreground">
+        <div className="px-2 py-2 text-sm text-muted-foreground">
           Not connected to API. Use the connect button to load conversations.
         </div>
       )}
       {!isLoading && !isError && isConnected && conversations.length === 0 && (
-        <div className="p-2 text-sm text-muted-foreground">
+        <div className="px-2 py-2 text-sm text-muted-foreground">
           No conversations found. Start a new conversation to get started.
         </div>
       )}
@@ -519,7 +519,7 @@ export const ConversationList: FC<Props> = ({
               >
                 {group}
               </div>
-              <div className="space-y-2">
+              <div className="space-y-2 px-2">
                 {items.map((conv) => (
                   <ConversationItem
                     key={conv.serverId ? `${conv.serverId}:${conv.id}` : conv.id}
@@ -557,7 +557,7 @@ export const ConversationList: FC<Props> = ({
             <BookOpen className="h-3 w-3" />
             Getting Started
           </div>
-          <div className="space-y-2">
+          <div className="space-y-2 px-2">
             {demos.map((conv) => (
               <ConversationItem key={conv.id} conv={conv} />
             ))}
