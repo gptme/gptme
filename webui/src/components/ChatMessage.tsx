@@ -14,6 +14,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 
 function formatTimestamp(timestamp: string): { short: string; full: string } {
   const date = new Date(timestamp);
+  if (isNaN(date.getTime())) return { short: '', full: '' };
   const now = new Date();
   const isToday = date.toDateString() === now.toDateString();
   const isThisYear = date.getFullYear() === now.getFullYear();
@@ -312,6 +313,7 @@ export const ChatMessage: FC<Props> = ({
                           const timestamp = (message$.get() as Message)?.timestamp;
                           if (!timestamp) return null;
                           const { short, full } = formatTimestamp(timestamp);
+                          if (!short) return null;
                           return (
                             <TooltipProvider>
                               <Tooltip>
