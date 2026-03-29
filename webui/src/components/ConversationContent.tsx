@@ -27,6 +27,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     sendMessage,
     retryMessage,
     editMessage,
+    rerunFromMessage,
     switchBranch,
     confirmTool,
     interruptGeneration,
@@ -290,6 +291,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
                   agentName={agentName}
                   onRetry={retryMessage}
                   onEdit={editMessage}
+                  onRerun={rerunFromMessage}
                   messageIndex={index}
                 />
                 {/* Branch indicator at fork points */}

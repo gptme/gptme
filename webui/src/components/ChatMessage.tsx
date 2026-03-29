@@ -8,7 +8,7 @@ import { ObservableHint, type Observable } from '@legendapp/state';
 import { Memo, useObservable, useObserveEffect } from '@legendapp/state/react';
 import * as smd from '@/utils/smd';
 import { customRenderer, type CustomRenderer } from '@/utils/markdownRenderer';
-import { Clipboard, Check, AlertCircle, RotateCcw, Pencil, X } from 'lucide-react';
+import { Clipboard, Check, AlertCircle, RotateCcw, Pencil, X, Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -50,6 +50,7 @@ interface Props {
   agentName?: string;
   onRetry?: (message: Message) => void;
   onEdit?: (index: number, content: string, truncate: boolean) => void;
+  onRerun?: (index: number) => void;
   messageIndex?: number;
 }
 
@@ -62,6 +63,7 @@ export const ChatMessage: FC<Props> = ({
   agentName,
   onRetry,
   onEdit,
+  onRerun,
   messageIndex,
 }) => {
   const { api, connectionConfig } = useApi();
@@ -350,6 +352,20 @@ export const ChatMessage: FC<Props> = ({
                             aria-label="Edit message"
                           >
                             <Pencil size={14} />
+                          </Button>
+                        )}
+                      {onRerun &&
+                        messageIndex !== undefined &&
+                        message$.role.get() === 'assistant' && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onRerun(messageIndex)}
+                            className="h-7 w-7 p-0"
+                            aria-label="Re-run from here"
+                            title="Re-run from here"
+                          >
+                            <Play size={14} />
                           </Button>
                         )}
                       <Button

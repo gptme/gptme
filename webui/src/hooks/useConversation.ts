@@ -537,6 +537,28 @@ export function useConversation(conversationId: string, serverId?: string) {
     }
   };
 
+  const rerunFromMessage = async (index: number) => {
+    if (!conversation$) return;
+    const log = conversation$.data.log.get();
+    const isLastMessage = index === log.length - 1;
+
+    try {
+      if (!isLastMessage) {
+        // Truncate after this message (creates backup branch), then step
+        const result = await api.editMessage(conversationId, index, undefined, true);
+        replaceLog(conversationId, result.log);
+        if (result.branches) {
+          updateBranches(conversationId, result.branches);
+        }
+      }
+      await api.step(conversationId);
+    } catch (error) {
+      console.error('Error re-running from message:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Failed to re-run';
+      toast({ variant: 'destructive', title: 'Re-run failed', description: errorMsg });
+    }
+  };
+
   const switchBranch = (branchName: string) => {
     setCurrentBranch(conversationId, branchName);
   };
@@ -546,6 +568,7 @@ export function useConversation(conversationId: string, serverId?: string) {
     sendMessage,
     retryMessage,
     editMessage,
+    rerunFromMessage,
     switchBranch,
     confirmTool,
     interruptGeneration,

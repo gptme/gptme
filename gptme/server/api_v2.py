@@ -461,10 +461,11 @@ def api_conversation_edit_message(conversation_id: str, index: int):
 
     req_json = request.json or {}
     content = req_json.get("content")
-    if not content or not content.strip():
-        return flask.jsonify({"error": "content is required and cannot be empty"}), 400
-
     truncate = request.args.get("truncate") == "1"
+
+    # Content is required for edits, but optional for pure truncation
+    if not truncate and (not content or not content.strip()):
+        return flask.jsonify({"error": "content is required and cannot be empty"}), 400
 
     # Check if generation is in progress
     sessions = SessionManager.get_sessions_for_conversation(conversation_id)
@@ -492,15 +493,20 @@ def api_conversation_edit_message(conversation_id: str, index: int):
             404,
         )
 
-    if msgs[index].role != "user":
+    # Content changes are only allowed on user messages.
+    # Truncation (without content change) is allowed on any message.
+    content_changed = content is not None and content != msgs[index].content
+    if content_changed and msgs[index].role != "user":
         return flask.jsonify({"error": "Can only edit user messages"}), 400
 
-    edited_msg = replace(msgs[index], content=content)
-
-    if truncate:
-        new_msgs = msgs[:index] + [edited_msg]
+    if content_changed:
+        assert content is not None  # guaranteed by content_changed check
+        edited_msg = replace(msgs[index], content=content)
+        new_msgs = msgs[:index] + [edited_msg] + ([] if truncate else msgs[index + 1 :])
+    elif truncate:
+        new_msgs = msgs[: index + 1]
     else:
-        new_msgs = msgs[:index] + [edited_msg] + msgs[index + 1 :]
+        return flask.jsonify({"error": "No changes requested"}), 400
 
     manager.edit(Log(new_msgs))
 

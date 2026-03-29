@@ -825,16 +825,18 @@ export class ApiClient {
   async editMessage(
     logfile: string,
     index: number,
-    content: string,
+    content?: string,
     truncate: boolean = false
   ): Promise<ConversationResponse> {
     if (!this.isConnected) {
       throw new ApiClientError('Not connected to API');
     }
     const url = `${this.baseUrl}/api/v2/conversations/${logfile}/messages/${index}${truncate ? '?truncate=1' : ''}`;
+    const body: Record<string, string> = {};
+    if (content !== undefined) body.content = content;
     return this.fetchJson<ConversationResponse>(url, {
       method: 'PATCH',
-      body: JSON.stringify({ content }),
+      body: JSON.stringify(body),
     });
   }
 
