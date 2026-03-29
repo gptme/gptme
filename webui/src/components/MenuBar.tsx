@@ -14,7 +14,7 @@ export const MenuBar: FC = () => {
 
   return (
     <div className="flex h-9 items-center justify-between border-b px-2 sm:px-4">
-      <div className="flex items-center space-x-1 sm:space-x-4">
+      <div className="flex items-center gap-1 sm:gap-4">
         <Button
           variant="ghost"
           size="icon"

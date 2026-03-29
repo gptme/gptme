@@ -2,6 +2,7 @@ import { type FC } from 'react';
 import { MenuBar } from '@/components/MenuBar';
 import { HistoryView } from '@/components/HistoryView';
 import { SidebarIcons } from '@/components/SidebarIcons';
+import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { useTasksQuery } from '@/stores/tasks';
 
 const History: FC = () => {
@@ -16,6 +17,7 @@ const History: FC = () => {
           <HistoryView />
         </div>
       </div>
+      <MobileBottomNav />
     </div>
   );
 };

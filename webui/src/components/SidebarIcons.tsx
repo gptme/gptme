@@ -46,7 +46,7 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
   const activeTasks = tasks.filter((t) => t.status === 'active' && !t.archived);
 
   return (
-    <div className="flex h-full w-11 flex-col border-r bg-background">
+    <div className="hidden h-full w-11 flex-col border-r bg-background md:flex">
       {/* Navigation Icons */}
       <div className="flex-shrink-0 space-y-2 p-1">
         <TooltipProvider>

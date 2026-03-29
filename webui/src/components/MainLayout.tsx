@@ -9,6 +9,7 @@ import { RightSidebar } from '@/components/RightSidebar';
 import { RightSidebarContent } from '@/components/RightSidebarContent';
 import { TaskCreationDialog } from '@/components/TaskCreationDialog';
 import { SidebarIcons } from '@/components/SidebarIcons';
+import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { UnifiedSidebar } from '@/components/UnifiedSidebar';
 import { AgentsView } from '@/components/AgentsView';
 import { WorkspacesView } from '@/components/WorkspacesView';
@@ -566,6 +567,9 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
             </SheetContent>
           </Sheet>
         )}
+
+        {/* Mobile Bottom Navigation */}
+        <MobileBottomNav />
 
         <TaskCreationDialog
           open={showCreateTaskDialog}
