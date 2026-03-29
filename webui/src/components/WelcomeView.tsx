@@ -42,7 +42,7 @@ export const WelcomeView = ({ onToggleHistory }: { onToggleHistory: () => void }
   };
 
   const handleSend = async (message: string, options?: ChatOptions) => {
-    if (!message.trim() || !isConnected) return;
+    if ((!message.trim() && !options?.pendingFiles?.length) || !isConnected) return;
 
     setIsSubmitting(true);
 
@@ -52,6 +52,7 @@ export const WelcomeView = ({ onToggleHistory }: { onToggleHistory: () => void }
         model: options?.model,
         stream: options?.stream,
         workspace: options?.workspace || '.',
+        pendingFiles: options?.pendingFiles,
       });
 
       // Navigate immediately - server-side creation happens in background

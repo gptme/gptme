@@ -359,12 +359,29 @@ export function useConversation(conversationId: string, serverId?: string) {
       setExecutingTool(conversationId, null, null);
     }
 
+    // Upload pending files first if any
+    let filePaths = options?.files || [];
+    if (options?.pendingFiles?.length) {
+      try {
+        const uploadResult = await api.uploadFiles(conversationId, options.pendingFiles);
+        filePaths = [...filePaths, ...uploadResult.files.map((f) => f.path)];
+      } catch (error) {
+        console.error('[useConversation] File upload failed:', error);
+        toast({
+          variant: 'destructive',
+          title: 'Upload failed',
+          description: 'Failed to upload attached files',
+        });
+        // Continue sending the message without files
+      }
+    }
+
     // Create user message
     const userMessage: Message = {
       role: 'user',
       content: message,
       timestamp: new Date().toISOString(),
-      ...(options?.files && options.files.length > 0 ? { files: options.files } : {}),
+      ...(filePaths.length > 0 ? { files: filePaths } : {}),
     };
 
     // Add message to conversation

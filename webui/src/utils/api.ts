@@ -713,13 +713,14 @@ export class ApiClient {
       model?: string;
       stream?: boolean;
       workspace?: string;
+      pendingFiles?: File[];
     }
   ): Promise<string> {
     // Generate conversation ID immediately
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const conversationId = `chat-${timestamp}`;
 
-    // Create user message
+    // Create user message (files will be added after upload)
     const message: Message = {
       role: 'user',
       content: userMessage,
@@ -740,7 +741,7 @@ export class ApiClient {
         branches: {},
         workspace: options?.workspace || '.',
       },
-      { needsInitialStep: true }
+      { needsInitialStep: !options?.pendingFiles?.length }
     );
 
     // Await server-side creation to propagate errors properly
@@ -752,7 +753,23 @@ export class ApiClient {
       },
     });
 
-    // NOTE: step() is NOT called here anymore!
+    // Upload pending files after conversation exists, then re-send message with file paths
+    if (options?.pendingFiles?.length) {
+      try {
+        const uploadResult = await this.uploadFiles(conversationId, options.pendingFiles);
+        const filePaths = uploadResult.files.map((f) => f.path);
+        // Re-send the message with file attachments
+        const messageWithFiles: Message = { ...message, files: filePaths };
+        await this.sendMessage(conversationId, messageWithFiles);
+      } catch (error) {
+        console.error('[API] Failed to upload pending files:', error);
+        // Continue without files — conversation already created
+      }
+      // Now trigger step (was deferred because of pending files)
+      await this.step(conversationId, options?.model, options?.stream);
+    }
+
+    // NOTE: step() is NOT called here anymore (unless we had pending files)!
     // The useConversation hook will call step() after subscribing to events,
     // which fixes the race condition where first tokens were missed.
 
