@@ -348,7 +348,7 @@ class TestServerConfirmHook:
             current_session_id.reset(token2)
 
     def test_handles_import_error_gracefully(self, mock_tool_use):
-        """If server modules can't be imported, auto-confirm."""
+        """If server modules can't be imported, auto-confirm (not skip)."""
         token1 = current_conversation_id.set("conv-123")
         token2 = current_session_id.set("session-456")
         try:
@@ -360,8 +360,8 @@ class TestServerConfirmHook:
                 patch.dict("sys.modules", {"gptme.server.api_v2_common": None}),
             ):
                 result = server_confirm_hook(mock_tool_use, preview=None)
-                # Should fall through to the ImportError handler and auto-confirm
-                assert result.action in ("confirm", "skip")
+                # ImportError handler should auto-confirm, not skip
+                assert result.action == "confirm"
         finally:
             current_conversation_id.reset(token1)
             current_session_id.reset(token2)
