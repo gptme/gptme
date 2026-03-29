@@ -172,9 +172,13 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
 
   const handleScrollToBottom = () => {
     if (scrollContainerRef.current) {
+      isAutoScrolling$.set(true);
       scrollContainerRef.current.scrollTo({
         top: scrollContainerRef.current.scrollHeight,
         behavior: 'smooth',
+      });
+      scrollContainerRef.current.addEventListener('scrollend', () => isAutoScrolling$.set(false), {
+        once: true,
       });
     }
     autoScrollAborted$.set(false);
