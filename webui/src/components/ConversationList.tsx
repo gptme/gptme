@@ -22,7 +22,7 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
-import { getRelativeTimeString } from '@/utils/time';
+import { getRelativeTimeString, groupByDate } from '@/utils/time';
 import { useApi } from '@/contexts/ApiContext';
 import { demoConversations, getDemoMessages } from '@/democonversations';
 import {
@@ -499,16 +499,28 @@ export const ConversationList: FC<Props> = ({
         </div>
       )}
 
-      {/* Render conversations */}
+      {/* Render conversations grouped by date */}
       {!isLoading &&
         !isError &&
-        conversations.map((conv) => (
-          <ConversationItem
-            key={conv.serverId ? `${conv.serverId}:${conv.id}` : conv.id}
-            conv={conv}
-            showLabel={showServerLabels}
-          />
-        ))}
+        groupByDate<ConversationSummary>(conversations, (c) => c.modified).map(
+          ({ group, items }) => (
+            <div key={group}>
+              <div
+                data-testid="date-group-header"
+                className="sticky top-0 z-10 bg-background/95 px-2 py-1.5 text-xs font-medium text-muted-foreground backdrop-blur supports-[backdrop-filter]:bg-background/60"
+              >
+                {group}
+              </div>
+              {items.map((conv) => (
+                <ConversationItem
+                  key={conv.serverId ? `${conv.serverId}:${conv.id}` : conv.id}
+                  conv={conv}
+                  showLabel={showServerLabels}
+                />
+              ))}
+            </div>
+          )
+        )}
 
       {/* Loading indicator for fetching more */}
       {isFetching && !isLoading && (

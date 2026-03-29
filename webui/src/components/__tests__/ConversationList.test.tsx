@@ -186,4 +186,60 @@ describe('ConversationList', () => {
   // Context menu functionality (rename, delete, export) is tested via the ConversationSettings
   // component tests and manual testing. The context menu wraps existing functionality that
   // is already tested elsewhere (DeleteConversationConfirmationDialog, exportConversation utils).
+
+  describe('date group headers', () => {
+    it('renders date group headers for conversations', () => {
+      const now = Date.now() / 1000;
+      const convs = [
+        createConversation({ id: 'today-conv', name: 'Today Chat', modified: now }),
+        createConversation({
+          id: 'old-conv',
+          name: 'Old Chat',
+          modified: now - 60 * 60 * 24 * 40, // 40 days ago
+        }),
+      ];
+      renderWithProviders(<ConversationList {...defaultProps} conversations={convs} />);
+      const headers = screen.getAllByTestId('date-group-header');
+      expect(headers.length).toBeGreaterThanOrEqual(2);
+      expect(headers[0]).toHaveTextContent('Today');
+      expect(headers[headers.length - 1]).toHaveTextContent('Older');
+    });
+
+    it('shows single group header when all conversations are from today', () => {
+      const now = Date.now() / 1000;
+      const convs = [
+        createConversation({ id: 'conv-1', name: 'First', modified: now }),
+        createConversation({ id: 'conv-2', name: 'Second', modified: now - 60 }),
+      ];
+      renderWithProviders(<ConversationList {...defaultProps} conversations={convs} />);
+      const headers = screen.getAllByTestId('date-group-header');
+      expect(headers).toHaveLength(1);
+      expect(headers[0]).toHaveTextContent('Today');
+    });
+
+    it('does not render date headers when loading', () => {
+      renderWithProviders(<ConversationList {...defaultProps} isLoading={true} />);
+      expect(screen.queryAllByTestId('date-group-header')).toHaveLength(0);
+    });
+
+    it('does not render date headers for empty conversation list', () => {
+      renderWithProviders(<ConversationList {...defaultProps} conversations={[]} />);
+      expect(screen.queryAllByTestId('date-group-header')).toHaveLength(0);
+    });
+
+    it('groups conversations across multiple date ranges', () => {
+      const now = Date.now() / 1000;
+      const convs = [
+        createConversation({ id: 'c1', name: 'Now', modified: now }),
+        createConversation({ id: 'c2', name: 'Yesterday', modified: now - 86400 }),
+        createConversation({ id: 'c3', name: 'Last Week', modified: now - 86400 * 5 }),
+      ];
+      renderWithProviders(<ConversationList {...defaultProps} conversations={convs} />);
+      const headers = screen.getAllByTestId('date-group-header');
+      expect(headers).toHaveLength(3);
+      expect(headers[0]).toHaveTextContent('Today');
+      expect(headers[1]).toHaveTextContent('Yesterday');
+      expect(headers[2]).toHaveTextContent('This Week');
+    });
+  });
 });
