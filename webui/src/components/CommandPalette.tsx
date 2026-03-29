@@ -22,12 +22,15 @@ import {
 import { useApi } from '@/contexts/ApiContext';
 import type { ConversationSummary } from '@/types/conversation';
 import { conversations$, selectedConversation$ } from '@/stores/conversations';
+import { commandPaletteOpen$ } from '@/stores/commandPalette';
 import {
   exportConversationAsMarkdown,
   exportConversationAsJSON,
   getExportableMessages,
 } from '@/utils/exportConversation';
 import { toast } from 'sonner';
+import { use$ } from '@legendapp/state/react';
+import { settingsModal$ } from './SettingsModal';
 
 interface CommandAction {
   id: string;
@@ -40,7 +43,8 @@ interface CommandAction {
 }
 
 export function CommandPalette() {
-  const [open, setOpen] = useState(false);
+  const open = use$(commandPaletteOpen$);
+  const setOpen = commandPaletteOpen$.set;
   const [search, setSearch] = useState('');
   const [conversationResults, setConversationResults] = useState<ConversationSummary[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -53,7 +57,7 @@ export function CommandPalette() {
     const down = (e: KeyboardEvent) => {
       if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        setOpen((open) => !open);
+        commandPaletteOpen$.set(!commandPaletteOpen$.get());
       }
     };
 
@@ -144,10 +148,10 @@ export function CommandPalette() {
         icon: <Settings className="mr-2 h-4 w-4" />,
         keywords: ['settings', 'preferences', 'config'],
         action: () => {
-          navigate('/settings');
           setOpen(false);
+          settingsModal$.open.set(true);
         },
-        group: 'Navigation',
+        group: 'Actions',
       },
       {
         id: 'home',
@@ -229,7 +233,7 @@ export function CommandPalette() {
         group: 'Actions',
       },
     ],
-    [navigate]
+    [navigate, setOpen]
   );
 
   // Filter actions based on search query

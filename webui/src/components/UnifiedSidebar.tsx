@@ -117,7 +117,7 @@ export const UnifiedSidebar: FC<Props> = ({
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Navigation state
+  // Navigation state - agents/workspaces show chat sidebar content
   const currentSection = location.pathname.startsWith('/tasks') ? 'tasks' : 'chat';
 
   // Collapsible state

@@ -1,8 +1,9 @@
 import { ServerSelector } from './ServerSelector';
 import { Button } from './ui/button';
-import { User } from 'lucide-react';
+import { User, Search } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Link } from 'react-router-dom';
+import { commandPaletteOpen$ } from '@/stores/commandPalette';
 
 import type { FC } from 'react';
 
@@ -20,6 +21,41 @@ export const MenuBar: FC = () => {
       </div>
 
       <div className="flex items-center gap-1 sm:gap-4">
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="hidden h-7 gap-1.5 px-2 text-xs text-muted-foreground sm:flex"
+                onClick={() => commandPaletteOpen$.set(true)}
+              >
+                <Search className="h-3.5 w-3.5" />
+                <span>Search</span>
+                <kbd className="pointer-events-none rounded border bg-muted px-1 font-mono text-[10px]">
+                  {navigator.platform?.includes('Mac') ? '⌘' : 'Ctrl+'}K
+                </kbd>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Search conversations and commands</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 sm:hidden"
+                onClick={() => commandPaletteOpen$.set(true)}
+                aria-label="Search"
+              >
+                <Search className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Search</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
         <ServerSelector />
         {import.meta.env.VITE_EMBEDDED_MODE === 'true' && (
           <TooltipProvider>

@@ -10,6 +10,8 @@ import { RightSidebarContent } from '@/components/RightSidebarContent';
 import { TaskCreationDialog } from '@/components/TaskCreationDialog';
 import { SidebarIcons } from '@/components/SidebarIcons';
 import { UnifiedSidebar } from '@/components/UnifiedSidebar';
+import { AgentsView } from '@/components/AgentsView';
+import { WorkspacesView } from '@/components/WorkspacesView';
 import { setDocumentTitle } from '@/utils/title';
 import { useQueryClient } from '@tanstack/react-query';
 import { useConversationsInfiniteQuery } from '@/hooks/useConversationsInfiniteQuery';
@@ -56,7 +58,13 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
   const selectedTaskId = use$(selectedTask$);
 
   // Determine current section from URL
-  const currentSection = location.pathname.startsWith('/tasks') ? 'tasks' : 'chat';
+  const currentSection = location.pathname.startsWith('/tasks')
+    ? 'tasks'
+    : location.pathname.startsWith('/agents')
+      ? 'agents'
+      : location.pathname.startsWith('/workspaces')
+        ? 'workspaces'
+        : 'chat';
 
   // Mobile detection
   const [isMobile, setIsMobile] = useState(false);
@@ -208,26 +216,20 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
         const isDemoConv = demoItems.some((demo) => demo.id === id);
         return !isDemoConv && state.data.log && state.data.log.length > 0;
       })
-      .map(
-        ([id, state]): ConversationSummary => {
-          const firstTimestamp = state.data.log?.[0]?.timestamp;
-          const lastTimestamp = state.lastMessage?.timestamp;
-          return {
-            id,
-            name: state.data.name || 'New conversation',
-            // Convert to seconds (groupByDate expects Unix seconds, not ms)
-            created: firstTimestamp
-              ? new Date(firstTimestamp).getTime() / 1000
-              : undefined,
-            modified: lastTimestamp
-              ? new Date(lastTimestamp).getTime() / 1000
-              : Date.now() / 1000,
-            messages: state.data.log?.length || 0,
-            workspace: state.data.workspace || '.',
-            readonly: false,
-          };
-        }
-      );
+      .map(([id, state]): ConversationSummary => {
+        const firstTimestamp = state.data.log?.[0]?.timestamp;
+        const lastTimestamp = state.lastMessage?.timestamp;
+        return {
+          id,
+          name: state.data.name || 'New conversation',
+          // Convert to seconds (groupByDate expects Unix seconds, not ms)
+          created: firstTimestamp ? new Date(firstTimestamp).getTime() / 1000 : undefined,
+          modified: lastTimestamp ? new Date(lastTimestamp).getTime() / 1000 : Date.now() / 1000,
+          messages: state.data.log?.length || 0,
+          workspace: state.data.workspace || '.',
+          readonly: false,
+        };
+      });
     return storeConvs;
   });
 
@@ -397,6 +399,14 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
 
   // Render main content based on current section
   const renderMainContent = () => {
+    if (currentSection === 'agents') {
+      return <AgentsView conversations={allConversations} />;
+    }
+
+    if (currentSection === 'workspaces') {
+      return <WorkspacesView conversations={allConversations} />;
+    }
+
     if (currentSection === 'tasks') {
       if (selectedTask) {
         return <TaskDetails task={selectedTask} />;

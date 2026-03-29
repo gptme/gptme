@@ -1,4 +1,12 @@
-import { MessageSquare, Kanban, PanelLeftOpen, PanelLeftClose, Settings } from 'lucide-react';
+import {
+  MessageSquare,
+  Kanban,
+  PanelLeftOpen,
+  PanelLeftClose,
+  Settings,
+  Bot,
+  FolderOpen,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -18,14 +26,16 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
   const isCollapsed = use$(leftSidebarCollapsed$);
 
   // Navigation state
-  const currentSection = location.pathname.startsWith('/tasks') ? 'tasks' : 'chat';
+  const currentSection = location.pathname.startsWith('/tasks')
+    ? 'tasks'
+    : location.pathname.startsWith('/agents')
+      ? 'agents'
+      : location.pathname.startsWith('/workspaces')
+        ? 'workspaces'
+        : 'chat';
 
-  const handleNavigateToSection = (section: 'chat' | 'tasks') => {
-    if (section === 'chat') {
-      navigate('/chat');
-    } else {
-      navigate('/tasks');
-    }
+  const handleNavigateToSection = (section: 'chat' | 'tasks' | 'agents' | 'workspaces') => {
+    navigate(`/${section === 'chat' ? 'chat' : section}`);
   };
 
   const activeTasks = tasks.filter((t) => t.status === 'active' && !t.archived);
@@ -68,6 +78,38 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
               </Button>
             </TooltipTrigger>
             <TooltipContent side="right">Tasks</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={currentSection === 'agents' ? 'secondary' : 'ghost'}
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => handleNavigateToSection('agents')}
+              >
+                <Bot className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Agents</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={currentSection === 'workspaces' ? 'secondary' : 'ghost'}
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => handleNavigateToSection('workspaces')}
+              >
+                <FolderOpen className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Workspaces</TooltipContent>
           </Tooltip>
         </TooltipProvider>
       </div>
