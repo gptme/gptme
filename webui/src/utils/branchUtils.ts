@@ -28,30 +28,55 @@ export function computeForkPoints(
   const branchNames = Object.keys(branches);
   if (branchNames.length <= 1) return new Map();
 
-  // For each other branch, find the first divergence index
+  // For each other branch, find the first divergence index.
+  // Compare against the current branch AND group identical branches at the
+  // same fork point as other branches that DO diverge there, so the count
+  // stays consistent regardless of which branch you're viewing from.
   const divergenceMap = new Map<number, string[]>(); // forkIndex -> branch names
 
+  // First pass: find where each branch diverges from current
+  const branchForkIndex = new Map<string, number | null>(); // branch -> forkIndex or null (identical)
   for (const branch of branchNames) {
     if (branch === currentBranch) continue;
     const otherLog = branches[branch];
     if (!otherLog) continue;
 
     const maxLen = Math.max(currentLog.length, otherLog.length);
+    let found = false;
     for (let i = 0; i < maxLen; i++) {
       const currentMsg = currentLog[i];
       const otherMsg = otherLog[i];
 
-      // Divergence: one is missing, or timestamps differ
       if (!currentMsg || !otherMsg || currentMsg.timestamp !== otherMsg.timestamp) {
-        // Fork point is the last common message (i-1), clamped to 0
         const forkIndex = Math.max(0, i - 1);
-        if (!divergenceMap.has(forkIndex)) {
-          divergenceMap.set(forkIndex, []);
-        }
-        divergenceMap.get(forkIndex)!.push(branch);
+        branchForkIndex.set(branch, forkIndex);
+        found = true;
         break;
       }
     }
+    if (!found) {
+      // Branch is identical to current — find where it diverges from ANY other branch
+      branchForkIndex.set(branch, null);
+    }
+  }
+
+  // Second pass: identical branches get assigned the most common fork index
+  // from non-identical branches (they were created at the same point)
+  let fallbackForkIndex: number | null = null;
+  for (const [, idx] of branchForkIndex) {
+    if (idx !== null) {
+      fallbackForkIndex = idx;
+      break;
+    }
+  }
+
+  for (const [branch, idx] of branchForkIndex) {
+    const forkIndex = idx ?? fallbackForkIndex;
+    if (forkIndex === null) continue; // all branches identical, skip
+    if (!divergenceMap.has(forkIndex)) {
+      divergenceMap.set(forkIndex, []);
+    }
+    divergenceMap.get(forkIndex)!.push(branch);
   }
 
   // Build ForkInfo for each fork point
