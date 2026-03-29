@@ -1,4 +1,4 @@
-import { useEffect, useRef, type FC } from 'react';
+import { useCallback, useRef, type FC } from 'react';
 import type { Message, StreamingMessage } from '@/types/conversation';
 import { MessageAvatar } from './MessageAvatar';
 import { useMessageChainType } from '@/utils/messageUtils';
@@ -70,30 +70,37 @@ export const ChatMessage: FC<Props> = ({
   const isEditing$ = useObservable(false);
   const editContent$ = useObservable('');
 
-  const contentRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
   const renderer$ = useObservable<CustomRenderer | null>(null);
   const parser$ = useObservable<smd.Parser | null>(null);
 
-  // Initialize the renderer and parser once the contentRef is available
-  useEffect(() => {
-    if (!contentRef.current) return;
-    const renderer = customRenderer(contentRef.current, false, true, settings.blocksDefaultOpen);
-    renderer$.set(ObservableHint.opaque(renderer));
-    const newParser = smd.parser(renderer);
-    parser$.set(ObservableHint.opaque(newParser));
+  // Callback ref: initializes the parser whenever the content div mounts.
+  // This fires inside <Memo> when the div appears (e.g. after exiting edit mode),
+  // unlike useEffect which only fires on outer component re-render.
+  const contentCallbackRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      contentRef.current = node;
+      if (!node) return;
 
-    // Write existing content to the new parser (handles re-mount after edit mode)
-    const existingContent = message$.content.peek();
-    if (existingContent) {
-      previousContent$.set('');
-      smd.parser_write(newParser, existingContent);
-      smd.parser_end(newParser);
-      renderer$.set(null);
-      parser$.set(null);
-      previousContent$.set(existingContent);
-    }
+      const renderer = customRenderer(node, false, true, settings.blocksDefaultOpen);
+      renderer$.set(ObservableHint.opaque(renderer));
+      const newParser = smd.parser(renderer);
+      parser$.set(ObservableHint.opaque(newParser));
+
+      // Write existing content to the new parser (handles re-mount after edit mode)
+      const existingContent = message$.content.peek();
+      if (existingContent) {
+        previousContent$.set('');
+        smd.parser_write(newParser, existingContent);
+        smd.parser_end(newParser);
+        renderer$.set(null);
+        parser$.set(null);
+        previousContent$.set(existingContent);
+      }
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contentRef.current, settings.blocksDefaultOpen]);
+    [settings.blocksDefaultOpen]
+  );
 
   // Send any new content to the parser
   const previousContent$ = useObservable('');
@@ -410,7 +417,7 @@ export const ChatMessage: FC<Props> = ({
 
                               return (
                                 <div
-                                  ref={contentRef}
+                                  ref={contentCallbackRef}
                                   className="chat-message prose prose-sm dark:prose-invert prose-pre:overflow-x-auto prose-pre:max-w-[calc(100vw-16rem)]"
                                 >
                                   {isEmptyAssistantMessage && (
