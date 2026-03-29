@@ -21,7 +21,8 @@ export interface ToolUse {
 export interface ConversationSummary {
   id: string;
   name: string;
-  modified: number; // Unix timestamp
+  created?: number; // Unix timestamp of first message
+  modified: number; // Unix timestamp of last file modification
   messages: number; // Message count
   branch?: string;
   workspace?: string;

@@ -149,6 +149,8 @@ export const ConversationList: FC<Props> = ({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
   const observer = useRef<IntersectionObserver | null>(null);
+  const isFetchingRef = useRef(isFetching);
+  isFetchingRef.current = isFetching;
 
   // Set up intersection observer for infinite scrolling
   useEffect(() => {
@@ -165,7 +167,7 @@ export const ConversationList: FC<Props> = ({
     observer.current = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
-        if (entry.isIntersecting && hasNextPage && !isFetching) {
+        if (entry.isIntersecting && hasNextPage && !isFetchingRef.current) {
           // Additional check: ensure we actually have scrollable content or are near the bottom
           const containerHeight = container.clientHeight;
           const scrollHeight = container.scrollHeight;
@@ -194,7 +196,7 @@ export const ConversationList: FC<Props> = ({
       if (observer.current) observer.current.disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasNextPage, fetchNextPage]); // isFetching intentionally excluded to prevent observer recreation
+  }, [hasNextPage, fetchNextPage]); // isFetching accessed via ref to avoid observer recreation
 
   if (!conversations) {
     return null;
@@ -502,7 +504,7 @@ export const ConversationList: FC<Props> = ({
       {/* Render conversations grouped by date */}
       {!isLoading &&
         !isError &&
-        groupByDate<ConversationSummary>(conversations, (c) => c.modified).map(
+        groupByDate<ConversationSummary>(conversations, (c) => c.created ?? c.modified).map(
           ({ group, items }) => (
             <div key={group}>
               <div

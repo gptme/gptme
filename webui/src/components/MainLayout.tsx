@@ -150,7 +150,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
 
   const apiConversations = useMemo(() => {
     const primaryServer = registry.servers.find((s) => s.id === registry.activeServerId);
-    const primary =
+    const all =
       data?.pages.flatMap(
         (page: { conversations: ConversationSummary[]; nextCursor: number | undefined }) =>
           page.conversations.map((conv) => ({
@@ -159,7 +159,13 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
             serverName: primaryServer?.name,
           }))
       ) ?? [];
-    return primary;
+    // Deduplicate across pages (overlapping pagination can produce duplicates)
+    const seen = new Set<string>();
+    return all.filter((conv) => {
+      if (seen.has(conv.id)) return false;
+      seen.add(conv.id);
+      return true;
+    });
   }, [data, registry.activeServerId, registry.servers]);
 
   // Fetch tasks
@@ -203,16 +209,24 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
         return !isDemoConv && state.data.log && state.data.log.length > 0;
       })
       .map(
-        ([id, state]): ConversationSummary => ({
-          id,
-          name: state.data.name || 'New conversation',
-          modified: state.lastMessage
-            ? new Date(state.lastMessage.timestamp || Date.now()).getTime()
-            : Date.now(),
-          messages: state.data.log?.length || 0,
-          workspace: state.data.workspace || '.',
-          readonly: false,
-        })
+        ([id, state]): ConversationSummary => {
+          const firstTimestamp = state.data.log?.[0]?.timestamp;
+          const lastTimestamp = state.lastMessage?.timestamp;
+          return {
+            id,
+            name: state.data.name || 'New conversation',
+            // Convert to seconds (groupByDate expects Unix seconds, not ms)
+            created: firstTimestamp
+              ? new Date(firstTimestamp).getTime() / 1000
+              : undefined,
+            modified: lastTimestamp
+              ? new Date(lastTimestamp).getTime() / 1000
+              : Date.now() / 1000,
+            messages: state.data.log?.length || 0,
+            workspace: state.data.workspace || '.',
+            readonly: false,
+          };
+        }
       );
     return storeConvs;
   });
@@ -227,11 +241,15 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
     const conversationMap = new Map<string, ConversationSummary>();
 
     // Add in order of preference: API items (most up-to-date), secondary, store items, demo items
+    // Use serverId:id for server-sourced conversations to preserve cross-server duplicates,
+    // but also track bare ids so store/demo entries (no serverId) don't duplicate API entries
+    const seenIds = new Set<string>();
     [...apiItems, ...secondaryConversations, ...storeConvs, ...demoItems].forEach((conv) => {
       const key = conv.serverId ? `${conv.serverId}:${conv.id}` : conv.id;
-      if (!conversationMap.has(key)) {
+      if (!conversationMap.has(key) && !seenIds.has(conv.id)) {
         conversationMap.set(key, conv);
       }
+      seenIds.add(conv.id);
     });
 
     return Array.from(conversationMap.values());

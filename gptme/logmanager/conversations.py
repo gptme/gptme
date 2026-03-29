@@ -6,6 +6,7 @@ and mutation operations (rename, delete) that work on persisted conversation log
 
 import json
 import logging
+import re
 import shutil
 from collections.abc import Generator
 from dataclasses import dataclass
@@ -123,6 +124,16 @@ def get_conversations() -> Generator[ConversationMeta, None, None]:
                 role = msg.get("role")
                 if role in ("user", "assistant"):
                     content = msg.get("content", "")
+                    if content:
+                        # Strip <think>/<thinking> tags and their content
+                        content = re.sub(
+                            r"<think(?:ing)?>[\s\S]*?</think(?:ing)?>",
+                            "",
+                            content,
+                        )
+                        # Also strip unclosed opening tags and any trailing content
+                        content = re.sub(r"<think(?:ing)?>[\s\S]*$", "", content)
+                        content = content.strip()
                     if content:
                         last_msg_role = role
                         # Collapse whitespace first, then truncate to 100 chars

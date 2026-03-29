@@ -308,27 +308,27 @@ export const ChatMessage: FC<Props> = ({
                         }}
                       </Memo>
                       {renderFiles()}
-                      <Memo>
-                        {() => {
-                          const timestamp = (message$.get() as Message)?.timestamp;
-                          if (!timestamp) return null;
-                          const { short, full } = formatTimestamp(timestamp);
-                          if (!short) return null;
-                          return (
-                            <TooltipProvider>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <div className="mt-0.5 select-none text-right text-[10px] text-muted-foreground/50 opacity-0 transition-opacity group-hover/message:opacity-100">
-                                    {short}
-                                  </div>
-                                </TooltipTrigger>
-                                <TooltipContent side="bottom">{full}</TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
-                          );
-                        }}
-                      </Memo>
                     </div>
+                    <Memo>
+                      {() => {
+                        const timestamp = (message$.get() as Message)?.timestamp;
+                        if (!timestamp) return null;
+                        const { short, full } = formatTimestamp(timestamp);
+                        if (!short) return null;
+                        return (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <div className="h-0 select-none overflow-visible px-3 text-right text-[10px] leading-4 text-muted-foreground/50 opacity-0 transition-opacity group-hover/message:opacity-100">
+                                  {short}
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent side="bottom">{full}</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        );
+                      }}
+                    </Memo>
                   </div>
                 </div>
               </div>
