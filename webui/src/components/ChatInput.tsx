@@ -232,7 +232,7 @@ const ModelBadge: FC<{
           disabled={isDisabled}
         >
           {modelInfo?.provider && <ProviderIcon provider={modelInfo.provider} size={10} />}
-          <span className="truncate">{displayName}</span>
+          <span className="ml-1 truncate">{displayName}</span>
           <ChevronDown className="ml-0.5 h-2 w-2 flex-shrink-0" />
         </Button>
       </PopoverTrigger>
@@ -920,6 +920,20 @@ export const ChatInput: FC<Props> = ({
                     }}
                     isDisabled={isDisabled}
                   />
+                  {/* File attach button */}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-5 rounded-sm px-1.5 text-[10px] text-muted-foreground transition-all hover:bg-accent hover:text-muted-foreground hover:opacity-100"
+                    disabled={isDisabled}
+                    onClick={() => fileInputRef.current?.click()}
+                    title="Attach files"
+                  >
+                    <Paperclip className="mr-0.5 h-2.5 w-2.5" />
+                    Attach
+                  </Button>
+
                   <OptionsButton isDisabled={isDisabled}>
                     <ChatOptionsPanel
                       selectedWorkspace={selectedWorkspace}
@@ -947,20 +961,6 @@ export const ChatInput: FC<Props> = ({
                       }
                     />
                   </OptionsButton>
-
-                  {/* File attach button */}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-5 rounded-sm px-1.5 text-[10px] text-muted-foreground transition-all hover:bg-accent hover:text-muted-foreground hover:opacity-100"
-                    disabled={isDisabled}
-                    onClick={() => fileInputRef.current?.click()}
-                    title="Attach files"
-                  >
-                    <Paperclip className="mr-0.5 h-2.5 w-2.5" />
-                    Attach
-                  </Button>
 
                   {/* Agent badge for new conversations */}
                   {!conversationId && sidebarSelectedAgent && (
