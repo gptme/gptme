@@ -54,15 +54,15 @@ export const ActivityCalendar: FC<ActivityCalendarProps> = ({
   onDayClick,
   selectedDate,
 }) => {
-  const { cells, monthLabels, maxCount } = useMemo(() => {
+  const { cells, monthLabels, maxCount, todayStr } = useMemo(() => {
     const today = new Date();
     today.setHours(12, 0, 0, 0); // noon to avoid DST edge cases
-
     const todayStr = toISODate(today);
 
-    // Start on a Sunday, `weeks` weeks before the week containing today
+    // Align start to Sunday of the week containing (today - (weeks-1) weeks)
+    // This gives us `weeks` columns: (weeks-1) full past weeks + current partial week
     const startDay = new Date(today);
-    startDay.setDate(startDay.getDate() - (weeks * 7 - 1) - startDay.getDay());
+    startDay.setDate(today.getDate() - today.getDay() - (weeks - 1) * 7);
 
     const cells: { date: string; count: number; col: number; row: number }[] = [];
     const monthLabels: { label: string; col: number }[] = [];
@@ -70,11 +70,11 @@ export const ActivityCalendar: FC<ActivityCalendarProps> = ({
     let maxCount = 0;
     let lastMonth = -1;
     const current = new Date(startDay);
-    let dayIndex = 0;
 
     while (toISODate(current) <= todayStr) {
-      const dayOfWeek = current.getDay(); // 0=Sun
-      const col = Math.floor(dayIndex / 7);
+      const dayOfWeek = current.getDay(); // 0=Sun, 6=Sat
+      // Column = which week we're in (startDay is Sunday of week 0)
+      const col = Math.round((current.getTime() - startDay.getTime()) / (1000 * 60 * 60 * 24 * 7));
       const row = dayOfWeek;
 
       const dateStr = toISODate(current);
@@ -83,19 +83,22 @@ export const ActivityCalendar: FC<ActivityCalendarProps> = ({
 
       cells.push({ date: dateStr, count, col, row });
 
-      // Track month labels
-      if (current.getMonth() !== lastMonth) {
+      // Track month labels (on the first Sunday of each month)
+      if (current.getMonth() !== lastMonth && dayOfWeek === 0) {
         lastMonth = current.getMonth();
-        if (col > 0 || row === 0) {
-          monthLabels.push({ label: MONTH_NAMES[current.getMonth()], col });
-        }
+        monthLabels.push({ label: MONTH_NAMES[current.getMonth()], col });
       }
 
       current.setDate(current.getDate() + 1);
-      dayIndex++;
     }
 
-    return { cells, monthLabels, maxCount };
+    // Ensure first month label exists
+    if (monthLabels.length === 0 || monthLabels[0].col > 1) {
+      const firstDate = new Date(startDay);
+      monthLabels.unshift({ label: MONTH_NAMES[firstDate.getMonth()], col: 0 });
+    }
+
+    return { cells, monthLabels, maxCount, todayStr };
   }, [activityData, weeks]);
 
   const totalCols = cells.length > 0 ? Math.max(...cells.map((c) => c.col)) + 1 : 0;
@@ -137,6 +140,7 @@ export const ActivityCalendar: FC<ActivityCalendarProps> = ({
           const x = DAY_LABEL_WIDTH + col * CELL_STEP;
           const y = MONTH_LABEL_HEIGHT + row * CELL_STEP;
           const isSelected = selectedDate === date;
+          const isToday = date === todayStr;
           const colorClass = getColorClass(count, maxCount);
 
           return (
@@ -148,7 +152,7 @@ export const ActivityCalendar: FC<ActivityCalendarProps> = ({
                   width={CELL_SIZE}
                   height={CELL_SIZE}
                   rx={2}
-                  className={`${colorClass} cursor-pointer transition-opacity hover:opacity-80 ${isSelected ? 'stroke-foreground stroke-[1.5]' : ''}`}
+                  className={`${colorClass} cursor-pointer transition-opacity hover:opacity-80 ${isSelected ? 'stroke-foreground stroke-[2]' : isToday ? 'stroke-foreground stroke-[1.5]' : ''}`}
                   onClick={() => onDayClick?.(date)}
                 />
               </TooltipTrigger>
@@ -161,6 +165,7 @@ export const ActivityCalendar: FC<ActivityCalendarProps> = ({
                     day: 'numeric',
                     year: 'numeric',
                   })}
+                  {isToday ? ' (today)' : ''}
                 </p>
               </TooltipContent>
             </Tooltip>

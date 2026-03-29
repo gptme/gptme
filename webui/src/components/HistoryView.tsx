@@ -1,4 +1,4 @@
-import { type FC, useMemo, useState, useCallback } from 'react';
+import { type FC, useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { use$ } from '@legendapp/state/react';
@@ -11,6 +11,7 @@ import {
   Search,
   ArrowLeft,
   X,
+  Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,6 +20,8 @@ import { useApi } from '@/contexts/ApiContext';
 import { ActivityCalendar } from '@/components/ActivityCalendar';
 import { getRelativeTimeString } from '@/utils/time';
 import type { ConversationSummary } from '@/types/conversation';
+
+const PAGE_SIZE = 50;
 
 function toISODate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -32,7 +35,6 @@ function useAllConversations() {
   return useQuery({
     queryKey: ['conversations-all', connectionConfig.baseUrl, isConnected],
     queryFn: async () => {
-      // Fetch a large number to get full history for the calendar
       const result = await api.getConversationsPaginated(0, 10000);
       return result.conversations;
     },
@@ -60,11 +62,60 @@ const StatsCard: FC<StatsCardProps> = ({ icon, label, value }) => (
   </div>
 );
 
+const ConversationRow: FC<{
+  conv: ConversationSummary;
+  onClick: (conv: ConversationSummary) => void;
+}> = ({ conv, onClick }) => (
+  <div
+    className="flex cursor-pointer items-start gap-3 border-b px-4 py-3 last:border-b-0 hover:bg-accent/50"
+    onClick={() => onClick(conv)}
+  >
+    <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-muted">
+      <MessageSquare className="h-4 w-4 text-muted-foreground" />
+    </div>
+    <div className="min-w-0 flex-1">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="truncate font-medium">{conv.name || conv.id}</span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="flex-shrink-0 whitespace-nowrap text-xs text-muted-foreground">
+              <Clock className="mr-1 inline h-3 w-3" />
+              {getRelativeTimeString(new Date(conv.modified * 1000))}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{new Date(conv.modified * 1000).toLocaleString()}</TooltipContent>
+        </Tooltip>
+      </div>
+      {conv.last_message_preview && (
+        <p className="mt-0.5 truncate text-sm text-muted-foreground">
+          {conv.last_message_role === 'user' ? '\u2192 ' : '\u2190 '}
+          {conv.last_message_preview}
+        </p>
+      )}
+      <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
+        <span className="flex items-center gap-1">
+          <MessageSquare className="h-3 w-3" />
+          {conv.messages} messages
+        </span>
+        {conv.workspace && conv.workspace !== '.' && (
+          <span className="truncate">{conv.workspace}</span>
+        )}
+        {conv.agent_name && (
+          <span className="rounded bg-muted px-1.5 py-0.5">{conv.agent_name}</span>
+        )}
+      </div>
+    </div>
+  </div>
+);
+
 export const HistoryView: FC = () => {
   const navigate = useNavigate();
   const { data: conversations = [], isLoading } = useAllConversations();
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   // Build activity map from conversations
   const activityData = useMemo(() => {
@@ -87,7 +138,6 @@ export const HistoryView: FC = () => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const checkDate = new Date(today);
-    // If no activity today, check if yesterday had activity (allow 1-day gap)
     if (!activityData.has(toISODate(checkDate))) {
       checkDate.setDate(checkDate.getDate() - 1);
     }
@@ -101,9 +151,8 @@ export const HistoryView: FC = () => {
 
   // Filter conversations
   const filteredConversations = useMemo(() => {
-    let filtered = [...conversations];
+    let filtered = conversations;
 
-    // Filter by selected date
     if (selectedDate) {
       filtered = filtered.filter((conv) => {
         const convDate = toISODate(new Date(conv.modified * 1000));
@@ -111,7 +160,6 @@ export const HistoryView: FC = () => {
       });
     }
 
-    // Filter by search
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       filtered = filtered.filter(
@@ -122,11 +170,38 @@ export const HistoryView: FC = () => {
       );
     }
 
-    // Sort by most recent
-    filtered.sort((a, b) => b.modified - a.modified);
+    // Sort by most recent (make a copy only if not already filtered to avoid mutating)
+    const sorted = filtered === conversations ? [...filtered] : filtered;
+    sorted.sort((a, b) => b.modified - a.modified);
 
-    return filtered;
+    return sorted;
   }, [conversations, selectedDate, searchQuery]);
+
+  // Reset visible count when filters change
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [selectedDate, searchQuery]);
+
+  // Intersection observer for infinite scroll
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    const container = scrollRef.current;
+    if (!sentinel || !container) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setVisibleCount((prev) => prev + PAGE_SIZE);
+        }
+      },
+      { root: container, rootMargin: '200px' }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [filteredConversations]);
+
+  const visibleConversations = filteredConversations.slice(0, visibleCount);
+  const hasMore = visibleCount < filteredConversations.length;
 
   const handleDayClick = useCallback((date: string) => {
     setSelectedDate((prev) => (prev === date ? null : date));
@@ -238,7 +313,7 @@ export const HistoryView: FC = () => {
             </div>
 
             {/* List */}
-            <div className="max-h-[600px] overflow-y-auto">
+            <div ref={scrollRef} className="max-h-[600px] overflow-y-auto">
               {isLoading ? (
                 <div className="flex items-center justify-center p-8 text-sm text-muted-foreground">
                   Loading conversations...
@@ -250,51 +325,29 @@ export const HistoryView: FC = () => {
                     : 'No conversations yet.'}
                 </div>
               ) : (
-                filteredConversations.map((conv) => (
-                  <div
-                    key={conv.serverId ? `${conv.serverId}:${conv.id}` : conv.id}
-                    className="flex cursor-pointer items-start gap-3 border-b px-4 py-3 last:border-b-0 hover:bg-accent/50"
-                    onClick={() => handleConversationClick(conv)}
-                  >
-                    <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-muted">
-                      <MessageSquare className="h-4 w-4 text-muted-foreground" />
+                <>
+                  {visibleConversations.map((conv) => (
+                    <ConversationRow
+                      key={conv.serverId ? `${conv.serverId}:${conv.id}` : conv.id}
+                      conv={conv}
+                      onClick={handleConversationClick}
+                    />
+                  ))}
+                  {hasMore && (
+                    <div
+                      ref={sentinelRef}
+                      className="flex items-center justify-center p-4 text-sm text-muted-foreground"
+                    >
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Loading more...
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <span className="truncate font-medium">{conv.name || conv.id}</span>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span className="flex-shrink-0 whitespace-nowrap text-xs text-muted-foreground">
-                              <Clock className="mr-1 inline h-3 w-3" />
-                              {getRelativeTimeString(new Date(conv.modified * 1000))}
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            {new Date(conv.modified * 1000).toLocaleString()}
-                          </TooltipContent>
-                        </Tooltip>
-                      </div>
-                      {conv.last_message_preview && (
-                        <p className="mt-0.5 truncate text-sm text-muted-foreground">
-                          {conv.last_message_role === 'user' ? '→ ' : '← '}
-                          {conv.last_message_preview}
-                        </p>
-                      )}
-                      <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <MessageSquare className="h-3 w-3" />
-                          {conv.messages} messages
-                        </span>
-                        {conv.workspace && conv.workspace !== '.' && (
-                          <span className="truncate">{conv.workspace}</span>
-                        )}
-                        {conv.agent_name && (
-                          <span className="rounded bg-muted px-1.5 py-0.5">{conv.agent_name}</span>
-                        )}
-                      </div>
+                  )}
+                  {!hasMore && filteredConversations.length > PAGE_SIZE && (
+                    <div className="py-3 text-center text-xs text-muted-foreground">
+                      All {filteredConversations.length} conversations loaded
                     </div>
-                  </div>
-                ))
+                  )}
+                </>
               )}
             </div>
           </div>
