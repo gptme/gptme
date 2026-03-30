@@ -44,11 +44,13 @@ def _restore_default_model():
 
 @pytest.fixture(autouse=True)
 def _restore_model_list_cache():
-    """Save and restore the model list cache between tests."""
+    """Run each test with a clean model list cache and restore prior state after."""
     import gptme.llm.models.listing as listing_mod
 
     old_cache = listing_mod._model_list_cache
     old_time = listing_mod._model_list_cache_time
+    listing_mod._model_list_cache = None
+    listing_mod._model_list_cache_time = 0
     yield
     listing_mod._model_list_cache = old_cache
     listing_mod._model_list_cache_time = old_time
