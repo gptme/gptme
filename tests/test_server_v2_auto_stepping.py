@@ -164,5 +164,8 @@ def test_generation_error_persists_system_message(
     assert resp.status_code == 200
 
     messages = resp.json()["log"]
+    assert not any(
+        m["role"] == "assistant" and m.get("content", "") == "" for m in messages
+    ), "Lingering empty assistant placeholder found in log after error"
     assert messages[-1]["role"] == "system"
     assert messages[-1]["content"] == "Error: provider quota exceeded"
