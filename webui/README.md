@@ -41,14 +41,13 @@ The web UI can connect to multiple gptme servers at once, showing conversations 
 
 ### Pre-configured servers
 
-Two servers are available out of the box:
+One server is pre-configured out of the box:
 
 | Name | URL | Description |
 |------|-----|-------------|
 | **Local** | `http://127.0.0.1:5700` | Your local gptme-server |
-| **Cloud** | `https://api.gptme.ai` | gptme.ai managed service (requires auth) |
 
-Additional servers can be added in **Settings > Servers** (e.g. agent VMs, remote workstations).
+Additional servers (including cloud instances) can be added in **Settings > Servers** (e.g. agent VMs, remote workstations). Cloud servers are registered automatically when you complete the auth flow at gptme.ai.
 
 ### How it works
 
@@ -64,8 +63,7 @@ Additional servers can be added in **Settings > Servers** (e.g. agent VMs, remot
 ServerRegistry (stores/servers.ts)
   └─ ServerConfig[] persisted to localStorage
        ├─ Local  (pre-configured, default)
-       ├─ Cloud  (pre-configured)
-       └─ custom servers added by user
+       └─ custom servers added by user (including cloud instances from auth flow)
 
 ApiContext (contexts/ApiContext.tsx)
   └─ manages active ApiClient for the primary server
