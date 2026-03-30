@@ -123,6 +123,11 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   const stepRoles$ = useObservable<Map<number, StepRole>>(() => new Map());
   const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set());
 
+  // Reset expanded state when switching conversations (groupIds reset to 0 per conversation)
+  useEffect(() => {
+    setExpandedGroups(new Set());
+  }, [conversationId]);
+
   const toggleGroup = useCallback((groupId: number) => {
     setExpandedGroups((prev) => {
       const next = new Set(prev);
@@ -135,8 +140,10 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     });
   }, []);
 
-  // Recompute step roles when messages change
-  useObserveEffect(conversation$.data.log, () => {
+  // Recompute step roles when messages or visibility settings change.
+  // All .get() calls inside are auto-tracked, so this re-runs when any of
+  // conversation log, showHiddenMessages, showInitialSystem, or firstNonSystemIndex changes.
+  useObserveEffect(() => {
     const messages = conversation$.data.log.get();
     if (!messages?.length) {
       stepRoles$.set(new Map());

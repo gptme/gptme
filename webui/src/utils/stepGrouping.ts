@@ -2,7 +2,6 @@ import type { Message } from '@/types/conversation';
 
 /** Role each message index plays in step grouping */
 export type StepRole =
-  | { type: 'normal' } // not part of any group
   | { type: 'group-start'; groupId: number; count: number; tools: string[] } // first hidden step — render summary
   | { type: 'grouped'; groupId: number } // hidden step (collapsed)
   | { type: 'response' }; // final assistant response — always visible
@@ -12,8 +11,7 @@ export type StepRole =
  * Returns a short label like "shell", "save", "patch", etc.
  */
 function detectTool(content: string): string | null {
-  const lower = content.toLowerCase();
-  const first = lower.trimStart();
+  const first = content.toLowerCase().trimStart();
   if (first.startsWith('saved')) return 'save';
   if (first.startsWith('appended')) return 'append';
   if (first.startsWith('patch applied') || first.startsWith('patched')) return 'patch';
