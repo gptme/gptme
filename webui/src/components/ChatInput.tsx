@@ -66,7 +66,7 @@ export interface ChatOptions {
 
 interface Props {
   conversationId?: string;
-  onSend: (message: string, options?: ChatOptions) => void;
+  onSend?: (message: string, options?: ChatOptions) => void;
   onInterrupt?: () => Promise<void>;
   isReadOnly?: boolean;
   defaultModel?: string;
@@ -78,6 +78,21 @@ interface Props {
   editFiles?: string[]; // Pre-existing file paths from the message being edited
   onEditSave?: (content: string, files: string[], pendingFiles: File[], truncate: boolean) => void;
   onEditCancel?: () => void;
+}
+
+interface AttachedFile {
+  name: string;
+  path: string; // absolute path returned by the upload endpoint
+  file?: File; // raw File object (for local buffering / preview)
+  previewUrl?: string; // object URL for image preview
+}
+
+function createAttachedFiles(paths?: string[]): AttachedFile[] {
+  if (!paths?.length) return [];
+  return paths.map((path) => ({
+    name: path.split('/').pop() || path,
+    path,
+  }));
 }
 
 interface ChatOptionsProps {
@@ -519,42 +534,37 @@ export const ChatInput: FC<Props> = ({
   );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const currentConversationIdRef = useRef(conversationId);
-
-  // File attachment state
-  interface AttachedFile {
-    name: string;
-    path: string; // absolute path returned by the upload endpoint
-    file?: File; // raw File object (for local buffering / preview)
-    previewUrl?: string; // object URL for image preview
-  }
-  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>(() => {
-    // In edit mode, pre-populate with existing file paths from the message
-    if (editMode && editFiles?.length) {
-      return editFiles.map((path) => ({
-        name: path.split('/').pop() || path,
-        path,
-      }));
-    }
-    return [];
-  });
+  const editFileKey = editFiles?.join('\0') || '';
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>(() =>
+    editMode ? createAttachedFiles(editFiles) : []
+  );
   const [isDragOver, setIsDragOver] = useState(false);
 
-  // Revoke preview URLs and clear files
-  const cleanupAndClearFiles = useCallback(() => {
+  const replaceAttachedFiles = useCallback((nextFiles: AttachedFile[]) => {
     setAttachedFiles((prev) => {
       prev.forEach((f) => {
         if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
       });
-      return [];
+      return nextFiles;
     });
   }, []);
 
+  // Revoke preview URLs and clear files
+  const cleanupAndClearFiles = useCallback(() => {
+    replaceAttachedFiles([]);
+  }, [replaceAttachedFiles]);
+
   useEffect(() => {
-    currentConversationIdRef.current = conversationId;
-    cleanupAndClearFiles();
     setIsDragOver(false);
-  }, [conversationId, cleanupAndClearFiles]);
+    if (!editMode) {
+      cleanupAndClearFiles();
+    }
+  }, [conversationId, cleanupAndClearFiles, editMode]);
+
+  useEffect(() => {
+    if (!editMode) return;
+    replaceAttachedFiles(createAttachedFiles(editFiles));
+  }, [editMode, editFileKey, replaceAttachedFiles]);
 
   // Always buffer files locally — upload happens on send, not on attach
   const attachFiles = useCallback((files: FileList | File[]) => {
@@ -662,6 +672,7 @@ export const ChatInput: FC<Props> = ({
   useEffect(() => {
     // Detect transition from generating to not generating
     if (wasGenerating.current && !isGenerating && messageQueue.length > 0) {
+      if (!onSend) return;
       const nextMessage = messageQueue[0];
       console.log('[ChatInput] Generation completed, sending queued message', {
         remaining: messageQueue.length - 1,
@@ -720,6 +731,8 @@ export const ChatInput: FC<Props> = ({
       }
       return;
     }
+
+    if (!onSend) return;
 
     // Files are always buffered locally — pass raw File objects for upload on send
     const pendingFiles =

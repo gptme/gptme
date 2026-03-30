@@ -131,4 +131,36 @@ describe('ChatInput', () => {
 
     await waitFor(() => expect(screen.queryByText('test.txt')).not.toBeInTheDocument());
   });
+
+  it('preserves existing attachments in edit mode', async () => {
+    const autoFocus$ = observable(false);
+    const onEditSave = jest.fn();
+
+    const { rerender } = render(
+      <ChatInput
+        conversationId="conv-a"
+        autoFocus$={autoFocus$}
+        editMode
+        editFiles={['/tmp/conv-a/attachments/existing.txt']}
+        onEditSave={onEditSave}
+      />
+    );
+
+    expect(screen.getByText('existing.txt')).toBeInTheDocument();
+
+    rerender(
+      <ChatInput
+        conversationId="conv-b"
+        autoFocus$={autoFocus$}
+        editMode
+        editFiles={['/tmp/conv-b/attachments/new.txt']}
+        onEditSave={onEditSave}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText('existing.txt')).not.toBeInTheDocument();
+      expect(screen.getByText('new.txt')).toBeInTheDocument();
+    });
+  });
 });

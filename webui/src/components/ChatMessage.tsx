@@ -444,6 +444,7 @@ export const ChatMessage: FC<Props> = ({
                             size="sm"
                             onClick={() => {
                               editContent$.set(message$.content.get());
+                              editAutoFocus$.set(true);
                               isEditing$.set(true);
                             }}
                             className="h-7 w-7 p-0"
@@ -516,7 +517,6 @@ export const ChatMessage: FC<Props> = ({
                       {isEditing$.get() ? (
                         <ChatInput
                           conversationId={conversationId}
-                          onSend={() => {}} // unused in edit mode
                           autoFocus$={editAutoFocus$}
                           value={editContent$.get()}
                           onChange={(v) => editContent$.set(v)}
