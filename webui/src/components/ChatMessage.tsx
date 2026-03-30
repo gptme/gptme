@@ -379,36 +379,52 @@ export const ChatMessage: FC<Props> = ({
   };
 
   const chainType$ = useMessageChainType(message$, previousMessage$, nextMessage$);
-  const messageClasses$ = useObservable(
-    () => `
-        ${
-          isUser$.get()
-            ? 'bg-[#EAF4FF] text-black dark:bg-[#2A3441] dark:text-white'
-            : isAssistant$.get()
-              ? 'bg-[#F8F9FA] dark:bg-card text-foreground'
-              : isSystem$.get()
-                ? 'font-mono border ' +
-                  (isError$.get()
-                    ? 'bg-[#FFF2F2] text-red-600 dark:bg-[#440000] dark:text-red-300 border-red-400 dark:border-red-800'
-                    : isSuccess$.get()
-                      ? 'bg-[#F0FDF4] text-green-700 dark:bg-[#003300] dark:text-green-200 border-green-400 dark:border-green-800'
-                      : 'bg-[#DDD] text-[#111] dark:bg-[#111] dark:text-gray-100 border-gray-200 dark:border-gray-800')
-                : 'bg-card'
-        }
-        ${(chainType$.get() === 'standalone' && 'rounded-lg') || ''}
-        ${(chainType$.get() === 'start' && 'rounded-t-lg') || ''}
-        ${(chainType$.get() === 'end' && 'rounded-b-lg') || ''}
-        ${chainType$.get() === 'middle' && ''}
-        ${(chainType$.get() !== 'start' && chainType$.get() !== 'standalone' && 'border-t-0') || ''}
-        border
-    `
-  );
-  const wrapperClasses$ = useObservable(
-    () => `
-        ${chainType$.get() !== 'start' && chainType$.get() !== 'standalone' ? '-mt-[2px]' : 'mt-4'}
-        ${chainType$.get() === 'standalone' ? 'mb-4' : 'mb-0'}
-    `
-  );
+  const messageClasses$ = useObservable(() => {
+    const isAssistant = isAssistant$.get();
+    const chain = chainType$.get();
+
+    // Assistant messages: borderless, page-native surface with subtle hover highlight
+    if (isAssistant) {
+      return 'text-foreground rounded-lg hover:bg-accent/30 transition-colors';
+    }
+
+    // Role-specific background + border colors
+    const roleClasses = isUser$.get()
+      ? 'bg-[#EAF4FF] text-black dark:bg-[#2A3441] dark:text-white'
+      : isSystem$.get()
+        ? 'font-mono border ' +
+          (isError$.get()
+            ? 'bg-[#FFF2F2] text-red-600 dark:bg-[#440000] dark:text-red-300 border-red-400 dark:border-red-800'
+            : isSuccess$.get()
+              ? 'bg-[#F0FDF4] text-green-700 dark:bg-[#003300] dark:text-green-200 border-green-400 dark:border-green-800'
+              : 'bg-[#DDD] text-[#111] dark:bg-[#111] dark:text-gray-100 border-gray-200 dark:border-gray-800')
+        : 'bg-card';
+
+    // Chain rounding + borders for non-assistant messages
+    const chainClasses = [
+      (chain === 'standalone' && 'rounded-lg') || '',
+      (chain === 'start' && 'rounded-t-lg') || '',
+      (chain === 'end' && 'rounded-b-lg') || '',
+      (chain !== 'start' && chain !== 'standalone' && 'border-t-0') || '',
+      'border',
+    ].join(' ');
+
+    return `${roleClasses} ${chainClasses}`;
+  });
+  const wrapperClasses$ = useObservable(() => {
+    const chain = chainType$.get();
+    const isAssistant = isAssistant$.get();
+
+    // Assistant messages get consistent spacing (not tight chain spacing)
+    if (isAssistant) {
+      return 'mt-2 mb-2';
+    }
+
+    return `
+        ${chain !== 'start' && chain !== 'standalone' ? '-mt-[2px]' : 'mt-4'}
+        ${chain === 'standalone' ? 'mb-4' : 'mb-0'}
+      `;
+  });
 
   return (
     <Memo>
