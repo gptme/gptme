@@ -284,6 +284,25 @@ export function useConversation(conversationId: string, serverId?: string) {
             },
             onError: (error) => {
               console.error('[useConversation] Error:', error);
+              setGenerating(conversationId, false);
+              setPendingTool(conversationId, null, null);
+              setExecutingTool(conversationId, null, null);
+              messageJustCompleted.current = false;
+
+              const messages$ = conversation$?.data.log;
+              const lastMessage$ = messages$?.[messages$.length - 1];
+              if (lastMessage$?.role.get() === 'assistant') {
+                const content = lastMessage$.content.get();
+                if (content === '') {
+                  const timestamp = lastMessage$.timestamp?.get();
+                  if (timestamp) {
+                    removeMessage(conversationId, timestamp);
+                  }
+                } else if ('isComplete' in lastMessage$) {
+                  lastMessage$.isComplete.set(true);
+                }
+              }
+
               toast({
                 variant: 'destructive',
                 title: 'Error',

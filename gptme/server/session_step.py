@@ -226,6 +226,16 @@ def _append_and_notify(manager: LogManager, session: ConversationSession, msg: M
     )
 
 
+def _persist_generation_error(
+    manager: LogManager,
+    session: ConversationSession,
+    error_message: str,
+) -> None:
+    """Persist a visible generation error message and notify SSE clients."""
+    _append_and_notify(manager, session, Message("system", f"Error: {error_message}"))
+    manager.write()
+
+
 def _try_auto_name_and_notify(
     config: ChatConfig,
     messages: list[Message],
@@ -586,6 +596,7 @@ def step(
     # Prepare messages for the model
     msgs = prepare_messages(manager.log.messages)
     if not msgs:
+        _persist_generation_error(manager, session, "No messages to process")
         error_event: ErrorEvent = {
             "type": "error",
             "error": "No messages to process",
@@ -714,7 +725,14 @@ def step(
 
     except Exception as e:
         logger.exception(f"Error during step execution: {e}")
-        SessionManager.add_event(conversation_id, {"type": "error", "error": str(e)})
+        error_message = str(e) or "Generation failed"
+        try:
+            _persist_generation_error(manager, session, error_message)
+        except Exception:
+            logger.exception("Failed to persist generation error message")
+        SessionManager.add_event(
+            conversation_id, {"type": "error", "error": error_message}
+        )
         session.generating = False
 
 
