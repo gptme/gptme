@@ -344,3 +344,91 @@ def test_v2_chat_config_update_works(client: FlaskClient):
     response = client.get(f"/api/v2/conversations/{conversation_id}/config")
     config = ChatConfig.from_dict(response.get_json())
     assert config.to_dict() == input_config.to_dict()
+
+
+@pytest.mark.parametrize(
+    "files_payload",
+    [
+        "attachments/image.png",
+        ["attachments/image.png", 123],
+        {"path": "attachments/image.png"},
+    ],
+)
+def test_v2_edit_message_rejects_invalid_files_payload(
+    client: FlaskClient, files_payload: object
+):
+    """Test that edit rejects malformed files payloads with a 400."""
+    conversation_id = create_conversation(client)["conversation_id"]
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "Original message"},
+    )
+    assert response.status_code == 200
+
+    conversation = client.get(f"/api/v2/conversations/{conversation_id}").get_json()
+    assert conversation is not None
+    user_index = len(conversation["log"]) - 1
+
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/messages/{user_index}",
+        json={"files": files_payload},
+    )
+
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "files must be a list of strings"}
+
+    conversation = client.get(f"/api/v2/conversations/{conversation_id}").get_json()
+    assert conversation is not None
+    assert conversation["log"][user_index]["content"] == "Original message"
+    assert "files" not in conversation["log"][user_index]
+
+
+def test_v2_edit_message_preserves_uri_files(client: FlaskClient):
+    """Test that editing message files preserves URI attachments."""
+    conversation_id = create_conversation(client)["conversation_id"]
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "Original message"},
+    )
+    assert response.status_code == 200
+
+    conversation = client.get(f"/api/v2/conversations/{conversation_id}").get_json()
+    assert conversation is not None
+    user_index = len(conversation["log"]) - 1
+    uri = "https://example.com/image.png"
+
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/messages/{user_index}",
+        json={"files": [uri]},
+    )
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data is not None
+    assert data["log"][user_index]["files"] == [uri]
+
+    conversation = client.get(f"/api/v2/conversations/{conversation_id}").get_json()
+    assert conversation is not None
+    assert conversation["log"][user_index]["files"] == [uri]
+
+
+def test_v2_edit_message_rejects_non_string_content(client: FlaskClient):
+    """Test that edit rejects non-string content with a 400."""
+    conversation_id = create_conversation(client)["conversation_id"]
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "Original message"},
+    )
+    assert response.status_code == 200
+
+    conversation = client.get(f"/api/v2/conversations/{conversation_id}").get_json()
+    assert conversation is not None
+    user_index = len(conversation["log"]) - 1
+
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/messages/{user_index}",
+        json={"content": 123},
+    )
+
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "content must be a string"}

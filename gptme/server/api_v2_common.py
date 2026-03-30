@@ -9,7 +9,7 @@ from typing import Literal, TypedDict
 from typing_extensions import NotRequired
 
 from ..message import Message
-from ..util.uri import URI
+from ..util.uri import URI, is_uri
 
 
 def _is_debug_errors_enabled() -> bool:
@@ -34,7 +34,7 @@ def _abs_to_rel_workspace(
     Files under logdir (e.g. attachments/) are returned relative to logdir.
     """
     # URIs should be returned as-is (they're not workspace-relative)
-    if isinstance(path, URI):
+    if isinstance(path, URI) or (isinstance(path, str) and is_uri(path)):
         return str(path)
 
     path = Path(path).resolve()

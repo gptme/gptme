@@ -35,6 +35,7 @@ from ..logmanager import Log, LogManager, get_user_conversations
 from ..message import Message
 from ..tools import get_toolchain, get_tools, init_tools
 from ..util.content import is_message_command
+from ..util.uri import parse_file_reference
 
 
 def _validate_conversation_id(
@@ -474,10 +475,22 @@ def api_conversation_edit_message(conversation_id: str, index: int):
     if error := _validate_conversation_id(conversation_id):
         return error
 
-    req_json = request.json or {}
+    req_json = request.get_json(silent=True)
+    if req_json is None:
+        req_json = {}
+    elif not isinstance(req_json, dict):
+        return flask.jsonify({"error": "JSON body must be an object"}), 400
+
     content = req_json.get("content")
     files = req_json.get("files")  # Optional list of file paths
     truncate = request.args.get("truncate") == "1"
+
+    if content is not None and not isinstance(content, str):
+        return flask.jsonify({"error": "content must be a string"}), 400
+    if files is not None and (
+        not isinstance(files, list) or not all(isinstance(f, str) for f in files)
+    ):
+        return flask.jsonify({"error": "files must be a list of strings"}), 400
 
     # Content or files required for edits, but optional for pure truncation
     has_changes = (content and content.strip()) or files is not None
@@ -522,7 +535,7 @@ def api_conversation_edit_message(conversation_id: str, index: int):
         if content_changed:
             replacements["content"] = content
         if files_changed and files is not None:
-            replacements["files"] = [Path(f) for f in files]
+            replacements["files"] = [parse_file_reference(f) for f in files]
         edited_msg = replace(msgs[index], **replacements)
         new_msgs = msgs[:index] + [edited_msg] + ([] if truncate else msgs[index + 1 :])
     elif truncate:
