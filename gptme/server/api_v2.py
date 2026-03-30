@@ -476,11 +476,13 @@ def api_conversation_edit_message(conversation_id: str, index: int):
 
     req_json = request.json or {}
     content = req_json.get("content")
+    files = req_json.get("files")  # Optional list of file paths
     truncate = request.args.get("truncate") == "1"
 
-    # Content is required for edits, but optional for pure truncation
-    if not truncate and (not content or not content.strip()):
-        return flask.jsonify({"error": "content is required and cannot be empty"}), 400
+    # Content or files required for edits, but optional for pure truncation
+    has_changes = (content and content.strip()) or files is not None
+    if not truncate and not has_changes:
+        return flask.jsonify({"error": "content or files is required"}), 400
 
     # Check if generation is in progress
     sessions = SessionManager.get_sessions_for_conversation(conversation_id)
@@ -508,15 +510,20 @@ def api_conversation_edit_message(conversation_id: str, index: int):
             404,
         )
 
-    # Content changes are only allowed on user messages.
+    # Content/file changes are only allowed on user messages.
     # Truncation (without content change) is allowed on any message.
     content_changed = content is not None and content != msgs[index].content
-    if content_changed and msgs[index].role != "user":
+    files_changed = files is not None and [str(f) for f in msgs[index].files] != files
+    if (content_changed or files_changed) and msgs[index].role != "user":
         return flask.jsonify({"error": "Can only edit user messages"}), 400
 
-    if content_changed:
-        assert content is not None  # guaranteed by content_changed check
-        edited_msg = replace(msgs[index], content=content)
+    if content_changed or files_changed:
+        replacements: dict = {}
+        if content_changed:
+            replacements["content"] = content
+        if files_changed and files is not None:
+            replacements["files"] = [Path(f) for f in files]
+        edited_msg = replace(msgs[index], **replacements)
         new_msgs = msgs[:index] + [edited_msg] + ([] if truncate else msgs[index + 1 :])
     elif truncate:
         new_msgs = msgs[: index + 1]

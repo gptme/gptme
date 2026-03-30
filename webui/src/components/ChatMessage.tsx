@@ -14,7 +14,6 @@ import {
   AlertCircle,
   RotateCcw,
   Pencil,
-  X,
   Play,
   RefreshCw,
   Trash2,
@@ -23,9 +22,9 @@ import {
   FileText,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { ChatInput } from '@/components/ChatInput';
 
 function formatTimestamp(timestamp: string): { short: string; full: string } {
   const date = new Date(timestamp);
@@ -63,7 +62,13 @@ interface Props {
   agentAvatarUrl?: string;
   agentName?: string;
   onRetry?: (message: Message) => void;
-  onEdit?: (index: number, content: string, truncate: boolean) => void;
+  onEdit?: (
+    index: number,
+    content: string,
+    truncate: boolean,
+    files?: string[],
+    pendingFiles?: File[]
+  ) => void;
   onDelete?: (index: number) => void;
   onRerun?: (index: number) => void;
   onRegenerate?: (index: number) => void;
@@ -89,6 +94,7 @@ export const ChatMessage: FC<Props> = ({
   // Use observables (not useState) because these are read inside <Memo>
   const isEditing$ = useObservable(false);
   const editContent$ = useObservable('');
+  const editAutoFocus$ = useObservable(true);
 
   const contentRef = useRef<HTMLDivElement | null>(null);
   const renderer$ = useObservable<CustomRenderer | null>(null);
@@ -508,46 +514,20 @@ export const ChatMessage: FC<Props> = ({
                     </div>
                     <div className="px-3 py-1.5">
                       {isEditing$.get() ? (
-                        <div className="flex flex-col gap-2">
-                          <Textarea
-                            value={editContent$.get()}
-                            onChange={(e) => editContent$.set(e.target.value)}
-                            className="min-h-[60px] resize-none"
-                            autoFocus
-                            onKeyDown={(e) => {
-                              if (e.key === 'Escape') {
-                                isEditing$.set(false);
-                              }
-                            }}
-                          />
-                          <div className="flex items-center gap-2">
-                            <Button
-                              size="sm"
-                              onClick={() => {
-                                onEdit?.(messageIndex!, editContent$.get(), false);
-                                isEditing$.set(false);
-                              }}
-                              disabled={!editContent$.get().trim()}
-                            >
-                              Save
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              onClick={() => {
-                                onEdit?.(messageIndex!, editContent$.get(), true);
-                                isEditing$.set(false);
-                              }}
-                              disabled={!editContent$.get().trim()}
-                            >
-                              Save & Re-run
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => isEditing$.set(false)}>
-                              <X className="mr-1 h-3 w-3" />
-                              Cancel
-                            </Button>
-                          </div>
-                        </div>
+                        <ChatInput
+                          conversationId={conversationId}
+                          onSend={() => {}} // unused in edit mode
+                          autoFocus$={editAutoFocus$}
+                          value={editContent$.get()}
+                          onChange={(v) => editContent$.set(v)}
+                          editMode
+                          editFiles={message$.files?.get()?.map(String)}
+                          onEditSave={(content, files, pendingFiles, truncate) => {
+                            onEdit?.(messageIndex!, content, truncate, files, pendingFiles);
+                            isEditing$.set(false);
+                          }}
+                          onEditCancel={() => isEditing$.set(false)}
+                        />
                       ) : (
                         <>
                           <Memo>

@@ -73,6 +73,11 @@ interface Props {
   autoFocus$: Observable<boolean>;
   value?: string;
   onChange?: (value: string) => void;
+  // Edit mode: reuse ChatInput for inline message editing with attachment support
+  editMode?: boolean;
+  editFiles?: string[]; // Pre-existing file paths from the message being edited
+  onEditSave?: (content: string, files: string[], pendingFiles: File[], truncate: boolean) => void;
+  onEditCancel?: () => void;
 }
 
 interface ChatOptionsProps {
@@ -435,6 +440,10 @@ export const ChatInput: FC<Props> = ({
   autoFocus$,
   value,
   onChange,
+  editMode,
+  editFiles,
+  onEditSave,
+  onEditCancel,
 }) => {
   const { isConnected$, connectionConfig } = useApi();
   const sidebarSelectedWorkspace = use$(selectedWorkspace$);
@@ -448,8 +457,10 @@ export const ChatInput: FC<Props> = ({
   const conversationModel = conversation$?.chatConfig?.get()?.chat?.model;
 
   // Initialize message from localStorage for persistence across page reloads
+  // Skip localStorage in edit mode — content comes from the message being edited
   const storageKey = conversationId ? `gptme-draft-${conversationId}` : 'gptme-draft-new';
   const [internalMessage, setInternalMessage] = useState(() => {
+    if (editMode) return '';
     if (typeof window !== 'undefined') {
       return localStorage.getItem(storageKey) || '';
     }
@@ -457,15 +468,15 @@ export const ChatInput: FC<Props> = ({
   });
   const [streamingEnabled, setStreamingEnabled] = useState(true);
 
-  // Persist message to localStorage when it changes
+  // Persist message to localStorage when it changes (skip in edit mode)
   // Note: We only save non-empty messages, we don't clear on empty.
   // This ensures drafts persist until a new message is typed, preventing
   // data loss if send fails (the draft would already be cleared otherwise).
   useEffect(() => {
-    if (typeof window !== 'undefined' && internalMessage) {
+    if (!editMode && typeof window !== 'undefined' && internalMessage) {
       localStorage.setItem(storageKey, internalMessage);
     }
-  }, [internalMessage, storageKey]);
+  }, [internalMessage, storageKey, editMode]);
 
   // Track if user has explicitly selected a model (temporary override)
   const [hasExplicitModelSelection, setHasExplicitModelSelection] = useState(false);
@@ -517,7 +528,16 @@ export const ChatInput: FC<Props> = ({
     file?: File; // raw File object (for local buffering / preview)
     previewUrl?: string; // object URL for image preview
   }
-  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>(() => {
+    // In edit mode, pre-populate with existing file paths from the message
+    if (editMode && editFiles?.length) {
+      return editFiles.map((path) => ({
+        name: path.split('/').pop() || path,
+        path,
+      }));
+    }
+    return [];
+  });
   const [isDragOver, setIsDragOver] = useState(false);
 
   // Revoke preview URLs and clear files
@@ -679,8 +699,28 @@ export const ChatInput: FC<Props> = ({
     setWorkspaceExplicitlySelected(workspace !== '.');
   };
 
+  // Edit mode: save with truncate option
+  const handleEditSave = useCallback(
+    (truncate: boolean) => {
+      if (!onEditSave) return;
+      const existingPaths = attachedFiles.filter((f) => f.path && !f.file).map((f) => f.path);
+      const newFiles = attachedFiles.filter((f) => f.file).map((f) => f.file!);
+      onEditSave(message, existingPaths, newFiles, truncate);
+    },
+    [onEditSave, attachedFiles, message]
+  );
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+
+    // In edit mode, save instead of send
+    if (editMode) {
+      if (message.trim() || attachedFiles.length > 0) {
+        handleEditSave(false);
+      }
+      return;
+    }
+
     // Files are always buffered locally — pass raw File objects for upload on send
     const pendingFiles =
       attachedFiles.length > 0
@@ -776,6 +816,12 @@ export const ChatInput: FC<Props> = ({
       // If autocomplete is open, close it first
       if (fileAutocomplete.state.isOpen) {
         fileAutocomplete.close();
+        return;
+      }
+
+      // In edit mode, cancel editing
+      if (editMode && onEditCancel) {
+        onEditCancel();
         return;
       }
 
@@ -901,96 +947,152 @@ export const ChatInput: FC<Props> = ({
                 <Textarea
                   ref={textareaRef}
                   value={message}
-                  data-testid="chat-input"
+                  data-testid={editMode ? 'edit-input' : 'chat-input'}
                   onChange={handleTextareaChange}
                   onKeyDown={handleKeyDown}
                   onPaste={handlePaste}
-                  placeholder={placeholder}
-                  className="max-h-[400px] min-h-[60px] resize-none overflow-y-auto pb-8 pr-16"
+                  placeholder={editMode ? 'Edit message...' : placeholder}
+                  className={
+                    editMode
+                      ? 'max-h-[300px] min-h-[60px] resize-none overflow-y-auto pb-8'
+                      : 'max-h-[400px] min-h-[60px] resize-none overflow-y-auto pb-8 pr-16'
+                  }
                   disabled={isDisabled}
+                  autoFocus={editMode}
                 />
 
-                <div className="absolute bottom-1.5 left-1.5 flex items-center gap-2">
-                  <ModelBadge
-                    model={effectiveModel}
-                    models={modelInfos}
-                    onModelChange={(model: string) => {
-                      setSelectedModel(model);
-                      setHasExplicitModelSelection(true);
-                    }}
-                    isDisabled={isDisabled}
-                  />
-                  {/* File attach button */}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-5 rounded-sm px-1.5 text-[10px] text-muted-foreground transition-all hover:bg-accent hover:text-muted-foreground hover:opacity-100"
-                    disabled={isDisabled}
-                    onClick={() => fileInputRef.current?.click()}
-                    title="Attach files"
-                  >
-                    <Paperclip className="mr-0.5 h-2.5 w-2.5" />
-                    Attach
-                  </Button>
-
-                  <OptionsButton isDisabled={isDisabled}>
-                    <ChatOptionsPanel
-                      selectedWorkspace={selectedWorkspace}
-                      setSelectedWorkspace={handleWorkspaceChange}
-                      selectedAgent={sidebarSelectedAgent}
-                      setSelectedAgent={(agent) => selectedAgent$.set(agent)}
-                      availableAgents={availableAgents}
-                      baseUrl={connectionConfig.baseUrl.replace(/\/+$/, '')}
-                      streamingEnabled={streamingEnabled}
-                      setStreamingEnabled={setStreamingEnabled}
-                      availableWorkspaces={availableWorkspaces}
-                      isDisabled={isDisabled}
-                      showWorkspaceSelector={!conversationId}
-                      onAddWorkspace={(path: string) => {
-                        console.log('[ChatInput] Adding new workspace:', path);
-                        addCustomWorkspace(path);
-                      }}
-                      onOpenChatSettings={
-                        conversationId
-                          ? () => {
-                              rightSidebarActiveTab$.set('settings');
-                              rightSidebarVisible$.set(true);
-                            }
-                          : undefined
-                      }
-                    />
-                  </OptionsButton>
-
-                  {/* Agent badge for new conversations */}
-                  {!conversationId && sidebarSelectedAgent && (
-                    <AgentBadge
-                      agent={sidebarSelectedAgent}
-                      baseUrl={connectionConfig.baseUrl.replace(/\/+$/, '')}
-                      onRemove={() => selectedAgent$.set(null)}
-                    />
-                  )}
-
-                  {/* Workspace badge for new conversations */}
-                  {!conversationId &&
-                    selectedWorkspace &&
-                    selectedWorkspace !== '.' &&
-                    workspaceExplicitlySelected && (
-                      <WorkspaceBadge
-                        workspace={selectedWorkspace}
-                        onRemove={() => {
-                          setSelectedWorkspace('.');
-                          setWorkspaceExplicitlySelected(false);
+                {editMode ? (
+                  /* Edit mode: minimal toolbar with attach + save/cancel */
+                  <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-5 rounded-sm px-1.5 text-[10px] text-muted-foreground transition-all hover:bg-accent hover:text-muted-foreground hover:opacity-100"
+                      onClick={() => fileInputRef.current?.click()}
+                      title="Attach files"
+                    >
+                      <Paperclip className="mr-0.5 h-2.5 w-2.5" />
+                      Attach
+                    </Button>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-6 px-2 text-xs"
+                        onClick={() => handleEditSave(false)}
+                        disabled={!message.trim() && attachedFiles.length === 0}
+                      >
+                        Save
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        className="h-6 px-2 text-xs"
+                        onClick={() => handleEditSave(true)}
+                        disabled={!message.trim() && attachedFiles.length === 0}
+                      >
+                        Save & Re-run
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-2 text-xs"
+                        onClick={onEditCancel}
+                      >
+                        <X className="mr-0.5 h-3 w-3" />
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  /* Normal mode: full toolbar */
+                  <>
+                    <div className="absolute bottom-1.5 left-1.5 flex items-center gap-2">
+                      <ModelBadge
+                        model={effectiveModel}
+                        models={modelInfos}
+                        onModelChange={(model: string) => {
+                          setSelectedModel(model);
+                          setHasExplicitModelSelection(true);
                         }}
+                        isDisabled={isDisabled}
                       />
-                    )}
-                </div>
+                      {/* File attach button */}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-5 rounded-sm px-1.5 text-[10px] text-muted-foreground transition-all hover:bg-accent hover:text-muted-foreground hover:opacity-100"
+                        disabled={isDisabled}
+                        onClick={() => fileInputRef.current?.click()}
+                        title="Attach files"
+                      >
+                        <Paperclip className="mr-0.5 h-2.5 w-2.5" />
+                        Attach
+                      </Button>
 
-                <SubmitButton
-                  isGenerating={isGenerating}
-                  isDisabled={isDisabled}
-                  hasText={!!message.trim() || attachedFiles.length > 0}
-                />
+                      <OptionsButton isDisabled={isDisabled}>
+                        <ChatOptionsPanel
+                          selectedWorkspace={selectedWorkspace}
+                          setSelectedWorkspace={handleWorkspaceChange}
+                          selectedAgent={sidebarSelectedAgent}
+                          setSelectedAgent={(agent) => selectedAgent$.set(agent)}
+                          availableAgents={availableAgents}
+                          baseUrl={connectionConfig.baseUrl.replace(/\/+$/, '')}
+                          streamingEnabled={streamingEnabled}
+                          setStreamingEnabled={setStreamingEnabled}
+                          availableWorkspaces={availableWorkspaces}
+                          isDisabled={isDisabled}
+                          showWorkspaceSelector={!conversationId}
+                          onAddWorkspace={(path: string) => {
+                            console.log('[ChatInput] Adding new workspace:', path);
+                            addCustomWorkspace(path);
+                          }}
+                          onOpenChatSettings={
+                            conversationId
+                              ? () => {
+                                  rightSidebarActiveTab$.set('settings');
+                                  rightSidebarVisible$.set(true);
+                                }
+                              : undefined
+                          }
+                        />
+                      </OptionsButton>
+
+                      {/* Agent badge for new conversations */}
+                      {!conversationId && sidebarSelectedAgent && (
+                        <AgentBadge
+                          agent={sidebarSelectedAgent}
+                          baseUrl={connectionConfig.baseUrl.replace(/\/+$/, '')}
+                          onRemove={() => selectedAgent$.set(null)}
+                        />
+                      )}
+
+                      {/* Workspace badge for new conversations */}
+                      {!conversationId &&
+                        selectedWorkspace &&
+                        selectedWorkspace !== '.' &&
+                        workspaceExplicitlySelected && (
+                          <WorkspaceBadge
+                            workspace={selectedWorkspace}
+                            onRemove={() => {
+                              setSelectedWorkspace('.');
+                              setWorkspaceExplicitlySelected(false);
+                            }}
+                          />
+                        )}
+                    </div>
+
+                    <SubmitButton
+                      isGenerating={isGenerating}
+                      isDisabled={isDisabled}
+                      hasText={!!message.trim() || attachedFiles.length > 0}
+                    />
+                  </>
+                )}
               </div>
             )}
           </Computed>

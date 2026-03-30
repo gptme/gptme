@@ -517,9 +517,22 @@ export function useConversation(conversationId: string, serverId?: string) {
     });
   };
 
-  const editMessage = async (index: number, content: string, truncate: boolean = false) => {
+  const editMessage = async (
+    index: number,
+    content: string,
+    truncate: boolean = false,
+    files?: string[],
+    pendingFiles?: File[]
+  ) => {
     try {
-      const result = await api.editMessage(conversationId, index, content, truncate);
+      // Upload any new files first, then merge with existing file paths
+      let allFiles = files;
+      if (pendingFiles?.length) {
+        const uploadResult = await api.uploadFiles(conversationId, pendingFiles);
+        const newPaths = uploadResult.files.map((f) => f.path);
+        allFiles = [...(files || []), ...newPaths];
+      }
+      const result = await api.editMessage(conversationId, index, content, truncate, allFiles);
       // Use API response directly (SSE event may also arrive, but this is immediate)
       replaceLog(conversationId, result.log);
       if (result.branches) {
