@@ -6,7 +6,6 @@ These are unit-level tests using the Flask test client — they don't
 require API keys or LLM calls.
 """
 
-import random
 import uuid
 from unittest.mock import MagicMock, patch
 
@@ -30,7 +29,7 @@ pytestmark = [pytest.mark.timeout(10)]
 
 def create_conversation(client: FlaskClient) -> dict:
     """Create a V2 conversation with a session."""
-    convname = f"test-sessions-{random.randint(0, 1000000)}"
+    convname = f"test-sessions-{uuid.uuid4().hex[:8]}"
     response = client.put(
         f"/api/v2/conversations/{convname}",
         json={"prompt": "You are an AI assistant for testing."},
@@ -266,21 +265,21 @@ class TestToolConfirmEndpoint:
             tooluse=ToolUse("bash", [], "echo test"),
         )
 
-        response = client.post(
-            f"/api/v2/conversations/{conv['conversation_id']}/tool/confirm",
-            json={
-                "session_id": conv["session_id"],
-                "tool_id": tool_id,
-                "action": "invalid_action",
-            },
-        )
-        assert response.status_code == 400
-        data = response.get_json()
-        assert data is not None
-        assert "unknown action" in data["error"].lower()
-
-        # Clean up
-        del session.pending_tools[tool_id]
+        try:
+            response = client.post(
+                f"/api/v2/conversations/{conv['conversation_id']}/tool/confirm",
+                json={
+                    "session_id": conv["session_id"],
+                    "tool_id": tool_id,
+                    "action": "invalid_action",
+                },
+            )
+            assert response.status_code == 400
+            data = response.get_json()
+            assert data is not None
+            assert "unknown action" in data["error"].lower()
+        finally:
+            session.pending_tools.pop(tool_id, None)
 
     def test_skip_action(self, conv, client: FlaskClient):
         """Skip action removes pending tool and appends system message."""
@@ -318,22 +317,22 @@ class TestToolConfirmEndpoint:
             tooluse=ToolUse("bash", [], "echo old"),
         )
 
-        response = client.post(
-            f"/api/v2/conversations/{conv['conversation_id']}/tool/confirm",
-            json={
-                "session_id": conv["session_id"],
-                "tool_id": tool_id,
-                "action": "edit",
-                # content intentionally omitted
-            },
-        )
-        assert response.status_code == 400
-        data = response.get_json()
-        assert data is not None
-        assert "content" in data["error"].lower()
-
-        # Clean up
-        del session.pending_tools[tool_id]
+        try:
+            response = client.post(
+                f"/api/v2/conversations/{conv['conversation_id']}/tool/confirm",
+                json={
+                    "session_id": conv["session_id"],
+                    "tool_id": tool_id,
+                    "action": "edit",
+                    # content intentionally omitted
+                },
+            )
+            assert response.status_code == 400
+            data = response.get_json()
+            assert data is not None
+            assert "content" in data["error"].lower()
+        finally:
+            session.pending_tools.pop(tool_id, None)
 
     def test_auto_with_invalid_count(self, conv, client: FlaskClient):
         """Auto action with count <= 0 returns 400."""
@@ -345,22 +344,22 @@ class TestToolConfirmEndpoint:
             tooluse=ToolUse("bash", [], "echo test"),
         )
 
-        response = client.post(
-            f"/api/v2/conversations/{conv['conversation_id']}/tool/confirm",
-            json={
-                "session_id": conv["session_id"],
-                "tool_id": tool_id,
-                "action": "auto",
-                "count": 0,
-            },
-        )
-        assert response.status_code == 400
-        data = response.get_json()
-        assert data is not None
-        assert "count" in data["error"].lower()
-
-        # Clean up
-        del session.pending_tools[tool_id]
+        try:
+            response = client.post(
+                f"/api/v2/conversations/{conv['conversation_id']}/tool/confirm",
+                json={
+                    "session_id": conv["session_id"],
+                    "tool_id": tool_id,
+                    "action": "auto",
+                    "count": 0,
+                },
+            )
+            assert response.status_code == 400
+            data = response.get_json()
+            assert data is not None
+            assert "count" in data["error"].lower()
+        finally:
+            session.pending_tools.pop(tool_id, None)
 
     def test_session_not_found(self, conv, client: FlaskClient):
         """Confirm with nonexistent session_id returns 404."""
@@ -384,20 +383,23 @@ class TestToolConfirmEndpoint:
             tooluse=ToolUse("bash", [], "echo cross-session"),
         )
 
-        with (
-            patch("gptme.server.api_v2_sessions.start_tool_execution"),
-            patch("gptme.server.api_v2_sessions.resolve_hook_confirmation"),
-        ):
-            response = client.post(
-                f"/api/v2/conversations/{conv['conversation_id']}/tool/confirm",
-                json={
-                    # No session_id — should find tool by scanning sessions
-                    "tool_id": tool_id,
-                    "action": "confirm",
-                },
-            )
+        try:
+            with (
+                patch("gptme.server.api_v2_sessions.start_tool_execution"),
+                patch("gptme.server.api_v2_sessions.resolve_hook_confirmation"),
+            ):
+                response = client.post(
+                    f"/api/v2/conversations/{conv['conversation_id']}/tool/confirm",
+                    json={
+                        # No session_id — should find tool by scanning sessions
+                        "tool_id": tool_id,
+                        "action": "confirm",
+                    },
+                )
 
-        assert response.status_code == 200
+            assert response.status_code == 200
+        finally:
+            session.pending_tools.pop(tool_id, None)
 
 
 # --- Rerun endpoint tests ---
