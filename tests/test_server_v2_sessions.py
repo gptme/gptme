@@ -500,18 +500,21 @@ class TestRerunEndpoint:
         assert session is not None
         initial_pending = len(session.pending_tools)
 
-        response = client.post(
-            f"/api/v2/conversations/{conversation_id}/rerun",
-            json={"session_id": conv["session_id"]},
-        )
+        try:
+            response = client.post(
+                f"/api/v2/conversations/{conversation_id}/rerun",
+                json={"session_id": conv["session_id"]},
+            )
 
-        assert response.status_code == 200
-        data = response.get_json()
-        assert data is not None
-        assert data["status"] == "ok"
-        assert "re-running" in data["message"].lower()
-        assert "tool_ids" in data
-        assert len(data["tool_ids"]) > initial_pending
+            assert response.status_code == 200
+            data = response.get_json()
+            assert data is not None
+            assert data["status"] == "ok"
+            assert "re-running" in data["message"].lower()
+            assert "tool_ids" in data
+            assert len(data["tool_ids"]) > initial_pending
+        finally:
+            session.pending_tools.clear()
 
     def test_rerun_nonexistent_conversation(self, conv, client: FlaskClient):
         """Rerun on nonexistent conversation returns 404."""
