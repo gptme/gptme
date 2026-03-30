@@ -1,10 +1,12 @@
 import type { FC } from 'react';
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput, type ChatOptions } from './ChatInput';
+import { CollapsedStepGroup } from './CollapsedStepGroup';
 import { useConversation } from '@/hooks/useConversation';
 import { BranchIndicator } from './BranchIndicator';
 import { computeForkPoints } from '@/utils/branchUtils';
+import { buildStepRoles, type StepRole } from '@/utils/stepGrouping';
 
 import { InlineToolConfirmation } from './InlineToolConfirmation';
 import { InlineToolExecution } from './InlineToolExecution';
@@ -116,6 +118,46 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   useEffect(() => {
     showHiddenMessages$.set(settings.showHiddenMessages);
   }, [settings.showHiddenMessages, showHiddenMessages$]);
+
+  // Step grouping: compute roles and track expanded groups
+  const stepRoles$ = useObservable<Map<number, StepRole>>(() => new Map());
+  const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set());
+
+  const toggleGroup = useCallback((groupId: number) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupId)) {
+        next.delete(groupId);
+      } else {
+        next.add(groupId);
+      }
+      return next;
+    });
+  }, []);
+
+  // Recompute step roles when messages change
+  useObserveEffect(conversation$.data.log, () => {
+    const messages = conversation$.data.log.get();
+    if (!messages?.length) {
+      stepRoles$.set(new Map());
+      return;
+    }
+
+    const firstNonSystem = firstNonSystemIndex$.get();
+    const showInitial = showInitialSystem$.get();
+    const showHidden = showHiddenMessages$.get();
+
+    const isHidden = (idx: number) => {
+      const msg = messages[idx];
+      if (!msg) return false;
+      const isInitial = msg.role === 'system' && (firstNonSystem === -1 || idx < firstNonSystem);
+      if (isInitial && !showInitial) return true;
+      if (msg.hide && !showHidden) return true;
+      return false;
+    };
+
+    stepRoles$.set(buildStepRoles(messages, isHidden));
+  });
 
   // Create a ref for the scroll container
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -274,6 +316,31 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
               ? conversation$.data.log[nextIdx]
               : undefined;
 
+            // Step grouping: check if this message should be collapsed
+            const stepRole = stepRoles$.get().get(index);
+
+            // If this is a grouped message and the group is collapsed, hide it
+            if (stepRole?.type === 'grouped' && !expandedGroups.has(stepRole.groupId)) {
+              return <div key={`${index}-${msg$.timestamp.get()}`} />;
+            }
+
+            // If this is a group-start, render the summary bar
+            // (when collapsed, replaces the message; when expanded, shown above messages)
+            const groupSummary =
+              stepRole?.type === 'group-start' ? (
+                <CollapsedStepGroup
+                  count={stepRole.count}
+                  tools={stepRole.tools}
+                  isExpanded={expandedGroups.has(stepRole.groupId)}
+                  onToggle={() => toggleGroup(stepRole.groupId)}
+                />
+              ) : null;
+
+            // When group is collapsed and this is group-start, show only the summary bar
+            if (stepRole?.type === 'group-start' && !expandedGroups.has(stepRole.groupId)) {
+              return <div key={`${index}-${msg$.timestamp.get()}`}>{groupSummary}</div>;
+            }
+
             // Construct agent avatar URL if agent has avatar configured
             // NOTE: must use .get() to read actual values from Legend State observables
             const baseUrl = connectionConfig.baseUrl.replace(/\/+$/, '');
@@ -284,6 +351,8 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
 
             return (
               <div key={`${index}-${msg$.timestamp.get()}`}>
+                {/* Show summary bar above first message when group is expanded */}
+                {groupSummary}
                 <ChatMessage
                   message$={msg$}
                   previousMessage$={previousMessage$}
