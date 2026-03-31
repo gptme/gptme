@@ -806,6 +806,11 @@ def start_tool_execution(
             msg = Message("system", f"Error: {e!s}")
             _append_and_notify(manager, session, msg)
 
+        # Persist tool outputs to disk (every other _append_and_notify call
+        # site is followed by manager.write(); without this, tool outputs
+        # survive only in memory until the next step writes)
+        manager.write()
+
         # This implements auto-stepping similar to the CLI behavior
         _start_step_thread(conversation_id, session, model, chat_config.workspace)
 
