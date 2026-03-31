@@ -340,7 +340,7 @@ def execute_patch_impl(
         patch_len = len(content)
         full_file_len = len(patched_content)
         warnings = []
-        if 1000 < full_file_len < patch_len:
+        if 1000 < patch_len > full_file_len:
             warnings.append(
                 "Note: The patch was big and larger than the file. In the future, try writing smaller patches or use the save tool instead."
             )

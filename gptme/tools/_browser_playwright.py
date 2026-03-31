@@ -687,7 +687,8 @@ def _take_screenshot(
 ) -> Path:
     """Take a screenshot of a webpage and save it to a file."""
     if path is None:
-        path = tempfile.mktemp(suffix=".png")
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+            path = f.name
     else:
         # create the directory if it doesn't exist
         os.makedirs(os.path.dirname(path), exist_ok=True)
