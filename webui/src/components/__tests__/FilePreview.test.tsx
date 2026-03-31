@@ -210,7 +210,7 @@ describe('FilePreview', () => {
     fireEvent.click(screen.getByTitle('Download file'));
 
     await waitFor(() => {
-      expect(mockDownloadFile).toHaveBeenCalledWith(conversationId, textFile.path);
+      expect(mockDownloadFile).toHaveBeenCalledWith(conversationId, textFile.path, 'workspace');
     });
   });
 
