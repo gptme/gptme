@@ -765,12 +765,15 @@ def start_tool_execution(
         # Load the conversation
         manager = LogManager.load(conversation_id, lock=False)
 
-        if tool_id not in session.pending_tools:
-            logger.error(
+        # Use .get() to atomically retrieve and handle concurrent removal — the API
+        # endpoint or another thread may have deleted this entry between the caller's
+        # check and our execution here.
+        tool_exec = session.pending_tools.get(tool_id)
+        if tool_exec is None:
+            logger.warning(
                 f"Tool {tool_id} not found in pending tools (may have been handled by another thread)"
             )
             return
-        tool_exec = session.pending_tools[tool_id]
         tool_exec.status = ToolStatus.EXECUTING
 
         # use explicit tooluse if set (may be modified), else use the one from the pending tool

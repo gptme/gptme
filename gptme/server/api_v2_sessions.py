@@ -415,7 +415,18 @@ def api_conversation_tool_confirm(conversation_id: str):
                 404,
             )
 
-    tool_exec = session.pending_tools[tool_id]
+    # Use .get() to avoid KeyError if tool was concurrently removed (e.g., by another
+    # request or the session step thread) between the check above and this access.
+    tool_exec = session.pending_tools.get(tool_id)
+    if tool_exec is None:
+        return (
+            flask.jsonify(
+                {
+                    "error": f"Tool {tool_id} no longer pending (may have been executed or cancelled)"
+                }
+            ),
+            404,
+        )
 
     logdir = get_logs_dir() / conversation_id
     chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
