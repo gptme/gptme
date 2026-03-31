@@ -33,7 +33,6 @@ export function buildStepRoles(
   isHidden: (idx: number) => boolean
 ): Map<number, StepRole> {
   const roles = new Map<number, StepRole>();
-  let groupId = 0;
 
   // Walk through messages finding user-to-user spans
   let i = 0;
@@ -84,26 +83,27 @@ export function buildStepRoles(
         }
       }
 
-      // Mark the first step as group-start (renders summary bar)
+      // Use message index of first step as stable group ID
+      // (incrementing counters shift when messages change, breaking expanded state)
       const firstIdx = stepIndices[0];
+      const stableGroupId = firstIdx;
+
       roles.set(firstIdx, {
         type: 'group-start',
-        groupId,
+        groupId: stableGroupId,
         count: stepIndices.length,
         tools: Array.from(toolSet),
       });
 
       // Mark the rest as grouped (hidden when collapsed)
       for (let k = 1; k < stepIndices.length; k++) {
-        roles.set(stepIndices[k], { type: 'grouped', groupId });
+        roles.set(stepIndices[k], { type: 'grouped', groupId: stableGroupId });
       }
 
       // Mark response
       if (responseIdx >= 0) {
         roles.set(responseIdx, { type: 'response' });
       }
-
-      groupId++;
     }
 
     i = j;

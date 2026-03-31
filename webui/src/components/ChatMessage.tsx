@@ -426,12 +426,22 @@ export const ChatMessage: FC<Props> = ({
               : 'bg-[#DDD] text-[#111] dark:bg-[#111] dark:text-gray-100 border-gray-200 dark:border-gray-800')
         : 'bg-card';
 
+    // Assistant messages are borderless, so if the previous message is an assistant
+    // we can't visually connect to it — treat this message as the visual start of its chain.
+    const prevIsAssistant = previousMessage$?.role?.get() === 'assistant';
+    const visualChain =
+      prevIsAssistant && (chain === 'middle' || chain === 'end')
+        ? chain === 'middle'
+          ? 'start' // still chains forward, but starts a new visual group
+          : 'standalone' // doesn't chain forward either
+        : chain;
+
     // Chain rounding + borders for non-assistant messages
     const chainClasses = [
-      (chain === 'standalone' && 'rounded-lg') || '',
-      (chain === 'start' && 'rounded-t-lg') || '',
-      (chain === 'end' && 'rounded-b-lg') || '',
-      (chain !== 'start' && chain !== 'standalone' && 'border-t-0') || '',
+      (visualChain === 'standalone' && 'rounded-lg') || '',
+      (visualChain === 'start' && 'rounded-t-lg') || '',
+      (visualChain === 'end' && 'rounded-b-lg') || '',
+      (visualChain !== 'start' && visualChain !== 'standalone' && 'border-t-0') || '',
       'border',
     ].join(' ');
 
@@ -446,9 +456,18 @@ export const ChatMessage: FC<Props> = ({
       return 'mt-2 mb-2';
     }
 
+    // Use visual chain to avoid tight overlap with borderless assistant messages
+    const prevIsAssistant = previousMessage$?.role?.get() === 'assistant';
+    const visualChain =
+      prevIsAssistant && (chain === 'middle' || chain === 'end')
+        ? chain === 'middle'
+          ? 'start'
+          : 'standalone'
+        : chain;
+
     return `
-        ${chain !== 'start' && chain !== 'standalone' ? '-mt-[2px]' : 'mt-4'}
-        ${chain === 'standalone' ? 'mb-4' : 'mb-0'}
+        ${visualChain !== 'start' && visualChain !== 'standalone' ? '-mt-[2px]' : 'mt-4'}
+        ${visualChain === 'standalone' ? 'mb-4' : 'mb-0'}
       `;
   });
 
