@@ -534,7 +534,6 @@ export const ChatInput: FC<Props> = ({
   );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const editFileKey = editFiles?.join('\0') || '';
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>(() =>
     editMode ? createAttachedFiles(editFiles) : []
   );
@@ -564,7 +563,7 @@ export const ChatInput: FC<Props> = ({
   useEffect(() => {
     if (!editMode) return;
     replaceAttachedFiles(createAttachedFiles(editFiles));
-  }, [editMode, editFileKey, replaceAttachedFiles]);
+  }, [editMode, editFiles, replaceAttachedFiles]);
 
   // Always buffer files locally — upload happens on send, not on attach
   const attachFiles = useCallback((files: FileList | File[]) => {
