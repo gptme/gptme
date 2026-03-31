@@ -122,11 +122,11 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   // Step grouping: compute roles and track expanded groups
   const stepRoles$ = useObservable<Map<number, StepRole>>(() => new Map());
   // Must be an observable (not React state) so changes trigger re-renders inside <For>
-  const expandedGroups$ = useObservable<Set<number>>(new Set());
+  const expandedGroups$ = useObservable<Set<number>>(new Set<number>());
 
   // Reset expanded state when switching conversations
   useEffect(() => {
-    expandedGroups$.set(new Set());
+    expandedGroups$.set(new Set<number>());
   }, [conversationId, expandedGroups$]);
 
   const toggleGroup = (groupId: number) => {

@@ -18,20 +18,17 @@ describe('buildStepRoles', () => {
   });
 
   it('returns empty map when fewer than 2 intermediate steps', () => {
-    const messages = [
-      msg('user', 'do something'),
-      msg('assistant', 'done'),
-    ];
+    const messages = [msg('user', 'do something'), msg('assistant', 'done')];
     // Only 0 intermediate steps (single response) — below threshold
     expect(buildStepRoles(messages, neverHidden).size).toBe(0);
   });
 
   it('groups a single tool call (2 intermediate steps)', () => {
     const messages = [
-      msg('user', 'do something'),    // 0
-      msg('assistant', 'using tool'),  // 1 - step
-      msg('system', 'saved file'),     // 2 - step
-      msg('assistant', 'done'),        // 3 - response
+      msg('user', 'do something'), // 0
+      msg('assistant', 'using tool'), // 1 - step
+      msg('system', 'saved file'), // 2 - step
+      msg('assistant', 'done'), // 3 - response
     ];
     const roles = buildStepRoles(messages, neverHidden);
     expect(roles.get(1)?.type).toBe('group-start');
