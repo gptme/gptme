@@ -426,15 +426,17 @@ export const ChatMessage: FC<Props> = ({
               : 'bg-[#DDD] text-[#111] dark:bg-[#111] dark:text-gray-100 border-gray-200 dark:border-gray-800')
         : 'bg-card';
 
-    // Assistant messages are borderless, so if the previous message is an assistant
-    // we can't visually connect to it — treat this message as the visual start of its chain.
+    // Assistant messages are borderless, so don't visually connect to them.
+    // Adjust the chain type to avoid border-t-0 / missing rounding next to borderless messages.
     const prevIsAssistant = previousMessage$?.role?.get() === 'assistant';
-    const visualChain =
-      prevIsAssistant && (chain === 'middle' || chain === 'end')
-        ? chain === 'middle'
-          ? 'start' // still chains forward, but starts a new visual group
-          : 'standalone' // doesn't chain forward either
-        : chain;
+    const nextIsAssistant = nextMessage$?.role?.get() === 'assistant';
+    let visualChain = chain;
+    if (prevIsAssistant && (visualChain === 'middle' || visualChain === 'end')) {
+      visualChain = visualChain === 'middle' ? 'start' : 'standalone';
+    }
+    if (nextIsAssistant && (visualChain === 'middle' || visualChain === 'start')) {
+      visualChain = visualChain === 'middle' ? 'end' : 'standalone';
+    }
 
     // Chain rounding + borders for non-assistant messages
     const chainClasses = [
@@ -458,12 +460,14 @@ export const ChatMessage: FC<Props> = ({
 
     // Use visual chain to avoid tight overlap with borderless assistant messages
     const prevIsAssistant = previousMessage$?.role?.get() === 'assistant';
-    const visualChain =
-      prevIsAssistant && (chain === 'middle' || chain === 'end')
-        ? chain === 'middle'
-          ? 'start'
-          : 'standalone'
-        : chain;
+    const nextIsAssistant = nextMessage$?.role?.get() === 'assistant';
+    let visualChain = chain;
+    if (prevIsAssistant && (visualChain === 'middle' || visualChain === 'end')) {
+      visualChain = visualChain === 'middle' ? 'start' : 'standalone';
+    }
+    if (nextIsAssistant && (visualChain === 'middle' || visualChain === 'start')) {
+      visualChain = visualChain === 'middle' ? 'end' : 'standalone';
+    }
 
     return `
         ${visualChain !== 'start' && visualChain !== 'standalone' ? '-mt-[2px]' : 'mt-4'}
