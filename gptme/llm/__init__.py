@@ -243,7 +243,13 @@ def _chat_complete(
 
 
 class _StreamWithMetadata:
-    """Wrapper that captures a generator's return value (metadata)."""
+    """Wrapper that captures a generator's return value (metadata).
+
+    Metadata is returned by the provider generator as its return value
+    (captured via StopIteration). When the stream is broken early (e.g.
+    tool-use detection), we still populate the model name so messages
+    always have at least basic metadata.
+    """
 
     def __init__(self, gen: Generator[str, None, MessageMetadata | None], model: str):
         self.gen = gen
@@ -256,7 +262,9 @@ class _StreamWithMetadata:
                 yield next(self.gen)
         except StopIteration as e:
             self.metadata = e.value
-            # Ensure model is set in metadata even if provider didn't include it
+        finally:
+            # Ensure model is always set, even if the stream was broken early
+            # (break_on_tooluse, KeyboardInterrupt) before the final chunk arrived
             if self.metadata is None:
                 self.metadata = {"model": self.model}
             elif "model" not in self.metadata:
