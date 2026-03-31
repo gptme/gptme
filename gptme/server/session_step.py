@@ -647,7 +647,11 @@ def step(
             tooluses = list(ToolUse.iter_from_content(output))
 
         # Capture metadata from stream after iteration completes
-        if stream_wrapper is not None and stream_wrapper.metadata:
+        if (
+            stream_wrapper is not None
+            and hasattr(stream_wrapper, "metadata")
+            and stream_wrapper.metadata
+        ):
             metadata = stream_wrapper.metadata
 
         # Persist the assistant message
