@@ -1457,14 +1457,17 @@ class TestExtraBody:
         result = extra_body("openrouter", meta)
         assert result["provider"]["require_parameters"] is True
 
-    def test_openrouter_no_data_collection_by_default(self, monkeypatch):
+    def test_openrouter_has_data_collection_deny_by_default_for_non_reasoning(
+        self, monkeypatch
+    ):
+        """Non-reasoning models default to data_collection='deny' for privacy."""
         from gptme.llm.llm_openai import extra_body
 
         monkeypatch.delenv("OPENROUTER_DATA_COLLECTION", raising=False)
         monkeypatch.delenv("GPTME_OPENROUTER_DATA_COLLECTION", raising=False)
         meta = self._make_model("anthropic/claude-sonnet-4-20250514")
         result = extra_body("openrouter", meta)
-        assert "data_collection" not in result["provider"]
+        assert result["provider"]["data_collection"] == "deny"
 
     def test_openrouter_provider_override_with_at_sign(self):
         from gptme.llm.llm_openai import extra_body
@@ -1542,13 +1545,23 @@ class TestExtraBody:
         result = extra_body("openrouter", meta)
         assert result["provider"]["data_collection"] == "deny"
 
-    def test_openrouter_data_collection_absent_without_env(self, monkeypatch):
+    def test_openrouter_reasoning_model_no_data_collection_by_default(
+        self, monkeypatch
+    ):
+        """Reasoning models don't set data_collection by default.
+
+        The triple constraint (require_parameters + reasoning + data_collection="deny")
+        eliminates all available OpenRouter providers, causing 400 errors.
+        """
         from gptme.llm.llm_openai import extra_body
 
         monkeypatch.delenv("OPENROUTER_DATA_COLLECTION", raising=False)
         monkeypatch.delenv("GPTME_OPENROUTER_DATA_COLLECTION", raising=False)
-        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        meta = self._make_model(
+            "anthropic/claude-sonnet-4-20250514", supports_reasoning=True
+        )
         result = extra_body("openrouter", meta)
+        assert "reasoning" in result
         assert "data_collection" not in result["provider"]
 
     def test_openrouter_data_collection_gptme_prefixed_env(self, monkeypatch):

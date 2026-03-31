@@ -666,11 +666,14 @@ def extra_body(
         if "reasoning" not in body:
             provider_prefs["require_parameters"] = True
 
-        # Privacy: respect OPENROUTER_DATA_COLLECTION env var if set.
-        # Not set by default — the previous unconditional "deny" default
-        # caused provider routing failures when combined with
-        # require_parameters and reasoning extensions.
-        data_collection = get_config().get_env("OPENROUTER_DATA_COLLECTION")
+        # Privacy: default to "deny" for non-reasoning models to preserve
+        # user privacy. For reasoning models, skip the default — the triple
+        # constraint (require_parameters + reasoning + data_collection="deny")
+        # eliminates all available providers and causes 400 errors.
+        if "reasoning" not in body:
+            data_collection = get_config().get_env("OPENROUTER_DATA_COLLECTION", "deny")
+        else:
+            data_collection = get_config().get_env("OPENROUTER_DATA_COLLECTION")
         if data_collection:
             provider_prefs["data_collection"] = data_collection
 
