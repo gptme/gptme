@@ -470,6 +470,7 @@ class LogManager:
 
         peek = self.log[-1] if self.log else None
         if not peek:
+            self.write()
             print("[yellow]Nothing to undo.[/]")
             return
 
