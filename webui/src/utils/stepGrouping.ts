@@ -25,8 +25,9 @@ function detectTool(content: string): string | null {
 /**
  * Build a per-index lookup of step roles from a flat message array.
  *
- * Groups sequences of 3+ non-user messages between user messages,
+ * Groups intermediate messages in each turn (between user messages),
  * keeping the last assistant message visible as the "response".
+ * A "step" = one tool-use cycle (assistant action + system result).
  */
 export function buildStepRoles(
   messages: Message[],
@@ -73,11 +74,13 @@ export function buildStepRoles(
 
     // Only group if there are 2+ intermediate steps (e.g. assistant tool call + system output)
     if (stepIndices.length >= 2) {
-      // Detect tools used
+      // Detect tools used and count tool-call steps (system messages = tool results)
       const toolSet = new Set<string>();
+      let toolCallCount = 0;
       for (const idx of stepIndices) {
         const msg = messages[idx];
         if (msg.role === 'system') {
+          toolCallCount++;
           const tool = detectTool(msg.content);
           if (tool) toolSet.add(tool);
         }
@@ -88,10 +91,11 @@ export function buildStepRoles(
       const firstIdx = stepIndices[0];
       const stableGroupId = firstIdx;
 
+      // count = tool-call steps (not raw messages); fall back to message count if no system msgs
       roles.set(firstIdx, {
         type: 'group-start',
         groupId: stableGroupId,
-        count: stepIndices.length,
+        count: toolCallCount || stepIndices.length,
         tools: Array.from(toolSet),
       });
 

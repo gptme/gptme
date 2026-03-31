@@ -57,7 +57,7 @@ describe('buildStepRoles', () => {
     expect(start).toBeDefined();
     expect(start?.type).toBe('group-start');
     if (start?.type === 'group-start') {
-      expect(start.count).toBe(4); // indices 1, 2, 3, 4
+      expect(start.count).toBe(2); // 2 tool calls (system messages at indices 2, 4)
       expect(start.tools).toContain('save');
     }
 
