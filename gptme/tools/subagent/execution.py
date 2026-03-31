@@ -335,8 +335,8 @@ def _run_subagent_subprocess(
             process = subprocess.Popen(
                 cmd,
                 stdin=stdin_file,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
                 cwd=workspace,
                 text=True,
             )
@@ -388,8 +388,8 @@ def _monitor_subprocess(
     """Monitor a subprocess and invoke callbacks when it completes.
 
     Runs in a background thread to enable non-blocking operation.
-    Uses .wait() instead of .communicate() to avoid memory issues with
-    long-running subagents that produce large outputs.
+    Subprocess stdout/stderr are sent to DEVNULL since results are read
+    from the conversation log, not the process pipes.
     """
     from .hooks import notify_completion
     from .types import (
