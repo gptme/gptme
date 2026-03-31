@@ -133,8 +133,17 @@ def _wait_for_checks(
 
     previous_status = None
     poll_interval = 10  # seconds
+    max_wait = 30 * 60  # 30 minutes
+    start_time = time.time()
 
     while True:
+        if time.time() - start_time > max_wait:
+            yield Message(
+                "system",
+                f"\n⏱️ Timed out after {max_wait // 60} minutes waiting for checks to complete.\n",
+            )
+            return
+
         # Get check runs for the original commit directly
         try:
             check_runs_result = subprocess.run(
