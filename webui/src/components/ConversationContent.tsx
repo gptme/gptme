@@ -192,39 +192,26 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     autoScrollAborted$.set(false);
   });
 
-  // Scroll so the last user message is at the top of the viewport.
-  // New assistant content streams in below it without jumping the screen.
-  const scrollToLastUserMessage = () => {
+  const scrollToBottom = () => {
     const container = scrollContainerRef.current;
     if (!container) return;
-    const userMessages = container.querySelectorAll('.role-user');
-    const lastUserMsg = userMessages[userMessages.length - 1] as HTMLElement | undefined;
-    if (lastUserMsg) {
-      isAutoScrolling$.set(true);
-      container.scrollTop = lastUserMsg.offsetTop;
-      requestAnimationFrame(() => {
-        isAutoScrolling$.set(false);
-      });
-    } else {
-      // No user messages yet — scroll to bottom
-      isAutoScrolling$.set(true);
-      container.scrollTop = container.scrollHeight;
-      requestAnimationFrame(() => {
-        isAutoScrolling$.set(false);
-      });
-    }
+    isAutoScrolling$.set(true);
+    container.scrollTop = container.scrollHeight;
+    requestAnimationFrame(() => {
+      isAutoScrolling$.set(false);
+    });
   };
 
-  // Auto-scroll when the conversation is updated
+  // Auto-scroll when the conversation is updated (e.g., streaming response)
   useObserveEffect(conversation$.data.log, () => {
     if (!autoScrollAborted$.get()) {
-      requestAnimationFrame(scrollToLastUserMessage);
+      requestAnimationFrame(scrollToBottom);
     }
   });
 
-  // Scroll when switching conversations
+  // Scroll to bottom when switching conversations so the latest response is visible
   useEffect(() => {
-    requestAnimationFrame(scrollToLastUserMessage);
+    requestAnimationFrame(scrollToBottom);
   }, [conversationId]);
 
   const handleSendMessage = (message: string, options?: ChatOptions) => {
@@ -251,13 +238,9 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   const handleScrollToBottom = () => {
     const container = scrollContainerRef.current;
     if (container) {
-      const userMessages = container.querySelectorAll('.role-user');
-      const lastUserMsg = userMessages[userMessages.length - 1] as HTMLElement | undefined;
-      const targetTop = lastUserMsg ? lastUserMsg.offsetTop : container.scrollHeight;
-
       isAutoScrolling$.set(true);
       container.scrollTo({
-        top: targetTop,
+        top: container.scrollHeight,
         behavior: 'smooth',
       });
       container.addEventListener('scrollend', () => isAutoScrolling$.set(false), {
@@ -426,9 +409,8 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
         {/* Inline Tool Execution */}
         <InlineToolExecution executingTool$={conversation$?.executingTool} />
 
-        {/* Bottom spacer: tall enough that the last message can scroll to the top,
-            so new content streams in below without jumping the viewport */}
-        <div className="h-[calc(100vh-10rem)]" />
+        {/* Add padding at the bottom to account for the floating input */}
+        <div className="mb-40" />
       </div>
 
       {/* Scroll-to-bottom button — appears when user scrolls up from bottom */}
