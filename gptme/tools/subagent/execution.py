@@ -494,8 +494,10 @@ def _run_planner(
             )
 
         t = threading.Thread(target=run_executor, daemon=True)
-        t.start()
+        # Register subagent BEFORE starting thread to avoid race condition
+        # (matches pattern in api.py — thread closure may look up _subagents)
         _subagents.append(Subagent(executor_id, executor_prompt, t, logdir, model))
+        t.start()
 
         # Sequential mode: wait for each task to complete before starting next
         if execution_mode == "sequential":

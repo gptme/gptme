@@ -212,7 +212,7 @@ def init(provider: Provider, config: Config):
 
     # Set the proxy URL to the unified messages endpoint if not already set
     if proxy_url and not proxy_url.endswith("/messages"):
-        proxy_url = proxy_url + "/messages" if proxy_url else None
+        proxy_url = proxy_url + "/messages"
 
     # Get configurable API timeout (default: client's own default of 10 minutes)
     # If not set explicitly via LLM_API_TIMEOUT, we use NOT_GIVEN to let the
