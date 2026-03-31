@@ -561,9 +561,9 @@ def test_subprocess_actual_process_creation():
             assert process.pid is not None
             assert process.pid > 0
 
-            # Verify stdout and stderr are piped (for output isolation)
-            assert process.stdout is not None
-            assert process.stderr is not None
+            # Verify stdout and stderr are discarded (DEVNULL prevents pipe-buffer deadlock)
+            assert process.stdout is None
+            assert process.stderr is None
 
         finally:
             # Clean up - terminate the process
