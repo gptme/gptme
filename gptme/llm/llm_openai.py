@@ -410,7 +410,13 @@ def _handle_openai_transient_error(e, attempt, max_retries, base_delay):
     # This breaks out of the retry loop early to prevent test timeouts
     test_max_retries_str = os.environ.get("GPTME_TEST_MAX_RETRIES")
     if test_max_retries_str:
-        test_max_retries = int(test_max_retries_str)
+        try:
+            test_max_retries = int(test_max_retries_str)
+        except ValueError as parse_err:
+            raise ValueError(
+                f"Invalid GPTME_TEST_MAX_RETRIES value: {test_max_retries_str!r}. "
+                "Must be a valid integer."
+            ) from parse_err
         if attempt >= test_max_retries - 1:
             logger.warning(
                 f"Test max_retries={test_max_retries} reached (attempt {attempt + 1}), not retrying"
@@ -575,6 +581,8 @@ def chat(
         **optional_kwargs,
     )
     metadata = _record_usage(response.usage, model)
+    if not response.choices:
+        raise ValueError("OpenAI API returned empty choices list")
     choice = response.choices[0]
     result = []
     if choice.finish_reason == "tool_calls":
