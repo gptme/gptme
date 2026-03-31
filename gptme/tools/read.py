@@ -161,7 +161,7 @@ def execute_read(
     )
 
     range_info = ""
-    if start_line > 1 or end_line:
+    if start_line > 1 or end_line is not None:
         shown = f"{start_idx + 1}-{end_idx}"
         range_info = f" (lines {shown} of {total_lines})"
 
