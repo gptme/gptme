@@ -184,11 +184,17 @@ export function useConversation(conversationId: string, serverId?: string) {
               console.log('[useConversation] Generation complete');
               messageJustCompleted.current = true;
 
-              // Update the last message
+              // Update the last message with final content and metadata
               const messages$ = conversation$?.data.log;
               const lastMessage$ = messages$?.[messages$.length - 1];
               if (lastMessage$?.role.get() === 'assistant') {
                 lastMessage$.content.set(message.content);
+                if (message.metadata) {
+                  lastMessage$.metadata.set(message.metadata);
+                }
+                if (message.timestamp) {
+                  lastMessage$.timestamp.set(message.timestamp);
+                }
                 if ('isComplete' in lastMessage$) {
                   lastMessage$.isComplete.set(true);
                 }
