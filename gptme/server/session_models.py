@@ -128,7 +128,7 @@ class SessionManager:
         cutoff = datetime.now(tz=timezone.utc) - timedelta(minutes=max_age_minutes)
         to_remove = []
 
-        for session_id, session in cls._sessions.items():
+        for session_id, session in list(cls._sessions.items()):
             if session.last_activity < cutoff and not session.generating:
                 to_remove.append(session_id)
 
