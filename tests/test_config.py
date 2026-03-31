@@ -1042,8 +1042,8 @@ def test_set_config_value_creates_intermediate_sections(tmp_path, monkeypatch):
     config_file.write_text("")  # empty config
 
     monkeypatch.setattr(user_mod, "config_path", str(config_file))
-    # Suppress reload_config (it reads from the real default path)
-    monkeypatch.setattr("gptme.config.user.reload_config", lambda: None, raising=False)
+    # Suppress reload_config (imported locally from gptme.config.core)
+    monkeypatch.setattr("gptme.config.core.reload_config", lambda: None)
 
     user_mod.set_config_value("user.name", "Alice")
 
