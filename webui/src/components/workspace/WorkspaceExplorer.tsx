@@ -89,10 +89,6 @@ export function WorkspaceExplorer({ conversationId }: WorkspaceExplorerProps) {
     setSelectedFile(null);
   };
 
-  if (error) {
-    return <div className="flex h-full items-center justify-center text-destructive">{error}</div>;
-  }
-
   return (
     <div className="flex h-full flex-col">
       {/* Root selector tabs */}
@@ -133,7 +129,9 @@ export function WorkspaceExplorer({ conversationId }: WorkspaceExplorerProps) {
 
       <div className="flex min-h-0 flex-1">
         <div className="h-full w-1/2 overflow-hidden border-r">
-          {loading ? (
+          {error ? (
+            <div className="flex h-full items-center justify-center text-destructive">{error}</div>
+          ) : loading ? (
             <div className="flex h-full items-center justify-center">
               <Loader2 className="h-6 w-6 animate-spin" />
             </div>

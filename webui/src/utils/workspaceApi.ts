@@ -15,7 +15,8 @@ export function useWorkspaceApi() {
     ): Promise<FileType[]> {
       const params = new URLSearchParams({ show_hidden: String(showHidden) });
       if (root !== 'workspace') params.set('root', root);
-      const url = `${api.baseUrl}/api/v2/conversations/${conversationId}/workspace${path ? `/${encodeURIComponent(path)}` : ''}?${params}`;
+      const pathSegment = path ? '/' + path.split('/').map(encodeURIComponent).join('/') : '';
+      const url = `${api.baseUrl}/api/v2/conversations/${conversationId}/workspace${pathSegment}?${params}`;
 
       const response = await fetch(url, {
         headers: api.authHeader ? { Authorization: api.authHeader } : undefined,
@@ -37,7 +38,8 @@ export function useWorkspaceApi() {
       const params = new URLSearchParams();
       if (root !== 'workspace') params.set('root', root);
       const query = params.toString() ? `?${params}` : '';
-      const url = `${api.baseUrl}/api/v2/conversations/${conversationId}/workspace/${encodeURIComponent(path)}/preview${query}`;
+      const pathSegment = path.split('/').map(encodeURIComponent).join('/');
+      const url = `${api.baseUrl}/api/v2/conversations/${conversationId}/workspace/${pathSegment}/preview${query}`;
 
       const response = await fetch(url, {
         headers: api.authHeader ? { Authorization: api.authHeader } : undefined,
@@ -67,7 +69,8 @@ export function useWorkspaceApi() {
       const params = new URLSearchParams();
       if (root !== 'workspace') params.set('root', root);
       const query = params.toString() ? `?${params}` : '';
-      const url = `${api.baseUrl}/api/v2/conversations/${conversationId}/workspace/${encodeURIComponent(path)}/download${query}`;
+      const pathSegment = path.split('/').map(encodeURIComponent).join('/');
+      const url = `${api.baseUrl}/api/v2/conversations/${conversationId}/workspace/${pathSegment}/download${query}`;
 
       const response = await fetch(url, {
         headers: api.authHeader ? { Authorization: api.authHeader } : undefined,
