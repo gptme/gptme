@@ -71,8 +71,8 @@ export function buildStepRoles(
     // Intermediate steps: everything except the response
     const stepIndices = visibleIndices.filter((idx) => idx !== responseIdx);
 
-    // Only group if there are 3+ intermediate steps
-    if (stepIndices.length >= 3) {
+    // Only group if there are 2+ intermediate steps (e.g. assistant tool call + system output)
+    if (stepIndices.length >= 2) {
       // Detect tools used
       const toolSet = new Set<string>();
       for (const idx of stepIndices) {

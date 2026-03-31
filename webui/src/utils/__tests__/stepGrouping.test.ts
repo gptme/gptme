@@ -17,15 +17,26 @@ describe('buildStepRoles', () => {
     expect(buildStepRoles(messages, neverHidden).size).toBe(0);
   });
 
-  it('returns empty map when fewer than 3 intermediate steps', () => {
+  it('returns empty map when fewer than 2 intermediate steps', () => {
     const messages = [
       msg('user', 'do something'),
-      msg('assistant', 'using tool'),
-      msg('system', 'saved file'),
       msg('assistant', 'done'),
     ];
-    // Only 2 intermediate steps (assistant "using tool" + system "saved") — below threshold
+    // Only 0 intermediate steps (single response) — below threshold
     expect(buildStepRoles(messages, neverHidden).size).toBe(0);
+  });
+
+  it('groups a single tool call (2 intermediate steps)', () => {
+    const messages = [
+      msg('user', 'do something'),    // 0
+      msg('assistant', 'using tool'),  // 1 - step
+      msg('system', 'saved file'),     // 2 - step
+      msg('assistant', 'done'),        // 3 - response
+    ];
+    const roles = buildStepRoles(messages, neverHidden);
+    expect(roles.get(1)?.type).toBe('group-start');
+    expect(roles.get(2)?.type).toBe('grouped');
+    expect(roles.get(3)?.type).toBe('response');
   });
 
   it('groups 3+ intermediate steps between user messages', () => {
@@ -79,7 +90,7 @@ describe('buildStepRoles', () => {
     }
   });
 
-  it('skips hidden messages', () => {
+  it('skips hidden messages and groups remaining visible steps', () => {
     const messages = [
       msg('user', 'do work'), // 0
       msg('assistant', 'step 1'), // 1
@@ -90,7 +101,23 @@ describe('buildStepRoles', () => {
 
     const isHidden = (idx: number) => idx === 2;
     const roles = buildStepRoles(messages, isHidden);
-    // Only 2 visible intermediate steps (1, 3) — below threshold
+    // 2 visible intermediate steps (1, 3) — meets threshold
+    expect(roles.get(1)?.type).toBe('group-start');
+    expect(roles.get(3)?.type).toBe('grouped');
+    expect(roles.get(4)?.type).toBe('response');
+  });
+
+  it('does not group when only 1 visible intermediate step', () => {
+    const messages = [
+      msg('user', 'do work'), // 0
+      msg('assistant', 'step 1'), // 1 - hidden
+      msg('system', 'saved'), // 2
+      msg('assistant', 'done'), // 3
+    ];
+
+    const isHidden = (idx: number) => idx === 1;
+    const roles = buildStepRoles(messages, isHidden);
+    // Only 1 visible intermediate step — below threshold
     expect(roles.size).toBe(0);
   });
 
