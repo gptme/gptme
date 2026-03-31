@@ -14,11 +14,18 @@ _loaded_agent_files_var ContextVar defined in prompts.py, which seeds it at star
 Subscribes to the centralized CWD_CHANGED hook type instead of independently
 tracking pre/post CWD values.
 
+In server mode (Flask), ContextVars don't propagate across HTTP request contexts, so
+_loaded_agent_files_var starts as None on each request. To avoid re-injecting
+already-loaded files, _get_loaded_files() falls back to scanning the conversation log
+for <agent-instructions> system messages when the ContextVar is empty.
+
 See: https://github.com/gptme/gptme/issues/1513
 See: https://github.com/gptme/gptme/issues/1521
+See: https://github.com/gptme/gptme/issues/1958
 """
 
 import logging
+import re
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any
@@ -31,15 +38,41 @@ from ..prompts import _loaded_agent_files_var, find_agent_files_in_tree
 logger = logging.getLogger(__name__)
 
 
-def _get_loaded_files() -> set[str]:
+def _derive_loaded_files_from_log(log: Log) -> set[str]:
+    """Scan the conversation log for already-injected agent instruction files.
+
+    Used in server mode where ContextVars don't propagate across HTTP request
+    contexts, causing _loaded_agent_files_var to start as None each request.
+    Parses <agent-instructions source="..."> tags in system messages to rebuild
+    the loaded-files set from the persistent conversation state.
+    """
+    loaded: set[str] = set()
+    for msg in log.messages:
+        if msg.role == "system":
+            for match in re.finditer(
+                r'<agent-instructions source="([^"]+)">', msg.content
+            ):
+                path_str = match.group(1)
+                try:
+                    resolved = str(Path(path_str).expanduser().resolve())
+                    loaded.add(resolved)
+                except (OSError, ValueError):
+                    loaded.add(path_str)
+    return loaded
+
+
+def _get_loaded_files(log: Log | None = None) -> set[str]:
     """Get (or lazily initialize) the loaded agent files set for this context.
 
-    Normally populated by prompt_workspace() at session start. If called before
-    that (e.g., in tests), initializes to an empty set.
+    Normally populated by prompt_workspace() at session start. In server mode,
+    the ContextVar starts as None on each request (ContextVars don't propagate
+    across Flask request contexts). When the ContextVar is empty and a log is
+    provided, falls back to scanning the log for already-injected files to avoid
+    re-injection after CWD changes.
     """
     files = _loaded_agent_files_var.get()
     if files is None:
-        files = set()
+        files = _derive_loaded_files_from_log(log) if log is not None else set()
         _loaded_agent_files_var.set(files)
     return files
 
@@ -62,11 +95,15 @@ def on_cwd_changed(
     """
     try:
         # find_agent_files_in_tree() is shared with prompt_workspace() in prompts.py
-        new_files = find_agent_files_in_tree(Path(new_cwd), exclude=_get_loaded_files())
+        # Pass the log so server mode can derive loaded files from conversation history
+        # when the ContextVar is empty (ContextVars reset per Flask request context).
+        new_files = find_agent_files_in_tree(
+            Path(new_cwd), exclude=_get_loaded_files(log)
+        )
         if not new_files:
             return
 
-        loaded = _get_loaded_files()
+        loaded = _get_loaded_files(log)
 
         # Read and inject each new file
         for agent_file in new_files:
