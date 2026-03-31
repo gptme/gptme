@@ -410,8 +410,9 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
         {/* Inline Tool Execution */}
         <InlineToolExecution executingTool$={conversation$?.executingTool} />
 
-        {/* Add padding at the bottom to account for the floating input */}
-        <div className="mb-40" />
+        {/* Bottom spacer: tall enough that the last message can scroll to the top,
+            so new content streams in below without jumping the viewport */}
+        <div className="h-[calc(100vh-10rem)]" />
       </div>
 
       {/* Scroll-to-bottom button — appears when user scrolls up from bottom */}
