@@ -121,14 +121,14 @@ def execute_choice(
         return
 
     # Strip out 1., 2., 3., etc numbers from options if they are present
-    options = [
-        opt
-        if not opt
-        or not opt.strip()
-        or not (opt[0].isdigit() and opt.split() and "." in opt.split()[0])
-        else " ".join(opt.split()[1:])
-        for opt in options
-    ]
+    def _strip_numbering(opt: str) -> str:
+        """Strip leading '1.', '2.' etc numbering from option text."""
+        parts = opt.split()
+        if parts and opt[0].isdigit() and "." in parts[0]:
+            return " ".join(parts[1:])
+        return opt
+
+    options = [_strip_numbering(opt) if opt and opt.strip() else opt for opt in options]
 
     # Create the interactive selection
     try:

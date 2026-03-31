@@ -15,7 +15,8 @@ def is_message_command(content: str) -> bool:
     if not content or not content.startswith("/"):
         return False
 
-    first_word = content.split()[0] if content.split() else ""
+    words = content.split()
+    first_word = words[0] if words else ""
     return first_word.count("/") == 1
 
 
