@@ -193,9 +193,10 @@ class Message:
             content=f"{self.content}{separator}{other.content}",
             files=self.files + other.files,
             file_hashes=merged_hashes,
-            # Keep pinned/hide if either message has it set
+            # Keep pinned/hide/quiet if either message has it set
             pinned=self.pinned or other.pinned,
             hide=self.hide or other.hide,
+            quiet=self.quiet or other.quiet,
         )
 
     def __hash__(self):

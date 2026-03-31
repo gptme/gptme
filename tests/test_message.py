@@ -511,6 +511,13 @@ def test_message_concat():
     # Test pinned is preserved if either message is pinned
     assert merged.pinned is True
 
+    # Test quiet is preserved if either message is quiet
+    msg_quiet = Message("user", "Quiet message", quiet=True)
+    msg_normal = Message("user", "Normal message")
+    assert msg_quiet.concat(msg_normal).quiet is True
+    assert msg_normal.concat(msg_quiet).quiet is True
+    assert msg_normal.concat(msg_normal).quiet is False
+
     # Test custom separator
     merged_custom = msg1.concat(msg2, separator=" | ")
     assert merged_custom.content == "First message | Second message"
