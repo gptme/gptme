@@ -741,7 +741,7 @@ def _read_case_results(cases_file: Path) -> Generator[CaseResult, None, None]:
 
 def _write_case_results(cases_file: Path, results: list[CaseResult]):
     with open(cases_file, "w", newline="") as csvfile:
-        fieldnames = ["Model", "Test", "Case", "Passed", "Duration"]
+        fieldnames = ["Case", "Passed", "Duration"]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         for result in results:
