@@ -502,10 +502,10 @@ class LogManager:
 
         logsdir = get_logs_dir()
         logdir = Path(logdir)
-        try:
-            logdir.resolve().relative_to(logsdir.resolve())
-        except ValueError:
-            # path is not under logsdir, assume it's a relative name
+        if not logdir.is_absolute():
+            # Relative path: always resolve relative to logsdir, not CWD.
+            # Using resolve() here would be CWD-dependent and breaks when
+            # session_step.py calls os.chdir(workspace) mid-execution.
             logdir = logsdir / logdir
 
         if branch == "main":
