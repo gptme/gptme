@@ -468,7 +468,9 @@ def api_conversation_tool_confirm(conversation_id: str):
     elif action == "skip":
         # Skip the tool execution
         tool_exec.status = ToolStatus.SKIPPED
-        del session.pending_tools[tool_id]
+        session.pending_tools.pop(
+            tool_id, None
+        )  # use pop to avoid KeyError if concurrently removed
 
         # Provide meaningful message to prevent LLM from re-suggesting the same tool
         tool_name = tool_exec.tooluse.tool

@@ -779,8 +779,8 @@ def start_tool_execution(
         # use explicit tooluse if set (may be modified), else use the one from the pending tool
         tooluse: ToolUse = edited_tooluse or tool_exec.tooluse
 
-        # Remove the tool from pending
-        del session.pending_tools[tool_id]
+        # Remove the tool from pending (use pop to avoid KeyError if concurrently removed)
+        session.pending_tools.pop(tool_id, None)
 
         # Notify about tool execution
         SessionManager.add_event(
