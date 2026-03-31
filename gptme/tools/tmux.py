@@ -472,7 +472,7 @@ def execute_tmux(
                     "system",
                     "Error: wait timeout and stable time must be integers",
                 )
-                return
+                continue
             # Use default cache directory for saving full output when truncated
             from platformdirs import user_cache_dir
 
