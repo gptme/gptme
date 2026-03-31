@@ -501,11 +501,12 @@ class LogManager:
             logdir = Path(logdir).parent
 
         logsdir = get_logs_dir()
-        if str(logsdir) not in str(logdir):
-            # if the path was not fully specified, assume its a dir in logsdir
+        logdir = Path(logdir)
+        try:
+            logdir.resolve().relative_to(logsdir.resolve())
+        except ValueError:
+            # path is not under logsdir, assume it's a relative name
             logdir = logsdir / logdir
-        else:
-            logdir = Path(logdir)
 
         if branch == "main":
             logfile = logdir / "conversation.jsonl"
