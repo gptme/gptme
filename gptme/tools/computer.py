@@ -495,8 +495,13 @@ def computer(
         default_resolution = MAX_SCALING_TARGETS["XGA"]
         logger.info("Fallback to XGA resolution")
 
-    width = int(os.getenv("WIDTH", str(default_resolution["width"])))
-    height = int(os.getenv("HEIGHT", str(default_resolution["height"])))
+    try:
+        width = int(os.getenv("WIDTH", str(default_resolution["width"])))
+        height = int(os.getenv("HEIGHT", str(default_resolution["height"])))
+    except ValueError as e:
+        raise ValueError(
+            f"Invalid WIDTH/HEIGHT env var: must be integers, got {os.getenv('WIDTH')!r}/{os.getenv('HEIGHT')!r}"
+        ) from e
     logger.info(f"Using API space resolution: {width}x{height}")
 
     if action in ("mouse_move", "left_click_drag"):

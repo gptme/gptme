@@ -991,7 +991,14 @@ def _prepare_messages_for_api(
         "yes",
     )
     if web_search_enabled:
-        max_uses = int(os.environ.get("GPTME_ANTHROPIC_WEB_SEARCH_MAX_USES", "5"))
+        _max_uses_str = os.environ.get("GPTME_ANTHROPIC_WEB_SEARCH_MAX_USES", "5")
+        try:
+            max_uses = int(_max_uses_str)
+        except ValueError as e:
+            raise ValueError(
+                f"Invalid GPTME_ANTHROPIC_WEB_SEARCH_MAX_USES value: {_max_uses_str!r}. "
+                "Must be a valid integer."
+            ) from e
         web_search_tool = _create_web_search_tool(max_uses=max_uses)
         if tools_dict is None:
             tools_dict = []
