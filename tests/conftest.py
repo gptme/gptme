@@ -58,14 +58,15 @@ def _check_anthropic_quota_exhausted() -> bool:
     Runs whenever ANTHROPIC_API_KEY is configured, regardless of MODEL env var.
     """
     config = get_config()
-    if not config.get_env("ANTHROPIC_API_KEY", ""):
+    api_key = config.get_env("ANTHROPIC_API_KEY", "")
+    if not api_key:
         return False
     try:
         import anthropic
     except ImportError:
         return False
     try:
-        client = anthropic.Anthropic()
+        client = anthropic.Anthropic(api_key=api_key)
         client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=1,
