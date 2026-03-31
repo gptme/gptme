@@ -51,16 +51,19 @@ def check_async_all_tasks_complete(ctx):
 
 def check_async_total_items(ctx):
     """Output should report 6 total items processed (3+2+1)."""
-    return bool(re.search(r"\b6\b", ctx.stdout))
+    return bool(
+        re.search(
+            r"\b6\b.*\bitem|\bitem.*\b6\b|\btotal.*\b6\b|\b6\b.*\bprocess",
+            ctx.stdout,
+            re.IGNORECASE,
+        )
+    )
 
 
 def check_async_concurrent(ctx):
-    """Execution should be concurrent — total time well under sequential sum (0.9s).
-
-    We check the script finishes under 2s (generous margin) via exit code;
-    the run command has a 5s timeout so a sequential 0.9s+ is fine,
-    but we also look for evidence of concurrency in output or timing."""
-    return ctx.exit_code == 0
+    """Script should use asyncio.gather or create_task for concurrent execution."""
+    src = ctx.files.get("async_pipeline.py", "")
+    return bool(re.search(r"asyncio\.(gather|create_task)", src))
 
 
 def check_async_exit(ctx):
@@ -195,8 +198,8 @@ def check_injection_file(ctx):
 def check_injection_no_percent_format(ctx):
     """Fixed code should not use % string formatting for SQL."""
     src = ctx.files.get("secure_app.py", "")
-    # Should not have %s in SQL query strings
-    return "'%s'" not in src and '"%s"' not in src
+    # Should not have any % format specifiers (%s, %d, %r, etc.) in SQL strings
+    return not bool(re.search(r"""['"][^'"]*%[sdrifge][^'"]*['"]""", src))
 
 
 def check_injection_no_fstring(ctx):
