@@ -1402,3 +1402,24 @@ def test_adjacent_fences_bare_multifence_content_line():
     assert blocks[0].lang == "shell"
     assert "``````" in blocks[0].content
     assert "more code" in blocks[0].content
+
+
+def test_fence_preserved_in_extraction():
+    """Codeblock.fence should reflect the original fence length (3+)."""
+    # Triple backticks (default)
+    blocks = list(_extract_codeblocks("```python\ncode\n```"))
+    assert len(blocks) == 1
+    assert blocks[0].fence == "```"
+
+    # Quadruple backticks (used by md_codeblock() to wrap content with triple fences)
+    blocks = list(_extract_codeblocks("````python\ncode\n````"))
+    assert len(blocks) == 1
+    assert blocks[0].fence == "````"
+
+    # Quintuple backticks
+    blocks = list(_extract_codeblocks("`````txt\ncode\n`````"))
+    assert len(blocks) == 1
+    assert blocks[0].fence == "`````"
+
+    # to_markdown() should use the original fence
+    assert blocks[0].to_markdown().startswith("`````txt")
