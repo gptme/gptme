@@ -14,7 +14,7 @@ class Codeblock:
     content: str
     path: str | None = None
     start: int | None = field(default=None, compare=False)
-    fence: str = field(default="```", compare=False)
+    fence: str = field(default="```", compare=False, repr=False)
 
     def __post_init__(self):
         # init path if path is None and lang is pathy
