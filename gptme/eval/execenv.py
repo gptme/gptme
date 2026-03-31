@@ -105,9 +105,11 @@ class SimpleExecutionEnv(FileStore, ExecutionEnv):
                 if not silent:
                     print("Timeout!")
                 p.kill()
+                p.wait()  # reap zombie process and set returncode
                 break
         if not silent:
             print("--- Finished run ---\n")
+        assert p.returncode is not None
         return stdout_full, stderr_full, p.returncode
 
 
@@ -215,6 +217,7 @@ class DockerExecutionEnv(ExecutionEnv):
                 if not silent:
                     print("Timeout!")
                 p.kill()
+                p.wait()  # reap zombie process and set returncode
                 # Stop container to terminate the running command
                 if self.container_id:
                     subprocess.run(
@@ -229,6 +232,7 @@ class DockerExecutionEnv(ExecutionEnv):
         if not silent:
             print("--- Finished run (Docker) ---\n")
 
+        assert p.returncode is not None
         return stdout_full, stderr_full, p.returncode
 
     def upload(self, files: Files) -> None:
@@ -494,6 +498,7 @@ class DockerGPTMeEnv(DockerExecutionEnv):
             if time.time() - start > self.timeout:
                 print(f"Timeout after {self.timeout}s!")
                 p.kill()
+                p.wait()  # reap zombie process and set returncode
                 # Stop container to terminate gptme
                 if self.container_id:
                     subprocess.run(
