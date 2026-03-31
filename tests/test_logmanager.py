@@ -287,6 +287,24 @@ def test_undo_on_empty_log():
     assert len(log.log) == 0
 
 
+def test_undo_early_return_persists_to_disk(tmp_path: Path, monkeypatch):
+    """Regression: undo() must persist when early-return path fires (log only had /undo command)."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
+    logdir = tmp_path / "logs" / "test-undo-early-return"
+    log = LogManager(logdir=logdir)
+    # A log whose only content is an /undo command message
+    log.append(Message("user", "/undo"))
+    assert len(log.log) == 1
+
+    # undo() strips the /undo msg, sees empty log, and takes the early-return path
+    log.undo(quiet=True)
+    assert len(log.log) == 0
+
+    # Reload from disk — the strip must survive
+    reloaded = LogManager.load(logdir)
+    assert len(reloaded.log) == 0
+
+
 def test_undo_persists_to_disk(tmp_path: Path, monkeypatch):
     """Regression: undo() must persist changes to disk via write()."""
     monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
