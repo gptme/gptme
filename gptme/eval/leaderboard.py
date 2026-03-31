@@ -99,6 +99,10 @@ PRACTICAL_TESTS = {
     "matrix-transpose",
     "ipv4-classify",
     "bracket-balance",
+    # practical15
+    "async-pipeline",
+    "sql-analytics",
+    "fix-sql-injection",
 }
 
 
