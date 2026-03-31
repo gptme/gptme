@@ -617,12 +617,14 @@ def step(
         output = ""
         tooluses = []
         # Handle streaming vs non-streaming differently
-        chunks: Iterable[str]
+        metadata = None
         if stream:
-            chunks = _stream(msgs, model, tools)
+            stream_wrapper = _stream(msgs, model, tools)
+            chunks: Iterable[str] = stream_wrapper
         else:
-            response, _metadata = _chat_complete(msgs, model, tools)
+            response, metadata = _chat_complete(msgs, model, tools)
             chunks = [response]  # Wrap in list to iterate
+            stream_wrapper = None
 
         for token in (char for chunk in chunks for char in chunk):
             # check if interrupted
@@ -644,8 +646,12 @@ def step(
         else:
             tooluses = list(ToolUse.iter_from_content(output))
 
+        # Capture metadata from stream after iteration completes
+        if stream_wrapper is not None and stream_wrapper.metadata:
+            metadata = stream_wrapper.metadata
+
         # Persist the assistant message
-        msg = Message("assistant", output)
+        msg = Message("assistant", output, metadata=metadata)
         _append_and_notify(manager, session, msg)
         # Write immediately after assistant message to ensure it's persisted
         manager.write()
