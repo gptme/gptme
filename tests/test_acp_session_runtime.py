@@ -607,6 +607,12 @@ def test_acp_step_bridges_generation_progress_events(
                 progress_tokens.append(token)
 
         assert "".join(progress_tokens) == "hello world"
+        # Each SSE token should be a complete text chunk, not individual characters.
+        # The dummy client sends one {"text": "hello world"} update, so we expect
+        # exactly one progress token — not 11 single-character tokens.
+        assert progress_tokens == ["hello world"], (
+            f"Expected chunk-level tokens, got character-level: {progress_tokens}"
+        )
 
         completion_events = [
             e for e in session.events if e.get("type") == "generation_complete"

@@ -410,12 +410,11 @@ async def _acp_step(
         for chunk in _iter_text_from_acp_update(update):
             if not chunk:
                 continue
-            for token in chunk:
-                stream_tokens.append(token)
-                SessionManager.add_event(
-                    conversation_id,
-                    {"type": "generation_progress", "token": token},
-                )
+            stream_tokens.append(chunk)
+            SessionManager.add_event(
+                conversation_id,
+                {"type": "generation_progress", "token": chunk},
+            )
 
     acp_runtime.set_on_update(_on_acp_update)
 
