@@ -151,7 +151,7 @@ def execute_read(
 
     # Apply line range
     start_idx = max(0, start_line - 1)
-    end_idx = min(total_lines, end_line) if end_line else total_lines
+    end_idx = min(total_lines, end_line) if end_line is not None else total_lines
     selected = lines[start_idx:end_idx]
 
     # Format with line numbers (cat -n style)

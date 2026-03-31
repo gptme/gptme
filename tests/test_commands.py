@@ -325,6 +325,17 @@ class TestHandleCmd:
         list(handle_cmd("/testcmd arg1 arg2 arg3", mock_manager))
         assert captured_args == ["arg1", "arg2", "arg3"]
 
+    def test_parses_args_consecutive_whitespace(self, clean_registry, mock_manager):
+        """Consecutive whitespace should not produce empty args."""
+        captured_args = []
+
+        @command("testcmd", auto_undo=False)
+        def cmd_test(ctx: CommandContext) -> None:
+            captured_args.extend(ctx.args)
+
+        list(handle_cmd("/testcmd  arg1  arg2", mock_manager))
+        assert captured_args == ["arg1", "arg2"]
+
     def test_strips_leading_slash(self, clean_registry, mock_manager):
         called = []
 

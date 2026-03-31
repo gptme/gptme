@@ -71,7 +71,7 @@ class Log:
         yield from self.messages
 
     def __repr__(self) -> str:
-        return f"Log(messages=<{len(self.messages)} msgs>])"
+        return f"Log(messages=<{len(self.messages)} msgs>)"
 
     def replace(self, **kwargs) -> "Log":
         return replace(self, **kwargs)

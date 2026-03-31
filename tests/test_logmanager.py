@@ -14,6 +14,14 @@ def _init_tools():
     init_tools(allowlist=["save", "patch", "append"])
 
 
+def test_log_repr():
+    """Log.__repr__ should have matched brackets."""
+    log = Log([Message("user", "hello")])
+    r = repr(log)
+    assert r == "Log(messages=<1 msgs>)"
+    assert "]" not in r
+
+
 def test_branch():
     log = LogManager()
 
