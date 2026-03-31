@@ -495,12 +495,19 @@ def computer(
         default_resolution = MAX_SCALING_TARGETS["XGA"]
         logger.info("Fallback to XGA resolution")
 
+    _width_str = os.getenv("WIDTH", str(default_resolution["width"]))
+    _height_str = os.getenv("HEIGHT", str(default_resolution["height"]))
     try:
-        width = int(os.getenv("WIDTH", str(default_resolution["width"])))
-        height = int(os.getenv("HEIGHT", str(default_resolution["height"])))
+        width = int(_width_str)
     except ValueError as e:
         raise ValueError(
-            f"Invalid WIDTH/HEIGHT env var: must be integers, got {os.getenv('WIDTH')!r}/{os.getenv('HEIGHT')!r}"
+            f"Invalid WIDTH env var: must be an integer, got {_width_str!r}"
+        ) from e
+    try:
+        height = int(_height_str)
+    except ValueError as e:
+        raise ValueError(
+            f"Invalid HEIGHT env var: must be an integer, got {_height_str!r}"
         ) from e
     logger.info(f"Using API space resolution: {width}x{height}")
 
