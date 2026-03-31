@@ -464,8 +464,15 @@ def execute_tmux(
             # Format: wait <session_id> [timeout] [stable_time]
             wait_parts = _args.split()
             wait_session_id = wait_parts[0]
-            wait_timeout = int(wait_parts[1]) if len(wait_parts) > 1 else 60
-            wait_stable = int(wait_parts[2]) if len(wait_parts) > 2 else 3
+            try:
+                wait_timeout = int(wait_parts[1]) if len(wait_parts) > 1 else 60
+                wait_stable = int(wait_parts[2]) if len(wait_parts) > 2 else 3
+            except ValueError:
+                yield Message(
+                    "system",
+                    "Error: wait timeout and stable time must be integers",
+                )
+                return
             # Use default cache directory for saving full output when truncated
             from platformdirs import user_cache_dir
 

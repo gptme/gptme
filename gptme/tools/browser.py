@@ -182,11 +182,14 @@ def pdf_to_images(
         >>> for img in images:
         ...     view_image(img)  # Analyze with vision tool
     """
+    import atexit
+    import shutil
     import tempfile
 
     # Determine output directory
     if output_dir is None:
         output_dir = Path(tempfile.mkdtemp(prefix="pdf_images_"))
+        atexit.register(shutil.rmtree, str(output_dir), True)
     else:
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)

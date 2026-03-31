@@ -517,7 +517,10 @@ def include_paths(msg: Message, workspace: Path | None = None) -> Message:
                 # Store path relative to workspace if provided
                 file = file.expanduser()
                 if workspace and not file.is_absolute():
-                    file = file.absolute().relative_to(workspace)
+                    try:
+                        file = file.absolute().relative_to(workspace)
+                    except ValueError:
+                        file = file.absolute()
                 logger.debug(f"auto-attaching file: {file}")
                 files.append(file)
 
