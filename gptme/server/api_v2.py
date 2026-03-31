@@ -288,7 +288,6 @@ def api_conversation_put(conversation_id: str):
         )
         msgs.append(Message(msg["role"], msg["content"], timestamp=timestamp))
 
-    logdir.mkdir(parents=True, exist_ok=True)
     log = LogManager.load(logdir=logdir, initial_msgs=msgs, create=True)
     log.write()
 

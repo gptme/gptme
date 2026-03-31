@@ -5,7 +5,6 @@ Requires a model which supports vision, such as GPT-4o, Anthropic, and Llama 3.2
 """
 
 import atexit
-import logging
 import tempfile
 from pathlib import Path
 
@@ -13,8 +12,6 @@ from PIL import Image
 
 from ..message import Message
 from .base import ToolSpec
-
-logger = logging.getLogger(__name__)
 
 # Track temp files for cleanup on exit
 _temp_files: list[Path] = []
