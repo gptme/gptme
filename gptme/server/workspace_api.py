@@ -475,7 +475,12 @@ def preview_file(conversation_id: str, filepath: str):
     try:
         # Load the conversation to get its workspace
         manager = LogManager.load(conversation_id, lock=False)
-        workspace = manager.workspace
+        root_param = flask.request.args.get("root", "workspace")
+        if root_param == "attachments":
+            workspace = manager.logdir / "attachments"
+            workspace.mkdir(parents=True, exist_ok=True)
+        else:
+            workspace = manager.workspace
 
         if not workspace.is_dir():
             return flask.jsonify({"error": "Workspace not found"}), 404
@@ -530,7 +535,12 @@ def download_file(conversation_id: str, filepath: str):
     """
     try:
         manager = LogManager.load(conversation_id, lock=False)
-        workspace = manager.workspace
+        root_param = flask.request.args.get("root", "workspace")
+        if root_param == "attachments":
+            workspace = manager.logdir / "attachments"
+            workspace.mkdir(parents=True, exist_ok=True)
+        else:
+            workspace = manager.workspace
 
         if not workspace.is_dir():
             return flask.jsonify({"error": "Workspace not found"}), 404

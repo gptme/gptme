@@ -301,8 +301,12 @@ export const ChatMessage: FC<Props> = ({
                             const dir = sanitizedPath.includes('/')
                               ? sanitizedPath.substring(0, sanitizedPath.lastIndexOf('/'))
                               : '';
+                            // Strip 'attachments/' prefix: the explorer root is already logdir/attachments/
+                            const explorerPath = isAttachment
+                              ? dir.replace(/^attachments\/?/, '')
+                              : dir;
                             workspaceNavigateTo$.set({
-                              path: dir,
+                              path: explorerPath,
                               root: isAttachment ? 'attachments' : 'workspace',
                             });
                             rightSidebarVisible$.set(true);

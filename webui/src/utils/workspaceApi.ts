@@ -29,8 +29,15 @@ export function useWorkspaceApi() {
       return response.json();
     }
 
-    async function previewFile(conversationId: string, path: string): Promise<FilePreview> {
-      const url = `${api.baseUrl}/api/v2/conversations/${conversationId}/workspace/${encodeURIComponent(path)}/preview`;
+    async function previewFile(
+      conversationId: string,
+      path: string,
+      root: WorkspaceRoot = 'workspace'
+    ): Promise<FilePreview> {
+      const params = new URLSearchParams();
+      if (root !== 'workspace') params.set('root', root);
+      const query = params.toString() ? `?${params}` : '';
+      const url = `${api.baseUrl}/api/v2/conversations/${conversationId}/workspace/${encodeURIComponent(path)}/preview${query}`;
 
       const response = await fetch(url, {
         headers: api.authHeader ? { Authorization: api.authHeader } : undefined,
@@ -52,8 +59,15 @@ export function useWorkspaceApi() {
       return response.json();
     }
 
-    async function downloadFile(conversationId: string, path: string): Promise<void> {
-      const url = `${api.baseUrl}/api/v2/conversations/${conversationId}/workspace/${encodeURIComponent(path)}/download`;
+    async function downloadFile(
+      conversationId: string,
+      path: string,
+      root: WorkspaceRoot = 'workspace'
+    ): Promise<void> {
+      const params = new URLSearchParams();
+      if (root !== 'workspace') params.set('root', root);
+      const query = params.toString() ? `?${params}` : '';
+      const url = `${api.baseUrl}/api/v2/conversations/${conversationId}/workspace/${encodeURIComponent(path)}/download${query}`;
 
       const response = await fetch(url, {
         headers: api.authHeader ? { Authorization: api.authHeader } : undefined,

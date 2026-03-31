@@ -148,7 +148,7 @@ export function WorkspaceExplorer({ conversationId }: WorkspaceExplorerProps) {
         </div>
         <div className="h-full w-1/2 overflow-hidden">
           {selectedFile ? (
-            <FilePreview file={selectedFile} conversationId={conversationId} />
+            <FilePreview file={selectedFile} conversationId={conversationId} root={activeRoot} />
           ) : (
             <div className="flex h-full items-center justify-center text-muted-foreground">
               Select a file to preview

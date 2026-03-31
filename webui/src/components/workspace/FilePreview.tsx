@@ -3,6 +3,7 @@ import { Download, Loader2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useWorkspaceApi } from '@/utils/workspaceApi';
 import type { FileType, FilePreview } from '@/types/workspace';
+import type { WorkspaceRoot } from '@/stores/workspaceExplorer';
 import { CodeDisplay } from '@/components/CodeDisplay';
 import { Button } from '@/components/ui/button';
 import { MarkdownPreviewTabs } from './MarkdownPreviewTabs';
@@ -54,9 +55,10 @@ function FileHeader({
 interface FilePreviewProps {
   file: FileType;
   conversationId: string;
+  root?: WorkspaceRoot;
 }
 
-export function FilePreview({ file, conversationId }: FilePreviewProps) {
+export function FilePreview({ file, conversationId, root = 'workspace' }: FilePreviewProps) {
   const [preview, setPreview] = useState<FilePreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
@@ -69,23 +71,23 @@ export function FilePreview({ file, conversationId }: FilePreviewProps) {
       setLoading(true);
       setError(null);
       setDownloadError(null);
-      const data = await previewFile(conversationId, file.path);
+      const data = await previewFile(conversationId, file.path, root);
       setPreview(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load preview');
     } finally {
       setLoading(false);
     }
-  }, [file.path, conversationId, previewFile]);
+  }, [file.path, conversationId, previewFile, root]);
 
   const handleDownload = useCallback(async () => {
     try {
       setDownloadError(null);
-      await downloadFile(conversationId, file.path);
+      await downloadFile(conversationId, file.path, root);
     } catch (err) {
       setDownloadError(err instanceof Error ? err.message : 'Download failed');
     }
-  }, [downloadFile, conversationId, file.path]);
+  }, [downloadFile, conversationId, file.path, root]);
 
   useEffect(() => {
     loadPreview();
