@@ -1457,12 +1457,14 @@ class TestExtraBody:
         result = extra_body("openrouter", meta)
         assert result["provider"]["require_parameters"] is True
 
-    def test_openrouter_denies_data_collection(self):
+    def test_openrouter_no_data_collection_by_default(self, monkeypatch):
         from gptme.llm.llm_openai import extra_body
 
+        monkeypatch.delenv("OPENROUTER_DATA_COLLECTION", raising=False)
+        monkeypatch.delenv("GPTME_OPENROUTER_DATA_COLLECTION", raising=False)
         meta = self._make_model("anthropic/claude-sonnet-4-20250514")
         result = extra_body("openrouter", meta)
-        assert result["provider"]["data_collection"] == "deny"
+        assert "data_collection" not in result["provider"]
 
     def test_openrouter_provider_override_with_at_sign(self):
         from gptme.llm.llm_openai import extra_body
@@ -1472,9 +1474,8 @@ class TestExtraBody:
         prov = result["provider"]
         assert prov["order"] == ["anthropic"]
         assert prov["allow_fallbacks"] is False
-        # Should still have require_parameters and data_collection
+        # Should still have require_parameters (non-reasoning model)
         assert prov["require_parameters"] is True
-        assert prov["data_collection"] == "deny"
 
     def test_openrouter_no_provider_override(self):
         from gptme.llm.llm_openai import extra_body
@@ -1500,6 +1501,31 @@ class TestExtraBody:
         assert "reasoning" in result
         assert result["reasoning"]["enabled"] is True
 
+    def test_openrouter_reasoning_model_no_require_parameters(self):
+        """Reasoning models must not set require_parameters=True.
+
+        The combination of require_parameters + reasoning extension can
+        eliminate all available providers — the reasoning body parameter
+        is not universally supported by all OpenRouter providers.
+        """
+        from gptme.llm.llm_openai import extra_body
+
+        meta = self._make_model(
+            "anthropic/claude-sonnet-4-20250514", supports_reasoning=True
+        )
+        result = extra_body("openrouter", meta)
+        assert "reasoning" in result
+        assert "require_parameters" not in result["provider"]
+
+    def test_openrouter_non_reasoning_model_has_require_parameters(self):
+        """Non-reasoning models should still set require_parameters=True."""
+        from gptme.llm.llm_openai import extra_body
+
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        result = extra_body("openrouter", meta)
+        assert "reasoning" not in result
+        assert result["provider"]["require_parameters"] is True
+
     def test_openrouter_data_collection_env_override_allow(self, monkeypatch):
         from gptme.llm.llm_openai import extra_body
 
@@ -1516,14 +1542,14 @@ class TestExtraBody:
         result = extra_body("openrouter", meta)
         assert result["provider"]["data_collection"] == "deny"
 
-    def test_openrouter_data_collection_default_without_env(self, monkeypatch):
+    def test_openrouter_data_collection_absent_without_env(self, monkeypatch):
         from gptme.llm.llm_openai import extra_body
 
         monkeypatch.delenv("OPENROUTER_DATA_COLLECTION", raising=False)
         monkeypatch.delenv("GPTME_OPENROUTER_DATA_COLLECTION", raising=False)
         meta = self._make_model("anthropic/claude-sonnet-4-20250514")
         result = extra_body("openrouter", meta)
-        assert result["provider"]["data_collection"] == "deny"
+        assert "data_collection" not in result["provider"]
 
     def test_openrouter_data_collection_gptme_prefixed_env(self, monkeypatch):
         """GPTME_OPENROUTER_DATA_COLLECTION takes precedence over bare form."""

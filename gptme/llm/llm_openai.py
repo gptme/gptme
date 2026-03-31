@@ -659,13 +659,20 @@ def extra_body(
         # Ensure routed provider supports all request parameters (tools,
         # response_format, etc.) — prevents silent failures when OpenRouter
         # falls back to a provider that doesn't support function calling.
-        provider_prefs["require_parameters"] = True
+        # NOTE: only set when reasoning is NOT enabled, because the
+        # combination of require_parameters=True + reasoning extension can
+        # eliminate all available providers (the reasoning body parameter
+        # is not universally supported).
+        if "reasoning" not in body:
+            provider_prefs["require_parameters"] = True
 
-        # Privacy: deny provider data collection by default.
-        # Aligns with gptme's local-first, privacy-preserving philosophy.
-        # Users can override with OPENROUTER_DATA_COLLECTION env var or config.
-        data_collection = get_config().get_env("OPENROUTER_DATA_COLLECTION", "deny")
-        provider_prefs["data_collection"] = data_collection
+        # Privacy: respect OPENROUTER_DATA_COLLECTION env var if set.
+        # Not set by default — the previous unconditional "deny" default
+        # caused provider routing failures when combined with
+        # require_parameters and reasoning extensions.
+        data_collection = get_config().get_env("OPENROUTER_DATA_COLLECTION")
+        if data_collection:
+            provider_prefs["data_collection"] = data_collection
 
         # Quantization preferences: restrict to specific precision levels.
         # Useful for controlling quality (fp16) or cost (int4/int8).
