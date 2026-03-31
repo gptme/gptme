@@ -54,13 +54,11 @@ def has_api_key() -> bool:
 def _check_anthropic_quota_exhausted() -> bool:
     """Make a minimal API call to detect if the Anthropic quota is exhausted.
 
-    Returns True if quota is exhausted, False if API is available or not Anthropic.
-    Only runs when MODEL env var points to an Anthropic model.
+    Returns True if quota is exhausted, False if API is available or key not configured.
+    Runs whenever ANTHROPIC_API_KEY is configured, regardless of MODEL env var.
     """
-    model = os.environ.get("MODEL", "")
-    if not model or (
-        "anthropic" not in model.lower() and "claude" not in model.lower()
-    ):
+    config = get_config()
+    if not config.get_env("ANTHROPIC_API_KEY", ""):
         return False
     try:
         import anthropic
