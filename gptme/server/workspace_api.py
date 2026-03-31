@@ -235,7 +235,17 @@ def list_directory(
             "in": "query",
             "schema": {"type": "boolean", "default": False},
             "description": "Whether to include hidden files and directories",
-        }
+        },
+        {
+            "name": "root",
+            "in": "query",
+            "schema": {
+                "type": "string",
+                "enum": ["workspace", "attachments"],
+                "default": "workspace",
+            },
+            "description": "Root directory to browse: 'workspace' (default) or 'attachments' (uploaded files)",
+        },
     ],
     tags=["workspace"],
 )
@@ -244,11 +254,19 @@ def browse_workspace(conversation_id: str, subpath: str | None = None):
 
     List contents of a conversation's workspace directory.
     Returns file metadata for a single file or directory listing.
+    Use ?root=attachments to browse uploaded attachment files instead.
     """
     try:
         # Load the conversation to get its workspace
         manager = LogManager.load(conversation_id, lock=False)
-        workspace = manager.workspace
+
+        root_param = request.args.get("root", "workspace")
+        if root_param == "attachments":
+            workspace = manager.logdir / "attachments"
+            if not workspace.exists():
+                workspace.mkdir(parents=True, exist_ok=True)
+        else:
+            workspace = manager.workspace
 
         if not workspace.is_dir():
             return flask.jsonify({"error": "Workspace not found"}), 404

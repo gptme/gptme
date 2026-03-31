@@ -20,11 +20,14 @@ import {
   Download,
   ExternalLink,
   FileText,
+  FolderOpen,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { ChatInput } from '@/components/ChatInput';
+import { workspaceNavigateTo$ } from '@/stores/workspaceExplorer';
+import { rightSidebarActiveTab$, rightSidebarVisible$ } from '@/stores/sidebar';
 
 function formatTimestamp(timestamp: string): { short: string; full: string } {
   const date = new Date(timestamp);
@@ -290,6 +293,25 @@ export const ChatMessage: FC<Props> = ({
                         >
                           <Download className="h-3.5 w-3.5" />
                         </a>
+                        <button
+                          className="text-muted-foreground transition-colors hover:text-foreground"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const isAttachment = sanitizedPath.startsWith('attachments/');
+                            const dir = sanitizedPath.includes('/')
+                              ? sanitizedPath.substring(0, sanitizedPath.lastIndexOf('/'))
+                              : '';
+                            workspaceNavigateTo$.set({
+                              path: dir,
+                              root: isAttachment ? 'attachments' : 'workspace',
+                            });
+                            rightSidebarVisible$.set(true);
+                            rightSidebarActiveTab$.set('workspace');
+                          }}
+                          title="Open in workspace viewer"
+                        >
+                          <FolderOpen className="h-3.5 w-3.5" />
+                        </button>
                         <a
                           href={fileUrl}
                           target="_blank"

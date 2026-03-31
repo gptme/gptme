@@ -1,4 +1,5 @@
 import type { FileType, FilePreview } from '@/types/workspace';
+import type { WorkspaceRoot } from '@/stores/workspaceExplorer';
 import { useApi } from '@/contexts/ApiContext';
 import { useMemo } from 'react';
 
@@ -9,9 +10,12 @@ export function useWorkspaceApi() {
     async function listWorkspace(
       conversationId: string,
       path?: string,
-      showHidden = false
+      showHidden = false,
+      root: WorkspaceRoot = 'workspace'
     ): Promise<FileType[]> {
-      const url = `${api.baseUrl}/api/v2/conversations/${conversationId}/workspace${path ? `/${encodeURIComponent(path)}` : ''}?show_hidden=${showHidden}`;
+      const params = new URLSearchParams({ show_hidden: String(showHidden) });
+      if (root !== 'workspace') params.set('root', root);
+      const url = `${api.baseUrl}/api/v2/conversations/${conversationId}/workspace${path ? `/${encodeURIComponent(path)}` : ''}?${params}`;
 
       const response = await fetch(url, {
         headers: api.authHeader ? { Authorization: api.authHeader } : undefined,
