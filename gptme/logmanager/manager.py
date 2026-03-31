@@ -485,6 +485,7 @@ class LogManager:
                     f"[red]  {undid.role}: {textwrap.shorten(undid.content.strip(), width=50, placeholder='...')}[/]",
                 )
             peek = self.log[-1] if self.log else None
+        self.write()
 
     @classmethod
     def load(

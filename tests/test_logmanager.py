@@ -287,6 +287,24 @@ def test_undo_on_empty_log():
     assert len(log.log) == 0
 
 
+def test_undo_persists_to_disk(tmp_path: Path, monkeypatch):
+    """Regression: undo() must persist changes to disk via write()."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
+    logdir = tmp_path / "logs" / "test-undo-persist"
+    log = LogManager(logdir=logdir)
+    log.append(Message("user", "hello"))
+    log.append(Message("assistant", "world"))
+    assert len(log.log) == 2
+
+    log.undo(quiet=True)
+    assert len(log.log) == 1
+
+    # Reload from disk — undo must survive
+    reloaded = LogManager.load(logdir)
+    assert len(reloaded.log) == 1
+    assert reloaded.log[-1].content == "hello"
+
+
 def test_read_jsonl_malformed(tmp_path):
     """Test that malformed JSON lines are skipped gracefully."""
     jsonl_file = tmp_path / "test.jsonl"
