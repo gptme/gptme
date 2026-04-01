@@ -125,14 +125,14 @@ export function customRenderer(
         }
       }
 
-      // Convert short code blocks (≤2 lines) from <details> to inline display.
-      // Instead of a collapsible, show: "emoji langtag  code" on one line.
+      // Convert short code blocks from <details> to inline display.
+      // Only inline if: single line AND short enough to not wrap visually.
       if (data.code && data.summary) {
         const codeText = (data.code.textContent || '').replace(/\n$/, '');
         const lineCount = codeText.split('\n').length;
         const details = data.summary.parentElement; // the <details> element
 
-        if (lineCount <= 2 && details?.tagName === 'DETAILS') {
+        if (lineCount === 1 && codeText.length <= 100 && details?.tagName === 'DETAILS') {
           // Replace <details><summary>...<pre><code>... with inline element
           const inline = document.createElement('div');
           inline.className = 'inline-codeblock';
