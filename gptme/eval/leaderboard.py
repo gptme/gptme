@@ -157,6 +157,12 @@ def normalize_model(model: str) -> str:
         "openrouter/z-ai/glm-5": "GLM-5",
         # OpenRouter-proxied versions of direct-API models
         "openrouter/openai/gpt-4o-mini": "GPT-4o Mini (OR)",
+        "openrouter/anthropic/claude-sonnet-4-6": "Claude Sonnet 4.6 (OR)",
+        "openrouter/anthropic/claude-sonnet-4-5": "Claude Sonnet 4.5 (OR)",
+        "openrouter/anthropic/claude-haiku-4-5": "Claude Haiku 4.5 (OR)",
+        "openrouter/anthropic/claude-opus-4-6": "Claude Opus 4.6 (OR)",
+        "openrouter/openai/gpt-4o": "GPT-4o (OR)",
+        "openrouter/deepseek/deepseek-chat": "DeepSeek V3 (OR)",
         # Model IDs without date suffix
         "anthropic/claude-sonnet-4-5": "Claude Sonnet 4.5",
     }
@@ -540,6 +546,229 @@ def format_json(ranked: list[dict]) -> str:
     return json.dumps({"models": models}, indent=2)
 
 
+def aggregate_per_test(
+    results: list[dict], min_tests: int = 4
+) -> tuple[list[str], list[str], dict[str, dict[str, bool | None]]]:
+    """Build a model x test matrix from results.
+
+    Returns:
+        (model_names, test_names, matrix) where matrix[model][test] is
+        True/False/None (not tested).
+    """
+    # Group by (model, format) -> test -> runs
+    model_fmt: dict[tuple[str, str], dict[str, list[dict]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    for r in results:
+        model_fmt[(r["model"], r["format"])][r["test"]].append(r)
+
+    # Pick best format per model (same logic as aggregate_results)
+    best_fmt: dict[str, tuple[str, dict[str, list[dict]]]] = {}
+    for (model, fmt), tests_dict in model_fmt.items():
+        total = len(tests_dict)
+        if total < min_tests:
+            continue
+        passed = sum(
+            1
+            for runs in tests_dict.values()
+            if sorted(runs, key=lambda r: r["run_dir"])[-1]["passed"]
+        )
+        rate = passed / total if total > 0 else 0
+        current = best_fmt.get(model)
+        if current is None:
+            best_fmt[model] = (fmt, tests_dict)
+        else:
+            cur_tests = current[1]
+            cur_passed = sum(
+                1
+                for runs in cur_tests.values()
+                if sorted(runs, key=lambda r: r["run_dir"])[-1]["passed"]
+            )
+            cur_rate = cur_passed / len(cur_tests) if cur_tests else 0
+            if rate > cur_rate or (rate == cur_rate and total > len(cur_tests)):
+                best_fmt[model] = (fmt, tests_dict)
+
+    # Collect all test names across all models
+    all_tests: set[str] = set()
+    for _fmt, tests_dict in best_fmt.values():
+        all_tests.update(tests_dict.keys())
+
+    # Order tests: basic first, then practical, then others — alphabetical within each
+    basic_sorted = sorted(t for t in all_tests if t in BASIC_TESTS)
+    practical_sorted = sorted(t for t in all_tests if t in PRACTICAL_TESTS)
+    other_sorted = sorted(
+        t for t in all_tests if t not in BASIC_TESTS and t not in PRACTICAL_TESTS
+    )
+    test_names = basic_sorted + practical_sorted + other_sorted
+
+    # Build matrix
+    matrix: dict[str, dict[str, bool | None]] = {}
+    model_pass_rates: dict[str, float] = {}
+    for model, (_fmt, tests_dict) in best_fmt.items():
+        row: dict[str, bool | None] = {}
+        passed = 0
+        total = 0
+        for test in test_names:
+            if test in tests_dict:
+                latest = sorted(tests_dict[test], key=lambda r: r["run_dir"])[-1]
+                row[test] = latest["passed"]
+                total += 1
+                if latest["passed"]:
+                    passed += 1
+            else:
+                row[test] = None
+        matrix[model] = row
+        model_pass_rates[model] = passed / total if total > 0 else 0
+
+    # Sort models by pass rate descending
+    model_names = sorted(matrix.keys(), key=lambda m: -model_pass_rates[m])
+
+    return model_names, test_names, matrix
+
+
+def format_per_test_markdown(
+    model_names: list[str],
+    test_names: list[str],
+    matrix: dict[str, dict[str, bool | None]],
+) -> str:
+    """Format per-test breakdown as a Markdown table."""
+    display_names = [normalize_model(m) for m in model_names]
+    lines = []
+    header = "| Test | " + " | ".join(display_names) + " |"
+    sep = "|------|" + "|".join(":-:" for _ in model_names) + "|"
+    lines.append(header)
+    lines.append(sep)
+
+    for test in test_names:
+        cells = []
+        for model in model_names:
+            val = matrix[model].get(test)
+            if val is True:
+                cells.append("P")
+            elif val is False:
+                cells.append("F")
+            else:
+                cells.append("-")
+        lines.append(f"| {test} | " + " | ".join(cells) + " |")
+
+    return "\n".join(lines)
+
+
+def format_per_test_html(
+    model_names: list[str],
+    test_names: list[str],
+    matrix: dict[str, dict[str, bool | None]],
+) -> str:
+    """Format per-test breakdown as a self-contained HTML page."""
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    display_names = [normalize_model(m) for m in model_names]
+
+    # Build header
+    th_models = "".join(
+        f"<th class='model-col'>{_html_escape(n)}</th>" for n in display_names
+    )
+
+    # Build rows
+    rows = []
+    current_suite = None
+    for test in test_names:
+        # Determine suite for section headers
+        if test in BASIC_TESTS:
+            suite = "Basic"
+        elif test in PRACTICAL_TESTS:
+            suite = "Practical"
+        else:
+            suite = "Other"
+        if suite != current_suite:
+            current_suite = suite
+            rows.append(
+                f"<tr class='suite-header'>"
+                f"<td colspan='{len(model_names) + 1}'>{suite}</td></tr>"
+            )
+
+        cells = []
+        for model in model_names:
+            val = matrix[model].get(test)
+            if val is True:
+                cells.append("<td class='pass'>P</td>")
+            elif val is False:
+                cells.append("<td class='fail'>F</td>")
+            else:
+                cells.append("<td class='na'>-</td>")
+        rows.append(
+            f"<tr><td class='test-name'>{_html_escape(test)}</td>{''.join(cells)}</tr>"
+        )
+
+    rows_str = "\n        ".join(rows)
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gptme Eval Per-Test Breakdown</title>
+<style>
+  :root {{
+    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --text: #e6edf3; --muted: #8b949e;
+    --green: #3fb950; --red: #f85149; --accent: #58a6ff;
+  }}
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+  body {{
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--text); padding: 2rem 1rem;
+  }}
+  .container {{ max-width: 1200px; margin: 0 auto; overflow-x: auto; }}
+  h1 {{ font-size: 1.5rem; margin-bottom: 0.25rem; }}
+  h1 a {{ color: var(--accent); text-decoration: none; }}
+  .meta {{ color: var(--muted); font-size: 0.85rem; margin-bottom: 1.5rem; }}
+  table {{
+    border-collapse: collapse; background: var(--surface);
+    border-radius: 6px; overflow: hidden; white-space: nowrap;
+  }}
+  th, td {{
+    padding: 0.4rem 0.6rem; text-align: center;
+    border-bottom: 1px solid var(--border); font-size: 0.85rem;
+  }}
+  th {{ background: var(--bg); color: var(--muted); font-size: 0.75rem;
+       text-transform: uppercase; letter-spacing: 0.05em; position: sticky; top: 0; }}
+  .test-name {{ text-align: left; font-family: monospace; font-size: 0.8rem; }}
+  .model-col {{ writing-mode: vertical-rl; text-orientation: mixed;
+                max-width: 2rem; height: 8rem; font-weight: 600; }}
+  .pass {{ color: var(--green); font-weight: 700; }}
+  .fail {{ color: var(--red); font-weight: 700; }}
+  .na {{ color: var(--muted); }}
+  .suite-header td {{
+    text-align: left; font-weight: 700; font-size: 0.8rem;
+    background: var(--bg); color: var(--accent); padding: 0.5rem 0.6rem;
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }}
+  tr:last-child td {{ border-bottom: none; }}
+  footer {{ margin-top: 1.5rem; color: var(--muted); font-size: 0.8rem; text-align: center; }}
+  footer a {{ color: var(--accent); text-decoration: none; }}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1><a href="https://gptme.org">gptme</a> Per-Test Breakdown</h1>
+  <p class="meta">{len(model_names)} models &middot; {len(test_names)} tests &middot; updated {now}</p>
+  <table>
+    <thead>
+      <tr><th>Test</th>{th_models}</tr>
+    </thead>
+    <tbody>
+        {rows_str}
+    </tbody>
+  </table>
+  <footer>
+    Generated by <a href="https://github.com/gptme/gptme">gptme</a> eval suite
+    &middot; <code>python -m gptme.eval.leaderboard --per-test --format html</code>
+  </footer>
+</div>
+</body>
+</html>"""
+
+
 def generate_leaderboard(
     results_dir: Path,
     output_format: str = "markdown",
@@ -602,14 +831,34 @@ def main():
         default=4,
         help="Minimum number of tests for a model to be included (default: 4)",
     )
+    parser.add_argument(
+        "--per-test",
+        action="store_true",
+        help="Show per-test pass/fail breakdown instead of summary",
+    )
     args = parser.parse_args()
 
     try:
-        output = generate_leaderboard(
-            results_dir=args.results_dir,
-            output_format=args.format,
-            min_tests=args.min_tests,
-        )
+        results = load_results(args.results_dir)
+        if not results:
+            raise FileNotFoundError(f"No eval results found in {args.results_dir}")
+
+        if args.per_test:
+            model_names, test_names, matrix = aggregate_per_test(
+                results, min_tests=args.min_tests
+            )
+            if not model_names:
+                raise ValueError(f"No models with >= {args.min_tests} tests found.")
+            if args.format == "html":
+                output = format_per_test_html(model_names, test_names, matrix)
+            else:
+                output = format_per_test_markdown(model_names, test_names, matrix)
+        else:
+            output = generate_leaderboard(
+                results_dir=args.results_dir,
+                output_format=args.format,
+                min_tests=args.min_tests,
+            )
     except (FileNotFoundError, ValueError) as e:
         # Print a placeholder instead of failing — allows docs builds to succeed
         # even when eval results are not available

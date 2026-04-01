@@ -7,11 +7,14 @@ from pathlib import Path
 import pytest
 
 from gptme.eval.leaderboard import (
+    aggregate_per_test,
     aggregate_results,
     format_csv_table,
     format_html_page,
     format_json,
     format_markdown_table,
+    format_per_test_html,
+    format_per_test_markdown,
     format_rst_table,
     generate_leaderboard,
     load_results,
@@ -626,6 +629,166 @@ def test_generate_leaderboard_html(tmp_path):
     assert "<!DOCTYPE html>" in output
     assert "GPT-4o" in output
     assert "gptme Eval Leaderboard" in output
+
+
+def test_normalize_model_openrouter_proxied():
+    """OpenRouter-proxied models get display names with (OR) suffix."""
+    assert (
+        normalize_model("openrouter/anthropic/claude-sonnet-4-6")
+        == "Claude Sonnet 4.6 (OR)"
+    )
+    assert normalize_model("openrouter/openai/gpt-4o") == "GPT-4o (OR)"
+
+
+def test_aggregate_per_test(tmp_path):
+    """Per-test aggregation builds a correct model x test matrix."""
+    _create_eval_results(
+        tmp_path,
+        [
+            {
+                "dir": "run1",
+                "rows": [
+                    ("model-a", "tool", "hello", "true"),
+                    ("model-a", "tool", "prime100", "false"),
+                    ("model-a", "tool", "build-api", "true"),
+                    ("model-b", "tool", "hello", "true"),
+                    ("model-b", "tool", "prime100", "true"),
+                    ("model-b", "tool", "build-api", "false"),
+                ],
+            }
+        ],
+    )
+    results = load_results(tmp_path)
+    model_names, test_names, matrix = aggregate_per_test(results, min_tests=2)
+
+    # Both models should appear
+    assert len(model_names) == 2
+    # model-b has higher pass rate (2/3 vs 2/3 — tie, alphabetical)
+    # Actually both are 2/3, order may vary
+
+    # Test names should be ordered: basic first, then practical
+    hello_idx = test_names.index("hello")
+    prime_idx = test_names.index("prime100")
+    api_idx = test_names.index("build-api")
+    assert hello_idx < api_idx  # basic before practical
+    assert prime_idx < api_idx
+
+    # Matrix values
+    assert matrix["model-a"]["hello"] is True
+    assert matrix["model-a"]["prime100"] is False
+    assert matrix["model-a"]["build-api"] is True
+    assert matrix["model-b"]["hello"] is True
+
+
+def test_aggregate_per_test_min_tests_filter(tmp_path):
+    """Per-test aggregation respects min_tests threshold."""
+    _create_eval_results(
+        tmp_path,
+        [
+            {
+                "dir": "run1",
+                "rows": [
+                    ("model-a", "tool", "hello", "true"),
+                    ("model-b", "tool", "hello", "true"),
+                    ("model-b", "tool", "prime100", "true"),
+                    ("model-b", "tool", "fix-bug", "true"),
+                ],
+            }
+        ],
+    )
+    results = load_results(tmp_path)
+    model_names, _, _ = aggregate_per_test(results, min_tests=3)
+    # model-a has only 1 test, should be excluded
+    assert "model-a" not in model_names
+    assert "model-b" in model_names
+
+
+def test_format_per_test_markdown(tmp_path):
+    """Per-test markdown output has correct structure."""
+    _create_eval_results(
+        tmp_path,
+        [
+            {
+                "dir": "run1",
+                "rows": [
+                    ("openai/gpt-4o", "tool", "hello", "true"),
+                    ("openai/gpt-4o", "tool", "prime100", "false"),
+                    ("openai/gpt-4o", "tool", "build-api", "true"),
+                ],
+            }
+        ],
+    )
+    results = load_results(tmp_path)
+    model_names, test_names, matrix = aggregate_per_test(results, min_tests=2)
+    output = format_per_test_markdown(model_names, test_names, matrix)
+
+    assert "GPT-4o" in output  # normalized name
+    assert "| hello |" in output
+    assert "| P |" in output  # passed
+    assert "| F |" in output  # failed
+
+
+def test_format_per_test_html(tmp_path):
+    """Per-test HTML output has correct structure."""
+    _create_eval_results(
+        tmp_path,
+        [
+            {
+                "dir": "run1",
+                "rows": [
+                    ("openai/gpt-4o", "tool", "hello", "true"),
+                    ("openai/gpt-4o", "tool", "prime100", "false"),
+                    ("openai/gpt-4o", "tool", "build-api", "true"),
+                ],
+            }
+        ],
+    )
+    results = load_results(tmp_path)
+    model_names, test_names, matrix = aggregate_per_test(results, min_tests=2)
+    output = format_per_test_html(model_names, test_names, matrix)
+
+    assert "<!DOCTYPE html>" in output
+    assert "Per-Test Breakdown" in output
+    assert "GPT-4o" in output
+    assert "class='pass'" in output
+    assert "class='fail'" in output
+    # Suite headers present
+    assert "Basic" in output
+    assert "Practical" in output
+
+
+def test_main_per_test_flag(tmp_path, capsys, monkeypatch):
+    """CLI --per-test flag produces per-test output."""
+    _create_eval_results(
+        tmp_path,
+        [
+            {
+                "dir": "run1",
+                "rows": [
+                    ("openai/gpt-4o", "tool", "hello", "true"),
+                    ("openai/gpt-4o", "tool", "prime100", "true"),
+                    ("openai/gpt-4o", "tool", "fix-bug", "false"),
+                    ("openai/gpt-4o", "tool", "hello-patch", "true"),
+                ],
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "leaderboard",
+            "--results-dir",
+            str(tmp_path),
+            "--per-test",
+            "--min-tests",
+            "3",
+        ],
+    )
+    main()
+    captured = capsys.readouterr()
+    assert "hello" in captured.out
+    assert "GPT-4o" in captured.out
+    assert "| P |" in captured.out
 
 
 def test_practical_tests_sync():
