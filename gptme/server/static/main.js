@@ -10,8 +10,6 @@ const marked = new Marked(
     highlight(code, lang, info) {
       // check if info has ext, if so, use that as lang
       lang = info.split(".")[1] || lang;
-      console.log(info);
-      console.log(lang);
       const language = hljs.getLanguage(lang) ? lang : "plaintext";
       return hljs.highlight(code, { language }).value;
     },
@@ -344,7 +342,7 @@ new Vue({
         this.chatLog = this.branches[this.branch];
       } catch (e) {
         this.error = e.toString();
-        console.log(e);
+        console.error(e);
         return;
       }
 
@@ -524,7 +522,6 @@ new Vue({
       return moment(new Date(timestamp)).fromNow();
     },
     mdToHtml(md) {
-      // TODO: Use DOMPurify.sanitize
       // First unescape any HTML entities in the markdown
       md = md.replace(/&([^;]+);/g, (match, entity) => {
         const textarea = document.createElement("textarea");
@@ -534,6 +531,10 @@ new Vue({
       md = this.wrapThinkingInDetails(md);
       let html = marked.parse(md);
       html = this.wrapBlockInDetails(html);
+      // Sanitize HTML to prevent XSS from message content
+      if (typeof DOMPurify !== "undefined") {
+        html = DOMPurify.sanitize(html);
+      }
       return html;
     },
 
