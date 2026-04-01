@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApi } from '@/contexts/ApiContext';
 import { useQueryClient } from '@tanstack/react-query';
@@ -92,9 +92,9 @@ export const WelcomeView = () => {
   const bg = settings.welcomeBackground;
   // Determine if the background is an image URL or a CSS gradient/color
   const isImageBg = bg && (bg.startsWith('http') || bg.startsWith('/') || bg.startsWith('data:'));
-  const bgStyle: React.CSSProperties = bg
+  const bgStyle: CSSProperties = bg
     ? isImageBg
-      ? { backgroundImage: `url(${bg})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+      ? { backgroundImage: `url("${bg}")`, backgroundSize: 'cover', backgroundPosition: 'center' }
       : { background: bg }
     : {};
   const hasCustomBg = !!bg;
