@@ -7,6 +7,14 @@ import pytest
 from gptme.tools.subagent import SubtaskDef, _subagents, subagent
 
 
+def _wait_for_new_subagent_threads(initial_count: int, timeout: float = 1.0) -> None:
+    """Join threads started by this test before asserting on mock call metadata."""
+    for sa in _subagents[initial_count:]:
+        if sa.thread is not None:
+            sa.thread.join(timeout=timeout)
+            assert not sa.thread.is_alive()
+
+
 def test_planner_mode_requires_subtasks():
     """Test that planner mode requires subtasks parameter."""
     with pytest.raises(ValueError, match="Planner mode requires subtasks"):
@@ -833,6 +841,8 @@ def test_subagent_with_profile(mock_create_thread: MagicMock):
 
     assert len(_subagents) == initial_count + 1
 
+    _wait_for_new_subagent_threads(initial_count)
+
     # Verify profile was passed to _create_subagent_thread
     mock_create_thread.assert_called_once()
     call_kwargs = mock_create_thread.call_args[1]
@@ -871,6 +881,8 @@ def test_subagent_with_profile_and_model(mock_create_thread: MagicMock):
 
     assert len(_subagents) == initial_count + 1
 
+    _wait_for_new_subagent_threads(initial_count)
+
     # Verify both profile and model are passed
     mock_create_thread.assert_called_once()
     call_kwargs = mock_create_thread.call_args[1]
@@ -898,6 +910,8 @@ def test_planner_with_profile(mock_create_thread: MagicMock):
 
     assert len(_subagents) == initial_count + 2
 
+    _wait_for_new_subagent_threads(initial_count)
+
     # Verify profile was passed to each executor's _create_subagent_thread call
     assert mock_create_thread.call_count == 2
     for call in mock_create_thread.call_args_list:
@@ -916,6 +930,8 @@ def test_subagent_auto_detects_profile_from_agent_id(mock_create_thread: MagicMo
     )
 
     assert len(_subagents) == initial_count + 1
+
+    _wait_for_new_subagent_threads(initial_count)
 
     # Profile should be auto-detected from agent_id
     mock_create_thread.assert_called_once()
@@ -937,6 +953,8 @@ def test_subagent_auto_detects_profile_alias_from_agent_id(
 
     assert len(_subagents) == initial_count + 1
 
+    _wait_for_new_subagent_threads(initial_count)
+
     # Profile should be auto-detected from alias
     mock_create_thread.assert_called_once()
     call_kwargs = mock_create_thread.call_args[1]
@@ -954,6 +972,8 @@ def test_subagent_no_auto_detect_for_unknown_agent_id(mock_create_thread: MagicM
     )
 
     assert len(_subagents) == initial_count + 1
+
+    _wait_for_new_subagent_threads(initial_count)
 
     # No profile should be set
     mock_create_thread.assert_called_once()
@@ -976,6 +996,8 @@ def test_subagent_explicit_profile_overrides_auto_detect(
     )
 
     assert len(_subagents) == initial_count + 1
+
+    _wait_for_new_subagent_threads(initial_count)
 
     # Explicit profile should win
     mock_create_thread.assert_called_once()
