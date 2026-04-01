@@ -8,6 +8,7 @@ import { use$ } from '@legendapp/state/react';
 import { observable } from '@legendapp/state';
 import { ChatInput, type ChatOptions } from '@/components/ChatInput';
 import { History, Server } from 'lucide-react';
+import { useSettings } from '@/contexts/SettingsContext';
 import { ExamplesSection } from '@/components/ExamplesSection';
 import { serverRegistry$, getConnectedServers } from '@/stores/servers';
 import { getExamples } from '@/utils/examples';
@@ -87,10 +88,27 @@ export const WelcomeView = () => {
     }
   };
 
+  const { settings } = useSettings();
+  const bg = settings.welcomeBackground;
+  // Determine if the background is an image URL or a CSS gradient/color
+  const isImageBg = bg && (bg.startsWith('http') || bg.startsWith('/') || bg.startsWith('data:'));
+  const bgStyle: React.CSSProperties = bg
+    ? isImageBg
+      ? { backgroundImage: `url(${bg})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+      : { background: bg }
+    : {};
+  const hasCustomBg = !!bg;
+
   return (
-    <div className="mx-auto flex h-full w-full flex-col">
+    <div className="mx-auto flex h-full w-full flex-col" style={bgStyle}>
       <div className="mx-auto flex h-full w-full max-w-5xl flex-col items-center justify-center px-4 pt-12 sm:px-6">
-        <div className="w-full max-w-4xl rounded-[28px] border border-border/70 bg-background/90 p-6 shadow-[0_30px_120px_-48px_rgba(15,23,42,0.45)] backdrop-blur sm:p-8">
+        <div
+          className={`w-full max-w-4xl rounded-[28px] border p-6 shadow-[0_30px_120px_-48px_rgba(15,23,42,0.45)] sm:p-8 ${
+            hasCustomBg
+              ? 'border-white/20 bg-background/60 backdrop-blur-xl'
+              : 'border-border/70 bg-background/90 backdrop-blur'
+          }`}
+        >
           <div className="flex flex-col gap-8">
             <div className="space-y-4 text-center">
               <div className="space-y-3">
