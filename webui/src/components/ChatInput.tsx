@@ -705,22 +705,20 @@ export const ChatInput: FC<Props> = ({
     wasGenerating.current = isGenerating;
   }, [isGenerating, messageQueue, onSend]);
 
-  // Update workspace when sidebar/agent selection changes (only for new conversations)
-  // Agent selection defaults workspace to agent's path, but explicit workspace choice takes priority
+  // Sync workspace from sidebar/agent selection (only for new conversations).
+  // Explicit user choices (via the workspace selector or badge removal) take priority —
+  // the effect only applies sidebar state when the user hasn't made their own pick.
   useEffect(() => {
-    if (!conversationId && sidebarSelectedWorkspace) {
+    if (conversationId) return; // only for new conversations
+    if (workspaceExplicitlySelected) return; // user already chose, don't override
+
+    if (sidebarSelectedWorkspace) {
       setSelectedWorkspace(sidebarSelectedWorkspace);
       setWorkspaceExplicitlySelected(true);
-    } else if (
-      !conversationId &&
-      sidebarSelectedAgent &&
-      sidebarSelectedAgent.path &&
-      !workspaceExplicitlySelected
-    ) {
+    } else if (sidebarSelectedAgent?.path) {
       setSelectedWorkspace(sidebarSelectedAgent.path);
-    } else if (!conversationId && !sidebarSelectedWorkspace && !sidebarSelectedAgent) {
+    } else {
       setSelectedWorkspace('.');
-      setWorkspaceExplicitlySelected(false);
     }
   }, [conversationId, sidebarSelectedWorkspace, sidebarSelectedAgent, workspaceExplicitlySelected]);
 
