@@ -385,10 +385,10 @@ def test_aggregate_tiebreak_by_total_tests(tmp_path):
     assert ranked[1]["model"] == "model-b"
 
 
-def test_bayesian_ranking_prefers_high_coverage(tmp_path):
+def test_wilson_ranking_prefers_high_coverage(tmp_path):
     """Model with many tests and 95% rate should rank above one with few tests at 100%.
 
-    This tests the Bayesian average ranking: a model tested on 20 tests at 95%
+    This tests the Wilson score ranking: a model tested on 20 tests at 95%
     is more credibly strong than one tested on 4 tests at 100%.
     """
     rows = [("model-a", "tool", f"test-a-{i}", "true") for i in range(4)] + [
@@ -409,7 +409,7 @@ def test_bayesian_ranking_prefers_high_coverage(tmp_path):
     assert ranked[0]["ranking_score"] > ranked[1]["ranking_score"]
 
 
-def test_bayesian_ranking_same_coverage(tmp_path):
+def test_wilson_ranking_same_coverage(tmp_path):
     """With similar test counts, raw pass rate still dominates ranking."""
     rows = [("model-a", "tool", f"test-a-{i}", "true") for i in range(10)] + [
         ("model-b", "tool", f"test-b-{i}", "true" if i < 8 else "false")
