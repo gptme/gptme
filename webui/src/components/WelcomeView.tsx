@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApi } from '@/contexts/ApiContext';
 import { useQueryClient } from '@tanstack/react-query';
@@ -19,7 +19,19 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 export const WelcomeView = () => {
-  const [inputValue, setInputValue] = useState('');
+  const [inputValue, setInputValue] = useState(
+    () => (typeof window !== 'undefined' ? localStorage.getItem('gptme-draft-new') : null) || ''
+  );
+  // Persist new-chat draft to localStorage
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (inputValue) {
+      localStorage.setItem('gptme-draft-new', inputValue);
+    } else {
+      localStorage.removeItem('gptme-draft-new');
+    }
+  }, [inputValue]);
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const navigate = useNavigate();
   const { api, isConnected$, connectionConfig, switchServer } = useApi();
