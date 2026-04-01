@@ -1,22 +1,11 @@
-import {
-  ChevronDown,
-  ChevronRight,
-  UserRoundPlusIcon,
-  PenSquare,
-  Plus,
-  Filter,
-} from 'lucide-react';
+import { PenSquare, Plus, Filter } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ConversationList } from './ConversationList';
-import { AgentsList } from './AgentsList';
-import { WorkspaceList } from './WorkspaceList';
-import CreateAgentDialog, { type CreateAgentRequest } from './CreateAgentDialog';
 import { useApi } from '@/contexts/ApiContext';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { ConversationSummary } from '@/types/conversation';
 import type { Task } from '@/types/task';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { selectedWorkspace$, selectedAgent$ } from '@/stores/sidebar';
 import { Card, CardContent } from '@/components/ui/card';
 import { Clock, CheckCircle, XCircle, RefreshCw, GitBranch } from 'lucide-react';
@@ -120,10 +109,6 @@ export const UnifiedSidebar: FC<Props> = ({
   // Navigation state - agents/workspaces show chat sidebar content
   const currentSection = location.pathname.startsWith('/tasks') ? 'tasks' : 'chat';
 
-  // Collapsible state
-  const [agentsCollapsed, setAgentsCollapsed] = useState(false);
-  const [workspacesCollapsed, setWorkspacesCollapsed] = useState(true);
-  const [showCreateAgentDialog, setShowCreateAgentDialog] = useState(false);
 
   // Filter state for tasks
   const [selectedTargetTypes, setSelectedTargetTypes] = useState<Set<string>>(new Set(['all']));
@@ -158,15 +143,6 @@ export const UnifiedSidebar: FC<Props> = ({
       return statusOrder[a.status] - statusOrder[b.status];
     });
   }, [tasks, selectedTargetTypes]);
-
-  const handleAgentCreated = async (agentData: CreateAgentRequest) => {
-    try {
-      return await api.createAgent(agentData);
-    } catch (error) {
-      console.error('Failed to create agent:', error);
-      throw error;
-    }
-  };
 
   const handleNewConversation = () => {
     navigate('/chat');
@@ -318,77 +294,9 @@ export const UnifiedSidebar: FC<Props> = ({
           )}
         </div>
 
-        {/* Bottom Sections - Agents & Workspaces */}
-        <div className="flex-shrink-0">
-          {/* Agents Section */}
-          <Collapsible open={!agentsCollapsed} onOpenChange={(open) => setAgentsCollapsed(!open)}>
-            <div className="flex h-12 w-full shrink-0 items-center justify-between border-t bg-background px-4">
-              <CollapsibleTrigger className="-mx-2 flex flex-1 items-center space-x-2 rounded-md px-2 py-1 hover:bg-muted/50">
-                {agentsCollapsed ? (
-                  <ChevronRight className="h-4 w-4" />
-                ) : (
-                  <ChevronDown className="h-4 w-4" />
-                )}
-                <h3 className="text-sm font-medium">Agents</h3>
-              </CollapsibleTrigger>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setShowCreateAgentDialog(true)}
-                      className="h-6 w-6 p-0"
-                    >
-                      <UserRoundPlusIcon className="h-3 w-3" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Create new agent</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </div>
-            <CollapsibleContent className="overflow-hidden">
-              <div className="mb-2" style={{ maxHeight: agentsCollapsed ? 0 : '200px' }}>
-                <AgentsList
-                  conversations={conversations}
-                  handleCreateAgent={() => setShowCreateAgentDialog(true)}
-                />
-              </div>
-            </CollapsibleContent>
-          </Collapsible>
-
-          {/* Workspaces Section */}
-          <Collapsible
-            open={!workspacesCollapsed}
-            onOpenChange={(open) => setWorkspacesCollapsed(!open)}
-          >
-            <CollapsibleTrigger className="flex h-12 w-full shrink-0 items-center justify-between border-t bg-background px-4 hover:bg-muted/50">
-              <div className="flex items-center space-x-2">
-                {workspacesCollapsed ? (
-                  <ChevronRight className="h-4 w-4" />
-                ) : (
-                  <ChevronDown className="h-4 w-4" />
-                )}
-                <h3 className="text-sm font-medium">Workspaces</h3>
-              </div>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="overflow-hidden">
-              <div
-                className="overflow-y-auto pb-4"
-                style={{ maxHeight: workspacesCollapsed ? 0 : '200px' }}
-              >
-                <WorkspaceList conversations={conversations} />
-              </div>
-            </CollapsibleContent>
-          </Collapsible>
-        </div>
+        {/* Agents and Workspaces now have their own views via sidebar icons */}
       </div>
 
-      <CreateAgentDialog
-        open={showCreateAgentDialog}
-        onOpenChange={setShowCreateAgentDialog}
-        onAgentCreated={handleAgentCreated}
-      />
     </div>
   );
 };
