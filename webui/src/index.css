@@ -154,7 +154,8 @@
   @apply min-w-0 flex-1 border-0 bg-transparent py-1.5 text-xs;
   background-color: transparent !important;
   white-space: pre-wrap;
-  word-break: break-all;
+  overflow-wrap: break-word;
+  word-break: normal;
   /* Hanging indent: first line flush, wrapped lines indented 2ch */
   padding-left: calc(0.75rem + 2ch);
   text-indent: -2ch;
