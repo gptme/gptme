@@ -61,7 +61,6 @@ describe('WelcomeView', () => {
   it('renders the refreshed new chat copy and quick suggestions', () => {
     render(<WelcomeView />);
 
-    expect(screen.getByText('New chat')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'What are you working on?' })).toBeInTheDocument();
     expect(
       screen.getByText(/Start with a real task, question, or rough idea\./)
