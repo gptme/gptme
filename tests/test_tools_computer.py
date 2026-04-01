@@ -591,7 +591,11 @@ def test_computer_screenshot_success(
         args=[], returncode=0
     )
 
-    result = computer("screenshot")
+    # Unset WIDTH/HEIGHT so env vars don't override the mocked display resolution.
+    with mock.patch.dict("os.environ", {}, clear=False) as env:
+        env.pop("WIDTH", None)
+        env.pop("HEIGHT", None)
+        result = computer("screenshot")
     mock_screenshot.assert_called_once()
     mock_view_image.assert_called_once_with(mock_path)
     assert result == "image_message"
