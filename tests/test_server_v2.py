@@ -432,3 +432,64 @@ def test_v2_edit_message_rejects_non_string_content(client: FlaskClient):
 
     assert response.status_code == 400
     assert response.get_json() == {"error": "content must be a string"}
+
+
+@pytest.mark.parametrize(
+    "auto_confirm_value",
+    [
+        "true",  # string "true" — truthy in Python, must be rejected
+        "false",  # string "false" — truthy in Python, must be rejected (CWE-20)
+        "yes",
+        "1",
+        [],
+        {},
+    ],
+)
+def test_v2_create_conversation_rejects_invalid_auto_confirm_type(
+    client: FlaskClient, auto_confirm_value: object
+):
+    """PUT /conversations/<id> must reject non-bool/non-int auto_confirm with 400.
+
+    CWE-20: Python truthy coercion causes string "false" to be treated as True,
+    enabling unlimited auto-confirm tool execution.  We must reject non-bool/int values.
+    """
+    import random
+
+    convname = f"test-auto-confirm-{random.randint(0, 1000000)}"
+    response = client.put(
+        f"/api/v2/conversations/{convname}",
+        json={"auto_confirm": auto_confirm_value},
+    )
+    assert response.status_code == 400, (
+        f"Expected 400 for auto_confirm={auto_confirm_value!r}, got {response.status_code}"
+    )
+    data = response.get_json()
+    assert data is not None
+    assert "auto_confirm" in data.get("error", ""), (
+        f"Expected error mentioning 'auto_confirm', got: {data}"
+    )
+
+
+@pytest.mark.parametrize(
+    "auto_confirm_value",
+    [
+        True,  # bool True
+        False,  # bool False
+        0,  # int 0 (no auto-confirm)
+        5,  # int count
+    ],
+)
+def test_v2_create_conversation_accepts_valid_auto_confirm(
+    client: FlaskClient, auto_confirm_value: object
+):
+    """PUT /conversations/<id> must accept bool and int auto_confirm values."""
+    import random
+
+    convname = f"test-auto-confirm-{random.randint(0, 1000000)}"
+    response = client.put(
+        f"/api/v2/conversations/{convname}",
+        json={"auto_confirm": auto_confirm_value},
+    )
+    assert response.status_code == 200, (
+        f"Expected 200 for auto_confirm={auto_confirm_value!r}, got {response.status_code}: {response.get_json()}"
+    )
