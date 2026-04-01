@@ -139,6 +139,20 @@
   background-color: hsl(var(--codesnip-background));
 }
 
+/* Short code blocks (≤2 lines) rendered inline instead of collapsible <details> */
+.chat-message .inline-codeblock {
+  @apply my-2 flex items-start gap-2 overflow-hidden rounded-md border border-border font-sans text-sm dark:border-stone-950;
+  background-color: hsl(var(--code-background));
+}
+
+.chat-message .inline-codeblock .inline-codeblock-label {
+  @apply flex-shrink-0 whitespace-nowrap rounded-l-md bg-muted px-3 py-1.5 text-xs;
+}
+
+.chat-message .inline-codeblock > code {
+  @apply flex-1 overflow-x-auto border-0 bg-transparent px-3 py-1.5 text-xs;
+}
+
 .chat-message details {
   @apply my-2 overflow-hidden rounded-md border border-border bg-white font-sans text-sm dark:border-stone-950 dark:bg-slate-900;
 }
