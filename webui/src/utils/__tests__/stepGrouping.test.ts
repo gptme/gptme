@@ -249,6 +249,21 @@ describe('buildStepRoles', () => {
     expect(roles.get(2)?.type).toBe('grouped');
   });
 
+  it('does not collapse response when runnable fence is followed by non-tool system message', () => {
+    // Regression: assistant message includes a runnable fence (e.g. ```shell) as a
+    // *suggestion* (the user hasn't run it), followed only by a meta system message.
+    // The assistant is the real response and must NOT be absorbed into a step group.
+    const messages = [
+      msg('user', 'how do I init a git repo?'), // 0
+      msg('assistant', 'Run:\n\n```shell\ngit init\n```\n\nThen add a README.'), // 1 - response
+      msg('system', '# Relevant Lessons\n## Git Workflow'), // 2 - post-hook, not a tool result
+    ];
+
+    const roles = buildStepRoles(messages, neverHidden);
+    // Only 1 step after the response — below threshold, no grouping at all
+    expect(roles.size).toBe(0);
+  });
+
   it('keeps assistant tool-use messages collapsed when later tool output follows', () => {
     // Regression test for the demo conversation: assistant messages can include prose
     // plus runnable tool blocks. Those are still intermediate steps, not the response.
