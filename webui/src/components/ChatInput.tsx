@@ -728,6 +728,10 @@ export const ChatInput: FC<Props> = ({
   const handleWorkspaceChange = (workspace: string) => {
     setSelectedWorkspace(workspace);
     setWorkspaceExplicitlySelected(workspace !== '.');
+    // Clear the sidebar observable so the effect doesn't re-set the workspace
+    if (workspace === '.' || !workspace) {
+      selectedWorkspace$.set('');
+    }
   };
 
   // Edit mode: save with truncate option
