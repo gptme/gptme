@@ -58,56 +58,52 @@ export function processNestedCodeBlocks(content: string) {
   const langtags: string[] = [];
   const fenceRe = /^(\s*)(`{3,})(.*)$/;
 
-  // Parse fences using gptme convention, tracking nesting depth.
-  // For each depth-0 block, record its opener/closer line indices and
-  // the max backtick length of any inner fence.
+  // Parse fences using gptme convention and record ALL opener-closer pairs
+  // at every nesting depth (not just depth-0).
   interface Block {
     openerLine: number;
     closerLine: number;
-    openerLen: number;
-    maxInnerLen: number; // max backtick count of fences inside this block
+    depth: number;
+    maxDescendantDepth: number; // deepest nesting level inside this block
   }
   const blocks: Block[] = [];
-  // Stack of open blocks: [openerLine, openerLen, maxInnerLen]
+  // Stack: [openerLine, depth, maxDescendantDepth]
   const stack: [number, number, number][] = [];
 
   for (let i = 0; i < lines.length; i++) {
     const m = lines[i].match(fenceRe);
     if (!m) continue;
-    const [, , backticks, tag] = m;
+    const [, , , tag] = m;
     const trimmedTag = tag.trim();
-    const len = backticks.length;
+    const depth = stack.length;
 
     if (stack.length === 0) {
-      // Top level: any fence opens a block
       if (trimmedTag) langtags.push(trimmedTag);
-      stack.push([i, len, 0]);
+      stack.push([i, depth, depth]);
     } else if (trimmedTag) {
-      // Inside a block: fence with tag = nested opener
+      // Nested opener
       langtags.push(trimmedTag);
-      // Update parent's maxInnerLen
-      stack[stack.length - 1][2] = Math.max(stack[stack.length - 1][2], len);
-      stack.push([i, len, 0]);
+      // Update ancestor maxDescendantDepth
+      for (const frame of stack) {
+        frame[2] = Math.max(frame[2], depth);
+      }
+      stack.push([i, depth, depth]);
     } else {
-      // Bare fence = closer
-      const [openerLine, openerLen, maxInnerLen] = stack.pop()!;
-      // If this closed a nested block, update the parent's maxInnerLen
-      if (stack.length > 0) {
-        stack[stack.length - 1][2] = Math.max(stack[stack.length - 1][2], len);
-      }
-      // If this was a depth-0 block, record it
-      if (stack.length === 0) {
-        blocks.push({ openerLine, closerLine: i, openerLen, maxInnerLen });
-      }
+      // Closer
+      const [openerLine, blockDepth, maxDescendantDepth] = stack.pop()!;
+      blocks.push({ openerLine, closerLine: i, depth: blockDepth, maxDescendantDepth });
     }
   }
 
-  // Build adjustment map: only widen fences that actually contain nested fences
+  // Widen fences: each block's backtick count = 3 + (maxDescendantDepth - depth)
+  // so inner fences are always shorter than outer fences.
   const adjustments = new Map<number, number>();
   for (const block of blocks) {
-    if (block.maxInnerLen > 0) {
-      const needed = Math.max(block.maxInnerLen + 1, block.openerLen);
-      if (needed > block.openerLen) {
+    const nestingBelow = block.maxDescendantDepth - block.depth;
+    if (nestingBelow > 0) {
+      const needed = 3 + nestingBelow;
+      const current = lines[block.openerLine].match(fenceRe)![2].length;
+      if (needed > current) {
         adjustments.set(block.openerLine, needed);
         adjustments.set(block.closerLine, needed);
       }
