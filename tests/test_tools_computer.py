@@ -595,6 +595,12 @@ def test_computer_screenshot_success(
     mock_screenshot.assert_called_once()
     mock_view_image.assert_called_once_with(mock_path)
     assert result == "image_message"
+    # Verify resize uses correct API dimensions, not squared coordinates.
+    cmd = mock_subprocess_run.call_args[0][0]
+    assert "-resize" in cmd
+    resize_dim = cmd[cmd.index("-resize") + 1]
+    # With physical 1920x1080 (16:9), FWXGA (1366x768) is the closest API target.
+    assert resize_dim == "1366x768!"
 
 
 @mock.patch("gptme.tools.computer.IS_MACOS", False)
