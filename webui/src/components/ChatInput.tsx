@@ -483,13 +483,14 @@ export const ChatInput: FC<Props> = ({
   });
   const [streamingEnabled, setStreamingEnabled] = useState(true);
 
-  // Persist message to localStorage when it changes (skip in edit mode)
-  // Note: We only save non-empty messages, we don't clear on empty.
-  // This ensures drafts persist until a new message is typed, preventing
-  // data loss if send fails (the draft would already be cleared otherwise).
+  // Persist message draft to localStorage (skip in edit mode).
+  // Clears the draft when the input is emptied (e.g. after send).
   useEffect(() => {
-    if (!editMode && typeof window !== 'undefined' && internalMessage) {
+    if (editMode || typeof window === 'undefined') return;
+    if (internalMessage) {
       localStorage.setItem(storageKey, internalMessage);
+    } else {
+      localStorage.removeItem(storageKey);
     }
   }, [internalMessage, storageKey, editMode]);
 
