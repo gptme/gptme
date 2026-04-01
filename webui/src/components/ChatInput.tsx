@@ -706,19 +706,21 @@ export const ChatInput: FC<Props> = ({
   }, [isGenerating, messageQueue, onSend]);
 
   // Sync workspace from sidebar/agent selection (only for new conversations).
-  // Explicit user choices (via the workspace selector or badge removal) take priority —
-  // the effect only applies sidebar state when the user hasn't made their own pick.
+  // Sidebar workspace selections sync both ways. Agent default applies only when
+  // the user hasn't made an explicit pick. Clearing sidebar filters always resets
+  // the ChatInput badge regardless of workspaceExplicitlySelected.
   useEffect(() => {
     if (conversationId) return; // only for new conversations
-    if (workspaceExplicitlySelected) return; // user already chose, don't override
 
     if (sidebarSelectedWorkspace) {
       setSelectedWorkspace(sidebarSelectedWorkspace);
       setWorkspaceExplicitlySelected(true);
-    } else if (sidebarSelectedAgent?.path) {
+    } else if (sidebarSelectedAgent?.path && !workspaceExplicitlySelected) {
       setSelectedWorkspace(sidebarSelectedAgent.path);
-    } else {
+    } else if (!sidebarSelectedWorkspace && !sidebarSelectedAgent) {
+      // Sidebar cleared — reset ChatInput workspace badge
       setSelectedWorkspace('.');
+      setWorkspaceExplicitlySelected(false);
     }
   }, [conversationId, sidebarSelectedWorkspace, sidebarSelectedAgent, workspaceExplicitlySelected]);
 
