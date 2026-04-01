@@ -30,15 +30,18 @@ errors = []
 cache = LRUCache(2)
 cache.put(1, "one")
 cache.put(2, "two")
-if cache.get(1) != "one":
-    errors.append(f"get(1) should return 'one', got {cache.get(1)!r}")
+v = cache.get(1)
+if v != "one":
+    errors.append(f"get(1) should return 'one', got {v!r}")
 
 # Test 2: eviction on capacity overflow
 cache.put(3, "three")  # should evict key 2 (least recently used)
-if cache.get(2) != -1:
-    errors.append(f"get(2) should return -1 after eviction, got {cache.get(2)!r}")
-if cache.get(3) != "three":
-    errors.append(f"get(3) should return 'three', got {cache.get(3)!r}")
+v = cache.get(2)
+if v != -1:
+    errors.append(f"get(2) should return -1 after eviction, got {v!r}")
+v = cache.get(3)
+if v != "three":
+    errors.append(f"get(3) should return 'three', got {v!r}")
 
 # Test 3: access updates recency
 cache2 = LRUCache(2)
@@ -46,25 +49,30 @@ cache2.put(1, "a")
 cache2.put(2, "b")
 cache2.get(1)           # access key 1, making key 2 the LRU
 cache2.put(3, "c")      # should evict key 2, not key 1
-if cache2.get(1) != "a":
-    errors.append(f"get(1) should return 'a' after access, got {cache2.get(1)!r}")
-if cache2.get(2) != -1:
-    errors.append(f"get(2) should return -1 (evicted), got {cache2.get(2)!r}")
+v = cache2.get(1)
+if v != "a":
+    errors.append(f"get(1) should return 'a' after access, got {v!r}")
+v = cache2.get(2)
+if v != -1:
+    errors.append(f"get(2) should return -1 (evicted), got {v!r}")
 
 # Test 4: overwrite existing key
 cache3 = LRUCache(2)
 cache3.put(1, "old")
 cache3.put(2, "two")
 cache3.put(1, "new")   # overwrite, should not evict
-if cache3.get(1) != "new":
-    errors.append(f"get(1) should return 'new' after overwrite, got {cache3.get(1)!r}")
-if cache3.get(2) != "two":
-    errors.append(f"get(2) should return 'two' (not evicted), got {cache3.get(2)!r}")
+v = cache3.get(1)
+if v != "new":
+    errors.append(f"get(1) should return 'new' after overwrite, got {v!r}")
+v = cache3.get(2)
+if v != "two":
+    errors.append(f"get(2) should return 'two' (not evicted), got {v!r}")
 
 # Test 5: miss returns -1
 cache4 = LRUCache(1)
-if cache4.get(99) != -1:
-    errors.append(f"get(99) on empty cache should return -1, got {cache4.get(99)!r}")
+v = cache4.get(99)
+if v != -1:
+    errors.append(f"get(99) on empty cache should return -1, got {v!r}")
 
 if errors:
     for e in errors:
@@ -283,7 +291,8 @@ tests: list["EvalSpec"] = [
             "(a JSON array of [start, end] integer pairs) and merges all overlapping "
             "intervals. Two intervals overlap if one starts before or when the other "
             "ends. Print the merged intervals as a JSON array, sorted by start value. "
-            "For example, [1,3] and [2,6] merge into [1,6]. "
+            "For example, [1,3] and [2,6] merge into [1,6]; with [5,7] also present "
+            "they all merge into [1,7]. "
             "Point intervals like [25,25] are valid and should be preserved."
         ),
         "tools": ["read", "save", "shell"],

@@ -35,6 +35,12 @@ def test_lru_has_class():
 def test_lru_has_get_put():
     src = "class LRUCache:\n    def get(self, key): pass\n    def put(self, key, val): pass"
     assert check_lru_has_get_put(_ctx("", files={"lru_cache.py": src}))
+    assert not check_lru_has_get_put(
+        _ctx("", files={"lru_cache.py": "def get(self, k): pass"})
+    )
+    assert not check_lru_has_get_put(
+        _ctx("", files={"lru_cache.py": "def put(self, k, v): pass"})
+    )
 
 
 # --- Interval merge checks ---
