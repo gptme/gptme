@@ -943,8 +943,12 @@ def test_per_test_and_summary_pick_same_format(tmp_path):
     assert len(ranked) == 1
     assert ranked[0]["format"] == "xml"
 
-    # per-test should also include the model (format selection consistent)
+    # per-test should also include the model AND pick xml (20 tests, not 4)
     assert len(model_names) == 1
+    assert len(_test_names) == 20, (
+        f"Expected 20 test columns (xml format); got {len(_test_names)} "
+        "(likely markdown was incorrectly selected)"
+    )
 
 
 def test_json_output_includes_ranking_score(tmp_path):

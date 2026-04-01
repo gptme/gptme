@@ -635,21 +635,16 @@ def aggregate_per_test(
     # Build matrix
     matrix: dict[str, dict[str, bool | None]] = {}
     model_wilson_scores: dict[str, float] = {}
-    for model, (_fmt, tests_dict, _) in best_fmt.items():
+    for model, (_fmt, tests_dict, fmt_score) in best_fmt.items():
         row: dict[str, bool | None] = {}
-        passed = 0
-        total = 0
         for test in test_names:
             if test in tests_dict:
                 latest = sorted(tests_dict[test], key=lambda r: r["run_dir"])[-1]
                 row[test] = latest["passed"]
-                total += 1
-                if latest["passed"]:
-                    passed += 1
             else:
                 row[test] = None
         matrix[model] = row
-        model_wilson_scores[model] = wilson_lower_bound(passed, total)
+        model_wilson_scores[model] = fmt_score
 
     # Sort models by Wilson score descending (consistent with summary leaderboard)
     model_names = sorted(matrix.keys(), key=lambda m: -model_wilson_scores[m])
