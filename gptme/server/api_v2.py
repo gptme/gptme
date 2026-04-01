@@ -151,7 +151,11 @@ def api_conversations():
     Get a list of user conversations with metadata using the V2 API.
     Supports optional search filtering by conversation name, id, or last message preview.
     """
-    limit = int(request.args.get("limit", 100))
+    try:
+        limit = int(request.args.get("limit", 100))
+    except (ValueError, TypeError):
+        return flask.jsonify({"error": "limit must be an integer"}), 400
+    limit = max(1, min(limit, 1000))
     search = request.args.get("search", "").strip().lower()
 
     # Use fast tail-only scan for list/search — reads last 8KB for

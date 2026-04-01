@@ -261,6 +261,10 @@ def browse_workspace(conversation_id: str, subpath: str | None = None):
         manager = LogManager.load(conversation_id, lock=False)
 
         root_param = request.args.get("root", "workspace")
+        if root_param not in ("workspace", "attachments"):
+            return flask.jsonify(
+                {"error": "root must be 'workspace' or 'attachments'"}
+            ), 400
         if root_param == "attachments":
             workspace = manager.logdir / "attachments"
             if not workspace.exists():
@@ -476,6 +480,10 @@ def preview_file(conversation_id: str, filepath: str):
         # Load the conversation to get its workspace
         manager = LogManager.load(conversation_id, lock=False)
         root_param = flask.request.args.get("root", "workspace")
+        if root_param not in ("workspace", "attachments"):
+            return flask.jsonify(
+                {"error": "root must be 'workspace' or 'attachments'"}
+            ), 400
         if root_param == "attachments":
             workspace = manager.logdir / "attachments"
             workspace.mkdir(parents=True, exist_ok=True)
@@ -536,6 +544,10 @@ def download_file(conversation_id: str, filepath: str):
     try:
         manager = LogManager.load(conversation_id, lock=False)
         root_param = flask.request.args.get("root", "workspace")
+        if root_param not in ("workspace", "attachments"):
+            return flask.jsonify(
+                {"error": "root must be 'workspace' or 'attachments'"}
+            ), 400
         if root_param == "attachments":
             workspace = manager.logdir / "attachments"
             workspace.mkdir(parents=True, exist_ok=True)
