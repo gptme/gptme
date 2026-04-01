@@ -65,7 +65,6 @@ class SimpleExecutionEnv(FileStore, ExecutionEnv):
             shutil.rmtree(self._bin_dir, ignore_errors=True)
 
     def run(self, command, silent=True) -> tuple[str, str, int]:
-        start = time.time()
         if not silent:
             print("\n--- Start of run ---")
         # Use explicit shell invocation with list-based arguments for security.
@@ -85,29 +84,22 @@ class SimpleExecutionEnv(FileStore, ExecutionEnv):
         )
         if not silent:
             print("$", command)
-        stdout_full, stderr_full = "", ""
-        while p.poll() is None or p.stdout or p.stderr:
-            assert p.stdout is not None
-            assert p.stderr is not None
-            stdout = p.stdout.readline()
-            stderr = p.stderr.readline()
-            if stdout:
-                if not silent:
-                    print(stdout, end="")
-                stdout_full += stdout
-            if stderr:
-                if not silent:
-                    print(stderr, end="")
-                stderr_full += stderr
-            if not stdout and not stderr and p.poll() is not None:
-                break
-            if time.time() - start > 30:
-                if not silent:
-                    print("Timeout!")
-                p.kill()
-                p.wait()  # reap zombie process and set returncode
-                break
+        # Use communicate() to read both pipes concurrently, avoiding the
+        # deadlock that sequential readline() causes when one pipe's buffer
+        # fills while the other is blocked waiting for data.
+        try:
+            stdout_full, stderr_full = p.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            if not silent:
+                print("Timeout!")
+            p.kill()
+            stdout_full, stderr_full = p.communicate()
+
         if not silent:
+            if stdout_full:
+                print(stdout_full, end="")
+            if stderr_full:
+                print(stderr_full, end="")
             print("--- Finished run ---\n")
         assert p.returncode is not None
         return stdout_full, stderr_full, p.returncode
@@ -174,7 +166,6 @@ class DockerExecutionEnv(ExecutionEnv):
         # Ensure container_id is not None (mypy type narrowing)
         assert self.container_id is not None
 
-        start = time.time()
         if not silent:
             print("\n--- Start of run (Docker) ---")
             print("$", command)
@@ -197,39 +188,31 @@ class DockerExecutionEnv(ExecutionEnv):
             text=True,
         )
 
-        stdout_full, stderr_full = "", ""
-        while p.poll() is None or p.stdout or p.stderr:
-            assert p.stdout is not None
-            assert p.stderr is not None
-            stdout = p.stdout.readline()
-            stderr = p.stderr.readline()
-            if stdout:
-                if not silent:
-                    print(stdout, end="")
-                stdout_full += stdout
-            if stderr:
-                if not silent:
-                    print(stderr, end="")
-                stderr_full += stderr
-            if not stdout and not stderr and p.poll() is not None:
-                break
-            if time.time() - start > 30:
-                if not silent:
-                    print("Timeout!")
-                p.kill()
-                p.wait()  # reap zombie process and set returncode
-                # Stop container to terminate the running command
-                if self.container_id:
-                    subprocess.run(
-                        ["docker", "stop", self.container_id],
-                        check=False,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        timeout=5,
-                    )
-                break
+        # Use communicate() to read both pipes concurrently, avoiding the
+        # deadlock that sequential readline() causes when one pipe's buffer
+        # fills while the other is blocked waiting for data.
+        try:
+            stdout_full, stderr_full = p.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            if not silent:
+                print("Timeout!")
+            p.kill()
+            # Stop container to terminate the running command
+            if self.container_id:
+                subprocess.run(
+                    ["docker", "stop", self.container_id],
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                )
+            stdout_full, stderr_full = p.communicate()
 
         if not silent:
+            if stdout_full:
+                print(stdout_full, end="")
+            if stderr_full:
+                print(stderr_full, end="")
             print("--- Finished run (Docker) ---\n")
 
         assert p.returncode is not None
@@ -501,34 +484,29 @@ class DockerGPTMeEnv(DockerExecutionEnv):
             text=True,
         )
 
-        stdout_full, stderr_full = "", ""
-        while p.poll() is None or p.stdout or p.stderr:
-            assert p.stdout is not None
-            assert p.stderr is not None
-            stdout = p.stdout.readline()
-            stderr = p.stderr.readline()
-            if stdout:
-                print(stdout, end="")
-                stdout_full += stdout
-            if stderr:
-                print(stderr, end="")
-                stderr_full += stderr
-            if not stdout and not stderr and p.poll() is not None:
-                break
-            if time.time() - start > self.timeout:
-                print(f"Timeout after {self.timeout}s!")
-                p.kill()
-                p.wait()  # reap zombie process and set returncode
-                # Stop container to terminate gptme
-                if self.container_id:
-                    subprocess.run(
-                        ["docker", "stop", self.container_id],
-                        check=False,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        timeout=5,
-                    )
-                break
+        # Use communicate() to read both pipes concurrently, avoiding the
+        # deadlock that sequential readline() causes when one pipe's buffer
+        # fills while the other is blocked waiting for data.
+        try:
+            stdout_full, stderr_full = p.communicate(timeout=self.timeout)
+        except subprocess.TimeoutExpired:
+            print(f"Timeout after {self.timeout}s!")
+            p.kill()
+            # Stop container to terminate gptme
+            if self.container_id:
+                subprocess.run(
+                    ["docker", "stop", self.container_id],
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                )
+            stdout_full, stderr_full = p.communicate()
+
+        if stdout_full:
+            print(stdout_full, end="")
+        if stderr_full:
+            print(stderr_full, end="")
 
         duration = time.time() - start
         print(f"--- Finished gptme execution (Docker) in {duration:.1f}s ---\n")
