@@ -23,6 +23,7 @@ from .types import (
     _subagent_results,
     _subagent_results_lock,
     _subagents,
+    _subagents_lock,
 )
 
 logger = logging.getLogger(__name__)
@@ -314,7 +315,8 @@ def subagent(
         )
         # Append sa before starting the thread so the finally block can find it
         # (avoids race condition where fast completion can't locate sa in _subagents)
-        _subagents.append(sa)
+        with _subagents_lock:
+            _subagents.append(sa)
         t.start()
 
     elif use_subprocess:
@@ -359,7 +361,8 @@ def subagent(
             worktree_path=worktree_path,
             repo_path=repo_path,
         )
-        _subagents.append(sa)
+        with _subagents_lock:
+            _subagents.append(sa)
 
         # Start monitor thread for hook-based completion notification
         monitor_thread = threading.Thread(
@@ -430,15 +433,17 @@ def subagent(
             worktree_path=worktree_path,
             repo_path=repo_path,
         )
-        _subagents.append(sa)
+        with _subagents_lock:
+            _subagents.append(sa)
         t.start()
 
 
 def subagent_status(agent_id: str) -> dict:
     """Returns the status of a subagent."""
-    for sa in _subagents:
-        if sa.agent_id == agent_id:
-            return asdict(sa.status())
+    with _subagents_lock:
+        for sa in _subagents:
+            if sa.agent_id == agent_id:
+                return asdict(sa.status())
     raise ValueError(f"Subagent with ID {agent_id} not found.")
 
 
@@ -453,10 +458,11 @@ def subagent_wait(agent_id: str, timeout: int = 60) -> dict:
         Status dict with 'status' and 'result' keys
     """
     sa = None
-    for s in _subagents:
-        if s.agent_id == agent_id:
-            sa = s
-            break
+    with _subagents_lock:
+        for s in _subagents:
+            if s.agent_id == agent_id:
+                sa = s
+                break
 
     if sa is None:
         raise ValueError(f"Subagent with ID {agent_id} not found.")
@@ -505,10 +511,11 @@ def subagent_read_log(
         Formatted log output showing the conversation
     """
     sa = None
-    for s in _subagents:
-        if s.agent_id == agent_id:
-            sa = s
-            break
+    with _subagents_lock:
+        for s in _subagents:
+            if s.agent_id == agent_id:
+                sa = s
+                break
 
     if sa is None:
         raise ValueError(f"Subagent with ID {agent_id} not found.")

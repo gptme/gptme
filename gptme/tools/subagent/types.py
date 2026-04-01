@@ -38,6 +38,7 @@ class SubtaskDef(TypedDict):
 # ---------------------------------------------------------------------------
 
 _subagents: list["Subagent"] = []
+_subagents_lock = threading.Lock()
 
 # Cache for subprocess results (keyed by agent_id)
 # This allows Subagent to remain frozen while storing mutable result state

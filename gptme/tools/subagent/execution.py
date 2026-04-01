@@ -457,7 +457,7 @@ def _run_planner(
     """
     from gptme.cli.main import get_logdir
 
-    from .types import Subagent, _subagents
+    from .types import Subagent, _subagents, _subagents_lock
 
     logger.info(
         f"Starting planner {agent_id} with {len(subtasks)} subtasks "
@@ -496,7 +496,8 @@ def _run_planner(
         t = threading.Thread(target=run_executor, daemon=True)
         # Register subagent BEFORE starting thread to avoid race condition
         # (matches pattern in api.py — thread closure may look up _subagents)
-        _subagents.append(Subagent(executor_id, executor_prompt, t, logdir, model))
+        with _subagents_lock:
+            _subagents.append(Subagent(executor_id, executor_prompt, t, logdir, model))
         t.start()
 
         # Sequential mode: wait for each task to complete before starting next
