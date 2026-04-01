@@ -103,6 +103,10 @@ PRACTICAL_TESTS = {
     "async-pipeline",
     "sql-analytics",
     "fix-sql-injection",
+    # practical16
+    "async-queue-workers",
+    "json-schema-validate",
+    "implement-trie",
 }
 
 
