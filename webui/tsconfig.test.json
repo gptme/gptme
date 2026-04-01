@@ -8,7 +8,7 @@
     "moduleResolution": "bundler",
     "isolatedModules": true,
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
-    "types": ["jest", "@testing-library/jest-dom", "vite/client"],
+    "types": ["jest", "@testing-library/jest-dom", "vite/client", "node"],
     "skipLibCheck": true,
     "baseUrl": ".",
     "paths": {
