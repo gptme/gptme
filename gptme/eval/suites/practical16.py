@@ -70,17 +70,31 @@ def check_queue_all_producers_mentioned(ctx):
     out = ctx.stdout.lower()
     # Accept producer IDs 0-2 or 1-3
     has_three = (
-        ("producer 0" in out or "producer-0" in out or "p0" in out or "prod 0" in out)
-        and (
-            "producer 1" in out or "producer-1" in out or "p1" in out or "prod 1" in out
+        (
+            "producer 0" in out
+            or "producer-0" in out
+            or "producer=0" in out
+            or "p0" in out
+            or "prod 0" in out
         )
         and (
-            "producer 2" in out or "producer-2" in out or "p2" in out or "prod 2" in out
+            "producer 1" in out
+            or "producer-1" in out
+            or "producer=1" in out
+            or "p1" in out
+            or "prod 1" in out
+        )
+        and (
+            "producer 2" in out
+            or "producer-2" in out
+            or "producer=2" in out
+            or "p2" in out
+            or "prod 2" in out
         )
     ) or (
-        ("producer 1" in out or "producer-1" in out)
-        and ("producer 2" in out or "producer-2" in out)
-        and ("producer 3" in out or "producer-3" in out)
+        ("producer 1" in out or "producer-1" in out or "producer=1" in out)
+        and ("producer 2" in out or "producer-2" in out or "producer=2" in out)
+        and ("producer 3" in out or "producer-3" in out or "producer=3" in out)
     )
     return has_three
 
@@ -182,7 +196,7 @@ def check_schema_record1_multiple_errors(ctx):
         ),
         bool(
             re.search(
-                r"pattern|email.*invalid|email.*error|not.*email|invalid.*email|@", out
+                r"pattern|email.*invalid|email.*error|not.*email|invalid.*email", out
             )
         ),
     ]
@@ -282,9 +296,7 @@ def check_trie_all_pass(ctx):
 def check_trie_app_prefix(ctx):
     """starts_with('app') should return app, apple, application."""
     out = ctx.stdout
-    return "app, apple, application" in out or all(
-        w in out for w in ["app", "apple", "application"]
-    )
+    return bool(re.search(r"\bapp,\s*apple,\s*application\b", out, re.IGNORECASE))
 
 
 def check_trie_ban_prefix(ctx):
