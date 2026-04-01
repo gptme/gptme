@@ -81,7 +81,10 @@ def docker_reexec(argv: list[str]) -> None:
     image = "gptme-eval:latest"
     try:
         subprocess.run(
-            ["docker", "image", "inspect", image], check=True, capture_output=True
+            ["docker", "image", "inspect", image],
+            check=True,
+            capture_output=True,
+            timeout=30,
         )
         logger.info(f"Using existing Docker image: {image}")
     except subprocess.CalledProcessError:
@@ -94,6 +97,7 @@ def docker_reexec(argv: list[str]) -> None:
             ["make", "build-docker"],
             cwd=Path(git_root),
             check=True,
+            timeout=300,  # 5 min cap for Docker builds
         )
 
     # Collect environment variables to pass through

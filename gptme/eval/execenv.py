@@ -275,12 +275,14 @@ class DockerExecutionEnv(ExecutionEnv):
                 check=False,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                timeout=10,
             )
             subprocess.run(
                 ["docker", "rm", self.container_id],
                 check=False,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                timeout=10,
             )
 
     def __del__(self) -> None:
@@ -397,6 +399,7 @@ class DockerGPTMeEnv(DockerExecutionEnv):
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=120,  # 2 min cap for docker startup / image pull
             )
             self.container_id = result.stdout.strip()
         except subprocess.CalledProcessError as e:
