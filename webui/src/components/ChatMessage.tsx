@@ -199,7 +199,25 @@ export const ChatMessage: FC<Props> = ({
       const parser = parser$.peek();
       if (!parser) return;
 
-      smd.parser_end(parser);
+      // Re-render with full preprocessing now that streaming is complete.
+      // The incremental streaming path feeds raw newChars to smd, which cannot
+      // apply processNestedCodeBlocks chunk-by-chunk (it needs the full content).
+      // Re-initialize the parser with preprocessed content to fix nested fences.
+      if (contentRef.current) {
+        contentRef.current.innerHTML = '';
+        const renderer = customRenderer(
+          contentRef.current,
+          false,
+          true,
+          settings.blocksDefaultOpen
+        );
+        const finalParser = smd.parser(renderer);
+        const { processedContent } = processNestedCodeBlocks(message$.content.peek() || '');
+        smd.parser_write(finalParser, processedContent);
+        smd.parser_end(finalParser);
+      } else {
+        smd.parser_end(parser);
+      }
       renderer$.set(null);
       parser$.set(null);
     }
