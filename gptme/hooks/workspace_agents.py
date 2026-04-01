@@ -22,6 +22,7 @@ import platform
 import re
 import shlex
 import subprocess
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -33,6 +34,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
     from ..logmanager import LogManager
+
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +191,6 @@ def _get_process_timing(pid: int) -> tuple[int | None, float | None, str | None]
     Returns:
         (uptime_seconds, cpu_seconds, state_char)
     """
-    import time
 
     system = platform.system()
     if system == "Linux":
@@ -751,6 +752,7 @@ def session_start_agents(
         yield Message(
             "system",
             f"<workspace-agents-warning>\n{warning}\n</workspace-agents-warning>",
+            hide=True,
         )
         for a in active:
             logger.warning(
@@ -773,7 +775,6 @@ _SCAN_INTERVAL = 60.0  # seconds between periodic scans
 def _init_tracking(workspace: str, agents: list[AgentInfo]) -> None:
     """Initialize tracking state from the initial session_start scan."""
     global _known_agents, _workspace_path, _last_scan_time
-    import time
 
     _workspace_path = workspace
     _known_agents = {a.pid: a for a in agents}
@@ -789,7 +790,6 @@ def step_pre_agents(
     ``_SCAN_INTERVAL`` seconds.  Yields messages when agents arrive
     or depart from the workspace.
     """
-    import time
 
     global _known_agents, _last_scan_time
 
