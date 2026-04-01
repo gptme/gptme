@@ -8,6 +8,7 @@ import { ObservableHint, type Observable } from '@legendapp/state';
 import { Memo, useObservable, useObserveEffect } from '@legendapp/state/react';
 import * as smd from '@/utils/smd';
 import { customRenderer, type CustomRenderer } from '@/utils/markdownRenderer';
+import { processNestedCodeBlocks } from '@/utils/markdownUtils';
 import {
   Clipboard,
   Check,
@@ -120,7 +121,10 @@ export const ChatMessage: FC<Props> = ({
       const existingContent = message$.content.peek();
       if (existingContent) {
         previousContent$.set('');
-        smd.parser_write(newParser, existingContent);
+        // Preprocess to widen outer fences for nested code blocks (gptme convention)
+        // before feeding to smd, which doesn't understand ```lang = opener nesting.
+        const { processedContent } = processNestedCodeBlocks(existingContent);
+        smd.parser_write(newParser, processedContent);
         smd.parser_end(newParser);
         renderer$.set(null);
         parser$.set(null);
@@ -151,7 +155,9 @@ export const ChatMessage: FC<Props> = ({
         renderer$.set(ObservableHint.opaque(renderer));
         const newParser = smd.parser(renderer);
         parser$.set(ObservableHint.opaque(newParser));
-        smd.parser_write(newParser, content);
+        // Preprocess nested code blocks before feeding to smd
+        const { processedContent } = processNestedCodeBlocks(content);
+        smd.parser_write(newParser, processedContent);
         smd.parser_end(newParser);
         renderer$.set(null);
         parser$.set(null);

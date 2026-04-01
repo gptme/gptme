@@ -43,8 +43,15 @@ marked.use(
  * - A fence line with a lang tag (` ```lang `) is always an opener
  * - A bare fence line (` ``` `) is always a closer
  *
- * Marked doesn't understand this, so we increase outer fence backtick
- * counts so inner fences are treated as content, not fence boundaries.
+ * Neither `marked` nor `smd` (streaming markdown) understand this nesting
+ * convention — they both close a fence on any matching backtick count.
+ * This function widens outer fences (e.g. ``` → ````) so inner fences
+ * are treated as content, not fence boundaries.
+ *
+ * Used in TWO rendering paths:
+ * - `parseMarkdownContent()` below (marked-based, used for non-chat rendering)
+ * - `ChatMessage.tsx` (smd-based, the main chat message renderer)
+ * Both must call this before feeding content to their parser.
  */
 export function processNestedCodeBlocks(content: string) {
   const lines = content.split('\n');
