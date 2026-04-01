@@ -57,6 +57,7 @@ def read_url(url: str, cookies: dict | None = None) -> str:
             env=env,
             check=True,
             capture_output=True,
+            timeout=60,
         )
         # should be utf-8, but we can't be sure
         return p.stdout.decode("utf-8", errors="replace")

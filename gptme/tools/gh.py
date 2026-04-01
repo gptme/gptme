@@ -66,6 +66,7 @@ def _get_pr_check_runs(
             capture_output=True,
             text=True,
             check=True,
+            timeout=30,
         )
         pr_details = json.loads(pr_details_result.stdout)
         head_sha = pr_details.get("head", {}).get("sha")
@@ -79,6 +80,7 @@ def _get_pr_check_runs(
             capture_output=True,
             text=True,
             check=True,
+            timeout=30,
         )
 
         check_runs_data = json.loads(check_runs_result.stdout)
@@ -151,6 +153,7 @@ def _wait_for_checks(
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=30,
             )
             check_runs_data = json.loads(check_runs_result.stdout)
             check_runs = check_runs_data.get("check_runs", [])
@@ -394,6 +397,7 @@ def _handle_pr_status(
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=30,
             )
             data = json.loads(result.stdout)
             head_sha = commit_sha

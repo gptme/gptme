@@ -235,7 +235,7 @@ def _convert_with_pdftoppm(
     cmd.extend([str(pdf_path), str(output_prefix)])
 
     logger.info(f"Converting PDF with pdftoppm: {' '.join(cmd)}")
-    subprocess.run(cmd, check=True, capture_output=True, text=True)
+    subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=60)
 
     # pdftoppm creates files like: page-1.png, page-2.png, etc.
     return sorted(output_prefix.parent.glob(f"{output_prefix.name}-*.png"))
@@ -258,7 +258,7 @@ def _convert_with_imagemagick(
     cmd = ["convert", "-density", str(dpi), input_spec, output_pattern]
 
     logger.info(f"Converting PDF with ImageMagick: {' '.join(cmd)}")
-    subprocess.run(cmd, check=True, capture_output=True, text=True)
+    subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=60)
 
     # ImageMagick creates files like: page-0.png, page-1.png, etc.
     return sorted(output_prefix.parent.glob(f"{output_prefix.name}-*.png"))
@@ -288,7 +288,7 @@ def _convert_with_vips(
             f"--dpi={dpi}",
         ]
         try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True)
+            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=60)
             output_files.append(output_file)
         except subprocess.CalledProcessError:
             # Reached end of pages

@@ -106,6 +106,7 @@ def _run_tmux_command(cmd: list[str]) -> subprocess.CompletedProcess:
         check=True,
         capture_output=True,
         text=True,
+        timeout=10,
     )
     print(result.stdout, result.stderr)
     return result
@@ -117,6 +118,7 @@ def get_sessions() -> list[str]:
         check=False,
         capture_output=True,
         text=True,
+        timeout=10,
     )
     if output.returncode != 0:
         return []
@@ -125,6 +127,7 @@ def get_sessions() -> list[str]:
         check=False,
         capture_output=True,
         text=True,
+        timeout=10,
     )
     if output.returncode != 0:
         logger.warning(
@@ -144,6 +147,7 @@ def _capture_pane(pane_id: str) -> str:
         check=False,
         capture_output=True,
         text=True,
+        timeout=10,
     )
     # Strip trailing whitespace but preserve content
     return result.stdout.rstrip()
@@ -231,6 +235,7 @@ def send_keys(pane_id: str, keys: str) -> Message:
         check=False,
         capture_output=True,
         text=True,
+        timeout=10,
     )
     if result.returncode != 0:
         return Message(
@@ -283,6 +288,7 @@ def kill_session(session_id: str) -> Message:
         check=False,
         capture_output=True,
         text=True,
+        timeout=10,
     )
     if result.returncode != 0:
         return Message(
