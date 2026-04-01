@@ -63,50 +63,65 @@ export function processNestedCodeBlocks(content: string) {
   interface Block {
     openerLine: number;
     closerLine: number;
+    openerLen: number; // actual backtick count of this block's opener
     depth: number;
-    maxDescendantDepth: number; // deepest nesting level inside this block
   }
   const blocks: Block[] = [];
-  // Stack: [openerLine, depth, maxDescendantDepth]
+  // Stack: [openerLine, depth, openerLen]
   const stack: [number, number, number][] = [];
 
   for (let i = 0; i < lines.length; i++) {
     const m = lines[i].match(fenceRe);
     if (!m) continue;
-    const [, , , tag] = m;
+    const [, , backticks, tag] = m;
+    const len = backticks.length;
     const trimmedTag = tag.trim();
     const depth = stack.length;
 
     if (stack.length === 0) {
       if (trimmedTag) langtags.push(trimmedTag);
-      stack.push([i, depth, depth]);
+      stack.push([i, depth, len]);
     } else if (trimmedTag) {
       // Nested opener
       langtags.push(trimmedTag);
-      // Update ancestor maxDescendantDepth
-      for (const frame of stack) {
-        frame[2] = Math.max(frame[2], depth);
-      }
-      stack.push([i, depth, depth]);
+      stack.push([i, depth, len]);
     } else {
       // Closer
-      const [openerLine, blockDepth, maxDescendantDepth] = stack.pop()!;
-      blocks.push({ openerLine, closerLine: i, depth: blockDepth, maxDescendantDepth });
+      const [openerLine, blockDepth, openerLen] = stack.pop()!;
+      blocks.push({ openerLine, closerLine: i, openerLen, depth: blockDepth });
     }
   }
 
-  // Widen fences: each block's backtick count = 3 + (maxDescendantDepth - depth)
-  // so inner fences are always shorter than outer fences.
+  // Bottom-up: compute the minimum backtick count needed for each block so that
+  // inner fences (after widening) are never mistaken as the outer closer.
+  // A block must be strictly wider than its widest direct child.
+  // Process deepest blocks first so children's final counts are known.
+  const neededLen = new Map<number, number>(); // openerLine → needed backtick count
+  const sortedBlocks = [...blocks].sort((a, b) => b.depth - a.depth);
+  for (const block of sortedBlocks) {
+    // Direct children: blocks at depth+1 contained within this block
+    const children = blocks.filter(
+      (c) =>
+        c.depth === block.depth + 1 &&
+        c.openerLine > block.openerLine &&
+        c.closerLine < block.closerLine
+    );
+    let maxChildLen = 0;
+    for (const child of children) {
+      maxChildLen = Math.max(maxChildLen, neededLen.get(child.openerLine) ?? child.openerLen);
+    }
+    const needed =
+      children.length > 0 ? Math.max(block.openerLen, maxChildLen + 1) : block.openerLen;
+    neededLen.set(block.openerLine, needed);
+  }
+
+  // Apply adjustments where the needed count exceeds the original.
   const adjustments = new Map<number, number>();
   for (const block of blocks) {
-    const nestingBelow = block.maxDescendantDepth - block.depth;
-    if (nestingBelow > 0) {
-      const needed = 3 + nestingBelow;
-      const current = lines[block.openerLine].match(fenceRe)![2].length;
-      if (needed > current) {
-        adjustments.set(block.openerLine, needed);
-        adjustments.set(block.closerLine, needed);
-      }
+    const needed = neededLen.get(block.openerLine) ?? block.openerLen;
+    if (needed > block.openerLen) {
+      adjustments.set(block.openerLine, needed);
+      adjustments.set(block.closerLine, needed);
     }
   }
 

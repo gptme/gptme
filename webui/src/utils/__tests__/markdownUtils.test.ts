@@ -89,6 +89,20 @@ describe('processNestedCodeBlocks', () => {
     // 4-backtick outer already wider than 3-backtick inner, no change needed
     expect(result.processedContent).toBe(input);
   });
+
+  it('widens outer enough when inner block has pre-widened 4-backtick fence', () => {
+    // outer (3-backtick) contains inner (4-backtick pre-widened) — outer must be widened to 5
+    const input = ['```outer', '````inner', 'code', '````', '```'].join('\n');
+
+    const result = processNestedCodeBlocks(input);
+    const lines = result.processedContent.split('\n');
+    // outer must be widened to 5 (> inner's 4)
+    expect(lines[0]).toBe('`````outer');
+    expect(lines[4]).toBe('`````');
+    // inner stays at 4
+    expect(lines[1]).toBe('````inner');
+    expect(lines[3]).toBe('````');
+  });
 });
 
 describe('transformThinkingTags', () => {
