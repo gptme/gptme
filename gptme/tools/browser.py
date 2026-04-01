@@ -290,6 +290,8 @@ def _convert_with_vips(
         try:
             subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=60)
             output_files.append(output_file)
+        except subprocess.TimeoutExpired:
+            raise  # Timeout is not end-of-pages; propagate as a real error
         except subprocess.CalledProcessError:
             # Reached end of pages
             if not pages:
