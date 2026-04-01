@@ -6,6 +6,25 @@ export type StepRole =
   | { type: 'grouped'; groupId: number } // hidden step (collapsed)
   | { type: 'response' }; // final assistant response — always visible
 
+const RUNNABLE_TOOL_LANGS = new Set([
+  'append',
+  'browser',
+  'choice',
+  'computer',
+  'elicit',
+  'form',
+  'gh',
+  'ipython',
+  'mcp',
+  'patch',
+  'rag',
+  'restart',
+  'save',
+  'shell',
+  'subagent',
+  'tmux',
+]);
+
 /**
  * Detect tool names from a system message's content.
  * Returns a short label like "shell", "save", "patch", etc.
@@ -20,6 +39,20 @@ function detectTool(content: string): string | null {
     return 'shell';
   if (first.startsWith('ran ')) return 'shell';
   return null;
+}
+
+function hasRunnableToolUse(content: string): boolean {
+  const codeBlockRe = /```([^\n`]+)\n[\s\S]*?```/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = codeBlockRe.exec(content)) !== null) {
+    const lang = match[1].trim().split(/\s+/)[0].toLowerCase();
+    if (RUNNABLE_TOOL_LANGS.has(lang)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /**
@@ -60,15 +93,24 @@ export function buildStepRoles(
       }
     }
 
-    // Find the last assistant message among visible indices — that's the response.
-    // System messages after it (e.g. post-turn hooks like "Relevant Lessons") are
-    // intermediate steps, not the response.
+    // Find the last assistant message among visible indices that is not just another
+    // runnable tool step with later output/messages still in the turn. This keeps
+    // post-hook system messages after a real response visible, while collapsing
+    // assistant tool-use messages like "```shell" / "```ipython" with their output.
     let responseIdx = -1;
     for (let k = visibleIndices.length - 1; k >= 0; k--) {
-      if (messages[visibleIndices[k]].role === 'assistant') {
-        responseIdx = visibleIndices[k];
-        break;
+      const idx = visibleIndices[k];
+      if (messages[idx].role !== 'assistant') {
+        continue;
       }
+
+      const hasLaterVisibleMessages = k < visibleIndices.length - 1;
+      if (hasLaterVisibleMessages && hasRunnableToolUse(messages[idx].content)) {
+        continue;
+      }
+
+      responseIdx = idx;
+      break;
     }
 
     // Intermediate steps: everything except the response
