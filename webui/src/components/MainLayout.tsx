@@ -469,7 +469,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
     }
 
     return (
-      <div className="flex h-full flex-1 items-center justify-center p-4">
+      <div className="flex h-full flex-1 items-center justify-center">
         <WelcomeView />
       </div>
     );
@@ -660,17 +660,17 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
           </Memo>
         )}
 
-        {/* Fixed navigation icons for chat - always visible */}
-        {currentSection === 'chat' && (
-          <div className="w-12 flex-shrink-0">
-            <Memo>
-              {() => {
-                const conversation = conversation$.get();
-                return conversation ? <RightSidebar conversationId={conversation.id} /> : null;
-              }}
-            </Memo>
-          </div>
-        )}
+        {/* Fixed navigation icons for chat - only visible when a conversation is selected */}
+        <Memo>
+          {() => {
+            const conversation = conversation$.get();
+            return currentSection === 'chat' && conversation ? (
+              <div className="w-12 flex-shrink-0">
+                <RightSidebar conversationId={conversation.id} />
+              </div>
+            ) : null;
+          }}
+        </Memo>
       </ResizablePanelGroup>
 
       <TaskCreationDialog

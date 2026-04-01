@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { use$ } from '@legendapp/state/react';
 import { observable } from '@legendapp/state';
 import { ChatInput, type ChatOptions } from '@/components/ChatInput';
-import { History, Server, Sparkles } from 'lucide-react';
+import { History, Server } from 'lucide-react';
 import { ExamplesSection } from '@/components/ExamplesSection';
 import { serverRegistry$, getConnectedServers } from '@/stores/servers';
 import { getExamples } from '@/utils/examples';
@@ -96,10 +96,6 @@ export const WelcomeView = () => {
         <div className="w-full max-w-4xl rounded-[28px] border border-border/70 bg-background/90 p-6 shadow-[0_30px_120px_-48px_rgba(15,23,42,0.45)] backdrop-blur sm:p-8">
           <div className="flex flex-col gap-8">
             <div className="space-y-4 text-center">
-              <div className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/80 px-3 py-1 text-xs font-medium uppercase tracking-[0.24em] text-muted-foreground">
-                <Sparkles className="h-3.5 w-3.5" />
-                New chat
-              </div>
               <div className="space-y-3">
                 <h1 className="text-3xl font-semibold tracking-tight text-foreground/90 sm:text-5xl">
                   What are you working on?
