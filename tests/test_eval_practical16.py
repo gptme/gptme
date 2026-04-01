@@ -28,3 +28,12 @@ def test_check_schema_record1_multiple_errors_does_not_count_bare_at_symbol():
 def test_check_trie_app_prefix_requires_whole_words():
     stdout = "Words with prefix app: apple, application"
     assert not check_trie_app_prefix(_ctx(stdout))
+
+
+def test_check_trie_app_prefix_accepts_canonical_output():
+    stdout = (
+        "Words with prefix 'app': app, apple, application\n"
+        "Words with prefix 'ban': banana, band\n"
+        "Total words: 5\n"
+    )
+    assert check_trie_app_prefix(_ctx(stdout))
