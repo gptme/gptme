@@ -286,11 +286,10 @@ def api_conversation_step(conversation_id: str):
     default_model = get_default_model()
 
     # Get model from request, config, or default (in that order).
-    # Only persist to ChatConfig if the user made a genuine choice — not if the
-    # frontend is just echoing the server default or a hardcoded fallback.
+    # The frontend only sends model when the user explicitly selected one
+    # (hasExplicitModelSelection), so any value here is a genuine choice.
     model = req_json.get("model")
-    default_model_name = default_model.full if default_model else None
-    if model and model != chat_config.model and model != default_model_name:
+    if model and model != chat_config.model:
         chat_config.model = model
         chat_config.save()
         # Notify frontend so the model badge updates

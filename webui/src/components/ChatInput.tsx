@@ -758,7 +758,7 @@ export const ChatInput: FC<Props> = ({
           {
             text: message,
             options: {
-              model: effectiveModel === 'default' ? undefined : effectiveModel,
+              model: hasExplicitModelSelection ? effectiveModel : undefined,
               stream: streamingEnabled,
               workspace: selectedWorkspace || undefined,
               files: uploadedPaths,
@@ -788,7 +788,7 @@ export const ChatInput: FC<Props> = ({
       }
     } else if (message.trim() || attachedFiles.length > 0) {
       onSend(message, {
-        model: effectiveModel === 'default' ? undefined : effectiveModel,
+        model: hasExplicitModelSelection ? effectiveModel : undefined,
         stream: streamingEnabled,
         workspace: selectedWorkspace || undefined,
         files: uploadedPaths,
