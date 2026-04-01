@@ -1,7 +1,6 @@
 import { PenSquare, Plus, Filter } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ConversationList } from './ConversationList';
-import { useApi } from '@/contexts/ApiContext';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { ConversationSummary } from '@/types/conversation';
 import type { Task } from '@/types/task';
@@ -100,7 +99,6 @@ export const UnifiedSidebar: FC<Props> = ({
   tasksError = false,
   onTasksRetry,
 }) => {
-  const { api } = useApi();
   const selectedWorkspace = use$(selectedWorkspace$);
   const selectedAgent = use$(selectedAgent$);
   const location = useLocation();
