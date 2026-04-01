@@ -157,7 +157,7 @@ def check_schema_record1_invalid(ctx):
             re.IGNORECASE,
         )
     ) or (
-        "b" in out
+        bool(re.search(r"\bb\b", out))
         and "invalid" in out
         and ("age" in out or "name" in out or "email" in out)
     )
@@ -290,7 +290,7 @@ def check_trie_app_prefix(ctx):
 def check_trie_ban_prefix(ctx):
     """starts_with('ban') should return banana, band."""
     out = ctx.stdout
-    return "banana, band" in out or ("banana" in out and "band" in out)
+    return "banana, band" in out
 
 
 def check_trie_count(ctx):
