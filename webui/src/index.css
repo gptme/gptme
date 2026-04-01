@@ -141,16 +141,18 @@
 
 /* Short code blocks (≤2 lines) rendered inline instead of collapsible <details> */
 .chat-message .inline-codeblock {
-  @apply my-2 flex items-start gap-2 overflow-hidden rounded-md border border-border font-sans text-sm dark:border-stone-950;
+  @apply my-2 flex overflow-hidden rounded-md border border-border font-sans text-sm dark:border-stone-950;
   background-color: hsl(var(--code-background));
 }
 
 .chat-message .inline-codeblock .inline-codeblock-label {
-  @apply flex-shrink-0 whitespace-nowrap rounded-l-md bg-muted px-3 py-1.5 text-xs;
+  @apply flex-shrink-0 self-stretch whitespace-nowrap bg-muted px-3 py-1.5 text-xs;
+  /* Label fills full height and keeps left rounding from parent */
 }
 
 .chat-message .inline-codeblock > code {
-  @apply flex-1 overflow-x-auto border-0 bg-transparent px-3 py-1.5 text-xs;
+  @apply min-w-0 flex-1 overflow-x-auto border-0 bg-transparent px-3 py-1.5 text-xs;
+  background-color: transparent !important;
 }
 
 .chat-message details {
