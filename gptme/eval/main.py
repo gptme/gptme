@@ -87,7 +87,7 @@ def docker_reexec(argv: list[str]) -> None:
             timeout=30,
         )
         logger.info(f"Using existing Docker image: {image}")
-    except subprocess.CalledProcessError:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
         logger.info(f"Building Docker image: {image}")
         dockerfile = Path(git_root) / "scripts" / "Dockerfile.eval"
         if not dockerfile.exists():

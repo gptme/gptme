@@ -408,6 +408,11 @@ class DockerGPTMeEnv(DockerExecutionEnv):
                 timeout=120,  # 2 min cap for docker startup / image pull
             )
             self.container_id = result.stdout.strip()
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError(
+                f"Docker container startup timed out after 120s for image '{self.image}'. "
+                "The image may need to be pre-pulled: docker pull gptme-eval:latest"
+            ) from e
         except subprocess.CalledProcessError as e:
             error_msg = f"Failed to start Docker container with image '{self.image}'.\n"
             if "Unable to find image" in e.stderr or "No such image" in e.stderr:
