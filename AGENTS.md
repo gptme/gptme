@@ -97,6 +97,9 @@ See [docs/glossary.md](docs/glossary.md) for full terminology.
 uv run gptme-server --port 5000
 ```
 
+### Working on the web UI
+See [webui/AGENTS.md](webui/AGENTS.md) for full setup including dev servers, testing, and architecture notes.
+
 ### Building docs
 ```bash
 make docs
