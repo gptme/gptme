@@ -1115,10 +1115,7 @@ export const ChatInput: FC<Props> = ({
                         workspaceExplicitlySelected && (
                           <WorkspaceBadge
                             workspace={selectedWorkspace}
-                            onRemove={() => {
-                              setSelectedWorkspace('.');
-                              setWorkspaceExplicitlySelected(false);
-                            }}
+                            onRemove={() => handleWorkspaceChange('.')}
                           />
                         )}
                     </div>
