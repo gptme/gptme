@@ -71,15 +71,31 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
-                variant={currentSection === 'history' ? 'secondary' : 'ghost'}
+                variant={currentSection === 'agents' ? 'secondary' : 'ghost'}
                 size="icon"
                 className="h-8 w-8"
-                onClick={() => handleNavigateToSection('history')}
+                onClick={() => handleNavigateToSection('agents')}
               >
-                <History className="h-4 w-4" />
+                <Bot className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="right">History</TooltipContent>
+            <TooltipContent side="right">Agents</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={currentSection === 'workspaces' ? 'secondary' : 'ghost'}
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => handleNavigateToSection('workspaces')}
+              >
+                <FolderOpen className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Workspaces</TooltipContent>
           </Tooltip>
         </TooltipProvider>
 
@@ -108,31 +124,15 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
-                variant={currentSection === 'agents' ? 'secondary' : 'ghost'}
+                variant={currentSection === 'history' ? 'secondary' : 'ghost'}
                 size="icon"
                 className="h-8 w-8"
-                onClick={() => handleNavigateToSection('agents')}
+                onClick={() => handleNavigateToSection('history')}
               >
-                <Bot className="h-4 w-4" />
+                <History className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="right">Agents</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant={currentSection === 'workspaces' ? 'secondary' : 'ghost'}
-                size="icon"
-                className="h-8 w-8"
-                onClick={() => handleNavigateToSection('workspaces')}
-              >
-                <FolderOpen className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">Workspaces</TooltipContent>
+            <TooltipContent side="right">History</TooltipContent>
           </Tooltip>
         </TooltipProvider>
 
