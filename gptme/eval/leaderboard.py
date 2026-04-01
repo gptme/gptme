@@ -136,6 +136,10 @@ PRACTICAL_TESTS = {
     "async-queue-workers",
     "json-schema-validate",
     "implement-trie",
+    # practical17
+    "lru-cache",
+    "interval-merge",
+    "base-converter",
 }
 
 
