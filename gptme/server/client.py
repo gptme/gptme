@@ -39,6 +39,16 @@ class GptmeApiClient:
         if auth_token:
             self.session.headers["Authorization"] = f"Bearer {auth_token}"
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    def close(self):
+        """Close the underlying HTTP session."""
+        self.session.close()
+
     def create_session(self, conversation_id: str) -> str:
         """Create a new session for conversation via events endpoint.
 
