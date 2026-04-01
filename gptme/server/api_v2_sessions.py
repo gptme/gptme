@@ -287,6 +287,20 @@ def api_conversation_step(conversation_id: str):
 
     # Get model from request, config, or default (in that order)
     model = req_json.get("model")
+    if model and model != chat_config.model:
+        # User explicitly selected a model — persist it as the conversation default
+        # so subsequent steps (tool execution, etc.) use the same model
+        chat_config.model = model
+        chat_config.save()
+        # Notify frontend so the model badge updates
+        SessionManager.add_event(
+            conversation_id,
+            {
+                "type": "config_changed",
+                "config": chat_config.to_dict(),
+                "changed_fields": ["model"],
+            },
+        )
     if not model:
         model = chat_config.model
     if not model and default_model:
