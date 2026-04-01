@@ -104,7 +104,7 @@ export const WelcomeView = () => {
               </div>
             </div>
 
-            <div className="mx-auto w-full max-w-2xl">
+            <div className="mx-auto w-full max-w-2xl [&_textarea]:min-h-[80px] [&_textarea]:text-base">
               <ChatInput
                 onSend={handleSend}
                 autoFocus$={autoFocus$}
