@@ -55,6 +55,33 @@ describe('processNestedCodeBlocks', () => {
     expect(result.langtags).toEqual(['python', 'shell']);
   });
 
+  it('handles 3-level deep nesting by propagating maxInnerLen upward', () => {
+    // outer ```gh contains inner ```markdown which contains ```python
+    const input = [
+      '```gh',
+      'issue body',
+      '```markdown',
+      'some docs',
+      '```python',
+      'print("hi")',
+      '```',
+      '```',
+      '```',
+    ].join('\n');
+
+    const result = processNestedCodeBlocks(input);
+    const lines = result.processedContent.split('\n');
+    // Outermost fence must be widened to 5 (inner ```markdown needs 4, so outer needs 5)
+    expect(lines[0]).toBe('`````gh');
+    expect(lines[lines.length - 1]).toBe('`````');
+    // Middle fence widened to 4
+    expect(lines[2]).toBe('````markdown');
+    expect(lines[7]).toBe('````');
+    // Innermost stays at 3
+    expect(lines[4]).toBe('```python');
+    expect(lines[6]).toBe('```');
+  });
+
   it('handles already-widened 4-backtick fences from system prompts', () => {
     const input = '````\n> content\n```ipython\nopen_page("url")\n```\n````';
 
