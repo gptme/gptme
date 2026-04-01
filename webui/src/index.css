@@ -151,8 +151,13 @@
 }
 
 .chat-message .inline-codeblock > code {
-  @apply min-w-0 flex-1 overflow-x-auto border-0 bg-transparent px-3 py-1.5 text-xs;
+  @apply min-w-0 flex-1 border-0 bg-transparent py-1.5 text-xs;
   background-color: transparent !important;
+  white-space: pre-wrap;
+  word-break: break-all;
+  /* Hanging indent: first line flush, wrapped lines indented 2ch */
+  padding-left: calc(0.75rem + 2ch);
+  text-indent: -2ch;
 }
 
 .chat-message details {
