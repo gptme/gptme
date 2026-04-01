@@ -161,4 +161,32 @@ describe('buildStepRoles', () => {
     expect(roles.get(2)?.type).toBe('grouped');
     expect(roles.get(3)?.type).toBe('grouped');
   });
+
+  it('does not leave the last tool call visible when the turn ends with a system result', () => {
+    const messages = [
+      msg('user', 'show me how you can help with Python'),
+      msg('assistant', '```save hello.py\nprint("hi")\n```'),
+      msg('system', 'Saved to hello.py'),
+      msg('assistant', '```shell\npython hello.py\n```'),
+      msg('system', '```stdout\nhi\n```'),
+      msg('assistant', '```ipython\nprint(2 + 2)\n```'),
+      msg('system', '```stdout\n4\n```'),
+      msg('user', 'thanks'),
+    ];
+
+    const roles = buildStepRoles(messages, neverHidden);
+
+    const start = roles.get(1);
+    expect(start?.type).toBe('group-start');
+    if (start?.type === 'group-start') {
+      expect(start.count).toBe(3);
+    }
+
+    expect(roles.get(2)?.type).toBe('grouped');
+    expect(roles.get(3)?.type).toBe('grouped');
+    expect(roles.get(4)?.type).toBe('grouped');
+    expect(roles.get(5)?.type).toBe('grouped');
+    expect(roles.get(6)?.type).toBe('grouped');
+    expect(Array.from(roles.values()).every((role) => role.type !== 'response')).toBe(true);
+  });
 });
