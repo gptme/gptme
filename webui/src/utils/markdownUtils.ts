@@ -38,92 +38,33 @@ marked.use(
   })
 );
 
-/**
- * Process nested code blocks using the gptme fence convention:
- * - A fence line with a lang tag (` ```lang `) is always an opener
- * - A bare fence line (` ``` `) is always a closer
- *
- * Neither `marked` nor `smd` (streaming markdown) understand this nesting
- * convention — they both close a fence on any matching backtick count.
- * This function widens outer fences (e.g. ``` → ````) so inner fences
- * are treated as content, not fence boundaries.
- *
- * Used in TWO rendering paths:
- * - `parseMarkdownContent()` below (marked-based, used for non-chat rendering)
- * - `ChatMessage.tsx` (smd-based, the main chat message renderer)
- * Both must call this before feeding content to their parser.
- */
 export function processNestedCodeBlocks(content: string) {
+  // If no code blocks or only one code block, return as-is
+  if (content.split('```').length < 3) {
+    const match = content.match(/```(\S*)/);
+    return {
+      processedContent: content,
+      langtags: match ? [match[1]] : [],
+    };
+  }
+
   const lines = content.split('\n');
   const langtags: string[] = [];
-  const fenceRe = /^(\s*)(`{3,})(.*)$/;
-
-  // Parse fences using gptme convention, tracking nesting depth.
-  // For each depth-0 block, record its opener/closer line indices and
-  // the max backtick length of any inner fence.
-  interface Block {
-    openerLine: number;
-    closerLine: number;
-    openerLen: number;
-    maxInnerLen: number; // max backtick count of fences inside this block
-  }
-  const blocks: Block[] = [];
-  // Stack of open blocks: [openerLine, openerLen, maxInnerLen]
-  const stack: [number, number, number][] = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(fenceRe);
-    if (!m) continue;
-    const [, , backticks, tag] = m;
-    const trimmedTag = tag.trim();
-    const len = backticks.length;
-
-    if (stack.length === 0) {
-      // Top level: any fence opens a block
-      if (trimmedTag) langtags.push(trimmedTag);
-      stack.push([i, len, 0]);
-    } else if (trimmedTag) {
-      // Inside a block: fence with tag = nested opener
-      langtags.push(trimmedTag);
-      // Update parent's maxInnerLen
-      stack[stack.length - 1][2] = Math.max(stack[stack.length - 1][2], len);
-      stack.push([i, len, 0]);
-    } else {
-      // Bare fence = closer
-      const [openerLine, openerLen, maxInnerLen] = stack.pop()!;
-      // If this closed a nested block, update the parent's maxInnerLen
-      if (stack.length > 0) {
-        stack[stack.length - 1][2] = Math.max(stack[stack.length - 1][2], len);
-      }
-      // If this was a depth-0 block, record it
-      if (stack.length === 0) {
-        blocks.push({ openerLine, closerLine: i, openerLen, maxInnerLen });
-      }
-    }
-  }
-
-  // Build adjustment map: only widen fences that actually contain nested fences
-  const adjustments = new Map<number, number>();
-  for (const block of blocks) {
-    if (block.maxInnerLen > 0) {
-      const needed = Math.max(block.maxInnerLen + 1, block.openerLen);
-      if (needed > block.openerLen) {
-        adjustments.set(block.openerLine, needed);
-        adjustments.set(block.closerLine, needed);
-      }
-    }
-  }
-
-  // Emit lines with adjusted backtick counts
   const result: string[] = [];
+
   for (let i = 0; i < lines.length; i++) {
-    const adj = adjustments.get(i);
-    if (adj) {
-      const m = lines[i].match(fenceRe)!;
-      const [, indent, , tag] = m;
-      result.push(`${indent}${'`'.repeat(adj)}${tag}`);
+    const line = lines[i];
+    const strippedLine = line.trim();
+
+    if (strippedLine.startsWith('```')) {
+      if (strippedLine !== '```') {
+        // Start of a code block with a language
+        const lang = strippedLine.slice(3);
+        langtags.push(lang);
+      }
+      result.push(line);
     } else {
-      result.push(lines[i]);
+      result.push(line);
     }
   }
 
