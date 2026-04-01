@@ -80,6 +80,10 @@ CI benchmarks enforce startup thresholds.
 
 See [docs/glossary.md](docs/glossary.md) for full terminology.
 
+## Subsystem Guides
+
+- [webui/AGENTS.md](webui/AGENTS.md) - Web UI architecture and gotchas
+
 ## Common Tasks
 
 ### Adding a new tool
