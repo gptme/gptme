@@ -270,20 +270,26 @@ class DockerExecutionEnv(ExecutionEnv):
     def cleanup(self) -> None:
         """Stop and remove Docker container."""
         if self.container_id:
-            subprocess.run(
-                ["docker", "stop", self.container_id],
-                check=False,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=10,
-            )
-            subprocess.run(
-                ["docker", "rm", self.container_id],
-                check=False,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=10,
-            )
+            try:
+                subprocess.run(
+                    ["docker", "stop", self.container_id],
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=10,
+                )
+            except subprocess.TimeoutExpired:
+                pass  # best-effort; proceed to docker rm
+            try:
+                subprocess.run(
+                    ["docker", "rm", "-f", self.container_id],
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=10,
+                )
+            except subprocess.TimeoutExpired:
+                pass  # best-effort cleanup
 
     def __del__(self) -> None:
         """Cleanup container on object destruction."""
