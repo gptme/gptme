@@ -151,7 +151,7 @@
 }
 
 .chat-message .inline-codeblock > code {
-  @apply min-w-0 flex-1 border-0 bg-transparent py-1.5 text-xs;
+  @apply min-w-0 flex-1 border-0 bg-transparent py-1.5 text-white text-xs;
   background-color: transparent !important;
   white-space: pre-wrap;
   overflow-wrap: break-word;
