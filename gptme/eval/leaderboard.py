@@ -16,6 +16,7 @@ import csv
 import html
 import io
 import json
+import math
 import sys
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -283,10 +284,26 @@ def aggregate_results(results: list[dict], min_tests: int = 4) -> list[dict]:
         ):
             best_by_model[model] = stats
 
-    # Sort by pass rate descending, then total tests descending
+    # Compute Wilson score lower bound for ranking.
+    # This penalizes models tested on few tests: 4/4 (100%) ranks below
+    # 56/59 (95%) because the confidence interval is much wider with n=4.
+    # Uses z=1.0 (~68% confidence) for a moderate penalty.
+    z = 1.0
+    z2 = z * z
+    for stats in best_by_model.values():
+        n: int = stats["total_tests"]  # type: ignore[assignment]
+        p: float = stats["pass_rate"]  # type: ignore[assignment]
+        if n > 0:
+            stats["ranking_score"] = (
+                p + z2 / (2 * n) - z * math.sqrt((p * (1 - p) / n) + z2 / (4 * n * n))
+            ) / (1 + z2 / n)
+        else:
+            stats["ranking_score"] = 0
+
+    # Sort by Wilson score descending, then total tests descending
     ranked = sorted(
         best_by_model.values(),
-        key=lambda x: (-x["pass_rate"], -x["total_tests"]),
+        key=lambda x: (-x.get("ranking_score", 0), -x["total_tests"]),
     )
     return ranked
 

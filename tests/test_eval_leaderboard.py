@@ -385,6 +385,47 @@ def test_aggregate_tiebreak_by_total_tests(tmp_path):
     assert ranked[1]["model"] == "model-b"
 
 
+def test_bayesian_ranking_prefers_high_coverage(tmp_path):
+    """Model with many tests and 95% rate should rank above one with few tests at 100%.
+
+    This tests the Bayesian average ranking: a model tested on 20 tests at 95%
+    is more credibly strong than one tested on 4 tests at 100%.
+    """
+    rows = [("model-a", "tool", f"test-a-{i}", "true") for i in range(4)] + [
+        ("model-b", "tool", f"test-b-{i}", "true" if i > 0 else "false")
+        for i in range(20)
+    ]
+
+    _create_eval_results(tmp_path, [{"dir": "run1", "rows": rows}])
+    results = load_results(tmp_path)
+    ranked = aggregate_results(results, min_tests=4)
+
+    assert len(ranked) == 2
+    # model-b (95%, 20 tests) should rank above model-a (100%, 4 tests)
+    assert ranked[0]["model"] == "model-b"
+    assert ranked[1]["model"] == "model-a"
+    # Both should have ranking_score
+    assert "ranking_score" in ranked[0]
+    assert ranked[0]["ranking_score"] > ranked[1]["ranking_score"]
+
+
+def test_bayesian_ranking_same_coverage(tmp_path):
+    """With similar test counts, raw pass rate still dominates ranking."""
+    rows = [("model-a", "tool", f"test-a-{i}", "true") for i in range(10)] + [
+        ("model-b", "tool", f"test-b-{i}", "true" if i < 8 else "false")
+        for i in range(10)
+    ]
+
+    _create_eval_results(tmp_path, [{"dir": "run1", "rows": rows}])
+    results = load_results(tmp_path)
+    ranked = aggregate_results(results, min_tests=4)
+
+    assert len(ranked) == 2
+    # model-a (100%, 10 tests) should still rank above model-b (80%, 10 tests)
+    assert ranked[0]["model"] == "model-a"
+    assert ranked[1]["model"] == "model-b"
+
+
 def test_suite_classification(tmp_path):
     """Tests are correctly classified into basic and practical suites."""
     _create_eval_results(
