@@ -154,9 +154,7 @@ class TestDockerGPTMeEnv:
 
         # Mock Popen for command execution
         mock_process = MagicMock()
-        mock_process.poll.return_value = 0
-        mock_process.stdout.readline.return_value = ""
-        mock_process.stderr.readline.return_value = ""
+        mock_process.communicate.return_value = ("", "")
         mock_process.returncode = 0
         mock_popen.return_value = mock_process
 
