@@ -55,7 +55,7 @@ describe('processNestedCodeBlocks', () => {
     expect(result.langtags).toEqual(['python', 'shell']);
   });
 
-  it('handles 3-level deep nesting by propagating maxInnerLen upward', () => {
+  it('handles 3-level deep nesting by propagating maxDescendantDepth upward', () => {
     // outer ```gh contains inner ```markdown which contains ```python
     const input = [
       '```gh',
