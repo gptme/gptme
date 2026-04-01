@@ -29,6 +29,7 @@ from .types import (
     _subagent_results,
     _subagent_results_lock,
     _subagents,
+    _subagents_lock,
 )
 
 
@@ -312,6 +313,7 @@ __all__ = [
     "_get_complete_instruction",
     # Module-level state (re-exported for backward compatibility)
     "_subagents",
+    "_subagents_lock",
     "_subagent_results",
     "_subagent_results_lock",
     "_completion_queue",
