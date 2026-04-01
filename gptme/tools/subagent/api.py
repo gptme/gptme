@@ -446,10 +446,10 @@ def subagent(
 def subagent_status(agent_id: str) -> dict:
     """Returns the status of a subagent."""
     with _subagents_lock:
-        for sa in _subagents:
-            if sa.agent_id == agent_id:
-                return asdict(sa.status())
-    raise ValueError(f"Subagent with ID {agent_id} not found.")
+        sa = next((s for s in _subagents if s.agent_id == agent_id), None)
+    if sa is None:
+        raise ValueError(f"Subagent with ID {agent_id} not found.")
+    return asdict(sa.status())
 
 
 def subagent_wait(agent_id: str, timeout: int = 60) -> dict:
