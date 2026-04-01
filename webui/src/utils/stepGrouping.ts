@@ -60,13 +60,16 @@ export function buildStepRoles(
       }
     }
 
-    // The response is only the final visible message in the turn if that message is assistant.
-    // If the turn ends with a system/tool-result message, there is no visible final response yet.
-    const lastVisibleIdx = visibleIndices[visibleIndices.length - 1];
-    const responseIdx =
-      lastVisibleIdx !== undefined && messages[lastVisibleIdx].role === 'assistant'
-        ? lastVisibleIdx
-        : -1;
+    // Find the last assistant message among visible indices — that's the response.
+    // System messages after it (e.g. post-turn hooks like "Relevant Lessons") are
+    // intermediate steps, not the response.
+    let responseIdx = -1;
+    for (let k = visibleIndices.length - 1; k >= 0; k--) {
+      if (messages[visibleIndices[k]].role === 'assistant') {
+        responseIdx = visibleIndices[k];
+        break;
+      }
+    }
 
     // Intermediate steps: everything except the response
     const stepIndices = visibleIndices.filter((idx) => idx !== responseIdx);
