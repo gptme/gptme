@@ -88,11 +88,8 @@ export const WelcomeView = () => {
   };
 
   return (
-    <div className="relative mx-auto flex h-full w-full flex-col overflow-hidden">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-primary/10 via-primary/5 to-transparent" />
-      <div className="pointer-events-none absolute left-1/2 top-1/3 h-72 w-72 -translate-x-1/2 rounded-full bg-primary/10 blur-3xl" />
-
-      <div className="relative mx-auto flex h-full w-full max-w-5xl flex-col items-center justify-center px-4 py-10 sm:px-6">
+    <div className="mx-auto flex h-full w-full flex-col">
+      <div className="mx-auto flex h-full w-full max-w-5xl flex-col items-center justify-center px-4 pt-12 sm:px-6">
         <div className="w-full max-w-4xl rounded-[28px] border border-border/70 bg-background/90 p-6 shadow-[0_30px_120px_-48px_rgba(15,23,42,0.45)] backdrop-blur sm:p-8">
           <div className="flex flex-col gap-8">
             <div className="space-y-4 text-center">
