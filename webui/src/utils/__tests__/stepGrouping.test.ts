@@ -36,7 +36,7 @@ describe('buildStepRoles', () => {
     expect(roles.get(3)?.type).toBe('response');
   });
 
-  it('groups 3+ intermediate steps between user messages', () => {
+  it('groups multiple tool calls (4 intermediate steps) between user messages', () => {
     const messages = [
       msg('user', 'fix the bug'), // 0
       msg('assistant', 'looking at code'), // 1 - step
