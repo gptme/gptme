@@ -293,7 +293,10 @@ def subagent(
                     _subagent_results[agent_id] = ReturnType("failure", str(e))
                 notify_completion(agent_id, "failure", f"ACP error: {e}")
             finally:
-                sa_ref = next((s for s in _subagents if s.agent_id == agent_id), None)
+                with _subagents_lock:
+                    sa_ref = next(
+                        (s for s in _subagents if s.agent_id == agent_id), None
+                    )
                 if sa_ref:
                     _exec._cleanup_isolation(sa_ref)
 
@@ -394,13 +397,15 @@ def subagent(
                 except Exception as notify_err:
                     logger.warning(f"Failed to notify subagent error: {notify_err}")
                 # Clean up worktree isolation even on failure
-                sa = next((s for s in _subagents if s.agent_id == agent_id), None)
+                with _subagents_lock:
+                    sa = next((s for s in _subagents if s.agent_id == agent_id), None)
                 if sa:
                     _exec._cleanup_isolation(sa)
                 return
 
             # Notify via hook system when complete (only if successful)
-            sa = next((s for s in _subagents if s.agent_id == agent_id), None)
+            with _subagents_lock:
+                sa = next((s for s in _subagents if s.agent_id == agent_id), None)
             if sa:
                 result = sa.status()
                 try:
