@@ -15,7 +15,7 @@ uv run gptme-server --cors-origin='http://localhost:5701'
 cd webui && npm i && npm run dev
 ```
 
-The UI is at `http://localhost:5701`. The backend defaults to port 5000.
+The UI is at `http://localhost:5701`. The backend defaults to port 5700.
 
 ### Running tests
 
