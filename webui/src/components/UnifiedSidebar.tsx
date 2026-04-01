@@ -155,6 +155,29 @@ export const UnifiedSidebar: FC<Props> = ({
       {currentSection === 'chat' && (
         <div className="flex items-center gap-2 bg-background p-2">
           <span className="ml-1 font-medium">Chats</span>
+          {(selectedWorkspace || selectedAgent) && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-5 w-5 text-muted-foreground"
+                    onClick={() => {
+                      selectedWorkspace$.set('');
+                      selectedAgent$.set(null);
+                    }}
+                    aria-label="Clear filters"
+                  >
+                    <Filter className="h-3 w-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Filtered by {[selectedAgent && `agent: ${selectedAgent.name}`, selectedWorkspace && `workspace: ${selectedWorkspace.split('/').pop()}`].filter(Boolean).join(', ')} — click to clear
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
           <div className="flex-1" />
           <Button
             variant="ghost"
