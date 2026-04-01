@@ -6,6 +6,8 @@ export interface Settings {
   showHiddenMessages: boolean;
   showInitialSystem: boolean;
   hasCompletedSetup: boolean;
+  /** CSS background for the welcome/new-chat view (image URL or gradient) */
+  welcomeBackground: string;
 }
 
 interface SettingsContextType {
@@ -20,6 +22,7 @@ const defaultSettings: Settings = {
   showHiddenMessages: false,
   showInitialSystem: false,
   hasCompletedSetup: false,
+  welcomeBackground: '',
 };
 
 function loadSettingsFromStorage(): Settings {
