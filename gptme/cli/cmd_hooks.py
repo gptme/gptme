@@ -16,6 +16,7 @@ import json
 import logging
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 import click
@@ -35,8 +36,8 @@ _PRETOOLUSE_MATCHER = "Read|Bash|Grep|WebFetch|WebSearch"
 # Timeout for hook execution (seconds)
 _HOOK_TIMEOUT = 10
 
-# Per-session dedup state (in /tmp, cleared when system reboots)
-_STATE_DIR = Path("/tmp/gptme-lesson-hooks")
+# Per-session dedup state (in tmpdir, cleared when system reboots)
+_STATE_DIR = Path(tempfile.gettempdir()) / "gptme-lesson-hooks"
 
 # Maximum lessons to inject per event
 _MAX_USERPROMPTSUBMIT = 5
@@ -85,14 +86,11 @@ def install(workspace: Path, global_install: bool, force: bool) -> None:
     workspace = workspace.resolve()
 
     if not global_install and not (workspace / "gptme.toml").exists():
-        click.echo(
-            f"⚠  No gptme.toml found in {workspace}. "
-            "This workspace may not have a lessons directory.\n"
-            "Continue anyway? (pass --force to skip this check)",
-            err=True,
-        )
         if not force:
             click.echo(
+                f"⚠  No gptme.toml found in {workspace}. "
+                "This workspace may not have a lessons directory.\n"
+                "Continue anyway? (pass --force to skip this check)\n"
                 "Hint: run from a directory containing gptme.toml, "
                 "or use --global for the user-level settings.",
                 err=True,
@@ -118,9 +116,10 @@ def install(workspace: Path, global_install: bool, force: bool) -> None:
 
     hooks_cfg: dict = settings.setdefault("hooks", {})
 
-    # Check if already installed
-    already_installed = _is_hook_installed(hooks_cfg, _USERPROMPTSUBMIT)
-    if already_installed and not force:
+    # Check if already installed (both hooks must be present to skip)
+    prompt_installed = _is_hook_installed(hooks_cfg, _USERPROMPTSUBMIT)
+    pretooluse_installed = _is_hook_installed(hooks_cfg, _PRETOOLUSE)
+    if prompt_installed and pretooluse_installed and not force:
         click.echo(
             f"ℹ  gptme lesson hooks already present in {settings_path}.\n"
             "   Use --force to overwrite."
@@ -514,7 +513,7 @@ def _extract_pretooluse_text(hook_input: dict) -> str:
         content = entry.get("content", "")
         if role in ("assistant", "tool") and isinstance(content, str):
             recent_text.append(content[:500])  # Truncate long outputs
-        elif isinstance(content, list):
+        elif role in ("assistant", "tool") and isinstance(content, list):
             recent_text.extend(
                 str(block.get("text", ""))[:500]
                 for block in content

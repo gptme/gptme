@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import pytest
 from click.testing import CliRunner
 
+import gptme.cli.cmd_hooks as cmd_hooks
 from gptme.cli.cmd_hooks import (
     _extract_pretooluse_text,
     _is_gptme_entry,
@@ -35,6 +36,12 @@ def workspace(tmp_path: Path) -> Path:
 @pytest.fixture()
 def runner() -> CliRunner:
     return CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def isolated_state_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Redirect _STATE_DIR to a per-test tmp directory to prevent cross-test interference."""
+    monkeypatch.setattr(cmd_hooks, "_STATE_DIR", tmp_path / "hook-state")
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +146,27 @@ def test_install_merges_with_existing_hooks(runner: CliRunner, workspace: Path) 
     commands = [e["hooks"][0]["command"] for e in entries]
     assert "other_hook.py" in commands
     assert "gptme-util hooks run" in commands
+
+
+def test_install_partial_install_completed(runner: CliRunner, workspace: Path) -> None:
+    """If only UserPromptSubmit is present, install should add the missing PreToolUse."""
+    settings_path = workspace / ".claude" / "settings.json"
+    settings_path.parent.mkdir(parents=True)
+    # Pre-install with only UserPromptSubmit hook
+    partial = {
+        "hooks": {
+            "UserPromptSubmit": [
+                {"hooks": [{"type": "command", "command": "gptme-util hooks run"}]}
+            ]
+        }
+    }
+    settings_path.write_text(json.dumps(partial))
+    result = runner.invoke(main, ["hooks", "install", "--workspace", str(workspace)])
+    assert result.exit_code == 0, result.output
+    settings = json.loads(settings_path.read_text())
+    # Both hooks should now be present
+    assert _is_hook_installed(settings["hooks"], "UserPromptSubmit")
+    assert _is_hook_installed(settings["hooks"], "PreToolUse")
 
 
 def test_install_no_gptme_toml_fails(runner: CliRunner, tmp_path: Path) -> None:
