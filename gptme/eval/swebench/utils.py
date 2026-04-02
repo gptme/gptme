@@ -1,10 +1,15 @@
+import json
 import logging
 import os
 import subprocess
-
-from datasets import DownloadMode, load_dataset
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# SWE-bench prediction format keys
+KEY_INSTANCE_ID = "instance_id"
+KEY_MODEL = "model_name_or_path"
+KEY_PATCH = "model_patch"
 
 
 def load_instances(
@@ -12,6 +17,8 @@ def load_instances(
     split: str = "test",
     force_download: bool = False,
 ) -> dict[str, dict]:
+    from datasets import DownloadMode, load_dataset  # lazy: optional eval extra
+
     download_mode = (
         DownloadMode.FORCE_REDOWNLOAD
         if force_download
@@ -42,6 +49,24 @@ def setup_swebench_repo(instance_data: dict, repo_base_dir: str | None = None) -
         base_commit=instance_data["base_commit"],
         base_dir=repo_base_dir,
     )
+
+
+def write_predictions_jsonl(
+    predictions: list[dict],
+    output_path: str | Path,
+) -> Path:
+    """Write predictions in SWE-bench JSONL format for official harness evaluation.
+
+    Each prediction must have: instance_id, model_name_or_path, model_patch.
+    See: https://github.com/princeton-nlp/SWE-bench#-evaluation
+    """
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w") as f:
+        for pred in predictions:
+            f.write(json.dumps(pred) + "\n")
+    logger.info(f"Wrote {len(predictions)} predictions to {output_path}")
+    return output_path
 
 
 def get_file_spans_from_patch(patch: str) -> dict[str, list[str]]:
