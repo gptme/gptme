@@ -248,7 +248,7 @@ def test_status_shows_installed(runner: CliRunner, workspace: Path) -> None:
 
 def _make_event(
     event_type: str = "UserPromptSubmit",
-    session_id: str = "test-session",
+    session_id: str | None = "test-session",
     prompt: str = "",
     tool_name: str = "",
     tool_input: dict | None = None,
@@ -256,8 +256,9 @@ def _make_event(
 ) -> str:
     data: dict = {
         "hook_event_name": event_type,
-        "session_id": session_id,
     }
+    if session_id is not None:
+        data["session_id"] = session_id
     if prompt:
         data["prompt"] = prompt
     if tool_name:
@@ -411,6 +412,47 @@ def test_run_stale_workspace_returns_valid_json(
     assert result.exit_code == 0, result.output
     out = json.loads(result.output)
     assert out.get("continue") is True
+
+
+def test_run_missing_session_id_uses_unique_fallback(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """When CC omits session_id, each invocation gets an isolated dedup state.
+
+    Two invocations without session_id must not share the same anonymous session
+    (which would cause the second invocation to silently skip lessons already
+    seen in the first).
+    """
+    (tmp_path / "gptme.toml").write_text(f'[lessons]\ndirs = ["{tmp_path}/lessons"]\n')
+    lessons_dir = tmp_path / "lessons"
+    lessons_dir.mkdir()
+    (lessons_dir / "frob.md").write_text(
+        textwrap.dedent("""\
+            ---
+            match:
+              keywords:
+                - frobnicate the widget
+            status: active
+            ---
+            # Frob Lesson
+            Always frobnicate widgets before use.
+        """)
+    )
+    # Two events with no session_id — each should get its own anon ID and thus
+    # its own fresh dedup state, so both invocations return the matching lesson.
+    event = _make_event(session_id=None, prompt="I need to frobnicate the widget")
+    for _ in range(2):
+        result = runner.invoke(
+            main,
+            ["hooks", "run", "--workspace", str(tmp_path)],
+            input=event,
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+        out = json.loads(result.output)
+        # Each anonymous invocation should see the lesson (no cross-session dedup)
+        assert "additionalContext" in out, "lesson should be injected for anon session"
+        assert "Frob Lesson" in out["additionalContext"]
 
 
 # ---------------------------------------------------------------------------
