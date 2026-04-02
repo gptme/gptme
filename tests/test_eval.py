@@ -60,20 +60,19 @@ def test_suite_autodiscovery():
     """Verify auto-discovery finds all practical suites and preserves ordering."""
     # All practical suites should be discovered
     practical_suites = [name for name in suites if name.startswith("practical")]
-    assert len(practical_suites) >= 14, (
-        f"Expected at least 14 practical suites, got {len(practical_suites)}: {practical_suites}"
+    assert len(practical_suites) >= 19, (
+        f"Expected at least 19 practical suites, got {len(practical_suites)}: {practical_suites}"
     )
 
-    # Verify numeric ordering for the first 14 suites
-    expected_prefix = ["practical"] + [f"practical{i}" for i in range(2, 15)]
-    assert practical_suites[:14] == expected_prefix, (
+    # Verify numeric ordering across all discovered practical suites
+    expected_practical = ["practical"] + [
+        f"practical{i}" for i in range(2, len(practical_suites) + 1)
+    ]
+    assert practical_suites == expected_practical, (
         f"Practical suites not in expected order.\n"
-        f"  Expected prefix: {expected_prefix}\n"
-        f"  Got:             {practical_suites}"
+        f"  Expected: {expected_practical}\n"
+        f"  Got:      {practical_suites}"
     )
-    # Any suites beyond 14 should also follow the same numeric pattern
-    for i, name in enumerate(practical_suites[14:], start=15):
-        assert name == f"practical{i}", f"Unexpected suite at position {i}: {name!r}"
 
     # Core suites should always be present
     for core_suite in ("basic", "init_projects", "browser"):
