@@ -455,6 +455,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
       return (
         <div className="h-full overflow-auto">
           <ConversationContent
+            key={conversation.id}
             conversationId={conversation.id}
             serverId={serverParam || conversation.serverId}
             isReadOnly={conversation.readonly}
