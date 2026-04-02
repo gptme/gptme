@@ -6,6 +6,7 @@ Tests requiring correct implementation of:
 - Flood fill: BFS/DFS replacement of connected cells in a 2D grid
 """
 
+import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -139,10 +140,10 @@ r = knapsack([1, 2, 3], [6, 10, 12], 10)
 if r != 28:
     errors.append(f"case 6: all items fit -> 28, got {r}")
 
-# Case 7: need to pick optimally — greedy fails here
+# Case 7: greedy-vs-DP tie (greedy accidentally picks the optimal here)
 # weights=[3,4,5] values=[4,5,6] capacity=7
 # greedy by val/weight: item0(1.33), item1(1.25), item2(1.2)
-# greedy picks item0+item1=7, val=9; optimal is also item0+item1=9
+# greedy picks item0+item1=7, val=9; DP also gives item0+item1=9
 r = knapsack([3, 4, 5], [4, 5, 6], 7)
 if r != 9:
     errors.append(f"case 7: greedy-vs-dp tie -> 9, got {r}")
@@ -184,8 +185,8 @@ def check_knapsack_has_function(ctx):
 def check_knapsack_uses_dp(ctx):
     """Should use a DP table (2D list or 1D array)."""
     src = ctx.files.get("knapsack.py", "")
-    return (
-        "dp" in src
+    return bool(
+        re.search(r"\bdp\b", src)
         or "table" in src
         or "memo" in src
         or "lru_cache" in src
@@ -293,15 +294,15 @@ def check_flood_fill_has_function(ctx):
 def check_flood_fill_uses_traversal(ctx):
     """Should use BFS or DFS (including direct recursion)."""
     src = ctx.files.get("flood_fill.py", "")
-    # Check for explicit data structure (BFS/iterative DFS)
+    # Check for explicit BFS/iterative-DFS data structures
     if (
         "deque" in src
         or "queue" in src.lower()
-        or "stack" in src.lower()
+        or re.search(r"\bstack\s*=\s*\[", src)  # stack variable assignment, not keyword
         or "visited" in src
         or "def _fill" in src
         or "def fill" in src
-        or "    def " in src  # nested helper (recursive DFS)
+        or re.search(r"    def \w+fill", src)  # nested fill helper
     ):
         return True
     # Check for direct self-recursion — flood_fill calling itself
