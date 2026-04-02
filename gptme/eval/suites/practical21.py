@@ -291,9 +291,10 @@ def check_flood_fill_has_function(ctx):
 
 
 def check_flood_fill_uses_traversal(ctx):
-    """Should use BFS or DFS."""
+    """Should use BFS or DFS (including direct recursion)."""
     src = ctx.files.get("flood_fill.py", "")
-    return (
+    # Check for explicit data structure (BFS/iterative DFS)
+    if (
         "deque" in src
         or "queue" in src.lower()
         or "stack" in src.lower()
@@ -301,7 +302,11 @@ def check_flood_fill_uses_traversal(ctx):
         or "def _fill" in src
         or "def fill" in src
         or "    def " in src  # nested helper (recursive DFS)
-    )
+    ):
+        return True
+    # Check for direct self-recursion — flood_fill calling itself
+    func_body = src.split("def flood_fill(", 1)[-1] if "def flood_fill(" in src else ""
+    return "flood_fill(" in func_body
 
 
 def check_flood_fill_exit(ctx):
