@@ -17,6 +17,7 @@ import logging
 import re
 import sys
 import tempfile
+import uuid
 from pathlib import Path
 
 import click
@@ -291,7 +292,9 @@ def run(workspace: Path | None = None) -> None:
         return
 
     event_type = hook_input.get("hook_event_name", _USERPROMPTSUBMIT)
-    session_id = hook_input.get("session_id", "unknown")
+    # When CC omits session_id, generate a unique fallback so each anonymous
+    # invocation gets its own isolated dedup state rather than sharing "unknown".
+    session_id = hook_input.get("session_id") or f"anon-{uuid.uuid4().hex[:12]}"
 
     # Determine text to match against
     if event_type == _USERPROMPTSUBMIT:
