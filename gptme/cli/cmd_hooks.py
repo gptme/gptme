@@ -255,7 +255,7 @@ def status(workspace: Path) -> None:
 @click.option(
     "--workspace",
     default=None,
-    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    type=click.Path(file_okay=False, path_type=Path),
     help="Workspace directory (must contain gptme.toml). "
     "Overrides auto-detection from cwd. "
     "Useful for testing or when running outside the workspace.",
@@ -314,6 +314,14 @@ def run(workspace: Path | None = None) -> None:
         return
 
     # Find workspace root (where gptme.toml lives)
+    if workspace is not None and not workspace.exists():
+        # GPTME_WORKSPACE or --workspace pointed to a stale/deleted path;
+        # fall through to auto-detection so the hook always outputs valid JSON.
+        logger.debug(
+            "Workspace path %s does not exist; falling back to auto-detection",
+            workspace,
+        )
+        workspace = None
     if workspace is None:
         workspace = _find_workspace()
     if workspace is None:

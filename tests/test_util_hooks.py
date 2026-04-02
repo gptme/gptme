@@ -394,6 +394,25 @@ def test_run_unknown_event_returns_continue(runner: CliRunner) -> None:
     assert out.get("continue") is True
 
 
+def test_run_stale_workspace_returns_valid_json(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """Stale GPTME_WORKSPACE must not cause Click to exit without JSON output."""
+    stale_path = tmp_path / "deleted-workspace"
+    # Intentionally do NOT create this directory — it's stale.
+    event = _make_event(prompt="something interesting")
+    result = runner.invoke(
+        main,
+        ["hooks", "run", "--workspace", str(stale_path)],
+        input=event,
+        catch_exceptions=False,
+    )
+    # Must exit 0 and output valid JSON (the hook contract).
+    assert result.exit_code == 0, result.output
+    out = json.loads(result.output)
+    assert out.get("continue") is True
+
+
 # ---------------------------------------------------------------------------
 # _extract_pretooluse_text helper
 # ---------------------------------------------------------------------------
