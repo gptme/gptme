@@ -416,6 +416,58 @@ class TestAutoIncludeLessonsHook:
 
     @patch("gptme.tools.lessons._get_lesson_index")
     @patch("gptme.tools.lessons.get_config")
+    def test_skips_holdout_lessons(self, mock_config, mock_index):
+        """Lessons named in HOLDOUT_LESSONS are not auto-included."""
+        config = MagicMock()
+        config.get_env_bool.side_effect = lambda key, default: default
+        config.get_env.side_effect = lambda key: (
+            "strict-time-boxing"
+            if key == "HOLDOUT_LESSONS"
+            else "20"
+            if key == "GPTME_LESSONS_MAX_SESSION"
+            else None
+        )
+        mock_config.return_value = config
+
+        holdout = Lesson(
+            path=Path("/lessons/workflow/strict-time-boxing.md"),
+            metadata=LessonMetadata(keywords=["time boxing"]),
+            title="Strict Time Boxing",
+            description="Holdout lesson",
+            category="workflow",
+            body="Stop after 10 minutes.",
+        )
+        control = Lesson(
+            path=Path("/lessons/workflow/progress-despite-blockers.md"),
+            metadata=LessonMetadata(keywords=["blocked"]),
+            title="Progress Despite Blockers",
+            description="Control lesson",
+            category="workflow",
+            body="Keep moving.",
+        )
+        mock_idx = MagicMock()
+        mock_idx.lessons = [holdout, control]
+        mock_index.return_value = mock_idx
+
+        manager = self._make_manager([_msg("user", "I am blocked and need to move on")])
+
+        with patch("gptme.tools.lessons.LessonMatcher") as MockMatcher:
+            mock_matcher = MagicMock()
+            mock_matcher.match.return_value = [
+                _match_result(holdout, matched_by=["keyword:time boxing"]),
+                _match_result(control, matched_by=["keyword:blocked"]),
+            ]
+            MockMatcher.return_value = mock_matcher
+
+            results = list(auto_include_lessons_hook(manager))
+
+        assert len(results) == 1
+        assert isinstance(results[0], Message)
+        assert "Progress Despite Blockers" in results[0].content
+        assert "Strict Time Boxing" not in results[0].content
+
+    @patch("gptme.tools.lessons._get_lesson_index")
+    @patch("gptme.tools.lessons.get_config")
     def test_respects_session_limit(self, mock_config, mock_index):
         """Session lesson limit prevents including too many."""
         config = MagicMock()
