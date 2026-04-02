@@ -27,7 +27,7 @@ def run_swebench_evaluation(
     instance_ids: list[str] | None = None,
     repo_base_dir: str | None = None,
     output_dir: str | Path | None = None,
-) -> tuple[list[EvalResult], Path | None]:
+) -> tuple[list[EvalResult], Path]:
     """Run SWE-bench evaluation, returning results and path to predictions JSONL.
 
     The predictions JSONL file can be fed to the official SWE-bench harness::

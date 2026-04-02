@@ -137,8 +137,7 @@ def main(
             output_dir=Path(output_dir) / m.replace("/", "__"),
         )
         swebench_results[ModelConfig.from_spec(m, default_format="markdown")] = results
-        if predictions_path is not None:
-            all_predictions_paths.append(predictions_path)
+        all_predictions_paths.append(predictions_path)
 
     print("\n=== SWE-bench Results (file-coverage heuristic) ===")
     write_results(swebench_results)
@@ -159,6 +158,13 @@ def main(
         if not all_predictions_paths:
             print("No predictions generated — skipping harness run.", file=sys.stderr)
             return
+        if len(all_predictions_paths) > 1:
+            print(
+                f"Warning: --run-harness only runs the harness for the first model "
+                f"({all_predictions_paths[0]}). "
+                "Run again with a single -m to evaluate other models.",
+                file=sys.stderr,
+            )
         # Run the official harness for the first model's predictions
         # (multi-model harness runs can be done by calling this multiple times)
         predictions_path = all_predictions_paths[0]
