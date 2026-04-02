@@ -417,12 +417,12 @@ class TestAutoIncludeLessonsHook:
     @patch("gptme.tools.lessons._get_lesson_index")
     @patch("gptme.tools.lessons.get_config")
     def test_skips_holdout_lessons(self, mock_config, mock_index):
-        """Lessons named in HOLDOUT_LESSONS are not auto-included."""
+        """Lessons named in GPTME_LESSONS_HOLDOUT are not auto-included."""
         config = MagicMock()
         config.get_env_bool.side_effect = lambda key, default: default
         config.get_env.side_effect = lambda key: (
             "strict-time-boxing"
-            if key == "HOLDOUT_LESSONS"
+            if key == "GPTME_LESSONS_HOLDOUT"
             else "20"
             if key == "GPTME_LESSONS_MAX_SESSION"
             else None

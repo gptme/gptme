@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 from ..commands import CommandContext
 from ..config import get_config
 from ..hooks import HookType, StopPropagation
-from ..lessons import LessonIndex, LessonMatcher, MatchContext
+from ..lessons import Lesson, LessonIndex, LessonMatcher, MatchContext
 from ..lessons.commands import lesson
 from ..message import Message
 from .base import ToolSpec
@@ -44,7 +44,7 @@ def _parse_holdout_lessons(raw: str | None) -> set[str]:
     }
 
 
-def _is_holdout_lesson(lesson, holdout_lessons: set[str]) -> bool:
+def _is_holdout_lesson(lesson: "Lesson", holdout_lessons: set[str]) -> bool:
     """Return True if the lesson matches a configured holdout identifier."""
     if not holdout_lessons:
         return False
@@ -54,7 +54,7 @@ def _is_holdout_lesson(lesson, holdout_lessons: set[str]) -> bool:
     identifiers = {
         path_str,
         path.name.lower(),
-        (path.parent.name if path.name == "SKILL.md" else path.stem).lower(),
+        (path.parent.name if path.name.upper() == "SKILL.MD" else path.stem).lower(),
     }
 
     lesson_id = getattr(lesson.metadata, "id", None)
@@ -242,7 +242,7 @@ def auto_include_lessons_hook(
     # Get configuration
     config = get_config()
     auto_include = config.get_env_bool("GPTME_LESSONS_AUTO_INCLUDE", True)
-    holdout_lessons = _parse_holdout_lessons(config.get_env("HOLDOUT_LESSONS"))
+    holdout_lessons = _parse_holdout_lessons(config.get_env("GPTME_LESSONS_HOLDOUT"))
 
     if not auto_include:
         logger.debug("Auto-inclusion disabled")
