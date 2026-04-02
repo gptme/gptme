@@ -361,7 +361,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
             const agentName = conversation$.data.agent?.name?.get();
 
             return (
-              <div key={`${index}-${msg$.timestamp.get()}`}>
+              <div key={`${conversationId}-${index}-${msg$.timestamp.get()}`}>
                 {/* Show summary bar above first message when group is expanded */}
                 {groupSummary}
                 <ChatMessage
