@@ -401,8 +401,11 @@ def _upsert_hook_entry(
     """Insert or replace a gptme hook entry for the given event."""
     entries: list[dict] = hooks_cfg.setdefault(event, [])
     if force:
-        # Remove existing gptme entries
+        # Remove existing gptme entries before inserting the new one
         entries[:] = [e for e in entries if not _is_gptme_entry(e)]
+    elif _is_hook_installed(hooks_cfg, event):
+        # Already present for this event — skip to avoid duplicate entries
+        return
     entries.append(new_entry)
 
 

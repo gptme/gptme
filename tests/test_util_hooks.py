@@ -164,9 +164,9 @@ def test_install_partial_install_completed(runner: CliRunner, workspace: Path) -
     result = runner.invoke(main, ["hooks", "install", "--workspace", str(workspace)])
     assert result.exit_code == 0, result.output
     settings = json.loads(settings_path.read_text())
-    # Both hooks should now be present
-    assert _is_hook_installed(settings["hooks"], "UserPromptSubmit")
-    assert _is_hook_installed(settings["hooks"], "PreToolUse")
+    # Both hooks should now be present, with exactly one entry each (no duplicates)
+    assert len(settings["hooks"]["UserPromptSubmit"]) == 1
+    assert len(settings["hooks"]["PreToolUse"]) == 1
 
 
 def test_install_no_gptme_toml_fails(runner: CliRunner, tmp_path: Path) -> None:
