@@ -168,6 +168,11 @@
 .chat-message details summary {
   @apply cursor-pointer rounded-md bg-muted px-3 py-2 text-xs transition-colors;
   user-select: none;
+  list-style: none;
+}
+
+.chat-message details summary::-webkit-details-marker {
+  display: none;
 }
 
 .chat-message details:not([open]) summary {

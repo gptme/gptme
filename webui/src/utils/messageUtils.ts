@@ -4,12 +4,10 @@ import { useObservable } from '@legendapp/state/react';
 
 export const isNonUserMessage = (role?: string) => role === 'assistant' || role === 'system';
 
-/** Check if two roles belong to the same chain group (assistant/system chain together, user chains with user) */
+/** Check if two roles belong to the same chain group (only same-role messages chain) */
 const isSameChainGroup = (roleA?: string, roleB?: string): boolean => {
   if (!roleA || !roleB) return false;
-  if (roleA === roleB) return true;
-  // assistant and system chain together
-  return isNonUserMessage(roleA) && isNonUserMessage(roleB);
+  return roleA === roleB;
 };
 
 export const useMessageChainType = (

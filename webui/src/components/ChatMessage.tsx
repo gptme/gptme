@@ -438,7 +438,7 @@ export const ChatMessage: FC<Props> = ({
 
     // Role-specific background + border colors
     const roleClasses = isUser$.get()
-      ? 'bg-[#EAF4FF] text-black dark:bg-[#2A3441] dark:text-white'
+      ? 'bg-[#EAF4FF] text-black dark:bg-[#2A3441] dark:text-white ml-auto w-fit max-w-full'
       : isSystem$.get()
         ? 'font-mono border ' +
           (isError$.get()
