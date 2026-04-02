@@ -152,6 +152,10 @@ PRACTICAL_TESTS = {
     "dijkstra",
     "spiral-matrix",
     "num-islands",
+    # practical21
+    "kadane",
+    "knapsack",
+    "flood-fill",
 }
 
 
