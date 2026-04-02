@@ -427,9 +427,9 @@ def _load_lesson_dirs(workspace: Path) -> list[Path]:
     if not toml_path.exists():
         return [workspace / "lessons"]
     try:
-        try:
+        if sys.version_info >= (3, 11):
             import tomllib
-        except ImportError:
+        else:
             import tomli as tomllib  # type: ignore[no-redef]
         with open(toml_path, "rb") as f:
             cfg = tomllib.load(f)
