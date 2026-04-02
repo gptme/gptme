@@ -102,9 +102,9 @@ The evaluation suite is organized into named suites that can be run individually
   Project initialization: ``init-git``, ``init-react``, ``init-rust``. Tests the ability
   to scaffold new projects from scratch.
 
-**practical** — **practical2** — ... — **practical19**
+**practical** — **practical2** — ... — **practical21**
   A growing series of real-world programming tasks that go beyond basic file I/O.
-  The practical suites now cover 59 tasks across data processing, refactoring,
+  The practical suites now cover 62 tasks across data processing, refactoring,
   algorithms, async/concurrency, SQL, validation, graph search, dynamic
   programming, and tree data structures.
 
@@ -138,7 +138,8 @@ The evaluation suite is organized into named suites that can be run individually
   Later suites extend coverage with semver sorting, Roman numerals, matrix and
   bracket tasks, async pipelines and worker queues, SQL analytics, tries,
   LRU caches, interval merging, min-stack, knight moves, histogram area,
-  edit distance, BST operations, and coin change.
+  edit distance, BST operations, coin change, Dijkstra, spiral matrix,
+  number of islands, Kadane's algorithm, 0/1 knapsack, and flood fill.
 
   For the current authoritative suite list, run ``gptme-eval --list``.
 
@@ -156,6 +157,7 @@ Run all practical suites at once (useful for benchmarking):
     gptme-eval practical practical2 practical3 practical4 practical5 practical6 practical7 \
         practical8 practical9 practical10 practical11 practical12 practical13 \
         practical14 practical15 practical16 practical17 practical18 practical19 \
+        practical20 practical21 \
         --model anthropic/claude-sonnet-4-6
 
 
