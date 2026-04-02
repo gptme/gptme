@@ -3,6 +3,7 @@ CLI for gptme utility commands.
 
 Command groups are split into separate modules for maintainability:
 - cmd_chats.py: Chat/conversation management (list, search, export, clean, stats)
+- cmd_hooks.py: Claude Code hook installation and execution
 - cmd_mcp.py: MCP server management (list, test, info, search)
 - cmd_skills.py: Skills and lessons (list, show, search, install, validate, etc.)
 """
@@ -23,6 +24,7 @@ from ..llm.models import get_model_list, list_models, model_to_dict
 from ..message import Message
 from ..util.context import include_paths
 from .cmd_chats import chats
+from .cmd_hooks import hooks
 from .cmd_mcp import mcp
 from .cmd_skills import skills
 
@@ -38,6 +40,7 @@ def main(verbose: bool = False):
 
 # Register command groups from submodules
 main.add_command(chats)
+main.add_command(hooks)
 main.add_command(mcp)
 main.add_command(skills)
 
