@@ -1,5 +1,5 @@
 import type { FC } from 'react';
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useCallback } from 'react';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput, type ChatOptions } from './ChatInput';
 import { CollapsedStepGroup } from './CollapsedStepGroup';
@@ -192,7 +192,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     autoScrollAborted$.set(false);
   });
 
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
     isAutoScrolling$.set(true);
@@ -200,7 +200,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     requestAnimationFrame(() => {
       isAutoScrolling$.set(false);
     });
-  };
+  }, [isAutoScrolling$]);
 
   // Auto-scroll when the conversation is updated (e.g., streaming response)
   useObserveEffect(conversation$.data.log, () => {
@@ -212,7 +212,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   // Scroll to bottom when switching conversations so the latest response is visible
   useEffect(() => {
     requestAnimationFrame(scrollToBottom);
-  }, [conversationId]);
+  }, [conversationId, scrollToBottom]);
 
   const handleSendMessage = (message: string, options?: ChatOptions) => {
     sendMessage({ message, options });
