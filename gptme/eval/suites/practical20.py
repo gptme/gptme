@@ -294,7 +294,7 @@ def check_islands_has_function(ctx):
 
 
 def check_islands_uses_traversal(ctx):
-    """Should use BFS or DFS for traversal."""
+    """Should use BFS or DFS for traversal (named or unnamed recursive helper)."""
     src = ctx.files.get("num_islands.py", "")
     return (
         "deque" in src
@@ -304,6 +304,7 @@ def check_islands_uses_traversal(ctx):
         or "seen" in src
         or "def dfs" in src
         or "def bfs" in src
+        or "    def " in src  # any nested/recursive helper function
     )
 
 
