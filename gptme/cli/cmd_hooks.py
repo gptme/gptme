@@ -235,16 +235,16 @@ def status(workspace: Path) -> None:
 
     for scope, settings_path in paths_to_check:
         click.echo(f"[{scope}] {settings_path}")
+        hooks_cfg: dict = {}
         if not settings_path.exists():
             click.echo("  ⚪ settings.json not found")
-            continue
-        try:
-            settings: dict = json.loads(settings_path.read_text())
-        except json.JSONDecodeError:
-            click.echo("  ❌ settings.json parse error")
-            continue
+        else:
+            try:
+                settings: dict = json.loads(settings_path.read_text())
+                hooks_cfg = settings.get("hooks", {})
+            except json.JSONDecodeError:
+                click.echo("  ❌ settings.json parse error")
 
-        hooks_cfg = settings.get("hooks", {})
         for event in (_USERPROMPTSUBMIT, _PRETOOLUSE):
             installed = _is_hook_installed(hooks_cfg, event)
             mark = "✅" if installed else "⚪"
