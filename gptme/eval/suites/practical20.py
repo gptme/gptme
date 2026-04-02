@@ -110,7 +110,7 @@ def check_dijkstra_has_function(ctx):
 def check_dijkstra_uses_heap(ctx):
     """Should use heapq for efficiency."""
     src = ctx.files.get("dijkstra.py", "")
-    return "heapq" in src or "heap" in src.lower()
+    return "heapq" in src
 
 
 def check_dijkstra_exit(ctx):
@@ -253,15 +253,14 @@ r = num_islands([
 if r != 1:
     errors.append(f"case 6: one big island -> 1, got {r}")
 
-# Case 7: classic LeetCode example 2 (3 islands)
+# Case 7: isolated cells (checkerboard-like) — 5 islands
 r = num_islands([
-    ["1","1","0","0","0"],
-    ["1","1","0","0","0"],
+    ["1","0","0","0","1"],
+    ["0","1","0","1","0"],
     ["0","0","1","0","0"],
-    ["0","0","0","1","1"],
 ])
-if r != 3:
-    errors.append(f"case 7: 3 islands -> 3, got {r}")
+if r != 5:
+    errors.append(f"case 7: 5 isolated cells -> 5, got {r}")
 
 # Case 8: diagonal cells are NOT connected (only 4-directional)
 r = num_islands([["1","0"],["0","1"]])

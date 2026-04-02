@@ -37,8 +37,12 @@ def test_dijkstra_has_function():
 def test_dijkstra_uses_heap():
     src = "import heapq\ndef dijkstra(graph, source):\n    heapq.heappush([], (0, source))"
     assert check_dijkstra_uses_heap(_ctx("", files={"dijkstra.py": src}))
+    # No heapq import at all
     src_no_heap = "def dijkstra(graph, source):\n    for node in graph: pass"
     assert not check_dijkstra_uses_heap(_ctx("", files={"dijkstra.py": src_no_heap}))
+    # False-positive guard: 'cheapest' contains 'heap' as substring but is NOT heapq
+    src_false_pos = "def dijkstra(graph, source):\n    cheapest_dist = {source: 0}\n    return cheapest_dist"
+    assert not check_dijkstra_uses_heap(_ctx("", files={"dijkstra.py": src_false_pos}))
 
 
 # --- spiral-matrix checks ---
