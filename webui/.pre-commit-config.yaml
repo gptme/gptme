@@ -11,11 +11,10 @@ repos:
   - id: lint
     name: lint
     stages: [pre-commit]
-    types: [javascript, jsx, ts, tsx]
+    types_or: [javascript, jsx, ts, tsx]
     entry: npm run lint:fix
     language: system
     pass_filenames: false
-    always_run: true
 
   # handled by lint:fix
   #- id: format
@@ -30,11 +29,10 @@ repos:
   - id: typecheck
     name: typecheck
     stages: [pre-commit]
-    types: [javascript, jsx, ts, tsx]
+    types_or: [javascript, jsx, ts, tsx]
     entry: npm run typecheck
     language: system
     pass_filenames: false
-    always_run: true
 
   # Uncomment the following lines to enable testing hooks
   # Don't commit them uncommented since they take too long to run every time
