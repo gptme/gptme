@@ -47,7 +47,7 @@ if errors:
         print(f"FAIL: {e}")
     sys.exit(1)
 
-print("All 8 cases passed.")
+print("All 8 edit-distance cases passed.")
 print("Levenshtein edit distance implementation correct.")
 """
 
@@ -58,8 +58,8 @@ def check_editdist_file(ctx):
 
 
 def check_editdist_all_pass(ctx):
-    """All 8 cases should pass."""
-    return "All 8 cases passed" in ctx.stdout
+    """All 8 edit-distance cases should pass."""
+    return "All 8 edit-distance cases passed" in ctx.stdout
 
 
 def check_editdist_has_function(ctx):
@@ -199,7 +199,7 @@ if errors:
         print(f"FAIL: {e}")
     sys.exit(1)
 
-print("All 8 cases passed.")
+print("All 8 coin-change cases passed.")
 print("Coin change minimum-coins DP correct.")
 """
 
@@ -210,8 +210,8 @@ def check_coinchange_file(ctx):
 
 
 def check_coinchange_all_pass(ctx):
-    """All 8 cases should pass."""
-    return "All 8 cases passed" in ctx.stdout
+    """All 8 coin-change cases should pass."""
+    return "All 8 coin-change cases passed" in ctx.stdout
 
 
 def check_coinchange_has_function(ctx):

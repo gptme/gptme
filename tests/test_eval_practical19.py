@@ -19,8 +19,10 @@ def _ctx(stdout: str, *, files: dict[str, str] | None = None, exit_code: int = 0
 
 
 def test_editdist_all_pass():
-    assert check_editdist_all_pass(_ctx("All 8 cases passed."))
+    assert check_editdist_all_pass(_ctx("All 8 edit-distance cases passed."))
     assert not check_editdist_all_pass(_ctx("FAIL: edit_distance('kitten', 'sitting')"))
+    # must not match coin-change output
+    assert not check_editdist_all_pass(_ctx("All 8 coin-change cases passed."))
 
 
 def test_editdist_has_function():
@@ -66,8 +68,10 @@ def test_bst_has_methods():
 
 
 def test_coinchange_all_pass():
-    assert check_coinchange_all_pass(_ctx("All 8 cases passed."))
+    assert check_coinchange_all_pass(_ctx("All 8 coin-change cases passed."))
     assert not check_coinchange_all_pass(_ctx("FAIL: coin_change([2], 3)"))
+    # must not match edit-distance output
+    assert not check_coinchange_all_pass(_ctx("All 8 edit-distance cases passed."))
 
 
 def test_coinchange_has_function():
