@@ -489,6 +489,13 @@
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context-retrieve">retrieve</a></li>
 </ul>
 </li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-hooks">hooks</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-hooks-install">install</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-hooks-run">run</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-hooks-status">status</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-hooks-uninstall">uninstall</a></li>
+</ul>
+</li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-llm">llm</a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-llm-generate">generate</a></li>
 </ul>
@@ -1278,6 +1285,111 @@ date ranges, message totals, and activity breakdown.</p>
 
 </section>
 </section>
+<section id="gptme-util-hooks">
+<h3>hooks<a class="headerlink" href="#gptme-util-hooks" title="Link to this heading">#</a></h3>
+<p>Integrate gptme lessons with Claude Code via hooks.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>hooks<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>COMMAND<span class="w"> </span><span class="o">[</span>ARGS<span class="o">]</span>...
+</pre></div>
+</div>
+<section id="gptme-util-hooks-install">
+<h4>install<a class="headerlink" href="#gptme-util-hooks-install" title="Link to this heading">#</a></h4>
+<p>Register gptme lesson injection hooks in a Claude Code settings.json.</p>
+<p>By default installs into WORKSPACE/.claude/settings.json.
+Use –global to install into ~/.claude/settings.json instead.</p>
+<p>After installation, Claude Code will automatically inject relevant gptme
+lessons as additionalContext when the prompt or tool inputs match lesson
+keywords.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>hooks<span class="w"> </span>install<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-hooks-install-workspace">
+<span class="sig-name descname"><span class="pre">--workspace</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;workspace&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-util-hooks-install-workspace" title="Link to this definition">#</a></dt>
+<dd><p>Workspace directory (must contain gptme.toml). Defaults to current directory.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-hooks-install-global">
+<span class="sig-name descname"><span class="pre">--global</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-hooks-install-global" title="Link to this definition">#</a></dt>
+<dd><p>Install into ~/.claude/settings.json instead of workspace settings.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-hooks-install-force">
+<span class="sig-name descname"><span class="pre">--force</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-hooks-install-force" title="Link to this definition">#</a></dt>
+<dd><p>Overwrite existing gptme hook entries if already present.</p>
+</dd></dl>
+
+</section>
+<section id="gptme-util-hooks-run">
+<h4>run<a class="headerlink" href="#gptme-util-hooks-run" title="Link to this heading">#</a></h4>
+<p>Execute gptme lesson matching for a Claude Code hook event.</p>
+<p>Reads the CC hook event JSON from stdin and prints an additionalContext
+response. This is the command registered in settings.json by ‘hooks install’.</p>
+<p>Event types handled:
+- UserPromptSubmit: matches against the user’s prompt text
+- PreToolUse: matches against tool name, inputs, and recent transcript</p>
+<p>Output JSON format:
+{“additionalContext”: “…”, “continue”: true}</p>
+<p>Lessons are matched using gptme’s keyword/pattern system and workspace’s
+gptme.toml [lessons] dirs. Already-injected lessons are tracked per session
+to avoid duplicates.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>hooks<span class="w"> </span>run<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-hooks-run-workspace">
+<span class="sig-name descname"><span class="pre">--workspace</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;workspace&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-util-hooks-run-workspace" title="Link to this definition">#</a></dt>
+<dd><p>Workspace directory (must contain gptme.toml). Overrides auto-detection from cwd. Useful for testing or when running outside the workspace.</p>
+</dd></dl>
+
+<p class="rubric">Environment variables</p>
+<dl class="std envvar" id="gptme-util-hooks-run-workspace-gptme-workspace">
+<dt class="sig sig-object std">
+<span class="sig-name descname"><span class="pre">GPTME_WORKSPACE</span></span></dt>
+<dd><blockquote>
+<div><p>Provide a default for <a class="reference internal" href="#cmdoption-gptme-util-hooks-run-workspace"><code class="xref std std-option docutils literal notranslate"><span class="pre">--workspace</span></code></a></p>
+</div></blockquote>
+</dd></dl>
+
+</section>
+<section id="gptme-util-hooks-status">
+<h4>status<a class="headerlink" href="#gptme-util-hooks-status" title="Link to this heading">#</a></h4>
+<p>Show gptme hook installation status for a workspace.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>hooks<span class="w"> </span>status<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-hooks-status-workspace">
+<span class="sig-name descname"><span class="pre">--workspace</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;workspace&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-util-hooks-status-workspace" title="Link to this definition">#</a></dt>
+<dd><p>Workspace directory. Defaults to current directory.</p>
+</dd></dl>
+
+</section>
+<section id="gptme-util-hooks-uninstall">
+<h4>uninstall<a class="headerlink" href="#gptme-util-hooks-uninstall" title="Link to this heading">#</a></h4>
+<p>Remove gptme lesson injection hooks from a Claude Code settings.json.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>hooks<span class="w"> </span>uninstall<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-hooks-uninstall-workspace">
+<span class="sig-name descname"><span class="pre">--workspace</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;workspace&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-util-hooks-uninstall-workspace" title="Link to this definition">#</a></dt>
+<dd><p>Workspace directory. Defaults to current directory.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-hooks-uninstall-global">
+<span class="sig-name descname"><span class="pre">--global</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-hooks-uninstall-global" title="Link to this definition">#</a></dt>
+<dd><p>Remove from ~/.claude/settings.json.</p>
+</dd></dl>
+
+</section>
+</section>
 <section id="gptme-util-llm">
 <h3>llm<a class="headerlink" href="#gptme-util-llm" title="Link to this heading">#</a></h3>
 <p>LLM-related utilities.</p>
@@ -2015,6 +2127,13 @@ Use –all to include unavailable tools as well.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context">context</a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context-index">index</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context-retrieve">retrieve</a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-hooks">hooks</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-hooks-install">install</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-hooks-run">run</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-hooks-status">status</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-hooks-uninstall">uninstall</a></li>
 </ul>
 </li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-llm">llm</a><ul class="nav section-nav flex-column">
