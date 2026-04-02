@@ -228,7 +228,7 @@ r = num_islands([["1","1"],["1","1"]])
 if r != 1:
     errors.append(f"case 3: 2x2 land -> 1, got {r}")
 
-# Case 4: two islands
+# Case 4: four islands (isolated corners)
 r = num_islands([["1","0","1"],["0","0","0"],["1","0","1"]])
 if r != 4:
     errors.append(f"case 4: corners -> 4, got {r}")
