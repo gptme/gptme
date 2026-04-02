@@ -600,7 +600,11 @@ writing tests, generating CLI programs, and fixing bugs. (~18 tests)</p>
 <dt><strong>init_projects</strong></dt><dd><p>Project initialization: <code class="docutils literal notranslate"><span class="pre">init-git</span></code>, <code class="docutils literal notranslate"><span class="pre">init-react</span></code>, <code class="docutils literal notranslate"><span class="pre">init-rust</span></code>. Tests the ability
 to scaffold new projects from scratch.</p>
 </dd>
-<dt><strong>practical</strong> — <strong>practical2</strong> — <strong>practical3</strong> — <strong>practical4</strong> — <strong>practical5</strong> — <strong>practical6</strong> — <strong>practical7</strong></dt><dd><p>A growing series of real-world programming tasks that go beyond basic file I/O:</p>
+<dt><strong>practical</strong> — <strong>practical2</strong> — … — <strong>practical19</strong></dt><dd><p>A growing series of real-world programming tasks that go beyond basic file I/O.
+The practical suites now cover 59 tasks across data processing, refactoring,
+algorithms, async/concurrency, SQL, validation, graph search, dynamic
+programming, and tree data structures.</p>
+<p>Early suites give a good feel for the format:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <thead>
 <tr class="row-odd"><th class="head"><p>Suite</p></th>
@@ -653,6 +657,11 @@ changelog-gen</p></td>
 </tbody>
 </table>
 </div>
+<p>Later suites extend coverage with semver sorting, Roman numerals, matrix and
+bracket tasks, async pipelines and worker queues, SQL analytics, tries,
+LRU caches, interval merging, min-stack, knight moves, histogram area,
+edit distance, BST operations, and coin change.</p>
+<p>For the current authoritative suite list, run <code class="docutils literal notranslate"><span class="pre">gptme-eval</span> <span class="pre">--list</span></code>.</p>
 </dd>
 </dl>
 <p>Run specific tests or suites by name:</p>
@@ -662,6 +671,8 @@ gptme-eval<span class="w"> </span>sort-and-filter<span class="w"> </span>rename-
 </div>
 <p>Run all practical suites at once (useful for benchmarking):</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-eval<span class="w"> </span>practical<span class="w"> </span>practical2<span class="w"> </span>practical3<span class="w"> </span>practical4<span class="w"> </span>practical5<span class="w"> </span>practical6<span class="w"> </span>practical7<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>practical8<span class="w"> </span>practical9<span class="w"> </span>practical10<span class="w"> </span>practical11<span class="w"> </span>practical12<span class="w"> </span>practical13<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>practical14<span class="w"> </span>practical15<span class="w"> </span>practical16<span class="w"> </span>practical17<span class="w"> </span>practical18<span class="w"> </span>practical19<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--model<span class="w"> </span>anthropic/claude-sonnet-4-6
 </pre></div>
 </div>
