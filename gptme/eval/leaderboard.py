@@ -144,6 +144,10 @@ PRACTICAL_TESTS = {
     "min-stack",
     "knight-moves",
     "histogram-area",
+    # practical19
+    "edit-distance",
+    "bst-operations",
+    "coin-change",
 }
 
 
