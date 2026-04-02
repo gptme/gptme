@@ -69,9 +69,6 @@ export function customRenderer(
       let parent = data.nodes[data.index];
       let slot;
 
-      // THINKING_SUMMARY is exported from smd.js but not in the .d.ts
-      const THINKING_SUMMARY = 36;
-
       switch (type) {
         case smd.CODE_BLOCK:
         case smd.CODE_FENCE: {
@@ -80,7 +77,7 @@ export function customRenderer(
             parent.setAttribute('open', 'true');
           }
           data.summary = parent.appendChild(document.createElement('summary'));
-          data.summary.innerHTML = '<span class="details-emoji">💻</span> Code';
+          data.summary.textContent = '💻 Code';
 
           if (useReactTabbed) {
             // Create placeholder element to be replaced with React component later
@@ -98,12 +95,6 @@ export function customRenderer(
           data.nodes[++data.index] = parent.appendChild(slot);
           // }
           break;
-        }
-        case THINKING_SUMMARY: {
-          // Track the summary element so end_token can rewrite it with the emoji span
-          smd.default_add_token(data, type);
-          data.summary = data.nodes[data.index] as HTMLElement;
-          return;
         }
         default:
           smd.default_add_token(data, type);
@@ -132,17 +123,6 @@ export function customRenderer(
         } catch (error) {
           console.error('Error rendering TabbedCodeBlock:', error);
         }
-      }
-
-      // Rewrite thinking summary text to include emoji span for custom caret
-      if (data.summary && !data.code) {
-        const text = data.summary.textContent || '';
-        // Match "emoji rest" pattern (emoji is first character/grapheme)
-        const match = text.match(/^(\S+)\s+(.*)/);
-        if (match) {
-          data.summary.innerHTML = `<span class="details-emoji">${match[1]}</span> ${match[2]}`;
-        }
-        data.summary = null;
       }
 
       // Convert short code blocks (≤2 lines) from <details> to inline display.
@@ -207,7 +187,7 @@ export function customRenderer(
         data.lang = value;
         if (data.summary) {
           const emoji = getCodeBlockEmoji(value);
-          data.summary.innerHTML = `<span class="details-emoji">${emoji}</span> ${value}`;
+          data.summary.textContent = `${emoji} ${value}`;
         }
         if (data.code) {
           const langFromInfo = value ? value.split('.').pop() : undefined;

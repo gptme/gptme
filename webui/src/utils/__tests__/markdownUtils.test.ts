@@ -95,21 +95,21 @@ describe('transformThinkingTags', () => {
   it('should transform <thinking> tags to details/summary', () => {
     const input = 'Before <thinking>Some thoughts</thinking> After';
     const expected =
-      'Before <details type="thinking"><summary><span class="details-emoji">💭</span> Thinking</summary>\n\nSome thoughts\n\n</details> After';
+      'Before <details type="thinking"><summary>💭 Thinking</summary>\n\nSome thoughts\n\n</details> After';
     expect(transformThinkingTags(input)).toBe(expected);
   });
 
   it('should transform <think> tags to details/summary', () => {
     const input = 'Before <think>Some thoughts</think> After';
     const expected =
-      'Before <details type="thinking"><summary><span class="details-emoji">💭</span> Thinking</summary>\n\nSome thoughts\n\n</details> After';
+      'Before <details type="thinking"><summary>💭 Thinking</summary>\n\nSome thoughts\n\n</details> After';
     expect(transformThinkingTags(input)).toBe(expected);
   });
 
   it('should handle multiple thinking tags', () => {
     const input = '<thinking>First thought</thinking> Middle <thinking>Second thought</thinking>';
     const expected =
-      '<details type="thinking"><summary><span class="details-emoji">💭</span> Thinking</summary>\n\nFirst thought\n\n</details> Middle <details type="thinking"><summary><span class="details-emoji">💭</span> Thinking</summary>\n\nSecond thought\n\n</details>';
+      '<details type="thinking"><summary>💭 Thinking</summary>\n\nFirst thought\n\n</details> Middle <details type="thinking"><summary>💭 Thinking</summary>\n\nSecond thought\n\n</details>';
     expect(transformThinkingTags(input)).toBe(expected);
   });
 
@@ -121,7 +121,7 @@ describe('transformThinkingTags', () => {
   it('preserves content outside thinking tags', () => {
     const input = 'Before <thinking>thinking</thinking> after';
     const expected =
-      'Before <details type="thinking"><summary><span class="details-emoji">💭</span> Thinking</summary>\n\nthinking\n\n</details> after';
+      'Before <details type="thinking"><summary>💭 Thinking</summary>\n\nthinking\n\n</details> after';
     expect(transformThinkingTags(input)).toBe(expected);
   });
 });
@@ -137,7 +137,7 @@ describe('parseMarkdownContent', () => {
   it('handles code blocks with language tags', () => {
     const input = "```python\nprint('hello')\n```";
     const result = parseMarkdownContent(input);
-    expect(result).toContain('<summary><span class="details-emoji">💻</span> python</summary>');
+    expect(result).toContain('<summary>💻 python</summary>');
     expect(result).toContain('<span class="hljs-built_in">print</span>');
     expect(result).toContain('<span class="hljs-string">&#x27;hello&#x27;</span>');
   });
@@ -145,38 +145,38 @@ describe('parseMarkdownContent', () => {
   it('detects file paths in code blocks', () => {
     const input = "```src/test.py\nprint('hello')\n```";
     const result = parseMarkdownContent(input);
-    expect(result).toContain('<summary><span class="details-emoji">📄</span> src/test.py</summary>');
+    expect(result).toContain('<summary>📄 src/test.py</summary>');
   });
 
   it('detects tool commands in code blocks', () => {
     const input = '```shell\nls -la\n```';
     const result = parseMarkdownContent(input);
-    expect(result).toContain('<summary><span class="details-emoji">🛠️</span> shell</summary>');
+    expect(result).toContain('<summary>🛠️ shell</summary>');
   });
 
   it('detects output blocks', () => {
     const input = '```stdout\nHello world\n```';
     const result = parseMarkdownContent(input);
-    expect(result).toContain('<summary><span class="details-emoji">📤</span> stdout</summary>');
+    expect(result).toContain('<summary>📤 stdout</summary>');
   });
 
   it('detects write operations in code blocks', () => {
     const input = '```save test.txt\nHello world\n```';
     const result = parseMarkdownContent(input);
-    expect(result).toContain('<summary><span class="details-emoji">📝</span> save test.txt</summary>');
+    expect(result).toContain('<summary>📝 save test.txt</summary>');
   });
 
   it('handles thinking tags', () => {
     const input = '<thinking>Some thought</thinking>';
     const result = parseMarkdownContent(input);
-    expect(result).toContain('<summary><span class="details-emoji">💭</span> Thinking</summary>');
+    expect(result).toContain('<summary>💭 Thinking</summary>');
     expect(result).toContain('Some thought');
   });
 
   it('handles nested code blocks', () => {
     const input = "```markdown\nHere's a nested block\n```python\nprint('hello')\n```\n```";
     const result = parseMarkdownContent(input);
-    expect(result).toContain('<summary><span class="details-emoji">💻</span> markdown</summary>');
+    expect(result).toContain('<summary>💻 markdown</summary>');
     expect(result).toContain('<span class="hljs-code">```python');
     expect(result).toContain('print(&#x27;hello&#x27;)');
   });
@@ -243,9 +243,9 @@ You can try the web UI by:
     expect(result).toContain('<li>📄 File paths</li>');
 
     // Check code blocks with correct emoji indicators
-    expect(result).toContain('<summary><span class="details-emoji">📄</span> /path/to/file.py</summary>');
-    expect(result).toContain('<summary><span class="details-emoji">🛠️</span> shell</summary>');
-    expect(result).toContain('<summary><span class="details-emoji">📤</span> stdout</summary>');
+    expect(result).toContain('<summary>📄 /path/to/file.py</summary>');
+    expect(result).toContain('<summary>🛠️ shell</summary>');
+    expect(result).toContain('<summary>📤 stdout</summary>');
 
     // Check code block content with syntax highlighting
     expect(result).toContain('<span class="hljs-comment"># This shows as a file path</span>');
@@ -264,7 +264,7 @@ You can try the web UI by:
     expect(result).toContain('http://localhost:5701');
 
     // Check thinking block
-    expect(result).toContain('<details type="thinking"><summary><span class="details-emoji">💭</span> Thinking</summary>');
+    expect(result).toContain('<details type="thinking"><summary>💭 Thinking</summary>');
     expect(result).toContain('Thinking blocks are collapsible');
   });
 });

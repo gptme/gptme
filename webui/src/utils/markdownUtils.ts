@@ -137,7 +137,7 @@ export function transformThinkingTags(content: string) {
   return content.replace(
     /<think(?:ing)?>([\s\S]*?)<\/think(?:ing)?>/g,
     (_match: string, thinkingContent: string) =>
-      `<details type="thinking"><summary><span class="details-emoji">💭</span> Thinking</summary>\n\n${thinkingContent}\n\n</details>`
+      `<details type="thinking"><summary>💭 Thinking</summary>\n\n${thinkingContent}\n\n</details>`
   );
 }
 
@@ -158,7 +158,7 @@ export function parseMarkdownContent(content: string) {
       const emoji = getCodeBlockEmoji(langtag);
       return `
             <details>
-                <summary><span class="details-emoji">${emoji}</span> ${langtag}</summary>
+                <summary>${emoji} ${langtag}</summary>
                 <pre><code class="${classes}">${code}</code></pre>
             </details>
             `;
