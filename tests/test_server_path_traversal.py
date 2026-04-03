@@ -198,7 +198,7 @@ class TestBranchParameterValidation:
 class TestValidateBranchUnit:
     """Unit tests for _validate_branch function (requires Flask app context)."""
 
-    def test_rejects_traversal_payloads(self, client: FlaskClient):
+    def test_rejects_traversal_payloads(self):
         """All traversal payloads must be rejected by _validate_branch."""
         from gptme.server.api_v2_common import _validate_branch
         from gptme.server.app import create_app
@@ -210,7 +210,7 @@ class TestValidateBranchUnit:
                     f"Should reject: {payload}"
                 )
 
-    def test_accepts_valid_names(self, client: FlaskClient):
+    def test_accepts_valid_names(self):
         """Valid branch names should pass validation."""
         from gptme.server.api_v2_common import _validate_branch
         from gptme.server.app import create_app
@@ -220,7 +220,7 @@ class TestValidateBranchUnit:
             for name in ["main", "feature-1", "my_branch", "v2.0"]:
                 assert _validate_branch(name) is None, f"Should accept: {name}"
 
-    def test_rejects_null_branch(self, client: FlaskClient):
+    def test_rejects_null_branch(self):
         """A null branch value must be rejected with 400, not raise TypeError (500)."""
         from gptme.server.api_v2_common import _validate_branch
         from gptme.server.app import create_app
@@ -232,7 +232,7 @@ class TestValidateBranchUnit:
             _response, status_code = result
             assert status_code == 400
 
-    def test_rejects_non_string_branch(self, client: FlaskClient):
+    def test_rejects_non_string_branch(self):
         """Non-string branch values (int, list) must be rejected with 400."""
         from gptme.server.api_v2_common import _validate_branch
         from gptme.server.app import create_app
