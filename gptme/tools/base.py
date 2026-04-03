@@ -712,7 +712,7 @@ class ToolUse:
 
             # Handle gptme format: <tool-use><toolname>...</toolname></tool-use>
             for tooluse in tree.xpath("//tool-use"):
-                for child in tooluse.getchildren():
+                for child in tooluse:
                     tool_name = child.tag
                     args = list(child.attrib.values())
                     # Use itertext() to capture text across child elements
