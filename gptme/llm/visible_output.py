@@ -51,7 +51,7 @@ class VisibleOutputSanitizer:
         line = "".join(self._raw_line)
         self._raw_line.clear()
 
-        if self._in_thinking or line in self._OPENING_TAGS | self._CLOSING_TAGS:
+        if self._in_thinking or line.strip() in self._OPENING_TAGS | self._CLOSING_TAGS:
             self._visible_line.clear()
             self._just_closed_thinking = False
             return ""
