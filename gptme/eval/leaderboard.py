@@ -160,6 +160,10 @@ PRACTICAL_TESTS = {
     "trapping-rain-water",
     "word-break",
     "permutations",
+    # practical23
+    "lcs",
+    "stock-cooldown",
+    "rotate-image",
 }
 
 
