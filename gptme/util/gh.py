@@ -1460,6 +1460,11 @@ def merge_github_pr(
         return response
 
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        if isinstance(e, subprocess.TimeoutExpired):
+            return {
+                "success": False,
+                "message": f"Failed to merge PR #{pr_number}: gh CLI timed out after {e.timeout}s",
+            }
         stderr = getattr(e, "stderr", "") or ""
         stderr = stderr.strip() if stderr else ""
         # Provide helpful messages for common failure modes
@@ -1540,6 +1545,13 @@ def create_github_issue(
             "message": f"Created issue #{number}: {title}",
         }
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        if isinstance(e, subprocess.TimeoutExpired):
+            return {
+                "success": False,
+                "number": 0,
+                "url": "",
+                "message": f"Failed to create issue: gh CLI timed out after {e.timeout}s",
+            }
         stderr = getattr(e, "stderr", "") or ""
         stderr = stderr.strip() if stderr else ""
         return {
@@ -1596,6 +1608,12 @@ def comment_on_github(
             "message": f"Commented on {subcmd} #{number}",
         }
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        if isinstance(e, subprocess.TimeoutExpired):
+            return {
+                "success": False,
+                "url": "",
+                "message": f"Failed to comment on {subcmd} #{number}: gh CLI timed out after {e.timeout}s",
+            }
         stderr = getattr(e, "stderr", "") or ""
         stderr = stderr.strip() if stderr else ""
         return {

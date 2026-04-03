@@ -1373,7 +1373,7 @@ class TestSubprocessTimeouts:
     @patch("gptme.util.gh.subprocess.run")
     def test_get_github_issue_content_timeout(self, mock_run):
         """TimeoutExpired on issue content returns None gracefully."""
-        mock_run.side_effect = subprocess.TimeoutExpired(cmd="gh", timeout=30)
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="gh", timeout=60)
         result = get_github_issue_content("owner", "repo", "1")
         assert result is None
 
@@ -1383,3 +1383,33 @@ class TestSubprocessTimeouts:
         mock_run.side_effect = subprocess.TimeoutExpired(cmd="gh", timeout=30)
         result = _get_github_actions_status("owner", "repo", "abc123")
         assert result is None
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_merge_github_pr_timeout_message(self, mock_run):
+        """TimeoutExpired on merge returns a clean timeout message (not raw CLI invocation)."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="gh", timeout=30)
+        result = merge_github_pr("owner", "repo", 1)
+        assert result["success"] is False
+        msg = str(result["message"])
+        assert "timed out" in msg
+        assert "gh pr merge" not in msg
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_create_github_issue_timeout_message(self, mock_run):
+        """TimeoutExpired on issue creation returns a clean timeout message."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="gh", timeout=30)
+        result = create_github_issue("owner", "repo", "title", "body")
+        assert result["success"] is False
+        msg = str(result["message"])
+        assert "timed out" in msg
+        assert "gh issue create" not in msg
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_comment_on_github_timeout_message(self, mock_run):
+        """TimeoutExpired on commenting returns a clean timeout message."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="gh", timeout=30)
+        result = comment_on_github("owner", "repo", 1, "body")
+        assert result["success"] is False
+        msg = str(result["message"])
+        assert "timed out" in msg
+        assert "gh issue comment" not in msg
