@@ -383,6 +383,27 @@ def test_v2_edit_message_rejects_invalid_files_payload(
     assert "files" not in conversation["log"][user_index]
 
 
+@pytest.mark.parametrize(
+    "files_payload",
+    [
+        "attachments/image.png",
+        ["attachments/image.png", 123],
+        {"path": "attachments/image.png"},
+    ],
+)
+def test_v2_post_message_rejects_invalid_files_payload(
+    client: FlaskClient, files_payload: object
+):
+    """Test that POST message rejects malformed files payloads with a 400."""
+    conversation_id = create_conversation(client)["conversation_id"]
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "Test message", "files": files_payload},
+    )
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "files must be a list of strings"}
+
+
 def test_v2_edit_message_preserves_uri_files(client: FlaskClient):
     """Test that editing message files preserves URI attachments."""
     conversation_id = create_conversation(client)["conversation_id"]

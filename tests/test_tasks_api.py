@@ -751,3 +751,72 @@ class TestTasksCreateAPI:
         get_resp = client.get(f"/api/v2/tasks/{task_id}")
         assert get_resp.status_code == 200
         assert get_resp.json["content"] == "Persist me"
+
+
+class TestTasksInputValidation:
+    """Tests for input validation on create and update endpoints."""
+
+    def test_create_invalid_target_type(self, client):
+        resp = client.post(
+            "/api/v2/tasks",
+            json={"content": "Test", "target_type": "invalid"},
+        )
+        assert resp.status_code == 400
+        assert "target_type" in resp.json["error"]
+
+    def test_create_non_string_content(self, client):
+        resp = client.post(
+            "/api/v2/tasks",
+            json={"content": 123},
+        )
+        assert resp.status_code == 400
+        assert "content" in resp.json["error"]
+
+    def test_create_non_dict_metadata(self, client):
+        resp = client.post(
+            "/api/v2/tasks",
+            json={"content": "Test", "metadata": "not-a-dict"},
+        )
+        assert resp.status_code == 400
+        assert "metadata" in resp.json["error"]
+
+    def test_create_list_metadata(self, client):
+        resp = client.post(
+            "/api/v2/tasks",
+            json={"content": "Test", "metadata": [1, 2, 3]},
+        )
+        assert resp.status_code == 400
+        assert "metadata" in resp.json["error"]
+
+    def test_update_invalid_target_type(self, client, sample_task):
+        resp = client.put(
+            f"/api/v2/tasks/{sample_task.id}",
+            json={"target_type": "invalid"},
+        )
+        assert resp.status_code == 400
+        assert "target_type" in resp.json["error"]
+
+    def test_update_non_string_content(self, client, sample_task):
+        resp = client.put(
+            f"/api/v2/tasks/{sample_task.id}",
+            json={"content": 42},
+        )
+        assert resp.status_code == 400
+        assert "content" in resp.json["error"]
+
+    def test_update_non_dict_metadata(self, client, sample_task):
+        resp = client.put(
+            f"/api/v2/tasks/{sample_task.id}",
+            json={"metadata": "not-a-dict"},
+        )
+        assert resp.status_code == 400
+        assert "metadata" in resp.json["error"]
+
+    def test_update_valid_target_types(self, client, sample_task):
+        """Verify all valid target_type values are accepted."""
+        for tt in ("stdout", "pr", "email", "tweet"):
+            resp = client.put(
+                f"/api/v2/tasks/{sample_task.id}",
+                json={"target_type": tt},
+            )
+            assert resp.status_code == 200, f"target_type '{tt}' should be valid"
