@@ -94,6 +94,8 @@ class Subagent:
     isolated: bool = False
     worktree_path: Path | None = None
     repo_path: Path | None = None
+    # Maximum time (seconds) the subprocess monitor will wait before killing
+    timeout: int = 1800  # 30 minutes
 
     def get_log(self) -> "LogManager":
         # noreorder

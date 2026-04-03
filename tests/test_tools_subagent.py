@@ -762,6 +762,93 @@ def test_subprocess_monitor_thread_started():
                     sa.process.kill()
 
 
+def test_subprocess_monitor_timeout():
+    """Test that _monitor_subprocess kills the process on timeout."""
+    import subprocess
+    from unittest.mock import MagicMock, patch
+
+    from gptme.tools.subagent.execution import _monitor_subprocess
+    from gptme.tools.subagent.types import (
+        Subagent,
+        _subagent_results,
+        _subagent_results_lock,
+    )
+
+    # Create a mock process that simulates a timeout
+    mock_process = MagicMock(spec=subprocess.Popen)
+    mock_process.wait.side_effect = [
+        subprocess.TimeoutExpired(cmd="gptme", timeout=2),  # first call: timeout
+        None,  # second call (after kill): reap succeeds
+    ]
+    mock_process.returncode = -9  # SIGKILL
+
+    sa = Subagent(
+        agent_id="timeout-test",
+        prompt="Test",
+        thread=None,
+        logdir=Path("/tmp/fake-logdir"),
+        model=None,
+        process=mock_process,
+        execution_mode="subprocess",
+        timeout=2,  # 2 second timeout for test
+    )
+
+    with patch("gptme.tools.subagent.hooks.notify_completion"):
+        _monitor_subprocess(sa)
+
+    # Verify: process was killed
+    mock_process.kill.assert_called_once()
+
+    # Verify: result was cached as failure with timeout message
+    with _subagent_results_lock:
+        result = _subagent_results.get("timeout-test")
+    assert result is not None
+    assert result.status == "failure"
+    assert result.result is not None
+    assert "timeout" in result.result.lower()
+
+    # Cleanup
+    with _subagent_results_lock:
+        _subagent_results.pop("timeout-test", None)
+
+
+def test_subprocess_timeout_passed_to_subagent():
+    """Test that the timeout parameter is passed through to the Subagent dataclass."""
+    import tempfile
+    from pathlib import Path
+    from unittest.mock import patch
+
+    from gptme.tools.subagent import _subagents, subagent
+
+    _subagents.clear()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        temp_logdir = Path(tmpdir) / "logs"
+        temp_logdir.mkdir()
+
+        with patch("gptme.cli.main.get_logdir", return_value=temp_logdir):
+            subagent(
+                agent_id="timeout-param-test",
+                prompt="Test",
+                use_subprocess=True,
+                timeout=600,
+            )
+
+            sa = next(
+                (s for s in _subagents if s.agent_id == "timeout-param-test"), None
+            )
+            assert sa is not None
+            assert sa.timeout == 600
+
+            # Clean up
+            if sa.process:
+                sa.process.terminate()
+                try:
+                    sa.process.wait(timeout=5)
+                except Exception:
+                    sa.process.kill()
+
+
 @pytest.mark.slow
 @pytest.mark.eval
 def test_subprocess_mode_execution_basic():

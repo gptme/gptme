@@ -44,6 +44,7 @@ def subagent(
     profile: str | None = None,
     model: str | None = None,
     isolated: bool = False,
+    timeout: int = 1800,
 ):
     """Starts an asynchronous subagent. Returns None immediately.
 
@@ -97,6 +98,8 @@ def subagent(
             can modify files without affecting the parent. The worktree is
             automatically cleaned up after the subagent completes.
             Falls back to a temporary directory if not in a git repo.
+        timeout: Maximum seconds before the subprocess monitor kills the
+            subagent (default 1800 = 30 min). Only applies to subprocess mode.
 
     Returns:
         None: Starts asynchronous execution.
@@ -363,6 +366,7 @@ def subagent(
             isolated=isolated,
             worktree_path=worktree_path,
             repo_path=repo_path,
+            timeout=timeout,
         )
         with _subagents_lock:
             _subagents.append(sa)
