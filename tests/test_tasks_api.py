@@ -812,6 +812,30 @@ class TestTasksInputValidation:
         assert resp.status_code == 400
         assert "metadata" in resp.json["error"]
 
+    def test_create_non_string_target_repo(self, client):
+        resp = client.post(
+            "/api/v2/tasks",
+            json={"content": "Test", "target_repo": 123},
+        )
+        assert resp.status_code == 400
+        assert "target_repo" in resp.json["error"]
+
+    def test_update_non_string_target_repo(self, client, sample_task):
+        resp = client.put(
+            f"/api/v2/tasks/{sample_task.id}",
+            json={"target_repo": ["not", "a", "string"]},
+        )
+        assert resp.status_code == 400
+        assert "target_repo" in resp.json["error"]
+
+    def test_update_null_target_repo_accepted(self, client, sample_task):
+        """Verify null target_repo is accepted (clears the field)."""
+        resp = client.put(
+            f"/api/v2/tasks/{sample_task.id}",
+            json={"target_repo": None},
+        )
+        assert resp.status_code == 200
+
     def test_update_valid_target_types(self, client, sample_task):
         """Verify all valid target_type values are accepted."""
         for tt in ("stdout", "pr", "email", "tweet"):

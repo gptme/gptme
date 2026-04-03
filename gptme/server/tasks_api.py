@@ -705,6 +705,11 @@ def api_tasks_create():
             {"error": f"target_type must be one of: {', '.join(valid_target_types)}"}
         ), 400
 
+    # Validate target_repo if provided
+    target_repo = req_json.get("target_repo")
+    if target_repo is not None and not isinstance(target_repo, str):
+        return flask.jsonify({"error": "target_repo must be a string"}), 400
+
     # Validate metadata if provided
     metadata = req_json.get("metadata", {})
     if not isinstance(metadata, dict):
@@ -721,7 +726,7 @@ def api_tasks_create():
             created_at=datetime.now(tz=timezone.utc).isoformat(),
             status="pending",
             target_type=target_type,
-            target_repo=req_json.get("target_repo"),
+            target_repo=target_repo,
             conversation_ids=[],
             metadata=metadata,
         )
@@ -810,6 +815,13 @@ def api_tasks_update(task_id: str):
         return flask.jsonify(
             {"error": f"target_type must be one of: {', '.join(valid_target_types)}"}
         ), 400
+
+    if (
+        "target_repo" in req_json
+        and req_json["target_repo"] is not None
+        and not isinstance(req_json["target_repo"], str)
+    ):
+        return flask.jsonify({"error": "target_repo must be a string or null"}), 400
 
     if "metadata" in req_json and not isinstance(req_json["metadata"], dict):
         return flask.jsonify({"error": "metadata must be an object"}), 400
