@@ -85,3 +85,27 @@ def test_visible_output_sanitizer_closing_tag_with_inline_content_finish():
     )
 
     assert result == "Visible answer"
+
+
+def test_visible_output_sanitizer_thinking_tag_not_shadowed_by_think_prefix():
+    """</thinking> must not be mismatched as </think> + 'ing>' suffix (set ordering bug)."""
+    # If _CLOSING_TAGS is iterated in wrong order, "</think>" matches first and
+    # slices "</thinking>visible" → "ing>visible" instead of "visible".
+    result = _sanitize(
+        "<thinking>\n",
+        "private reasoning\n",
+        "</thinking>visible answer\n",  # closing tag with inline content
+    )
+
+    assert result == "visible answer\n"
+
+
+def test_visible_output_sanitizer_thinking_tag_inline_finish():
+    """finish() must also handle </thinking>text without the prefix-order bug."""
+    result = _sanitize(
+        "<thinking>\n",
+        "private reasoning\n",
+        "</thinking>visible answer",  # no trailing newline — flushed by finish()
+    )
+
+    assert result == "visible answer"

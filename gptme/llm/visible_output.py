@@ -36,7 +36,8 @@ class VisibleOutputSanitizer:
             elif self._in_thinking:
                 # Handle closing tag followed by inline content on the same line,
                 # e.g. "</think>visible text".  The suffix after the tag is visible.
-                for ctag in self._CLOSING_TAGS:
+                # Sort longest-first so "</thinking>" is checked before its prefix "</think>".
+                for ctag in sorted(self._CLOSING_TAGS, key=len, reverse=True):
                     if stripped.startswith(ctag):
                         self._in_thinking = False
                         self._just_closed_thinking = True
@@ -71,7 +72,8 @@ class VisibleOutputSanitizer:
         if self._in_thinking:
             # Handle closing tag with inline content on the final line,
             # e.g. "</think>visible text" with no trailing newline.
-            for ctag in self._CLOSING_TAGS:
+            # Sort longest-first so "</thinking>" is checked before its prefix "</think>".
+            for ctag in sorted(self._CLOSING_TAGS, key=len, reverse=True):
                 if stripped.startswith(ctag):
                     after_tag = stripped[len(ctag) :]
                     self._visible_line.clear()
