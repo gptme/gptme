@@ -649,10 +649,10 @@ def step(
 
             # Check for complete tool uses on \n
             if "\n" in token:
-                if tooluses := list(ToolUse.iter_from_content(output)):
+                if tooluses := list(ToolUse.iter_from_content(visible_output)):
                     break
         else:
-            tooluses = list(ToolUse.iter_from_content(output))
+            tooluses = list(ToolUse.iter_from_content(visible_output))
 
         visible_tail = visible_sanitizer.finish()
         if visible_tail:
@@ -663,6 +663,12 @@ def step(
             )
         if interrupted:
             visible_output += " [INTERRUPTED]"
+
+        # Guard: if the entire response was reasoning, visible_output is empty.
+        # Persist a minimal placeholder so the conversation history remains
+        # coherent (a completely empty assistant message would be confusing).
+        if not visible_output.strip():
+            visible_output = "[reasoning only — no visible output]"
 
         # Capture metadata from stream after iteration completes
         if (

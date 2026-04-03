@@ -12,9 +12,9 @@ def _sanitize(*chunks: str) -> str:
 def test_visible_output_sanitizer_strips_reasoning_block():
     """Reasoning tags and their content should never reach visible output."""
     result = _sanitize(
-        "<think>\n",
+        "<thinking>\n",
         "private reasoning\n",
-        "\n</think>\n\n",
+        "\n</thinking>\n\n",
         "Visible answer",
     )
 
@@ -24,8 +24,32 @@ def test_visible_output_sanitizer_strips_reasoning_block():
 def test_visible_output_sanitizer_handles_single_chunk_responses():
     """Sanitization should also work when the provider returns one large chunk."""
     result = _sanitize(
-        "<think>\nprivate reasoning\n</think>\n"
+        "<thinking>\nprivate reasoning\n</thinking>\n"
         '@save(call-1): {"path": "hello.py", "content": "print()"}'
     )
 
     assert result == '@save(call-1): {"path": "hello.py", "content": "print()"}'
+
+
+def test_visible_output_sanitizer_strips_whitespace_from_tags():
+    """Tags with trailing/leading whitespace should still be detected."""
+    result = _sanitize(
+        "<thinking> \n",  # opening tag with trailing space
+        "reasoning\n",
+        " </thinking>\n",  # closing tag with leading space
+        "visible",
+    )
+
+    assert result == "visible"
+
+
+def test_visible_output_sanitizer_all_reasoning_returns_empty():
+    """If the entire response is a reasoning block, visible output should be empty."""
+    result = _sanitize(
+        "<thinking>\n",
+        "only reasoning content here\n",
+        "no visible text at all\n",
+        "</thinking>\n",
+    )
+
+    assert result == ""

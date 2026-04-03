@@ -209,7 +209,9 @@ def test_reasoning_blocks_hidden_from_sse_and_log(
             break
 
     progress = "".join(
-        event["token"] for event in events if event.get("type") == "generation_progress"
+        event["token"]
+        for event in events
+        if event.get("type") == "generation_progress"
     )
     assert progress == "Visible answer"
     assert "<think>" not in progress

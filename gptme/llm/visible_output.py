@@ -26,10 +26,11 @@ class VisibleOutputSanitizer:
 
             line = "".join(self._raw_line)
             prev_thinking = self._in_thinking
+            stripped = line.strip()
 
-            if line in self._OPENING_TAGS:
+            if stripped in self._OPENING_TAGS:
                 self._in_thinking = True
-            elif line in self._CLOSING_TAGS:
+            elif stripped in self._CLOSING_TAGS:
                 self._in_thinking = False
                 self._just_closed_thinking = True
 
