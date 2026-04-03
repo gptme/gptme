@@ -1,7 +1,7 @@
-"""Tests for path traversal validation on conversation_id.
+"""Tests for path traversal validation on conversation_id and branch names.
 
-Ensures all endpoints that accept conversation_id reject path traversal
-attempts (CWE-22) before any file system operations occur.
+Ensures all endpoints that accept conversation_id or branch parameters
+reject path traversal attempts (CWE-22) before any file system operations occur.
 """
 
 import pytest
@@ -139,3 +139,83 @@ class TestValidConversationIdAccepted:
         if response.status_code == 400:
             data = response.get_json()
             assert data["error"] != "Invalid conversation_id"
+
+
+BRANCH_TRAVERSAL_PAYLOADS = [
+    "../../../etc/passwd",
+    "..\\..\\secret",
+    "..",
+    "main/../../secret",
+]
+
+
+def _assert_branch_rejected(response):
+    """Assert the response is a 400 with the branch validation error message."""
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data is not None
+    assert data["error"] == "Invalid branch name"
+
+
+class TestBranchParameterValidation:
+    """Branch parameters in request bodies must reject path traversal.
+
+    Tested via the generate endpoint (POST /conversations/:id) which reaches
+    branch validation after conversation_id validation. The step endpoint
+    requires a live session, so branch validation there is tested via the
+    unit test for _validate_branch below.
+    """
+
+    @pytest.mark.parametrize("payload", BRANCH_TRAVERSAL_PAYLOADS)
+    def test_generate_rejects_branch_traversal(self, client: FlaskClient, payload: str):
+        """POST /conversations/:id with traversal branch should be rejected."""
+        response = client.post(
+            "/api/v2/conversations/test-conv",
+            json={
+                "role": "user",
+                "content": "hello",
+                "branch": payload,
+            },
+        )
+        _assert_branch_rejected(response)
+
+    def test_valid_branch_accepted(self, client: FlaskClient):
+        """Valid branch names like 'main' or 'feature-1' should not be rejected."""
+        response = client.post(
+            "/api/v2/conversations/test-conv",
+            json={
+                "role": "user",
+                "content": "hello",
+                "branch": "main",
+            },
+        )
+        # Should not be rejected as traversal
+        if response.status_code == 400:
+            data = response.get_json()
+            assert data["error"] != "Invalid branch name"
+
+
+class TestValidateBranchUnit:
+    """Unit tests for _validate_branch function (requires Flask app context)."""
+
+    def test_rejects_traversal_payloads(self, client: FlaskClient):
+        """All traversal payloads must be rejected by _validate_branch."""
+        from gptme.server.api_v2_common import _validate_branch
+        from gptme.server.app import create_app
+
+        app = create_app()
+        with app.app_context():
+            for payload in BRANCH_TRAVERSAL_PAYLOADS:
+                assert _validate_branch(payload) is not None, (
+                    f"Should reject: {payload}"
+                )
+
+    def test_accepts_valid_names(self, client: FlaskClient):
+        """Valid branch names should pass validation."""
+        from gptme.server.api_v2_common import _validate_branch
+        from gptme.server.app import create_app
+
+        app = create_app()
+        with app.app_context():
+            for name in ["main", "feature-1", "my_branch", "v2.0"]:
+                assert _validate_branch(name) is None, f"Should accept: {name}"

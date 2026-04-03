@@ -688,7 +688,7 @@ def api_tasks_create():
     A conversation will be automatically created for the task.
     """
     req_json = flask.request.json
-    if not req_json:
+    if not req_json or not isinstance(req_json, dict):
         return flask.jsonify({"error": "No JSON data provided"}), 400
 
     if "content" not in req_json:

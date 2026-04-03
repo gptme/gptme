@@ -19,7 +19,7 @@ from ..dirs import get_logs_dir
 from ..llm.models import get_default_model
 from ..logmanager import LogManager
 from ..message import Message
-from .api_v2_common import _validate_conversation_id
+from .api_v2_common import _validate_branch, _validate_conversation_id
 from .auth import require_auth
 from .constants import DEFAULT_FALLBACK_MODEL
 from .openapi_docs import (
@@ -288,6 +288,8 @@ def api_conversation_step(conversation_id: str):
 
     # Get the branch and model
     branch = req_json.get("branch", "main")
+    if error := _validate_branch(branch):
+        return error
     default_model = get_default_model()
 
     # Get model from request, config, or default (in that order).

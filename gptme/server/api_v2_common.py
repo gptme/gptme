@@ -32,6 +32,19 @@ def _validate_conversation_id(
     return None
 
 
+def _validate_branch(branch: str) -> tuple[flask.Response, int] | None:
+    """Validate branch name to prevent path traversal attacks (CWE-22).
+
+    Branch names are used to construct file paths like ``branches/{branch}.jsonl``,
+    so they must not contain path separators or traversal sequences.
+
+    Returns None if valid, or (error_response, status_code) if invalid.
+    """
+    if "/" in branch or ".." in branch or "\\" in branch:
+        return flask.jsonify({"error": "Invalid branch name"}), 400
+    return None
+
+
 def _is_debug_errors_enabled() -> bool:
     """Check if detailed error messages should be shown.
 
