@@ -377,7 +377,10 @@ def format_markdown_table(ranked: list[dict]) -> str:
 
 
 def format_html_page(ranked: list[dict]) -> str:
-    """Format results as a self-contained HTML page for publishing."""
+    """Format results as a self-contained interactive HTML page for publishing.
+
+    Features: sortable columns (click headers), search/filter, keyboard nav (/ to focus).
+    """
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     total_models = len(ranked)
     max_tests = max((s["total_tests"] for s in ranked), default=0)
@@ -406,8 +409,21 @@ def format_html_page(ranked: list[dict]) -> str:
             else "-"
         )
 
+        basic_pct = (
+            stats["basic_passed"] / stats["basic_total"] * 100
+            if stats["basic_total"] > 0
+            else -1
+        )
+        practical_pct = (
+            stats["practical_passed"] / stats["practical_total"] * 100
+            if stats["practical_total"] > 0
+            else -1
+        )
+
         rows_html.append(
-            f"<tr>"
+            f"<tr data-rank='{i + 1}' data-model='{_html_escape(display_name)}'"
+            f" data-rate='{pct:.2f}' data-passed='{stats['total_passed']}'"
+            f" data-basic='{basic_pct:.2f}' data-practical='{practical_pct:.2f}'>"
             f"<td class='rank'>{i + 1}</td>"
             f"<td class='model'>{_html_escape(display_name)}</td>"
             f"<td>{_html_escape(fmt)}</td>"
@@ -443,15 +459,36 @@ def format_html_page(ranked: list[dict]) -> str:
   h1 {{ font-size: 1.5rem; margin-bottom: 0.25rem; }}
   h1 a {{ color: var(--accent); text-decoration: none; }}
   h1 a:hover {{ text-decoration: underline; }}
-  .meta {{ color: var(--muted); font-size: 0.85rem; margin-bottom: 1.5rem; }}
+  .meta {{ color: var(--muted); font-size: 0.85rem; margin-bottom: 1rem; }}
+  .search-box {{
+    margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;
+  }}
+  .search-box input {{
+    background: var(--surface); border: 1px solid var(--border); color: var(--text);
+    padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.85rem; width: 260px;
+  }}
+  .search-box input:focus {{ outline: none; border-color: var(--accent); }}
+  .search-box kbd {{
+    background: var(--bg); border: 1px solid var(--border); border-radius: 3px;
+    padding: 0.1rem 0.4rem; font-size: 0.7rem; color: var(--muted);
+  }}
+  .search-box .count {{ color: var(--muted); font-size: 0.8rem; }}
   table {{
     width: 100%; border-collapse: collapse;
     background: var(--surface); border-radius: 6px; overflow: hidden;
   }}
   th, td {{ padding: 0.6rem 0.75rem; text-align: left; border-bottom: 1px solid var(--border); }}
-  th {{ background: var(--bg); font-size: 0.8rem; text-transform: uppercase;
-       letter-spacing: 0.05em; color: var(--muted); }}
+  th {{
+    background: var(--bg); font-size: 0.8rem; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--muted); cursor: pointer; user-select: none;
+    white-space: nowrap;
+  }}
+  th:hover {{ color: var(--text); }}
+  th .sort-icon {{ margin-left: 0.3rem; font-size: 0.65rem; }}
+  th.sorted-asc .sort-icon::after {{ content: ' \\25B2'; }}
+  th.sorted-desc .sort-icon::after {{ content: ' \\25BC'; }}
   tr:last-child td {{ border-bottom: none; }}
+  tr.hidden {{ display: none; }}
   .rank {{ color: var(--muted); width: 2rem; text-align: center; }}
   .model {{ font-weight: 600; }}
   .badge {{
@@ -472,6 +509,7 @@ def format_html_page(ranked: list[dict]) -> str:
     th, td {{ padding: 0.4rem; font-size: 0.85rem; }}
     td:last-child {{ display: none; }}
     th:last-child {{ display: none; }}
+    .search-box input {{ width: 100%; }}
   }}
 </style>
 </head>
@@ -479,11 +517,22 @@ def format_html_page(ranked: list[dict]) -> str:
 <div class="container">
   <h1><a href="https://gptme.org">gptme</a> Eval Leaderboard</h1>
   <p class="meta">{total_models} models &middot; up to {max_tests} tests &middot; updated {now}</p>
-  <table>
+  <div class="search-box">
+    <input type="text" id="search" placeholder="Filter models..." autocomplete="off">
+    <kbd>/</kbd>
+    <span class="count" id="count"></span>
+  </div>
+  <table id="leaderboard">
     <thead>
       <tr>
-        <th>#</th><th>Model</th><th>Format</th><th>Rate</th>
-        <th>Passed</th><th>Basic</th><th>Practical</th><th></th>
+        <th data-sort="rank" class="sorted-asc">#<span class="sort-icon"></span></th>
+        <th data-sort="model">Model<span class="sort-icon"></span></th>
+        <th>Format</th>
+        <th data-sort="rate">Rate<span class="sort-icon"></span></th>
+        <th data-sort="passed">Passed<span class="sort-icon"></span></th>
+        <th data-sort="basic">Basic<span class="sort-icon"></span></th>
+        <th data-sort="practical">Practical<span class="sort-icon"></span></th>
+        <th></th>
       </tr>
     </thead>
     <tbody>
@@ -495,6 +544,90 @@ def format_html_page(ranked: list[dict]) -> str:
     &middot; <code>gptme eval --leaderboard --leaderboard-format html</code>
   </footer>
 </div>
+<script>
+(function() {{
+  var table = document.getElementById('leaderboard');
+  var tbody = table.querySelector('tbody');
+  var searchInput = document.getElementById('search');
+  var countEl = document.getElementById('count');
+  var headers = table.querySelectorAll('th[data-sort]');
+  var currentSort = 'rank';
+  var currentDir = 'asc';
+
+  function sortTable(key, dir) {{
+    var rows = Array.from(tbody.querySelectorAll('tr'));
+    rows.sort(function(a, b) {{
+      var av = key === 'model' ? a.dataset[key] || '' : parseFloat(a.dataset[key] || '0');
+      var bv = key === 'model' ? b.dataset[key] || '' : parseFloat(b.dataset[key] || '0');
+      if (key === 'model') {{
+        var cmp = av.localeCompare(bv);
+        return dir === 'asc' ? cmp : -cmp;
+      }}
+      return dir === 'asc' ? av - bv : bv - av;
+    }});
+    rows.forEach(function(r) {{ tbody.appendChild(r); }});
+    // Update rank display after sort
+    var visible = 0;
+    rows.forEach(function(r) {{
+      if (!r.classList.contains('hidden')) {{
+        visible++;
+        r.querySelector('.rank').textContent = visible;
+      }}
+    }});
+  }}
+
+  function updateCount() {{
+    var total = tbody.querySelectorAll('tr').length;
+    var visible = tbody.querySelectorAll('tr:not(.hidden)').length;
+    countEl.textContent = visible < total ? visible + '/' + total : '';
+  }}
+
+  function filterRows(query) {{
+    var q = query.toLowerCase();
+    var rows = tbody.querySelectorAll('tr');
+    var rank = 0;
+    rows.forEach(function(r) {{
+      var model = (r.dataset.model || '').toLowerCase();
+      if (!q || model.indexOf(q) !== -1) {{
+        r.classList.remove('hidden');
+        rank++;
+        r.querySelector('.rank').textContent = rank;
+      }} else {{
+        r.classList.add('hidden');
+      }}
+    }});
+    updateCount();
+  }}
+
+  headers.forEach(function(th) {{
+    th.addEventListener('click', function() {{
+      var key = th.dataset.sort;
+      var dir = (currentSort === key && currentDir === 'asc') ? 'desc' : 'asc';
+      // Default to descending for numeric columns (except rank)
+      if (currentSort !== key && key !== 'rank' && key !== 'model') dir = 'desc';
+      currentSort = key;
+      currentDir = dir;
+      headers.forEach(function(h) {{ h.classList.remove('sorted-asc', 'sorted-desc'); }});
+      th.classList.add(dir === 'asc' ? 'sorted-asc' : 'sorted-desc');
+      sortTable(key, dir);
+    }});
+  }});
+
+  searchInput.addEventListener('input', function() {{ filterRows(this.value); }});
+
+  document.addEventListener('keydown', function(e) {{
+    if (e.key === '/' && document.activeElement !== searchInput) {{
+      e.preventDefault();
+      searchInput.focus();
+    }}
+    if (e.key === 'Escape') {{
+      searchInput.value = '';
+      filterRows('');
+      searchInput.blur();
+    }}
+  }});
+}})();
+</script>
 </body>
 </html>"""
 
