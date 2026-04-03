@@ -371,12 +371,17 @@ def _replace_template_strings(path: Path, agent_name: str) -> None:
             cwd=path,
             capture_output=True,
             check=True,
+            timeout=30,
         )
         files = [path / f for f in result.stdout.decode().split("\0") if f]
         logger.debug(
             "Using git ls-files for template replacement (respects .gitignore)"
         )
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except (
+        subprocess.CalledProcessError,
+        FileNotFoundError,
+        subprocess.TimeoutExpired,
+    ):
         # Fall back to manual traversal if git is not available or fails
         skip_dirs = {"__pycache__", "node_modules", ".venv", ".git"}
         files = [
@@ -435,10 +440,18 @@ def _reset_git_history(path: Path, agent_name: str) -> None:
         "user.name=gptme-agent",
     ]
     subprocess.run(
-        [*git_no_hooks, "init"], cwd=str(path), capture_output=True, check=True
+        [*git_no_hooks, "init"],
+        cwd=str(path),
+        capture_output=True,
+        check=True,
+        timeout=30,
     )
     subprocess.run(
-        [*git_no_hooks, "add", "."], cwd=str(path), capture_output=True, check=True
+        [*git_no_hooks, "add", "."],
+        cwd=str(path),
+        capture_output=True,
+        check=True,
+        timeout=60,
     )
     subprocess.run(
         [
@@ -450,6 +463,7 @@ def _reset_git_history(path: Path, agent_name: str) -> None:
         cwd=str(path),
         capture_output=True,
         check=True,
+        timeout=60,
     )
     logger.info(f"Created clean git history for {agent_name}")
 
