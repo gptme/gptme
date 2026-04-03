@@ -69,7 +69,13 @@ class Codeblock:
           </codeblock>
         """
         root = ElementTree.fromstring(content)
-        return cls(root.attrib["lang"], root.text or "", root.attrib.get("path"))
+        # Strip leading/trailing newlines added by to_xml() formatting
+        text = (root.text or "").strip("\n")
+        return cls(
+            root.attrib.get("lang", ""),
+            text,
+            root.attrib.get("path"),
+        )
 
     @property
     def is_filename(self) -> bool:
