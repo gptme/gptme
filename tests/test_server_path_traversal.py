@@ -94,7 +94,8 @@ class TestWorkspaceEndpointValidation:
 
     @pytest.mark.parametrize("payload", TRAVERSAL_PAYLOADS)
     def test_file_rejects_traversal(self, client: FlaskClient, payload: str):
-        response = client.get(f"/api/v2/conversations/{payload}/workspace/file/test.py")
+        # Route is /files/<path:filepath>, not /workspace/file/...
+        response = client.get(f"/api/v2/conversations/{payload}/files/test.py")
         _assert_traversal_rejected(response)
 
     @pytest.mark.parametrize("payload", TRAVERSAL_PAYLOADS)
