@@ -109,3 +109,26 @@ def test_visible_output_sanitizer_thinking_tag_inline_finish():
     )
 
     assert result == "visible answer"
+
+
+def test_visible_output_sanitizer_uppercase_tags():
+    """Tag detection must be case-insensitive (some providers emit <THINK>)."""
+    result = _sanitize(
+        "<THINK>\n",
+        "private reasoning\n",
+        "</THINK>\n",
+        "Visible answer",
+    )
+
+    assert result == "Visible answer"
+
+
+def test_visible_output_sanitizer_mixed_case_tag_with_inline_content():
+    """Mixed-case closing tag with inline content must be handled correctly."""
+    result = _sanitize(
+        "<Think>\n",
+        "private reasoning\n",
+        "</Think>Visible answer\n",
+    )
+
+    assert result == "Visible answer\n"

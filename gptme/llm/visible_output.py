@@ -28,9 +28,9 @@ class VisibleOutputSanitizer:
             prev_thinking = self._in_thinking
             stripped = line.strip()
 
-            if stripped in self._OPENING_TAGS:
+            if stripped.lower() in self._OPENING_TAGS:
                 self._in_thinking = True
-            elif stripped in self._CLOSING_TAGS:
+            elif stripped.lower() in self._CLOSING_TAGS:
                 self._in_thinking = False
                 self._just_closed_thinking = True
             elif self._in_thinking:
@@ -38,7 +38,7 @@ class VisibleOutputSanitizer:
                 # e.g. "</think>visible text".  The suffix after the tag is visible.
                 # Sort longest-first so "</thinking>" is checked before its prefix "</think>".
                 for ctag in sorted(self._CLOSING_TAGS, key=len, reverse=True):
-                    if stripped.startswith(ctag):
+                    if stripped.lower().startswith(ctag):
                         self._in_thinking = False
                         self._just_closed_thinking = True
                         after_tag = stripped[len(ctag) :]
@@ -64,7 +64,7 @@ class VisibleOutputSanitizer:
         self._raw_line.clear()
         stripped = line.strip()
 
-        if stripped in self._OPENING_TAGS | self._CLOSING_TAGS:
+        if stripped.lower() in self._OPENING_TAGS | self._CLOSING_TAGS:
             self._visible_line.clear()
             self._just_closed_thinking = False
             return ""
@@ -74,7 +74,7 @@ class VisibleOutputSanitizer:
             # e.g. "</think>visible text" with no trailing newline.
             # Sort longest-first so "</thinking>" is checked before its prefix "</think>".
             for ctag in sorted(self._CLOSING_TAGS, key=len, reverse=True):
-                if stripped.startswith(ctag):
+                if stripped.lower().startswith(ctag):
                     after_tag = stripped[len(ctag) :]
                     self._visible_line.clear()
                     self._just_closed_thinking = False
