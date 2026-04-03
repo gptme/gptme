@@ -6,10 +6,23 @@ import os
 from pathlib import Path
 from typing import Literal, TypedDict
 
+import flask
 from typing_extensions import NotRequired
 
 from ..message import Message
 from ..util.uri import URI, is_uri
+
+
+def _validate_conversation_id(
+    conversation_id: str,
+) -> tuple[flask.Response, int] | None:
+    """Validate conversation_id to prevent path traversal attacks.
+
+    Returns None if valid, or (error_response, status_code) if invalid.
+    """
+    if "/" in conversation_id or ".." in conversation_id or "\\" in conversation_id:
+        return flask.jsonify({"error": "Invalid conversation_id"}), 400
+    return None
 
 
 def _is_debug_errors_enabled() -> bool:

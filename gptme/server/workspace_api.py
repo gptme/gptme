@@ -14,6 +14,7 @@ from flask import request
 from pydantic import BaseModel, Field
 
 from ..logmanager import LogManager
+from .api_v2_common import _validate_conversation_id
 from .auth import require_auth
 from .openapi_docs import ErrorResponse, api_doc_simple
 
@@ -256,6 +257,8 @@ def browse_workspace(conversation_id: str, subpath: str | None = None):
     Returns file metadata for a single file or directory listing.
     Use ?root=attachments to browse uploaded attachment files instead.
     """
+    if error := _validate_conversation_id(conversation_id):
+        return error
     try:
         # Load the conversation to get its workspace
         manager = LogManager.load(conversation_id, lock=False)
@@ -317,6 +320,8 @@ def upload_files(conversation_id: str):
     move them into the workspace if it needs to modify them.
     Returns absolute file paths so they can be included directly in message files.
     """
+    if error := _validate_conversation_id(conversation_id):
+        return error
     try:
         manager = LogManager.load(conversation_id, lock=False)
         attachments_dir = manager.logdir / "attachments"
@@ -418,6 +423,8 @@ def serve_conversation_file(conversation_id: str, filepath: str):
 
     Looks up files relative to the conversation's logdir first, then workspace.
     """
+    if error := _validate_conversation_id(conversation_id):
+        return error
     try:
         manager = LogManager.load(conversation_id, lock=False)
         logdir = manager.logdir
@@ -476,6 +483,8 @@ def preview_file(conversation_id: str, filepath: str):
     - Images: returned as binary data with appropriate MIME type
     - Binary files: returns metadata only
     """
+    if error := _validate_conversation_id(conversation_id):
+        return error
     try:
         # Load the conversation to get its workspace
         manager = LogManager.load(conversation_id, lock=False)
@@ -541,6 +550,8 @@ def download_file(conversation_id: str, filepath: str):
     Returns the file with appropriate Content-Type and Content-Disposition
     headers for direct download.
     """
+    if error := _validate_conversation_id(conversation_id):
+        return error
     try:
         manager = LogManager.load(conversation_id, lock=False)
         root_param = flask.request.args.get("root", "workspace")

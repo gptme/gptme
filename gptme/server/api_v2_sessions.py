@@ -19,6 +19,7 @@ from ..dirs import get_logs_dir
 from ..llm.models import get_default_model
 from ..logmanager import LogManager
 from ..message import Message
+from .api_v2_common import _validate_conversation_id
 from .auth import require_auth
 from .constants import DEFAULT_FALLBACK_MODEL
 from .openapi_docs import (
@@ -107,6 +108,8 @@ sessions_api = flask.Blueprint("sessions_api", __name__)
 )
 def api_conversation_events(conversation_id: str):
     """Subscribe to conversation events."""
+    if error := _validate_conversation_id(conversation_id):
+        return error
     session_id = request.args.get("session_id")
     if not session_id:
         # Create a new session if none provided
@@ -214,6 +217,8 @@ def api_conversation_events(conversation_id: str):
 )
 def api_conversation_step(conversation_id: str):
     """Take a step in the conversation - generate a response or continue after tool execution."""
+    if error := _validate_conversation_id(conversation_id):
+        return error
     req_json = flask.request.json or {}
     session_id = req_json.get("session_id")
 
@@ -391,6 +396,8 @@ def api_conversation_tool_confirm(conversation_id: str):
     sessions for this conversation. This handles the race condition where the
     client may not have received the session_id yet when confirming a tool.
     """
+    if error := _validate_conversation_id(conversation_id):
+        return error
 
     req_json = flask.request.json or {}
     session_id = req_json.get("session_id")
@@ -535,6 +542,8 @@ def api_conversation_rerun(conversation_id: str):
     Parses tool uses from the last assistant message content and sets them
     as pending for confirmation/execution, without calling the LLM.
     """
+    if error := _validate_conversation_id(conversation_id):
+        return error
     from ..tools import ToolUse
 
     req_json = request.json or {}
@@ -644,6 +653,8 @@ def api_conversation_elicit_respond(conversation_id: str):
     against elicit_id. The elicitation registry uses globally unique UUIDs,
     so cross-conversation resolution is not a practical concern.
     """
+    if error := _validate_conversation_id(conversation_id):
+        return error
     req_json = flask.request.json or {}
     elicit_id = req_json.get("elicit_id")
     action = req_json.get("action")
@@ -685,6 +696,8 @@ def api_conversation_elicit_respond(conversation_id: str):
 )
 def api_conversation_interrupt(conversation_id: str):
     """Interrupt the current generation or tool execution."""
+    if error := _validate_conversation_id(conversation_id):
+        return error
     req_json = flask.request.json or {}
     session_id = req_json.get("session_id")
 

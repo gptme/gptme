@@ -36,22 +36,8 @@ from ..message import Message
 from ..tools import get_toolchain, get_tools, init_tools
 from ..util.content import is_message_command
 from ..util.uri import parse_file_reference
-
-
-def _validate_conversation_id(
-    conversation_id: str,
-) -> tuple[flask.Response, int] | None:
-    """Validate conversation_id to prevent path traversal attacks.
-
-    Returns None if valid, or (error_response, status_code) if invalid.
-    """
-    if "/" in conversation_id or ".." in conversation_id or "\\" in conversation_id:
-        return flask.jsonify({"error": "Invalid conversation_id"}), 400
-    return None
-
-
 from .api_v2_agents import agents_api
-from .api_v2_common import _abs_to_rel_workspace, msg2dict
+from .api_v2_common import _abs_to_rel_workspace, _validate_conversation_id, msg2dict
 from .api_v2_sessions import SessionManager, sessions_api
 from .auth import require_auth
 from .openapi_docs import (
