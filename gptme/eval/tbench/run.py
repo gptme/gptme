@@ -75,6 +75,12 @@ def main(
             err=True,
         )
         sys.exit(1)
+    except subprocess.TimeoutExpired:
+        click.echo(
+            "terminal-bench version check timed out. It may be unresponsive.",
+            err=True,
+        )
+        sys.exit(1)
 
     agent_import = "gptme.eval.tbench.agent:GptmeAgent"
     agent_args = json.dumps({"model_name": model})

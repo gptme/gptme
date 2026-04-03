@@ -158,6 +158,10 @@ class DockerExecutionEnv(ExecutionEnv):
             else:
                 error_msg += f"Error: {e.stderr}"
             raise RuntimeError(error_msg) from e
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError(
+                f"Timed out starting Docker container with image '{self.image}' after {e.timeout}s."
+            ) from e
 
     def run(self, command: str, silent: bool = True) -> tuple[str, str, int]:
         """Execute command inside Docker container."""
