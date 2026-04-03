@@ -19,6 +19,13 @@ def _validate_conversation_id(
     """Validate conversation_id to prevent path traversal attacks.
 
     Returns None if valid, or (error_response, status_code) if invalid.
+
+    The ``..`` check is intentionally conservative: it rejects any ID containing
+    two consecutive dots, including names like ``my..project`` that aren't true
+    traversals. Since ``/`` and ``\\`` are already blocked, the only dangerous
+    single-component form is a bare ``..``, but substring matching is simpler
+    and the false-positive risk (rejecting ``..`` in a real conversation name)
+    is negligible in practice.
     """
     if "/" in conversation_id or ".." in conversation_id or "\\" in conversation_id:
         return flask.jsonify({"error": "Invalid conversation_id"}), 400
