@@ -165,3 +165,28 @@ class TestCreateWorkspaceTimeoutIntegration:
 
         # The partially-created workspace must not be left behind
         assert not dest.exists(), "Orphaned workspace was not cleaned up after timeout"
+
+    @patch("gptme.agent.workspace._merge_project_config")
+    @patch("gptme.agent.workspace._reset_git_history")
+    @patch("gptme.agent.workspace._replace_template_strings")
+    @patch("subprocess.run")
+    def test_workspace_exists_after_successful_creation(
+        self, mock_run, mock_replace, mock_reset, mock_merge, tmp_path
+    ):
+        """Workspace at path is NOT deleted when creation succeeds (no fork_command)."""
+        from gptme.agent.workspace import create_workspace_from_template
+
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout=b"", stderr=b""
+        )
+        mock_replace.return_value = None
+        mock_reset.return_value = None
+        mock_merge.return_value = None
+
+        dest = tmp_path / "new-agent"
+        result = create_workspace_from_template(dest, "test-agent")
+
+        assert result == dest
+        assert dest.exists(), (
+            "Workspace was unexpectedly deleted after successful creation"
+        )

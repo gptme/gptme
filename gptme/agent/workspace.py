@@ -88,6 +88,7 @@ def create_workspace_from_template(
     temp_dir = Path(tempfile.gettempdir()) / str(uuid.uuid4())
     temp_dir.mkdir(parents=True, exist_ok=True)
 
+    _success = False
     try:
         # Clone template repository
         clone_cmd = ["git", "clone"]
@@ -151,19 +152,21 @@ def create_workspace_from_template(
         # Merge project config with template config
         _merge_project_config(path, agent_name, project_config)
 
+        _success = True
         return path
 
     except subprocess.TimeoutExpired as e:
         raise WorkspaceError(f"Operation timed out: {e}") from e
     finally:
-        # Clean up temp directory if it still exists
-        if temp_dir.exists():
-            shutil.rmtree(temp_dir, ignore_errors=True)
-        # If move already happened but subsequent steps failed, clean up the
-        # partially-created workspace so callers can retry without hitting
-        # "Destination path already exists".
-        elif path.exists():
-            shutil.rmtree(path, ignore_errors=True)
+        if not _success:
+            # Clean up temp directory if it still exists
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir, ignore_errors=True)
+            # If move already happened but subsequent steps failed, clean up the
+            # partially-created workspace so callers can retry without hitting
+            # "Destination path already exists".
+            elif path.exists():
+                shutil.rmtree(path, ignore_errors=True)
 
 
 def create_workspace_structure(path: Path, agent_name: str) -> Path:
