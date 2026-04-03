@@ -152,6 +152,7 @@ def evaluate_instance(
         capture_output=True,
         text=True,
         check=False,
+        timeout=60,
     )
     patch = diff_result.stdout
 

@@ -148,6 +148,7 @@ class DockerExecutionEnv(ExecutionEnv):
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=60,
             )
             self.container_id = result.stdout.strip()
         except subprocess.CalledProcessError as e:

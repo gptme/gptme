@@ -130,19 +130,19 @@ class TestSpec:
     def reset_repo(self):
         script = "\n".join(self.reset_repo_script_list)
         print(f"Running script: {script}")
-        res = subprocess.run(script, shell=True, check=False)
+        res = subprocess.run(script, shell=True, check=False, timeout=600)
         return res.returncode == 0
 
     def eval_repo(self):
         script = "\n".join(self.eval_script_list)
         print(f"Running script: {script}")
-        res = subprocess.run(script, shell=True, check=False)
+        res = subprocess.run(script, shell=True, check=False, timeout=600)
         return res.returncode == 0
 
     def setup_repo(self):
         script = "\n".join(self.repo_script_list)
         print(f"Running script: {script}")
-        subprocess.run(script, shell=True, check=False)
+        subprocess.run(script, shell=True, check=False, timeout=600)
         return self.repo_dir
 
 

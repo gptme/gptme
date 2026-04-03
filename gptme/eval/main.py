@@ -72,8 +72,9 @@ def docker_reexec(argv: list[str]) -> None:
             ["git", "rev-parse", "--show-toplevel"],
             text=True,
             cwd=Path(__file__).parent,
+            timeout=10,
         ).strip()
-    except subprocess.CalledProcessError:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
         print("Error: Not in a git repository", file=sys.stderr)
         sys.exit(1)
 
@@ -862,16 +863,20 @@ def results_to_json(
 
 def _get_commit_hash() -> str:
     """Get current commit hash and dirty status, like: a8b2ef0-dirty."""
-    git_result = subprocess.run(
-        ["git", "describe", "--always", "--dirty", "--exclude", "'*'"],
-        check=False,
-        text=True,
-        capture_output=True,
-        cwd=project_dir,
-    )
-    if git_result.returncode == 0 and git_result.stdout.strip():
-        return git_result.stdout.strip()
-    # not in a git repo, use package version
+    try:
+        git_result = subprocess.run(
+            ["git", "describe", "--always", "--dirty", "--exclude", "'*'"],
+            check=False,
+            text=True,
+            capture_output=True,
+            cwd=project_dir,
+            timeout=10,
+        )
+        if git_result.returncode == 0 and git_result.stdout.strip():
+            return git_result.stdout.strip()
+    except subprocess.TimeoutExpired:
+        pass
+    # not in a git repo or timed out, use package version
     from importlib.metadata import PackageNotFoundError, version
 
     try:
