@@ -219,3 +219,28 @@ class TestValidateBranchUnit:
         with app.app_context():
             for name in ["main", "feature-1", "my_branch", "v2.0"]:
                 assert _validate_branch(name) is None, f"Should accept: {name}"
+
+    def test_rejects_null_branch(self, client: FlaskClient):
+        """A null branch value must be rejected with 400, not raise TypeError (500)."""
+        from gptme.server.api_v2_common import _validate_branch
+        from gptme.server.app import create_app
+
+        app = create_app()
+        with app.app_context():
+            result = _validate_branch(None)
+            assert result is not None, "Should reject None branch"
+            _response, status_code = result
+            assert status_code == 400
+
+    def test_rejects_non_string_branch(self, client: FlaskClient):
+        """Non-string branch values (int, list) must be rejected with 400."""
+        from gptme.server.api_v2_common import _validate_branch
+        from gptme.server.app import create_app
+
+        app = create_app()
+        with app.app_context():
+            for value in [123, [], {}, True]:
+                result = _validate_branch(value)
+                assert result is not None, f"Should reject non-string: {value!r}"
+                _response, status_code = result
+                assert status_code == 400
