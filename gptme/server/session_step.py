@@ -615,7 +615,6 @@ def step(
 
     try:
         # Stream tokens from the model
-        output = ""
         visible_output = ""
         tooluses = []
         interrupted = False
@@ -633,11 +632,8 @@ def step(
         for token in (char for chunk in chunks for char in chunk):
             # check if interrupted
             if not session.generating:
-                output += " [INTERRUPTED]"
                 interrupted = True
                 break
-
-            output += token
 
             visible_chunk = visible_sanitizer.feed(token)
             if visible_chunk:
