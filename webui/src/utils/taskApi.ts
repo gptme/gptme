@@ -37,7 +37,8 @@ export const taskApi = {
     if (!response.ok) {
       throw new Error(`Failed to list tasks: ${response.statusText}`);
     }
-    return response.json();
+    const data = await response.json();
+    return data.tasks;
   },
 
   /**
