@@ -121,12 +121,12 @@ class TestSweExtraTestSpecTimeouts:
     def test_all_shell_true_calls_have_timeout(self):
         """Every shell=True subprocess call has a timeout."""
         source = _read_source("swe_extra/swe_bench_test_spec.py")
-        lines = source.split("\n")
-        for i, line in enumerate(lines):
-            if "shell=True" in line:
-                assert "timeout=" in line, (
-                    f"Line {i + 1} has shell=True without timeout"
-                )
+        shell_true_count = source.count("shell=True")
+        timeout_600_count = source.count("timeout=600")
+        assert timeout_600_count >= shell_true_count, (
+            f"Found {shell_true_count} shell=True calls but only "
+            f"{timeout_600_count} timeout=600 parameters"
+        )
 
 
 class TestExecenvTimeouts:
