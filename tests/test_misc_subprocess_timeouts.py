@@ -3,6 +3,7 @@
 Covers: __version__, dirs, cli/wut, context/selector/file_selector.
 """
 
+import importlib
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
@@ -11,55 +12,70 @@ import pytest
 
 # ── __version__.py ───────────────────────────────────────────────────
 
+# gptme/__init__.py does `from .__version__ import __version__`, which means
+# `gptme.__version__` resolves to a string attribute, not the module.
+# Use importlib to get the actual module object for patch.object.
+_version_mod = importlib.import_module("gptme.__version__")
+
 
 class TestVersionTimeouts:
     """Verify git_cmd and subprocess.call in __version__ have timeouts."""
 
-    @patch("gptme.__version__.subprocess.check_output")
-    @patch("gptme.__version__.subprocess.call", return_value=0)
-    def test_git_cmd_passes_timeout(self, mock_call, mock_check_output):
+    def test_git_cmd_passes_timeout(self):
         """git_cmd helper passes timeout to check_output."""
-        mock_check_output.return_value = "v1.0.0\n"
-        from gptme.__version__ import get_git_version
+        with (
+            patch.object(_version_mod.subprocess, "check_output") as mock_co,
+            patch.object(_version_mod.subprocess, "call", return_value=0),
+        ):
+            mock_co.return_value = "v1.0.0\n"
+            from gptme.__version__ import get_git_version
 
-        get_git_version("/tmp")
-        # check_output should be called with timeout
-        for call in mock_check_output.call_args_list:
-            assert "timeout" in call.kwargs, (
-                f"check_output call missing timeout: {call}"
+            get_git_version("/tmp")
+            for call in mock_co.call_args_list:
+                assert "timeout" in call.kwargs, (
+                    f"check_output call missing timeout: {call}"
+                )
+
+    def test_subprocess_call_passes_timeout(self):
+        """subprocess.call for git repo check passes timeout."""
+        with (
+            patch.object(_version_mod.subprocess, "check_output") as mock_co,
+            patch.object(_version_mod.subprocess, "call", return_value=0) as mock_call,
+        ):
+            mock_co.return_value = "v1.0.0\n"
+            from gptme.__version__ import get_git_version
+
+            get_git_version("/tmp")
+            assert "timeout" in mock_call.call_args.kwargs, (
+                "subprocess.call missing timeout"
             )
 
-    @patch("gptme.__version__.subprocess.check_output")
-    @patch("gptme.__version__.subprocess.call", return_value=0)
-    def test_subprocess_call_passes_timeout(self, mock_call, mock_check_output):
-        """subprocess.call for git repo check passes timeout."""
-        mock_check_output.return_value = "v1.0.0\n"
-        from gptme.__version__ import get_git_version
-
-        get_git_version("/tmp")
-        assert "timeout" in mock_call.call_args.kwargs, (
-            "subprocess.call missing timeout"
-        )
-
-    @patch("gptme.__version__.subprocess.check_output")
-    @patch("gptme.__version__.subprocess.call")
-    def test_timeout_returns_none(self, mock_call, mock_check_output):
+    def test_timeout_returns_none(self):
         """TimeoutExpired from git commands returns None gracefully."""
-        mock_call.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=10)
-        from gptme.__version__ import get_git_version
+        with patch.object(
+            _version_mod.subprocess,
+            "call",
+            side_effect=subprocess.TimeoutExpired(cmd="git", timeout=10),
+        ):
+            from gptme.__version__ import get_git_version
 
-        result = get_git_version("/tmp")
-        assert result is None
+            result = get_git_version("/tmp")
+            assert result is None
 
-    @patch("gptme.__version__.subprocess.check_output")
-    @patch("gptme.__version__.subprocess.call", return_value=0)
-    def test_check_output_timeout_returns_none(self, mock_call, mock_check_output):
+    def test_check_output_timeout_returns_none(self):
         """TimeoutExpired from check_output returns None gracefully."""
-        mock_check_output.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=10)
-        from gptme.__version__ import get_git_version
+        with (
+            patch.object(
+                _version_mod.subprocess,
+                "check_output",
+                side_effect=subprocess.TimeoutExpired(cmd="git", timeout=10),
+            ),
+            patch.object(_version_mod.subprocess, "call", return_value=0),
+        ):
+            from gptme.__version__ import get_git_version
 
-        result = get_git_version("/tmp")
-        assert result is None
+            result = get_git_version("/tmp")
+            assert result is None
 
 
 # ── dirs.py ──────────────────────────────────────────────────────────
