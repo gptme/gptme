@@ -54,7 +54,7 @@ def main():
         "gptme",
         "<system>The user has some terminal output they need help with and have thus run `gptme-wut` to start this session (ignore it in the output)</system>",
     ] + args.gptme_args
-    subprocess.run(cmd, check=False, input=content, text=True, timeout=600)
+    subprocess.run(cmd, check=False, input=content, text=True)
 
 
 if __name__ == "__main__":
