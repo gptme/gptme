@@ -169,8 +169,11 @@ def run_precommit_checks(*, all_files: bool = True) -> tuple[bool, str | None]:
     start_time = time.monotonic()
     logger.info(f"Running pre-commit checks: {' '.join(cmd)}")
     try:
-        subprocess.run(cmd, capture_output=True, text=True, check=True)
+        subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
         return True, None  # No issues found
+    except subprocess.TimeoutExpired:
+        logger.error("Pre-commit checks timed out after 300s")
+        return False, None
     except subprocess.CalledProcessError as e:
         # if exit code is 130, it means the user interrupted the process
         if e.returncode == 130:
