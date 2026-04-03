@@ -347,6 +347,28 @@ def test_run_xdotool_macos_raises():
         _run_xdotool("key Return")
 
 
+@mock.patch("gptme.tools.computer.IS_MACOS", False)
+def test_run_xdotool_timeout():
+    """Test that xdotool timeout raises RuntimeError."""
+    with mock.patch("subprocess.run") as mock_run:
+        mock_run.side_effect = subprocess.TimeoutExpired("xdotool", 10)
+        with pytest.raises(RuntimeError, match="xdotool command timed out"):
+            _run_xdotool("key Return")
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", False)
+def test_get_display_resolution_timeout():
+    """Test that xrandr timeout raises RuntimeError."""
+    with (
+        mock.patch(
+            "subprocess.check_output",
+            side_effect=subprocess.TimeoutExpired("xrandr", 10),
+        ),
+        pytest.raises(RuntimeError, match="Failed to get display resolution"),
+    ):
+        _get_display_resolution()
+
+
 # === computer() action validation tests ===
 
 
