@@ -83,9 +83,10 @@ def _get_project_git_dir_call() -> Path | None:
             capture_output=True,
             text=True,
             check=True,
+            timeout=10,
         ).stdout.strip()
         return Path(projectdir)
-    except subprocess.CalledProcessError:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return None
 
 

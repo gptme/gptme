@@ -8,7 +8,9 @@ def get_git_version(package_dir):
     try:
         # Run git commands
         def git_cmd(cmd):
-            return subprocess.check_output(cmd, cwd=package_dir, text=True).strip()
+            return subprocess.check_output(
+                cmd, cwd=package_dir, text=True, timeout=10
+            ).strip()
 
         # Check if we're in a git repo
         if (
@@ -17,6 +19,7 @@ def get_git_version(package_dir):
                 cwd=package_dir,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                timeout=10,
             )
             == 0
         ):
@@ -36,7 +39,11 @@ def get_git_version(package_dir):
                 if is_dirty:
                     version += ".dirty"
                 return version
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except (
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        FileNotFoundError,
+    ):
         pass
     return None
 

@@ -28,11 +28,12 @@ def get_workspace_files(workspace: Path) -> list[Path]:
             capture_output=True,
             text=True,
             check=True,
+            timeout=30,
         )
         files = [workspace / f for f in p.stdout.splitlines()]
         # Filter existing files
         files = [f for f in files if f.exists()]
-    except (OSError, subprocess.CalledProcessError):
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         # Fallback to glob if not a git repo or git fails
         # We exclude hidden files/dirs
         files = [
@@ -59,6 +60,7 @@ def get_git_status_files(workspace: Path) -> dict[Path, str]:
             capture_output=True,
             text=True,
             check=True,
+            timeout=30,
         )
 
         status_map = {}
@@ -80,7 +82,7 @@ def get_git_status_files(workspace: Path) -> dict[Path, str]:
                 status_map[path] = "untracked"
 
         return status_map
-    except (OSError, subprocess.CalledProcessError):
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return {}
 
 

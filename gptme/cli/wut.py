@@ -28,7 +28,9 @@ def get_tmux_content(lines: int | None = None):
     if lines:
         cmd.extend(["-S", f"-{lines}"])
 
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, text=True, check=True)
+    result = subprocess.run(
+        cmd, stdout=subprocess.PIPE, text=True, check=True, timeout=10
+    )
     return result.stdout
 
 
@@ -52,7 +54,7 @@ def main():
         "gptme",
         "<system>The user has some terminal output they need help with and have thus run `gptme-wut` to start this session (ignore it in the output)</system>",
     ] + args.gptme_args
-    subprocess.run(cmd, check=False, input=content, text=True)
+    subprocess.run(cmd, check=False, input=content, text=True, timeout=600)
 
 
 if __name__ == "__main__":
