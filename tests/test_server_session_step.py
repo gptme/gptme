@@ -53,3 +53,12 @@ def test_visible_output_sanitizer_all_reasoning_returns_empty():
     )
 
     assert result == ""
+
+
+def test_visible_output_sanitizer_no_trailing_newline():
+    """Content without a trailing newline must be flushed by finish(), not feed()."""
+    # This mirrors markdown tool blocks: ```shell\nls -la\n``` (no trailing \n)
+    result = _sanitize("```shell\nls -la\n```")
+
+    # finish() must return the buffered closing fence
+    assert result == "```shell\nls -la\n```"

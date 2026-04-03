@@ -651,9 +651,12 @@ def step(
             if "\n" in token:
                 if tooluses := list(ToolUse.iter_from_content(visible_output)):
                     break
-        else:
-            tooluses = list(ToolUse.iter_from_content(visible_output))
 
+        # Flush any remaining visible content before tool detection.
+        # The sanitizer buffers incomplete lines (e.g. closing ```) until a
+        # newline arrives, so we must call finish() before the final
+        # ToolUse.iter_from_content check to avoid missing tools whose
+        # closing fence has no trailing newline.
         visible_tail = visible_sanitizer.finish()
         if visible_tail:
             visible_output += visible_tail
@@ -663,6 +666,9 @@ def step(
             )
         if interrupted:
             visible_output += " [INTERRUPTED]"
+
+        if not tooluses:
+            tooluses = list(ToolUse.iter_from_content(visible_output))
 
         # Guard: if the entire response was reasoning, visible_output is empty.
         # Persist a minimal placeholder so the conversation history remains
