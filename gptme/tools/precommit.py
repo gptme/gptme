@@ -149,9 +149,8 @@ def run_precommit_checks(*, all_files: bool = True) -> tuple[bool, str | None]:
 
     Returns:
         A tuple (True, None) if no issues found,
-        or (False, output) if issues found,
-        or (False, None) if interrupted.
-        If pre-commit checks are not enabled, returns (False, None).
+        or (False, output) if issues found or timed out,
+        or (False, None) if interrupted/not-enabled.
     """
     if not use_checks():
         logger.debug("Pre-commit checks not enabled")
@@ -173,7 +172,7 @@ def run_precommit_checks(*, all_files: bool = True) -> tuple[bool, str | None]:
         return True, None  # No issues found
     except subprocess.TimeoutExpired:
         logger.error("Pre-commit checks timed out after 300s")
-        return False, None
+        return False, "Pre-commit checks timed out after 300s"
     except subprocess.CalledProcessError as e:
         # if exit code is 130, it means the user interrupted the process
         if e.returncode == 130:
