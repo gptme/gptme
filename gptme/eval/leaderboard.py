@@ -156,6 +156,10 @@ PRACTICAL_TESTS = {
     "kadane",
     "knapsack",
     "flood-fill",
+    # practical22
+    "trapping-rain-water",
+    "word-break",
+    "permutations",
 }
 
 
