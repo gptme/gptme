@@ -23,7 +23,6 @@ from ..executor import prepare_execution_environment
 from ..hooks import HookType, trigger_hook
 from ..hooks.confirm import ConfirmationResult
 from ..llm import _chat_complete, _stream
-from ..llm.visible_output import VisibleOutputSanitizer
 from ..logmanager import LogManager, prepare_messages
 from ..message import Message
 from ..telemetry import trace_function
@@ -615,10 +614,8 @@ def step(
 
     try:
         # Stream tokens from the model
-        visible_output = ""
+        output = ""
         tooluses = []
-        interrupted = False
-        visible_sanitizer = VisibleOutputSanitizer()
         # Handle streaming vs non-streaming differently
         metadata = None
         if stream:
@@ -632,49 +629,22 @@ def step(
         for token in (char for chunk in chunks for char in chunk):
             # check if interrupted
             if not session.generating:
-                interrupted = True
+                output += " [INTERRUPTED]"
                 break
 
-            visible_chunk = visible_sanitizer.feed(token)
-            if visible_chunk:
-                visible_output += visible_chunk
-                SessionManager.add_event(
-                    conversation_id,
-                    {"type": "generation_progress", "token": visible_chunk},
-                )
+            output += token
+
+            # Send token to clients
+            SessionManager.add_event(
+                conversation_id, {"type": "generation_progress", "token": token}
+            )
 
             # Check for complete tool uses on \n
             if "\n" in token:
-                if tooluses := list(ToolUse.iter_from_content(visible_output)):
+                if tooluses := list(ToolUse.iter_from_content(output)):
                     break
-
-        # Flush any remaining visible content before tool detection.
-        # The sanitizer buffers incomplete lines (e.g. closing ```) until a
-        # newline arrives, so we must call finish() before the final
-        # ToolUse.iter_from_content check to avoid missing tools whose
-        # closing fence has no trailing newline.
-        visible_tail = visible_sanitizer.finish()
-        if visible_tail:
-            visible_output += visible_tail
-            SessionManager.add_event(
-                conversation_id,
-                {"type": "generation_progress", "token": visible_tail},
-            )
-        if interrupted:
-            visible_output += " [INTERRUPTED]"
-
-        # Only scan for tool calls in complete streams.  An interrupted stream
-        # may contain partial XML/fenced output; scanning it risks detecting a
-        # spurious tool call from truncated content (mirrors original for/else
-        # behaviour where the else branch only fired on a natural loop exit).
-        if not tooluses and not interrupted:
-            tooluses = list(ToolUse.iter_from_content(visible_output))
-
-        # Guard: if the entire response was reasoning, visible_output is empty.
-        # Persist a minimal placeholder so the conversation history remains
-        # coherent (a completely empty assistant message would be confusing).
-        if not visible_output.strip():
-            visible_output = "[reasoning only — no visible output]"
+        else:
+            tooluses = list(ToolUse.iter_from_content(output))
 
         # Capture metadata from stream after iteration completes
         if (
@@ -685,7 +655,7 @@ def step(
             metadata = stream_wrapper.metadata
 
         # Persist the assistant message
-        msg = Message("assistant", visible_output, metadata=metadata)
+        msg = Message("assistant", output, metadata=metadata)
         _append_and_notify(manager, session, msg)
         # Write immediately after assistant message to ensure it's persisted
         manager.write()

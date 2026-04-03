@@ -2,7 +2,6 @@
 
 import logging
 import os
-import queue
 import unittest.mock
 
 import pytest
@@ -170,60 +169,3 @@ def test_generation_error_persists_system_message(
     ), "Lingering empty assistant placeholder found in log after error"
     assert messages[-1]["role"] == "system"
     assert messages[-1]["content"] == "Error: provider quota exceeded"
-
-
-@pytest.mark.timeout(20)
-def test_reasoning_blocks_hidden_from_sse_and_log(
-    init_, setup_conversation, event_listener, wait_for_event
-):
-    """Server-visible output should hide streamed reasoning blocks."""
-    port, conversation_id, session_id = setup_conversation
-
-    requests.post(
-        f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
-        json={"role": "user", "content": "Say hello"},
-    )
-
-    def mock_stream(messages, model, tools=None, max_tokens=None):
-        yield "<think>\nprivate reasoning\n</think>\nVisible answer"
-
-    with unittest.mock.patch("gptme.server.session_step._stream", mock_stream):
-        response = requests.post(
-            f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
-            json={
-                "session_id": session_id,
-                "model": "openai/mock-model",
-            },
-        )
-
-        assert response.status_code == 200
-        assert wait_for_event(event_listener, "generation_started")
-        assert wait_for_event(event_listener, "message_added")
-        assert wait_for_event(event_listener, "generation_complete")
-
-    events = []
-    while True:
-        try:
-            events.append(event_listener["events"].get_nowait())
-        except queue.Empty:
-            break
-
-    progress = "".join(
-        event["token"]
-        for event in events
-        if event.get("type") == "generation_progress"
-    )
-    assert progress == "Visible answer"
-    assert "<think>" not in progress
-    assert "private reasoning" not in progress
-
-    resp = requests.get(
-        f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
-    )
-    assert resp.status_code == 200
-
-    messages = resp.json()["log"]
-    assistant = next(m for m in reversed(messages) if m["role"] == "assistant")
-    assert assistant["content"] == "Visible answer"
-    assert "<think>" not in assistant["content"]
-    assert "private reasoning" not in assistant["content"]
