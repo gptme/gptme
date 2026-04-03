@@ -628,11 +628,14 @@ def computer(
 
         # Resize screenshot from physical resolution to API dimensions
         if path.exists():
-            subprocess.run(
-                ["convert", str(path), "-resize", f"{width}x{height}!", str(path)],
-                check=True,
-                timeout=30,
-            )
+            try:
+                subprocess.run(
+                    ["convert", str(path), "-resize", f"{width}x{height}!", str(path)],
+                    check=True,
+                    timeout=30,
+                )
+            except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as e:
+                raise RuntimeError(f"Image resize failed: {e}") from e
             return view_image(path)
         print("Error: Screenshot failed")
         return None
