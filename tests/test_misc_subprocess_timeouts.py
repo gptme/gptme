@@ -152,13 +152,16 @@ class TestFileSelectorTimeouts:
         assert "timeout" in mock_run.call_args.kwargs
 
     @patch("gptme.context.selector.file_selector.subprocess.run")
-    def test_get_workspace_files_timeout_fallback(self, mock_run):
+    def test_get_workspace_files_timeout_fallback(self, mock_run, tmp_path):
         """TimeoutExpired falls back to glob (returns list, not crash)."""
         mock_run.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=30)
+        # Create a file so glob has something to find
+        (tmp_path / "example.py").write_text("# test")
         from gptme.context.selector.file_selector import get_workspace_files
 
-        result = get_workspace_files(Path("/tmp"))
+        result = get_workspace_files(tmp_path)
         assert isinstance(result, list)
+        assert len(result) >= 1
 
     @patch("gptme.context.selector.file_selector.subprocess.run")
     def test_get_git_status_files_passes_timeout(self, mock_run):
