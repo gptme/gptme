@@ -135,11 +135,16 @@ def _get_process_cwd(pid: int) -> str | None:
                 ["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"],
                 stderr=subprocess.DEVNULL,
                 text=True,
+                timeout=10,
             )
             for line in out.splitlines():
                 if line.startswith("n"):
                     return line[1:]
-        except (subprocess.CalledProcessError, FileNotFoundError):
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            FileNotFoundError,
+        ):
             return None
     # TODO: Windows — use wmic or ctypes
     return None
@@ -160,9 +165,15 @@ def _get_process_cmdline(pid: int) -> list[str]:
                 ["ps", "-p", str(pid), "-o", "args="],
                 stderr=subprocess.DEVNULL,
                 text=True,
+                timeout=10,
             ).strip()
             return shlex.split(out) if out else []
-        except (subprocess.CalledProcessError, FileNotFoundError, ValueError):
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            FileNotFoundError,
+            ValueError,
+        ):
             return []
     # TODO: Windows — use wmic
     return []
@@ -176,10 +187,14 @@ def _get_all_pids() -> list[int]:
     if system == "Darwin":
         try:
             out = subprocess.check_output(
-                ["ps", "-eo", "pid="], stderr=subprocess.DEVNULL, text=True
+                ["ps", "-eo", "pid="], stderr=subprocess.DEVNULL, text=True, timeout=10
             )
             return [int(line.strip()) for line in out.splitlines() if line.strip()]
-        except (subprocess.CalledProcessError, FileNotFoundError):
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            FileNotFoundError,
+        ):
             return []
     # TODO: Windows — use tasklist or ctypes
     return []
@@ -226,6 +241,7 @@ def _get_process_timing(pid: int) -> tuple[int | None, float | None, str | None]
                 ["ps", "-p", str(pid), "-o", "etime=,cputime=,stat="],
                 stderr=subprocess.DEVNULL,
                 text=True,
+                timeout=10,
             ).strip()
             if not out:
                 return None, None, None
@@ -238,7 +254,11 @@ def _get_process_timing(pid: int) -> tuple[int | None, float | None, str | None]
                 float(mac_cpu) if mac_cpu is not None else None,
                 mac_state,
             )
-        except (subprocess.CalledProcessError, FileNotFoundError):
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            FileNotFoundError,
+        ):
             return None, None, None
     return None, None, None
 
@@ -292,10 +312,15 @@ def _get_git_branch(cwd: str) -> str | None:
                 ["git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"],
                 stderr=subprocess.DEVNULL,
                 text=True,
+                timeout=10,
             ).strip()
             or None
         )
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except (
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        FileNotFoundError,
+    ):
         return None
 
 
