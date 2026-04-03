@@ -23,6 +23,7 @@ from ..executor import prepare_execution_environment
 from ..hooks import HookType, trigger_hook
 from ..hooks.confirm import ConfirmationResult
 from ..llm import _chat_complete, _stream
+from ..llm.visible_output import VisibleOutputSanitizer
 from ..logmanager import LogManager, prepare_messages
 from ..message import Message
 from ..telemetry import trace_function
@@ -615,7 +616,10 @@ def step(
     try:
         # Stream tokens from the model
         output = ""
+        visible_output = ""
         tooluses = []
+        interrupted = False
+        visible_sanitizer = VisibleOutputSanitizer()
         # Handle streaming vs non-streaming differently
         metadata = None
         if stream:
@@ -630,14 +634,18 @@ def step(
             # check if interrupted
             if not session.generating:
                 output += " [INTERRUPTED]"
+                interrupted = True
                 break
 
             output += token
 
-            # Send token to clients
-            SessionManager.add_event(
-                conversation_id, {"type": "generation_progress", "token": token}
-            )
+            visible_chunk = visible_sanitizer.feed(token)
+            if visible_chunk:
+                visible_output += visible_chunk
+                SessionManager.add_event(
+                    conversation_id,
+                    {"type": "generation_progress", "token": visible_chunk},
+                )
 
             # Check for complete tool uses on \n
             if "\n" in token:
@@ -645,6 +653,16 @@ def step(
                     break
         else:
             tooluses = list(ToolUse.iter_from_content(output))
+
+        visible_tail = visible_sanitizer.finish()
+        if visible_tail:
+            visible_output += visible_tail
+            SessionManager.add_event(
+                conversation_id,
+                {"type": "generation_progress", "token": visible_tail},
+            )
+        if interrupted:
+            visible_output += " [INTERRUPTED]"
 
         # Capture metadata from stream after iteration completes
         if (
@@ -655,7 +673,7 @@ def step(
             metadata = stream_wrapper.metadata
 
         # Persist the assistant message
-        msg = Message("assistant", output, metadata=metadata)
+        msg = Message("assistant", visible_output, metadata=metadata)
         _append_and_notify(manager, session, msg)
         # Write immediately after assistant message to ensure it's persisted
         manager.write()
