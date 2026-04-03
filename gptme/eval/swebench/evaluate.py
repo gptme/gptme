@@ -146,15 +146,21 @@ def evaluate_instance(
     )
 
     # Capture diff from agent workspace (repo copy)
-    diff_result = subprocess.run(
-        ["git", "diff"],
-        cwd=agent.workspace_dir,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=60,
-    )
-    patch = diff_result.stdout
+    try:
+        diff_result = subprocess.run(
+            ["git", "diff"],
+            cwd=agent.workspace_dir,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+        patch = diff_result.stdout
+    except subprocess.TimeoutExpired:
+        logger.warning(
+            f"git diff timed out for instance {instance_id}; treating as empty patch"
+        )
+        patch = ""
 
     # Fast heuristic: check whether the patch touches the expected files.
     # NOTE: This is NOT authoritative — use the official SWE-bench harness for
