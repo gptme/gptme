@@ -16,11 +16,14 @@ import csv
 import html
 import io
 import json
+import logging
 import math
 import sys
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Wilson score lower bound — used for ranking and format selection
@@ -61,6 +64,10 @@ def _derive_test_sets() -> tuple[frozenset[str], frozenset[str]]:
     try:
         from .suites import suites
     except Exception:
+        logger.warning(
+            "Failed to import eval suites; BASIC_TESTS and PRACTICAL_TESTS will be empty",
+            exc_info=True,
+        )
         return frozenset(), frozenset()
 
     basic: set[str] = set()

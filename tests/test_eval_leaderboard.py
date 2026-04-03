@@ -1003,3 +1003,24 @@ def test_test_sets_auto_derived():
     # Sets should be disjoint
     overlap = BASIC_TESTS & PRACTICAL_TESTS
     assert not overlap, f"Overlap between basic and practical: {overlap}"
+
+
+def test_derive_test_sets_import_failure(monkeypatch):
+    """When suites import fails, _derive_test_sets returns empty sets and logs a warning."""
+    import sys
+    from unittest.mock import patch
+
+    from gptme.eval import leaderboard as lb
+
+    # Remove cached module so the import inside _derive_test_sets is retried
+    sys.modules.pop("gptme.eval.suites", None)
+
+    with (
+        patch.dict(sys.modules, {"gptme.eval.suites": None}),  # type: ignore[dict-item]
+        patch.object(lb.logger, "warning") as mock_warn,
+    ):
+        basic, practical = lb._derive_test_sets()
+
+    assert basic == frozenset()
+    assert practical == frozenset()
+    assert mock_warn.called
