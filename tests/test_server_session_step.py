@@ -62,3 +62,26 @@ def test_visible_output_sanitizer_no_trailing_newline():
 
     # finish() must return the buffered closing fence
     assert result == "```shell\nls -la\n```"
+
+
+def test_visible_output_sanitizer_closing_tag_with_inline_content_feed():
+    """Visible text on the same line as a closing tag must not be silently dropped."""
+    # Some models emit </think>visible text on one line (no separate newline).
+    result = _sanitize(
+        "<think>\n",
+        "private reasoning\n",
+        "</think>Visible answer\n",
+    )
+
+    assert result == "Visible answer\n"
+
+
+def test_visible_output_sanitizer_closing_tag_with_inline_content_finish():
+    """finish() must return visible text that follows a closing tag on the final line."""
+    result = _sanitize(
+        "<think>\n",
+        "private reasoning\n",
+        "</think>Visible answer",  # no trailing newline — flushed by finish()
+    )
+
+    assert result == "Visible answer"

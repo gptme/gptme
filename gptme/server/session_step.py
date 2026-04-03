@@ -663,7 +663,11 @@ def step(
         if interrupted:
             visible_output += " [INTERRUPTED]"
 
-        if not tooluses:
+        # Only scan for tool calls in complete streams.  An interrupted stream
+        # may contain partial XML/fenced output; scanning it risks detecting a
+        # spurious tool call from truncated content (mirrors original for/else
+        # behaviour where the else branch only fired on a natural loop exit).
+        if not tooluses and not interrupted:
             tooluses = list(ToolUse.iter_from_content(visible_output))
 
         # Guard: if the entire response was reasoning, visible_output is empty.

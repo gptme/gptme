@@ -33,6 +33,17 @@ class VisibleOutputSanitizer:
             elif stripped in self._CLOSING_TAGS:
                 self._in_thinking = False
                 self._just_closed_thinking = True
+            elif self._in_thinking:
+                # Handle closing tag followed by inline content on the same line,
+                # e.g. "</think>visible text".  The suffix after the tag is visible.
+                for ctag in self._CLOSING_TAGS:
+                    if stripped.startswith(ctag):
+                        self._in_thinking = False
+                        self._just_closed_thinking = True
+                        after_tag = stripped[len(ctag) :]
+                        if after_tag:
+                            visible_parts.append(after_tag + "\n")
+                        break
 
             if not self._in_thinking and not prev_thinking:
                 if self._visible_line:
@@ -50,8 +61,22 @@ class VisibleOutputSanitizer:
         """Flush any remaining visible content at end-of-stream."""
         line = "".join(self._raw_line)
         self._raw_line.clear()
+        stripped = line.strip()
 
-        if self._in_thinking or line.strip() in self._OPENING_TAGS | self._CLOSING_TAGS:
+        if stripped in self._OPENING_TAGS | self._CLOSING_TAGS:
+            self._visible_line.clear()
+            self._just_closed_thinking = False
+            return ""
+
+        if self._in_thinking:
+            # Handle closing tag with inline content on the final line,
+            # e.g. "</think>visible text" with no trailing newline.
+            for ctag in self._CLOSING_TAGS:
+                if stripped.startswith(ctag):
+                    after_tag = stripped[len(ctag) :]
+                    self._visible_line.clear()
+                    self._just_closed_thinking = False
+                    return after_tag
             self._visible_line.clear()
             self._just_closed_thinking = False
             return ""
