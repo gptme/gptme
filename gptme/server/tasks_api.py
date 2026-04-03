@@ -667,7 +667,7 @@ def api_tasks_list():
 
         # Return with stored status (no side effects in GET)
         tasks_info = [asdict(task) for task in tasks]
-        return flask.jsonify(tasks_info)
+        return flask.jsonify({"tasks": tasks_info})
 
     except Exception as e:
         logger.error(f"Error listing tasks: {e}")

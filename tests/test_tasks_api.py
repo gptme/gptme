@@ -517,7 +517,7 @@ class TestTasksListAPI:
     def test_list_empty(self, client):
         resp = client.get("/api/v2/tasks")
         assert resp.status_code == 200
-        assert resp.json == []
+        assert resp.json == {"tasks": []}
 
     def test_list_with_tasks(self, client):
         for i in range(2):
@@ -534,7 +534,8 @@ class TestTasksListAPI:
         resp = client.get("/api/v2/tasks")
         assert resp.status_code == 200
         data = resp.json
-        assert len(data) == 2
+        assert "tasks" in data
+        assert len(data["tasks"]) == 2
 
 
 class TestTasksGetAPI:
