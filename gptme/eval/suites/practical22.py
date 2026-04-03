@@ -113,7 +113,7 @@ r = word_break("leetcode", ["leet", "code"])
 if r is not True:
     errors.append(f"case 1: 'leetcode' with [leet,code] -> True, got {r}")
 
-# Case 2: cannot segment
+# Case 2: can segment — reuse words (apple + pen + apple)
 r = word_break("applepenapple", ["apple", "pen"])
 if r is not True:
     errors.append(f"case 2: 'applepenapple' with [apple,pen] -> True, got {r}")
@@ -280,7 +280,7 @@ def check_perms_has_function(ctx):
 def check_perms_uses_backtracking(ctx):
     """Should use backtracking or recursive approach."""
     src = ctx.files.get("perms.py", "")
-    return bool(re.search(r"\brecur|\bbacktrack|\bswap\b|for.*in.*range.*len", src))
+    return bool(re.search(r"\brecur|\bbacktrack|\bswap\b", src))
 
 
 def check_perms_exit(ctx):
