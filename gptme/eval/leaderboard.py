@@ -50,121 +50,33 @@ def wilson_lower_bound(passed: int, total: int) -> float:
     ) / (1 + _WILSON_Z2 / n)
 
 
-# Test suite membership — tests not in either set count toward Overall only
-BASIC_TESTS = {
-    "hello",
-    "hello-patch",
-    "hello-ask",
-    "prime100",
-    "read-modify",
-    "write-tests",
-    "json-transform",
-    "count-words",
-    "multi-file-refactor",
-    "fix-bug",
-    "generate-cli",
-    "implement-class",
-    "json-filter",
-    "find-and-fix",
-    "debug-type-error",
-    "fix-import-error",
-    "extract-function",
-    "optimize-performance",
-}
+# ---------------------------------------------------------------------------
+# Test suite membership — auto-derived from the eval suite registry so that
+# new practical/basic suites are categorized automatically.
+# ---------------------------------------------------------------------------
 
-PRACTICAL_TESTS = {
-    # practical (original)
-    "build-api",
-    "parse-log",
-    "add-error-handling",
-    # practical2
-    "sort-and-filter",
-    "template-fill",
-    "validate-csv",
-    # practical3
-    "write-tests-calculator",
-    "sqlite-store",
-    # practical4
-    "group-by",
-    "schedule-overlaps",
-    "topo-sort",
-    # practical5
-    "rename-function",
-    "data-pipeline",
-    "regex-scrub",
-    # practical6
-    "csv-analysis",
-    "word-frequency",
-    "merge-configs",
-    # practical7
-    "ini-to-json",
-    "json-diff",
-    "changelog-gen",
-    # practical8
-    "url-stats",
-    "markdown-toc",
-    "json-flatten",
-    # practical9
-    "env-parser",
-    "yaml-merge",
-    "git-log-stats",
-    # practical10
-    "semver-sort",
-    "date-histogram",
-    "tsv-to-csv",
-    # practical11
-    "roman-numerals",
-    "run-length-encoding",
-    "anagram-groups",
-    # practical12
-    "frequent-words",
-    "collatz-sequence",
-    "log-level-stats",
-    # practical13
-    "summary-stats",
-    "pascal-triangle",
-    "caesar-cipher",
-    # practical14
-    "matrix-transpose",
-    "ipv4-classify",
-    "bracket-balance",
-    # practical15
-    "async-pipeline",
-    "sql-analytics",
-    "fix-sql-injection",
-    # practical16
-    "async-queue-workers",
-    "json-schema-validate",
-    "implement-trie",
-    # practical17
-    "lru-cache",
-    "interval-merge",
-    "base-converter",
-    # practical18
-    "min-stack",
-    "knight-moves",
-    "histogram-area",
-    # practical19
-    "edit-distance",
-    "bst-operations",
-    "coin-change",
-    # practical20
-    "dijkstra",
-    "spiral-matrix",
-    "num-islands",
-    # practical21
-    "kadane",
-    "knapsack",
-    "flood-fill",
-    # practical22
-    "trapping-rain-water",
-    "word-break",
-    "permutations",
-    # practical23
-    "lcs",
-    "stock-cooldown",
-    "rotate-image",
-}
+
+def _derive_test_sets() -> tuple[frozenset[str], frozenset[str]]:
+    """Derive BASIC_TESTS and PRACTICAL_TESTS from the suite registry."""
+    try:
+        from .suites import suites
+    except Exception:
+        return frozenset(), frozenset()
+
+    basic: set[str] = set()
+    practical: set[str] = set()
+
+    for suite_name, suite_tests in suites.items():
+        names = {t["name"] for t in suite_tests}
+        if suite_name == "basic":
+            basic.update(names)
+        elif suite_name.startswith("practical"):
+            practical.update(names)
+
+    return frozenset(basic), frozenset(practical)
+
+
+BASIC_TESTS, PRACTICAL_TESTS = _derive_test_sets()
 
 
 def normalize_model(model: str) -> str:

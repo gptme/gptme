@@ -978,3 +978,28 @@ def test_json_output_includes_ranking_score(tmp_path):
     data = json.loads(output)
     assert "ranking_score" in data["models"][0]
     assert data["models"][0]["ranking_score"] > 0
+
+
+def test_test_sets_auto_derived():
+    """BASIC_TESTS and PRACTICAL_TESTS should be auto-derived from suites."""
+    from gptme.eval.leaderboard import BASIC_TESTS, PRACTICAL_TESTS
+    from gptme.eval.suites import suites
+
+    assert len(BASIC_TESTS) > 0, "BASIC_TESTS should not be empty"
+    assert len(PRACTICAL_TESTS) > 0, "PRACTICAL_TESTS should not be empty"
+
+    # Every test in the basic suite should be in BASIC_TESTS
+    for test in suites.get("basic", []):
+        assert test["name"] in BASIC_TESTS, f"basic test {test['name']} missing"
+
+    # Every test in practical* suites should be in PRACTICAL_TESTS
+    for suite_name, suite_tests in suites.items():
+        if suite_name.startswith("practical"):
+            for test in suite_tests:
+                assert test["name"] in PRACTICAL_TESTS, (
+                    f"practical test {test['name']} from {suite_name} missing"
+                )
+
+    # Sets should be disjoint
+    overlap = BASIC_TESTS & PRACTICAL_TESTS
+    assert not overlap, f"Overlap between basic and practical: {overlap}"
