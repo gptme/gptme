@@ -277,10 +277,10 @@ r = has_cycle({0: [1], 1: [2], 2: [3], 3: [4], 4: []})
 if r is not False:
     errors.append(f"case 9: linear chain -> False, got {r}")
 
-# Case 10: diamond shape (no cycle)
-r = has_cycle({0: [1, 2], 1: [3], 2: [3], 3: []})
+# Case 10: wider convergence (5 nodes, three paths to sink, no cycle)
+r = has_cycle({0: [1, 2], 1: [4], 2: [3, 4], 3: [4], 4: []})
 if r is not False:
-    errors.append(f"case 10: diamond DAG -> False, got {r}")
+    errors.append(f"case 10: wider convergence DAG -> False, got {r}")
 
 if errors:
     for e in errors:
