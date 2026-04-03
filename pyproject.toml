@@ -304,6 +304,7 @@ markers = [
     "integration: marks tests as integration tests requiring external services",
     "xdist_group: marks tests that should run in the same xdist group",
 ]
+asyncio_default_fixture_loop_scope = "function"
 
 [tool.coverage.run]
 # Needed to get playwright to play nice with coverage
