@@ -409,21 +409,24 @@ def format_html_page(ranked: list[dict]) -> str:
             else "-"
         )
 
-        basic_pct = (
+        basic_sort = (
             stats["basic_passed"] / stats["basic_total"] * 100
             if stats["basic_total"] > 0
-            else -1
+            else None
         )
-        practical_pct = (
+        practical_sort = (
             stats["practical_passed"] / stats["practical_total"] * 100
             if stats["practical_total"] > 0
-            else -1
+            else None
         )
+        # Empty string → JS parseFloat returns NaN → sort sends to end
+        basic_data = f"{basic_sort:.2f}" if basic_sort is not None else ""
+        practical_data = f"{practical_sort:.2f}" if practical_sort is not None else ""
 
         rows_html.append(
             f"<tr data-rank='{i + 1}' data-model='{_html_escape(display_name)}'"
             f" data-rate='{pct:.2f}' data-passed='{stats['total_passed']}'"
-            f" data-basic='{basic_pct:.2f}' data-practical='{practical_pct:.2f}'>"
+            f" data-basic='{basic_data}' data-practical='{practical_data}'>"
             f"<td class='rank'>{i + 1}</td>"
             f"<td class='model'>{_html_escape(display_name)}</td>"
             f"<td>{_html_escape(fmt)}</td>"
@@ -557,23 +560,24 @@ def format_html_page(ranked: list[dict]) -> str:
   function sortTable(key, dir) {{
     var rows = Array.from(tbody.querySelectorAll('tr'));
     rows.sort(function(a, b) {{
-      var av = key === 'model' ? a.dataset[key] || '' : parseFloat(a.dataset[key] || '0');
-      var bv = key === 'model' ? b.dataset[key] || '' : parseFloat(b.dataset[key] || '0');
       if (key === 'model') {{
+        var av = a.dataset[key] || '';
+        var bv = b.dataset[key] || '';
         var cmp = av.localeCompare(bv);
         return dir === 'asc' ? cmp : -cmp;
       }}
+      var av = parseFloat(a.dataset[key]);
+      var bv = parseFloat(b.dataset[key]);
+      // NaN (missing data, e.g. no basic/practical tests) always sorts to end
+      if (isNaN(av) && isNaN(bv)) return 0;
+      if (isNaN(av)) return 1;
+      if (isNaN(bv)) return -1;
       return dir === 'asc' ? av - bv : bv - av;
     }});
     rows.forEach(function(r) {{ tbody.appendChild(r); }});
-    // Update rank display after sort
-    var visible = 0;
-    rows.forEach(function(r) {{
-      if (!r.classList.contains('hidden')) {{
-        visible++;
-        r.querySelector('.rank').textContent = visible;
-      }}
-    }});
+    // Re-apply current filter so rank cells are correct for all rows
+    // (including hidden ones that reappear when filter is cleared)
+    filterRows(searchInput.value);
   }}
 
   function updateCount() {{
@@ -633,8 +637,12 @@ def format_html_page(ranked: list[dict]) -> str:
 
 
 def _html_escape(s: str) -> str:
-    """HTML escaping for untrusted model names."""
-    return html.escape(s)
+    """HTML escaping for untrusted model names in HTML attributes and content.
+
+    html.escape(quote=True) escapes " but not '; we also escape ' because
+    some data-* attributes use single-quote delimiters.
+    """
+    return html.escape(s).replace("'", "&#x27;")
 
 
 def format_json(ranked: list[dict]) -> str:
