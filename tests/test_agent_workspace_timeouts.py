@@ -139,3 +139,29 @@ class TestCreateWorkspaceTimeoutIntegration:
         dest = tmp_path / "new-agent"
         with pytest.raises(WorkspaceError, match="timed out"):
             create_workspace_from_template(dest, "test-agent")
+
+    @patch("gptme.agent.workspace._reset_git_history")
+    @patch("gptme.agent.workspace._replace_template_strings")
+    @patch("subprocess.run")
+    def test_orphaned_workspace_cleaned_up_on_post_move_timeout(
+        self, mock_run, mock_replace, mock_reset, tmp_path
+    ):
+        """Workspace at path is removed if _reset_git_history times out after move."""
+        from gptme.agent.workspace import (
+            WorkspaceError,
+            create_workspace_from_template,
+        )
+
+        # clone and submodule succeed (no fork_command → move happens after these)
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout=b"", stderr=b""
+        )
+        mock_replace.return_value = None
+        mock_reset.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=30)
+
+        dest = tmp_path / "new-agent"
+        with pytest.raises(WorkspaceError, match="timed out"):
+            create_workspace_from_template(dest, "test-agent")
+
+        # The partially-created workspace must not be left behind
+        assert not dest.exists(), "Orphaned workspace was not cleaned up after timeout"

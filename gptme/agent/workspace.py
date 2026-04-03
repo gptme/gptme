@@ -159,6 +159,11 @@ def create_workspace_from_template(
         # Clean up temp directory if it still exists
         if temp_dir.exists():
             shutil.rmtree(temp_dir, ignore_errors=True)
+        # If move already happened but subsequent steps failed, clean up the
+        # partially-created workspace so callers can retry without hitting
+        # "Destination path already exists".
+        elif path.exists():
+            shutil.rmtree(path, ignore_errors=True)
 
 
 def create_workspace_structure(path: Path, agent_name: str) -> Path:
