@@ -91,7 +91,7 @@ check([1, 2, 3, 4, 5, 5], 5, "case 5")
 # Case 6: only two elements, both same
 check([1, 1], 1, "case 6")
 
-# Case 7: duplicate is 2 in larger array
+# Case 7: duplicate is 9 in larger array
 check([2, 5, 9, 6, 9, 3, 8, 9, 7, 1], 9, "case 7")
 
 # Case 8: n=6, duplicate is 3
