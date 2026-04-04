@@ -600,10 +600,10 @@ writing tests, generating CLI programs, and fixing bugs. (~18 tests)</p>
 <dt><strong>init_projects</strong></dt><dd><p>Project initialization: <code class="docutils literal notranslate"><span class="pre">init-git</span></code>, <code class="docutils literal notranslate"><span class="pre">init-react</span></code>, <code class="docutils literal notranslate"><span class="pre">init-rust</span></code>. Tests the ability
 to scaffold new projects from scratch.</p>
 </dd>
-<dt><strong>practical</strong> — <strong>practical2</strong> — … — <strong>practical21</strong></dt><dd><p>A growing series of real-world programming tasks that go beyond basic file I/O.
-The practical suites now cover 62 tasks across data processing, refactoring,
+<dt><strong>practical</strong> — <strong>practical2</strong> — … — <strong>practical27</strong></dt><dd><p>A growing series of real-world programming tasks that go beyond basic file I/O.
+The practical suites now cover 80 tasks across data processing, refactoring,
 algorithms, async/concurrency, SQL, validation, graph search, dynamic
-programming, and tree data structures.</p>
+programming, tree data structures, and classic interview problems.</p>
 <p>Early suites give a good feel for the format:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <thead>
@@ -661,7 +661,12 @@ changelog-gen</p></td>
 bracket tasks, async pipelines and worker queues, SQL analytics, tries,
 LRU caches, interval merging, min-stack, knight moves, histogram area,
 edit distance, BST operations, coin change, Dijkstra, spiral matrix,
-number of islands, Kadane’s algorithm, 0/1 knapsack, and flood fill.</p>
+number of islands, Kadane’s algorithm, 0/1 knapsack, flood fill,
+trapping rain water, word break, permutations, longest common subsequence,
+stock trading with cooldown, image rotation, N-Queens, longest increasing
+subsequence, cycle detection, sliding window maximum, decode ways,
+meeting rooms, longest palindromic substring, jump game, task scheduler,
+house robber, max product subarray, and finding all anagrams.</p>
 <p>For the current authoritative suite list, run <code class="docutils literal notranslate"><span class="pre">gptme-eval</span> <span class="pre">--list</span></code>.</p>
 </dd>
 </dl>
@@ -671,11 +676,10 @@ gptme-eval<span class="w"> </span>sort-and-filter<span class="w"> </span>rename-
 </pre></div>
 </div>
 <p>Run all practical suites at once (useful for benchmarking):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-eval<span class="w"> </span>practical<span class="w"> </span>practical2<span class="w"> </span>practical3<span class="w"> </span>practical4<span class="w"> </span>practical5<span class="w"> </span>practical6<span class="w"> </span>practical7<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>practical8<span class="w"> </span>practical9<span class="w"> </span>practical10<span class="w"> </span>practical11<span class="w"> </span>practical12<span class="w"> </span>practical13<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>practical14<span class="w"> </span>practical15<span class="w"> </span>practical16<span class="w"> </span>practical17<span class="w"> </span>practical18<span class="w"> </span>practical19<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>practical20<span class="w"> </span>practical21<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--model<span class="w"> </span>anthropic/claude-sonnet-4-6
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-eval<span class="w"> </span>all-practical<span class="w"> </span>--model<span class="w"> </span>anthropic/claude-sonnet-4-6
+
+<span class="c1"># Or run every suite (basic + browser + init_projects + practical):</span>
+gptme-eval<span class="w"> </span>all<span class="w"> </span>--model<span class="w"> </span>anthropic/claude-sonnet-4-6
 </pre></div>
 </div>
 </section>
