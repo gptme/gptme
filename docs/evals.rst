@@ -159,12 +159,10 @@ Run all practical suites at once (useful for benchmarking):
 
 .. code-block:: bash
 
-    gptme-eval practical practical2 practical3 practical4 practical5 practical6 practical7 \
-        practical8 practical9 practical10 practical11 practical12 practical13 \
-        practical14 practical15 practical16 practical17 practical18 practical19 \
-        practical20 practical21 practical22 practical23 practical24 practical25 \
-        practical26 practical27 \
-        --model anthropic/claude-sonnet-4-6
+    gptme-eval all-practical --model anthropic/claude-sonnet-4-6
+
+    # Or run every suite (basic + browser + init_projects + practical):
+    gptme-eval all --model anthropic/claude-sonnet-4-6
 
 
 Raw Results

@@ -13,7 +13,7 @@ from click.testing import CliRunner
 from gptme.config import get_config
 from gptme.eval import execute, tests
 from gptme.eval.agents import Agent, GPTMe
-from gptme.eval.main import main, results_to_json
+from gptme.eval.main import main, resolve_eval_names, results_to_json
 from gptme.eval.run import ProcessError, SyncedDict, act_process
 from gptme.eval.suites import suites, tests_map
 from gptme.eval.types import CaseResult, EvalResult, ModelConfig
@@ -90,74 +90,43 @@ def test_suite_autodiscovery():
 
 
 def test_suite_aliases():
-    """Test that 'all' and 'all-practical' aliases expand to correct test sets."""
+    """Test that 'all' and 'all-practical' aliases expand to correct test sets via resolve_eval_names."""
+    all_resolved = resolve_eval_names(["all"])
+    practical_resolved = resolve_eval_names(["all-practical"])
 
-    # We can't easily test the resolution without running main, but we can
-    # verify the alias logic by checking the resolution code directly.
-    all_tests = [test for suite_tests in suites.values() for test in suite_tests]
-    practical_tests = [
-        test
-        for name, suite_tests in suites.items()
-        if name.startswith("practical")
-        for test in suite_tests
-    ]
-
-    # 'all' should include every test
-    assert len(all_tests) == len(tests)
+    # 'all' should include every test exactly once
+    assert len(all_resolved) == len(tests)
+    assert len(all_resolved) == len({t["name"] for t in all_resolved}), (
+        "duplicates in 'all'"
+    )
 
     # 'all-practical' should include only practical tests
-    assert len(practical_tests) > 0
-    for test in practical_tests:
-        # Every practical test should also be in the full list
-        assert test in all_tests
+    assert len(practical_resolved) > 0
+    for t in practical_resolved:
+        assert t in all_resolved, f"{t['name']} in all-practical but not in all"
 
     # practical tests should be a strict subset of all tests
-    assert len(practical_tests) < len(all_tests)
+    assert len(practical_resolved) < len(all_resolved)
+
+    # unknown alias should raise
+    import pytest as _pytest
+
+    with _pytest.raises(ValueError, match="not found"):
+        resolve_eval_names(["nonexistent-alias"])
 
 
 def test_alias_deduplication():
     """Test that combining alias + explicit suite doesn't run tests twice."""
-    from gptme.eval.types import EvalSpec
+    # 'practical' is the first practical suite; combining with 'all-practical' would add it twice
+    # without deduplication
+    deduped = resolve_eval_names(["all-practical", "practical"])
 
-    # Simulate the resolution loop that main() uses, then apply the dedup guard
-    # 'practical' is the first practical suite; combining with 'all-practical' causes duplicates
-    eval_names = ["all-practical", "practical"]
-    evals_to_run: list[EvalSpec] = []
-    for eval_name in eval_names:
-        if eval_name == "all-practical":
-            evals_to_run.extend(
-                test
-                for name, suite_tests in suites.items()
-                if name.startswith("practical")
-                for test in suite_tests
-            )
-        elif suite := suites.get(eval_name) or suites.get(eval_name.replace("-", "_")):
-            evals_to_run.extend(suite)
+    names = [t["name"] for t in deduped]
+    assert len(names) == len(set(names)), "duplicates remain after dedup"
 
-    # Without dedup: 'practical1' tests appear twice
-    names_before = [t["name"] for t in evals_to_run]
-    assert len(names_before) > len(set(names_before)), (
-        "expected duplicates before dedup"
-    )
-
-    # Apply dedup (mirrors main.py logic)
-    seen: set[str] = set()
-    deduped: list[EvalSpec] = []
-    for t in evals_to_run:
-        if t["name"] not in seen:
-            seen.add(t["name"])
-            deduped.append(t)
-
-    names_after = [t["name"] for t in deduped]
-    assert len(names_after) == len(set(names_after)), "duplicates remain after dedup"
-    # all-practical count should equal deduped count (no extras from explicit suite)
-    practical_count = sum(
-        1
-        for name, suite_tests in suites.items()
-        if name.startswith("practical")
-        for _ in suite_tests
-    )
-    assert len(deduped) == practical_count
+    # Result should equal all-practical alone (explicit 'practical' adds nothing new)
+    all_practical = resolve_eval_names(["all-practical"])
+    assert len(deduped) == len(all_practical)
 
 
 def test_list_tests():
