@@ -750,7 +750,9 @@ def test_explicit_use_acp_false_overrides_default(
         f"/api/v2/conversations/{conversation_id}/step",
         json={"session_id": session_id, "use_acp": False, "model": "openai/gpt-4o"},
     )
-    assert resp.status_code == 200
+    # May return 500 if no API key (LLM errors are now surfaced).
+    # This test verifies use_acp config, not the step response code.
+    assert resp.status_code in (200, 500)
 
     from gptme.server.api_v2_sessions import SessionManager
 
