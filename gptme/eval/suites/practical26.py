@@ -229,7 +229,7 @@ r = least_interval(["A","A","A","B","B","C"], 2)
 if r != 7:
     errors.append(f"case 7: AAABBC n=2 -> 7, got {r}")
 
-# Case 8: all unique tasks with large n -- diversity prevents idle
+# Case 8: all unique tasks with large n -- max_freq=1 so cooldown never activates, answer = len(tasks)
 r = least_interval(["A","B","C"], 10)
 if r != 3:
     errors.append(f"case 8: ABC n=10 -> 3, got {r}")
