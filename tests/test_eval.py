@@ -115,6 +115,51 @@ def test_suite_aliases():
     assert len(practical_tests) < len(all_tests)
 
 
+def test_alias_deduplication():
+    """Test that combining alias + explicit suite doesn't run tests twice."""
+    from gptme.eval.types import EvalSpec
+
+    # Simulate the resolution loop that main() uses, then apply the dedup guard
+    # 'practical' is the first practical suite; combining with 'all-practical' causes duplicates
+    eval_names = ["all-practical", "practical"]
+    evals_to_run: list[EvalSpec] = []
+    for eval_name in eval_names:
+        if eval_name == "all-practical":
+            evals_to_run.extend(
+                test
+                for name, suite_tests in suites.items()
+                if name.startswith("practical")
+                for test in suite_tests
+            )
+        elif suite := suites.get(eval_name) or suites.get(eval_name.replace("-", "_")):
+            evals_to_run.extend(suite)
+
+    # Without dedup: 'practical1' tests appear twice
+    names_before = [t["name"] for t in evals_to_run]
+    assert len(names_before) > len(set(names_before)), (
+        "expected duplicates before dedup"
+    )
+
+    # Apply dedup (mirrors main.py logic)
+    seen: set[str] = set()
+    deduped: list[EvalSpec] = []
+    for t in evals_to_run:
+        if t["name"] not in seen:
+            seen.add(t["name"])
+            deduped.append(t)
+
+    names_after = [t["name"] for t in deduped]
+    assert len(names_after) == len(set(names_after)), "duplicates remain after dedup"
+    # all-practical count should equal deduped count (no extras from explicit suite)
+    practical_count = sum(
+        1
+        for name, suite_tests in suites.items()
+        if name.startswith("practical")
+        for _ in suite_tests
+    )
+    assert len(deduped) == practical_count
+
+
 def test_list_tests():
     """Test that --list prints available suites and tests."""
     runner = CliRunner()

@@ -695,6 +695,15 @@ def main(
         else:
             raise ValueError(f"Test or results '{eval_name}' not found")
 
+    # Deduplicate while preserving order (e.g. 'all-practical practical5' would add practical5 twice)
+    seen_names: set[str] = set()
+    deduped: list[EvalSpec] = []
+    for t in evals_to_run:
+        if t["name"] not in seen_names:
+            seen_names.add(t["name"])
+            deduped.append(t)
+    evals_to_run = deduped
+
     # Detect name collisions between external module tests and named/suite evals
     if evals_to_run and external_evals:
         named_set = {e["name"] for e in evals_to_run}
