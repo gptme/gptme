@@ -475,8 +475,10 @@ def api_conversation_tool_confirm(conversation_id: str):
     if action == "edit":
         # Edit and then execute the tool
         edited_content = req_json.get("content")
-        if not edited_content:
-            return flask.jsonify({"error": "content is required for edit action"}), 400
+        if not edited_content or not isinstance(edited_content, str):
+            return flask.jsonify(
+                {"error": "content must be a non-empty string for edit action"}
+            ), 400
 
         # Execute with edited content
         start_tool_execution(

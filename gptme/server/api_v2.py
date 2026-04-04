@@ -347,6 +347,10 @@ def api_conversation_post(conversation_id: str):
     if "role" not in req_json or "content" not in req_json:
         return flask.jsonify({"error": "Missing required fields (role, content)"}), 400
 
+    # Validate field types
+    if not isinstance(req_json["content"], str):
+        return flask.jsonify({"error": "content must be a string"}), 400
+
     # Validate role against allowed values
     valid_roles = ("system", "user", "assistant")
     if req_json["role"] not in valid_roles:
@@ -421,7 +425,7 @@ def api_conversation_post(conversation_id: str):
                         "message": msg2dict(resp, log.workspace, log.logdir),
                     },
                 )
-        except (Exception, SystemExit) as e:
+        except Exception as e:
             logger.exception("Error executing command: %s", msg.content)
             error_msg = Message("system", f"Command error: {e}")
             log.append(error_msg)

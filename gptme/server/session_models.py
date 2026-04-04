@@ -108,9 +108,11 @@ class SessionManager:
         cls, conversation_id: str
     ) -> list[ConversationSession]:
         """Get all sessions for a conversation."""
+        # Snapshot the set with list() to prevent RuntimeError if another thread
+        # modifies _conversation_sessions during iteration (e.g. remove_session).
         return [
             cls._sessions[sid]
-            for sid in cls._conversation_sessions.get(conversation_id, set())
+            for sid in list(cls._conversation_sessions.get(conversation_id, set()))
             if sid in cls._sessions
         ]
 
