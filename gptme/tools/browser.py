@@ -235,7 +235,16 @@ def _convert_with_pdftoppm(
     cmd.extend([str(pdf_path), str(output_prefix)])
 
     logger.info(f"Converting PDF with pdftoppm: {' '.join(cmd)}")
-    subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=60)
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            f"pdftoppm timed out after 60s converting {pdf_path.name}"
+        ) from None
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(
+            f"pdftoppm failed (exit code {e.returncode}): {e.stderr or 'no output'}"
+        ) from None
 
     # pdftoppm creates files like: page-1.png, page-2.png, etc.
     return sorted(output_prefix.parent.glob(f"{output_prefix.name}-*.png"))
@@ -258,7 +267,16 @@ def _convert_with_imagemagick(
     cmd = ["convert", "-density", str(dpi), input_spec, output_pattern]
 
     logger.info(f"Converting PDF with ImageMagick: {' '.join(cmd)}")
-    subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=60)
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            f"ImageMagick timed out after 60s converting {pdf_path.name}"
+        ) from None
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(
+            f"ImageMagick failed (exit code {e.returncode}): {e.stderr or 'no output'}"
+        ) from None
 
     # ImageMagick creates files like: page-0.png, page-1.png, etc.
     return sorted(output_prefix.parent.glob(f"{output_prefix.name}-*.png"))
