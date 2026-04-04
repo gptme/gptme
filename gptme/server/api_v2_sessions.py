@@ -293,101 +293,107 @@ def api_conversation_step(conversation_id: str):
     # through the setup code below.  _start_step_thread/_start_acp_step_thread
     # also set this, but ~60 lines of model/branch resolution sit between the
     # check above and those calls — enough for a second request to slip through
-    # on threaded WSGI servers.  Reset on any early-return error path.
+    # on threaded WSGI servers.
+    #
+    # Wrapped in try/finally so any unexpected exception during setup
+    # (get_default_model, config I/O, etc.) resets the flag rather than
+    # leaving the session permanently stuck in "generating" state.
     session.generating = True
+    _step_dispatched = False
+    try:
+        # Get the branch and model
+        branch = req_json.get("branch", "main")
+        if error := _validate_branch(branch):
+            return error
+        default_model = get_default_model()
 
-    # Get the branch and model
-    branch = req_json.get("branch", "main")
-    if error := _validate_branch(branch):
-        session.generating = False
-        return error
-    default_model = get_default_model()
-
-    # Get model from request, config, or default (in that order).
-    # The frontend only sends model when the user explicitly selected one
-    # (hasExplicitModelSelection), so any value here is a genuine choice.
-    model = req_json.get("model")
-    if model and model != chat_config.model:
-        chat_config.model = model
-        chat_config.save()
-        # Notify frontend so the model badge updates
-        SessionManager.add_event(
-            conversation_id,
-            {
-                "type": "config_changed",
-                "config": chat_config.to_dict(),
-                "changed_fields": ["model"],
-            },
-        )
-    if not model:
-        model = chat_config.model
-    if not model and default_model:
-        model = default_model.full
-    if not model:
-        # Try to get from environment/config as last resort
-        config = Config.from_workspace(workspace=chat_config.workspace)
-        model = config.get_env("MODEL")
-    if not model and not session.use_acp:
-        # In ACP mode the subprocess manages its own model; skip this check
-        session.generating = False
-        return flask.jsonify(
-            {
-                "error": "No model specified and no default model set",
-                "message": (
-                    "Please specify a model in one of the following ways:\n"
-                    "1. Include 'model' in the request JSON\n"
-                    "2. Set MODEL environment variable when starting the server\n"
-                    "3. Use --model flag when starting the server (gptme-server serve --model <model>)\n"
-                    "4. Configure model in workspace chat config"
-                ),
-                "example_models": [
-                    DEFAULT_FALLBACK_MODEL,
-                    "openai/gpt-4",
-                    "openai/gpt-4o-mini",
-                ],
-            }
-        ), 400
-
-    # Snapshot acp_runtime to avoid TOCTOU races: concurrent cleanup threads
-    # (e.g. _cleanup_stale_acp_sessions) can set session.acp_runtime = None
-    # between the check and the use.
-    acp_runtime = session.acp_runtime if session.use_acp else None
-
-    # If ACP mode is active, keep session runtime model aligned with the
-    # resolved request/config/default model whenever available.
-    if acp_runtime is not None and model:
-        acp_runtime.model = model
-
-    # Snapshot event count before starting, so we can detect new events below
-    initial_event_count = len(session.events)
-
-    # Route through ACP subprocess if the session has opted in
-    if acp_runtime is not None:
-        _start_acp_step_thread(
-            conversation_id=conversation_id,
-            session=session,
-            workspace=chat_config.workspace,
-        )
-    else:
-        # model should be non-None here: the `if not model and not session.use_acp`
-        # check above returns 400 for non-ACP sessions with no model.
-        # Use explicit check instead of assert (which python -O disables).
-        if model is None:
-            session.generating = False
+        # Get model from request, config, or default (in that order).
+        # The frontend only sends model when the user explicitly selected one
+        # (hasExplicitModelSelection), so any value here is a genuine choice.
+        model = req_json.get("model")
+        if model and model != chat_config.model:
+            chat_config.model = model
+            chat_config.save()
+            # Notify frontend so the model badge updates
+            SessionManager.add_event(
+                conversation_id,
+                {
+                    "type": "config_changed",
+                    "config": chat_config.to_dict(),
+                    "changed_fields": ["model"],
+                },
+            )
+        if not model:
+            model = chat_config.model
+        if not model and default_model:
+            model = default_model.full
+        if not model:
+            # Try to get from environment/config as last resort
+            config = Config.from_workspace(workspace=chat_config.workspace)
+            model = config.get_env("MODEL")
+        if not model and not session.use_acp:
+            # In ACP mode the subprocess manages its own model; skip this check
             return flask.jsonify(
-                {"error": "Model is required for non-ACP sessions"}
+                {
+                    "error": "No model specified and no default model set",
+                    "message": (
+                        "Please specify a model in one of the following ways:\n"
+                        "1. Include 'model' in the request JSON\n"
+                        "2. Set MODEL environment variable when starting the server\n"
+                        "3. Use --model flag when starting the server (gptme-server serve --model <model>)\n"
+                        "4. Configure model in workspace chat config"
+                    ),
+                    "example_models": [
+                        DEFAULT_FALLBACK_MODEL,
+                        "openai/gpt-4",
+                        "openai/gpt-4o-mini",
+                    ],
+                }
             ), 400
-        # Start step execution in a background thread
-        # Model will be set in the worker thread by step()
-        _start_step_thread(
-            conversation_id=conversation_id,
-            session=session,
-            model=model,
-            workspace=chat_config.workspace,
-            branch=branch,
-            auto_confirm=auto_confirm_enabled,
-            stream=stream,
-        )
+
+        # Snapshot acp_runtime to avoid TOCTOU races: concurrent cleanup threads
+        # (e.g. _cleanup_stale_acp_sessions) can set session.acp_runtime = None
+        # between the check and the use.
+        acp_runtime = session.acp_runtime if session.use_acp else None
+
+        # If ACP mode is active, keep session runtime model aligned with the
+        # resolved request/config/default model whenever available.
+        if acp_runtime is not None and model:
+            acp_runtime.model = model
+
+        # Snapshot event count before starting, so we can detect new events below
+        initial_event_count = len(session.events)
+
+        # Route through ACP subprocess if the session has opted in
+        if acp_runtime is not None:
+            _start_acp_step_thread(
+                conversation_id=conversation_id,
+                session=session,
+                workspace=chat_config.workspace,
+            )
+        else:
+            # model should be non-None here: the `if not model and not session.use_acp`
+            # check above returns 400 for non-ACP sessions with no model.
+            # Use explicit check instead of assert (which python -O disables).
+            if model is None:
+                return flask.jsonify(
+                    {"error": "Model is required for non-ACP sessions"}
+                ), 400
+            # Start step execution in a background thread
+            # Model will be set in the worker thread by step()
+            _start_step_thread(
+                conversation_id=conversation_id,
+                session=session,
+                model=model,
+                workspace=chat_config.workspace,
+                branch=branch,
+                auto_confirm=auto_confirm_enabled,
+                stream=stream,
+            )
+        _step_dispatched = True
+    finally:
+        if not _step_dispatched:
+            session.generating = False
 
     # Wait briefly for early errors (bad model, auth failure, empty messages, etc.)
     # so we can return them in the HTTP response instead of swallowing silently.
