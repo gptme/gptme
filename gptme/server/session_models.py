@@ -75,6 +75,9 @@ class ConversationSession(BaseSession):
     auto_confirm_count: int = 0
     clients: set[str] = field(default_factory=set)
     event_flag: threading.Event = field(default_factory=threading.Event)
+    # Lock for atomic check-and-set of the generating flag in /step.
+    # Prevents concurrent requests from both reading False before either writes True.
+    step_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     # ACP-backed subprocess session (opt-in via use_acp=True in step request)
     use_acp: bool = False

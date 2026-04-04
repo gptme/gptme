@@ -286,19 +286,24 @@ def api_conversation_step(conversation_id: str):
 
     auto_confirm_enabled = bool(session.auto_confirm_count > 0)
 
-    if session.generating:
-        return flask.jsonify({"error": "Generation already in progress"}), 409
+    # Atomically check-and-set generating under a per-session lock.
+    # Without the lock, two concurrent requests on a threaded WSGI server can
+    # both read False before either writes True (classic TOCTOU).  The lock is
+    # held only for the check+set — the expensive model/branch resolution that
+    # follows runs outside it.
+    with session.step_lock:
+        if session.generating:
+            return flask.jsonify({"error": "Generation already in progress"}), 409
+        # Mark generating early to prevent concurrent /step requests from racing
+        # through the setup code below.  _start_step_thread/_start_acp_step_thread
+        # also set this, but ~60 lines of model/branch resolution sit between the
+        # check above and those calls — enough for a second request to slip through
+        # on threaded WSGI servers.
+        session.generating = True
 
-    # Mark generating early to prevent concurrent /step requests from racing
-    # through the setup code below.  _start_step_thread/_start_acp_step_thread
-    # also set this, but ~60 lines of model/branch resolution sit between the
-    # check above and those calls — enough for a second request to slip through
-    # on threaded WSGI servers.
-    #
-    # Wrapped in try/finally so any unexpected exception during setup
-    # (get_default_model, config I/O, etc.) resets the flag rather than
-    # leaving the session permanently stuck in "generating" state.
-    session.generating = True
+    # Wrap setup in try/finally so any unexpected exception (get_default_model,
+    # config I/O, etc.) resets the flag rather than leaving the session
+    # permanently stuck in "generating" state.
     _step_dispatched = False
     try:
         # Get the branch and model
