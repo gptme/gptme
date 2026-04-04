@@ -409,6 +409,7 @@ def api_conversation_step(conversation_id: str):
                     }
                 )
         session.event_flag.wait(timeout=_POLL_INTERVAL)
+        session.event_flag.clear()
 
     # Timeout without error or token — generation is slow but not failed
     return flask.jsonify(

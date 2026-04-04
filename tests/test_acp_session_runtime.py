@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
@@ -633,6 +634,51 @@ def test_acp_step_bridges_generation_progress_events(
     finally:
         SessionManager._sessions.pop("sid-stream", None)
         SessionManager._conversation_sessions[conversation_id].discard("sid-stream")
+
+
+@pytest.mark.timeout(15)
+def test_acp_step_last_error_set_on_failure(monkeypatch, client: FlaskClient, tmp_path):
+    """ACP failures should set session.last_error and clear generating."""
+    import gptme.server.acp_session_runtime as rt_mod
+    from gptme.server.api_v2_sessions import SessionManager
+
+    class _FailingClient(_DummyClient):
+        async def prompt(self, session_id: str, message: str):
+            raise RuntimeError("ACP runtime exploded")
+
+    monkeypatch.setattr(rt_mod, "GptmeAcpClient", _FailingClient)
+
+    conv = _make_v2_conversation(client)
+    conversation_id = conv["conversation_id"]
+    session_id = conv["session_id"]
+
+    resp = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "trigger acp failure"},
+    )
+    assert resp.status_code == 200
+
+    resp = client.post(
+        f"/api/v2/conversations/{conversation_id}/step",
+        json={"session_id": session_id, "use_acp": True},
+    )
+    assert resp.status_code == 500
+    data = resp.get_json()
+    assert data is not None
+    assert data["status"] == "error"
+    assert "ACP runtime exploded" in data["error"]
+
+    deadline = time.time() + 2.0
+    while time.time() < deadline:
+        sess = SessionManager.get_session(session_id)
+        if sess is not None and not sess.generating:
+            break
+        time.sleep(0.05)
+
+    sess = SessionManager.get_session(session_id)
+    assert sess is not None
+    assert sess.last_error == "ACP runtime exploded"
+    assert not sess.generating
 
 
 # ---------------------------------------------------------------------------

@@ -472,6 +472,7 @@ async def _acp_step(
             )
     except Exception as e:
         logger.exception("Error during ACP step: %s", e)
+        session.last_error = str(e)
         SessionManager.add_event(conversation_id, {"type": "error", "error": str(e)})
     finally:
         acp_runtime.set_on_update(None)
@@ -484,6 +485,7 @@ def _start_acp_step_thread(
     workspace: Path,
 ) -> None:
     """Start an ACP-backed step in a background thread."""
+    session.last_error = None
     session.generating = True
 
     def _run() -> None:
@@ -853,24 +855,15 @@ def _start_step_thread(
     session.generating = True
 
     def step_thread() -> None:
-        try:
-            step(
-                conversation_id=conversation_id,
-                session=session,
-                model=model,
-                workspace=workspace,
-                branch=branch,
-                auto_confirm=auto_confirm,
-                stream=stream,
-            )
-
-        except Exception as e:
-            logger.exception(f"Error during step execution: {e}")
-            session.last_error = str(e)
-            SessionManager.add_event(
-                conversation_id, {"type": "error", "error": str(e)}
-            )
-            session.generating = False
+        step(
+            conversation_id=conversation_id,
+            session=session,
+            model=model,
+            workspace=workspace,
+            branch=branch,
+            auto_confirm=auto_confirm,
+            stream=stream,
+        )
 
     # Start step execution in a thread
     thread = threading.Thread(target=step_thread)
