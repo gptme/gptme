@@ -92,6 +92,7 @@ def screenshot(path: Path | None = None) -> Path:
                 ["screencapture", str(path)],
                 check=True,
                 capture_output=True,
+                text=True,
                 timeout=10,
             )
             return path
@@ -102,6 +103,7 @@ def screenshot(path: Path | None = None) -> Path:
                     ["gnome-screenshot", "-f", str(path)],
                     check=True,
                     capture_output=True,
+                    text=True,
                     timeout=10,
                 )
                 return path
@@ -110,6 +112,7 @@ def screenshot(path: Path | None = None) -> Path:
                     ["scrot", "--overwrite", str(path)],
                     check=True,
                     capture_output=True,
+                    text=True,
                     timeout=10,
                 )
                 return path
