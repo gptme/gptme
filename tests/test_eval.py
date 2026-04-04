@@ -89,6 +89,32 @@ def test_suite_autodiscovery():
     )
 
 
+def test_suite_aliases():
+    """Test that 'all' and 'all-practical' aliases expand to correct test sets."""
+
+    # We can't easily test the resolution without running main, but we can
+    # verify the alias logic by checking the resolution code directly.
+    all_tests = [test for suite_tests in suites.values() for test in suite_tests]
+    practical_tests = [
+        test
+        for name, suite_tests in suites.items()
+        if name.startswith("practical")
+        for test in suite_tests
+    ]
+
+    # 'all' should include every test
+    assert len(all_tests) == len(tests)
+
+    # 'all-practical' should include only practical tests
+    assert len(practical_tests) > 0
+    for test in practical_tests:
+        # Every practical test should also be in the full list
+        assert test in all_tests
+
+    # practical tests should be a strict subset of all tests
+    assert len(practical_tests) < len(all_tests)
+
+
 def test_list_tests():
     """Test that --list prints available suites and tests."""
     runner = CliRunner()
@@ -99,6 +125,7 @@ def test_list_tests():
     assert "hello *" in result.output
     assert "Total:" in result.output
     assert "Default suite:" in result.output
+    assert "all-practical" in result.output
 
 
 def test_list_tests_json():

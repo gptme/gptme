@@ -236,6 +236,10 @@ def print_available_tests():
     print(f"Total: {total_tests} tests across {len(suites)} suites")
     print(f"Default suite: {', '.join(tests_default_ids)}")
     print("(* = included in default suite)")
+    print()
+    print("Aliases:")
+    print("  all             Run all suites")
+    print("  all-practical   Run all practical suites")
 
 
 def list_available_tests_json() -> dict:
@@ -673,7 +677,18 @@ def main(
 
     evals_to_run: list[EvalSpec] = []
     for eval_name in eval_names:
-        if test := tests_map.get(eval_name):
+        if eval_name == "all":
+            evals_to_run.extend(
+                test for suite_tests in suites.values() for test in suite_tests
+            )
+        elif eval_name == "all-practical":
+            evals_to_run.extend(
+                test
+                for name, suite_tests in suites.items()
+                if name.startswith("practical")
+                for test in suite_tests
+            )
+        elif test := tests_map.get(eval_name):
             evals_to_run.append(test)
         elif suite := suites.get(eval_name) or suites.get(eval_name.replace("-", "_")):
             evals_to_run.extend(suite)
