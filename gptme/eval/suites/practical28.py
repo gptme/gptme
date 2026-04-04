@@ -202,16 +202,15 @@ else:
 
 
 def check_mps_file(ctx) -> bool:
-    return ctx.workspace.joinpath("min_path_sum.py").exists()
+    return "min_path_sum.py" in ctx.files
 
 
 def check_mps_has_function(ctx) -> bool:
-    content = ctx.workspace.joinpath("min_path_sum.py").read_text()
-    return "def min_path_sum" in content
+    return "def min_path_sum" in ctx.files.get("min_path_sum.py", "")
 
 
 def check_mps_all_pass(ctx) -> bool:
-    return ctx.passed
+    return "All 8 cases passed." in ctx.stdout
 
 
 def check_mps_exit(ctx) -> bool:
@@ -219,16 +218,15 @@ def check_mps_exit(ctx) -> bool:
 
 
 def check_gs_file(ctx) -> bool:
-    return ctx.workspace.joinpath("gas_station.py").exists()
+    return "gas_station.py" in ctx.files
 
 
 def check_gs_has_function(ctx) -> bool:
-    content = ctx.workspace.joinpath("gas_station.py").read_text()
-    return "def can_complete_circuit" in content
+    return "def can_complete_circuit" in ctx.files.get("gas_station.py", "")
 
 
 def check_gs_all_pass(ctx) -> bool:
-    return ctx.passed
+    return "All 8 cases passed." in ctx.stdout
 
 
 def check_gs_exit(ctx) -> bool:
@@ -236,16 +234,15 @@ def check_gs_exit(ctx) -> bool:
 
 
 def check_np_file(ctx) -> bool:
-    return ctx.workspace.joinpath("next_permutation.py").exists()
+    return "next_permutation.py" in ctx.files
 
 
 def check_np_has_function(ctx) -> bool:
-    content = ctx.workspace.joinpath("next_permutation.py").read_text()
-    return "def next_permutation" in content
+    return "def next_permutation" in ctx.files.get("next_permutation.py", "")
 
 
 def check_np_all_pass(ctx) -> bool:
-    return ctx.passed
+    return "All 8 cases passed." in ctx.stdout
 
 
 def check_np_exit(ctx) -> bool:
