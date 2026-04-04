@@ -72,11 +72,9 @@ def subagent(
             - "full" (default): Share complete context (agent identity, tools, workspace)
             - "selective": Share only specified context components (requires context_include)
         context_include: For selective mode, list of context components to include:
-            - "workspace": Project workspace context
-            - "agent": Agent identity context (legacy no-op in CLI mode)
-            - "tools": Tool descriptions
-            For subprocess mode, "workspace" maps to the CLI's "files" context.
-            Legacy values like "files", "cmd", and "all" are still accepted.
+            - Thread mode supports "agent" and "tools"
+            - Subprocess mode also supports "workspace", which maps to the CLI's "files" context
+            Legacy subprocess values like "files", "cmd", and "all" are still accepted.
         use_subprocess: If True, run subagent in subprocess for output isolation.
             Subprocess mode captures stdout/stderr separately from the parent.
         use_acp: If True, run subagent via ACP (Agent Client Protocol).
