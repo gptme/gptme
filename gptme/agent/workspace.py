@@ -451,6 +451,7 @@ def _reset_git_history(path: Path, agent_name: str) -> None:
         [*git_no_hooks, "init"],
         cwd=str(path),
         capture_output=True,
+        text=True,
         check=True,
         timeout=30,
     )
@@ -458,6 +459,7 @@ def _reset_git_history(path: Path, agent_name: str) -> None:
         [*git_no_hooks, "add", "."],
         cwd=str(path),
         capture_output=True,
+        text=True,
         check=True,
         timeout=60,
     )
@@ -470,6 +472,7 @@ def _reset_git_history(path: Path, agent_name: str) -> None:
         ],
         cwd=str(path),
         capture_output=True,
+        text=True,
         check=True,
         timeout=60,
     )

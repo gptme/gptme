@@ -60,7 +60,9 @@ def main(
         gptme-eval-tbench --model anthropic/claude-haiku-4-5 --task hello-world --task broken-python
     """
     try:
-        subprocess.run(["tb", "--version"], capture_output=True, check=True, timeout=10)
+        subprocess.run(
+            ["tb", "--version"], capture_output=True, text=True, check=True, timeout=10
+        )
     except FileNotFoundError:
         click.echo(
             "terminal-bench is not installed. Install gptme with eval extras:\n"

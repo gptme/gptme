@@ -241,7 +241,13 @@ def _macos_type(text: str) -> None:
     """
     safe_text = shlex.quote(text)
     try:
-        subprocess.run(["cliclick", "t:" + safe_text], check=True, timeout=10)
+        subprocess.run(
+            ["cliclick", "t:" + safe_text],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
     except subprocess.TimeoutExpired as e:
         raise RuntimeError("cliclick type command timed out") from e
     except FileNotFoundError:
@@ -334,7 +340,13 @@ def _macos_mouse_move(x: int, y: int) -> None:
     """
     try:
         logger.info(f"Moving mouse to {x},{y}")
-        subprocess.run(["cliclick", f"m:{x},{y}"], check=True, timeout=10)
+        subprocess.run(
+            ["cliclick", f"m:{x},{y}"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
     except subprocess.TimeoutExpired as e:
         raise RuntimeError("cliclick mouse move timed out") from e
     except FileNotFoundError:
@@ -632,6 +644,8 @@ def computer(
                 subprocess.run(
                     ["convert", str(path), "-resize", f"{width}x{height}!", str(path)],
                     check=True,
+                    capture_output=True,
+                    text=True,
                     timeout=30,
                 )
             except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as e:
