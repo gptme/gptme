@@ -99,8 +99,6 @@ def docker_reexec(argv: list[str]) -> None:
             ["make", "build-docker"],
             cwd=Path(git_root),
             check=True,
-            capture_output=True,
-            text=True,
             timeout=300,  # 5 min cap for Docker builds
         )
 

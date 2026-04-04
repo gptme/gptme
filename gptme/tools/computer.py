@@ -648,8 +648,10 @@ def computer(
                     text=True,
                     timeout=30,
                 )
-            except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as e:
-                raise RuntimeError(f"Image resize failed: {e}") from e
+            except subprocess.TimeoutExpired as e:
+                raise RuntimeError("Image resize timed out") from e
+            except subprocess.CalledProcessError as e:
+                raise RuntimeError(f"Image resize failed: {e.stderr}") from e
             return view_image(path)
         print("Error: Screenshot failed")
         return None
