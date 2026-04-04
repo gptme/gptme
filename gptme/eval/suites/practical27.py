@@ -214,10 +214,10 @@ r = find_anagrams("aaa", "a")
 if sorted(r) != [0, 1, 2]:
     errors.append(f'case 6: "aaa","a" -> [0,1,2], got {sorted(r)}')
 
-# Case 7: non-overlapping results -- "eidbaooo", p="ab" -> [1,3]
+# Case 7: single anagram -- "eidbaooo", p="ab" -> [3] ("ba" at index 3)
 r = find_anagrams("eidbaooo", "ab")
-if sorted(r) != [1, 3]:
-    errors.append(f'case 7: "eidbaooo","ab" -> [1,3], got {sorted(r)}')
+if sorted(r) != [3]:
+    errors.append(f'case 7: "eidbaooo","ab" -> [3], got {sorted(r)}')
 
 # Case 8: single char pattern and string
 r = find_anagrams("z", "z")
