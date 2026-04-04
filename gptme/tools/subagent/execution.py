@@ -250,9 +250,10 @@ def _run_subagent_subprocess(
         model: Model to use (or None for default)
         workspace: Workspace directory
         context_mode: Context mode (full or selective)
-        context_include: Context components to include for selective mode
-            (files, cmd, all). Legacy values like "agent" and "tools" are
-            mapped or ignored since tools/agent are always included by CLI.
+        context_include: Context components to include for selective mode.
+            "workspace" maps to the CLI's "files" context. Legacy values like
+            "files", "cmd", and "all" are still accepted. "agent" and
+            "tools" are ignored here because the CLI already includes them.
         output_schema: JSON schema for structured output
         profile: Agent profile name to apply via --agent-profile flag
 

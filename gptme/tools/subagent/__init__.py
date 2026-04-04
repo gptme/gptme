@@ -88,12 +88,12 @@ Assistant: I'll use full context mode for comprehensive analysis.
 
 #### Selective Context (choose specific components)
 User: write tests using pytest
-Assistant: I'll use selective mode to share only project files, not context_cmd output.
+Assistant: I'll use selective mode to share only workspace context while keeping tool descriptions available.
 {
         ToolUse(
             "ipython",
             [],
-            'subagent("tests", "Write pytest tests for the calculate function", context_mode="selective", context_include=["files"])',
+            'subagent("tests", "Write pytest tests for the calculate function", context_mode="selective", context_include=["workspace"])',
         ).to_output(tool_format)
     }
 
