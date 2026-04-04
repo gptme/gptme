@@ -1,5 +1,6 @@
 """Practical eval tests (batch 29) — word break II, unique paths, and rotate array."""
 
+import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -187,6 +188,12 @@ def check_wb_all_pass(ctx) -> bool:
     return "All 8 word-break-ii test cases passed." in ctx.stdout
 
 
+def check_wb_uses_memo(ctx) -> bool:
+    """Should use memoization or caching (DFS + memo as instructed)."""
+    src = ctx.files.get("word_break_ii.py", "")
+    return bool(re.search(r"\bmemo\b|\bcache\b|lru_cache|functools", src))
+
+
 def check_wb_exit(ctx) -> bool:
     return ctx.exit_code == 0
 
@@ -212,7 +219,7 @@ def check_ra_file(ctx) -> bool:
 
 
 def check_ra_has_function(ctx) -> bool:
-    return "def rotate" in ctx.files.get("rotate_array.py", "")
+    return "def rotate(" in ctx.files.get("rotate_array.py", "")
 
 
 def check_ra_all_pass(ctx) -> bool:
@@ -244,6 +251,7 @@ tests: list["EvalSpec"] = [
         "expect": {
             "word_break_ii.py exists": check_wb_file,
             "defines word_break_ii function": check_wb_has_function,
+            "uses memoization": check_wb_uses_memo,
             "all 8 cases pass": check_wb_all_pass,
             "clean exit": check_wb_exit,
         },
