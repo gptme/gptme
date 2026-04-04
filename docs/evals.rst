@@ -102,9 +102,9 @@ The evaluation suite is organized into named suites that can be run individually
   Project initialization: ``init-git``, ``init-react``, ``init-rust``. Tests the ability
   to scaffold new projects from scratch.
 
-**practical** — **practical2** — ... — **practical27**
+**practical** — **practical2** — ... — **practical29**
   A growing series of real-world programming tasks that go beyond basic file I/O.
-  The practical suites now cover 80 tasks across data processing, refactoring,
+  The practical suites now cover 86 tasks across data processing, refactoring,
   algorithms, async/concurrency, SQL, validation, graph search, dynamic
   programming, tree data structures, and classic interview problems.
 
@@ -144,7 +144,8 @@ The evaluation suite is organized into named suites that can be run individually
   stock trading with cooldown, image rotation, N-Queens, longest increasing
   subsequence, cycle detection, sliding window maximum, decode ways,
   meeting rooms, longest palindromic substring, jump game, task scheduler,
-  house robber, max product subarray, and finding all anagrams.
+  house robber, max product subarray, finding all anagrams, minimum path sum,
+  gas station, next permutation, word break II, unique paths, and rotate array.
 
   For the current authoritative suite list, run ``gptme-eval --list``.
 
