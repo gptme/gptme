@@ -569,7 +569,7 @@ class TestGetAvailableProviders:
 
     def test_error_returns_empty(self):
         with patch(
-            "gptme.llm.list_available_providers", side_effect=Exception("error")
+            "gptme.llm.list_available_providers", side_effect=RuntimeError("error")
         ):
             result = get_available_providers()
             assert result == []

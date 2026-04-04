@@ -160,7 +160,7 @@ def _migrate_readline_history():
         try:
             logger.info(f"Migrating readline history: {old_path} -> {new_path}")
             shutil.move(str(old_path), str(new_path))
-        except Exception as e:
+        except OSError as e:
             logger.warning(f"Failed to migrate readline history: {e}")
 
 

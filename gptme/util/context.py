@@ -40,7 +40,7 @@ def _is_interactive_mode() -> bool:
 
         hooks = get_hooks(HookType.TOOL_CONFIRM)
         return any(h.name == "cli_confirm" and h.enabled for h in hooks)
-    except Exception:
+    except (ImportError, AttributeError):
         return False
 
 
