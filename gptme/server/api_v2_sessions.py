@@ -289,9 +289,17 @@ def api_conversation_step(conversation_id: str):
     if session.generating:
         return flask.jsonify({"error": "Generation already in progress"}), 409
 
+    # Mark generating early to prevent concurrent /step requests from racing
+    # through the setup code below.  _start_step_thread/_start_acp_step_thread
+    # also set this, but ~60 lines of model/branch resolution sit between the
+    # check above and those calls — enough for a second request to slip through
+    # on threaded WSGI servers.  Reset on any early-return error path.
+    session.generating = True
+
     # Get the branch and model
     branch = req_json.get("branch", "main")
     if error := _validate_branch(branch):
+        session.generating = False
         return error
     default_model = get_default_model()
 
@@ -321,6 +329,7 @@ def api_conversation_step(conversation_id: str):
         model = config.get_env("MODEL")
     if not model and not session.use_acp:
         # In ACP mode the subprocess manages its own model; skip this check
+        session.generating = False
         return flask.jsonify(
             {
                 "error": "No model specified and no default model set",
@@ -364,6 +373,7 @@ def api_conversation_step(conversation_id: str):
         # check above returns 400 for non-ACP sessions with no model.
         # Use explicit check instead of assert (which python -O disables).
         if model is None:
+            session.generating = False
             return flask.jsonify(
                 {"error": "Model is required for non-ACP sessions"}
             ), 400
