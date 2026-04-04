@@ -8,6 +8,7 @@ Data models live in session_models.py; execution logic in session_step.py.
 
 import dataclasses
 import logging
+import time
 import uuid
 from collections.abc import Generator
 
@@ -133,6 +134,7 @@ def api_conversation_events(conversation_id: str):
                 "type": "connected",
                 "session_id": session_id,
                 "generating": session.generating,
+                "last_error": session.last_error,
                 "pending_tools": [
                     {
                         "tool_id": tid,
@@ -203,6 +205,7 @@ def api_conversation_events(conversation_id: str):
         400: ErrorResponse,
         404: ErrorResponse,
         409: ErrorResponse,
+        500: ErrorResponse,
     },
     parameters=[
         {
@@ -346,6 +349,9 @@ def api_conversation_step(conversation_id: str):
     if acp_runtime is not None and model:
         acp_runtime.model = model
 
+    # Snapshot event count before starting, so we can detect new events below
+    initial_event_count = len(session.events)
+
     # Route through ACP subprocess if the session has opted in
     if acp_runtime is not None:
         _start_acp_step_thread(
@@ -373,6 +379,38 @@ def api_conversation_step(conversation_id: str):
             stream=stream,
         )
 
+    # Wait briefly for early errors (bad model, auth failure, empty messages, etc.)
+    # so we can return them in the HTTP response instead of swallowing silently.
+    # We poll the session events for up to 5 seconds, looking for either
+    # a "generation_progress" event (success) or an "error" event (failure).
+    _STARTUP_TIMEOUT = 5.0
+    _POLL_INTERVAL = 0.1
+    deadline = time.monotonic() + _STARTUP_TIMEOUT
+    while time.monotonic() < deadline:
+        # Check new events since we started
+        new_events = session.events[initial_event_count:]
+        for event in new_events:
+            event_type = event.get("type") if isinstance(event, dict) else None
+            if event_type == "error":
+                return flask.jsonify(
+                    {
+                        "status": "error",
+                        "error": event.get("error", "Unknown error"),
+                        "session_id": session_id,
+                    }
+                ), 500
+            if event_type == "generation_progress":
+                # First token received — LLM call succeeded
+                return flask.jsonify(
+                    {
+                        "status": "ok",
+                        "message": "Step started",
+                        "session_id": session_id,
+                    }
+                )
+        session.event_flag.wait(timeout=_POLL_INTERVAL)
+
+    # Timeout without error or token — generation is slow but not failed
     return flask.jsonify(
         {"status": "ok", "message": "Step started", "session_id": session_id}
     )

@@ -69,6 +69,7 @@ class ConversationSession(BaseSession):
 
     # Server-specific fields (all have defaults, required for dataclass inheritance)
     generating: bool = False
+    last_error: str | None = None
     events: list[EventType] = field(default_factory=list)
     pending_tools: dict[str, ToolExecution] = field(default_factory=dict)
     auto_confirm_count: int = 0

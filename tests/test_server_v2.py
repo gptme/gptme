@@ -1,5 +1,6 @@
 import random
 import time
+import unittest.mock
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
@@ -514,3 +515,95 @@ def test_v2_create_conversation_accepts_valid_auto_confirm(
     assert response.status_code == 200, (
         f"Expected 200 for auto_confirm={auto_confirm_value!r}, got {response.status_code}: {response.get_json()}"
     )
+
+
+@pytest.mark.timeout(15)
+def test_v2_step_error_returned_in_response(v2_conv, client: FlaskClient):
+    """Test that LLM errors during step are returned in the HTTP response.
+
+    Regression test for https://github.com/gptme/gptme-cloud/issues/172
+    Previously, the step endpoint always returned 200 even when the LLM call
+    failed — errors were only visible via SSE events.
+    """
+    conversation_id = v2_conv["conversation_id"]
+    session_id = v2_conv["session_id"]
+
+    # Add a user message
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={
+            "role": "user",
+            "content": "Hello",
+            "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+        },
+    )
+    assert response.status_code == 200
+
+    # Mock _stream to raise an error (simulating an API auth failure)
+    def mock_stream_error(messages, model, tools=None, max_tokens=None):
+        raise RuntimeError("API key is invalid")
+
+    with unittest.mock.patch("gptme.server.session_step._stream", mock_stream_error):
+        response = client.post(
+            f"/api/v2/conversations/{conversation_id}/step",
+            json={
+                "session_id": session_id,
+                "model": "openai/mock-model",
+            },
+        )
+
+    # Should return 500 with error message, not 200 with "ok"
+    assert response.status_code == 500, (
+        f"Expected 500 for LLM error, got {response.status_code}: {response.get_json()}"
+    )
+    data = response.get_json()
+    assert data is not None
+    assert data["status"] == "error"
+    assert "API key is invalid" in data["error"]
+
+
+@pytest.mark.timeout(15)
+def test_v2_step_last_error_set_on_failure(v2_conv, client: FlaskClient):
+    """Test that session.last_error is set when a step fails."""
+    from gptme.server.session_models import SessionManager
+
+    conversation_id = v2_conv["conversation_id"]
+    session_id = v2_conv["session_id"]
+
+    # Add a user message
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={
+            "role": "user",
+            "content": "Hello",
+            "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+        },
+    )
+    assert response.status_code == 200
+
+    def mock_stream_error(messages, model, tools=None, max_tokens=None):
+        raise ValueError("Model not found: fake-model")
+
+    with unittest.mock.patch("gptme.server.session_step._stream", mock_stream_error):
+        response = client.post(
+            f"/api/v2/conversations/{conversation_id}/step",
+            json={
+                "session_id": session_id,
+                "model": "openai/fake-model",
+            },
+        )
+
+    assert response.status_code == 500
+
+    # Give the background thread time to finish cleanup (set generating=False).
+    # The error event is sent before generating is cleared, so a brief wait
+    # is needed before checking the final session state.
+    time.sleep(0.5)
+
+    # Verify session.last_error is set
+    session = SessionManager.get_session(session_id)
+    assert session is not None
+    assert session.last_error is not None
+    assert "Model not found" in session.last_error
+    # Session should not be stuck in generating state
+    assert not session.generating

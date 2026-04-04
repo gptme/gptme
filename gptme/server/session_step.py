@@ -735,6 +735,7 @@ def step(
     except Exception as e:
         logger.exception(f"Error during step execution: {e}")
         error_message = str(e) or "Generation failed"
+        session.last_error = error_message
         try:
             _persist_generation_error(manager, session, error_message)
         except Exception:
@@ -839,11 +840,16 @@ def _start_step_thread(
     branch: str = "main",
     auto_confirm: bool = False,
     stream: bool = True,
-):
-    """Start a step execution in a background thread."""
+) -> None:
+    """Start a step execution in a background thread.
 
-    # Mark as generating before starting thread to avoid race condition
-    # where interrupt is called before the thread sets generating=True
+    Clears any previous error state before starting.
+    """
+
+    # Clear previous error and mark as generating before starting thread
+    # to avoid race condition where interrupt is called before the thread
+    # sets generating=True
+    session.last_error = None
     session.generating = True
 
     def step_thread() -> None:
@@ -860,6 +866,7 @@ def _start_step_thread(
 
         except Exception as e:
             logger.exception(f"Error during step execution: {e}")
+            session.last_error = str(e)
             SessionManager.add_event(
                 conversation_id, {"type": "error", "error": str(e)}
             )
