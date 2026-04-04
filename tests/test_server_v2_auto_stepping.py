@@ -153,7 +153,9 @@ def test_generation_error_persists_system_message(
             },
         )
 
-        assert response.status_code == 200
+        # Step now returns 500 when it detects the LLM error (instead of
+        # silently returning 200 and only surfacing the error via SSE).
+        assert response.status_code == 500
         assert wait_for_event(event_listener, "generation_started")
         assert wait_for_event(event_listener, "message_added")
         assert wait_for_event(event_listener, "error")

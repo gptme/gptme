@@ -777,11 +777,14 @@ def test_without_env_var_default_remains_false(
     assert resp.status_code == 200
 
     # Step without use_acp and no env var — should use non-ACP path
+    # Note: may return 500 if no API key is available (LLM error is now surfaced
+    # in the HTTP response instead of being swallowed), but that's fine — this test
+    # only checks that use_acp defaults to False.
     resp = client.post(
         f"/api/v2/conversations/{conversation_id}/step",
         json={"session_id": session_id, "model": "openai/gpt-4o"},
     )
-    assert resp.status_code == 200
+    assert resp.status_code in (200, 500)
 
     from gptme.server.api_v2_sessions import SessionManager
 
