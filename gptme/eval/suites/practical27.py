@@ -18,7 +18,7 @@ except ImportError:
 
 errors = []
 
-# Case 1: basic example -- rob houses 1 and 3 -> 1+3=4 or 2+4=6, max=4? No: [1,2,3,1] -> rob[0]+rob[2]=4
+# Case 1: basic example -- rob indices 0 and 2 (1+3=4) or indices 1 and 3 (2+1=3), max=4
 r = rob([1, 2, 3, 1])
 if r != 4:
     errors.append(f"case 1: [1,2,3,1] -> 4, got {r}")
@@ -106,7 +106,7 @@ r = max_product([2, 3, -2, 4])
 if r != 6:
     errors.append(f"case 1: [2,3,-2,4] -> 6, got {r}")
 
-# Case 2: two negatives cancel each other out -> full array 6
+# Case 2: zero in the middle resets product -- best subarray is [-2] or [-1], both <0, but [0] gives 0
 r = max_product([-2, 0, -1])
 if r != 0:
     errors.append(f"case 2: [-2,0,-1] -> 0, got {r}")
