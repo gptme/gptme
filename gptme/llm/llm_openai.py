@@ -488,6 +488,9 @@ def retry_on_openai_error(max_retries: int = 5, base_delay: float = 1.0):
                     return func(*args, **kwargs)
                 except Exception as e:
                     _handle_openai_transient_error(e, attempt, max_retries, base_delay)
+            # _handle_openai_transient_error raises on last attempt,
+            # but guard against silent None return if logic changes
+            raise RuntimeError("retry exhausted without raising")  # pragma: no cover
 
         return wrapper
 
@@ -525,6 +528,9 @@ def retry_generator_on_openai_error(max_retries: int = 5, base_delay: float = 1.
                         # Can't retry after streaming has started - would cause duplicates
                         raise
                     _handle_openai_transient_error(e, attempt, max_retries, base_delay)
+            # _handle_openai_transient_error raises on last attempt,
+            # but guard against silent None return if logic changes
+            raise RuntimeError("retry exhausted without raising")  # pragma: no cover
 
         return wrapper
 
