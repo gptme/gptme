@@ -954,7 +954,7 @@ def compute_rate_trends(
     best_fmt: dict[str, str] = {}
     fmt_test_counts: dict[tuple[str, str], int] = {}
     for (model, fmt), daily in model_fmt_daily.items():
-        all_tests = set()
+        all_tests: set[str] = set()
         for tests in daily.values():
             all_tests.update(tests.keys())
         fmt_test_counts[(model, fmt)] = len(all_tests)
