@@ -596,9 +596,14 @@ def test_v2_step_last_error_set_on_failure(v2_conv, client: FlaskClient):
     assert response.status_code == 500
 
     # Give the background thread time to finish cleanup (set generating=False).
-    # The error event is sent before generating is cleared, so a brief wait
-    # is needed before checking the final session state.
-    time.sleep(0.5)
+    # The error event is sent before generating is cleared, so poll with a
+    # deadline instead of a fixed sleep to avoid timing-sensitive flakes.
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline:
+        session = SessionManager.get_session(session_id)
+        if session and not session.generating:
+            break
+        time.sleep(0.05)
 
     # Verify session.last_error is set
     session = SessionManager.get_session(session_id)
