@@ -133,7 +133,7 @@ check([1,2,3,5], False, "case 2")
 # Case 3: two equal elements
 check([1,1], True, "case 3")
 
-# Case 4: odd total — always False
+# Case 4: sum=8 but no subset reaches target 4 — always False
 check([1,2,5], False, "case 4")
 
 # Case 5: can split with reuse of value
