@@ -23,7 +23,7 @@ r = rob([1, 2, 3, 1])
 if r != 4:
     errors.append(f"case 1: [1,2,3,1] -> 4, got {r}")
 
-# Case 2: all same -- take every other -> [2,7,9,3,1] -> 2+9+1=12
+# Case 2: mixed values -- rob indices 0,2,4 (2+9+1=12) beats adjacent pairs
 r = rob([2, 7, 9, 3, 1])
 if r != 12:
     errors.append(f"case 2: [2,7,9,3,1] -> 12, got {r}")
