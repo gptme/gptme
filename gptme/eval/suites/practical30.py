@@ -95,7 +95,7 @@ check([-1,-1,2], 1, [-1], "case 6")
 # Case 7: k=1 clear winner
 check([1,1,2,2,3,3,3], 1, [3], "case 7")
 
-# Case 8: k=4 tied frequencies — result is a set comparison
+# Case 8: k=4; 1/2/3/4 each appear twice, 5 appears once — unique answer
 check([1,1,2,2,3,3,4,4,5], 4, [1,2,3,4], "case 8")
 
 if errors:
