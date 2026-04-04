@@ -88,18 +88,29 @@ def screenshot(path: Path | None = None) -> Path:
 
     try:
         if IS_MACOS:
-            subprocess.run(["screencapture", str(path)], check=True, timeout=10)
+            subprocess.run(
+                ["screencapture", str(path)],
+                check=True,
+                capture_output=True,
+                timeout=10,
+            )
             return path
         if os.name == "posix":
             # TODO: add support for specifying window/fullscreen?
             if shutil.which("gnome-screenshot"):
                 subprocess.run(
-                    ["gnome-screenshot", "-f", str(path)], check=True, timeout=10
+                    ["gnome-screenshot", "-f", str(path)],
+                    check=True,
+                    capture_output=True,
+                    timeout=10,
                 )
                 return path
             if not IS_WAYLAND and shutil.which("scrot"):
                 subprocess.run(
-                    ["scrot", "--overwrite", str(path)], check=True, timeout=10
+                    ["scrot", "--overwrite", str(path)],
+                    check=True,
+                    capture_output=True,
+                    timeout=10,
                 )
                 return path
             raise NotImplementedError("No supported screenshot method available")
