@@ -509,6 +509,17 @@ def aggregate_and_display_results(result_files: list[str]):
     default=4,
     help="Minimum number of tests for a model to appear in the leaderboard (default: 4).",
 )
+@click.option(
+    "--trends",
+    is_flag=True,
+    help="Show pass-rate trends over time (use with --leaderboard).",
+)
+@click.option(
+    "--trend-days",
+    type=int,
+    default=90,
+    help="Number of days to include in trend analysis (default: 90).",
+)
 def main(
     eval_names_or_result_files: list[str],
     _model: list[str],
@@ -522,6 +533,8 @@ def main(
     leaderboard: bool = False,
     leaderboard_format: str = "markdown",
     min_tests: int = 4,
+    trends: bool = False,
+    trend_days: int = 90,
 ):
     """
     Run evals for gptme.
@@ -532,20 +545,47 @@ def main(
     Output from evals will be captured, unless a single eval is run, and saved to the results directory.
     """
     if leaderboard:
-        from .leaderboard import generate_leaderboard
-
         results_dir = Path(
             os.environ.get("EVAL_RESULTS_DIR", project_dir / "eval_results")
         )
-        try:
-            output = generate_leaderboard(
-                results_dir=results_dir,
-                output_format=leaderboard_format,
-                min_tests=min_tests,
+
+        if trends:
+            from .leaderboard import (
+                compute_rate_trends,
+                format_trends_html,
+                format_trends_markdown,
+                load_results,
             )
-        except (FileNotFoundError, ValueError) as e:
-            print(str(e), file=sys.stderr)
-            sys.exit(1)
+
+            try:
+                results = load_results(results_dir)
+                if not results:
+                    raise FileNotFoundError(f"No eval results found in {results_dir}")
+                trend_data = compute_rate_trends(
+                    results, min_tests=min_tests, window_days=trend_days
+                )
+                if not trend_data["daily_rates"]:
+                    raise ValueError("No trend data available.")
+                if leaderboard_format == "html":
+                    output = format_trends_html(trend_data)
+                else:
+                    output = format_trends_markdown(trend_data)
+            except (FileNotFoundError, ValueError) as e:
+                print(str(e), file=sys.stderr)
+                sys.exit(1)
+        else:
+            from .leaderboard import generate_leaderboard
+
+            try:
+                output = generate_leaderboard(
+                    results_dir=results_dir,
+                    output_format=leaderboard_format,
+                    min_tests=min_tests,
+                )
+            except (FileNotFoundError, ValueError) as e:
+                print(str(e), file=sys.stderr)
+                sys.exit(1)
+
         if leaderboard_format == "csv":
             print(output, end="")
         else:

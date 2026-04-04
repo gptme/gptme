@@ -18,6 +18,7 @@ import io
 import json
 import logging
 import math
+import re
 import sys
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -883,6 +884,419 @@ def format_per_test_html(
 </html>"""
 
 
+# ---------------------------------------------------------------------------
+# Trend analysis — per-model pass-rate timelines with sparklines
+#
+# Complements gptme.eval.trends (per-test regression/improvement detection)
+# by providing per-MODEL aggregate rate trajectories over time.
+# ---------------------------------------------------------------------------
+
+_RUN_DIR_RE = re.compile(r"^(\d{8})_(\d{6})Z$")
+
+
+def _parse_run_date(run_dir: str) -> datetime | None:
+    """Parse a YYYYMMDD_HHMMSSZ run directory name into a datetime."""
+    m = _RUN_DIR_RE.match(run_dir)
+    if not m:
+        return None
+    try:
+        return datetime.strptime(f"{m.group(1)}{m.group(2)}", "%Y%m%d%H%M%S").replace(
+            tzinfo=timezone.utc
+        )
+    except ValueError:
+        return None
+
+
+def compute_rate_trends(
+    results: list[dict],
+    min_tests: int = 4,
+    window_days: int = 90,
+) -> dict:
+    """Compute per-model pass-rate trajectories over time.
+
+    Unlike ``gptme.eval.trends.compute_trends`` (which tracks per-test
+    regressions/improvements), this function computes *aggregate* model
+    pass rates per day, suitable for sparkline visualisation.
+
+    Returns a dict with:
+        - daily_rates: {model: [(date_str, pass_rate, passed, total), ...]}
+        - regressions: [(model, test, last_pass_date, first_fail_date)]
+        - improvements: [(model, test, last_fail_date, first_pass_date)]
+        - overall_trend: {model: (slope_direction, recent_rate, oldest_rate)}
+    """
+    now = datetime.now(timezone.utc)
+    cutoff = now.timestamp() - window_days * 86400
+
+    # Parse dates and filter to window
+    dated_results = []
+    for r in results:
+        dt = _parse_run_date(r["run_dir"])
+        if dt and dt.timestamp() >= cutoff:
+            dated_results.append({**r, "_dt": dt, "_date": dt.strftime("%Y-%m-%d")})
+
+    if not dated_results:
+        return {
+            "daily_rates": {},
+            "regressions": [],
+            "improvements": [],
+            "overall_trend": {},
+        }
+
+    # Group by (model, format) -> date -> test -> passed
+    model_fmt_daily: dict[tuple[str, str], dict[str, dict[str, bool]]] = defaultdict(
+        lambda: defaultdict(dict)
+    )
+    for r in dated_results:
+        key = (r["model"], r["format"])
+        model_fmt_daily[key][r["_date"]][r["test"]] = r["passed"]
+
+    # Pick best format per model (same logic as aggregate_results)
+    best_fmt: dict[str, str] = {}
+    fmt_test_counts: dict[tuple[str, str], int] = {}
+    for (model, fmt), daily in model_fmt_daily.items():
+        all_tests = set()
+        for tests in daily.values():
+            all_tests.update(tests.keys())
+        fmt_test_counts[(model, fmt)] = len(all_tests)
+        current = best_fmt.get(model)
+        if current is None or len(all_tests) > fmt_test_counts.get((model, current), 0):
+            best_fmt[model] = fmt
+
+    # Build daily rates for each model using best format
+    daily_rates: dict[str, list[tuple[str, float, int, int]]] = {}
+    for model, fmt in best_fmt.items():
+        daily = model_fmt_daily[(model, fmt)]
+        sorted_dates = sorted(daily.keys())
+        rates = []
+        for date_str in sorted_dates:
+            tests = daily[date_str]
+            if len(tests) < min_tests:
+                continue
+            passed = sum(1 for v in tests.values() if v)
+            total = len(tests)
+            rates.append((date_str, passed / total, passed, total))
+        if rates:
+            daily_rates[model] = rates
+
+    # Detect regressions and improvements by comparing last two runs per test
+    regressions: list[tuple[str, str, str, str]] = []
+    improvements: list[tuple[str, str, str, str]] = []
+    for model, fmt in best_fmt.items():
+        daily = model_fmt_daily[(model, fmt)]
+        sorted_dates = sorted(daily.keys())
+        if len(sorted_dates) < 2:
+            continue
+
+        test_history: dict[str, list[tuple[str, bool]]] = defaultdict(list)
+        for date_str in sorted_dates:
+            for test, passed in daily[date_str].items():
+                test_history[test].append((date_str, passed))
+
+        for test, history in test_history.items():
+            if len(history) < 2:
+                continue
+            prev_date, prev_passed = history[-2]
+            curr_date, curr_passed = history[-1]
+            if prev_passed and not curr_passed:
+                regressions.append((model, test, prev_date, curr_date))
+            elif not prev_passed and curr_passed:
+                improvements.append((model, test, prev_date, curr_date))
+
+    # Overall trend direction per model
+    overall_trend: dict[str, tuple[str, float, float]] = {}
+    for model, rates in daily_rates.items():
+        if len(rates) >= 2:
+            oldest_rate = rates[0][1]
+            recent_rate = rates[-1][1]
+            if recent_rate > oldest_rate + 0.02:
+                direction = "improving"
+            elif recent_rate < oldest_rate - 0.02:
+                direction = "declining"
+            else:
+                direction = "stable"
+            overall_trend[model] = (direction, recent_rate, oldest_rate)
+
+    return {
+        "daily_rates": daily_rates,
+        "regressions": regressions,
+        "improvements": improvements,
+        "overall_trend": overall_trend,
+    }
+
+
+def format_trends_html(trends: dict) -> str:
+    """Render trend analysis as a self-contained HTML page."""
+    daily_rates = trends["daily_rates"]
+    regressions = trends["regressions"]
+    improvements = trends["improvements"]
+    overall_trend = trends["overall_trend"]
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+    # Sort models by latest pass rate
+    sorted_models = sorted(
+        daily_rates.keys(),
+        key=lambda m: daily_rates[m][-1][1] if daily_rates[m] else 0,
+        reverse=True,
+    )
+
+    # Build sparkline data and trend rows
+    trend_rows = []
+    for model in sorted_models:
+        rates = daily_rates[model]
+        display_name = _html_escape(normalize_model(model))
+        latest = rates[-1]
+        rate_pct = f"{latest[1]:.0%}"
+        passed_total = f"{latest[2]}/{latest[3]}"
+
+        # Sparkline: normalize rates to 0-100 for SVG
+        spark_points = []
+        for i, (_, rate, _, _) in enumerate(rates):
+            x = (i / max(len(rates) - 1, 1)) * 100
+            y = 100 - rate * 100  # SVG y is top-down
+            spark_points.append(f"{x:.1f},{y:.1f}")
+        polyline = " ".join(spark_points)
+
+        # Trend indicator
+        trend_info = overall_trend.get(model, ("stable", 0, 0))
+        direction = trend_info[0]
+        if direction == "improving":
+            trend_icon = "&#x25B2;"  # ▲
+            trend_class = "trend-up"
+        elif direction == "declining":
+            trend_icon = "&#x25BC;"  # ▼
+            trend_class = "trend-down"
+        else:
+            trend_icon = "&#x25CF;"  # ●
+            trend_class = "trend-stable"
+
+        # Delta
+        if len(rates) >= 2:
+            delta = rates[-1][1] - rates[0][1]
+            delta_str = f"{delta:+.1%}"
+        else:
+            delta_str = "-"
+
+        trend_rows.append(f"""        <tr>
+          <td class='model-name'>{display_name}</td>
+          <td class='rate'>{rate_pct}</td>
+          <td class='passed'>{passed_total}</td>
+          <td class='sparkline-cell'>
+            <svg viewBox="0 0 100 100" preserveAspectRatio="none" class="sparkline">
+              <polyline points="{polyline}" fill="none" stroke="var(--accent)" stroke-width="2"/>
+            </svg>
+          </td>
+          <td class='{trend_class}'>{trend_icon} {delta_str}</td>
+        </tr>""")
+
+    trend_rows_str = "\n".join(trend_rows)
+
+    # Regressions table
+    regression_rows = []
+    for model, test, last_pass, first_fail in sorted(
+        regressions, key=lambda r: r[3], reverse=True
+    )[:20]:
+        display_name = _html_escape(normalize_model(model))
+        regression_rows.append(
+            f"<tr><td>{display_name}</td><td class='test-name'>{_html_escape(test)}</td>"
+            f"<td class='pass'>{last_pass}</td><td class='fail'>{first_fail}</td></tr>"
+        )
+    regression_rows_str = (
+        "\n        ".join(regression_rows)
+        if regression_rows
+        else "<tr><td colspan='4' class='na'>No regressions detected</td></tr>"
+    )
+
+    # Improvements table
+    improvement_rows = []
+    for model, test, last_fail, first_pass in sorted(
+        improvements, key=lambda r: r[3], reverse=True
+    )[:20]:
+        display_name = _html_escape(normalize_model(model))
+        improvement_rows.append(
+            f"<tr><td>{display_name}</td><td class='test-name'>{_html_escape(test)}</td>"
+            f"<td class='fail'>{last_fail}</td><td class='pass'>{first_pass}</td></tr>"
+        )
+    improvement_rows_str = (
+        "\n        ".join(improvement_rows)
+        if improvement_rows
+        else "<tr><td colspan='4' class='na'>No improvements detected</td></tr>"
+    )
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gptme Eval Trends</title>
+<style>
+  :root {{
+    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --text: #e6edf3; --muted: #8b949e;
+    --green: #3fb950; --red: #f85149; --accent: #58a6ff;
+    --yellow: #d29922;
+  }}
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+  body {{
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--text); padding: 2rem 1rem;
+  }}
+  .container {{ max-width: 1100px; margin: 0 auto; }}
+  h1 {{ font-size: 1.5rem; margin-bottom: 0.25rem; }}
+  h1 a {{ color: var(--accent); text-decoration: none; }}
+  h2 {{ font-size: 1.1rem; margin: 2rem 0 0.75rem; color: var(--muted);
+       text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.85rem; }}
+  .meta {{ color: var(--muted); font-size: 0.85rem; margin-bottom: 1.5rem; }}
+  .stats {{ display: flex; gap: 2rem; margin-bottom: 1.5rem; flex-wrap: wrap; }}
+  .stat {{ background: var(--surface); border: 1px solid var(--border);
+           border-radius: 6px; padding: 0.75rem 1rem; min-width: 120px; }}
+  .stat-value {{ font-size: 1.5rem; font-weight: 700; }}
+  .stat-label {{ font-size: 0.75rem; color: var(--muted); text-transform: uppercase;
+                 letter-spacing: 0.05em; }}
+  table {{
+    width: 100%; border-collapse: collapse; background: var(--surface);
+    border-radius: 6px; overflow: hidden;
+  }}
+  th, td {{
+    padding: 0.5rem 0.75rem; text-align: left;
+    border-bottom: 1px solid var(--border); font-size: 0.85rem;
+  }}
+  th {{ background: var(--bg); color: var(--muted); font-size: 0.75rem;
+       text-transform: uppercase; letter-spacing: 0.05em; }}
+  .model-name {{ font-weight: 600; white-space: nowrap; }}
+  .rate {{ font-family: monospace; font-weight: 700; }}
+  .passed {{ font-family: monospace; color: var(--muted); }}
+  .test-name {{ font-family: monospace; font-size: 0.8rem; }}
+  .pass {{ color: var(--green); font-weight: 600; }}
+  .fail {{ color: var(--red); font-weight: 600; }}
+  .na {{ color: var(--muted); text-align: center; font-style: italic; }}
+  .trend-up {{ color: var(--green); font-weight: 700; }}
+  .trend-down {{ color: var(--red); font-weight: 700; }}
+  .trend-stable {{ color: var(--yellow); }}
+  .sparkline-cell {{ width: 150px; padding: 0.25rem 0.5rem; }}
+  .sparkline {{ width: 100%; height: 24px; }}
+  footer {{ color: var(--muted); font-size: 0.75rem; margin-top: 2rem;
+            padding-top: 1rem; border-top: 1px solid var(--border); }}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1><a href="https://gptme.org">gptme</a> Eval Trends</h1>
+  <p class="meta">Generated {now}</p>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-value">{len(sorted_models)}</div>
+      <div class="stat-label">Models Tracked</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">{len(regressions)}</div>
+      <div class="stat-label">Regressions</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">{len(improvements)}</div>
+      <div class="stat-label">Improvements</div>
+    </div>
+  </div>
+
+  <h2>Pass Rate Over Time</h2>
+  <table>
+    <thead>
+      <tr><th>Model</th><th>Rate</th><th>Passed</th><th>Trend</th><th>Change</th></tr>
+    </thead>
+    <tbody>
+{trend_rows_str}
+    </tbody>
+  </table>
+
+  <h2>Recent Regressions (was passing, now failing)</h2>
+  <table>
+    <thead>
+      <tr><th>Model</th><th>Test</th><th>Last Pass</th><th>First Fail</th></tr>
+    </thead>
+    <tbody>
+        {regression_rows_str}
+    </tbody>
+  </table>
+
+  <h2>Recent Improvements (was failing, now passing)</h2>
+  <table>
+    <thead>
+      <tr><th>Model</th><th>Test</th><th>Last Fail</th><th>First Pass</th></tr>
+    </thead>
+    <tbody>
+        {improvement_rows_str}
+    </tbody>
+  </table>
+
+  <footer>
+    Generated by <code>gptme eval --leaderboard --leaderboard-format html --trends</code>
+  </footer>
+</div>
+</body>
+</html>"""
+
+
+def format_trends_markdown(trends: dict) -> str:
+    """Render trend analysis as Markdown."""
+    daily_rates = trends["daily_rates"]
+    regressions = trends["regressions"]
+    improvements = trends["improvements"]
+    overall_trend = trends["overall_trend"]
+
+    lines = ["# Eval Trends", ""]
+
+    # Summary
+    sorted_models = sorted(
+        daily_rates.keys(),
+        key=lambda m: daily_rates[m][-1][1] if daily_rates[m] else 0,
+        reverse=True,
+    )
+
+    lines.append("## Pass Rate Trends")
+    lines.append("")
+    lines.append("| Model | Latest | Passed | Trend | Change |")
+    lines.append("|-------|--------|--------|-------|--------|")
+    for model in sorted_models:
+        rates = daily_rates[model]
+        display_name = normalize_model(model)
+        latest = rates[-1]
+        rate_pct = f"{latest[1]:.0%}"
+        passed_total = f"{latest[2]}/{latest[3]}"
+        trend_info = overall_trend.get(model, ("stable", 0, 0))
+        direction = trend_info[0]
+        icon = {"improving": "↑", "declining": "↓", "stable": "→"}.get(direction, "→")
+        delta = rates[-1][1] - rates[0][1] if len(rates) >= 2 else 0
+        delta_str = f"{delta:+.1%}" if len(rates) >= 2 else "-"
+        lines.append(
+            f"| {display_name} | {rate_pct} | {passed_total} | {icon} | {delta_str} |"
+        )
+
+    if regressions:
+        lines.extend(["", "## Regressions", ""])
+        lines.append("| Model | Test | Last Pass | First Fail |")
+        lines.append("|-------|------|-----------|------------|")
+        for model, test, last_pass, first_fail in sorted(
+            regressions, key=lambda r: r[3], reverse=True
+        )[:20]:
+            lines.append(
+                f"| {normalize_model(model)} | {test} | {last_pass} | {first_fail} |"
+            )
+
+    if improvements:
+        lines.extend(["", "## Improvements", ""])
+        lines.append("| Model | Test | Last Fail | First Pass |")
+        lines.append("|-------|------|-----------|------------|")
+        for model, test, last_fail, first_pass in sorted(
+            improvements, key=lambda r: r[3], reverse=True
+        )[:20]:
+            lines.append(
+                f"| {normalize_model(model)} | {test} | {last_fail} | {first_pass} |"
+            )
+
+    return "\n".join(lines)
+
+
 def generate_leaderboard(
     results_dir: Path,
     output_format: str = "markdown",
@@ -950,6 +1364,17 @@ def main():
         action="store_true",
         help="Show per-test pass/fail breakdown instead of summary",
     )
+    parser.add_argument(
+        "--trends",
+        action="store_true",
+        help="Show pass-rate trends over time with regressions/improvements",
+    )
+    parser.add_argument(
+        "--trend-days",
+        type=int,
+        default=90,
+        help="Number of days to include in trend analysis (default: 90)",
+    )
     args = parser.parse_args()
 
     try:
@@ -957,7 +1382,19 @@ def main():
         if not results:
             raise FileNotFoundError(f"No eval results found in {args.results_dir}")
 
-        if args.per_test:
+        if args.trends:
+            trends = compute_rate_trends(
+                results,
+                min_tests=args.min_tests,
+                window_days=args.trend_days,
+            )
+            if not trends["daily_rates"]:
+                raise ValueError("No trend data available in the specified window.")
+            if args.format == "html":
+                output = format_trends_html(trends)
+            else:
+                output = format_trends_markdown(trends)
+        elif args.per_test:
             model_names, test_names, matrix = aggregate_per_test(
                 results, min_tests=args.min_tests
             )
