@@ -204,13 +204,16 @@ class DockerExecutionEnv(ExecutionEnv):
             p.kill()
             # Stop container to terminate the running command
             if self.container_id:
-                subprocess.run(
-                    ["docker", "stop", self.container_id],
-                    check=False,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=5,
-                )
+                try:
+                    subprocess.run(
+                        ["docker", "stop", self.container_id],
+                        check=False,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=5,
+                    )
+                except subprocess.TimeoutExpired:
+                    pass  # best-effort; cleanup() will handle removal
             stdout_full, stderr_full = p.communicate()
 
         if not silent:
@@ -499,13 +502,16 @@ class DockerGPTMeEnv(DockerExecutionEnv):
             p.kill()
             # Stop container to terminate gptme
             if self.container_id:
-                subprocess.run(
-                    ["docker", "stop", self.container_id],
-                    check=False,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=5,
-                )
+                try:
+                    subprocess.run(
+                        ["docker", "stop", self.container_id],
+                        check=False,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=5,
+                    )
+                except subprocess.TimeoutExpired:
+                    pass  # best-effort; cleanup() will handle removal
             stdout_full, stderr_full = p.communicate()
 
         if stdout_full:
@@ -706,13 +712,16 @@ class DockerClaudeCodeEnv(DockerExecutionEnv):
             timed_out = True
             p.kill()
             if self.container_id:
-                subprocess.run(
-                    ["docker", "stop", self.container_id],
-                    check=False,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=5,
-                )
+                try:
+                    subprocess.run(
+                        ["docker", "stop", self.container_id],
+                        check=False,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=5,
+                    )
+                except subprocess.TimeoutExpired:
+                    pass  # best-effort; cleanup() will handle removal
             stdout_full, stderr_full = p.communicate()
 
         if stdout_full:
