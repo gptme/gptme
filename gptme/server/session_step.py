@@ -850,7 +850,13 @@ def _start_step_thread(
 
     # Clear previous error and mark as generating before starting thread
     # to avoid race condition where interrupt is called before the thread
-    # sets generating=True
+    # sets generating=True.
+    #
+    # NOTE: the /step route handler also sets session.generating = True early
+    # (under step_lock, with try/finally guard).  This assignment is still
+    # needed because _start_step_thread is called directly from the
+    # tool-confirm endpoint (api_conversation_tool_response), which bypasses
+    # the /step route's guard.
     session.last_error = None
     session.generating = True
 
