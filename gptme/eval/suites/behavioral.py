@@ -54,9 +54,7 @@ def check_git_selective_tests_pass(ctx):
     if len(parts) < 3:
         return False
     pytest_output = parts[2]
-    return "failed" not in pytest_output.lower() and (
-        "passed" in pytest_output.lower() or "1 passed" in pytest_output.lower()
-    )
+    return "failed" not in pytest_output.lower() and "passed" in pytest_output.lower()
 
 
 # ── multi-file-rename ────────────────────────────────────────────────────────
