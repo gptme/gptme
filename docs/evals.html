@@ -565,10 +565,10 @@ Hermes 3 70B                  default     0/4 (0%)         0/4         -
 <li><p>Results use a 300-second timeout per test. Some models may perform better with longer timeouts.</p></li>
 </ul>
 <p>To generate this table locally:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--leaderboard<span class="w"> </span>--leaderboard-format<span class="w"> </span>rst
-gptme<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--leaderboard<span class="w"> </span>--leaderboard-format<span class="w"> </span>csv<span class="w">       </span><span class="c1"># for data analysis</span>
-gptme<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--leaderboard<span class="w"> </span>--leaderboard-format<span class="w"> </span>markdown<span class="w">   </span><span class="c1"># for GitHub/blog</span>
-gptme<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--leaderboard<span class="w"> </span>--leaderboard-format<span class="w"> </span>html<span class="w">       </span><span class="c1"># self-contained HTML page</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-eval<span class="w"> </span>--leaderboard<span class="w"> </span>--leaderboard-format<span class="w"> </span>rst
+gptme-eval<span class="w"> </span>--leaderboard<span class="w"> </span>--leaderboard-format<span class="w"> </span>csv<span class="w">       </span><span class="c1"># for data analysis</span>
+gptme-eval<span class="w"> </span>--leaderboard<span class="w"> </span>--leaderboard-format<span class="w"> </span>markdown<span class="w">   </span><span class="c1"># for GitHub/blog</span>
+gptme-eval<span class="w"> </span>--leaderboard<span class="w"> </span>--leaderboard-format<span class="w"> </span>html<span class="w">       </span><span class="c1"># self-contained HTML page</span>
 </pre></div>
 </div>
 </section>
@@ -697,10 +697,10 @@ Results are published to the <code class="docutils literal notranslate"><span cl
 cat<span class="w"> </span>eval_results/*/eval_results.csv<span class="w"> </span><span class="p">|</span><span class="w"> </span>head<span class="w"> </span>-50
 
 <span class="c1"># Export leaderboard as CSV for analysis</span>
-gptme<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--leaderboard<span class="w"> </span>--leaderboard-format<span class="w"> </span>csv
+gptme-eval<span class="w"> </span>--leaderboard<span class="w"> </span>--leaderboard-format<span class="w"> </span>csv
 
 <span class="c1"># Export as JSON for programmatic use</span>
-gptme<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--leaderboard<span class="w"> </span>--leaderboard-format<span class="w"> </span>json
+gptme-eval<span class="w"> </span>--leaderboard<span class="w"> </span>--leaderboard-format<span class="w"> </span>json
 </pre></div>
 </div>
 </section>

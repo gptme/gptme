@@ -6620,10 +6620,10 @@ To generate this table locally:
 
 .. code-block:: bash
 
-    gptme eval --leaderboard --leaderboard-format rst
-    gptme eval --leaderboard --leaderboard-format csv       # for data analysis
-    gptme eval --leaderboard --leaderboard-format markdown   # for GitHub/blog
-    gptme eval --leaderboard --leaderboard-format html       # self-contained HTML page
+    gptme-eval --leaderboard --leaderboard-format rst
+    gptme-eval --leaderboard --leaderboard-format csv       # for data analysis
+    gptme-eval --leaderboard --leaderboard-format markdown   # for GitHub/blog
+    gptme-eval --leaderboard --leaderboard-format html       # self-contained HTML page
 
 
 Usage
@@ -6744,10 +6744,10 @@ To view raw results locally:
     cat eval_results/*/eval_results.csv | head -50
 
     # Export leaderboard as CSV for analysis
-    gptme eval --leaderboard --leaderboard-format csv
+    gptme-eval --leaderboard --leaderboard-format csv
 
     # Export as JSON for programmatic use
-    gptme eval --leaderboard --leaderboard-format json
+    gptme-eval --leaderboard --leaderboard-format json
 
 
 Other evals
