@@ -206,10 +206,6 @@ def main(
             sys.exit(result.returncode)
 
 
-if __name__ == "__main__":
-    main()
-
-
 def _show_dataset_info(
     dataset_name: str,
     split: str,
@@ -241,8 +237,10 @@ def _show_dataset_info(
     # Repo distribution
     repos = Counter(d.get("repo", "unknown") for d in instances.values())
     print(f"\nRepository distribution ({len(repos)} repos):")
+    max_count = max(repos.values())
+    bar_width = 40
     for repo, count in repos.most_common():
-        bar = "█" * count
+        bar = "█" * round(count / max_count * bar_width)
         print(f"  {repo:<45} {count:>4} {bar}")
 
     # Difficulty breakdown (version column)
@@ -263,3 +261,7 @@ def _show_dataset_info(
         print("\nExample instances:")
         for iid in list(instances)[:5]:
             print(f"  {iid}")
+
+
+if __name__ == "__main__":
+    main()
