@@ -137,7 +137,7 @@ def check_stage_new_file_committed(ctx):
 def check_stage_two_commits(ctx):
     """There should be at least 2 commits (initial + new file)."""
     parts = ctx.stdout.split("__GPTME_SEP__")
-    if not parts:
+    if not parts[0].strip():
         return False
     log_lines = [line for line in parts[0].strip().split("\n") if line.strip()]
     return len(log_lines) >= 2
@@ -146,6 +146,8 @@ def check_stage_two_commits(ctx):
 def check_stage_file_has_double(ctx):
     """new_feature.py contains the double function as requested."""
     content = ctx.files.get("new_feature.py", "")
+    if isinstance(content, bytes):
+        content = content.decode()
     return "def double" in content
 
 
