@@ -73,7 +73,7 @@ def test_read_url_cookie_file():
         from unittest.mock import MagicMock
 
         result = MagicMock()
-        result.stdout = b"mock page content"
+        result.stdout = "mock page content"
         return result
 
     with patch("gptme.tools._browser_lynx.subprocess.run", side_effect=mock_run):
@@ -101,7 +101,7 @@ def test_search_google_consent_cookies():
         from unittest.mock import MagicMock
 
         result = MagicMock()
-        result.stdout = b"search results"
+        result.stdout = "search results"
         return result
 
     with patch("gptme.tools._browser_lynx.subprocess.run", side_effect=mock_run):
@@ -132,7 +132,7 @@ def test_read_url_no_cookies():
         from unittest.mock import MagicMock
 
         result = MagicMock()
-        result.stdout = b"mock content"
+        result.stdout = "mock content"
         return result
 
     with patch("gptme.tools._browser_lynx.subprocess.run", side_effect=mock_run):
