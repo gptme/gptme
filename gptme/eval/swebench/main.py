@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import subprocess
 import sys
+from collections import Counter
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -15,6 +16,7 @@ from ..agents import GPTMe
 from ..main import write_results
 from ..types import ModelConfig
 from . import run_swebench_evaluation
+from .utils import load_instances
 
 # Configure logging
 logging.basicConfig(
@@ -79,6 +81,12 @@ logger = logging.getLogger(__name__)
     is_flag=True,
     help="Increase output verbosity",
 )
+@click.option(
+    "--info",
+    is_flag=True,
+    default=False,
+    help="Show dataset info (instance count, repo distribution) without running evaluation.",
+)
 def main(
     model: list[str],
     dataset: str,
@@ -89,6 +97,7 @@ def main(
     run_harness: bool,
     run_id: str,
     verbose: bool,
+    info: bool,
 ):
     """Run SWE-bench evaluation for gptme.
 
@@ -111,6 +120,10 @@ def main(
             --run_id gptme_eval \\
             --dataset_name princeton-nlp/SWE-bench_Lite
     """
+    if info:
+        _show_dataset_info(dataset, split, instance or None)
+        return
+
     if verbose:
         logger.setLevel(logging.DEBUG)
         logger.debug("Verbose output enabled")
@@ -195,3 +208,58 @@ def main(
 
 if __name__ == "__main__":
     main()
+
+
+def _show_dataset_info(
+    dataset_name: str,
+    split: str,
+    instance_ids: list[str] | None,
+) -> None:
+    """Print dataset statistics without running evaluation."""
+    print(f"=== SWE-bench Dataset Info: {dataset_name} (split={split}) ===\n")
+
+    instances = load_instances(dataset_name, split=split)
+
+    # Filter if specific instances requested
+    if instance_ids:
+        missing = [i for i in instance_ids if i not in instances]
+        if missing:
+            print(
+                f"Warning: {len(missing)} instance(s) not found: {', '.join(missing[:5])}"
+            )
+            if len(missing) > 5:
+                print(f"  ... and {len(missing) - 5} more")
+        instances = {k: instances[k] for k in instance_ids if k in instances}
+
+    if not instances:
+        print("No instances found matching criteria.")
+        return
+
+    # Overall stats
+    print(f"Total instances: {len(instances)}")
+
+    # Repo distribution
+    repos = Counter(d.get("repo", "unknown") for d in instances.values())
+    print(f"\nRepository distribution ({len(repos)} repos):")
+    for repo, count in repos.most_common():
+        bar = "█" * count
+        print(f"  {repo:<45} {count:>4} {bar}")
+
+    # Difficulty breakdown (version column)
+    versions = Counter(d.get("version", "unknown") for d in instances.values())
+    if len(versions) > 1 or "unknown" not in versions:
+        print("\nVersion distribution:")
+        for version, count in versions.most_common():
+            print(f"  {version:<30} {count:>4}")
+
+    # Hint about specific instances
+    if instance_ids:
+        print(f"\nSelected instances ({len(instances)}):")
+        for iid, d in instances.items():
+            print(f"  {iid:<50} {d.get('repo', '?')}")
+    else:
+        print("\nTo evaluate specific instances:")
+        print("  gptme-eval-swebench --info -i <instance_id>")
+        print("\nExample instances:")
+        for iid in list(instances)[:5]:
+            print(f"  {iid}")
