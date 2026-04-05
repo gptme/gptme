@@ -171,11 +171,13 @@ def check_merge_tests_pass(ctx):
 
 
 def check_merge_null_safety(ctx):
-    """format_name should handle None arguments (feature branch change)."""
+    """format_name should guard both None inputs and return Unknown."""
     content = ctx.files.get("utils.py", "")
     if isinstance(content, bytes):
         content = content.decode()
-    return "None" in content and "Unknown" in content
+    return (
+        "if first is None or last is None" in content and 'return "Unknown"' in content
+    )
 
 
 def check_merge_upper_function(ctx):
@@ -184,6 +186,15 @@ def check_merge_upper_function(ctx):
     if isinstance(content, bytes):
         content = content.decode()
     return "def format_name_upper" in content
+
+
+def check_merge_commit_completed(ctx):
+    """The merge should be finalized with a commit, not left in-progress."""
+    git_head = ctx.files.get(".git/HEAD", "")
+    if isinstance(git_head, bytes):
+        git_head = git_head.decode()
+    merge_head = ctx.files.get(".git/MERGE_HEAD")
+    return bool(git_head.strip()) and merge_head is None
 
 
 # ── extract-function-refactor ────────────────────────────────────────────────
@@ -203,19 +214,14 @@ def check_extract_shared_module_exists(ctx):
 
 
 def check_extract_no_duplication(ctx):
-    """The inline validation logic should not be duplicated across all 3 modules."""
-    # The duplicated pattern is the email validation check with "@" and "."
-    # After extraction, at most 1 file (validation.py) should contain the logic
-    duplication_count = 0
+    """The inline validation logic should be removed from all 3 service modules."""
     for name in ("user_service.py", "newsletter.py", "contact.py"):
         content = ctx.files.get(name, "")
         if isinstance(content, bytes):
             content = content.decode()
-        # The original duplicated pattern checks for "@" in email
         if '"@"' in content or "'@'" in content:
-            duplication_count += 1
-    # Allow at most 1 file to still have inline validation (should be 0 ideally)
-    return duplication_count <= 1
+            return False
+    return True
 
 
 def check_extract_callers_import(ctx):
@@ -600,6 +606,8 @@ git commit -q -m "feat: add format_name_upper"
 
 # Start the merge — will conflict in utils.py (both branches modify body)
 git merge feature-null-safety --no-edit || true
+
+grep -q '^<<<<<<< ' utils.py
 """,
         },
         "run": "uv run --with pytest python3 -m pytest test_utils.py test_null_safety.py test_upper.py -q 2>&1",
@@ -618,6 +626,7 @@ git merge feature-null-safety --no-edit || true
             "tests pass": check_merge_tests_pass,
             "null safety preserved": check_merge_null_safety,
             "upper function preserved": check_merge_upper_function,
+            "merge commit completed": check_merge_commit_completed,
         },
     },
     # -------------------------------------------------------------------
