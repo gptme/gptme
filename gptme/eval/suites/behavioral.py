@@ -142,6 +142,8 @@ git config user.name "Test"
 # Disable global git hooks — eval workspaces don't have gptme.toml [agent],
 # which causes Bob's global pre-commit hook to block all master commits.
 git config core.hooksPath /dev/null
+# Ensure pytest is available for the checker run script.
+python3 -m pip install pytest -q 2>/dev/null || true
 
 # Initial state: calc.py + config.py already tracked
 cat > calc.py << 'PYEOF'
@@ -188,7 +190,7 @@ PYEOF
 sed -i 's/DEBUG = False/DEBUG = True  # temporary debug/' config.py
 """,
         },
-        "run": "git log --oneline -1 && echo __GPTME_SEP__ && git show HEAD -- config.py && echo __GPTME_SEP__ && python -m pytest test_calc.py -q 2>&1",
+        "run": "git log --oneline -1 && echo __GPTME_SEP__ && git show HEAD -- config.py && echo __GPTME_SEP__ && python3 -m pytest test_calc.py -q 2>&1",
         "prompt": (
             "Run `bash setup.sh` to initialise the git repository. "
             "Then commit only the new `divide` function added to calc.py "
@@ -272,7 +274,7 @@ def test_unknown_shape():
         calcArea("hexagon", 5)
 """,
         },
-        "run": "python -m pytest tests/ -q 2>&1",
+        "run": "python3 -m pytest tests/ -q 2>&1",
         "prompt": (
             "The function `calcArea` in src/geometry.py should be renamed to "
             "`calculate_area` to follow Python naming conventions (PEP 8 snake_case). "
@@ -349,7 +351,7 @@ def test_divide_by_zero():
         divide(5, 0)
 """,
         },
-        "run": "python -m pytest test_calculator.py -v --tb=short 2>&1",
+        "run": "python3 -m pytest test_calculator.py -v --tb=short 2>&1",
         "prompt": (
             "The test suite in test_calculator.py is failing. "
             "Run the tests to see which test fails, then fix the bug in "
