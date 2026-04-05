@@ -183,7 +183,6 @@ def pdf_to_images(
         ...     view_image(img)  # Analyze with vision tool
     """
     import atexit
-    import shutil
     import tempfile
 
     # Determine output directory
@@ -236,8 +235,6 @@ def _convert_with_pdftoppm(
     pdf_path: Path, output_prefix: Path, pages: tuple[int, int] | None, dpi: int
 ) -> list[Path]:
     """Convert PDF to images using pdftoppm."""
-    import subprocess
-
     cmd = ["pdftoppm", "-png", "-r", str(dpi)]
     if pages:
         cmd.extend(["-f", str(pages[0]), "-l", str(pages[1])])
@@ -263,8 +260,6 @@ def _convert_with_imagemagick(
     pdf_path: Path, output_prefix: Path, pages: tuple[int, int] | None, dpi: int
 ) -> list[Path]:
     """Convert PDF to images using ImageMagick convert."""
-    import subprocess
-
     # ImageMagick uses 0-indexed pages
     if pages:
         page_spec = f"[{pages[0] - 1}-{pages[1] - 1}]"
@@ -295,8 +290,6 @@ def _convert_with_vips(
     pdf_path: Path, output_prefix: Path, pages: tuple[int, int] | None, dpi: int
 ) -> list[Path]:
     """Convert PDF to images using vips."""
-    import subprocess
-
     output_files = []
     if pages:
         page_range = range(pages[0] - 1, pages[1])  # vips is 0-indexed

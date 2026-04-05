@@ -441,8 +441,6 @@ def act_process(
     # Note: suppress_output is passed directly to avoid os.environ race conditions
     if suppress_output:
         # Redirect to null during optimization
-        import io
-
         stdout = StreamTee(io.StringIO(), keep=False)
         stderr = StreamTee(io.StringIO(), keep=False)
         subprocess_logger.info("Output suppression enabled for GEPA optimization")

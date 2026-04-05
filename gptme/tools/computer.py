@@ -205,8 +205,6 @@ def _scale_coordinates(
 
 def _run_xdotool(cmd: str, display: str | None = None) -> str:
     """Run an xdotool command with optional display setting and wait for completion."""
-    import shlex
-
     if IS_MACOS:
         raise RuntimeError("xdotool is not supported on macOS")
 

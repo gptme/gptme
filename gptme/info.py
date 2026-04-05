@@ -353,8 +353,6 @@ def format_version_info(verbose: bool = False, output_json: bool = False) -> str
     not_installed_extras = [e.name for e in extras if not e.installed]
 
     if output_json:
-        import json as json_mod
-
         data = {
             "version": __version__,
             "python": sys_info["python_version"],
@@ -378,7 +376,7 @@ def format_version_info(verbose: bool = False, output_json: bool = False) -> str
                 "project_config": config_info.get("project_config"),
             },
         }
-        return json_mod.dumps(data, indent=2)
+        return json.dumps(data, indent=2)
 
     # Human-readable format
     lines = [f"gptme v{__version__}"]

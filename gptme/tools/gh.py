@@ -100,8 +100,6 @@ def _wait_for_checks(
     owner: str, repo: str, url: str, commit_sha: str | None = None
 ) -> Generator[Message, None, None]:
     """Wait for all GitHub Actions checks to complete on a PR or commit."""
-    import logging
-
     logger = logging.getLogger(__name__)
 
     # Use provided commit SHA or get from PR
