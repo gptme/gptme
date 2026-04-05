@@ -168,10 +168,11 @@ def api_conversation_events(conversation_id: str):
                 # Wait a bit before checking again
                 yield f"data: {flask.json.dumps({'type': 'ping'})}\n\n"
 
-                # Use event.wait() with timeout to avoid busy waiting while allowing ping intervals
-                # 15s timeout for connection keep-alive
-                session.event_flag.wait(timeout=15)
+                # Clear before waiting to avoid race: if an event arrives between
+                # wait() returning and clear(), the signal would be lost, delaying
+                # delivery by up to one full timeout interval.
                 session.event_flag.clear()
+                session.event_flag.wait(timeout=15)
 
         except GeneratorExit:
             # Client disconnected
@@ -429,8 +430,8 @@ def api_conversation_step(conversation_id: str):
                         "session_id": session_id,
                     }
                 )
-        session.event_flag.wait(timeout=_POLL_INTERVAL)
         session.event_flag.clear()
+        session.event_flag.wait(timeout=_POLL_INTERVAL)
 
     # Timeout without error or token — generation is slow but not failed
     return flask.jsonify(
@@ -679,7 +680,10 @@ def api_conversation_rerun(conversation_id: str):
                 session.auto_confirm_count -= 1
             logdir = get_logs_dir() / conversation_id
             chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
-            model = str(chat_config.model or get_default_model())
+            default_model = get_default_model()
+            model = chat_config.model or (
+                default_model.full if default_model else "anthropic"
+            )
             start_tool_execution(
                 conversation_id, session, tool_id, tooluse, model, chat_config
             )
