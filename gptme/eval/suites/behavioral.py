@@ -7,6 +7,7 @@ lessons about *how to work* should have a measurable effect on outcomes:
 - git-selective-commit: stage and commit only the relevant files
 - multi-file-rename: rename a function consistently across a project
 - iterative-debug: find and fix a bug through test feedback
+- stage-new-files: stage an untracked file before committing it
 
 Each scenario comes with a deterministic checker so results can be used in
 lesson holdout A/B experiments (idea #19, eval-to-lesson feedback loop).
@@ -118,6 +119,34 @@ def check_debug_fix_in_file(ctx):
     # All of these are accepted because they eliminate the buggy pattern.
     still_buggy = "except ZeroDivisionError" in content and "return None" in content
     return not still_buggy
+
+
+# ── stage-new-files ──────────────────────────────────────────────────────────
+
+
+def check_stage_new_file_committed(ctx):
+    """new_feature.py should appear in the HEAD commit's file list."""
+    # stdout: <git log --oneline>\n__GPTME_SEP__\n<git show HEAD --name-only --format="">
+    parts = ctx.stdout.split("__GPTME_SEP__")
+    if len(parts) < 2:
+        return False
+    files_in_commit = parts[1]
+    return "new_feature.py" in files_in_commit
+
+
+def check_stage_two_commits(ctx):
+    """There should be at least 2 commits (initial + new file)."""
+    parts = ctx.stdout.split("__GPTME_SEP__")
+    if not parts:
+        return False
+    log_lines = [line for line in parts[0].strip().split("\n") if line.strip()]
+    return len(log_lines) >= 2
+
+
+def check_stage_no_fatal_error(ctx):
+    """No fatal git errors (e.g. 'pathspec did not match') in stdout."""
+    lower = ctx.stdout.lower()
+    return "pathspec" not in lower and "fatal:" not in lower
 
 
 # ── test list ────────────────────────────────────────────────────────────────
@@ -361,6 +390,48 @@ def test_divide_by_zero():
             "tests pass": check_debug_tests_pass,
             "no syntax/import errors": check_debug_no_syntax_error,
             "fix present in calculator.py": check_debug_fix_in_file,
+        },
+    },
+    # -------------------------------------------------------------------
+    # Scenario 4: Stage new file before committing
+    # Agent must create a new file and commit it. Common failure mode:
+    # `git commit new_feature.py -m "msg"` errors with "pathspec did not
+    # match any file(s) known to git" because new files must be staged
+    # with `git add` first.  Tests: git staging discipline for new files.
+    # -------------------------------------------------------------------
+    {
+        "name": "stage-new-files",
+        "files": {
+            "setup.sh": """\
+#!/usr/bin/env bash
+set -e
+git init -q
+git config user.email "test@example.com"
+git config user.name "Test"
+
+cat > main.py << 'PYEOF'
+def greet(name):
+    return f"Hello, {name}!"
+PYEOF
+
+git add main.py
+git commit -q -m "initial: add greet function"
+""",
+        },
+        "run": "git log --oneline && echo __GPTME_SEP__ && git show HEAD --name-only --format=''",
+        "prompt": (
+            "Run `bash setup.sh` to initialise the git repository. "
+            "Then create a new file `new_feature.py` with a simple Python function "
+            "`def double(x): return x * 2`, and commit it with a conventional "
+            "commit message (e.g. `feat: add double function`). "
+            "The file does not exist yet — you need to create it and stage it "
+            "before committing."
+        ),
+        "tools": ["shell", "save", "read"],
+        "expect": {
+            "new_feature.py in HEAD commit": check_stage_new_file_committed,
+            "at least 2 commits": check_stage_two_commits,
+            "no git fatal errors": check_stage_no_fatal_error,
         },
     },
 ]
