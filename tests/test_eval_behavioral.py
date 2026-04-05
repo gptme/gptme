@@ -1,6 +1,10 @@
 from types import SimpleNamespace
 
 from gptme.eval.suites.behavioral import (
+    check_error_handling_parse_csv,
+    check_error_handling_safe_divide,
+    check_error_handling_tests_pass,
+    check_error_handling_to_int,
     check_extract_callers_import,
     check_extract_no_duplication,
     check_extract_shared_module_exists,
@@ -15,7 +19,12 @@ def _ctx(
     files: dict[str, str] | None = None,
     exit_code: int = 0,
 ):
-    return SimpleNamespace(stdout=stdout, files=files or {}, exit_code=exit_code)
+    return SimpleNamespace(
+        stdout=stdout,
+        files=files or {},
+        stderr="",
+        exit_code=exit_code,
+    )
 
 
 def test_check_merge_no_conflict_markers_ignores_git_internal_files():
@@ -40,9 +49,7 @@ def test_check_merge_no_conflict_markers_detects_tracked_file_conflict_markers()
 
 
 def test_check_merge_commit_completed_requires_merge_head_absent():
-    assert check_merge_commit_completed(
-        _ctx(files={".git/HEAD": "ref: refs/heads/master\n"})
-    )
+    assert check_merge_commit_completed(_ctx(files={".git/HEAD": "ref: refs/heads/master\n"}))
     assert not check_merge_commit_completed(
         _ctx(
             files={
@@ -90,3 +97,42 @@ def test_check_extract_callers_import_requires_all_three_modules():
             }
         )
     )
+
+
+def test_check_error_handling_tests_pass_requires_passed_marker():
+    assert check_error_handling_tests_pass(_ctx(files={}, stdout="3 passed"))
+    assert not check_error_handling_tests_pass(_ctx(files={}, stdout="collected 3 items"))
+    assert not check_error_handling_tests_pass(_ctx(files={}, stdout="1 failed, 2 passed"))
+
+
+def test_check_error_handling_parse_csv_ignores_nested_helper_raise():
+    source = """
+
+def parse_csv_line(line):
+    def helper():
+        raise ValueError(\"nested only\")
+    return [field.strip() for field in line.split(\",\")]
+"""
+    assert not check_error_handling_parse_csv(_ctx(files={"converter.py": source}))
+
+
+def test_check_error_handling_to_int_accepts_direct_raise():
+    source = """
+
+def to_int(value):
+    if value in (None, \"\"):
+        raise ValueError(\"cannot convert\")
+    return int(value)
+"""
+    assert check_error_handling_to_int(_ctx(files={"converter.py": source}))
+
+
+def test_check_error_handling_safe_divide_accepts_direct_raise():
+    source = """
+
+def safe_divide(a, b):
+    if b == 0:
+        raise ValueError(\"cannot divide by zero\")
+    return a / b
+"""
+    assert check_error_handling_safe_divide(_ctx(files={"converter.py": source}))

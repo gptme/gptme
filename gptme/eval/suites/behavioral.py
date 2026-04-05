@@ -8,6 +8,8 @@ lessons about *how to work* should have a measurable effect on outcomes:
 - multi-file-rename: rename a function consistently across a project
 - iterative-debug: find and fix a bug through test feedback
 - stage-new-files: stage an untracked file before committing it
+- write-test-suite: read existing code and write a comprehensive test suite
+- add-error-handling: add input validation to functions based on test expectations
 - merge-conflict-resolution: resolve a git merge conflict preserving both features
 - extract-function-refactor: extract duplicated code into a shared module
 
@@ -15,6 +17,8 @@ Each scenario comes with a deterministic checker so results can be used in
 lesson holdout A/B experiments (idea #19, eval-to-lesson feedback loop).
 """
 
+import ast
+from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -151,6 +155,142 @@ def check_stage_file_has_double(ctx):
     if isinstance(content, bytes):
         content = content.decode()
     return "def double" in content
+
+
+# ── write-tests ─────────────────────────────────────────────────────────────
+
+
+def check_write_tests_file_exists(ctx):
+    """test_text_processor.py should exist."""
+    content = ctx.files.get("test_text_processor.py", "")
+    if isinstance(content, bytes):
+        content = content.decode()
+    return len(content.strip()) > 0
+
+
+def check_write_tests_pass(ctx):
+    """All written tests should pass."""
+    return ctx.exit_code == 0 and "failed" not in ctx.stdout.lower()
+
+
+def check_write_tests_covers_word_count(ctx):
+    """Tests should cover the word_count function."""
+    content = ctx.files.get("test_text_processor.py", "")
+    if isinstance(content, bytes):
+        content = content.decode()
+    return "word_count" in content
+
+
+def check_write_tests_covers_truncate(ctx):
+    """Tests should cover the truncate function."""
+    content = ctx.files.get("test_text_processor.py", "")
+    if isinstance(content, bytes):
+        content = content.decode()
+    return "truncate" in content
+
+
+def check_write_tests_covers_extract_emails(ctx):
+    """Tests should cover the extract_emails function."""
+    content = ctx.files.get("test_text_processor.py", "")
+    if isinstance(content, bytes):
+        content = content.decode()
+    return "extract_emails" in content
+
+
+def check_write_tests_sufficient_count(ctx):
+    """Should have at least 6 test functions for reasonable coverage."""
+    content = ctx.files.get("test_text_processor.py", "")
+    if isinstance(content, bytes):
+        content = content.decode()
+    return content.count("def test_") >= 6
+
+
+# ── add-error-handling ──────────────────────────────────────────────────────
+
+
+def _parse_python_source(text: str) -> ast.Module | None:
+    try:
+        return ast.parse(text)
+    except SyntaxError:
+        return None
+
+
+def _get_function_def(module: ast.Module | None, name: str) -> ast.FunctionDef | None:
+    if module is None:
+        return None
+    for node in module.body:
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return node
+    return None
+
+
+def _iter_nodes_excluding_nested_scopes(node: ast.AST) -> Iterator[ast.AST]:
+    """Yield descendants while skipping nested function/lambda/class scopes."""
+    for child in ast.iter_child_nodes(node):
+        if isinstance(
+            child, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda | ast.ClassDef
+        ):
+            continue
+        yield child
+        yield from _iter_nodes_excluding_nested_scopes(child)
+
+
+def _function_raises_value_error(func: ast.FunctionDef | None) -> bool:
+    if func is None:
+        return False
+    for node in _iter_nodes_excluding_nested_scopes(func):
+        if isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call):
+            target = node.exc.func
+            if isinstance(target, ast.Name) and target.id == "ValueError":
+                return True
+    return False
+
+
+def check_error_handling_tests_pass(ctx):
+    """All tests should pass after adding error handling."""
+    output = ctx.stdout.lower()
+    return ctx.exit_code == 0 and "failed" not in output and "passed" in output
+
+
+def check_error_handling_parse_csv(ctx):
+    """parse_csv_line should validate input (raise ValueError on empty)."""
+    content = ctx.files.get("converter.py", "")
+    if isinstance(content, bytes):
+        content = content.decode()
+    module = _parse_python_source(content)
+    return _function_raises_value_error(_get_function_def(module, "parse_csv_line"))
+
+
+def check_error_handling_to_int(ctx):
+    """to_int should handle non-numeric input."""
+    content = ctx.files.get("converter.py", "")
+    if isinstance(content, bytes):
+        content = content.decode()
+    module = _parse_python_source(content)
+    return _function_raises_value_error(_get_function_def(module, "to_int"))
+
+
+def check_error_handling_safe_divide(ctx):
+    """safe_divide should handle division by zero and bad types."""
+    content = ctx.files.get("converter.py", "")
+    if isinstance(content, bytes):
+        content = content.decode()
+    module = _parse_python_source(content)
+    return _function_raises_value_error(_get_function_def(module, "safe_divide"))
+
+
+def check_error_handling_source_unchanged(ctx):
+    """test_converter.py should not be modified."""
+    content = ctx.files.get("test_converter.py", "")
+    if isinstance(content, bytes):
+        content = content.decode()
+    # Check that the test file still contains the original test functions
+    return (
+        "test_parse_csv_valid" in content
+        and "test_to_int_valid" in content
+        and "test_safe_divide_valid" in content
+        and "test_parse_csv_empty" in content
+    )
 
 
 # ── merge-conflict-resolution ────────────────────────────────────────────────
@@ -525,7 +665,170 @@ git commit -q -m "initial: add greet function"
         },
     },
     # -------------------------------------------------------------------
-    # Scenario 5: Merge conflict resolution
+    # Scenario 5: Write tests for existing code
+    # A text processing module exists with no tests.  Agent must read the
+    # implementation, understand the behaviour (including edge cases), and
+    # produce a comprehensive test suite that passes.
+    # Tests: code comprehension, test design, edge-case coverage.
+    # -------------------------------------------------------------------
+    {
+        "name": "write-test-suite",
+        "files": {
+            "text_processor.py": """\
+\"\"\"Text processing utilities.\"\"\"
+import re
+
+
+def word_count(text):
+    \"\"\"Count words in text. Returns 0 for empty/None input.\"\"\"
+    if not text:
+        return 0
+    return len(text.split())
+
+
+def truncate(text, max_length, suffix="..."):
+    \"\"\"Truncate text to max_length, adding suffix if truncated.
+
+    Returns empty string for empty/None input.
+    If text fits within max_length, returns it unchanged.
+    Otherwise returns text[:max_length - len(suffix)] + suffix.
+    \"\"\"
+    if not text:
+        return ""
+    if len(text) <= max_length:
+        return text
+    return text[:max_length - len(suffix)] + suffix
+
+
+def extract_emails(text):
+    \"\"\"Extract all email addresses from text. Returns list.
+
+    Returns empty list for empty/None input.
+    \"\"\"
+    if not text:
+        return []
+    return re.findall(r'[\\w.+-]+@[\\w-]+\\.[\\w.]+', text)
+""",
+        },
+        "run": "uv run --with pytest python3 -m pytest test_text_processor.py -q 2>&1",
+        "prompt": (
+            "The module `text_processor.py` has three utility functions but no "
+            "tests. Write a comprehensive test suite in `test_text_processor.py` "
+            "that covers all three functions (`word_count`, `truncate`, "
+            "`extract_emails`) including edge cases such as empty strings, None "
+            "input, and boundary conditions. Make sure all tests pass."
+        ),
+        "tools": ["shell", "save", "read"],
+        "expect": {
+            "test file exists": check_write_tests_file_exists,
+            "tests pass": check_write_tests_pass,
+            "covers word_count": check_write_tests_covers_word_count,
+            "covers truncate": check_write_tests_covers_truncate,
+            "covers extract_emails": check_write_tests_covers_extract_emails,
+            "sufficient test count": check_write_tests_sufficient_count,
+        },
+    },
+    # -------------------------------------------------------------------
+    # Scenario 6: Add error handling based on test expectations
+    # converter.py has functions with no input validation.  Tests expect
+    # ValueError on bad inputs.  Agent must run the tests, read the
+    # failures, add appropriate error handling WITHOUT modifying tests.
+    # Tests: test-driven development, reading test expectations, defensive
+    # programming, not modifying the test file.
+    # -------------------------------------------------------------------
+    {
+        "name": "test-driven-error-handling",
+        "files": {
+            "converter.py": """\
+\"\"\"Data conversion utilities.\"\"\"
+
+
+def parse_csv_line(line):
+    \"\"\"Parse a CSV line into a list of stripped fields.\"\"\"
+    return [field.strip() for field in line.split(",")]
+
+
+def to_int(value):
+    \"\"\"Convert a string value to integer.\"\"\"
+    return int(value)
+
+
+def safe_divide(a, b):
+    \"\"\"Divide a by b, returning a float result.\"\"\"
+    return a / b
+""",
+            "test_converter.py": """\
+import pytest
+from converter import parse_csv_line, to_int, safe_divide
+
+
+def test_parse_csv_valid():
+    assert parse_csv_line("a, b, c") == ["a", "b", "c"]
+    assert parse_csv_line("hello") == ["hello"]
+
+
+def test_parse_csv_empty():
+    \"\"\"Empty or None input should raise ValueError.\"\"\"
+    with pytest.raises(ValueError):
+        parse_csv_line("")
+    with pytest.raises(ValueError):
+        parse_csv_line(None)
+
+
+def test_to_int_valid():
+    assert to_int("42") == 42
+    assert to_int("-7") == -7
+    assert to_int("0") == 0
+
+
+def test_to_int_invalid():
+    \"\"\"Non-numeric strings should raise ValueError with a helpful message.\"\"\"
+    with pytest.raises(ValueError, match="cannot convert"):
+        to_int("abc")
+    with pytest.raises(ValueError, match="cannot convert"):
+        to_int("")
+    with pytest.raises(ValueError, match="cannot convert"):
+        to_int(None)
+
+
+def test_safe_divide_valid():
+    assert safe_divide(10, 2) == 5.0
+    assert safe_divide(7, 2) == 3.5
+    assert safe_divide(-6, 3) == -2.0
+
+
+def test_safe_divide_by_zero():
+    \"\"\"Division by zero should raise ValueError, not ZeroDivisionError.\"\"\"
+    with pytest.raises(ValueError, match="cannot divide by zero"):
+        safe_divide(5, 0)
+
+
+def test_safe_divide_type_error():
+    \"\"\"Non-numeric inputs should raise ValueError.\"\"\"
+    with pytest.raises(ValueError, match="cannot divide"):
+        safe_divide("a", 2)
+    with pytest.raises(ValueError, match="cannot divide"):
+        safe_divide(10, "b")
+""",
+        },
+        "run": "uv run --with pytest python3 -m pytest test_converter.py -v --tb=short 2>&1",
+        "prompt": (
+            "The test suite in test_converter.py is failing because the functions "
+            "in converter.py lack input validation. Run the tests to see which "
+            "fail, then add appropriate error handling to each function in "
+            "converter.py so that all tests pass. Do not modify test_converter.py."
+        ),
+        "tools": ["shell", "save", "read"],
+        "expect": {
+            "tests pass": check_error_handling_tests_pass,
+            "parse_csv_line validates input": check_error_handling_parse_csv,
+            "to_int handles non-numeric": check_error_handling_to_int,
+            "safe_divide handles zero/types": check_error_handling_safe_divide,
+            "test file unchanged": check_error_handling_source_unchanged,
+        },
+    },
+    # -------------------------------------------------------------------
+    # Scenario 7: Merge conflict resolution
     # Two branches modify the same file differently: main adds a new function
     # (format_name_upper), feature branch adds null-safety to format_name.
     # Agent starts with an in-progress merge that has conflicts and must
@@ -632,7 +935,7 @@ grep -q '^<<<<<<< ' utils.py
         },
     },
     # -------------------------------------------------------------------
-    # Scenario 6: Extract duplicated function
+    # Scenario 8: Extract duplicated function
     # Three service modules each contain identical email validation logic.
     # Agent must extract it into a shared validation.py module and update
     # all callers.  Tests: DRY refactoring, creating new modules, updating
