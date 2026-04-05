@@ -157,8 +157,10 @@ def check_stage_file_has_double(ctx):
 
 
 def check_merge_no_conflict_markers(ctx):
-    """No conflict markers should remain in any file."""
-    for content in ctx.files.values():
+    """No conflict markers should remain in tracked source/test files."""
+    for name, content in ctx.files.items():
+        if name.startswith(".git/"):
+            continue
         text = content if isinstance(content, str) else content.decode()
         if "<<<<<<<" in text or "=======" in text or ">>>>>>>" in text:
             return False
