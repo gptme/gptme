@@ -76,7 +76,10 @@ def run_swebench_evaluation(
                 f"Resuming: {skipped} already evaluated, {len(instances)} remaining"
             )
     elif predictions_path.exists():
-        # Without --resume, start fresh
+        # Without --resume, start fresh — warn so users don't lose progress accidentally
+        logger.warning(
+            f"Overwriting existing {predictions_path} (use --resume to continue from where you left off)"
+        )
         predictions_path.unlink()
 
     total = len(instances)
