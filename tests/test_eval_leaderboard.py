@@ -726,6 +726,7 @@ def test_generate_leaderboard_html(tmp_path):
     assert "<!DOCTYPE html>" in output
     assert "GPT-4o" in output
     assert "gptme Eval Leaderboard" in output
+    assert "gptme-eval --leaderboard --leaderboard-format html" in output
 
 
 def test_normalize_model_openrouter_proxied():
