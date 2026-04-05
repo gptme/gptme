@@ -341,11 +341,19 @@ def execute(
                 # in hello-patch), as those need to stay modified.
                 restore_files = test.get("restore_files", [])
                 all_fixtures = test["files"]
-                files_for_run = {
-                    **files,
-                    **{k: v for k, v in all_fixtures.items() if k in restore_files},
-                }
-                env.upload(files_for_run)
+                if use_docker:
+                    # Docker: upload all agent output files + restore fixture inputs.
+                    files_for_run = {
+                        **files,
+                        **{k: v for k, v in all_fixtures.items() if k in restore_files},
+                    }
+                    env.upload(files_for_run)
+                elif restore_files:
+                    # Local workspace reuse: files are already in place.
+                    # Only re-upload fixture inputs the agent may have clobbered.
+                    env.upload(
+                        {k: v for k, v in all_fixtures.items() if k in restore_files}
+                    )
                 logger.debug(f"Running check: {test['run']}")
                 stdout_run, stderr_run, exit_code = env.run(test["run"])
                 time_run = time.time() - run_start
