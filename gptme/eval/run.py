@@ -324,7 +324,14 @@ def execute(
         if status not in ("timeout", "error"):
             # check and collect results
             run_start = time.time()
-            env = DockerExecutionEnv() if use_docker else SimpleExecutionEnv()
+            # For local (non-Docker) runs, reuse the agent's workspace directory so
+            # the run script has access to the full git history and all side-effects
+            # (e.g. installed packages, git objects) without serialisation round-trips.
+            env: DockerExecutionEnv | SimpleExecutionEnv
+            if use_docker:
+                env = DockerExecutionEnv()
+            else:
+                env = SimpleExecutionEnv(working_dir=Path(workspace_dir))
             try:
                 # Restore specific input fixture files before running checks.
                 # Some tests provide input files (e.g. old.json/new.json for json-diff)
