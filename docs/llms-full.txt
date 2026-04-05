@@ -6753,9 +6753,46 @@ To view raw results locally:
 Other evals
 -----------
 
-We have considered running gptme on other evals such as SWE-Bench, but have not finished it (see `PR #142 <https://github.com/gptme/gptme/pull/142>`_).
+SWE-Bench support is now available via ``gptme-eval-swebench``.
+It can:
 
-If you are interested in running gptme on other evals, drop a comment in the issues!
+- inspect datasets and instances with ``--info``
+- generate ``predictions.jsonl`` in the official SWE-Bench format
+- resume interrupted runs with ``--resume``
+- optionally invoke the official harness with ``--run-harness``
+
+Example single-instance smoke test:
+
+.. code-block:: bash
+
+    gptme-eval-swebench \
+        -m anthropic/claude-sonnet-4-6 \
+        -i django__django-11099
+
+Example full SWE-Bench Lite run:
+
+.. code-block:: bash
+
+    gptme-eval-swebench \
+        -m anthropic/claude-sonnet-4-6 \
+        --resume \
+        --run-harness \
+        --dataset princeton-nlp/SWE-bench_Lite \
+        --run-id gptme_baseline_2026
+
+Notes:
+
+- The built-in summary printed by ``gptme-eval-swebench`` is a lightweight file-coverage heuristic.
+  For authoritative pass/fail results and leaderboard submission, use the official SWE-Bench harness.
+
+- ``--run-harness`` requires Docker plus ``swebench[evaluation]`` dependencies.
+
+- Use ``gptme-eval-swebench --info`` to inspect dataset size and specific instance IDs before launching an expensive run.
+
+See also:
+
+- `PR #1994 <https://github.com/gptme/gptme/pull/1994>`_ — SWE-Bench harness integration
+- `PR #2045 <https://github.com/gptme/gptme/pull/2045>`_ — resume support for interrupted runs
 
 
 GitHub Bot

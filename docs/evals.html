@@ -706,8 +706,41 @@ gptme-eval<span class="w"> </span>--leaderboard<span class="w"> </span>--leaderb
 </section>
 <section id="other-evals">
 <h2>Other evals<a class="headerlink" href="#other-evals" title="Link to this heading">#</a></h2>
-<p>We have considered running gptme on other evals such as SWE-Bench, but have not finished it (see <a class="reference external" href="https://github.com/gptme/gptme/pull/142">PR #142</a>).</p>
-<p>If you are interested in running gptme on other evals, drop a comment in the issues!</p>
+<p>SWE-Bench support is now available via <code class="docutils literal notranslate"><span class="pre">gptme-eval-swebench</span></code>.
+It can:</p>
+<ul class="simple">
+<li><p>inspect datasets and instances with <code class="docutils literal notranslate"><span class="pre">--info</span></code></p></li>
+<li><p>generate <code class="docutils literal notranslate"><span class="pre">predictions.jsonl</span></code> in the official SWE-Bench format</p></li>
+<li><p>resume interrupted runs with <code class="docutils literal notranslate"><span class="pre">--resume</span></code></p></li>
+<li><p>optionally invoke the official harness with <code class="docutils literal notranslate"><span class="pre">--run-harness</span></code></p></li>
+</ul>
+<p>Example single-instance smoke test:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-eval-swebench<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-m<span class="w"> </span>anthropic/claude-sonnet-4-6<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-i<span class="w"> </span>django__django-11099
+</pre></div>
+</div>
+<p>Example full SWE-Bench Lite run:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-eval-swebench<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-m<span class="w"> </span>anthropic/claude-sonnet-4-6<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--resume<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--run-harness<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--dataset<span class="w"> </span>princeton-nlp/SWE-bench_Lite<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--run-id<span class="w"> </span>gptme_baseline_2026
+</pre></div>
+</div>
+<p>Notes:</p>
+<ul class="simple">
+<li><p>The built-in summary printed by <code class="docutils literal notranslate"><span class="pre">gptme-eval-swebench</span></code> is a lightweight file-coverage heuristic.
+For authoritative pass/fail results and leaderboard submission, use the official SWE-Bench harness.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--run-harness</span></code> requires Docker plus <code class="docutils literal notranslate"><span class="pre">swebench[evaluation]</span></code> dependencies.</p></li>
+<li><p>Use <code class="docutils literal notranslate"><span class="pre">gptme-eval-swebench</span> <span class="pre">--info</span></code> to inspect dataset size and specific instance IDs before launching an expensive run.</p></li>
+</ul>
+<p>See also:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/gptme/gptme/pull/1994">PR #1994</a> — SWE-Bench harness integration</p></li>
+<li><p><a class="reference external" href="https://github.com/gptme/gptme/pull/2045">PR #2045</a> — resume support for interrupted runs</p></li>
+</ul>
 </section>
 </section>
 
