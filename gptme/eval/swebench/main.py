@@ -116,12 +116,12 @@ def main(
 
     Quick start (single instance, no Docker)::
 
-        gptme-eval-swebench -m anthropic/claude-3-5-sonnet-20241022 \\
+        gptme-eval-swebench -m anthropic/claude-sonnet-4-5-20250929 \\
             -i django__django-11099
 
     Full evaluation with official harness (requires Docker)::
 
-        gptme-eval-swebench -m anthropic/claude-3-5-sonnet-20241022 --run-harness
+        gptme-eval-swebench -m anthropic/claude-sonnet-4-5-20250929 --run-harness
 
     After generation, run the official harness manually::
 
