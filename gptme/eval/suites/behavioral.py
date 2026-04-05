@@ -26,7 +26,8 @@ def check_git_selective_commit_msg(ctx):
     # stdout = git log --oneline -1
     # e.g. "abc1234 feat(calc): add divide function"
     line = ctx.stdout.partition("===")[0].strip()
-    msg = line[8:] if len(line) > 8 else line  # strip hash prefix
+    # "git log --oneline -1" format: "<hash> <message>" — split on first space
+    msg = line.split(" ", 1)[1] if " " in line else line
     msg_lower = msg.lower()
     return (
         ("feat" in msg_lower or "add" in msg_lower)
@@ -108,19 +109,17 @@ def check_debug_no_syntax_error(ctx):
 
 
 def check_debug_fix_in_file(ctx):
-    """calculator.py should handle ZeroDivisionError (divide by zero)."""
+    """calculator.py divide() should not silently swallow ZeroDivisionError."""
     content = ctx.files.get("calculator.py", "")
     if isinstance(content, bytes):
         content = content.decode()
-    # Accept any of these patterns as valid fixes
-    return (
-        "ZeroDivisionError" in content
-        or "zerodivisionerror" in content.lower()
-        or "if b == 0" in content
-        or "if divisor == 0" in content
-        or "if denominator == 0" in content
-        or "raise" in content
-    )
+    # Detect the original bug by its unique pattern rather than by the fix.
+    # The bug: catching ZeroDivisionError and returning None silently.
+    # Valid fixes include: removing the try/except so Python raises naturally,
+    # re-raising with `raise`, or guarding with `if b == 0: raise ...`.
+    # All of these are accepted because they eliminate the buggy pattern.
+    still_buggy = "except ZeroDivisionError" in content and "return None" in content
+    return not still_buggy
 
 
 # ── test list ────────────────────────────────────────────────────────────────
