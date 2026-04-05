@@ -143,10 +143,10 @@ def check_stage_two_commits(ctx):
     return len(log_lines) >= 2
 
 
-def check_stage_no_fatal_error(ctx):
-    """No fatal git errors (e.g. 'pathspec did not match') in stdout."""
-    lower = ctx.stdout.lower()
-    return "pathspec" not in lower and "fatal:" not in lower
+def check_stage_file_has_double(ctx):
+    """new_feature.py contains the double function as requested."""
+    content = ctx.files.get("new_feature.py", "")
+    return "def double" in content
 
 
 # ── test list ────────────────────────────────────────────────────────────────
@@ -408,6 +408,7 @@ set -e
 git init -q
 git config user.email "test@example.com"
 git config user.name "Test"
+git config core.hooksPath /dev/null
 
 cat > main.py << 'PYEOF'
 def greet(name):
@@ -431,7 +432,7 @@ git commit -q -m "initial: add greet function"
         "expect": {
             "new_feature.py in HEAD commit": check_stage_new_file_committed,
             "at least 2 commits": check_stage_two_commits,
-            "no git fatal errors": check_stage_no_fatal_error,
+            "new_feature.py contains double function": check_stage_file_has_double,
         },
     },
 ]
