@@ -206,7 +206,7 @@ Example single-instance smoke test:
 .. code-block:: bash
 
     gptme-eval-swebench \
-        -m anthropic/claude-sonnet-4-5-20250929 \
+        -m anthropic/claude-sonnet-4-6 \
         -i django__django-11099
 
 Example full SWE-Bench Lite run:
@@ -214,7 +214,7 @@ Example full SWE-Bench Lite run:
 .. code-block:: bash
 
     gptme-eval-swebench \
-        -m anthropic/claude-sonnet-4-5-20250929 \
+        -m anthropic/claude-sonnet-4-6 \
         --resume \
         --run-harness \
         --dataset princeton-nlp/SWE-bench_Lite \

@@ -116,12 +116,12 @@ def main(
 
     Quick start (single instance, no Docker)::
 
-        gptme-eval-swebench -m anthropic/claude-sonnet-4-5-20250929 \\
+        gptme-eval-swebench -m anthropic/claude-sonnet-4-6 \\
             -i django__django-11099
 
     Full evaluation with official harness (requires Docker)::
 
-        gptme-eval-swebench -m anthropic/claude-sonnet-4-5-20250929 --run-harness
+        gptme-eval-swebench -m anthropic/claude-sonnet-4-6 --run-harness
 
     After generation, run the official harness manually::
 
@@ -141,7 +141,7 @@ def main(
     if not model:
         model = [
             "openai/gpt-4o",
-            "anthropic/claude-sonnet-4-5-20250929",
+            "anthropic/claude-sonnet-4-6",
         ]
 
     print("=== Running SWE-bench evaluation ===")
