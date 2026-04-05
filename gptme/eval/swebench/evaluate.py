@@ -11,10 +11,11 @@ from .utils import (
     KEY_INSTANCE_ID,
     KEY_MODEL,
     KEY_PATCH,
+    append_prediction,
     get_file_spans_from_patch,
+    load_existing_predictions,
     load_instances,
     setup_swebench_repo,
-    write_predictions_jsonl,
 )
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,7 @@ def run_swebench_evaluation(
     instance_ids: list[str] | None = None,
     repo_base_dir: str | None = None,
     output_dir: str | Path | None = None,
+    resume: bool = False,
 ) -> tuple[list[EvalResult], Path]:
     """Run SWE-bench evaluation, returning results and path to predictions JSONL.
 
@@ -44,6 +46,7 @@ def run_swebench_evaluation(
         instance_ids: Specific instance IDs to evaluate, or None for all.
         repo_base_dir: Base directory to clone repos into.
         output_dir: Directory to write predictions.jsonl; defaults to ./runs/swebench.
+        resume: If True, skip instances already present in predictions.jsonl.
 
     Returns:
         (results, predictions_path) tuple.
@@ -57,31 +60,59 @@ def run_swebench_evaluation(
         logger.info(f"Filtering instances to: {instance_ids}")
         instances = {id: instances[id] for id in instance_ids if id in instances}
 
-    logger.info(f"Evaluating {len(instances)} instances")
-
-    results = []
-    predictions: list[dict] = []
-
-    for instance_id, instance in instances.items():
-        logger.info(f"Evaluating instance: {instance_id}")
-        result, patch = evaluate_instance(agent, instance, repo_base_dir)
-        results.append(result)
-        predictions.append(
-            {
-                KEY_INSTANCE_ID: instance_id,
-                KEY_MODEL: agent.model,
-                KEY_PATCH: patch,
-            }
-        )
-
-    logger.info(f"Completed evaluation of {len(results)} instances")
-
-    # Write predictions JSONL for the official SWE-bench harness
     if output_dir is None:
         output_dir = Path("runs/swebench")
-    predictions_path = write_predictions_jsonl(
-        predictions,
-        Path(output_dir) / "predictions.jsonl",
+    predictions_path = Path(output_dir) / "predictions.jsonl"
+
+    # Resume: skip instances already evaluated
+    skipped = 0
+    if resume:
+        existing = load_existing_predictions(predictions_path)
+        if existing:
+            before = len(instances)
+            instances = {k: v for k, v in instances.items() if k not in existing}
+            skipped = before - len(instances)
+            logger.info(
+                f"Resuming: {skipped} already evaluated, {len(instances)} remaining"
+            )
+    elif predictions_path.exists():
+        # Without --resume, start fresh
+        predictions_path.unlink()
+
+    total = len(instances)
+    logger.info(f"Evaluating {total} instances")
+
+    results = []
+    eval_start = time.time()
+
+    for idx, (instance_id, instance) in enumerate(instances.items(), 1):
+        elapsed = time.time() - eval_start
+        if idx > 1:
+            avg_per_instance = elapsed / (idx - 1)
+            remaining = avg_per_instance * (total - idx + 1)
+            eta_min = remaining / 60
+            logger.info(
+                f"[{idx}/{total}] Evaluating {instance_id} "
+                f"(elapsed: {elapsed / 60:.1f}m, ETA: {eta_min:.1f}m)"
+            )
+        else:
+            logger.info(f"[{idx}/{total}] Evaluating {instance_id}")
+
+        result, patch = evaluate_instance(agent, instance, repo_base_dir)
+        results.append(result)
+
+        # Write incrementally so progress survives interruption
+        prediction = {
+            KEY_INSTANCE_ID: instance_id,
+            KEY_MODEL: agent.model,
+            KEY_PATCH: patch,
+        }
+        append_prediction(prediction, predictions_path)
+
+    total_time = time.time() - eval_start
+    logger.info(
+        f"Completed evaluation of {len(results)} instances in {total_time / 60:.1f}m"
+        + (f" ({skipped} skipped via --resume)" if skipped else "")
     )
     logger.info(
         f"Predictions written to {predictions_path}. "

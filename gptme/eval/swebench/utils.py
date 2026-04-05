@@ -69,6 +69,47 @@ def write_predictions_jsonl(
     return output_path
 
 
+def append_prediction(
+    prediction: dict,
+    output_path: Path,
+) -> None:
+    """Append a single prediction to the JSONL file (for incremental writing)."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("a") as f:
+        f.write(json.dumps(prediction) + "\n")
+
+
+def load_existing_predictions(output_path: Path) -> set[str]:
+    """Load instance IDs from an existing predictions JSONL file.
+
+    Returns a set of instance_id values already present in the file.
+    Skips malformed lines with a warning.
+    """
+    if not output_path.exists():
+        return set()
+
+    existing: set[str] = set()
+    with output_path.open() as f:
+        for lineno, line in enumerate(f, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                pred = json.loads(line)
+                instance_id = pred.get(KEY_INSTANCE_ID)
+                if instance_id:
+                    existing.add(instance_id)
+                else:
+                    logger.warning(
+                        f"Line {lineno} in {output_path} missing '{KEY_INSTANCE_ID}'"
+                    )
+            except json.JSONDecodeError:
+                logger.warning(f"Skipping malformed line {lineno} in {output_path}")
+    if existing:
+        logger.info(f"Found {len(existing)} existing predictions in {output_path}")
+    return existing
+
+
 def get_file_spans_from_patch(patch: str) -> dict[str, list[str]]:
     file_spans: dict[str, list[str]] = {}
     current_file: str | None = None

@@ -87,6 +87,15 @@ logger = logging.getLogger(__name__)
     default=False,
     help="Show dataset info (instance count, repo distribution) without running evaluation.",
 )
+@click.option(
+    "--resume",
+    is_flag=True,
+    default=False,
+    help=(
+        "Resume an interrupted evaluation run. Skips instances already present "
+        "in the predictions.jsonl file and appends new results."
+    ),
+)
 def main(
     model: list[str],
     dataset: str,
@@ -98,6 +107,7 @@ def main(
     run_id: str,
     verbose: bool,
     info: bool,
+    resume: bool,
 ):
     """Run SWE-bench evaluation for gptme.
 
@@ -148,6 +158,7 @@ def main(
             instance_ids=instance or None,
             repo_base_dir=repo_base_dir,
             output_dir=Path(output_dir) / m.replace("/", "__"),
+            resume=resume,
         )
         swebench_results[ModelConfig.from_spec(m, default_format="markdown")] = results
         all_predictions_paths.append(predictions_path)
