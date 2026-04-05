@@ -197,8 +197,17 @@ def pdf_to_images(
     # Download PDF if URL
     if url_or_path.startswith(("http://", "https://")):
         logger.info(f"Downloading PDF from: {url_or_path}")
-        response = requests.get(url_or_path, timeout=60)
-        response.raise_for_status()
+        try:
+            response = requests.get(url_or_path, timeout=60)
+            response.raise_for_status()
+        except requests.ConnectionError as e:
+            raise RuntimeError(f"Failed to connect to PDF URL: {url_or_path}") from e
+        except requests.Timeout as e:
+            raise RuntimeError(f"Timeout downloading PDF from: {url_or_path}") from e
+        except requests.HTTPError as e:
+            raise RuntimeError(
+                f"HTTP error {response.status_code} downloading PDF from: {url_or_path}"
+            ) from e
         pdf_path = output_dir / "input.pdf"
         pdf_path.write_bytes(response.content)
     else:
