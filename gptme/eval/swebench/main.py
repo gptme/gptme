@@ -141,7 +141,7 @@ def main(
     if not model:
         model = [
             "openai/gpt-4o",
-            "anthropic/claude-3-5-sonnet-20240620",
+            "anthropic/claude-sonnet-4-5-20250929",
         ]
 
     print("=== Running SWE-bench evaluation ===")
