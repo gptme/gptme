@@ -9,6 +9,7 @@ import pytest
 from gptme.eval.leaderboard import (
     aggregate_per_test,
     aggregate_results,
+    compute_rate_trends,
     format_csv_table,
     format_html_page,
     format_json,
@@ -16,6 +17,7 @@ from gptme.eval.leaderboard import (
     format_per_test_html,
     format_per_test_markdown,
     format_rst_table,
+    format_trends_html,
     generate_leaderboard,
     load_results,
     main,
@@ -727,6 +729,35 @@ def test_generate_leaderboard_html(tmp_path):
     assert "GPT-4o" in output
     assert "gptme Eval Leaderboard" in output
     assert "gptme-eval --leaderboard --leaderboard-format html" in output
+
+
+def test_format_trends_html_uses_gptme_eval_cli(tmp_path):
+    """Trends HTML uses the real gptme-eval CLI in its footer."""
+    _create_eval_results(
+        tmp_path,
+        [
+            {
+                "dir": "20260401-120000",
+                "rows": [
+                    ("openai/gpt-4o", "tool", "hello", "true"),
+                    ("openai/gpt-4o", "tool", "prime100", "true"),
+                    ("openai/gpt-4o", "tool", "fix-bug", "false"),
+                ],
+            },
+            {
+                "dir": "20260402-120000",
+                "rows": [
+                    ("openai/gpt-4o", "tool", "hello", "true"),
+                    ("openai/gpt-4o", "tool", "prime100", "true"),
+                    ("openai/gpt-4o", "tool", "fix-bug", "true"),
+                ],
+            },
+        ],
+    )
+    trends = compute_rate_trends(load_results(tmp_path), min_tests=3, window_days=3650)
+    output = format_trends_html(trends)
+    assert "<!DOCTYPE html>" in output
+    assert "gptme-eval --leaderboard --leaderboard-format html --trends" in output
 
 
 def test_normalize_model_openrouter_proxied():
