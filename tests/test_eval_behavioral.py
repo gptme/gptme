@@ -110,8 +110,8 @@ def test_check_error_handling_parse_csv_ignores_nested_helper_raise():
 
 def parse_csv_line(line):
     def helper():
-        raise ValueError(\"nested only\")
-    return [field.strip() for field in line.split(\",\")]
+        raise ValueError("nested only")
+    return [field.strip() for field in line.split(",")]
 """
     assert not check_error_handling_parse_csv(_ctx(files={"converter.py": source}))
 
@@ -120,8 +120,8 @@ def test_check_error_handling_to_int_accepts_direct_raise():
     source = """
 
 def to_int(value):
-    if value in (None, \"\"):
-        raise ValueError(\"cannot convert\")
+    if value in (None, ""):
+        raise ValueError("cannot convert")
     return int(value)
 """
     assert check_error_handling_to_int(_ctx(files={"converter.py": source}))
@@ -132,7 +132,7 @@ def test_check_error_handling_safe_divide_accepts_direct_raise():
 
 def safe_divide(a, b):
     if b == 0:
-        raise ValueError(\"cannot divide by zero\")
+        raise ValueError("cannot divide by zero")
     return a / b
 """
     assert check_error_handling_safe_divide(_ctx(files={"converter.py": source}))
