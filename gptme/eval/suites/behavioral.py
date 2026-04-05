@@ -25,7 +25,7 @@ def check_git_selective_commit_msg(ctx):
     """Last commit message should be a conventional commit for the divide feature."""
     # stdout = git log --oneline -1
     # e.g. "abc1234 feat(calc): add divide function"
-    line = ctx.stdout.partition("===")[0].strip()
+    line = ctx.stdout.partition("__GPTME_SEP__")[0].strip()
     # "git log --oneline -1" format: "<hash> <message>" — split on first space
     msg = line.split(" ", 1)[1] if " " in line else line
     msg_lower = msg.lower()
@@ -38,9 +38,9 @@ def check_git_selective_commit_msg(ctx):
 
 def check_git_selective_config_not_committed(ctx):
     """config.py should NOT appear in the last commit (diff is non-empty means not committed)."""
-    # stdout contains: <git log -1>\n===\n<git show HEAD -- config.py>
-    # If config.py was committed, show gives content; if not, empty.
-    parts = ctx.stdout.split("===")
+    # stdout contains: <git log -1>\n__GPTME_SEP__\n<git show HEAD -- config.py>\n__GPTME_SEP__\n<pytest>
+    # Use a unique separator that never appears in git/pytest output.
+    parts = ctx.stdout.split("__GPTME_SEP__")
     if len(parts) < 2:
         return False
     # git show HEAD -- config.py is empty if not committed
@@ -50,7 +50,7 @@ def check_git_selective_config_not_committed(ctx):
 
 def check_git_selective_tests_pass(ctx):
     """Tests should pass after the commit."""
-    parts = ctx.stdout.split("===")
+    parts = ctx.stdout.split("__GPTME_SEP__")
     if len(parts) < 3:
         return False
     pytest_output = parts[2]
@@ -185,7 +185,7 @@ PYEOF
 sed -i 's/DEBUG = False/DEBUG = True  # temporary debug/' config.py
 """,
         },
-        "run": "git log --oneline -1 && echo === && git show HEAD -- config.py && echo === && python -m pytest test_calc.py -q 2>&1",
+        "run": "git log --oneline -1 && echo __GPTME_SEP__ && git show HEAD -- config.py && echo __GPTME_SEP__ && python -m pytest test_calc.py -q 2>&1",
         "prompt": (
             "Run `bash setup.sh` to initialise the git repository. "
             "Then commit only the new `divide` function added to calc.py "
