@@ -140,7 +140,7 @@ git init -q
 git config user.email "test@example.com"
 git config user.name "Test"
 # Disable global git hooks — eval workspaces don't have gptme.toml [agent],
-# which causes Bob's global pre-commit hook to block all master commits.
+# which can cause globally configured pre-commit hooks to block master commits.
 git config core.hooksPath /dev/null
 # Ensure pytest is available for the checker run script.
 python3 -m pip install pytest -q 2>/dev/null || true
