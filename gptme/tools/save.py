@@ -65,7 +65,7 @@ def examples_append(tool_format):
 def _read_text_safe(path: Path) -> str | None:
     """Read file text, returning None when the file is missing, unreadable, or not UTF-8 text."""
     try:
-        return path.read_text()
+        return path.read_text(encoding="utf-8")
     except (UnicodeDecodeError, PermissionError, OSError):
         return None
 
@@ -169,7 +169,7 @@ def execute_save_impl(
         missing_parent_created = True
 
     # Save the file
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write(content)
 
     # Trigger post-save hooks (file.save.post)
@@ -264,7 +264,7 @@ def execute_append_impl(
     if before and not before.endswith("\n"):
         content = "\n" + content
 
-    with open(path, "a") as f:
+    with open(path, "a", encoding="utf-8") as f:
         f.write(content)
     yield Message("system", f"Appended to {path_display}")
 

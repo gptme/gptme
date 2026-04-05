@@ -138,7 +138,7 @@ def execute_read(
                 pass
 
     try:
-        content = path.read_text()
+        content = path.read_text(encoding="utf-8")
     except UnicodeDecodeError:
         yield Message("system", f"Cannot read binary file: {path}")
         return

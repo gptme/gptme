@@ -330,7 +330,7 @@ def execute_patch_impl(
             ) from err
 
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             original_content = f.read()
 
         # Apply the patch
@@ -346,7 +346,7 @@ def execute_patch_impl(
             )
 
         # Write the patched content
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             f.write(patched_content)
 
         # Return success message with any warnings

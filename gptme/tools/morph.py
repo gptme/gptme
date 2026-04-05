@@ -69,7 +69,7 @@ def preview_morph(content: str, path: Path | None) -> str | None:
 
     try:
         # Read original content
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             original_content = f.read()
 
         # Generate a diff between original and edited content
@@ -127,7 +127,7 @@ def execute_morph(
 
     try:
         # Read the original file
-        with open(file_path) as f:
+        with open(file_path, encoding="utf-8") as f:
             original_content = f.read()
     except FileNotFoundError:
         yield Message("system", f"Error: File not found: {file_path}")
@@ -189,7 +189,7 @@ def execute_morph_impl(
 
     try:
         # Read current content to verify it hasn't changed
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             current_content = f.read()
 
         # Verify that the file hasn't changed since we generated the patch
@@ -221,7 +221,7 @@ def execute_morph_impl(
         )
 
         # Write the edited content back to file
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             f.write(content)
 
         # Provide detailed success message with diff
