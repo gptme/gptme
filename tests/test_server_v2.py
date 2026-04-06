@@ -171,6 +171,17 @@ def test_v2_external_sessions_unavailable(client: FlaskClient):
     assert "unavailable" in data["error"]
 
 
+def test_v2_external_session_not_found(
+    client: FlaskClient, fake_external_session_provider
+):
+    """Test requesting a missing external session transcript."""
+    response = client.get("/api/v2/external-sessions/does-not-exist")
+    assert response.status_code == 404
+    data = response.get_json()
+    assert data is not None
+    assert "not found" in data["error"].lower()
+
+
 def test_v2_conversations_list(client: FlaskClient):
     """Test listing V2 conversations."""
     response = client.get("/api/v2/conversations")

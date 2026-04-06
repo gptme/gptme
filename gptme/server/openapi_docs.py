@@ -167,6 +167,10 @@ class ExternalSessionListItem(BaseModel):
         default_factory=list,
         description="Read-only capabilities available for this external session",
     )
+    trajectory_path: str = Field(
+        ...,
+        description="Absolute path to the normalized transcript backing this catalog item",
+    )
 
 
 class ExternalSessionListResponse(BaseModel):

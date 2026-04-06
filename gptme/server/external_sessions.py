@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -87,7 +87,7 @@ class ExternalSessionProvider:
     def list_sessions(
         self, limit: int = 100, days: int = 30
     ) -> list[ExternalSessionCatalogItem]:
-        end = datetime.now(UTC).date()
+        end = datetime.now(timezone.utc).date()
         start = end - timedelta(days=max(days - 1, 0))
 
         paths: list[Path] = []
