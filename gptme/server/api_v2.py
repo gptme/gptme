@@ -45,12 +45,16 @@ from .api_v2_common import (
 )
 from .api_v2_sessions import SessionManager, sessions_api
 from .auth import require_auth
+from .external_sessions import get_external_session_provider
 from .openapi_docs import (
     CONVERSATION_ID_PARAM,
+    ApiRootResponse,
     ConversationCreateRequest,
     ConversationListResponse,
     ConversationResponse,
     ErrorResponse,
+    ExternalSessionListResponse,
+    ExternalSessionResponse,
     MessageCreateRequest,
     SessionResponse,
     StatusResponse,
@@ -68,16 +72,25 @@ v2_api.register_blueprint(agents_api)
 
 
 @v2_api.route("/api/v2")
-@api_doc_simple()
+@api_doc_simple(responses={200: ApiRootResponse}, tags=["meta"])
 def api_root():
     """V2 API root.
 
     Get information about the v2 API, including available endpoints and capabilities.
     """
+    provider = get_external_session_provider()
+    capabilities = {
+        "external_session_catalog": False,
+        "external_session_transcript": False,
+    }
+    if provider is not None:
+        capabilities.update(provider.capabilities)
+
     return flask.jsonify(
         {
             "message": "gptme v2 API",
             "documentation": "https://gptme.org/docs/server.html",
+            "capabilities": capabilities,
         }
     )
 
@@ -114,6 +127,88 @@ def api_config():
             agent_info["urls"] = agent.urls
 
     return flask.jsonify({"agent": agent_info})
+
+
+@v2_api.route("/api/v2/external-sessions")
+@require_auth
+@api_doc_simple(
+    responses={200: ExternalSessionListResponse, 503: ErrorResponse},
+    tags=["external-sessions"],
+    parameters=[
+        {
+            "name": "limit",
+            "in": "query",
+            "schema": {"type": "integer", "default": 100},
+            "description": "Maximum number of external sessions to return",
+        },
+        {
+            "name": "days",
+            "in": "query",
+            "schema": {"type": "integer", "default": 30},
+            "description": "How many recent days of session history to scan",
+        },
+    ],
+)
+def api_external_sessions():
+    """List read-only external sessions discovered by the server."""
+    provider = get_external_session_provider()
+    if provider is None:
+        return flask.jsonify({"error": "external session provider unavailable"}), 503
+
+    try:
+        limit = int(request.args.get("limit", 100))
+        days = int(request.args.get("days", 30))
+    except (ValueError, TypeError):
+        return flask.jsonify({"error": "limit and days must be integers"}), 400
+
+    limit = max(1, min(limit, 1000))
+    days = max(1, min(days, 3650))
+
+    sessions = [
+        item.to_dict() for item in provider.list_sessions(limit=limit, days=days)
+    ]
+    return flask.jsonify({"sessions": sessions})
+
+
+@v2_api.route("/api/v2/external-sessions/<string:external_session_id>")
+@require_auth
+@api_doc_simple(
+    responses={200: ExternalSessionResponse, 404: ErrorResponse, 503: ErrorResponse},
+    tags=["external-sessions"],
+    parameters=[
+        {
+            "name": "external_session_id",
+            "in": "path",
+            "required": True,
+            "schema": {"type": "string"},
+            "description": "Opaque external session identifier",
+        },
+        {
+            "name": "days",
+            "in": "query",
+            "schema": {"type": "integer", "default": 30},
+            "description": "How many recent days of session history to scan",
+        },
+    ],
+)
+def api_external_session(external_session_id: str):
+    """Get a normalized read-only external session transcript."""
+    provider = get_external_session_provider()
+    if provider is None:
+        return flask.jsonify({"error": "external session provider unavailable"}), 503
+
+    try:
+        days = int(request.args.get("days", 30))
+    except (ValueError, TypeError):
+        return flask.jsonify({"error": "days must be an integer"}), 400
+    days = max(1, min(days, 3650))
+
+    session = provider.get_session(external_session_id, days=days)
+    if session is None:
+        return flask.jsonify(
+            {"error": f"External session not found: {external_session_id}"}
+        ), 404
+    return flask.jsonify(session)
 
 
 @v2_api.route("/api/v2/conversations")

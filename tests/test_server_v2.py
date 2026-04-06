@@ -68,6 +68,107 @@ def test_v2_api_root(client: FlaskClient):
     assert data is not None
     assert "message" in data
     assert "gptme v2 API" in data["message"]
+    assert data["capabilities"] == {
+        "external_session_catalog": False,
+        "external_session_transcript": False,
+    }
+
+
+class _FakeExternalSessionItem:
+    def __init__(self):
+        self.id = "abc123"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": "abc123",
+            "session_id": "session-1",
+            "harness": "claude-code",
+            "session_name": "Test Session",
+            "project": "/tmp/project",
+            "model": "claude-sonnet-4-5",
+            "started_at": "2026-04-06T12:00:00+00:00",
+            "last_activity": "2026-04-06T12:05:00+00:00",
+            "capabilities": ["view_transcript"],
+            "trajectory_path": "/tmp/session.jsonl",
+        }
+
+
+class _FakeExternalSessionProvider:
+    capabilities = {
+        "external_session_catalog": True,
+        "external_session_transcript": True,
+    }
+
+    def list_sessions(
+        self, limit: int = 100, days: int = 30
+    ) -> list[_FakeExternalSessionItem]:
+        assert limit >= 1
+        assert days >= 1
+        return [_FakeExternalSessionItem()]
+
+    def get_session(self, external_id: str, days: int = 30) -> dict[str, Any] | None:
+        assert days >= 1
+        if external_id != "abc123":
+            return None
+        return {
+            "id": "abc123",
+            "transcript": {
+                "session_id": "session-1",
+                "harness": "claude-code",
+                "messages": [{"role": "user", "content": "hi"}],
+            },
+        }
+
+
+@pytest.fixture
+def fake_external_session_provider(monkeypatch):
+    provider = _FakeExternalSessionProvider()
+    monkeypatch.setattr(
+        "gptme.server.api_v2.get_external_session_provider", lambda: provider
+    )
+    return provider
+
+
+def test_v2_api_root_with_external_sessions(
+    client: FlaskClient, fake_external_session_provider
+):
+    """Test the V2 API root endpoint when optional external sessions are available."""
+    response = client.get("/api/v2")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data is not None
+    assert data["capabilities"] == {
+        "external_session_catalog": True,
+        "external_session_transcript": True,
+    }
+
+
+def test_v2_external_sessions_list(client: FlaskClient, fake_external_session_provider):
+    """Test listing read-only external sessions."""
+    response = client.get("/api/v2/external-sessions")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data is not None
+    assert data["sessions"] == [_FakeExternalSessionItem().to_dict()]
+
+
+def test_v2_external_session_get(client: FlaskClient, fake_external_session_provider):
+    """Test retrieving a read-only external session transcript."""
+    response = client.get("/api/v2/external-sessions/abc123")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data is not None
+    assert data["id"] == "abc123"
+    assert data["transcript"]["session_id"] == "session-1"
+
+
+def test_v2_external_sessions_unavailable(client: FlaskClient):
+    """Test external session endpoints when provider is unavailable."""
+    response = client.get("/api/v2/external-sessions")
+    assert response.status_code == 503
+    data = response.get_json()
+    assert data is not None
+    assert "unavailable" in data["error"]
 
 
 def test_v2_conversations_list(client: FlaskClient):
