@@ -63,13 +63,15 @@ class ExternalSessionProvider:
     """Optional provider backed by ``gptme-sessions`` discovery/transcript APIs."""
 
     def __init__(self) -> None:
-        from gptme_sessions.discovery import (
+        from gptme_sessions.discovery import (  # type: ignore[import-not-found]
             discover_cc_sessions,
             discover_codex_sessions,
             discover_copilot_sessions,
             discover_gptme_sessions,
         )
-        from gptme_sessions.transcript import read_transcript
+        from gptme_sessions.transcript import (  # type: ignore[import-not-found]
+            read_transcript,
+        )
 
         self._discover_gptme_sessions = discover_gptme_sessions
         self._discover_cc_sessions = discover_cc_sessions
