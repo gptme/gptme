@@ -1,15 +1,39 @@
 from types import SimpleNamespace
 
 from gptme.eval.suites.behavioral import (
+    check_debug_fix_in_file,
+    check_debug_no_syntax_error,
+    check_debug_tests_pass,
     check_error_handling_parse_csv,
     check_error_handling_safe_divide,
+    check_error_handling_source_unchanged,
     check_error_handling_tests_pass,
     check_error_handling_to_int,
     check_extract_callers_import,
     check_extract_no_duplication,
     check_extract_shared_module_exists,
+    check_extract_tests_pass,
+    check_git_selective_commit_msg,
+    check_git_selective_config_not_committed,
+    check_git_selective_tests_pass,
     check_merge_commit_completed,
     check_merge_no_conflict_markers,
+    check_merge_null_safety,
+    check_merge_tests_pass,
+    check_merge_upper_function,
+    check_rename_new_name_in_geometry,
+    check_rename_no_old_name,
+    check_rename_test_uses_new_name,
+    check_rename_tests_pass,
+    check_stage_file_has_double,
+    check_stage_new_file_committed,
+    check_stage_two_commits,
+    check_write_tests_covers_extract_emails,
+    check_write_tests_covers_truncate,
+    check_write_tests_covers_word_count,
+    check_write_tests_file_exists,
+    check_write_tests_pass,
+    check_write_tests_sufficient_count,
 )
 
 
@@ -18,11 +42,12 @@ def _ctx(
     *,
     files: dict[str, str] | None = None,
     exit_code: int = 0,
+    stderr: str = "",
 ):
     return SimpleNamespace(
         stdout=stdout,
         files=files or {},
-        stderr="",
+        stderr=stderr,
         exit_code=exit_code,
     )
 
@@ -143,33 +168,6 @@ def safe_divide(a, b):
 """
     assert check_error_handling_safe_divide(_ctx(files={"converter.py": source}))
 
-
-from gptme.eval.suites.behavioral import (
-    check_debug_fix_in_file,
-    check_debug_no_syntax_error,
-    check_debug_tests_pass,
-    check_error_handling_source_unchanged,
-    check_extract_tests_pass,
-    check_git_selective_commit_msg,
-    check_git_selective_config_not_committed,
-    check_git_selective_tests_pass,
-    check_merge_null_safety,
-    check_merge_tests_pass,
-    check_merge_upper_function,
-    check_rename_new_name_in_geometry,
-    check_rename_no_old_name,
-    check_rename_test_uses_new_name,
-    check_rename_tests_pass,
-    check_stage_file_has_double,
-    check_stage_new_file_committed,
-    check_stage_two_commits,
-    check_write_tests_covers_extract_emails,
-    check_write_tests_covers_truncate,
-    check_write_tests_covers_word_count,
-    check_write_tests_file_exists,
-    check_write_tests_pass,
-    check_write_tests_sufficient_count,
-)
 
 # ── git-selective-commit checkers ─────────────────────────────────────────
 
@@ -333,6 +331,15 @@ def test_check_debug_no_syntax_error():
         _ctx(stdout="ImportError: No module named 'calculator'")
     )
     assert check_debug_no_syntax_error(_ctx(stdout="warning about syntax"))
+    assert not check_debug_no_syntax_error(
+        _ctx(stdout="", stderr="SyntaxError: invalid syntax in calculator.py")
+    )
+    assert not check_debug_no_syntax_error(
+        _ctx(stdout="3 passed", stderr="ImportError: No module named 'utils'")
+    )
+    assert check_debug_no_syntax_error(
+        _ctx(stdout="3 passed", stderr="some stderr noise")
+    )
 
 
 def test_check_debug_fix_in_file_buggy():
