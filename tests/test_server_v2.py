@@ -190,6 +190,41 @@ def test_v2_external_session_not_found(
     assert "not found" in data["error"].lower()
 
 
+def test_external_session_provider_get_session_searches_beyond_list_limit():
+    """Test session lookup scans all discovered sessions instead of a capped list."""
+    from gptme.server.external_sessions import (
+        ExternalSessionProvider,
+        _make_external_session_id,
+    )
+
+    provider = ExternalSessionProvider.__new__(ExternalSessionProvider)
+    late_path = Path("/tmp/sessions/late-session.jsonl")
+    provider._discover_paths = lambda days: [late_path]  # type: ignore[method-assign]
+
+    class _Transcript:
+        def to_dict(self) -> dict[str, Any]:
+            return {
+                "trajectory_path": str(late_path),
+                "session_id": "late-session",
+                "harness": "claude-code",
+                "session_name": "Late Session",
+                "project": "/tmp/project",
+                "model": "claude-sonnet-4-5",
+                "started_at": "2026-04-01T00:00:00+00:00",
+                "last_activity": "2026-04-01T00:05:00+00:00",
+                "capabilities": ["view_transcript"],
+                "messages": [{"role": "user", "content": "hello"}],
+            }
+
+    provider._read_transcript = lambda path: _Transcript()  # type: ignore[assignment]
+
+    result = provider.get_session(_make_external_session_id(str(late_path)), days=30)
+
+    assert result is not None
+    assert result["id"] == _make_external_session_id(str(late_path))
+    assert result["transcript"]["session_id"] == "late-session"
+
+
 def test_v2_conversations_list(client: FlaskClient):
     """Test listing V2 conversations."""
     response = client.get("/api/v2/conversations")

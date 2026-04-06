@@ -5,7 +5,10 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -86,9 +89,7 @@ class ExternalSessionProvider:
             "external_session_transcript": True,
         }
 
-    def list_sessions(
-        self, limit: int = 100, days: int = 30
-    ) -> list[ExternalSessionCatalogItem]:
+    def _discover_paths(self, days: int) -> list[Path]:
         end = datetime.now(timezone.utc).date()
         start = end - timedelta(days=max(days - 1, 0))
 
@@ -97,9 +98,13 @@ class ExternalSessionProvider:
         paths.extend(self._discover_cc_sessions(start, end))
         paths.extend(self._discover_codex_sessions(start, end))
         paths.extend(self._discover_copilot_sessions(start, end))
+        return paths
 
+    def list_sessions(
+        self, limit: int = 100, days: int = 30
+    ) -> list[ExternalSessionCatalogItem]:
         items: list[ExternalSessionCatalogItem] = []
-        for path in paths:
+        for path in self._discover_paths(days):
             transcript = self._read_transcript(path).to_dict()
             items.append(ExternalSessionCatalogItem.from_transcript_dict(transcript))
 
@@ -109,12 +114,13 @@ class ExternalSessionProvider:
         return items[:limit]
 
     def get_session(self, external_id: str, days: int = 30) -> dict | None:
-        for item in self.list_sessions(limit=1000, days=days):
-            if item.id != external_id:
+        for path in self._discover_paths(days):
+            path_str = str(path)
+            if _make_external_session_id(path_str) != external_id:
                 continue
-            transcript = self._read_transcript(Path(item.trajectory_path)).to_dict()
+            transcript = self._read_transcript(path).to_dict()
             return {
-                "id": item.id,
+                "id": _make_external_session_id(path_str),
                 "transcript": transcript,
             }
         return None
