@@ -182,6 +182,7 @@ def chat(
                 manager.append(msg)
     finally:
         clear_status_line()
+        set_current_model_name(None)
         set_current_conv_name(None, refresh_status_line=False)
 
 
