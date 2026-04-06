@@ -661,7 +661,7 @@ def test_chat_uses_saved_display_name_on_start(monkeypatch, tmp_path):
     monkeypatch.setattr(
         chat_module,
         "set_current_conv_name",
-        lambda name: conv_names.append(name),
+        lambda name, refresh_status_line=True: conv_names.append(name),
     )
 
     chat_module.chat(
@@ -727,7 +727,7 @@ def test_chat_clears_status_line_after_conv_name_reset(monkeypatch, tmp_path):
     monkeypatch.setattr(
         chat_module,
         "set_current_conv_name",
-        lambda name: events.append(("set", name)),
+        lambda name, refresh_status_line=True: events.append(("set", name)),
     )
     monkeypatch.setattr(
         chat_module,
@@ -750,7 +750,7 @@ def test_chat_clears_status_line_after_conv_name_reset(monkeypatch, tmp_path):
         output_schema=None,
     )
 
-    assert events[-2:] == [("set", None), ("clear", None)]
+    assert events[-2:] == [("clear", None), ("set", None)]
 
 
 def test_chat_resets_conv_name_on_exit(monkeypatch, tmp_path):
@@ -799,7 +799,7 @@ def test_chat_resets_conv_name_on_exit(monkeypatch, tmp_path):
     monkeypatch.setattr(
         chat_module,
         "set_current_conv_name",
-        lambda name: conv_names.append(name),
+        lambda name, refresh_status_line=True: conv_names.append(name),
     )
 
     chat_module.chat(
@@ -848,7 +848,7 @@ def test_try_auto_name_and_refresh_updates_conv_name(monkeypatch, tmp_path):
     monkeypatch.setattr(
         chat_module,
         "set_current_conv_name",
-        lambda name: conv_names.append(name),
+        lambda name, refresh_status_line=True: conv_names.append(name),
     )
 
     result = chat_module._try_auto_name_and_refresh(

@@ -4,6 +4,7 @@ import importlib
 import os
 import shutil
 import sys
+import unicodedata
 from contextlib import contextmanager
 from typing import Any
 
@@ -59,15 +60,47 @@ def _status_line_enabled() -> bool:
     )
 
 
+def _char_display_width(char: str) -> int:
+    """Return the terminal column width for a single character."""
+    if unicodedata.combining(char):
+        return 0
+    if unicodedata.east_asian_width(char) in {"F", "W"}:
+        return 2
+    return 1
+
+
+def _display_width(text: str) -> int:
+    """Return the terminal column width for a string."""
+    return sum(_char_display_width(char) for char in text)
+
+
 def _truncate_status_line(text: str, width: int) -> str:
     """Clamp the status line to terminal width, preserving readability."""
     if width <= 0:
         return ""
-    if len(text) <= width:
+    if _display_width(text) <= width:
         return text
     if width <= 3:
-        return text[:width]
-    return text[: width - 3] + "..."
+        truncated = ""
+        current_width = 0
+        for char in text:
+            char_width = _char_display_width(char)
+            if current_width + char_width > width:
+                break
+            truncated += char
+            current_width += char_width
+        return truncated
+
+    max_width = width - 3
+    truncated = ""
+    current_width = 0
+    for char in text:
+        char_width = _char_display_width(char)
+        if current_width + char_width > max_width:
+            break
+        truncated += char
+        current_width += char_width
+    return truncated + "..."
 
 
 def _get_default_model_name() -> str | None:
@@ -116,12 +149,15 @@ def clear_status_line() -> None:
     print("\0337\033[999;1H\033[2K\0338", end="", flush=True)
 
 
-def set_current_conv_name(name: str | None) -> None:
+def set_current_conv_name(
+    name: str | None, *, refresh_status_line: bool = True
+) -> None:
     """Set the current conversation name and refresh terminal UI."""
     global _current_conv_name
     _current_conv_name = name
     _set_raw_title(_make_title(_current_terminal_state))
-    _render_status_line()
+    if refresh_status_line:
+        _render_status_line()
 
 
 def get_current_conv_name() -> str | None:

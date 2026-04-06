@@ -179,8 +179,8 @@ def chat(
             for msg in session_end_msgs:
                 manager.append(msg)
     finally:
-        set_current_conv_name(None)
         clear_status_line()
+        set_current_conv_name(None, refresh_status_line=False)
 
 
 def _run_chat_loop(
