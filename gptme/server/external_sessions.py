@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -105,8 +108,17 @@ class ExternalSessionProvider:
     ) -> list[ExternalSessionCatalogItem]:
         items: list[ExternalSessionCatalogItem] = []
         for path in self._discover_paths(days):
-            transcript = self._read_transcript(path).to_dict()
-            items.append(ExternalSessionCatalogItem.from_transcript_dict(transcript))
+            try:
+                transcript = self._read_transcript(path).to_dict()
+                items.append(
+                    ExternalSessionCatalogItem.from_transcript_dict(transcript)
+                )
+            except Exception:
+                logger.warning(
+                    "Skipping unreadable external session transcript during catalog listing: %s",
+                    path,
+                    exc_info=True,
+                )
 
         items.sort(
             key=lambda item: item.last_activity or item.started_at or "", reverse=True
@@ -118,7 +130,15 @@ class ExternalSessionProvider:
             path_str = str(path)
             if _make_external_session_id(path_str) != external_id:
                 continue
-            transcript = self._read_transcript(path).to_dict()
+            try:
+                transcript = self._read_transcript(path).to_dict()
+            except Exception:
+                logger.warning(
+                    "Skipping unreadable external session transcript during detail lookup: %s",
+                    path,
+                    exc_info=True,
+                )
+                continue
             return {
                 "id": _make_external_session_id(path_str),
                 "transcript": transcript,

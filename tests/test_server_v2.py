@@ -225,6 +225,66 @@ def test_external_session_provider_get_session_searches_beyond_list_limit():
     assert result["transcript"]["session_id"] == "late-session"
 
 
+def test_external_session_provider_list_sessions_skips_unreadable_transcripts():
+    """Test unreadable transcripts do not break catalog listing."""
+    from gptme.server.external_sessions import ExternalSessionProvider
+
+    provider = ExternalSessionProvider.__new__(ExternalSessionProvider)
+    bad_path = Path("/tmp/sessions/bad-session.jsonl")
+    good_path = Path("/tmp/sessions/good-session.jsonl")
+    provider._discover_paths = lambda days: [bad_path, good_path]  # type: ignore[method-assign]
+
+    class _Transcript:
+        def __init__(self, path: Path) -> None:
+            self.path = path
+
+        def to_dict(self) -> dict[str, Any]:
+            return {
+                "trajectory_path": str(self.path),
+                "session_id": self.path.stem,
+                "harness": "claude-code",
+                "session_name": self.path.stem,
+                "project": "/tmp/project",
+                "model": "claude-sonnet-4-5",
+                "started_at": "2026-04-01T00:00:00+00:00",
+                "last_activity": "2026-04-01T00:05:00+00:00",
+                "capabilities": ["view_transcript"],
+            }
+
+    def _read_transcript(path: Path) -> _Transcript:
+        if path == bad_path:
+            raise ValueError("broken transcript")
+        return _Transcript(path)
+
+    provider._read_transcript = _read_transcript  # type: ignore[assignment]
+
+    result = provider.list_sessions(limit=10, days=30)
+
+    assert len(result) == 1
+    assert result[0].session_id == "good-session"
+
+
+def test_external_session_provider_get_session_skips_unreadable_matching_transcript():
+    """Test unreadable matching transcripts do not raise during detail lookup."""
+    from gptme.server.external_sessions import (
+        ExternalSessionProvider,
+        _make_external_session_id,
+    )
+
+    provider = ExternalSessionProvider.__new__(ExternalSessionProvider)
+    bad_path = Path("/tmp/sessions/bad-session.jsonl")
+    provider._discover_paths = lambda days: [bad_path]  # type: ignore[method-assign]
+
+    def _read_transcript(path: Path) -> Any:
+        raise ValueError(f"cannot read {path}")
+
+    provider._read_transcript = _read_transcript  # type: ignore[assignment]
+
+    result = provider.get_session(_make_external_session_id(str(bad_path)), days=30)
+
+    assert result is None
+
+
 def test_v2_conversations_list(client: FlaskClient):
     """Test listing V2 conversations."""
     response = client.get("/api/v2/conversations")
