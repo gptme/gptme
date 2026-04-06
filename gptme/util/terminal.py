@@ -31,9 +31,10 @@ def flush_stdin() -> None:
             _msvcrt.getch()
 
 
-# Global state for conversation name
+# Global state for terminal rendering.
 _current_conv_name: str | None = None
 _current_terminal_state: str | None = None
+_current_model_name: str | None = None
 
 
 @contextmanager
@@ -103,22 +104,24 @@ def _truncate_status_line(text: str, width: int) -> str:
     return truncated + "..."
 
 
-def _get_default_model_name() -> str | None:
-    """Get the current default model name without creating a hard dependency."""
-    try:
-        from gptme.llm.models import get_default_model
+def set_current_model_name(name: str | None) -> None:
+    """Set the current model name and refresh terminal UI."""
+    global _current_model_name
+    _current_model_name = name
+    _set_raw_title(_make_title(_current_terminal_state))
+    _render_status_line()
 
-        model = get_default_model()
-        return model.full if model else None
-    except Exception:
-        return None
+
+def get_current_model_name() -> str | None:
+    """Get the current model name used for terminal status rendering."""
+    return _current_model_name
 
 
 def _make_status_line(state: str | None = None) -> str:
     """Build a compact one-line status summary for interactive sessions."""
     parts = ["gptme"]
-    if model := _get_default_model_name():
-        parts.append(model)
+    if _current_model_name:
+        parts.append(_current_model_name)
     if state:
         parts.append(state)
     if _current_conv_name:
@@ -172,6 +175,8 @@ def _make_title(state: str | None = None) -> str:
         state: Current state (with emoji)
     """
     result = "gptme"
+    if _current_model_name:
+        result += f" - {_current_model_name}"
     if state:
         result += f" - {state}"
     if _current_conv_name:
@@ -198,7 +203,7 @@ def set_terminal_title(raw_title: str) -> None:
 
 
 def set_terminal_state(state: str | None = None) -> None:
-    """Set the terminal title with a state and current conversation name."""
+    """Set the terminal title with current model, state, and conversation name."""
     global _current_terminal_state
     _current_terminal_state = state
     _set_raw_title(_make_title(state))
@@ -212,6 +217,5 @@ def reset_terminal_title() -> None:
     if not sys.stdout.isatty():
         return
 
-    # Set default title with conversation name if available
     _set_raw_title(_make_title())
     _render_status_line()

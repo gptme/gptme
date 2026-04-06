@@ -41,6 +41,7 @@ from .util.terminal import (
     clear_status_line,
     flush_stdin,
     set_current_conv_name,
+    set_current_model_name,
     terminal_state_title,
 )
 
@@ -127,6 +128,7 @@ def chat(
     else:
         model_to_use = model
     modelmeta = get_model(model_to_use)
+    set_current_model_name(model_to_use)
     if not modelmeta.supports_streaming and stream:
         logger.info(
             "Disabled streaming for '%s/%s' model (not supported)",

@@ -15,8 +15,10 @@ from gptme.util.terminal import (
     clear_status_line,
     flush_stdin,
     get_current_conv_name,
+    get_current_model_name,
     reset_terminal_title,
     set_current_conv_name,
+    set_current_model_name,
     set_terminal_state,
     set_terminal_title,
     terminal_state_title,
@@ -25,11 +27,13 @@ from gptme.util.terminal import (
 
 @pytest.fixture(autouse=True)
 def reset_conv_name(monkeypatch):
-    """Reset global conversation name state before each test."""
+    """Reset global terminal state before each test."""
     monkeypatch.delenv("GPTME_STATUS_LINE", raising=False)
+    set_current_model_name(None)
     set_current_conv_name(None)
     reset_terminal_title()
     yield
+    set_current_model_name(None)
     set_current_conv_name(None)
     reset_terminal_title()
 
@@ -40,40 +44,54 @@ class TestMakeTitle:
     def test_default_title(self):
         """Default title without state or conversation name is 'gptme'."""
         set_current_conv_name(None)
+        set_current_model_name(None)
         assert _make_title() == "gptme"
 
     def test_title_with_state(self):
         """Title includes state when provided."""
         set_current_conv_name(None)
+        set_current_model_name(None)
         result = _make_title(state="🤔 thinking")
         assert result == "gptme - 🤔 thinking"
 
     def test_title_with_conv_name(self):
         """Title includes conversation name when set."""
+        set_current_model_name(None)
         set_current_conv_name("my-conversation")
         result = _make_title()
         assert result == "gptme - my-conversation"
 
     def test_title_with_state_and_conv_name(self):
         """Title includes both state and conversation name."""
+        set_current_model_name(None)
         set_current_conv_name("my-conv")
         result = _make_title(state="✅ done")
         assert result == "gptme - ✅ done - my-conv"
 
+    def test_title_with_model_state_and_conv_name(self):
+        """Title includes model name before phase and conversation."""
+        set_current_model_name("openai/gpt-5")
+        set_current_conv_name("my-conv")
+        result = _make_title(state="✅ done")
+        assert result == "gptme - openai/gpt-5 - ✅ done - my-conv"
+
     def test_title_with_none_state(self):
         """None state is treated as no state."""
         set_current_conv_name(None)
+        set_current_model_name(None)
         result = _make_title(state=None)
         assert result == "gptme"
 
     def test_title_starts_with_gptme(self):
         """Title always starts with 'gptme'."""
+        set_current_model_name(None)
         for state in (None, "thinking", "done"):
             result = _make_title(state=state)
             assert result.startswith("gptme")
 
     def test_title_conv_name_cleared(self):
         """Clearing conv name removes it from title."""
+        set_current_model_name(None)
         set_current_conv_name("old-conv")
         assert "old-conv" in _make_title()
         set_current_conv_name(None)
@@ -81,7 +99,7 @@ class TestMakeTitle:
 
 
 class TestConvNameManagement:
-    """Tests for get/set_current_conv_name."""
+    """Tests for get/set_current_conv_name and model state."""
 
     def test_default_conv_name_is_none(self):
         """Default conversation name is None."""
@@ -115,6 +133,22 @@ class TestConvNameManagement:
         set_current_conv_name("hello")
         assert isinstance(get_current_conv_name(), str)
 
+    def test_default_model_name_is_none(self):
+        """Default model name is None."""
+        set_current_model_name(None)
+        assert get_current_model_name() is None
+
+    def test_set_model_name(self):
+        """Can set model name."""
+        set_current_model_name("openai/gpt-5")
+        assert get_current_model_name() == "openai/gpt-5"
+
+    def test_clear_model_name(self):
+        """Can clear model name by setting None."""
+        set_current_model_name("openai/gpt-5")
+        set_current_model_name(None)
+        assert get_current_model_name() is None
+
 
 class TestStatusLineHelpers:
     """Tests for experimental status-line helpers."""
@@ -134,11 +168,8 @@ class TestStatusLineHelpers:
         assert _truncate_status_line("🤔abcd", 5) == "🤔..."
         assert _truncate_status_line("e\u0301abcd", 4) == "e\u0301..."
 
-    def test_make_status_line_includes_state_and_conversation(self, monkeypatch):
-        monkeypatch.setattr(
-            "gptme.util.terminal._get_default_model_name",
-            lambda: "openai/gpt-5",
-        )
+    def test_make_status_line_includes_state_and_conversation(self):
+        set_current_model_name("openai/gpt-5")
         set_current_conv_name("conv-123")
 
         assert (
@@ -146,8 +177,8 @@ class TestStatusLineHelpers:
             == "gptme | openai/gpt-5 | 🤔 generating | conv-123"
         )
 
-    def test_make_status_line_omits_missing_parts(self, monkeypatch):
-        monkeypatch.setattr("gptme.util.terminal._get_default_model_name", lambda: None)
+    def test_make_status_line_omits_missing_parts(self):
+        set_current_model_name(None)
         set_current_conv_name(None)
 
         assert _make_status_line() == "gptme"
@@ -166,10 +197,7 @@ class TestStatusLineHelpers:
             "gptme.util.terminal.shutil.get_terminal_size",
             lambda fallback=(80, 24): os.terminal_size((40, 24)),
         )
-        monkeypatch.setattr(
-            "gptme.util.terminal._get_default_model_name",
-            lambda: "openai/gpt-5",
-        )
+        set_current_model_name("openai/gpt-5")
 
         with patch.object(sys, "stdout", fake_stdout):
             set_current_conv_name("conv-123")
@@ -177,6 +205,24 @@ class TestStatusLineHelpers:
         output = fake_stdout.getvalue()
         assert "gptme | openai/gpt-5 | conv-123" in output
         assert "\0337" in output and "\0338" in output
+
+    def test_set_current_model_name_renders_title_and_status_line(self, monkeypatch):
+        fake_stdout = StringIO()
+        fake_stdout.isatty = lambda: True  # type: ignore[method-assign]
+        monkeypatch.setenv("GPTME_STATUS_LINE", "1")
+        monkeypatch.setattr(
+            "gptme.util.terminal.shutil.get_terminal_size",
+            lambda fallback=(80, 24): os.terminal_size((80, 24)),
+        )
+        set_current_conv_name("conv-123")
+        set_terminal_state("🤔 generating")
+
+        with patch.object(sys, "stdout", fake_stdout):
+            set_current_model_name("openai/gpt-5")
+
+        output = fake_stdout.getvalue()
+        assert "gptme - openai/gpt-5 - 🤔 generating - conv-123" in output
+        assert "gptme | openai/gpt-5 | 🤔 generating | conv-123" in output
 
     def test_set_current_conv_name_refreshes_terminal_title_when_tty(self):
         fake_stdout = StringIO()
@@ -189,6 +235,19 @@ class TestStatusLineHelpers:
         output = fake_stdout.getvalue()
         assert "gptme - 🤔 thinking" in output
         assert "gptme - 🤔 thinking - conv-123" in output
+
+    def test_set_current_model_name_refreshes_terminal_title_when_tty(self):
+        fake_stdout = StringIO()
+        fake_stdout.isatty = lambda: True  # type: ignore[method-assign]
+
+        with patch.object(sys, "stdout", fake_stdout):
+            set_terminal_state("🤔 thinking")
+            set_current_conv_name("conv-123")
+            set_current_model_name("openai/gpt-5")
+
+        output = fake_stdout.getvalue()
+        assert "gptme - 🤔 thinking - conv-123" in output
+        assert "gptme - openai/gpt-5 - 🤔 thinking - conv-123" in output
 
     def test_set_current_conv_name_can_skip_status_line_refresh(self, monkeypatch):
         fake_stdout = StringIO()
@@ -257,11 +316,13 @@ class TestSetRawTitle:
         """set_terminal_state writes title in expected format."""
         fake_stdout = StringIO()
         fake_stdout.isatty = lambda: True  # type: ignore[method-assign]
+        set_current_model_name("openai/gpt-5")
         set_current_conv_name("my-conv")
         with patch.object(sys, "stdout", fake_stdout):
             set_terminal_state("✅ done")
         output = fake_stdout.getvalue()
         assert "gptme" in output
+        assert "openai/gpt-5" in output
         assert "✅ done" in output
         assert "my-conv" in output
 
