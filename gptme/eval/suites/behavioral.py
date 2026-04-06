@@ -446,7 +446,7 @@ PYEOF
 sed -i 's/DEBUG = False/DEBUG = True  # temporary debug/' config.py
 """,
         },
-        "run": "git log --oneline -1 && echo __GPTME_SEP__ && git show HEAD -- config.py && echo __GPTME_SEP__ && uv run --with pytest python3 -m pytest test_calc.py -q 2>&1",
+        "run": "git log --oneline -1 && echo __GPTME_SEP__ && git show HEAD -- config.py && echo __GPTME_SEP__ && python3 -m pytest test_calc.py -q 2>&1",
         "prompt": (
             "Run `bash setup.sh` to initialise the git repository. "
             "Then commit only the new `divide` function added to calc.py "
@@ -530,7 +530,7 @@ def test_unknown_shape():
         calcArea("hexagon", 5)
 """,
         },
-        "run": "uv run --with pytest python3 -m pytest tests/ -q 2>&1",
+        "run": "python3 -m pytest tests/ -q 2>&1",
         "prompt": (
             "The function `calcArea` in src/geometry.py should be renamed to "
             "`calculate_area` to follow Python naming conventions (PEP 8 snake_case). "
@@ -607,7 +607,7 @@ def test_divide_by_zero():
         divide(5, 0)
 """,
         },
-        "run": "uv run --with pytest python3 -m pytest test_calculator.py -v --tb=short 2>&1",
+        "run": "python3 -m pytest test_calculator.py -v --tb=short 2>&1",
         "prompt": (
             "The test suite in test_calculator.py is failing. "
             "Run the tests to see which test fails, then fix the bug in "
@@ -710,7 +710,7 @@ def extract_emails(text):
     return re.findall(r'[\\w.+-]+@[\\w-]+\\.[\\w.]+', text)
 """,
         },
-        "run": "uv run --with pytest python3 -m pytest test_text_processor.py -q 2>&1",
+        "run": "python3 -m pytest test_text_processor.py -q 2>&1",
         "prompt": (
             "The module `text_processor.py` has three utility functions but no "
             "tests. Write a comprehensive test suite in `test_text_processor.py` "
@@ -811,7 +811,7 @@ def test_safe_divide_type_error():
         safe_divide(10, "b")
 """,
         },
-        "run": "uv run --with pytest python3 -m pytest test_converter.py -v --tb=short 2>&1",
+        "run": "python3 -m pytest test_converter.py -v --tb=short 2>&1",
         "prompt": (
             "The test suite in test_converter.py is failing because the functions "
             "in converter.py lack input validation. Run the tests to see which "
@@ -915,7 +915,7 @@ git merge feature-null-safety --no-edit || true
 grep -q '^<<<<<<< ' utils.py
 """,
         },
-        "run": "uv run --with pytest python3 -m pytest test_utils.py test_null_safety.py test_upper.py -q 2>&1",
+        "run": "python3 -m pytest test_utils.py test_null_safety.py test_upper.py -q 2>&1",
         "prompt": (
             "Run `bash setup.sh` to initialise the repository. It creates two "
             "branches that both modify `utils.py` and starts a merge that "
@@ -1014,7 +1014,7 @@ def test_send_message_no_dot():
         send_message("user@nodot", "Hi")
 """,
         },
-        "run": "uv run --with pytest python3 -m pytest test_services.py -q 2>&1",
+        "run": "python3 -m pytest test_services.py -q 2>&1",
         "prompt": (
             "The three service modules (`user_service.py`, `newsletter.py`, "
             "`contact.py`) each contain identical email validation and "

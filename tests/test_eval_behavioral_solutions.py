@@ -51,8 +51,8 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
     """
     if scenario_name == "git-selective-commit":
         # Stage only calc.py and test_calc.py (not config.py)
-        _run("git add calc.py test_calc.py")
-        _run('git commit -m "feat(calc): add divide function"')
+        _run("git add calc.py test_calc.py", cwd=workspace)
+        _run('git commit -m "feat(calc): add divide function"', cwd=workspace)
 
     elif scenario_name == "multi-file-rename":
         # Replace calcArea with calculate_area in all 3 files
@@ -72,8 +72,8 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
 
     elif scenario_name == "stage-new-files":
         (workspace / "new_feature.py").write_text("def double(x):\n    return x * 2\n")
-        _run("git add new_feature.py")
-        _run('git commit -m "feat: add double function"')
+        _run("git add new_feature.py", cwd=workspace)
+        _run('git commit -m "feat: add double function"', cwd=workspace)
 
     elif scenario_name == "write-test-suite":
         (workspace / "test_text_processor.py").write_text(
@@ -187,9 +187,10 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
                 return format_name(first, last).upper()
             ''')
         )
-        _run("git add utils.py")
+        _run("git add utils.py", cwd=workspace)
         _run(
-            'git commit -m "merge: resolve conflict — keep null safety and format_name_upper"'
+            'git commit -m "merge: resolve conflict — keep null safety and format_name_upper"',
+            cwd=workspace,
         )
 
     elif scenario_name == "extract-function-refactor":
@@ -304,7 +305,9 @@ def test_reference_solution_passes_all_checkers(
     run_stderr = run_result.stderr
 
     # Build ResultContext
-    files = _get_workspace_files(tmp_path, include_git="merge" in name)
+    files = _get_workspace_files(
+        tmp_path, include_git=name == "merge-conflict-resolution"
+    )
     ctx = ResultContext(
         files=files,
         stdout=run_stdout,
