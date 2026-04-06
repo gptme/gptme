@@ -49,7 +49,9 @@ def test_check_merge_no_conflict_markers_detects_tracked_file_conflict_markers()
 
 
 def test_check_merge_commit_completed_requires_merge_head_absent():
-    assert check_merge_commit_completed(_ctx(files={".git/HEAD": "ref: refs/heads/master\n"}))
+    assert check_merge_commit_completed(
+        _ctx(files={".git/HEAD": "ref: refs/heads/master\n"})
+    )
     assert not check_merge_commit_completed(
         _ctx(
             files={
@@ -101,8 +103,12 @@ def test_check_extract_callers_import_requires_all_three_modules():
 
 def test_check_error_handling_tests_pass_requires_passed_marker():
     assert check_error_handling_tests_pass(_ctx(files={}, stdout="3 passed"))
-    assert not check_error_handling_tests_pass(_ctx(files={}, stdout="collected 3 items"))
-    assert not check_error_handling_tests_pass(_ctx(files={}, stdout="1 failed, 2 passed"))
+    assert not check_error_handling_tests_pass(
+        _ctx(files={}, stdout="collected 3 items")
+    )
+    assert not check_error_handling_tests_pass(
+        _ctx(files={}, stdout="1 failed, 2 passed")
+    )
 
 
 def test_check_error_handling_parse_csv_ignores_nested_helper_raise():
@@ -136,3 +142,426 @@ def safe_divide(a, b):
     return a / b
 """
     assert check_error_handling_safe_divide(_ctx(files={"converter.py": source}))
+
+
+from gptme.eval.suites.behavioral import (
+    check_debug_fix_in_file,
+    check_debug_no_syntax_error,
+    check_debug_tests_pass,
+    check_error_handling_source_unchanged,
+    check_extract_tests_pass,
+    check_git_selective_commit_msg,
+    check_git_selective_config_not_committed,
+    check_git_selective_tests_pass,
+    check_merge_null_safety,
+    check_merge_tests_pass,
+    check_merge_upper_function,
+    check_rename_new_name_in_geometry,
+    check_rename_no_old_name,
+    check_rename_test_uses_new_name,
+    check_rename_tests_pass,
+    check_stage_file_has_double,
+    check_stage_new_file_committed,
+    check_stage_two_commits,
+    check_write_tests_covers_extract_emails,
+    check_write_tests_covers_truncate,
+    check_write_tests_covers_word_count,
+    check_write_tests_file_exists,
+    check_write_tests_pass,
+    check_write_tests_sufficient_count,
+)
+
+# ── git-selective-commit checkers ─────────────────────────────────────────
+
+
+def test_check_git_selective_commit_msg_accepts_feat_divide():
+    stdout = "abc1234 feat(calc): add divide function"
+    assert check_git_selective_commit_msg(_ctx(stdout=stdout))
+
+
+def test_check_git_selective_commit_msg_accepts_add_divide():
+    stdout = "abc1234 add(calc): divide function"
+    assert check_git_selective_commit_msg(_ctx(stdout=stdout))
+
+
+def test_check_git_selective_commit_msg_rejects_wrong_scope():
+    stdout = "abc1234 feat(config): update debug flag"
+    assert not check_git_selective_commit_msg(_ctx(stdout=stdout))
+
+
+def test_check_git_selective_commit_msg_rejects_no_colon():
+    stdout = "abc1234 add divide function"
+    assert not check_git_selective_commit_msg(_ctx(stdout=stdout))
+
+
+def test_check_git_selective_commit_msg_rejects_no_divide():
+    stdout = "abc1234 feat(calc): add multiply function"
+    assert not check_git_selective_commit_msg(_ctx(stdout=stdout))
+
+
+def test_check_git_selective_commit_msg_handles_single_hash_no_space():
+    # Edge case: hash with no message after space
+    stdout = "abc1234"
+    assert not check_git_selective_commit_msg(_ctx(stdout=stdout))
+
+
+def test_check_git_selective_config_not_committed_empty():
+    # config.py not in commit means git show returns empty
+    stdout = "abc1234 feat(calc): add divide\n__GPTME_SEP__\n__GPTME_SEP__\n3 passed"
+    assert check_git_selective_config_not_committed(_ctx(stdout=stdout))
+
+
+def test_check_git_selective_config_not_committed_with_content():
+    # config.py in commit means git show returns its content
+    stdout = "abc1234 feat(calc): add divide\n__GPTME_SEP__\nDEBUG = True  # temporary debug\nMAX_RETRIES = 3\n__GPTME_SEP__\n3 passed"
+    assert not check_git_selective_config_not_committed(_ctx(stdout=stdout))
+
+
+def test_check_git_selective_config_not_committed_missing_separator():
+    stdout = "abc1234 feat(calc): add divide function"
+    assert not check_git_selective_config_not_committed(_ctx(stdout=stdout))
+
+
+def test_check_git_selective_tests_pass_with_passed():
+    stdout = "abc1234 feat\n__GPTME_SEP__\n__GPTME_SEP__\n3 passed in 0.01s"
+    assert check_git_selective_tests_pass(_ctx(stdout=stdout))
+
+
+def test_check_git_selective_tests_pass_with_failed():
+    stdout = "abc1234 feat\n__GPTME_SEP__\n__GPTME_SEP__\n1 failed, 2 passed"
+    assert not check_git_selective_tests_pass(_ctx(stdout=stdout))
+
+
+def test_check_git_selective_tests_pass_missing_separator():
+    stdout = "abc1234 feat"
+    assert not check_git_selective_tests_pass(_ctx(stdout=stdout))
+
+
+# ── multi-file-rename checkers ─────────────────────────────────────────────
+
+
+def test_check_rename_no_old_name_all_clean():
+    assert check_rename_no_old_name(
+        _ctx(
+            files={
+                "src/geometry.py": "def calculate_area(): pass",
+                "src/utils.py": "from src.geometry import calculate_area",
+                "tests/test_geometry.py": "from src.geometry import calculate_area",
+            }
+        )
+    )
+
+
+def test_check_rename_no_old_name_still_has_old():
+    assert not check_rename_no_old_name(
+        _ctx(files={"src/geometry.py": "def calcArea(): pass"})
+    )
+
+
+def test_check_rename_no_old_name_ignores_non_py():
+    assert check_rename_no_old_name(
+        _ctx(
+            files={
+                "readme.md": "The calcArea function was renamed",
+                "main.py": "def calculate_area(): pass",
+            }
+        )
+    )
+
+
+def test_check_rename_new_name_in_geometry():
+    assert check_rename_new_name_in_geometry(
+        _ctx(files={"src/geometry.py": "def calculate_area(shape): return 0"})
+    )
+    assert not check_rename_new_name_in_geometry(
+        _ctx(files={"src/geometry.py": "def calcArea(shape): return 0"})
+    )
+
+
+def test_check_rename_test_uses_new_name():
+    assert check_rename_test_uses_new_name(
+        _ctx(
+            files={
+                "tests/test_geometry.py": (
+                    "from src.geometry import calculate_area\n"
+                    "def test_thing(): calculate_area('circle', 1)"
+                )
+            }
+        )
+    )
+
+
+def test_check_rename_test_uses_new_name_rejects_old():
+    assert not check_rename_test_uses_new_name(
+        _ctx(
+            files={
+                "tests/test_geometry.py": (
+                    "from src.geometry import calcArea\n"
+                    "def test_thing(): calcArea('circle', 1)"
+                )
+            }
+        )
+    )
+
+
+def test_check_rename_tests_pass():
+    assert check_rename_tests_pass(_ctx(exit_code=0, stdout="3 passed"))
+    assert not check_rename_tests_pass(_ctx(exit_code=1, stdout="1 failed"))
+    assert not check_rename_tests_pass(
+        _ctx(exit_code=0, stdout="collected 3 items\n1 failed")
+    )
+
+
+# ── iterative-debug checkers ───────────────────────────────────────────────
+
+
+def test_check_debug_tests_pass():
+    assert check_debug_tests_pass(_ctx(exit_code=0))
+    assert not check_debug_tests_pass(_ctx(exit_code=1))
+
+
+def test_check_debug_no_syntax_error():
+    assert check_debug_no_syntax_error(_ctx(stdout="3 passed"))
+    # Note: check_debug_no_syntax_error checks ctx.stdout + ctx.stderr,
+    # but _ctx helper doesn't accept stderr. The checker checks lower of both,
+    # and our _ctx sets stderr="" by default. True syntax errors come via stdout
+    # from the pytest subprocess output, so these are valid tests.
+    assert not check_debug_no_syntax_error(
+        _ctx(stdout="SyntaxError: invalid syntax in calculator.py")
+    )
+    assert not check_debug_no_syntax_error(
+        _ctx(stdout="ImportError: No module named 'calculator'")
+    )
+    assert check_debug_no_syntax_error(_ctx(stdout="warning about syntax"))
+
+
+def test_check_debug_fix_in_file_buggy():
+    # Original bug: catches ZeroDivisionError and returns None
+    assert not check_debug_fix_in_file(
+        _ctx(
+            files={
+                "calculator.py": (
+                    "def divide(a, b):\n"
+                    "    try:\n        return a / b\n"
+                    "    except ZeroDivisionError:\n        return None"
+                )
+            }
+        )
+    )
+
+
+def test_check_debug_fix_in_file_fixed_by_raise():
+    # Fix: removed try/except entirely
+    assert check_debug_fix_in_file(
+        _ctx(files={"calculator.py": ("def divide(a, b):\n    return a / b")})
+    )
+
+
+def test_check_debug_fix_in_file_fixed_by_re_raise():
+    # Fix: re-raises with additional context
+    assert check_debug_fix_in_file(
+        _ctx(
+            files={
+                "calculator.py": (
+                    "def divide(a, b):\n"
+                    "    try:\n        return a / b\n"
+                    '    except ZeroDivisionError:\n        raise ValueError("Cannot divide by zero")'
+                )
+            }
+        )
+    )
+
+
+def test_check_debug_fix_in_file_fixed_by_guard():
+    # Fix: pre-check with raise
+    assert check_debug_fix_in_file(
+        _ctx(
+            files={
+                "calculator.py": (
+                    "def divide(a, b):\n"
+                    '    if b == 0: raise ZeroDivisionError("Cannot divide by zero")\n'
+                    "    return a / b"
+                )
+            }
+        )
+    )
+
+
+# ── stage-new-files checkers ───────────────────────────────────────────────
+
+
+def test_check_stage_new_file_committed():
+    stdout = "abc1234 initial\n__GPTME_SEP__\nmain.py\nnew_feature.py"
+    assert check_stage_new_file_committed(_ctx(stdout=stdout))
+
+
+def test_check_stage_new_file_committed_not_present():
+    stdout = "abc1234 initial\n__GPTME_SEP__\nmain.py"
+    assert not check_stage_new_file_committed(_ctx(stdout=stdout))
+
+
+def test_check_stage_new_file_committed_missing_separator():
+    assert not check_stage_new_file_committed(_ctx(stdout="abc1234 initial"))
+
+
+def test_check_stage_two_commits():
+    stdout = "abc1234 initial: add greet\ndef4567 feat: add double function"
+    assert check_stage_two_commits(_ctx(stdout=stdout))
+
+
+def test_check_stage_two_commits_single():
+    stdout = "abc1234 initial: add greet"
+    assert not check_stage_two_commits(_ctx(stdout=stdout))
+
+
+def test_check_stage_two_commits_empty():
+    assert not check_stage_two_commits(_ctx(stdout=""))
+
+
+def test_check_stage_file_has_double():
+    assert check_stage_file_has_double(
+        _ctx(files={"new_feature.py": "def double(x): return x * 2"})
+    )
+    assert not check_stage_file_has_double(
+        _ctx(files={"new_feature.py": "def triple(x): return x * 3"})
+    )
+
+
+# ── write-test-suite checkers ──────────────────────────────────────────────
+
+
+def test_check_write_tests_file_exists():
+    assert check_write_tests_file_exists(
+        _ctx(files={"test_text_processor.py": "def test_foo(): pass"})
+    )
+    assert not check_write_tests_file_exists(_ctx(files={"test_text_processor.py": ""}))
+    assert not check_write_tests_file_exists(_ctx(files={}))
+
+
+def test_check_write_tests_pass():
+    assert check_write_tests_pass(_ctx(exit_code=0, stdout="6 passed"))
+    assert not check_write_tests_pass(_ctx(exit_code=1, stdout="2 failed, 4 passed"))
+    # The checker only requires exit_code==0 and no "failed" in stdout.
+    # "collected 0 items" is technically a pass (no failures).
+
+
+def test_check_write_tests_covers_word_count():
+    assert check_write_tests_covers_word_count(
+        _ctx(files={"test_text_processor.py": "def test_word_count(): pass"})
+    )
+    assert not check_write_tests_covers_word_count(
+        _ctx(files={"test_text_processor.py": "def test_truncate(): pass"})
+    )
+
+
+def test_check_write_tests_covers_truncate():
+    assert check_write_tests_covers_truncate(
+        _ctx(files={"test_text_processor.py": "def test_truncate_short(): pass"})
+    )
+    assert not check_write_tests_covers_truncate(
+        _ctx(files={"test_text_processor.py": "def test_word_count(): pass"})
+    )
+
+
+def test_check_write_tests_covers_extract_emails():
+    assert check_write_tests_covers_extract_emails(
+        _ctx(files={"test_text_processor.py": "def test_extract_emails_basic(): pass"})
+    )
+    assert not check_write_tests_covers_extract_emails(
+        _ctx(files={"test_text_processor.py": "def test_word_count(): pass"})
+    )
+
+
+def test_check_write_tests_sufficient_count():
+    content = "\n".join(f"def test_{i}(): pass" for i in range(6))
+    assert check_write_tests_sufficient_count(
+        _ctx(files={"test_text_processor.py": content})
+    )
+
+    content = "\n".join(f"def test_{i}(): pass" for i in range(3))
+    assert not check_write_tests_sufficient_count(
+        _ctx(files={"test_text_processor.py": content})
+    )
+
+
+# ── error-handling source unchanged checker ────────────────────────────────
+
+
+def test_check_error_handling_source_unchanged():
+    content = (
+        "def test_parse_csv_valid(): pass\n"
+        "def test_to_int_valid(): pass\n"
+        "def test_safe_divide_valid(): pass\n"
+        "def test_parse_csv_empty(): pass"
+    )
+    assert check_error_handling_source_unchanged(
+        _ctx(files={"test_converter.py": content})
+    )
+
+
+def test_check_error_handling_source_unchanged_missing_function():
+    content = (
+        "def test_parse_csv_valid(): pass\n"
+        "def test_to_int_valid(): pass\n"
+        "def test_safe_divide_valid(): pass"
+    )
+    # Missing test_parse_csv_empty
+    assert not check_error_handling_source_unchanged(
+        _ctx(files={"test_converter.py": content})
+    )
+
+
+# ── merge-conflict remaining checkers ──────────────────────────────────────
+
+
+def test_check_merge_null_safety():
+    content = (
+        "def format_name(first, last):\n"
+        "    if first is None or last is None:\n"
+        '        return "Unknown"\n'
+        '    return f"{first} {last}"'
+    )
+    assert check_merge_null_safety(_ctx(files={"utils.py": content}))
+
+    # Missing the check
+    content2 = 'def format_name(first, last):\n    return f"{first} {last}"'
+    assert not check_merge_null_safety(_ctx(files={"utils.py": content2}))
+
+    # Wrong return value
+    content3 = (
+        "def format_name(first, last):\n"
+        "    if first is None or last is None:\n"
+        '        return ""\n'
+        '    return f"{first} {last}"'
+    )
+    assert not check_merge_null_safety(_ctx(files={"utils.py": content3}))
+
+
+def test_check_merge_tests_pass():
+    assert check_merge_tests_pass(_ctx(exit_code=0, stdout="4 passed"))
+    assert not check_merge_tests_pass(_ctx(exit_code=1, stdout="2 failed"))
+    # The checker only requires exit_code==0 and no "failed" in stdout.
+    # Non-zero exit code is the primary failure signal.
+
+
+def test_check_merge_upper_function():
+    assert check_merge_upper_function(
+        _ctx(
+            files={
+                "utils.py": "def format_name_upper(first, last): return format_name(first, last).upper()"
+            }
+        )
+    )
+    assert not check_merge_upper_function(
+        _ctx(
+            files={"utils.py": "def format_name(first, last): return f'{first} {last}'"}
+        )
+    )
+
+
+# ── extract-function remaining checker ─────────────────────────────────────
+
+
+def test_check_extract_tests_pass():
+    assert check_extract_tests_pass(_ctx(exit_code=0, stdout="6 passed"))
+    assert not check_extract_tests_pass(_ctx(exit_code=1, stdout="1 failed"))
