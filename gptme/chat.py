@@ -37,9 +37,33 @@ from .util.cost import log_costs
 from .util.interrupt import clear_interruptible, set_interruptible
 from .util.prompt import add_history, get_input
 from .util.sound import print_bell
-from .util.terminal import flush_stdin, set_current_conv_name, terminal_state_title
+from .util.terminal import (
+    clear_status_line,
+    flush_stdin,
+    set_current_conv_name,
+    terminal_state_title,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _get_display_conv_name(logdir: Path) -> str:
+    """Return the best conversation label for terminal UI."""
+    chat_config = ChatConfig.from_logdir(logdir)
+    return chat_config.name or logdir.name
+
+
+def _try_auto_name_and_refresh(
+    logdir: Path,
+    messages: list[Message],
+    model: str,
+) -> str | None:
+    """Try auto-naming a conversation and refresh terminal state on success."""
+    chat_config = ChatConfig.from_logdir(logdir)
+    display_name = try_auto_name(chat_config, messages, model)
+    if display_name:
+        set_current_conv_name(display_name)
+    return display_name
 
 
 @trace_function(name="chat.main", attributes={"component": "chat"})
@@ -66,9 +90,8 @@ def chat(
 
     Callable from other modules.
     """
-    # Set initial terminal title with conversation name
     conv_name = logdir.name
-    set_current_conv_name(conv_name)
+    set_current_conv_name(_get_display_conv_name(logdir))
 
     # Set conversation context for telemetry
     # This propagates to all spans in this conversation
@@ -155,7 +178,9 @@ def chat(
         ):
             for msg in session_end_msgs:
                 manager.append(msg)
-        return
+    finally:
+        set_current_conv_name(None)
+        clear_status_line()
 
 
 def _run_chat_loop(
@@ -273,6 +298,7 @@ def _run_chat_loop(
     ):
         for msg in session_end_msgs:
             manager.append(msg)
+    clear_status_line()
 
 
 def _process_message_conversation(
@@ -348,9 +374,9 @@ def _process_message_conversation(
             chat_config = ChatConfig.from_logdir(manager.logdir)
             if not chat_config.name:
                 thread = threading.Thread(
-                    target=try_auto_name,
+                    target=_try_auto_name_and_refresh,
                     args=(
-                        chat_config,
+                        manager.logdir,
                         copy.deepcopy(manager.log.messages),
                         current_model.full,
                     ),

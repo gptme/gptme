@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from ..logmanager import LogManager
     from ..message import Message
 
+from ..util.terminal import set_current_conv_name
 from .base import CommandContext, command
 
 
@@ -67,6 +68,7 @@ def cmd_fork(ctx: CommandContext) -> None:
     """Fork the conversation."""
     new_name = ctx.args[0] if ctx.args else input("New name: ")
     ctx.manager.fork(new_name)
+    set_current_conv_name(new_name)
     print(f"✅ Forked conversation to: {ctx.manager.logdir}")
 
 
@@ -271,5 +273,6 @@ def _rename(manager: "LogManager", new_name: str) -> None:
     chat_config = ChatConfig.from_logdir(manager.logdir)
     chat_config.name = new_name
     chat_config.save()
+    set_current_conv_name(new_name)
 
     print(f"Renamed conversation to: {new_name}")

@@ -29,6 +29,8 @@ from gptme.commands.base import (
     register_command,
     unregister_command,
 )
+from gptme.commands.llm import cmd_model
+from gptme.commands.session import _rename
 from gptme.message import Message
 
 
@@ -242,6 +244,97 @@ class TestDynamicRegistration:
 
 
 # ── Query Functions ──
+
+
+class TestSessionCommands:
+    def test_fork_updates_terminal_conversation_name(self, mock_manager, monkeypatch):
+        import gptme.commands.session as session_module
+
+        saved_names: list[str] = []
+
+        monkeypatch.setattr(
+            session_module,
+            "set_current_conv_name",
+            lambda name: saved_names.append(name),
+        )
+        mock_manager.fork = lambda name: None
+
+        session_module.cmd_fork(
+            CommandContext(
+                args=["forked-conv"],
+                full_args="forked-conv",
+                manager=mock_manager,
+            )
+        )
+
+        assert saved_names == ["forked-conv"]
+
+    def test_rename_updates_terminal_conversation_name(self, mock_manager, monkeypatch):
+        import gptme.commands.session as session_module
+
+        saved_names: list[str] = []
+
+        monkeypatch.setattr(
+            session_module,
+            "set_current_conv_name",
+            lambda name: saved_names.append(name),
+        )
+
+        class _FakeChatConfig:
+            def __init__(self):
+                self.name = None
+
+            def save(self) -> None:
+                return None
+
+        monkeypatch.setitem(
+            _rename.__globals__,
+            "ChatConfig",
+            type(
+                "ChatConfig",
+                (),
+                {"from_logdir": staticmethod(lambda _logdir: _FakeChatConfig())},
+            ),
+        )
+
+        _rename(mock_manager, "renamed-conv")
+
+        assert saved_names == ["renamed-conv"]
+
+    def test_model_updates_terminal_state_after_switch(self, mock_manager, monkeypatch):
+        saved_models: list[str] = []
+        terminal_refreshes: list[None] = []
+
+        class _FakeChatConfig:
+            def __init__(self):
+                self.model = None
+
+            def save(self) -> None:
+                return None
+
+        monkeypatch.setattr(
+            "gptme.util.terminal.set_terminal_state",
+            lambda state=None: terminal_refreshes.append(state),
+        )
+        monkeypatch.setattr(
+            "gptme.config.ChatConfig.from_logdir",
+            lambda _logdir: _FakeChatConfig(),
+        )
+        monkeypatch.setattr(
+            "gptme.llm.models.set_default_model",
+            lambda model: saved_models.append(model),
+        )
+
+        cmd_model(
+            CommandContext(
+                args=["openai/gpt-5.4"],
+                full_args="openai/gpt-5.4",
+                manager=mock_manager,
+            )
+        )
+
+        assert saved_models == ["openai/gpt-5.4"]
+        assert terminal_refreshes == [None]
 
 
 class TestQueryFunctions:

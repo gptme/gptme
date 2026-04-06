@@ -66,6 +66,7 @@ def cmd_model(ctx: CommandContext) -> None:
         get_default_model,
         set_default_model,
     )
+    from ..util.terminal import set_terminal_state  # fmt: skip
 
     if ctx.args:
         new_model = ctx.args[0]
@@ -74,6 +75,7 @@ def cmd_model(ctx: CommandContext) -> None:
         chat_config = ChatConfig.from_logdir(ctx.manager.logdir)
         chat_config.model = new_model
         chat_config.save()
+        set_terminal_state()
         print(f"Set model to {new_model}")
     else:
         model = get_default_model()
