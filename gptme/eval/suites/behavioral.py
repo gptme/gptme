@@ -299,7 +299,7 @@ def check_error_handling_source_unchanged(ctx):
 def check_merge_no_conflict_markers(ctx):
     """No conflict markers should remain in tracked source/test files."""
     for name, content in ctx.files.items():
-        if name.startswith(".git/"):
+        if name.startswith(".git/") or name == "setup.sh":
             continue
         text = content if isinstance(content, str) else content.decode()
         if "<<<<<<<" in text or "=======" in text or ">>>>>>>" in text:

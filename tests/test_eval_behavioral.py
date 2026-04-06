@@ -48,8 +48,22 @@ def test_check_merge_no_conflict_markers_detects_tracked_file_conflict_markers()
     )
 
 
+def test_check_merge_no_conflict_markers_ignores_setup_sh():
+    """setup.sh often contains conflict markers as part of fixture data."""
+    assert check_merge_no_conflict_markers(
+        _ctx(
+            files={
+                "setup.sh": "<<<<<<< ours\nraw conflict data\n=======\nother\n>>>>>>> theirs\n",
+                "utils.py": "def f(): pass\n",
+            }
+        )
+    )
+
+
 def test_check_merge_commit_completed_requires_merge_head_absent():
-    assert check_merge_commit_completed(_ctx(files={".git/HEAD": "ref: refs/heads/master\n"}))
+    assert check_merge_commit_completed(
+        _ctx(files={".git/HEAD": "ref: refs/heads/master\n"})
+    )
     assert not check_merge_commit_completed(
         _ctx(
             files={
@@ -101,8 +115,12 @@ def test_check_extract_callers_import_requires_all_three_modules():
 
 def test_check_error_handling_tests_pass_requires_passed_marker():
     assert check_error_handling_tests_pass(_ctx(files={}, stdout="3 passed"))
-    assert not check_error_handling_tests_pass(_ctx(files={}, stdout="collected 3 items"))
-    assert not check_error_handling_tests_pass(_ctx(files={}, stdout="1 failed, 2 passed"))
+    assert not check_error_handling_tests_pass(
+        _ctx(files={}, stdout="collected 3 items")
+    )
+    assert not check_error_handling_tests_pass(
+        _ctx(files={}, stdout="1 failed, 2 passed")
+    )
 
 
 def test_check_error_handling_parse_csv_ignores_nested_helper_raise():
