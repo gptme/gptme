@@ -193,8 +193,10 @@ export const ExternalSessionsView: FC = () => {
           <h2 className="text-lg font-medium">External sessions unavailable</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             The server does not have an external session provider configured. Install{' '}
-            <code className="rounded bg-muted px-1 text-xs">gptme-sessions</code> and restart the
-            server to enable this feature.
+            <code className="rounded bg-muted px-1 text-xs">gptme-sessions</code> into{' '}
+            <strong>gptme&apos;s Python environment</strong> (not via{' '}
+            <code className="rounded bg-muted px-1 text-xs">uv tool install</code>, which creates an
+            isolated venv) and restart the server to enable this feature.
           </p>
         </div>
       </div>
