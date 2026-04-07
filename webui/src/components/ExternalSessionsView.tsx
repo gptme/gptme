@@ -8,6 +8,7 @@ import { useApi } from '@/contexts/ApiContext';
 import { use$ } from '@legendapp/state/react';
 import { getRelativeTimeString } from '@/utils/time';
 import type { ExternalSessionCatalogItem } from '@/types/api';
+import { ApiClientError } from '@/utils/api';
 
 const HARNESS_LABELS: Record<string, string> = {
   'claude-code': 'Claude Code',
@@ -16,7 +17,7 @@ const HARNESS_LABELS: Record<string, string> = {
   copilot: 'Copilot',
 };
 
-const HarnessIcon: FC<{ harness?: string; className?: string }> = ({ className }) => {
+const HarnessIcon: FC<{ className?: string }> = ({ className }) => {
   return <Bot className={className} />;
 };
 
@@ -45,10 +46,7 @@ const SessionCard: FC<SessionCardProps> = ({ session, onClick, selected }) => {
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <HarnessIcon
-              harness={session.harness}
-              className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground"
-            />
+            <HarnessIcon className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
             <span className="truncate text-sm font-medium">{displayName}</span>
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
@@ -185,7 +183,7 @@ export const ExternalSessionsView: FC = () => {
     harnessGroups[h].push(s);
   }
 
-  const isProviderUnavailable = error instanceof Error && error.message.includes('503');
+  const isProviderUnavailable = ApiClientError.isApiError(error) && error.status === 503;
 
   if (isProviderUnavailable) {
     return (

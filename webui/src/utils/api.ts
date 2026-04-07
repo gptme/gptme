@@ -1128,13 +1128,9 @@ export class ApiClient {
     return resp.sessions ?? [];
   }
 
-  async getExternalSession(id: string, days = 30): Promise<ExternalSessionDetail | null> {
-    try {
-      const url = `${this.baseUrl}/api/v2/external-sessions/${id}?days=${days}`;
-      return await this.fetchJson<ExternalSessionDetail>(url);
-    } catch {
-      return null;
-    }
+  async getExternalSession(id: string, days = 30): Promise<ExternalSessionDetail> {
+    const url = `${this.baseUrl}/api/v2/external-sessions/${id}?days=${days}`;
+    return await this.fetchJson<ExternalSessionDetail>(url);
   }
 }
 
