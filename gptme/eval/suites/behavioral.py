@@ -19,6 +19,7 @@ lesson holdout A/B experiments (idea #19, eval-to-lesson feedback loop).
 """
 
 import ast
+import re
 from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
@@ -395,8 +396,8 @@ def check_pipeline_extract_emails_fixed(ctx):
     # Must not still contain the broken subscript access
     if 'users["emails"]' in content or "users['emails']" in content:
         return False
-    # Must iterate over users list
-    return "for user in users" in content or "user[" in content
+    # Must iterate over users list (accept any loop variable name)
+    return bool(re.search(r"for \w+ in users", content))
 
 
 def check_pipeline_source_unchanged(ctx):

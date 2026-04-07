@@ -602,6 +602,12 @@ def test_check_pipeline_extract_emails_fixed_correct():
     assert check_pipeline_extract_emails_fixed(_ctx(files={"pipeline.py": fixed}))
 
 
+def test_check_pipeline_extract_emails_fixed_alt_variable():
+    # Any loop variable name should be accepted (not just 'user')
+    alt_var = 'def extract_emails(users):\n    return [u["email"] for u in users]\n'
+    assert check_pipeline_extract_emails_fixed(_ctx(files={"pipeline.py": alt_var}))
+
+
 def test_check_pipeline_extract_emails_fixed_broken():
     broken = 'def extract_emails(users):\n    return users["emails"]\n'
     assert not check_pipeline_extract_emails_fixed(_ctx(files={"pipeline.py": broken}))
