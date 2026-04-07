@@ -107,7 +107,6 @@ export const UnifiedSidebar: FC<Props> = ({
   // Navigation state - agents/workspaces show chat sidebar content
   const currentSection = location.pathname.startsWith('/tasks') ? 'tasks' : 'chat';
 
-
   // Filter state for tasks
   const [selectedTargetTypes, setSelectedTargetTypes] = useState<Set<string>>(new Set(['all']));
   const [showFilters, setShowFilters] = useState(false);
@@ -171,7 +170,14 @@ export const UnifiedSidebar: FC<Props> = ({
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  Filtered by {[selectedAgent && `agent: ${selectedAgent.name}`, selectedWorkspace && `workspace: ${selectedWorkspace.split('/').pop()}`].filter(Boolean).join(', ')} — click to clear
+                  Filtered by{' '}
+                  {[
+                    selectedAgent && `agent: ${selectedAgent.name}`,
+                    selectedWorkspace && `workspace: ${selectedWorkspace.split('/').pop()}`,
+                  ]
+                    .filter(Boolean)
+                    .join(', ')}{' '}
+                  — click to clear
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -317,7 +323,6 @@ export const UnifiedSidebar: FC<Props> = ({
 
         {/* Agents and Workspaces now have their own views via sidebar icons */}
       </div>
-
     </div>
   );
 };
