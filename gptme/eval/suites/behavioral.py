@@ -668,7 +668,7 @@ git commit -q -m "initial: add greet function"
     # Scenario 5: Write tests for existing code
     # A text processing module exists with no tests.  Agent must read the
     # implementation, understand the behaviour (including edge cases), and
-    # produce a comprehensive test suite that passes.
+    # produce a focused test suite (at least 6 tests) that passes.
     # Tests: code comprehension, test design, edge-case coverage.
     # -------------------------------------------------------------------
     {
