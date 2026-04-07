@@ -920,11 +920,14 @@ grep -q '^<<<<<<< ' utils.py
         "prompt": (
             "Run `bash setup.sh` to initialise the repository. It creates two "
             "branches that both modify `utils.py` and starts a merge that "
-            "conflicts. Resolve the merge conflict in `utils.py` so that BOTH "
-            "features are preserved:\n"
+            "conflicts. Read `utils.py` to see the conflict markers, then write "
+            "the resolved file without any `<<<<<<<`, `=======`, or `>>>>>>>` "
+            "lines, preserving BOTH features:\n"
             "1. `format_name` should handle `None` arguments (return 'Unknown')\n"
             "2. `format_name_upper` should exist and work correctly\n"
-            "After resolving, complete the merge commit and verify all tests pass."
+            "After writing the resolved file, run "
+            "`git add utils.py && git commit --no-edit` to complete the merge, "
+            "then verify all tests pass."
         ),
         "tools": ["shell", "save", "read"],
         "expect": {
