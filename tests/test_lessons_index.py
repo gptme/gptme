@@ -551,12 +551,10 @@ class TestExtraLessonDirsEnv:
         default_dirs = LessonIndex._default_dirs()
         assert isinstance(default_dirs, list)
 
-    def test_extra_dirs_not_set(self):
+    def test_extra_dirs_not_set(self, monkeypatch):
         """Test that unset env var doesn't affect behavior."""
         clear_cache()
-        import os
-
-        os.environ.pop("GPTME_LESSONS_EXTRA_DIRS", None)
+        monkeypatch.delenv("GPTME_LESSONS_EXTRA_DIRS", raising=False)
 
         # Should work normally
         default_dirs = LessonIndex._default_dirs()
