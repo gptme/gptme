@@ -21,6 +21,9 @@ from gptme.eval.suites.behavioral import (
     check_merge_null_safety,
     check_merge_tests_pass,
     check_merge_upper_function,
+    check_pipeline_extract_emails_fixed,
+    check_pipeline_source_unchanged,
+    check_pipeline_tests_pass,
     check_rename_new_name_in_geometry,
     check_rename_no_old_name,
     check_rename_test_uses_new_name,
@@ -584,3 +587,37 @@ def test_check_merge_upper_function():
 def test_check_extract_tests_pass():
     assert check_extract_tests_pass(_ctx(exit_code=0, stdout="6 passed"))
     assert not check_extract_tests_pass(_ctx(exit_code=1, stdout="1 failed"))
+
+
+# ── debug-data-pipeline ───────────────────────────────────────────────────────
+
+
+def test_check_pipeline_tests_pass():
+    assert check_pipeline_tests_pass(_ctx(exit_code=0, stdout="3 passed"))
+    assert not check_pipeline_tests_pass(_ctx(exit_code=1, stdout="1 failed"))
+
+
+def test_check_pipeline_extract_emails_fixed_correct():
+    fixed = 'def extract_emails(users):\n    return [user["email"] for user in users]\n'
+    assert check_pipeline_extract_emails_fixed(_ctx(files={"pipeline.py": fixed}))
+
+
+def test_check_pipeline_extract_emails_fixed_broken():
+    broken = 'def extract_emails(users):\n    return users["emails"]\n'
+    assert not check_pipeline_extract_emails_fixed(_ctx(files={"pipeline.py": broken}))
+
+
+def test_check_pipeline_source_unchanged():
+    content = (
+        "from pipeline import run_pipeline\n"
+        "def test_basic(users_file):\n"
+        "    result = run_pipeline(users_file)\n"
+        "    assert result == {}\n"
+    )
+    assert check_pipeline_source_unchanged(_ctx(files={"test_pipeline.py": content}))
+
+
+def test_check_pipeline_source_unchanged_missing_assert():
+    assert not check_pipeline_source_unchanged(
+        _ctx(files={"test_pipeline.py": "def test_nothing(): pass"})
+    )
