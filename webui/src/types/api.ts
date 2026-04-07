@@ -1,5 +1,25 @@
 import type { Message, StreamingMessage } from './conversation';
 
+// External session catalog item (from /api/v2/external-sessions)
+export interface ExternalSessionCatalogItem {
+  id: string;
+  session_id: string;
+  harness: string;
+  session_name: string | null;
+  project: string | null;
+  model: string | null;
+  started_at: string | null;
+  last_activity: string | null;
+  capabilities: string[];
+  trajectory_path: string;
+}
+
+// External session detail (from /api/v2/external-sessions/:id)
+export interface ExternalSessionDetail {
+  id: string;
+  transcript: Record<string, unknown>;
+}
+
 // Error response from any endpoint
 export interface ApiError {
   error: string;

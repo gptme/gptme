@@ -4,6 +4,8 @@ import type {
   ChatConfig,
   ConversationResponse,
   CreateConversationRequest,
+  ExternalSessionCatalogItem,
+  ExternalSessionDetail,
   SendMessageRequest,
   UserInfo,
 } from '@/types/api';
@@ -1117,6 +1119,21 @@ export class ApiClient {
     } catch (error) {
       console.error('[ApiClient] Failed to create agent:', error);
       throw error;
+    }
+  }
+
+  async getExternalSessions(days = 30): Promise<ExternalSessionCatalogItem[]> {
+    const url = `${this.baseUrl}/api/v2/external-sessions?days=${days}`;
+    const resp = await this.fetchJson<{ sessions: ExternalSessionCatalogItem[] }>(url);
+    return resp.sessions ?? [];
+  }
+
+  async getExternalSession(id: string, days = 30): Promise<ExternalSessionDetail | null> {
+    try {
+      const url = `${this.baseUrl}/api/v2/external-sessions/${id}?days=${days}`;
+      return await this.fetchJson<ExternalSessionDetail>(url);
+    } catch {
+      return null;
     }
   }
 }

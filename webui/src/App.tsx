@@ -12,6 +12,7 @@ import Workspace from './pages/Workspace';
 import Agents from './pages/Agents';
 import Workspaces from './pages/Workspaces';
 import History from './pages/History';
+import ExternalSessions from './pages/ExternalSessions';
 import { CommandPalette } from './components/CommandPalette';
 import { SetupWizard } from './components/SetupWizard';
 import type { FC } from 'react';
@@ -62,6 +63,7 @@ const App: FC = () => {
                   <Route path="/agents" element={<Agents />} />
                   <Route path="/workspaces" element={<Workspaces />} />
                   <Route path="/history" element={<History />} />
+                  <Route path="/external-sessions" element={<ExternalSessions />} />
                   <Route path="/workspace/:id" element={<Workspace />} />
                 </Routes>
                 <SetupWizard />

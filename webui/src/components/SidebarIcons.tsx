@@ -8,6 +8,7 @@ import {
   Bot,
   FolderOpen,
   Search,
+  Layers,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -37,10 +38,12 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
         ? 'agents'
         : location.pathname.startsWith('/workspaces')
           ? 'workspaces'
-          : 'chat';
+          : location.pathname.startsWith('/external-sessions')
+            ? 'external-sessions'
+            : 'chat';
 
   const handleNavigateToSection = (
-    section: 'chat' | 'tasks' | 'history' | 'agents' | 'workspaces'
+    section: 'chat' | 'tasks' | 'history' | 'agents' | 'workspaces' | 'external-sessions'
   ) => {
     navigate(`/${section === 'chat' ? 'chat' : section}`);
   };
@@ -133,6 +136,22 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
               </Button>
             </TooltipTrigger>
             <TooltipContent side="right">History</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={currentSection === 'external-sessions' ? 'secondary' : 'ghost'}
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => handleNavigateToSection('external-sessions')}
+              >
+                <Layers className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">External Sessions</TooltipContent>
           </Tooltip>
         </TooltipProvider>
 
