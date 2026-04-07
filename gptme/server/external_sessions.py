@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import logging
 from dataclasses import dataclass
@@ -146,8 +147,12 @@ class ExternalSessionProvider:
         return None
 
 
+@functools.lru_cache(maxsize=1)
 def get_external_session_provider() -> ExternalSessionProvider | None:
-    """Return the optional external session provider if dependencies are available."""
+    """Return the optional external session provider if dependencies are available.
+
+    Cached so the import attempt and CLI-only warning happen at most once per process.
+    """
     try:
         return ExternalSessionProvider()
     except ImportError:
