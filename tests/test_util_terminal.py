@@ -1,6 +1,5 @@
 """Tests for util/terminal.py - terminal title manipulation and conversation state."""
 
-import os
 import sys
 from io import StringIO
 from unittest.mock import patch
@@ -8,11 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from gptme.util.terminal import (
-    _display_width,
-    _make_status_line,
     _make_title,
-    _truncate_status_line,
-    clear_status_line,
     flush_stdin,
     get_current_conv_name,
     reset_terminal_title,
@@ -24,14 +19,11 @@ from gptme.util.terminal import (
 
 
 @pytest.fixture(autouse=True)
-def reset_conv_name(monkeypatch):
+def reset_conv_name():
     """Reset global conversation name state before each test."""
-    monkeypatch.delenv("GPTME_STATUS_LINE", raising=False)
     set_current_conv_name(None)
-    reset_terminal_title()
     yield
     set_current_conv_name(None)
-    reset_terminal_title()
 
 
 class TestMakeTitle:
@@ -114,96 +106,6 @@ class TestConvNameManagement:
         assert get_current_conv_name() is None
         set_current_conv_name("hello")
         assert isinstance(get_current_conv_name(), str)
-
-
-class TestStatusLineHelpers:
-    """Tests for experimental status-line helpers."""
-
-    def test_truncate_status_line_preserves_short_text(self):
-        assert _truncate_status_line("hello", 10) == "hello"
-
-    def test_truncate_status_line_adds_ellipsis(self):
-        assert _truncate_status_line("abcdefgh", 5) == "ab..."
-
-    def test_display_width_handles_wide_and_combining_chars(self):
-        assert _display_width("🤔") == 2
-        assert _display_width("界") == 2
-        assert _display_width("e\u0301") == 1
-
-    def test_truncate_status_line_respects_display_width(self):
-        assert _truncate_status_line("🤔abcd", 5) == "🤔..."
-        assert _truncate_status_line("e\u0301abcd", 4) == "e\u0301..."
-
-    def test_make_status_line_includes_state_and_conversation(self, monkeypatch):
-        monkeypatch.setattr(
-            "gptme.util.terminal._get_default_model_name",
-            lambda: "openai/gpt-5",
-        )
-        set_current_conv_name("conv-123")
-
-        assert (
-            _make_status_line("🤔 generating")
-            == "gptme | openai/gpt-5 | 🤔 generating | conv-123"
-        )
-
-    def test_make_status_line_omits_missing_parts(self, monkeypatch):
-        monkeypatch.setattr("gptme.util.terminal._get_default_model_name", lambda: None)
-        set_current_conv_name(None)
-
-        assert _make_status_line() == "gptme"
-
-    def test_clear_status_line_no_output_when_disabled(self):
-        fake_stdout = StringIO()
-        with patch.object(sys, "stdout", fake_stdout):
-            clear_status_line()
-        assert fake_stdout.getvalue() == ""
-
-    def test_set_current_conv_name_renders_status_line_when_enabled(self, monkeypatch):
-        fake_stdout = StringIO()
-        fake_stdout.isatty = lambda: True  # type: ignore[method-assign]
-        monkeypatch.setenv("GPTME_STATUS_LINE", "1")
-        monkeypatch.setattr(
-            "gptme.util.terminal.shutil.get_terminal_size",
-            lambda fallback=(80, 24): os.terminal_size((40, 24)),
-        )
-        monkeypatch.setattr(
-            "gptme.util.terminal._get_default_model_name",
-            lambda: "openai/gpt-5",
-        )
-
-        with patch.object(sys, "stdout", fake_stdout):
-            set_current_conv_name("conv-123")
-
-        output = fake_stdout.getvalue()
-        assert "gptme | openai/gpt-5 | conv-123" in output
-        assert "\0337" in output and "\0338" in output
-
-    def test_set_current_conv_name_refreshes_terminal_title_when_tty(self):
-        fake_stdout = StringIO()
-        fake_stdout.isatty = lambda: True  # type: ignore[method-assign]
-
-        with patch.object(sys, "stdout", fake_stdout):
-            set_terminal_state("🤔 thinking")
-            set_current_conv_name("conv-123")
-
-        output = fake_stdout.getvalue()
-        assert "gptme - 🤔 thinking" in output
-        assert "gptme - 🤔 thinking - conv-123" in output
-
-    def test_set_current_conv_name_can_skip_status_line_refresh(self, monkeypatch):
-        fake_stdout = StringIO()
-        fake_stdout.isatty = lambda: True  # type: ignore[method-assign]
-        monkeypatch.setenv("GPTME_STATUS_LINE", "1")
-
-        with patch.object(sys, "stdout", fake_stdout):
-            set_terminal_state("🤔 thinking")
-            fake_stdout.truncate(0)
-            fake_stdout.seek(0)
-            set_current_conv_name("conv-123", refresh_status_line=False)
-
-        output = fake_stdout.getvalue()
-        assert "gptme - 🤔 thinking - conv-123" in output
-        assert "\033[999;1H" not in output
 
 
 class TestSetRawTitle:
