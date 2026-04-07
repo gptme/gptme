@@ -727,7 +727,12 @@ def test_chat_clears_status_line_after_conv_name_reset(monkeypatch, tmp_path):
     monkeypatch.setattr(
         chat_module,
         "set_current_conv_name",
-        lambda name, refresh_status_line=True: events.append(("set", name)),
+        lambda name, refresh_status_line=True: events.append(("set_conv", name)),
+    )
+    monkeypatch.setattr(
+        chat_module,
+        "set_current_model_name",
+        lambda name, refresh_status_line=True: events.append(("set_model", name)),
     )
     monkeypatch.setattr(
         chat_module,
@@ -750,7 +755,13 @@ def test_chat_clears_status_line_after_conv_name_reset(monkeypatch, tmp_path):
         output_schema=None,
     )
 
-    assert events[-2:] == [("clear", None), ("set", None)]
+    # Cleanup ordering: clear state first (no render), then clear the line last.
+    # This prevents stale re-renders after the status bar is erased.
+    assert events[-3:] == [
+        ("set_model", None),
+        ("set_conv", None),
+        ("clear", None),
+    ]
 
 
 def test_chat_resets_conv_name_on_exit(monkeypatch, tmp_path):

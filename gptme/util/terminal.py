@@ -104,12 +104,15 @@ def _truncate_status_line(text: str, width: int) -> str:
     return truncated + "..."
 
 
-def set_current_model_name(name: str | None) -> None:
+def set_current_model_name(
+    name: str | None, *, refresh_status_line: bool = True
+) -> None:
     """Set the current model name and refresh terminal UI."""
     global _current_model_name
     _current_model_name = name
     _set_raw_title(_make_title(_current_terminal_state))
-    _render_status_line()
+    if refresh_status_line:
+        _render_status_line()
 
 
 def get_current_model_name() -> str | None:

@@ -181,9 +181,9 @@ def chat(
             for msg in session_end_msgs:
                 manager.append(msg)
     finally:
-        clear_status_line()
-        set_current_model_name(None)
+        set_current_model_name(None, refresh_status_line=False)
         set_current_conv_name(None, refresh_status_line=False)
+        clear_status_line()
 
 
 def _run_chat_loop(
