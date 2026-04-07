@@ -281,24 +281,6 @@ class TestCliHasTranscriptCommand:
 class TestListSessionsSorting:
     """Tests for sort order and limit enforcement in list_sessions."""
 
-    def _make_provider_with_items(
-        self, items: list[dict[str, Any]]
-    ) -> CLIExternalSessionProvider:
-        """Create a CLIExternalSessionProvider with mocked discovery."""
-        provider = CLIExternalSessionProvider()
-        provider._discover_paths = lambda days: items  # type: ignore[method-assign]
-
-        def _read_transcript_cli(path: str) -> dict | None:
-            # path is actually the session dict from _discover_paths
-            # We need to find the matching item
-            for item in items:
-                if item.get("path") == path:
-                    return item.get("_transcript")
-            return None
-
-        provider._read_transcript_cli = _read_transcript_cli  # type: ignore[method-assign]
-        return provider
-
     def test_sorted_by_last_activity_descending(self, monkeypatch):
         """Sessions should be sorted by last_activity, most recent first."""
         from gptme.server.external_sessions import ExternalSessionProvider
