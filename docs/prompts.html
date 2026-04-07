@@ -693,7 +693,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f9f6aaee520&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7ffaeaaea520&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1833,10 +1833,9 @@ The following Python functions are available using the <span class="sb">`ipython
 <span class="s">            - &quot;full&quot; (default): Share complete context (agent identity, tools, workspace)</span>
 <span class="s">            - &quot;selective&quot;: Share only specified context components (requires context_include)</span>
 <span class="s">        context_include: For selective mode, list of context components to include:</span>
-<span class="s">            - &quot;files&quot;: Project config files (gptme.toml files list)</span>
-<span class="s">            - &quot;cmd&quot;: Dynamic context_cmd output</span>
-<span class="s">            - &quot;all&quot;: Include both files and cmd</span>
-<span class="s">            Note: Tools and agent identity are always included by the CLI.</span>
+<span class="s">            - Thread mode supports &quot;agent&quot; and &quot;tools&quot;</span>
+<span class="s">            - Subprocess mode also supports &quot;workspace&quot;, which maps to the CLI&#39;s &quot;files&quot; context</span>
+<span class="s">            Legacy subprocess values like &quot;files&quot;, &quot;cmd&quot;, and &quot;all&quot; are still accepted.</span>
 <span class="s">        use_subprocess: If True, run subagent in subprocess for output isolation.</span>
 <span class="s">            Subprocess mode captures stdout/stderr separately from the parent.</span>
 <span class="s">        use_acp: If True, run subagent via ACP (Agent Client Protocol).</span>
@@ -1967,9 +1966,9 @@ The following Python functions are available using the <span class="sb">`ipython
 <span class="gu">#### Selective Context (choose specific components)</span>
 
 <span class="k">&gt; </span><span class="ge">User: write tests using pytest</span>
-<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll use selective mode to share only project files, not context_cmd output.</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll use subprocess mode so selective context can include workspace files without inheriting the full parent context.</span>
 <span class="sb">```ipython</span>
-<span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;tests&quot;</span><span class="p">,</span> <span class="s2">&quot;Write pytest tests for the calculate function&quot;</span><span class="p">,</span> <span class="n">context_mode</span><span class="o">=</span><span class="s2">&quot;selective&quot;</span><span class="p">,</span> <span class="n">context_include</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;files&quot;</span><span class="p">])</span>
+<span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;tests&quot;</span><span class="p">,</span> <span class="s2">&quot;Write pytest tests for the calculate function&quot;</span><span class="p">,</span> <span class="n">context_mode</span><span class="o">=</span><span class="s2">&quot;selective&quot;</span><span class="p">,</span> <span class="n">context_include</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;workspace&quot;</span><span class="p">],</span> <span class="n">use_subprocess</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="sb">```</span>
 
 <span class="gu">### Subprocess Mode (output isolation)</span>
@@ -2237,7 +2236,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 12347</p>
+<p>Tokens: 12356</p>
 </dd></dl>
 
 <dl class="py function">
