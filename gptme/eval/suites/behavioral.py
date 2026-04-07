@@ -405,7 +405,11 @@ def check_pipeline_source_unchanged(ctx):
     content = ctx.files.get("test_pipeline.py", "")
     if isinstance(content, bytes):
         content = content.decode()
-    return "run_pipeline" in content and "assert result" in content
+    return (
+        "run_pipeline" in content
+        and "assert result" in content
+        and '"count"' in content
+    )
 
 
 # ── test list ────────────────────────────────────────────────────────────────

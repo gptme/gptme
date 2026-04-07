@@ -618,7 +618,7 @@ def test_check_pipeline_source_unchanged():
         "from pipeline import run_pipeline\n"
         "def test_basic(users_file):\n"
         "    result = run_pipeline(users_file)\n"
-        "    assert result == {}\n"
+        '    assert result == {"count": 2, "emails": ["alice@example.com"]}\n'
     )
     assert check_pipeline_source_unchanged(_ctx(files={"test_pipeline.py": content}))
 
@@ -626,4 +626,17 @@ def test_check_pipeline_source_unchanged():
 def test_check_pipeline_source_unchanged_missing_assert():
     assert not check_pipeline_source_unchanged(
         _ctx(files={"test_pipeline.py": "def test_nothing(): pass"})
+    )
+
+
+def test_check_pipeline_source_unchanged_hollowed_assertions():
+    # Agent weakened assertions to always pass — should be rejected
+    content = (
+        "from pipeline import run_pipeline\n"
+        "def test_basic(users_file):\n"
+        "    result = run_pipeline(users_file)\n"
+        "    assert result == {}\n"
+    )
+    assert not check_pipeline_source_unchanged(
+        _ctx(files={"test_pipeline.py": content})
     )
