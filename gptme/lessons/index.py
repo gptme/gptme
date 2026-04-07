@@ -194,6 +194,23 @@ class LessonIndex:
                 "Found .cursorrules file, consider migrating to .cursor/ directory with .mdc files"
             )
 
+        # Extra directories from environment variable (colon-separated)
+        # Useful for injecting external lesson sets (e.g., agent workspace lessons
+        # during eval runs, or shared lesson libraries across projects)
+        extra_dirs_env = os.environ.get("GPTME_LESSONS_EXTRA_DIRS", "")
+        if extra_dirs_env:
+            for dir_str in extra_dirs_env.split(":"):
+                dir_str = dir_str.strip()
+                if dir_str:
+                    extra_dir = Path(dir_str).expanduser()
+                    if extra_dir.exists():
+                        dirs.append(extra_dir)
+                        logger.debug(f"Added extra lesson dir from env: {extra_dir}")
+                    else:
+                        logger.warning(
+                            f"GPTME_LESSONS_EXTRA_DIRS: directory not found: {extra_dir}"
+                        )
+
         # Configured directories from config
         config = get_config()
 
