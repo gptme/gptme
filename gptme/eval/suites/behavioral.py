@@ -713,10 +713,11 @@ def extract_emails(text):
         "run": "python3 -m pytest test_text_processor.py -q 2>&1",
         "prompt": (
             "The module `text_processor.py` has three utility functions but no "
-            "tests. Write a comprehensive test suite in `test_text_processor.py` "
+            "tests. Write a focused test suite in `test_text_processor.py` "
             "that covers all three functions (`word_count`, `truncate`, "
             "`extract_emails`) including edge cases such as empty strings, None "
-            "input, and boundary conditions. Make sure all tests pass."
+            "input, and boundary conditions. Write at least 6 tests total "
+            "(2+ per function), keep the suite concise, and make sure all tests pass."
         ),
         "tools": ["shell", "save", "read"],
         "expect": {
