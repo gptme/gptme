@@ -241,6 +241,16 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
             """)
         )
 
+    elif scenario_name == "debug-data-pipeline":
+        # Fix extract_emails to iterate over the list instead of subscripting as dict
+        p = workspace / "pipeline.py"
+        p.write_text(
+            p.read_text().replace(
+                'return users["emails"]  # bug: users is a list, not a dict',
+                'return [u["email"] for u in users]',
+            )
+        )
+
     else:
         raise ValueError(f"Unknown scenario: {scenario_name}")
 
