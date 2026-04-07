@@ -201,6 +201,20 @@ export const ExternalSessionsView: FC = () => {
     );
   }
 
+  if (error) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
+        <AlertCircle className="h-12 w-12 text-destructive" />
+        <div>
+          <h2 className="text-lg font-medium">Failed to load sessions</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {error instanceof Error ? error.message : 'An unexpected error occurred.'}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full">
       {/* List panel */}
