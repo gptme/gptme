@@ -285,6 +285,233 @@ def test_external_session_provider_get_session_skips_unreadable_matching_transcr
     assert result is None
 
 
+def test_cli_provider_list_sessions(monkeypatch):
+    """Test CLIExternalSessionProvider.list_sessions parses discover + transcript output."""
+    import json
+
+    from gptme.server.external_sessions import CLIExternalSessionProvider
+
+    provider = CLIExternalSessionProvider()
+
+    discover_output = json.dumps(
+        {
+            "sessions": [
+                {
+                    "harness": "gptme",
+                    "path": "/tmp/sessions/test.jsonl",
+                    "session_date": "2026-04-07",
+                    "synced": False,
+                }
+            ]
+        }
+    )
+    transcript_output = json.dumps(
+        {
+            "schema_version": 1,
+            "session_id": "test",
+            "harness": "gptme",
+            "session_name": "test-session",
+            "project": "/tmp/project",
+            "model": "claude-sonnet-4-5",
+            "started_at": "2026-04-07T10:00:00+00:00",
+            "last_activity": "2026-04-07T10:05:00+00:00",
+            "trajectory_path": "/tmp/sessions/test.jsonl",
+            "capabilities": ["view_transcript"],
+            "messages": [],
+        }
+    )
+
+    call_count = {"discover": 0, "transcript": 0}
+
+    def mock_run_cli(args: list[str], timeout: int = 60) -> str | None:
+        if args[0] == "discover":
+            call_count["discover"] += 1
+            return discover_output
+        if args[0] == "transcript":
+            call_count["transcript"] += 1
+            return transcript_output
+        return None
+
+    monkeypatch.setattr(provider, "_run_cli", mock_run_cli)
+
+    items = provider.list_sessions(limit=10, days=7)
+    assert len(items) == 1
+    assert items[0].session_id == "test"
+    assert items[0].harness == "gptme"
+    assert items[0].session_name == "test-session"
+    assert call_count["discover"] == 1
+    assert call_count["transcript"] == 1
+
+
+def test_cli_provider_get_session(monkeypatch):
+    """Test CLIExternalSessionProvider.get_session returns matching transcript."""
+    import json
+
+    from gptme.server.external_sessions import (
+        CLIExternalSessionProvider,
+        _make_external_session_id,
+    )
+
+    provider = CLIExternalSessionProvider()
+    target_path = "/tmp/sessions/target.jsonl"
+    target_id = _make_external_session_id(target_path)
+
+    discover_output = json.dumps(
+        {
+            "sessions": [
+                {
+                    "harness": "claude-code",
+                    "path": target_path,
+                    "session_date": "2026-04-07",
+                }
+            ]
+        }
+    )
+    transcript_output = json.dumps(
+        {
+            "schema_version": 1,
+            "session_id": "target",
+            "harness": "claude-code",
+            "trajectory_path": target_path,
+            "messages": [{"role": "user", "content": "hello"}],
+        }
+    )
+
+    def mock_run_cli(args: list[str], timeout: int = 60) -> str | None:
+        if args[0] == "discover":
+            return discover_output
+        if args[0] == "transcript":
+            return transcript_output
+        return None
+
+    monkeypatch.setattr(provider, "_run_cli", mock_run_cli)
+
+    result = provider.get_session(target_id, days=7)
+    assert result is not None
+    assert result["id"] == target_id
+    assert result["transcript"]["session_id"] == "target"
+
+    # Non-matching ID returns None
+    result = provider.get_session("nonexistent", days=7)
+    assert result is None
+
+
+def test_cli_provider_handles_failed_transcript(monkeypatch):
+    """Test CLIExternalSessionProvider gracefully handles transcript failures."""
+    import json
+
+    from gptme.server.external_sessions import CLIExternalSessionProvider
+
+    provider = CLIExternalSessionProvider()
+
+    discover_output = json.dumps(
+        {
+            "sessions": [
+                {"harness": "gptme", "path": "/tmp/bad.jsonl"},
+                {"harness": "gptme", "path": "/tmp/good.jsonl"},
+            ]
+        }
+    )
+
+    def mock_run_cli(args: list[str], timeout: int = 60) -> str | None:
+        if args[0] == "discover":
+            return discover_output
+        if args[0] == "transcript":
+            path = args[1]
+            if "bad" in path:
+                return None  # Simulate failure
+            return json.dumps(
+                {
+                    "session_id": "good",
+                    "harness": "gptme",
+                    "trajectory_path": "/tmp/good.jsonl",
+                    "messages": [],
+                }
+            )
+        return None
+
+    monkeypatch.setattr(provider, "_run_cli", mock_run_cli)
+
+    items = provider.list_sessions(limit=10, days=7)
+    assert len(items) == 1
+    assert items[0].session_id == "good"
+
+
+def test_get_provider_prefers_python_import(monkeypatch):
+    """Test that get_external_session_provider prefers Python import over CLI."""
+    from gptme.server.external_sessions import (
+        ExternalSessionProvider,
+        get_external_session_provider,
+    )
+
+    get_external_session_provider.cache_clear()
+
+    fake_provider = ExternalSessionProvider.__new__(ExternalSessionProvider)
+    monkeypatch.setattr(
+        "gptme.server.external_sessions.ExternalSessionProvider",
+        lambda: fake_provider,
+    )
+
+    result = get_external_session_provider()
+    assert result is fake_provider
+    get_external_session_provider.cache_clear()
+
+
+def test_get_provider_falls_back_to_cli(monkeypatch):
+    """Test that get_external_session_provider falls back to CLI when import fails."""
+    from gptme.server.external_sessions import (
+        CLIExternalSessionProvider,
+        get_external_session_provider,
+    )
+
+    get_external_session_provider.cache_clear()
+
+    def _raise_import_error():
+        raise ImportError("no gptme_sessions")
+
+    monkeypatch.setattr(
+        "gptme.server.external_sessions.ExternalSessionProvider",
+        _raise_import_error,
+    )
+    monkeypatch.setattr(
+        "gptme.server.external_sessions.shutil.which",
+        lambda cmd: "/usr/bin/gptme-sessions",
+    )
+    monkeypatch.setattr(
+        "gptme.server.external_sessions._cli_has_transcript_command", lambda: True
+    )
+
+    result = get_external_session_provider()
+    assert isinstance(result, CLIExternalSessionProvider)
+    get_external_session_provider.cache_clear()
+
+
+def test_get_provider_returns_none_when_cli_lacks_transcript(monkeypatch):
+    """Test that get_external_session_provider returns None when CLI lacks transcript command."""
+    from gptme.server.external_sessions import get_external_session_provider
+
+    get_external_session_provider.cache_clear()
+
+    def _raise_import_error():
+        raise ImportError("no gptme_sessions")
+
+    monkeypatch.setattr(
+        "gptme.server.external_sessions.ExternalSessionProvider",
+        _raise_import_error,
+    )
+    monkeypatch.setattr(
+        "gptme.server.external_sessions.shutil.which",
+        lambda cmd: "/usr/bin/gptme-sessions",
+    )
+    monkeypatch.setattr(
+        "gptme.server.external_sessions._cli_has_transcript_command", lambda: False
+    )
+
+    result = get_external_session_provider()
+    assert result is None
+    get_external_session_provider.cache_clear()
+
+
 def test_v2_conversations_list(client: FlaskClient):
     """Test listing V2 conversations."""
     response = client.get("/api/v2/conversations")
