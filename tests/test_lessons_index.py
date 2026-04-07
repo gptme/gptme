@@ -533,13 +533,16 @@ class TestExtraLessonDirsEnv:
             assert dir1.resolve() in resolved
             assert dir2.resolve() in resolved
 
-    def test_extra_dirs_nonexistent_ignored(self, monkeypatch):
-        """Test that nonexistent extra dirs are silently ignored."""
+    def test_extra_dirs_nonexistent_logs_warning(self, monkeypatch, caplog):
+        """Test that a nonexistent extra dir logs a warning but does not raise."""
+        import logging
+
         clear_cache()
         monkeypatch.setenv("GPTME_LESSONS_EXTRA_DIRS", "/nonexistent/path/lessons")
 
-        # Should not raise
-        default_dirs = LessonIndex._default_dirs()
+        with caplog.at_level(logging.WARNING):
+            default_dirs = LessonIndex._default_dirs()
+        assert any("directory not found" in m for m in caplog.messages)
         assert not any(str(d) == "/nonexistent/path/lessons" for d in default_dirs)
 
     def test_extra_dirs_empty_string(self, monkeypatch):
