@@ -571,6 +571,7 @@ def test_external_session_gptme_directory_roundtrip(tmp_path: Path):
     discover_gptme_sessions returns directories. _discover_paths must resolve
     them to conversation.jsonl so list_sessions and get_session use matching IDs.
     """
+    pytest.importorskip("gptme_sessions")
     import json
 
     from gptme.server.external_sessions import ExternalSessionProvider
