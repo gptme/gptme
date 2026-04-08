@@ -406,18 +406,20 @@ class TestGetProviderNeitherAvailable:
 
     def test_returns_none(self, monkeypatch):
         get_external_session_provider.cache_clear()
+        try:
 
-        def _raise_import_error():
-            raise ImportError("no gptme_sessions")
+            def _raise_import_error():
+                raise ImportError("no gptme_sessions")
 
-        monkeypatch.setattr(
-            "gptme.server.external_sessions.ExternalSessionProvider",
-            _raise_import_error,
-        )
-        monkeypatch.setattr(
-            "gptme.server.external_sessions.shutil.which", lambda cmd: None
-        )
+            monkeypatch.setattr(
+                "gptme.server.external_sessions.ExternalSessionProvider",
+                _raise_import_error,
+            )
+            monkeypatch.setattr(
+                "gptme.server.external_sessions.shutil.which", lambda cmd: None
+            )
 
-        result = get_external_session_provider()
-        assert result is None
-        get_external_session_provider.cache_clear()
+            result = get_external_session_provider()
+            assert result is None
+        finally:
+            get_external_session_provider.cache_clear()
