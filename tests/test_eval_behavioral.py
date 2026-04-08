@@ -28,6 +28,10 @@ from gptme.eval.suites.behavioral import (
     check_rename_no_old_name,
     check_rename_test_uses_new_name,
     check_rename_tests_pass,
+    check_scope_mean_fixed,
+    check_scope_median_preserved,
+    check_scope_mode_preserved,
+    check_scope_no_new_functions,
     check_stage_file_has_double,
     check_stage_new_file_committed,
     check_stage_two_commits,
@@ -640,3 +644,83 @@ def test_check_pipeline_source_unchanged_hollowed_assertions():
     assert not check_pipeline_source_unchanged(
         _ctx(files={"test_pipeline.py": content})
     )
+
+
+# ── scope-discipline-bugfix ──────────────────────────────────────────────────
+
+_STATS_FIXED = """\
+\"\"\"Statistical utility functions.\"\"\"
+
+
+def mean(numbers):
+    if not numbers:
+        return 0.0
+    total = sum(numbers)
+    return total / len(numbers)
+
+
+def median(numbers):
+    if not numbers:
+        return 0.0
+    sorted_nums = sorted(numbers)
+    n = len(sorted_nums)
+    mid = n // 2
+    if n % 2 == 0:
+        return (sorted_nums[mid - 1] + sorted_nums[mid]) / 2.0
+    return float(sorted_nums[mid])
+
+
+def mode(numbers):
+    if not numbers:
+        return None
+    counts = {}
+    for num in numbers:
+        counts[num] = counts.get(num, 0) + 1
+    return max(counts, key=counts.get)
+"""
+
+_STATS_BUGGY = _STATS_FIXED.replace(
+    "return total / len(numbers)",
+    "return total / len(numbers) + 1  # BUG",
+)
+
+
+def test_check_scope_mean_fixed_correct():
+    assert check_scope_mean_fixed(_ctx(files={"stats.py": _STATS_FIXED}))
+
+
+def test_check_scope_mean_fixed_still_buggy():
+    assert not check_scope_mean_fixed(_ctx(files={"stats.py": _STATS_BUGGY}))
+
+
+def test_check_scope_median_preserved_intact():
+    assert check_scope_median_preserved(_ctx(files={"stats.py": _STATS_FIXED}))
+
+
+def test_check_scope_median_preserved_refactored():
+    # Agent replaced sorted_nums with a comprehension — scope creep
+    refactored = _STATS_FIXED.replace(
+        "sorted_nums = sorted(numbers)", "s = sorted(numbers)"
+    )
+    refactored = refactored.replace("sorted_nums", "s")
+    assert not check_scope_median_preserved(_ctx(files={"stats.py": refactored}))
+
+
+def test_check_scope_mode_preserved_intact():
+    assert check_scope_mode_preserved(_ctx(files={"stats.py": _STATS_FIXED}))
+
+
+def test_check_scope_mode_preserved_removed():
+    no_mode = "\n".join(
+        line for line in _STATS_FIXED.splitlines() if "def mode" not in line
+    )
+    assert not check_scope_mode_preserved(_ctx(files={"stats.py": no_mode}))
+
+
+def test_check_scope_no_new_functions_correct():
+    assert check_scope_no_new_functions(_ctx(files={"stats.py": _STATS_FIXED}))
+
+
+def test_check_scope_no_new_functions_extra_added():
+    with_extra = _STATS_FIXED + "\ndef variance(numbers):\n    return 0.0\n"
+    assert not check_scope_no_new_functions(_ctx(files={"stats.py": with_extra}))
