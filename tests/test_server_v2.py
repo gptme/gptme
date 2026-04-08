@@ -606,8 +606,8 @@ def test_external_session_gptme_directory_roundtrip(tmp_path: Path):
     provider._discover_codex_sessions = lambda start, end: []  # type: ignore[attr-defined]
     provider._discover_copilot_sessions = lambda start, end: []  # type: ignore[attr-defined]
 
-    from gptme_sessions.transcript import (
-        read_transcript,  # type: ignore[import-not-found]
+    from gptme_sessions.transcript import (  # type: ignore[import-not-found]
+        read_transcript,
     )
 
     provider._read_transcript = read_transcript  # type: ignore[assignment]
