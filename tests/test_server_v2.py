@@ -628,6 +628,33 @@ def test_external_session_gptme_directory_roundtrip(tmp_path: Path):
     assert result["transcript"]["harness"] == "gptme"
 
 
+def test_external_session_gptme_directory_no_jsonl_skipped(tmp_path: Path):
+    """gptme session dirs without conversation.jsonl are skipped at discovery time."""
+    pytest.importorskip("gptme_sessions")
+
+    from gptme.server.external_sessions import ExternalSessionProvider
+
+    # Session directory with no conversation.jsonl inside
+    session_dir = tmp_path / "2026-04-07-empty-gptme-session"
+    session_dir.mkdir()
+
+    provider = ExternalSessionProvider.__new__(ExternalSessionProvider)
+    provider._discover_gptme_sessions = lambda start, end: [session_dir]  # type: ignore[attr-defined]
+    provider._discover_cc_sessions = lambda start, end: []  # type: ignore[attr-defined]
+    provider._discover_codex_sessions = lambda start, end: []  # type: ignore[attr-defined]
+    provider._discover_copilot_sessions = lambda start, end: []  # type: ignore[attr-defined]
+
+    from gptme_sessions.transcript import (  # type: ignore[import-not-found]
+        read_transcript,
+    )
+
+    provider._read_transcript = read_transcript  # type: ignore[assignment]
+
+    # Should return 0 items — the directory is skipped early, not propagated as an error
+    items = provider.list_sessions(limit=10, days=7)
+    assert items == [], f"Expected no sessions, got: {items}"
+
+
 def test_v2_conversations_list(client: FlaskClient):
     """Test listing V2 conversations."""
     response = client.get("/api/v2/conversations")
