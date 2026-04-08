@@ -14,6 +14,7 @@ lessons about *how to work* should have a measurable effect on outcomes:
 - extract-function-refactor: extract duplicated code into a shared module
 - debug-data-pipeline: trace and fix a type error in a multi-stage data pipeline
 - scope-discipline-bugfix: fix only the specified bug without touching unrelated code
+- add-logging: add Python logging (not print) to a function using correct log levels
 
 Each scenario comes with a deterministic checker so results can be used in
 lesson holdout A/B experiments (idea #19, eval-to-lesson feedback loop).
@@ -460,6 +461,47 @@ def check_scope_no_new_functions(ctx):
         if isinstance(n, ast.FunctionDef) and not n.name.startswith("_")
     ]
     return len(top_level_fns) == 3
+
+
+# ── add-logging ──────────────────────────────────────────────────────────────
+
+
+def _get_processor_source(ctx) -> str:
+    content = ctx.files.get("processor.py", "")
+    if isinstance(content, bytes):
+        content = content.decode()
+    return content
+
+
+def check_logging_tests_pass(ctx):
+    """Tests should pass — function behavior must be unchanged."""
+    return ctx.exit_code == 0 and "failed" not in ctx.stdout.lower()
+
+
+def check_logging_module_imported(ctx):
+    """The logging module should be imported in processor.py."""
+    return "import logging" in _get_processor_source(ctx)
+
+
+def check_logging_error_level_used(ctx):
+    """logging.error, logging.exception, or logging.warning used for failure cases."""
+    content = _get_processor_source(ctx)
+    return (
+        "logging.error" in content
+        or "logging.exception" in content
+        or "logging.warning" in content
+    )
+
+
+def check_logging_debug_or_info_used(ctx):
+    """logging.debug or logging.info used for the success path."""
+    content = _get_processor_source(ctx)
+    return "logging.debug" in content or "logging.info" in content
+
+
+def check_logging_no_print(ctx):
+    """print() should not be used — the prompt explicitly requires the logging module."""
+    return "print(" not in _get_processor_source(ctx)
 
 
 # ── test list ────────────────────────────────────────────────────────────────
@@ -1325,6 +1367,84 @@ def test_mode_empty():
             "median not refactored": check_scope_median_preserved,
             "mode not refactored": check_scope_mode_preserved,
             "no new functions added": check_scope_no_new_functions,
+        },
+    },
+    # -------------------------------------------------------------------
+    # Scenario 11: Add logging
+    # processor.py has a function that silently returns None on any
+    # failure without any visibility into what went wrong.  The agent
+    # must instrument it with Python's logging module (not print), using
+    # the right log levels: ERROR/WARNING for invalid inputs, DEBUG/INFO
+    # for success.  Function behaviour (return values) must be preserved.
+    # Tests whether the agent uses proper observability tooling instead
+    # of ad-hoc print statements and selects appropriate severity levels.
+    # -------------------------------------------------------------------
+    {
+        "name": "add-logging",
+        "files": {
+            "processor.py": """\
+\"\"\"Data record processor.\"\"\"
+
+
+def process_record(record):
+    \"\"\"Process a single data record.
+
+    Returns True on success, None if the record is invalid or negative.
+    \"\"\"
+    try:
+        value = int(record["value"])
+        if value < 0:
+            return None
+        record["processed"] = value * 2
+        return True
+    except (KeyError, ValueError):
+        return None
+""",
+            "test_processor.py": """\
+from processor import process_record
+
+
+def test_valid_record():
+    record = {"value": "5"}
+    result = process_record(record)
+    assert result is True
+    assert record["processed"] == 10
+
+
+def test_invalid_value():
+    record = {"value": "not_a_number"}
+    result = process_record(record)
+    assert result is None
+
+
+def test_negative_value():
+    record = {"value": "-3"}
+    result = process_record(record)
+    assert result is None
+
+
+def test_missing_key():
+    record = {}
+    result = process_record(record)
+    assert result is None
+""",
+        },
+        "run": "python3 -m pytest test_processor.py -v --tb=short 2>&1",
+        "prompt": (
+            "Add appropriate logging to `process_record` in `processor.py` "
+            "using Python's `logging` module — do not use `print`. "
+            "Use ERROR level when a record is invalid (missing key or bad value) "
+            "or has a negative value, and DEBUG level when processing succeeds. "
+            "Do not change the function's return values or overall behaviour — "
+            "all existing tests must still pass."
+        ),
+        "tools": ["shell", "save", "read"],
+        "expect": {
+            "tests pass": check_logging_tests_pass,
+            "logging module imported": check_logging_module_imported,
+            "error level used for failures": check_logging_error_level_used,
+            "no print statements": check_logging_no_print,
+            "debug/info level used for success": check_logging_debug_or_info_used,
         },
     },
 ]

@@ -16,6 +16,11 @@ from gptme.eval.suites.behavioral import (
     check_git_selective_commit_msg,
     check_git_selective_config_not_committed,
     check_git_selective_tests_pass,
+    check_logging_debug_or_info_used,
+    check_logging_error_level_used,
+    check_logging_module_imported,
+    check_logging_no_print,
+    check_logging_tests_pass,
     check_merge_commit_completed,
     check_merge_no_conflict_markers,
     check_merge_null_safety,
@@ -724,3 +729,130 @@ def test_check_scope_no_new_functions_correct():
 def test_check_scope_no_new_functions_extra_added():
     with_extra = _STATS_FIXED + "\ndef variance(numbers):\n    return 0.0\n"
     assert not check_scope_no_new_functions(_ctx(files={"stats.py": with_extra}))
+
+
+# ── add-logging ───────────────────────────────────────────────────────────────
+
+_PROCESSOR_ORIGINAL = """\
+\"\"\"Data record processor.\"\"\"
+
+
+def process_record(record):
+    try:
+        value = int(record["value"])
+        if value < 0:
+            return None
+        record["processed"] = value * 2
+        return True
+    except (KeyError, ValueError):
+        return None
+"""
+
+_PROCESSOR_WITH_LOGGING = """\
+\"\"\"Data record processor.\"\"\"
+import logging
+
+
+def process_record(record):
+    try:
+        value = int(record["value"])
+        if value < 0:
+            logging.error("Negative value: %s", value)
+            return None
+        record["processed"] = value * 2
+        logging.debug("Processed record: value=%s", value)
+        return True
+    except (KeyError, ValueError) as e:
+        logging.error("Invalid record: %s", e)
+        return None
+"""
+
+_PROCESSOR_WITH_PRINT = """\
+\"\"\"Data record processor.\"\"\"
+
+
+def process_record(record):
+    try:
+        value = int(record["value"])
+        if value < 0:
+            print(f"Error: negative value {value}")
+            return None
+        record["processed"] = value * 2
+        print(f"Processed: {value}")
+        return True
+    except (KeyError, ValueError) as e:
+        print(f"Error: {e}")
+        return None
+"""
+
+_PROCESSOR_MISSING_DEBUG = """\
+\"\"\"Data record processor.\"\"\"
+import logging
+
+
+def process_record(record):
+    try:
+        value = int(record["value"])
+        if value < 0:
+            logging.error("Negative value: %s", value)
+            return None
+        record["processed"] = value * 2
+        return True
+    except (KeyError, ValueError) as e:
+        logging.error("Invalid record: %s", e)
+        return None
+"""
+
+
+def test_check_logging_tests_pass_success():
+    assert check_logging_tests_pass(_ctx("4 passed", exit_code=0))
+
+
+def test_check_logging_tests_pass_failure():
+    assert not check_logging_tests_pass(_ctx("1 failed", exit_code=1))
+
+
+def test_check_logging_module_imported_present():
+    assert check_logging_module_imported(
+        _ctx(files={"processor.py": _PROCESSOR_WITH_LOGGING})
+    )
+
+
+def test_check_logging_module_imported_missing():
+    assert not check_logging_module_imported(
+        _ctx(files={"processor.py": _PROCESSOR_ORIGINAL})
+    )
+
+
+def test_check_logging_error_level_used_present():
+    assert check_logging_error_level_used(
+        _ctx(files={"processor.py": _PROCESSOR_WITH_LOGGING})
+    )
+
+
+def test_check_logging_error_level_used_missing():
+    assert not check_logging_error_level_used(
+        _ctx(files={"processor.py": _PROCESSOR_ORIGINAL})
+    )
+
+
+def test_check_logging_no_print_clean():
+    assert check_logging_no_print(_ctx(files={"processor.py": _PROCESSOR_WITH_LOGGING}))
+
+
+def test_check_logging_no_print_uses_print():
+    assert not check_logging_no_print(
+        _ctx(files={"processor.py": _PROCESSOR_WITH_PRINT})
+    )
+
+
+def test_check_logging_debug_or_info_used_present():
+    assert check_logging_debug_or_info_used(
+        _ctx(files={"processor.py": _PROCESSOR_WITH_LOGGING})
+    )
+
+
+def test_check_logging_debug_or_info_used_missing():
+    assert not check_logging_debug_or_info_used(
+        _ctx(files={"processor.py": _PROCESSOR_MISSING_DEBUG})
+    )
