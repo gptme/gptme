@@ -99,7 +99,7 @@ def _restart_mcp_client(server_name: str, config: Config) -> MCPClient:
             old_client.loop.close()
             logger.debug(f"Closed old MCP client for {server_name}")
         except Exception as e:
-            logger.debug(f"Error closing old MCP client: {e}")
+            logger.warning(f"Error closing old MCP client for {server_name}: {e}")
 
     # Create new client and reconnect
     new_client = MCPClient(config=config)

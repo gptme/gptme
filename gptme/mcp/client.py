@@ -57,7 +57,10 @@ class MCPClient:
         """Initialize the client with optional config"""
         self.config = config or get_config()
         self.loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self.loop)
+        # Don't call asyncio.set_event_loop() — each client owns its own loop
+        # and uses it exclusively via self.loop.run_until_complete() in _run_async().
+        # Setting it as the thread-global loop would cause multiple MCPClient
+        # instances to overwrite each other's loops.
         logger.debug(f"Init - Loop ID: {id(self.loop)}")
         self.session: ClientSession | None = None
         self.tools: types.ListToolsResult | None = None
