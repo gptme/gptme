@@ -286,7 +286,7 @@ class TestCliHasTranscriptCommand:
 class TestListSessionsSorting:
     """Tests for sort order and limit enforcement in list_sessions."""
 
-    def test_sorted_by_last_activity_descending(self, monkeypatch):
+    def test_sorted_by_last_activity_descending(self):
         """Sessions should be sorted by last_activity, most recent first."""
         from gptme.server.external_sessions import ExternalSessionProvider
 
@@ -331,7 +331,7 @@ class TestListSessionsSorting:
         items = provider.list_sessions(limit=10, days=30)
         assert [i.session_id for i in items] == ["new", "mid", "old"]
 
-    def test_limit_enforced(self, monkeypatch):
+    def test_limit_enforced(self):
         """list_sessions respects the limit parameter."""
         from gptme.server.external_sessions import ExternalSessionProvider
 
@@ -356,7 +356,7 @@ class TestListSessionsSorting:
         items = provider.list_sessions(limit=2, days=30)
         assert len(items) == 2
 
-    def test_sorting_with_none_last_activity(self, monkeypatch):
+    def test_sorting_with_none_last_activity(self):
         """Sessions with None last_activity fall back to started_at."""
         from gptme.server.external_sessions import ExternalSessionProvider
 
