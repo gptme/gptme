@@ -59,7 +59,9 @@ def test_session_start_hook(client: FlaskClient, monkeypatch):
         },
     )
 
-    assert response.status_code == 200
+    # May return 500 if no API key is available (LLM errors are now surfaced),
+    # but SESSION_START hooks fire before the LLM call so they're still triggered.
+    assert response.status_code in (200, 500)
 
     # Wait for step to complete (runs in background thread)
     time.sleep(2)
@@ -70,13 +72,6 @@ def test_session_start_hook(client: FlaskClient, monkeypatch):
     data = response.get_json()
 
     messages = data.get("log", [])
-
-    # Debug: print all messages
-    print(f"\nTotal messages: {len(messages)}")
-    for i, m in enumerate(messages):
-        print(
-            f"Message {i}: role={m.get('role')}, content={m.get('content', '')[:100]}"
-        )
 
     # Check if test SESSION_START hook message is in the log
     test_hook_messages = [
