@@ -9,11 +9,11 @@ This is critical infrastructure for idea #19 (eval-to-lesson feedback loop):
 before running expensive baseline experiments with real models, we need
 confidence that the checkers correctly identify good work.
 
-Covers all 10 behavioral scenarios:
+Covers all 11 behavioral scenarios:
   git-selective-commit, multi-file-rename, iterative-debug,
   stage-new-files, write-test-suite, test-driven-error-handling,
   merge-conflict-resolution, extract-function-refactor, debug-data-pipeline,
-  scope-discipline-bugfix
+  scope-discipline-bugfix, add-logging
 """
 
 import subprocess
@@ -260,6 +260,33 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
                 "return total / len(numbers) + 1  # BUG: spurious +1",
                 "return total / len(numbers)",
             )
+        )
+
+    elif scenario_name == "add-logging":
+        # Add Python logging to process_record — error level for failures,
+        # debug level for success, no print statements.
+        p = workspace / "processor.py"
+        p.write_text(
+            '"""Data record processor."""\n'
+            "import logging\n"
+            "\n"
+            "\n"
+            "def process_record(record):\n"
+            '    """Process a single data record.\n'
+            "\n"
+            "    Returns True on success, None if the record is invalid or negative.\n"
+            '    """\n'
+            "    try:\n"
+            '        value = int(record["value"])\n'
+            "        if value < 0:\n"
+            '            logging.error("Negative value: %s", value)\n'
+            "            return None\n"
+            '        record["processed"] = value * 2\n'
+            '        logging.debug("Processed record: value=%s", value)\n'
+            "        return True\n"
+            "    except (KeyError, ValueError) as e:\n"
+            '        logging.error("Invalid record: %s", e)\n'
+            "        return None\n"
         )
 
     else:
