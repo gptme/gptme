@@ -16,6 +16,7 @@ lessons about *how to work* should have a measurable effect on outcomes:
 - scope-discipline-bugfix: fix only the specified bug without touching unrelated code
 - add-logging: add Python logging (not print) to a function using correct log levels
 - use-existing-helper: refactor duplicated logic to call an existing utility function
+- add-feature-preserve-default: add a parameter with a default value without breaking existing tests
 
 Each scenario comes with a deterministic checker so results can be used in
 lesson holdout A/B experiments (idea #19, eval-to-lesson feedback loop).
@@ -554,6 +555,56 @@ def check_reuse_utils_unchanged(ctx):
     if isinstance(content, bytes):
         content = content.decode()
     return "def normalize_email" in content and "def is_valid_email" in content
+
+
+# ── add-feature-preserve-default ─────────────────────────────────────────────
+
+
+def _get_text_stats_source(ctx) -> str:
+    text = ctx.files.get("text_stats.py", "")
+    return text if isinstance(text, str) else text.decode()
+
+
+def check_compat_tests_pass(ctx):
+    """All tests should pass after adding the feature."""
+    return ctx.exit_code == 0 and "failed" not in ctx.stdout.lower()
+
+
+def check_compat_has_default_param(ctx):
+    """summarize() should have include_chars parameter with default False."""
+    source = _get_text_stats_source(ctx)
+    module = _parse_python_source(source)
+    func = _get_function_def(module, "summarize")
+    if func is None:
+        return False
+    # Check for a keyword argument with default False
+    for default, arg in zip(
+        reversed(func.args.defaults), reversed(func.args.args), strict=False
+    ):
+        if arg.arg == "include_chars":
+            return isinstance(default, ast.Constant) and default.value is False
+    for kw, kw_default in zip(
+        func.args.kwonlyargs, func.args.kw_defaults, strict=False
+    ):
+        if kw.arg == "include_chars" and kw_default is not None:
+            return isinstance(kw_default, ast.Constant) and kw_default.value is False
+    return False
+
+
+def check_compat_original_tests_intact(ctx):
+    """Original test functions must not be removed or altered."""
+    text = ctx.files.get("test_text_stats.py", "")
+    if isinstance(text, bytes):
+        text = text.decode()
+    return "# END_ORIGINAL_TESTS" in text and "test_keys_only_words_lines" in text
+
+
+def check_compat_new_tests_exist(ctx):
+    """New tests for include_chars=True should exist."""
+    text = ctx.files.get("test_text_stats.py", "")
+    if isinstance(text, bytes):
+        text = text.decode()
+    return "include_chars" in text and "True" in text
 
 
 # ── test list ────────────────────────────────────────────────────────────────
@@ -1584,6 +1635,81 @@ def test_create_user_active_flag():
             "uses normalize_email": check_reuse_uses_normalize,
             "no inline strip/lower": check_reuse_no_inline_strip,
             "utils.py unchanged": check_reuse_utils_unchanged,
+        },
+    },
+    # -------------------------------------------------------------------
+    # Scenario 13: Add feature with backward-compatible default
+    # Agent must add an include_chars parameter to summarize() with a
+    # default of False.  Existing tests (which assert the dict has only
+    # "words" and "lines" keys) must still pass unchanged.  New tests
+    # for include_chars=True must be added.  Tests whether the agent
+    # preserves backward compatibility when extending a public API.
+    # -------------------------------------------------------------------
+    {
+        "name": "add-feature-preserve-default",
+        "files": {
+            "text_stats.py": """\
+def summarize(text):
+    \"\"\"Return a dict with word and line counts for the given text.\"\"\"
+    if not text:
+        return {"words": 0, "lines": 0}
+    words = len(text.split())
+    lines = len(text.splitlines())
+    return {"words": words, "lines": lines}
+""",
+            "test_text_stats.py": """\
+# Original tests — do not modify above this line
+from text_stats import summarize
+
+
+def test_basic():
+    result = summarize("hello world\\nfoo bar")
+    assert result == {"words": 4, "lines": 2}
+
+
+def test_single_line():
+    result = summarize("hello")
+    assert result == {"words": 1, "lines": 1}
+
+
+def test_empty():
+    result = summarize("")
+    assert result == {"words": 0, "lines": 0}
+
+
+def test_none():
+    result = summarize(None)
+    assert result == {"words": 0, "lines": 0}
+
+
+def test_multiline():
+    text = "line one\\nline two\\nline three"
+    result = summarize(text)
+    assert result == {"words": 6, "lines": 3}
+
+
+def test_keys_only_words_lines():
+    \"\"\"Returned dict should contain exactly 'words' and 'lines' keys.\"\"\"
+    result = summarize("test")
+    assert set(result.keys()) == {"words", "lines"}
+# END_ORIGINAL_TESTS
+""",
+        },
+        "run": "python3 -m pytest test_text_stats.py -v --tb=short 2>&1",
+        "prompt": (
+            "Add an `include_chars` parameter to `summarize()` in `text_stats.py` "
+            "with a default value of `False`. When `True`, the returned dictionary "
+            "should also include a `'chars'` key with the total character count "
+            "(including spaces). All existing tests must continue to pass without "
+            "modification — do not edit or remove the existing tests. Add new tests "
+            "in `test_text_stats.py` for the `include_chars=True` behavior."
+        ),
+        "tools": ["shell", "save", "read"],
+        "expect": {
+            "tests pass": check_compat_tests_pass,
+            "include_chars has default False": check_compat_has_default_param,
+            "original tests intact": check_compat_original_tests_intact,
+            "new tests for include_chars": check_compat_new_tests_exist,
         },
     },
 ]

@@ -9,11 +9,12 @@ This is critical infrastructure for idea #19 (eval-to-lesson feedback loop):
 before running expensive baseline experiments with real models, we need
 confidence that the checkers correctly identify good work.
 
-Covers all 12 behavioral scenarios:
+Covers all 13 behavioral scenarios:
   git-selective-commit, multi-file-rename, iterative-debug,
   stage-new-files, write-test-suite, test-driven-error-handling,
   merge-conflict-resolution, extract-function-refactor, debug-data-pipeline,
-  scope-discipline-bugfix, add-logging, use-existing-helper
+  scope-discipline-bugfix, add-logging, use-existing-helper,
+  add-feature-preserve-default
 """
 
 import subprocess
@@ -309,6 +310,45 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
             '    if "@" not in normalized or "." not in normalized.split("@")[-1]:\n'
             "        raise ValueError(f\"Invalid email: {email!r}\")\n"
             '    return {"email": normalized, "active": True}\n'
+        )
+
+    elif scenario_name == "add-feature-preserve-default":
+        # Add include_chars parameter with default False; append new tests
+        (workspace / "text_stats.py").write_text(
+            textwrap.dedent("""\
+            def summarize(text, include_chars=False):
+                \"\"\"Return a dict with word and line counts for the given text.\"\"\"
+                if not text:
+                    result = {"words": 0, "lines": 0}
+                else:
+                    words = len(text.split())
+                    lines = len(text.splitlines())
+                    result = {"words": words, "lines": lines}
+                if include_chars:
+                    result["chars"] = len(text) if text else 0
+                return result
+            """)
+        )
+        # Append new tests after the marker — do not modify original tests
+        original = (workspace / "test_text_stats.py").read_text()
+        (workspace / "test_text_stats.py").write_text(
+            original
+            + textwrap.dedent("""\
+
+            def test_include_chars_true():
+                result = summarize("hello world", include_chars=True)
+                assert result == {"words": 2, "lines": 1, "chars": 11}
+
+
+            def test_include_chars_empty():
+                result = summarize("", include_chars=True)
+                assert result == {"words": 0, "lines": 0, "chars": 0}
+
+
+            def test_include_chars_false_explicit():
+                result = summarize("hello", include_chars=False)
+                assert set(result.keys()) == {"words", "lines"}
+            """)
         )
 
     else:

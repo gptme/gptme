@@ -1,6 +1,10 @@
 from types import SimpleNamespace
 
 from gptme.eval.suites.behavioral import (
+    check_compat_has_default_param,
+    check_compat_new_tests_exist,
+    check_compat_original_tests_intact,
+    check_compat_tests_pass,
     check_debug_fix_in_file,
     check_debug_no_syntax_error,
     check_debug_tests_pass,
@@ -1061,4 +1065,141 @@ def test_check_reuse_utils_unchanged_missing_func():
     )
     assert not check_reuse_utils_unchanged(
         _ctx(files={"users.py": _USERS_REFACTORED, "utils.py": stripped})
+    )
+
+
+# ── add-feature-preserve-default ─────────────────────────────────────────────
+
+_TEXT_STATS_CORRECT = """\
+def summarize(text, include_chars=False):
+    if not text:
+        result = {"words": 0, "lines": 0}
+    else:
+        words = len(text.split())
+        lines = len(text.splitlines())
+        result = {"words": words, "lines": lines}
+    if include_chars:
+        result["chars"] = len(text) if text else 0
+    return result
+"""
+
+_TEXT_STATS_NO_DEFAULT = """\
+def summarize(text, include_chars):
+    if not text:
+        return {"words": 0, "lines": 0}
+    words = len(text.split())
+    lines = len(text.splitlines())
+    result = {"words": words, "lines": lines}
+    if include_chars:
+        result["chars"] = len(text)
+    return result
+"""
+
+_TEXT_STATS_WRONG_DEFAULT = """\
+def summarize(text, include_chars=True):
+    if not text:
+        return {"words": 0, "lines": 0}
+    words = len(text.split())
+    lines = len(text.splitlines())
+    result = {"words": words, "lines": lines}
+    if include_chars:
+        result["chars"] = len(text)
+    return result
+"""
+
+_TEST_WITH_MARKER_AND_NEW = """\
+# Original tests — do not modify above this line
+from text_stats import summarize
+
+def test_basic():
+    result = summarize("hello world\\nfoo bar")
+    assert result == {"words": 4, "lines": 2}
+
+def test_keys_only_words_lines():
+    result = summarize("test")
+    assert set(result.keys()) == {"words", "lines"}
+# END_ORIGINAL_TESTS
+
+def test_include_chars_true():
+    result = summarize("hello world", include_chars=True)
+    assert "chars" in result
+    assert result["chars"] == 11
+"""
+
+_TEST_MARKER_REMOVED = """\
+from text_stats import summarize
+
+def test_basic():
+    result = summarize("hello world\\nfoo bar")
+    assert result == {"words": 4, "lines": 2}
+
+def test_include_chars():
+    result = summarize("hi", include_chars=True)
+    assert result["chars"] == 2
+"""
+
+
+def test_check_compat_tests_pass_success():
+    assert check_compat_tests_pass(_ctx("6 passed", exit_code=0))
+
+
+def test_check_compat_tests_pass_failure():
+    assert not check_compat_tests_pass(_ctx("1 failed, 5 passed", exit_code=1))
+
+
+def test_check_compat_has_default_param_correct():
+    assert check_compat_has_default_param(
+        _ctx(files={"text_stats.py": _TEXT_STATS_CORRECT})
+    )
+
+
+def test_check_compat_has_default_param_no_default():
+    assert not check_compat_has_default_param(
+        _ctx(files={"text_stats.py": _TEXT_STATS_NO_DEFAULT})
+    )
+
+
+def test_check_compat_has_default_param_wrong_default():
+    assert not check_compat_has_default_param(
+        _ctx(files={"text_stats.py": _TEXT_STATS_WRONG_DEFAULT})
+    )
+
+
+def test_check_compat_has_default_param_kwonly():
+    """include_chars as keyword-only arg should also be accepted."""
+    source = """\
+def summarize(text, *, include_chars=False):
+    pass
+"""
+    assert check_compat_has_default_param(_ctx(files={"text_stats.py": source}))
+
+
+def test_check_compat_original_tests_intact_present():
+    assert check_compat_original_tests_intact(
+        _ctx(files={"test_text_stats.py": _TEST_WITH_MARKER_AND_NEW})
+    )
+
+
+def test_check_compat_original_tests_intact_removed():
+    assert not check_compat_original_tests_intact(
+        _ctx(files={"test_text_stats.py": _TEST_MARKER_REMOVED})
+    )
+
+
+def test_check_compat_new_tests_exist_present():
+    assert check_compat_new_tests_exist(
+        _ctx(files={"test_text_stats.py": _TEST_WITH_MARKER_AND_NEW})
+    )
+
+
+def test_check_compat_new_tests_exist_absent():
+    test_no_new = """\
+from text_stats import summarize
+def test_basic():
+    result = summarize("hello")
+    assert result == {"words": 1, "lines": 1}
+# END_ORIGINAL_TESTS
+"""
+    assert not check_compat_new_tests_exist(
+        _ctx(files={"test_text_stats.py": test_no_new})
     )
