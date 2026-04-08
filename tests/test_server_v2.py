@@ -512,6 +512,119 @@ def test_get_provider_returns_none_when_cli_lacks_transcript(monkeypatch):
     get_external_session_provider.cache_clear()
 
 
+@pytest.mark.timeout(30)
+def test_external_session_list_then_get_roundtrip(client: FlaskClient, monkeypatch):
+    """Webui flow: list sessions → pick ID → fetch that session by ID.
+
+    This is the exact sequence the webui performs. If the IDs returned by
+    list don't match what get_session expects, the detail request 404s.
+    """
+    from gptme.server.external_sessions import ExternalSessionProvider
+
+    provider = ExternalSessionProvider.__new__(ExternalSessionProvider)
+    # Use a resolved path so the ID is the same everywhere — _discover_paths
+    # resolves in production; tests that override it must do the same.
+    session_path = Path("/tmp/sessions/roundtrip-session.jsonl").resolve()
+    provider._discover_paths = lambda days: [session_path]  # type: ignore[method-assign]
+
+    class _Transcript:
+        def to_dict(self) -> dict[str, Any]:
+            return {
+                "trajectory_path": str(session_path),
+                "session_id": "roundtrip",
+                "harness": "claude-code",
+                "session_name": "Roundtrip Session",
+                "project": "/tmp/project",
+                "model": "claude-sonnet-4-5",
+                "started_at": "2026-04-07T10:00:00+00:00",
+                "last_activity": "2026-04-07T10:05:00+00:00",
+                "capabilities": ["view_transcript"],
+                "messages": [{"role": "user", "content": "hello"}],
+            }
+
+    provider._read_transcript = lambda path: _Transcript()  # type: ignore[assignment]
+    monkeypatch.setattr(
+        "gptme.server.api_v2.get_external_session_provider", lambda: provider
+    )
+
+    # Step 1: list sessions (webui catalog fetch)
+    list_resp = client.get("/api/v2/external-sessions")
+    assert list_resp.status_code == 200
+    sessions = list_resp.get_json()["sessions"]
+    assert len(sessions) == 1
+    session_id = sessions[0]["id"]
+
+    # Step 2: fetch that specific session by its ID (webui detail fetch)
+    detail_resp = client.get(f"/api/v2/external-sessions/{session_id}")
+    assert detail_resp.status_code == 200, (
+        f"Expected 200 but got {detail_resp.status_code} — "
+        f"ID {session_id} from list was not found by get_session"
+    )
+    detail = detail_resp.get_json()
+    assert detail["id"] == session_id
+    assert detail["transcript"]["session_id"] == "roundtrip"
+
+
+def test_external_session_gptme_directory_roundtrip(tmp_path: Path):
+    """ExternalSessionProvider resolves gptme session dirs and IDs stay consistent.
+
+    discover_gptme_sessions returns directories. _discover_paths must resolve
+    them to conversation.jsonl so list_sessions and get_session use matching IDs.
+    """
+    import json
+
+    from gptme.server.external_sessions import ExternalSessionProvider
+
+    # Set up a fake gptme session directory with conversation.jsonl
+    session_dir = tmp_path / "2026-04-07-test-gptme-session"
+    session_dir.mkdir()
+    conv_jsonl = session_dir / "conversation.jsonl"
+    conv_jsonl.write_text(
+        "\n".join(
+            json.dumps(r)
+            for r in [
+                {
+                    "role": "user",
+                    "content": "hello",
+                    "timestamp": "2026-04-07T10:00:00+00:00",
+                },
+                {
+                    "role": "assistant",
+                    "content": "hi there",
+                    "timestamp": "2026-04-07T10:01:00+00:00",
+                },
+            ]
+        )
+        + "\n"
+    )
+
+    provider = ExternalSessionProvider.__new__(ExternalSessionProvider)
+    # Simulate discover_gptme_sessions returning directory paths
+    provider._discover_gptme_sessions = lambda start, end: [session_dir]  # type: ignore[attr-defined]
+    provider._discover_cc_sessions = lambda start, end: []  # type: ignore[attr-defined]
+    provider._discover_codex_sessions = lambda start, end: []  # type: ignore[attr-defined]
+    provider._discover_copilot_sessions = lambda start, end: []  # type: ignore[attr-defined]
+
+    from gptme_sessions.transcript import read_transcript
+
+    provider._read_transcript = read_transcript  # type: ignore[assignment]
+
+    # List: should succeed (not IsADirectoryError) and return a session
+    items = provider.list_sessions(limit=10, days=7)
+    assert len(items) == 1
+    assert items[0].harness == "gptme"
+    listed_id = items[0].id
+
+    # Get: the ID from listing must work for detail lookup
+    result = provider.get_session(listed_id, days=7)
+    assert result is not None, (
+        f"get_session returned None for ID {listed_id} — "
+        "ID mismatch between list_sessions and get_session"
+    )
+    assert result["id"] == listed_id
+    assert result["transcript"]["harness"] == "gptme"
+
+
 def test_v2_conversations_list(client: FlaskClient):
     """Test listing V2 conversations."""
     response = client.get("/api/v2/conversations")
