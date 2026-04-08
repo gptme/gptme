@@ -480,23 +480,34 @@ def check_logging_tests_pass(ctx):
 
 def check_logging_module_imported(ctx):
     """The logging module should be imported in processor.py."""
-    return "import logging" in _get_processor_source(ctx)
+    content = _get_processor_source(ctx)
+    return "import logging" in content or "from logging import" in content
 
 
 def check_logging_error_level_used(ctx):
-    """logging.error, logging.exception, or logging.warning used for failure cases."""
+    """logging.error/exception/warning used for failure cases (direct or via named logger)."""
     content = _get_processor_source(ctx)
-    return (
-        "logging.error" in content
-        or "logging.exception" in content
-        or "logging.warning" in content
+    return bool(
+        re.search(
+            r"\blogging\.(error|exception|warning)\s*\("  # logging.error(
+            r"|"
+            r"\b\w+\.(error|exception|warning)\s*\(",  # logger.error(
+            content,
+        )
     )
 
 
 def check_logging_debug_or_info_used(ctx):
-    """logging.debug or logging.info used for the success path."""
+    """logging.debug/info used for the success path (direct or via named logger)."""
     content = _get_processor_source(ctx)
-    return "logging.debug" in content or "logging.info" in content
+    return bool(
+        re.search(
+            r"\blogging\.(debug|info)\s*\("  # logging.debug(
+            r"|"
+            r"\b\w+\.(debug|info)\s*\(",  # logger.debug(
+            content,
+        )
+    )
 
 
 def check_logging_no_print(ctx):

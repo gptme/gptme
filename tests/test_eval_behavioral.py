@@ -803,6 +803,50 @@ def process_record(record):
         return None
 """
 
+# Named-logger style: logger = logging.getLogger(__name__); logger.error(...)
+_PROCESSOR_NAMED_LOGGER = """\
+\"\"\"Data record processor.\"\"\"
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def process_record(record):
+    try:
+        value = int(record["value"])
+        if value < 0:
+            logger.error("Negative value: %s", value)
+            return None
+        record["processed"] = value * 2
+        logger.debug("Processed record: value=%s", value)
+        return True
+    except (KeyError, ValueError) as e:
+        logger.error("Invalid record: %s", e)
+        return None
+"""
+
+# from-import style: from logging import getLogger
+_PROCESSOR_FROM_IMPORT = """\
+\"\"\"Data record processor.\"\"\"
+from logging import getLogger
+
+logger = getLogger(__name__)
+
+
+def process_record(record):
+    try:
+        value = int(record["value"])
+        if value < 0:
+            logger.error("Negative value: %s", value)
+            return None
+        record["processed"] = value * 2
+        logger.debug("Processed record: value=%s", value)
+        return True
+    except (KeyError, ValueError) as e:
+        logger.error("Invalid record: %s", e)
+        return None
+"""
+
 
 def test_check_logging_tests_pass_success():
     assert check_logging_tests_pass(_ctx("4 passed", exit_code=0))
@@ -855,4 +899,40 @@ def test_check_logging_debug_or_info_used_present():
 def test_check_logging_debug_or_info_used_missing():
     assert not check_logging_debug_or_info_used(
         _ctx(files={"processor.py": _PROCESSOR_MISSING_DEBUG})
+    )
+
+
+# Named-logger pattern: logger = logging.getLogger(__name__); logger.error(...)
+def test_check_logging_error_level_named_logger():
+    """Named-logger pattern (logger.error) should be accepted."""
+    assert check_logging_error_level_used(
+        _ctx(files={"processor.py": _PROCESSOR_NAMED_LOGGER})
+    )
+
+
+def test_check_logging_debug_named_logger():
+    """Named-logger pattern (logger.debug) should be accepted."""
+    assert check_logging_debug_or_info_used(
+        _ctx(files={"processor.py": _PROCESSOR_NAMED_LOGGER})
+    )
+
+
+def test_check_logging_module_imported_from_style():
+    """from logging import ... should be accepted."""
+    assert check_logging_module_imported(
+        _ctx(files={"processor.py": _PROCESSOR_FROM_IMPORT})
+    )
+
+
+def test_check_logging_error_level_from_import_named_logger():
+    """from-import + named logger pattern should be accepted."""
+    assert check_logging_error_level_used(
+        _ctx(files={"processor.py": _PROCESSOR_FROM_IMPORT})
+    )
+
+
+def test_check_logging_debug_from_import_named_logger():
+    """from-import + named logger debug should be accepted."""
+    assert check_logging_debug_or_info_used(
+        _ctx(files={"processor.py": _PROCESSOR_FROM_IMPORT})
     )
