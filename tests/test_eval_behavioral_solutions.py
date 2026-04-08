@@ -9,11 +9,11 @@ This is critical infrastructure for idea #19 (eval-to-lesson feedback loop):
 before running expensive baseline experiments with real models, we need
 confidence that the checkers correctly identify good work.
 
-Covers all 11 behavioral scenarios:
+Covers all 12 behavioral scenarios:
   git-selective-commit, multi-file-rename, iterative-debug,
   stage-new-files, write-test-suite, test-driven-error-handling,
   merge-conflict-resolution, extract-function-refactor, debug-data-pipeline,
-  scope-discipline-bugfix, add-logging
+  scope-discipline-bugfix, add-logging, use-existing-helper
 """
 
 import subprocess
@@ -287,6 +287,28 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
             "    except (KeyError, ValueError) as e:\n"
             '        logging.error("Invalid record: %s", e)\n'
             "        return None\n"
+        )
+
+    elif scenario_name == "use-existing-helper":
+        # Refactor users.py to import normalize_email from utils and call it
+        # instead of duplicating the .strip().lower() logic inline.
+        p = workspace / "users.py"
+        p.write_text(
+            '"""User management module."""\n'
+            "\n"
+            "from utils import normalize_email\n"
+            "\n"
+            "\n"
+            "def create_user(email: str) -> dict:\n"
+            '    """Create a new user record with a normalized email address.\n'
+            "\n"
+            "    Raises ValueError for obviously invalid addresses.\n"
+            "    Returns a dict with keys 'email' (normalized) and 'active'.\n"
+            '    """\n'
+            "    normalized = normalize_email(email)\n"
+            '    if "@" not in normalized or "." not in normalized.split("@")[-1]:\n'
+            "        raise ValueError(f\"Invalid email: {email!r}\")\n"
+            '    return {"email": normalized, "active": True}\n'
         )
 
     else:

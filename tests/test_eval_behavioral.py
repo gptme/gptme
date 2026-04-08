@@ -33,6 +33,11 @@ from gptme.eval.suites.behavioral import (
     check_rename_no_old_name,
     check_rename_test_uses_new_name,
     check_rename_tests_pass,
+    check_reuse_imports_utils,
+    check_reuse_no_inline_strip,
+    check_reuse_tests_pass,
+    check_reuse_uses_normalize,
+    check_reuse_utils_unchanged,
     check_scope_mean_fixed,
     check_scope_median_preserved,
     check_scope_mode_preserved,
@@ -935,4 +940,125 @@ def test_check_logging_debug_from_import_named_logger():
     """from-import + named logger debug should be accepted."""
     assert check_logging_debug_or_info_used(
         _ctx(files={"processor.py": _PROCESSOR_FROM_IMPORT})
+    )
+
+
+# ── use-existing-helper fixtures ─────────────────────────────────────────────
+
+_UTILS_SRC = """\
+\"\"\"Shared utility functions.\"\"\"
+
+import re
+
+
+def normalize_email(email: str) -> str:
+    \"\"\"Normalize an email address: strip surrounding whitespace and lowercase.\"\"\"
+    return email.strip().lower()
+
+
+def is_valid_email(email: str) -> bool:
+    \"\"\"Return True if *email* looks like a valid address (basic RFC check).\"\"\"
+    return bool(re.match(r"[^@]+@[^@]+\\.[^@]+", email))
+"""
+
+_USERS_ORIGINAL = """\
+\"\"\"User management module.\"\"\"
+
+
+def create_user(email: str) -> dict:
+    normalized = email.strip().lower()
+    if "@" not in normalized or "." not in normalized.split("@")[-1]:
+        raise ValueError(f"Invalid email: {email!r}")
+    return {"email": normalized, "active": True}
+"""
+
+_USERS_REFACTORED = """\
+\"\"\"User management module.\"\"\"
+
+from utils import normalize_email, is_valid_email
+
+
+def create_user(email: str) -> dict:
+    normalized = normalize_email(email)
+    if not is_valid_email(normalized):
+        raise ValueError(f"Invalid email: {email!r}")
+    return {"email": normalized, "active": True}
+"""
+
+_USERS_PARTIAL = """\
+\"\"\"User management module.\"\"\"
+
+from utils import normalize_email
+
+
+def create_user(email: str) -> dict:
+    normalized = normalize_email(email)
+    if "@" not in normalized or "." not in normalized.split("@")[-1]:
+        raise ValueError(f"Invalid email: {email!r}")
+    return {"email": normalized, "active": True}
+"""
+
+
+def test_check_reuse_tests_pass_ok():
+    assert check_reuse_tests_pass(_ctx(stdout="5 passed", exit_code=0))
+
+
+def test_check_reuse_tests_pass_failed():
+    assert not check_reuse_tests_pass(_ctx(stdout="1 failed", exit_code=1))
+
+
+def test_check_reuse_imports_utils_refactored():
+    assert check_reuse_imports_utils(
+        _ctx(files={"users.py": _USERS_REFACTORED, "utils.py": _UTILS_SRC})
+    )
+
+
+def test_check_reuse_imports_utils_partial():
+    assert check_reuse_imports_utils(
+        _ctx(files={"users.py": _USERS_PARTIAL, "utils.py": _UTILS_SRC})
+    )
+
+
+def test_check_reuse_imports_utils_original():
+    assert not check_reuse_imports_utils(
+        _ctx(files={"users.py": _USERS_ORIGINAL, "utils.py": _UTILS_SRC})
+    )
+
+
+def test_check_reuse_uses_normalize_refactored():
+    assert check_reuse_uses_normalize(
+        _ctx(files={"users.py": _USERS_REFACTORED, "utils.py": _UTILS_SRC})
+    )
+
+
+def test_check_reuse_uses_normalize_original():
+    assert not check_reuse_uses_normalize(
+        _ctx(files={"users.py": _USERS_ORIGINAL, "utils.py": _UTILS_SRC})
+    )
+
+
+def test_check_reuse_no_inline_strip_refactored():
+    assert check_reuse_no_inline_strip(
+        _ctx(files={"users.py": _USERS_REFACTORED, "utils.py": _UTILS_SRC})
+    )
+
+
+def test_check_reuse_no_inline_strip_original():
+    assert not check_reuse_no_inline_strip(
+        _ctx(files={"users.py": _USERS_ORIGINAL, "utils.py": _UTILS_SRC})
+    )
+
+
+def test_check_reuse_utils_unchanged_intact():
+    assert check_reuse_utils_unchanged(
+        _ctx(files={"users.py": _USERS_REFACTORED, "utils.py": _UTILS_SRC})
+    )
+
+
+def test_check_reuse_utils_unchanged_missing_func():
+    stripped = "\n".join(
+        line for line in _UTILS_SRC.splitlines() if "def normalize_email" not in line
+    )
+    assert not check_reuse_utils_unchanged(
+        _ctx(files={"users.py": _USERS_REFACTORED, "utils.py": stripped})
     )
