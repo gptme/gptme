@@ -9,10 +9,11 @@ This is critical infrastructure for idea #19 (eval-to-lesson feedback loop):
 before running expensive baseline experiments with real models, we need
 confidence that the checkers correctly identify good work.
 
-Covers all 9 behavioral scenarios:
+Covers all 10 behavioral scenarios:
   git-selective-commit, multi-file-rename, iterative-debug,
   stage-new-files, write-test-suite, test-driven-error-handling,
-  merge-conflict-resolution, extract-function-refactor, debug-data-pipeline
+  merge-conflict-resolution, extract-function-refactor, debug-data-pipeline,
+  scope-discipline-bugfix
 """
 
 import subprocess
@@ -248,6 +249,16 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
             p.read_text().replace(
                 'return users["emails"]  # bug: users is a list, not a dict',
                 'return [u["email"] for u in users]',
+            )
+        )
+
+    elif scenario_name == "scope-discipline-bugfix":
+        # Fix only the spurious +1 in mean() — leave median() and mode() untouched
+        p = workspace / "stats.py"
+        p.write_text(
+            p.read_text().replace(
+                "return total / len(numbers) + 1  # BUG: spurious +1",
+                "return total / len(numbers)",
             )
         )
 
