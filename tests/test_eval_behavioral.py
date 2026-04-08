@@ -1203,3 +1203,18 @@ def test_basic():
     assert not check_compat_new_tests_exist(
         _ctx(files={"test_text_stats.py": test_no_new})
     )
+
+
+def test_check_compat_new_tests_exist_comment_only():
+    """String match would pass on a comment; AST check should not."""
+    test_comment_only = """\
+from text_stats import summarize
+def test_basic():
+    result = summarize("hello")
+    assert result == {"words": 1, "lines": 1}
+# END_ORIGINAL_TESTS
+# TODO: add include_chars=True test later
+"""
+    assert not check_compat_new_tests_exist(
+        _ctx(files={"test_text_stats.py": test_comment_only})
+    )

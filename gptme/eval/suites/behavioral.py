@@ -604,7 +604,30 @@ def check_compat_new_tests_exist(ctx):
     text = ctx.files.get("test_text_stats.py", "")
     if isinstance(text, bytes):
         text = text.decode()
-    return "include_chars" in text and "True" in text
+    module = _parse_python_source(text)
+    if module is None:
+        return False
+    # Require an actual call to summarize(..., include_chars=True) in the AST,
+    # not just the strings appearing anywhere (e.g. in comments).
+    for node in ast.walk(module):
+        if isinstance(node, ast.Call):
+            func = node.func
+            func_name = (
+                func.id
+                if isinstance(func, ast.Name)
+                else func.attr
+                if isinstance(func, ast.Attribute)
+                else None
+            )
+            if func_name == "summarize":
+                for kw in node.keywords:
+                    if (
+                        kw.arg == "include_chars"
+                        and isinstance(kw.value, ast.Constant)
+                        and kw.value.value is True
+                    ):
+                        return True
+    return False
 
 
 # ── test list ────────────────────────────────────────────────────────────────
