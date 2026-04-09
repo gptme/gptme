@@ -580,8 +580,8 @@ def api_conversation_tool_confirm(conversation_id: str):
     elif action == "auto":
         # Enable auto-confirmation for future tools
         count = req_json.get("count", 1)
-        if count <= 0:
-            return flask.jsonify({"error": "count must be positive"}), 400
+        if not isinstance(count, int) or count <= 0:
+            return flask.jsonify({"error": "count must be a positive integer"}), 400
 
         session.auto_confirm_count = count
 
