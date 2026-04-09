@@ -1902,12 +1902,33 @@ def apply_updates(state: dict, updates: dict) -> dict:
     return state
 """
 
+_RECORDS_BUGGY_AUGMENTED = """\
+def tag_records(records: list, tag: str) -> list:
+    for record in records:
+        record["tags"] += [tag]
+    return records
+
+def apply_updates(state: dict, updates: dict) -> dict:
+    state.update(updates)
+    return state
+"""
+
 _RECORDS_FIXED = """\
 def tag_records(records: list, tag: str) -> list:
     return [{**record, "tags": [*record["tags"], tag]} for record in records]
 
 def apply_updates(state: dict, updates: dict) -> dict:
     return {**state, **updates}
+"""
+
+_RECORDS_FIXED_COPY_UPDATE = """\
+def tag_records(records: list, tag: str) -> list:
+    return [{**record, "tags": [*record["tags"], tag]} for record in records]
+
+def apply_updates(state: dict, updates: dict) -> dict:
+    state = state.copy()
+    state.update(updates)
+    return state
 """
 
 _TEST_RECORDS_ORIGINAL = """\
@@ -1952,9 +1973,23 @@ def test_check_tag_records_no_in_place_append_buggy():
     )
 
 
+def test_check_tag_records_no_in_place_append_augmented_assign():
+    """+=  is also in-place mutation — should be caught."""
+    assert not check_tag_records_no_in_place_append(
+        _ctx(files={"records.py": _RECORDS_BUGGY_AUGMENTED})
+    )
+
+
 def test_check_apply_updates_returns_new_dict_fixed():
     assert check_apply_updates_returns_new_dict(
         _ctx(files={"records.py": _RECORDS_FIXED})
+    )
+
+
+def test_check_apply_updates_returns_new_dict_copy_then_update():
+    """copy-then-update is a valid fix even though state.update() is still present."""
+    assert check_apply_updates_returns_new_dict(
+        _ctx(files={"records.py": _RECORDS_FIXED_COPY_UPDATE})
     )
 
 

@@ -19,21 +19,28 @@ def check_mutation_tests_pass(ctx):
 
 
 def check_tag_records_no_in_place_append(ctx):
-    """tag_records should not call .append() on input records' tag lists."""
+    """tag_records should not call .append() or += on input records' tag lists."""
     content = _get_records_source(ctx)
-    # The buggy pattern: appending directly to the input dict's tags field
+    # The buggy patterns: appending directly to the input dict's tags field
     buggy_patterns = [
         'record["tags"].append(',
         "record['tags'].append(",
+        'record["tags"] += [',
+        "record['tags'] += [",
     ]
     return not any(p in content for p in buggy_patterns)
 
 
 def check_apply_updates_returns_new_dict(ctx):
-    """apply_updates should not mutate state via state.update()."""
+    """apply_updates should not mutate state via state.update() without copying first."""
     content = _get_records_source(ctx)
-    # The buggy pattern: state.update() mutates the input dict in-place
-    return "state.update(" not in content
+    # The buggy pattern: calling state.update() without making a copy first.
+    # Valid fixes that do NOT trigger: {**state, **updates}, new_state.update(), etc.
+    # Valid fix that copies first: state = state.copy(); state.update(...) — also OK.
+    if "state.update(" not in content:
+        return True  # no state.update() at all → definitely not the bug
+    # state.update() is present — only safe if a copy was made first
+    return "state.copy()" in content or "= dict(state)" in content
 
 
 def check_test_file_unchanged(ctx):
