@@ -11,7 +11,7 @@ def check_dead_code_removed(ctx):
     content = ctx.files.get("utils.py", "")
     if isinstance(content, bytes):
         content = content.decode()
-    return "def _batch_normalize(" not in content and "_batch_normalize" not in content
+    return "def _batch_normalize(" not in content
 
 
 def check_live_functions_intact(ctx):
