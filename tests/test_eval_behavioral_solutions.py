@@ -659,6 +659,12 @@ def test_reference_solution_passes_all_checkers(
     spec = scenario
     name = spec["name"]
 
+    # Skip scenarios requiring external tools not available in the test env
+    if name == "add-type-hints":
+        result = _run("python3 -m mypy --version")
+        if result.returncode != 0:
+            pytest.skip("mypy not available")
+
     # Write scenario files
     for fname, content in spec["files"].items():
         fpath = tmp_path / fname
