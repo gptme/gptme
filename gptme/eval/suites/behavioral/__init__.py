@@ -17,17 +17,22 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from gptme.eval.types import EvalSpec
 
-_package_dir = Path(__file__).parent
 
-tests: list["EvalSpec"] = []
+def _discover_tests() -> "list[EvalSpec]":
+    """Auto-discover scenario modules; wrapped to avoid leaking loop vars."""
+    package_dir = Path(__file__).parent
+    result: list[EvalSpec] = []
+    for info in sorted(pkgutil.iter_modules([str(package_dir)]), key=lambda m: m.name):
+        if info.name.startswith("_"):
+            continue
+        mod = importlib.import_module(f".{info.name}", __package__)
+        t = getattr(mod, "test", None)
+        if t is not None:
+            result.append(t)
+    return result
 
-for _info in sorted(pkgutil.iter_modules([str(_package_dir)]), key=lambda m: m.name):
-    if _info.name.startswith("_"):
-        continue
-    _mod = importlib.import_module(f".{_info.name}", __package__)
-    _t = getattr(_mod, "test", None)
-    if _t is not None:
-        tests.append(_t)
+
+tests: list["EvalSpec"] = _discover_tests()
 
 # Re-export all checker functions for backward compatibility.
 # Tests and external code may import them directly from this package.
