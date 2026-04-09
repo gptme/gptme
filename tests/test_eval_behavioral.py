@@ -10,6 +10,7 @@ from gptme.eval.suites.behavioral import (
     check_config_no_bare_except,
     check_config_propagates_file_error,
     check_config_tests_pass,
+    check_dead_code_removed,
     check_debug_fix_in_file,
     check_debug_no_syntax_error,
     check_debug_tests_pass,
@@ -25,6 +26,7 @@ from gptme.eval.suites.behavioral import (
     check_git_selective_commit_msg,
     check_git_selective_config_not_committed,
     check_git_selective_tests_pass,
+    check_live_functions_intact,
     check_logging_debug_or_info_used,
     check_logging_error_level_used,
     check_logging_module_imported,
@@ -45,6 +47,7 @@ from gptme.eval.suites.behavioral import (
     check_pipeline_extract_emails_fixed,
     check_pipeline_source_unchanged,
     check_pipeline_tests_pass,
+    check_processor_unchanged,
     check_rename_new_name_in_geometry,
     check_rename_no_old_name,
     check_rename_test_uses_new_name,
@@ -2089,3 +2092,72 @@ def test_check_signature_preserved_counter():
 
 def test_check_signature_preserved_missing():
     assert not check_signature_preserved(_ctx(files={"analytics.py": ""}))
+
+
+# ── remove-dead-code ──────────────────────────────────────────────────────────
+
+_UTILS_WITH_DEAD = """\
+def parse_record(data):
+    return {"id": data["id"], "value": _normalize_value(data.get("value", "")), "valid": validate_record(data)}
+
+def validate_record(data):
+    return "id" in data and "value" in data
+
+def _normalize_value(value):
+    return value.strip().lower()
+
+def _batch_normalize(items):
+    return [_normalize_value(item) for item in items]
+"""
+
+_UTILS_WITHOUT_DEAD = """\
+def parse_record(data):
+    return {"id": data["id"], "value": _normalize_value(data.get("value", "")), "valid": validate_record(data)}
+
+def validate_record(data):
+    return "id" in data and "value" in data
+
+def _normalize_value(value):
+    return value.strip().lower()
+"""
+
+_PROCESSOR_ORIGINAL = """\
+from utils import parse_record
+
+def process_records(raw_records):
+    results = []
+    for record in raw_records:
+        parsed = parse_record(record)
+        if parsed["valid"]:
+            results.append(parsed)
+    return results
+"""
+
+
+def test_check_dead_code_removed_detects_function():
+    assert not check_dead_code_removed(_ctx(files={"utils.py": _UTILS_WITH_DEAD}))
+
+
+def test_check_dead_code_removed_passes_when_removed():
+    assert check_dead_code_removed(_ctx(files={"utils.py": _UTILS_WITHOUT_DEAD}))
+
+
+def test_check_dead_code_removed_empty_file():
+    assert check_dead_code_removed(_ctx(files={"utils.py": ""}))
+
+
+def test_check_live_functions_intact_with_all():
+    assert check_live_functions_intact(_ctx(files={"utils.py": _UTILS_WITHOUT_DEAD}))
+
+
+def test_check_live_functions_intact_missing_one():
+    content = "def parse_record(data): pass\ndef validate_record(data): pass\n"
+    assert not check_live_functions_intact(_ctx(files={"utils.py": content}))
+
+
+def test_check_processor_unchanged_original():
+    assert check_processor_unchanged(_ctx(files={"processor.py": _PROCESSOR_ORIGINAL}))
+
+
+def test_check_processor_unchanged_missing():
+    assert not check_processor_unchanged(_ctx(files={"processor.py": ""}))

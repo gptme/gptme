@@ -129,6 +129,12 @@ from .refactor_for_testability import (  # noqa: F401
     check_testability_pure_function_tested,
     check_testability_tests_pass,
 )
+from .remove_dead_code import (  # noqa: F401
+    check_dead_code_removed,
+    check_dead_code_tests_pass,
+    check_live_functions_intact,
+    check_processor_unchanged,
+)
 from .scope_discipline_bugfix import (  # noqa: F401
     check_scope_mean_fixed,
     check_scope_median_preserved,

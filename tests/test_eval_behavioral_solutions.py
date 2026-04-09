@@ -9,14 +9,14 @@ This is critical infrastructure for idea #19 (eval-to-lesson feedback loop):
 before running expensive baseline experiments with real models, we need
 confidence that the checkers correctly identify good work.
 
-Covers all 19 behavioral scenarios:
+Covers all 21 behavioral scenarios:
   git-selective-commit, multi-file-rename, iterative-debug,
   stage-new-files, write-test-suite, test-driven-error-handling,
   merge-conflict-resolution, extract-function-refactor, debug-data-pipeline,
   scope-discipline-bugfix, add-logging, use-existing-helper,
   add-feature-preserve-default, handle-specific-exception,
   fix-security-path-traversal, refactor-for-testability, add-type-hints,
-  noisy-worktree-fix, fix-data-mutation
+  noisy-worktree-fix, fix-data-mutation, optimize-n-squared, remove-dead-code
 """
 
 import subprocess
@@ -629,6 +629,33 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
                 \"\"\"Return a sorted list of items that appear more than once in *items*.\"\"\"
                 counts = Counter(items)
                 return sorted(item for item, count in counts.items() if count > 1)
+            """)
+        )
+
+    elif scenario_name == "remove-dead-code":
+        # Remove the unused _batch_normalize function; keep everything else intact
+        (workspace / "utils.py").write_text(
+            textwrap.dedent("""\
+            \"\"\"Record processing utilities.\"\"\"
+
+
+            def parse_record(data: dict) -> dict:
+                \"\"\"Parse and normalize a record from raw input.\"\"\"
+                return {
+                    "id": data["id"],
+                    "value": _normalize_value(data.get("value", "")),
+                    "valid": validate_record(data),
+                }
+
+
+            def validate_record(data: dict) -> bool:
+                \"\"\"Return True if *data* contains the required fields.\"\"\"
+                return "id" in data and "value" in data
+
+
+            def _normalize_value(value: str) -> str:
+                \"\"\"Normalize a string value for storage.\"\"\"
+                return value.strip().lower()
             """)
         )
 
