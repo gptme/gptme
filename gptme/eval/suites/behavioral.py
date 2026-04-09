@@ -16,6 +16,7 @@ lessons about *how to work* should have a measurable effect on outcomes:
 - scope-discipline-bugfix: fix only the specified bug without touching unrelated code
 - add-logging: add Python logging (not print) to a function using correct log levels
 - use-existing-helper: refactor duplicated logic to call an existing utility function
+- handle-specific-exception: narrow an overly broad except clause to the right exception type
 
 Each scenario comes with a deterministic checker so results can be used in
 lesson holdout A/B experiments (idea #19, eval-to-lesson feedback loop).
@@ -554,6 +555,78 @@ def check_reuse_utils_unchanged(ctx):
     if isinstance(content, bytes):
         content = content.decode()
     return "def normalize_email" in content and "def is_valid_email" in content
+
+
+# ── handle-specific-exception ────────────────────────────────────────────────
+
+
+def _get_config_source(ctx) -> str:
+    content = ctx.files.get("config.py", "")
+    if isinstance(content, bytes):
+        content = content.decode()
+    return content
+
+
+def check_config_tests_pass(ctx):
+    """All tests should pass after narrowing the exception handler."""
+    return ctx.exit_code == 0 and "failed" not in ctx.stdout.lower()
+
+
+def check_config_no_bare_except(ctx):
+    """No bare except or overly broad except Exception in config.py."""
+    content = _get_config_source(ctx)
+    module = _parse_python_source(content)
+    if module is None:
+        return False
+    for node in ast.walk(module):
+        if isinstance(node, ast.ExceptHandler):
+            # Bare `except:` has type=None
+            if node.type is None:
+                return False
+            # `except Exception` is too broad
+            exc_name: str | None = None
+            if isinstance(node.type, ast.Name):
+                exc_name = node.type.id
+            elif isinstance(node.type, ast.Attribute):
+                exc_name = node.type.attr
+            if exc_name == "Exception":
+                return False
+    return True
+
+
+def check_config_catches_json_error(ctx):
+    """json.JSONDecodeError (or JSONDecodeError) must be explicitly caught."""
+    content = _get_config_source(ctx)
+    module = _parse_python_source(content)
+    if module is None:
+        return False
+    for node in ast.walk(module):
+        if isinstance(node, ast.ExceptHandler) and node.type is not None:
+            exc_type = node.type
+            # Accept: `json.JSONDecodeError` or bare `JSONDecodeError`
+            if (
+                isinstance(exc_type, ast.Attribute)
+                and exc_type.attr == "JSONDecodeError"
+            ):
+                return True
+            if isinstance(exc_type, ast.Name) and exc_type.id == "JSONDecodeError":
+                return True
+            # Also accept a tuple that includes JSONDecodeError
+            if isinstance(exc_type, ast.Tuple):
+                for elt in exc_type.elts:
+                    if isinstance(elt, ast.Attribute) and elt.attr == "JSONDecodeError":
+                        return True
+                    if isinstance(elt, ast.Name) and elt.id == "JSONDecodeError":
+                        return True
+    return False
+
+
+def check_config_propagates_file_error(ctx):
+    """test_config.py must verify that FileNotFoundError propagates for missing files."""
+    content = ctx.files.get("test_config.py", "")
+    if isinstance(content, bytes):
+        content = content.decode()
+    return "FileNotFoundError" in content and "raises" in content
 
 
 # ── test list ────────────────────────────────────────────────────────────────
@@ -1584,6 +1657,92 @@ def test_create_user_active_flag():
             "uses normalize_email": check_reuse_uses_normalize,
             "no inline strip/lower": check_reuse_no_inline_strip,
             "utils.py unchanged": check_reuse_utils_unchanged,
+        },
+    },
+    # -------------------------------------------------------------------
+    # Scenario 13: Handle specific exception
+    # config.py uses `except Exception: pass` which silently swallows ALL
+    # errors — including FileNotFoundError when a config file is missing.
+    # The agent must narrow the handler to json.JSONDecodeError (return {}
+    # for malformed JSON) and let FileNotFoundError propagate to the caller.
+    # Tests exception-handling discipline: catch what you mean to catch,
+    # propagate what the caller should know about.  Agents that default to
+    # broad exception handling to "prevent crashes" will fail the propagation
+    # checker; agents that over-narrow and stop catching JSONDecodeError will
+    # fail the json-error checker.
+    # -------------------------------------------------------------------
+    {
+        "name": "handle-specific-exception",
+        "files": {
+            "config.py": """\
+\"\"\"Application configuration loader.\"\"\"
+
+import json
+
+
+def parse_config(path):
+    \"\"\"Load configuration from a JSON file.
+
+    Currently returns an empty dict for *any* error, including a missing file.
+    \"\"\"
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception:
+        pass
+    return {}
+""",
+            "test_config.py": """\
+import json
+import os
+import tempfile
+
+from config import parse_config
+
+
+def test_valid_config():
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        json.dump({"debug": True, "port": 8080}, f)
+        tmp_path = f.name
+    try:
+        result = parse_config(tmp_path)
+        assert result == {"debug": True, "port": 8080}
+    finally:
+        os.unlink(tmp_path)
+
+
+def test_empty_object_config():
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        json.dump({}, f)
+        tmp_path = f.name
+    try:
+        result = parse_config(tmp_path)
+        assert result == {}
+    finally:
+        os.unlink(tmp_path)
+""",
+        },
+        "run": "python3 -m pytest test_config.py -v --tb=short 2>&1",
+        "prompt": (
+            "`parse_config` in `config.py` uses a bare `except Exception: pass` that "
+            "silently swallows **all** errors — including `FileNotFoundError` when the "
+            "config file doesn't exist. Callers need to know when a file is missing so "
+            "they can fail fast or fall back to defaults themselves.\n\n"
+            "Fix `parse_config` so that:\n"
+            "1. Invalid JSON (`json.JSONDecodeError`) returns `{}` — the caller does not "
+            "need to know about malformed files.\n"
+            "2. `FileNotFoundError` and other I/O errors propagate to the caller — do "
+            "not catch them.\n\n"
+            "Then add tests to `test_config.py` that cover both behaviors "
+            "(invalid JSON → `{}`, missing file → `FileNotFoundError`). "
+            "All tests must pass."
+        ),
+        "tools": ["shell", "save", "read"],
+        "expect": {
+            "tests pass": check_config_tests_pass,
+            "no broad except": check_config_no_bare_except,
+            "catches json.JSONDecodeError": check_config_catches_json_error,
+            "FileNotFoundError propagates": check_config_propagates_file_error,
         },
     },
 ]

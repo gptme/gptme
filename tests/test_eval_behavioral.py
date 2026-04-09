@@ -1,6 +1,10 @@
 from types import SimpleNamespace
 
 from gptme.eval.suites.behavioral import (
+    check_config_catches_json_error,
+    check_config_no_bare_except,
+    check_config_propagates_file_error,
+    check_config_tests_pass,
     check_debug_fix_in_file,
     check_debug_no_syntax_error,
     check_debug_tests_pass,
@@ -1062,3 +1066,125 @@ def test_check_reuse_utils_unchanged_missing_func():
     assert not check_reuse_utils_unchanged(
         _ctx(files={"users.py": _USERS_REFACTORED, "utils.py": stripped})
     )
+
+
+# ── handle-specific-exception ────────────────────────────────────────────────
+
+_CONFIG_ORIGINAL = """\
+import json
+
+
+def parse_config(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception:
+        pass
+    return {}
+"""
+
+_CONFIG_BARE_EXCEPT = """\
+import json
+
+
+def parse_config(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except:
+        pass
+    return {}
+"""
+
+_CONFIG_FIXED = """\
+import json
+
+
+def parse_config(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except json.JSONDecodeError:
+        return {}
+"""
+
+_CONFIG_FIXED_IMPORTED = """\
+from json import JSONDecodeError
+import json
+
+
+def parse_config(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except JSONDecodeError:
+        return {}
+"""
+
+_TEST_WITH_FILE_ERROR = """\
+import pytest
+from config import parse_config
+
+
+def test_missing_file_raises():
+    with pytest.raises(FileNotFoundError):
+        parse_config("/no/such/file.json")
+"""
+
+_TEST_WITHOUT_FILE_ERROR = """\
+from config import parse_config
+
+
+def test_valid_config():
+    pass  # no FileNotFoundError test here
+"""
+
+
+def test_check_config_no_bare_except_original():
+    assert not check_config_no_bare_except(_ctx(files={"config.py": _CONFIG_ORIGINAL}))
+
+
+def test_check_config_no_bare_except_bare_except():
+    assert not check_config_no_bare_except(
+        _ctx(files={"config.py": _CONFIG_BARE_EXCEPT})
+    )
+
+
+def test_check_config_no_bare_except_fixed():
+    assert check_config_no_bare_except(_ctx(files={"config.py": _CONFIG_FIXED}))
+
+
+def test_check_config_catches_json_error_original():
+    assert not check_config_catches_json_error(
+        _ctx(files={"config.py": _CONFIG_ORIGINAL})
+    )
+
+
+def test_check_config_catches_json_error_fixed():
+    assert check_config_catches_json_error(_ctx(files={"config.py": _CONFIG_FIXED}))
+
+
+def test_check_config_catches_json_error_imported():
+    assert check_config_catches_json_error(
+        _ctx(files={"config.py": _CONFIG_FIXED_IMPORTED})
+    )
+
+
+def test_check_config_propagates_file_error_present():
+    assert check_config_propagates_file_error(
+        _ctx(files={"test_config.py": _TEST_WITH_FILE_ERROR})
+    )
+
+
+def test_check_config_propagates_file_error_missing():
+    assert not check_config_propagates_file_error(
+        _ctx(files={"test_config.py": _TEST_WITHOUT_FILE_ERROR})
+    )
+
+
+def test_check_config_tests_pass_ok():
+    assert check_config_tests_pass(_ctx(stdout="5 passed", exit_code=0))
+
+
+def test_check_config_tests_pass_fail():
+    assert not check_config_tests_pass(_ctx(stdout="1 failed", exit_code=1))

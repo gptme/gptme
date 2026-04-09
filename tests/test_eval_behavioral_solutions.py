@@ -9,11 +9,12 @@ This is critical infrastructure for idea #19 (eval-to-lesson feedback loop):
 before running expensive baseline experiments with real models, we need
 confidence that the checkers correctly identify good work.
 
-Covers all 12 behavioral scenarios:
+Covers all 13 behavioral scenarios:
   git-selective-commit, multi-file-rename, iterative-debug,
   stage-new-files, write-test-suite, test-driven-error-handling,
   merge-conflict-resolution, extract-function-refactor, debug-data-pipeline,
-  scope-discipline-bugfix, add-logging, use-existing-helper
+  scope-discipline-bugfix, add-logging, use-existing-helper,
+  handle-specific-exception
 """
 
 import subprocess
@@ -307,8 +308,54 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
             '    """\n'
             "    normalized = normalize_email(email)\n"
             '    if "@" not in normalized or "." not in normalized.split("@")[-1]:\n'
-            "        raise ValueError(f\"Invalid email: {email!r}\")\n"
+            '        raise ValueError(f"Invalid email: {email!r}")\n'
             '    return {"email": normalized, "active": True}\n'
+        )
+
+    elif scenario_name == "handle-specific-exception":
+        # Fix config.py: narrow except Exception to json.JSONDecodeError.
+        # FileNotFoundError must now propagate.
+        (workspace / "config.py").write_text(
+            '"""Application configuration loader."""\n'
+            "\n"
+            "import json\n"
+            "\n"
+            "\n"
+            "def parse_config(path):\n"
+            '    """Load configuration from a JSON file.\n'
+            "\n"
+            "    Returns an empty dict for malformed JSON.\n"
+            "    Raises FileNotFoundError if the file does not exist.\n"
+            '    """\n'
+            "    try:\n"
+            "        with open(path) as f:\n"
+            "            return json.load(f)\n"
+            "    except json.JSONDecodeError:\n"
+            "        return {}\n"
+        )
+        # Extend test_config.py with tests for the fixed behaviours.
+        existing = (workspace / "test_config.py").read_text()
+        (workspace / "test_config.py").write_text(
+            existing + "\n"
+            "import pytest\n"
+            "\n"
+            "\n"
+            "def test_invalid_json_returns_empty():\n"
+            "    import os\n"
+            "    import tempfile\n"
+            "    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:\n"
+            "        f.write('not valid json{{{')\n"
+            "        tmp = f.name\n"
+            "    try:\n"
+            "        result = parse_config(tmp)\n"
+            "        assert result == {}\n"
+            "    finally:\n"
+            "        os.unlink(tmp)\n"
+            "\n"
+            "\n"
+            "def test_missing_file_raises():\n"
+            "    with pytest.raises(FileNotFoundError):\n"
+            "        parse_config('/no/such/path/config.json')\n"
         )
 
     else:
