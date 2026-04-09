@@ -116,6 +116,11 @@ from .noisy_worktree_fix import (  # noqa: F401
     check_noisy_worktree_fix_correct,
     check_noisy_worktree_tests_pass,
 )
+from .optimize_n_squared import (  # noqa: F401
+    check_no_nested_loop,
+    check_signature_preserved,
+    check_uses_efficient_structure,
+)
 from .refactor_for_testability import (  # noqa: F401
     check_testability_generate_report_preserved,
     check_testability_has_pure_function,

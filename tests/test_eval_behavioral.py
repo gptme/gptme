@@ -36,6 +36,7 @@ from gptme.eval.suites.behavioral import (
     check_merge_tests_pass,
     check_merge_upper_function,
     check_mutation_tests_pass,
+    check_no_nested_loop,
     check_noisy_worktree_api_not_committed,
     check_noisy_worktree_auth_committed,
     check_noisy_worktree_config_not_committed,
@@ -62,6 +63,7 @@ from gptme.eval.suites.behavioral import (
     check_security_no_direct_join,
     check_security_tests_pass,
     check_security_uses_realpath,
+    check_signature_preserved,
     check_stage_file_has_double,
     check_stage_new_file_committed,
     check_stage_two_commits,
@@ -77,6 +79,7 @@ from gptme.eval.suites.behavioral import (
     check_typehints_function_returns_annotated,
     check_typehints_mypy_passes,
     check_typehints_uses_generic_collection,
+    check_uses_efficient_structure,
     check_write_tests_covers_extract_emails,
     check_write_tests_covers_truncate,
     check_write_tests_covers_word_count,
@@ -2013,3 +2016,76 @@ def test_check_test_file_unchanged_stripped():
 
 def test_check_test_file_unchanged_empty():
     assert not check_test_file_unchanged(_ctx(files={}))
+
+
+# ── optimize-n-squared checkers ───────────────────────────────────────────
+
+_ANALYTICS_ORIGINAL = """\
+def find_duplicates(items: list) -> list:
+    duplicates = []
+    for i, item in enumerate(items):
+        if item not in duplicates:
+            for j, other in enumerate(items):
+                if i != j and item == other:
+                    duplicates.append(item)
+                    break
+    return sorted(duplicates)
+"""
+
+_ANALYTICS_COUNTER = """\
+from collections import Counter
+
+def find_duplicates(items: list) -> list:
+    return sorted(k for k, v in Counter(items).items() if v > 1)
+"""
+
+_ANALYTICS_SET = """\
+def find_duplicates(items: list) -> list:
+    seen = set()
+    dupes = set()
+    for item in items:
+        if item in seen:
+            dupes.add(item)
+        seen.add(item)
+    return sorted(dupes)
+"""
+
+
+def test_check_no_nested_loop_detects_original():
+    assert not check_no_nested_loop(_ctx(files={"analytics.py": _ANALYTICS_ORIGINAL}))
+
+
+def test_check_no_nested_loop_accepts_counter():
+    assert check_no_nested_loop(_ctx(files={"analytics.py": _ANALYTICS_COUNTER}))
+
+
+def test_check_no_nested_loop_accepts_set_approach():
+    assert check_no_nested_loop(_ctx(files={"analytics.py": _ANALYTICS_SET}))
+
+
+def test_check_uses_efficient_structure_original():
+    assert not check_uses_efficient_structure(
+        _ctx(files={"analytics.py": _ANALYTICS_ORIGINAL})
+    )
+
+
+def test_check_uses_efficient_structure_counter():
+    assert check_uses_efficient_structure(
+        _ctx(files={"analytics.py": _ANALYTICS_COUNTER})
+    )
+
+
+def test_check_uses_efficient_structure_set():
+    assert check_uses_efficient_structure(_ctx(files={"analytics.py": _ANALYTICS_SET}))
+
+
+def test_check_signature_preserved_original():
+    assert check_signature_preserved(_ctx(files={"analytics.py": _ANALYTICS_ORIGINAL}))
+
+
+def test_check_signature_preserved_counter():
+    assert check_signature_preserved(_ctx(files={"analytics.py": _ANALYTICS_COUNTER}))
+
+
+def test_check_signature_preserved_missing():
+    assert not check_signature_preserved(_ctx(files={"analytics.py": ""}))
