@@ -28,9 +28,9 @@ def check_no_mutable_default_arg(ctx) -> bool:
     if module is None:
         return False
     for node in ast.walk(module):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             for default in node.args.defaults:
-                if isinstance(default, (ast.List, ast.Dict, ast.Set)):
+                if isinstance(default, ast.List | ast.Dict | ast.Set):
                     return False  # Still has mutable default
     return True
 
