@@ -29,7 +29,7 @@ Most AI coding tools focus on interactive pair programming. gptme does that too,
 - **Extensible tool system**: Shell, Python, file editing, web browsing, vision, MCP — and you can add your own tools.
 - **Open source**: MIT licensed, fully inspectable, forkable. Your agent, your rules.
 
-This architecture has been independently validated by Oxford's `Git Context Controller paper <https://arxiv.org/html/2508.00031v1>`_, which achieved SOTA on SWE-Bench using the git-as-agent-brain approach that gptme pioneered.
+The git-as-agent-brain approach has also been explored in Oxford's `Git Context Controller paper <https://arxiv.org/html/2508.00031v1>`_, which achieved SOTA on SWE-Bench using a similar architecture — storing agent context and memory in git repositories.
 
 
 Feature Comparison
@@ -221,6 +221,13 @@ Overview
      - Credits
      - VC
      - |cross|
+   * - Devin
+     - Web app
+     - Coding
+     - SaaS
+     - $500/mo
+     - VC
+     - |cross|
    * - Moatless Tools
      - CLI
      - Coding
@@ -374,6 +381,25 @@ Differences to gptme:
 - Cline is IDE-based; gptme is terminal-native
 - gptme is model-agnostic and more general-purpose
 - gptme supports persistent autonomous operation
+
+Devin
+^^^^^
+
+`Devin <https://devin.ai/>`_ is the first widely-known "AI software engineer" — a fully autonomous coding agent that works in a sandboxed cloud environment.
+
+Key features:
+
+- Autonomous software engineering in a cloud sandbox
+- Full development environment (editor, browser, terminal)
+- Can plan, implement, test, and deploy independently
+- Web-based interface with session replay
+
+Differences to gptme:
+
+- Devin is a cloud SaaS ($500/mo); gptme is free and self-hosted
+- Devin is closed source; gptme is open source
+- gptme runs locally on your machine with direct access to your environment
+- gptme is model-agnostic; Devin uses proprietary models
 
 OpenClaw
 ^^^^^^^^
