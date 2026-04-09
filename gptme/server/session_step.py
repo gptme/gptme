@@ -443,13 +443,6 @@ async def _acp_step(
 
         manager.write()
 
-        _try_auto_name_and_notify(
-            chat_config,
-            manager.log.messages,
-            chat_config.model or "",
-            conversation_id,
-        )
-
         if final_msg is None:
             # Should not happen: pending_user_messages was non-empty above, but
             # guard explicitly instead of using assert (disabled by python -O).
@@ -470,6 +463,15 @@ async def _acp_step(
                     "message": msg2dict(final_msg, manager.workspace, manager.logdir),
                 },
             )
+
+        # Auto-generate display name AFTER signaling generation_complete,
+        # so the event isn't blocked by a potentially slow LLM call.
+        _try_auto_name_and_notify(
+            chat_config,
+            manager.log.messages,
+            chat_config.model or "",
+            conversation_id,
+        )
     except Exception as e:
         logger.exception("Error during ACP step: %s", e)
         session.last_error = str(e)
@@ -676,11 +678,6 @@ def step(
         manager.write()
         logger.debug("Wrote messages to disk")
 
-        # Auto-generate display name (shared logic in util/auto_naming.py)
-        _try_auto_name_and_notify(
-            chat_config, manager.log.messages, model, conversation_id
-        )
-
         # Signal message generation complete
         logger.debug("Generation complete")
         SessionManager.add_event(
@@ -689,6 +686,13 @@ def step(
                 "type": "generation_complete",
                 "message": msg2dict(msg, manager.workspace, manager.logdir),
             },
+        )
+
+        # Auto-generate display name AFTER signaling generation_complete,
+        # so the event isn't blocked by a potentially slow LLM call.
+        # The CLI already runs this in a background thread (chat.py).
+        _try_auto_name_and_notify(
+            chat_config, manager.log.messages, model, conversation_id
         )
 
         if len(tooluses) > 1:

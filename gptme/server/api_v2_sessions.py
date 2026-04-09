@@ -172,6 +172,13 @@ def api_conversation_events(conversation_id: str):
                 # wait() returning and clear(), the signal would be lost, delaying
                 # delivery by up to one full timeout interval.
                 session.event_flag.clear()
+
+                # Re-check after clearing: events may have arrived between the
+                # check above and the clear(), which would otherwise delay
+                # delivery by up to the full wait timeout.
+                if last_event_index < len(session.events):
+                    continue
+
                 session.event_flag.wait(timeout=15)
 
         except GeneratorExit:
