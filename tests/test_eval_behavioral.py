@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from gptme.eval.suites.behavioral import (
+    check_apply_updates_returns_new_dict,
     check_compat_has_default_param,
     check_compat_new_tests_exist,
     check_compat_original_tests_intact,
@@ -34,6 +35,7 @@ from gptme.eval.suites.behavioral import (
     check_merge_null_safety,
     check_merge_tests_pass,
     check_merge_upper_function,
+    check_mutation_tests_pass,
     check_noisy_worktree_api_not_committed,
     check_noisy_worktree_auth_committed,
     check_noisy_worktree_config_not_committed,
@@ -63,6 +65,8 @@ from gptme.eval.suites.behavioral import (
     check_stage_file_has_double,
     check_stage_new_file_committed,
     check_stage_two_commits,
+    check_tag_records_no_in_place_append,
+    check_test_file_unchanged,
     check_testability_generate_report_preserved,
     check_testability_has_pure_function,
     check_testability_no_file_io_in_unit_tests,
@@ -1883,3 +1887,94 @@ def test_check_noisy_worktree_fix_correct_still_buggy():
 def test_check_noisy_worktree_fix_correct_missing_file():
     # No auth.py in files → buggy pattern absent → passes
     assert check_noisy_worktree_fix_correct(_ctx(files={}))
+
+
+# --- fix-data-mutation scenario ---
+
+_RECORDS_BUGGY = """\
+def tag_records(records: list, tag: str) -> list:
+    for record in records:
+        record["tags"].append(tag)
+    return records
+
+def apply_updates(state: dict, updates: dict) -> dict:
+    state.update(updates)
+    return state
+"""
+
+_RECORDS_FIXED = """\
+def tag_records(records: list, tag: str) -> list:
+    return [{**record, "tags": [*record["tags"], tag]} for record in records]
+
+def apply_updates(state: dict, updates: dict) -> dict:
+    return {**state, **updates}
+"""
+
+_TEST_RECORDS_ORIGINAL = """\
+from records import tag_records, apply_updates
+
+def test_tag_records_does_not_mutate_input():
+    originals = [{"name": "a", "tags": ["x"]}]
+    tag_records(originals, "extra")
+    assert originals[0]["tags"] == ["x"]
+
+def test_apply_updates_does_not_mutate_input():
+    state = {"x": 1, "y": 2}
+    apply_updates(state, {"y": 99})
+    assert state["y"] == 2
+"""
+
+_TEST_RECORDS_STRIPPED = """\
+from records import tag_records, apply_updates
+
+def test_basic():
+    pass
+"""
+
+
+def test_check_mutation_tests_pass_when_ok():
+    assert check_mutation_tests_pass(_ctx(exit_code=0, stdout="4 passed"))
+
+
+def test_check_mutation_tests_pass_when_failed():
+    assert not check_mutation_tests_pass(_ctx(exit_code=1, stdout="2 failed, 2 passed"))
+
+
+def test_check_tag_records_no_in_place_append_fixed():
+    assert check_tag_records_no_in_place_append(
+        _ctx(files={"records.py": _RECORDS_FIXED})
+    )
+
+
+def test_check_tag_records_no_in_place_append_buggy():
+    assert not check_tag_records_no_in_place_append(
+        _ctx(files={"records.py": _RECORDS_BUGGY})
+    )
+
+
+def test_check_apply_updates_returns_new_dict_fixed():
+    assert check_apply_updates_returns_new_dict(
+        _ctx(files={"records.py": _RECORDS_FIXED})
+    )
+
+
+def test_check_apply_updates_returns_new_dict_buggy():
+    assert not check_apply_updates_returns_new_dict(
+        _ctx(files={"records.py": _RECORDS_BUGGY})
+    )
+
+
+def test_check_test_file_unchanged_original():
+    assert check_test_file_unchanged(
+        _ctx(files={"test_records.py": _TEST_RECORDS_ORIGINAL})
+    )
+
+
+def test_check_test_file_unchanged_stripped():
+    assert not check_test_file_unchanged(
+        _ctx(files={"test_records.py": _TEST_RECORDS_STRIPPED})
+    )
+
+
+def test_check_test_file_unchanged_empty():
+    assert not check_test_file_unchanged(_ctx(files={}))

@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from gptme.eval.types import EvalSpec
 
+
 def _discover_tests() -> "list[EvalSpec]":
     """Auto-discover scenario modules; wrapped to avoid leaking loop vars."""
     package_dir = Path(__file__).parent
@@ -65,6 +66,12 @@ from .extract_function_refactor import (  # noqa: F401
     check_extract_no_duplication,
     check_extract_shared_module_exists,
     check_extract_tests_pass,
+)
+from .fix_data_mutation import (  # noqa: F401
+    check_apply_updates_returns_new_dict,
+    check_mutation_tests_pass,
+    check_tag_records_no_in_place_append,
+    check_test_file_unchanged,
 )
 from .fix_security_path_traversal import (  # noqa: F401
     check_security_blocks_traversal,
