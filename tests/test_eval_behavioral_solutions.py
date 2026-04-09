@@ -9,12 +9,14 @@ This is critical infrastructure for idea #19 (eval-to-lesson feedback loop):
 before running expensive baseline experiments with real models, we need
 confidence that the checkers correctly identify good work.
 
-Covers all 16 behavioral scenarios:
+Covers all 19 behavioral scenarios:
   git-selective-commit, multi-file-rename, iterative-debug,
   stage-new-files, write-test-suite, test-driven-error-handling,
   merge-conflict-resolution, extract-function-refactor, debug-data-pipeline,
   scope-discipline-bugfix, add-logging, use-existing-helper,
-  add-feature-preserve-default, handle-specific-exception
+  add-feature-preserve-default, handle-specific-exception,
+  fix-security-path-traversal, refactor-for-testability, add-type-hints,
+  noisy-worktree-fix, fix-data-mutation
 """
 
 import subprocess
@@ -595,6 +597,24 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
         _run(
             'git commit -m "fix(auth): fix email validation to require dot in domain"',
             cwd=workspace,
+        )
+
+    elif scenario_name == "fix-data-mutation":
+        # Fix both mutation bugs in records.py without touching test_records.py
+        (workspace / "records.py").write_text(
+            textwrap.dedent("""\
+            \"\"\"Record processing utilities.\"\"\"
+
+
+            def tag_records(records: list, tag: str) -> list:
+                \"\"\"Add a tag to each record and return the updated records.\"\"\"
+                return [{**record, "tags": record["tags"] + [tag]} for record in records]
+
+
+            def apply_updates(state: dict, updates: dict) -> dict:
+                \"\"\"Apply updates to state and return the new state.\"\"\"
+                return {**state, **updates}
+            """)
         )
 
     else:
