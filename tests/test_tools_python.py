@@ -31,6 +31,25 @@ def test_execute_python():
     assert "2\n" in run("print(a)")
 
 
+def test_execute_python_stdout_with_result():
+    """When a cell prints AND returns a value, both should appear in output."""
+    output = run('print("hello")\n42')
+    assert "hello" in output, "stdout should be shown when result also exists"
+    assert "42" in output, "result should be shown"
+
+
+def test_execute_python_result_only():
+    """When a cell only returns a value (no print), result should appear."""
+    output = run("42")
+    assert "42" in output
+
+
+def test_execute_python_stdout_only():
+    """When a cell only prints (no return value), stdout should appear."""
+    output = run('print("hello")')
+    assert "hello" in output
+
+
 def test_execute_python_with_kwargs():
     assert "2\n" in run_with_kwargs("print(1 + 1)")
 
