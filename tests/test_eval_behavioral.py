@@ -63,6 +63,11 @@ from gptme.eval.suites.behavioral import (
     check_testability_no_file_io_in_unit_tests,
     check_testability_pure_function_tested,
     check_testability_tests_pass,
+    check_typehints_class_attribute_annotated,
+    check_typehints_function_params_annotated,
+    check_typehints_function_returns_annotated,
+    check_typehints_mypy_passes,
+    check_typehints_uses_generic_collection,
     check_write_tests_covers_extract_emails,
     check_write_tests_covers_truncate,
     check_write_tests_covers_word_count,
@@ -1632,4 +1637,147 @@ def test_check_testability_no_file_io_in_unit_tests_good():
 def test_check_testability_no_file_io_in_unit_tests_bad():
     assert not check_testability_no_file_io_in_unit_tests(
         _ctx(files={"test_report.py": _TEST_WITHOUT_PURE_FUNCTION})
+    )
+
+
+# ── add-type-hints fixtures ──────────────────────────────────────────────────
+
+_DATASTORE_UNTYPED = """\
+class DataStore:
+    def __init__(self):
+        self.data = {}
+        self.metadata = {}
+
+    def set(self, key, value):
+        self.data[key] = value
+
+    def get(self, key, default=None):
+        return self.data.get(key, default)
+
+    def delete(self, key):
+        if key in self.data:
+            del self.data[key]
+            return True
+        return False
+
+    def keys(self):
+        return list(self.data.keys())
+
+    def items(self):
+        return list(self.data.items())
+
+    def count(self):
+        return len(self.data)
+"""
+
+
+_DATASTORE_TYPED = """\
+from typing import Any, Optional
+
+
+class DataStore:
+    def __init__(self) -> None:
+        self.data: dict[str, Any] = {}
+        self.metadata: dict[str, dict[str, Any]] = {}
+
+    def set(self, key: str, value: Any) -> None:
+        self.data[key] = value
+
+    def get(self, key: str, default: Optional[Any] = None) -> Any:
+        return self.data.get(key, default)
+
+    def delete(self, key: str) -> bool:
+        if key in self.data:
+            del self.data[key]
+            return True
+        return False
+
+    def keys(self) -> list[str]:
+        return list(self.data.keys())
+
+    def items(self) -> list[tuple[str, Any]]:
+        return list(self.data.items())
+
+    def count(self) -> int:
+        return len(self.data)
+"""
+
+
+_DATASTORE_PARTIALLY_TYPED = """\
+class DataStore:
+    def __init__(self):
+        self.data: dict[str, int] = {}
+
+    def set(self, key: str, value: int) -> None:
+        self.data[key] = value
+
+    def get(self, key, default=None):
+        return self.data.get(key, default)
+"""
+
+
+# ── add-type-hints tests ─────────────────────────────────────────────────────
+
+
+def test_check_typehints_mypy_passes_yes():
+    assert check_typehints_mypy_passes(_ctx(stdout="mypy: success", exit_code=0))
+
+
+def test_check_typehints_mypy_passes_no():
+    assert not check_typehints_mypy_passes(
+        _ctx(stdout="error: incompatible type", exit_code=1)
+    )
+
+
+def test_check_typehints_function_params_annotated_typed():
+    assert check_typehints_function_params_annotated(
+        _ctx(files={"datastore.py": _DATASTORE_TYPED})
+    )
+
+
+def test_check_typehints_function_params_annotated_untyped():
+    assert not check_typehints_function_params_annotated(
+        _ctx(files={"datastore.py": _DATASTORE_UNTYPED})
+    )
+
+
+def test_check_typehints_function_params_annotated_partial():
+    assert not check_typehints_function_params_annotated(
+        _ctx(files={"datastore.py": _DATASTORE_PARTIALLY_TYPED})
+    )
+
+
+def test_check_typehints_function_returns_annotated_typed():
+    assert check_typehints_function_returns_annotated(
+        _ctx(files={"datastore.py": _DATASTORE_TYPED})
+    )
+
+
+def test_check_typehints_function_returns_annotated_untyped():
+    assert not check_typehints_function_returns_annotated(
+        _ctx(files={"datastore.py": _DATASTORE_UNTYPED})
+    )
+
+
+def test_check_typehints_uses_generic_collection_yes():
+    assert check_typehints_uses_generic_collection(
+        _ctx(files={"datastore.py": _DATASTORE_TYPED})
+    )
+
+
+def test_check_typehints_uses_generic_collection_no():
+    assert not check_typehints_uses_generic_collection(
+        _ctx(files={"datastore.py": _DATASTORE_UNTYPED})
+    )
+
+
+def test_check_typehints_class_attribute_annotated_yes():
+    assert check_typehints_class_attribute_annotated(
+        _ctx(files={"datastore.py": _DATASTORE_TYPED})
+    )
+
+
+def test_check_typehints_class_attribute_annotated_no():
+    assert not check_typehints_class_attribute_annotated(
+        _ctx(files={"datastore.py": _DATASTORE_UNTYPED})
     )

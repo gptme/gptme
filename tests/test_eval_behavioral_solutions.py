@@ -503,6 +503,71 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
             """)
         )
 
+    elif scenario_name == "add-type-hints":
+        (workspace / "datastore.py").write_text(
+            textwrap.dedent("""\
+            from typing import Any, Optional
+
+
+            class DataStore:
+                def __init__(self) -> None:
+                    self.data: dict[str, Any] = {}
+                    self.metadata: dict[str, dict[str, Any]] = {}
+
+                def set(self, key: str, value: Any) -> None:
+                    self.data[key] = value
+
+                def get(self, key: str, default: Optional[Any] = None) -> Any:
+                    return self.data.get(key, default)
+
+                def delete(self, key: str) -> bool:
+                    if key in self.data:
+                        del self.data[key]
+                        return True
+                    return False
+
+                def keys(self) -> list[str]:
+                    return list(self.data.keys())
+
+                def items(self) -> list[tuple[str, Any]]:
+                    return list(self.data.items())
+
+                def update_metadata(self, key: str, info: dict[str, Any]) -> None:
+                    self.metadata[key] = info
+
+                def get_metadata(self, key: str) -> Optional[dict[str, Any]]:
+                    return self.metadata.get(key)
+
+                def count(self) -> int:
+                    return len(self.data)
+
+                def search(self, prefix: str) -> list[str]:
+                    return [k for k in self.data if k.startswith(prefix)]
+
+
+            def merge_stores(
+                primary: DataStore, secondary: DataStore
+            ) -> DataStore:
+                result = DataStore()
+                for key, value in primary.items():
+                    result.set(key, value)
+                for key, value in secondary.items():
+                    if key not in primary.data:
+                        result.set(key, value)
+                return result
+
+
+            def filter_by_value(
+                store: DataStore, predicate: Any
+            ) -> DataStore:
+                result = DataStore()
+                for key, value in store.items():
+                    if predicate(value):
+                        result.set(key, value)
+                return result
+            """)
+        )
+
     else:
         raise ValueError(f"Unknown scenario: {scenario_name}")
 
