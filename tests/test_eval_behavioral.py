@@ -2169,7 +2169,7 @@ def test_check_processor_unchanged_missing():
 
 # ── fix-mutable-default ───────────────────────────────────────────────────────
 
-_RECORDS_BUGGY = """\
+_MUTABLE_DEFAULT_BUGGY = """\
 def collect_records(items, result=[]):
     for item in items:
         stripped = item.strip()
@@ -2185,7 +2185,7 @@ def deduplicate(items, seen=[]):
     return seen
 """
 
-_RECORDS_FIXED = """\
+_MUTABLE_DEFAULT_FIXED = """\
 def collect_records(items, result=None):
     if result is None:
         result = []
@@ -2205,7 +2205,7 @@ def deduplicate(items, seen=None):
     return seen
 """
 
-_RECORDS_FIXED_ALT = """\
+_MUTABLE_DEFAULT_FIXED_ALT = """\
 def collect_records(items, result=None):
     out = result if result is not None else []
     for item in items:
@@ -2258,15 +2258,21 @@ def test_check_mutable_default_tests_pass_no_passed_word():
 
 
 def test_check_no_mutable_default_arg_detects_list():
-    assert not check_no_mutable_default_arg(_ctx(files={"records.py": _RECORDS_BUGGY}))
+    assert not check_no_mutable_default_arg(
+        _ctx(files={"records.py": _MUTABLE_DEFAULT_BUGGY})
+    )
 
 
 def test_check_no_mutable_default_arg_passes_fixed():
-    assert check_no_mutable_default_arg(_ctx(files={"records.py": _RECORDS_FIXED}))
+    assert check_no_mutable_default_arg(
+        _ctx(files={"records.py": _MUTABLE_DEFAULT_FIXED})
+    )
 
 
 def test_check_no_mutable_default_arg_passes_alt_fixed():
-    assert check_no_mutable_default_arg(_ctx(files={"records.py": _RECORDS_FIXED_ALT}))
+    assert check_no_mutable_default_arg(
+        _ctx(files={"records.py": _MUTABLE_DEFAULT_FIXED_ALT})
+    )
 
 
 def test_check_no_mutable_default_arg_empty_file():
@@ -2274,11 +2280,19 @@ def test_check_no_mutable_default_arg_empty_file():
 
 
 def test_check_uses_none_sentinel_fixed():
-    assert check_uses_none_sentinel(_ctx(files={"records.py": _RECORDS_FIXED}))
+    assert check_uses_none_sentinel(_ctx(files={"records.py": _MUTABLE_DEFAULT_FIXED}))
 
 
 def test_check_uses_none_sentinel_buggy():
-    assert not check_uses_none_sentinel(_ctx(files={"records.py": _RECORDS_BUGGY}))
+    assert not check_uses_none_sentinel(
+        _ctx(files={"records.py": _MUTABLE_DEFAULT_BUGGY})
+    )
+
+
+def test_check_uses_none_sentinel_alt_fixed():
+    assert check_uses_none_sentinel(
+        _ctx(files={"records.py": _MUTABLE_DEFAULT_FIXED_ALT})
+    )
 
 
 def test_check_independent_calls_verified_both_pass():

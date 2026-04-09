@@ -20,7 +20,11 @@ def check_mutable_default_tests_pass(ctx) -> bool:
 
 
 def check_no_mutable_default_arg(ctx) -> bool:
-    """Neither function should have a mutable default argument ([] or {})."""
+    """Neither function should have a mutable default argument ([], {}, or set literals).
+
+    Note: ast.Set matches set *literals* like {1, 2}, not set() calls.
+    The scenario only uses [] defaults, so this covers the relevant cases.
+    """
     content = ctx.files.get("records.py", "")
     if isinstance(content, bytes):
         content = content.decode()
@@ -42,7 +46,8 @@ def check_uses_none_sentinel(ctx) -> bool:
         content = content.decode()
     # Accept both "= None" (with spaces) and "=None" (no spaces around =)
     has_none_default = "= None" in content or "=None" in content
-    return has_none_default and "is None" in content
+    has_none_check = "is None" in content or "is not None" in content
+    return has_none_default and has_none_check
 
 
 def check_independent_calls_verified(ctx) -> bool:

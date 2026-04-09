@@ -659,6 +659,32 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
             """)
         )
 
+    elif scenario_name == "fix-mutable-default":
+        # Apply the None-sentinel fix to both functions
+        (workspace / "records.py").write_text(
+            textwrap.dedent("""\
+            def collect_records(items, result=None):
+                \"\"\"Collect non-empty, stripped records into result list.\"\"\"
+                if result is None:
+                    result = []
+                for item in items:
+                    stripped = item.strip()
+                    if stripped:
+                        result.append(stripped)
+                return result
+
+
+            def deduplicate(items, seen=None):
+                \"\"\"Return unique items from *items* preserving order.\"\"\"
+                if seen is None:
+                    seen = []
+                for item in items:
+                    if item not in seen:
+                        seen.append(item)
+                return seen
+            """)
+        )
+
     else:
         raise ValueError(f"Unknown scenario: {scenario_name}")
 
