@@ -14,6 +14,7 @@ Commands provided:
 
 import importlib
 import logging
+import re
 from collections.abc import Generator
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -133,6 +134,9 @@ def _get_lesson_index() -> LessonIndex:
     return index
 
 
+_LESSON_PATH_RE = re.compile(r"^\*Path:\s+(.+)\*$")
+
+
 def _get_included_lessons_from_log(log: list[Message]) -> set[str]:
     """Extract lesson paths that have already been included in the conversation.
 
@@ -148,12 +152,10 @@ def _get_included_lessons_from_log(log: list[Message]) -> set[str]:
         if msg.role == "system" and "# Relevant Lessons" in msg.content:
             # Extract lesson paths from formatted lessons
             # Format: *Path: /some/path/lesson.md*
-            lines = msg.content.split("\n")
-            for line in lines:
-                if line.startswith("*Path: ") and line.endswith("*"):
-                    # Extract path between "*Path: " and final "*"
-                    path_str = line[7:-1]  # Remove "*Path: " prefix and "*" suffix
-                    included.add(path_str)
+            for line in msg.content.split("\n"):
+                m = _LESSON_PATH_RE.match(line)
+                if m:
+                    included.add(m.group(1))
 
     return included
 
@@ -196,6 +198,11 @@ def _extract_recent_tools(log: list[Message], limit: int = 10) -> list[str]:
 def _extract_message_content(log: list[Message], limit: int = 10) -> str:
     """Extract message content from recent user and assistant messages.
 
+    Always includes the first user message (initial prompt) to ensure
+    session-level topic keywords are available for lesson matching,
+    even in long conversations where the initial context has scrolled
+    past the recent-message window.
+
     Args:
         log: Conversation log
         limit: Number of recent messages to check
@@ -203,14 +210,22 @@ def _extract_message_content(log: list[Message], limit: int = 10) -> str:
     Returns:
         Combined message content string
     """
-    messages = [
-        msg.content
-        for msg in reversed(log[-limit:])
-        if msg.role in ("user", "assistant")
-    ]
+    # Find the first user message (initial prompt sets the session topic)
+    first_user_msg = None
+    for msg in log:
+        if msg.role == "user":
+            first_user_msg = msg.content
+            break
 
-    # Combine messages (most recent first, so reverse to get chronological)
-    combined = " ".join(reversed(messages))
+    # Get recent messages
+    recent = log[-limit:]
+    messages = [msg.content for msg in recent if msg.role in ("user", "assistant")]
+
+    # Prepend first user message if not already in the recent window
+    if first_user_msg and first_user_msg not in messages:
+        messages.insert(0, first_user_msg)
+
+    combined = " ".join(messages)
 
     logger.debug(
         f"Extracted content from {len(messages)} messages "
@@ -300,9 +315,6 @@ def auto_include_lessons_hook(
     try:
         index = _get_lesson_index()
 
-        # Track whether we're using hybrid matching (for session_id support)
-        using_hybrid = False
-
         # Choose matcher based on configuration
         if use_hybrid:
             # Only import ACE when explicitly requested
@@ -330,7 +342,6 @@ def auto_include_lessons_hook(
                         f"Initialized ACE embedder with lessons_dir={lesson_dirs[0] if lesson_dirs else 'lessons'}"
                     )
                     matcher = GptmeHybridMatcher(embedder=embedder)
-                    using_hybrid = True
                 except Exception as e:
                     logger.warning(
                         f"Failed to initialize embedder: {e}. Falling back to keyword matching."
@@ -347,15 +358,8 @@ def auto_include_lessons_hook(
             logger.debug("Using keyword-only lesson matcher")
             matcher = LessonMatcher()
 
-        # Generate session_id from chat_id for tracking (only for hybrid matcher)
-        session_id = manager.chat_id
-
-        # Call matcher with appropriate parameters
-        # Only GptmeHybridMatcher supports session_id parameter
-        if using_hybrid:
-            match_results = matcher.match(index.lessons, context, session_id=session_id)
-        else:
-            match_results = matcher.match(index.lessons, context)
+        # Match lessons against context
+        match_results = matcher.match(index.lessons, context)
 
         # Filter out already included lessons (MatchResult has .lesson attribute)
         new_matches = [

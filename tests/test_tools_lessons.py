@@ -152,6 +152,26 @@ class TestGetIncludedLessonsFromLog:
         result = _get_included_lessons_from_log(log)
         assert result == {"/lessons/good.md"}
 
+    def test_handles_paths_with_spaces(self):
+        log = [
+            _msg(
+                "system",
+                "# Relevant Lessons\n\n*Path: /lessons/my lesson file.md*\n",
+            ),
+        ]
+        result = _get_included_lessons_from_log(log)
+        assert result == {"/lessons/my lesson file.md"}
+
+    def test_handles_extra_whitespace_around_path(self):
+        log = [
+            _msg(
+                "system",
+                "# Relevant Lessons\n\n*Path:  /lessons/extra-space.md*\n",
+            ),
+        ]
+        result = _get_included_lessons_from_log(log)
+        assert result == {"/lessons/extra-space.md"}
+
 
 # --- Tests for _extract_recent_tools ---
 
@@ -268,6 +288,29 @@ class TestExtractMessageContent:
         first_pos = result.find("first")
         second_pos = result.find("second")
         assert first_pos < second_pos
+
+    def test_includes_first_user_message_in_long_conversation(self):
+        """First user message (initial prompt) should always be included."""
+        initial = _msg("user", "fix the patch tool")
+        # Create enough messages to push the initial one out of the window
+        filler = [_msg("assistant", f"response {i}") for i in range(15)]
+        recent = [_msg("user", "what about the test?")]
+        log = [initial, *filler, *recent]
+        result = _extract_message_content(log, limit=5)
+        # Initial prompt keywords should still be present
+        assert "patch tool" in result
+        # Recent message should also be present
+        assert "what about the test" in result
+
+    def test_first_user_message_not_duplicated_when_in_window(self):
+        """Don't duplicate first message if it's already within the window."""
+        log = [
+            _msg("user", "fix the patch tool"),
+            _msg("assistant", "sure"),
+        ]
+        result = _extract_message_content(log, limit=10)
+        # Should appear exactly once
+        assert result.count("fix the patch tool") == 1
 
 
 # --- Tests for session stats ---
