@@ -34,6 +34,11 @@ from gptme.eval.suites.behavioral import (
     check_merge_null_safety,
     check_merge_tests_pass,
     check_merge_upper_function,
+    check_noisy_worktree_api_not_committed,
+    check_noisy_worktree_auth_committed,
+    check_noisy_worktree_config_not_committed,
+    check_noisy_worktree_fix_correct,
+    check_noisy_worktree_tests_pass,
     check_pipeline_extract_emails_fixed,
     check_pipeline_source_unchanged,
     check_pipeline_tests_pass,
@@ -1781,3 +1786,100 @@ def test_check_typehints_class_attribute_annotated_no():
     assert not check_typehints_class_attribute_annotated(
         _ctx(files={"datastore.py": _DATASTORE_UNTYPED})
     )
+
+
+# ── noisy-worktree-fix checkers ───────────────────────────────────────────────
+
+_NOISY_STDOUT_PASS = (
+    "abc1234 fix(auth): validate domain dot\ninitial: add auth module\n"
+    "__GPTME_SEP__\nauth.py\n__GPTME_SEP__\n5 passed in 0.05s"
+)
+_NOISY_STDOUT_ALL_FILES = (
+    "abc1234 fix(auth): validate domain dot\ninitial: add auth module\n"
+    "__GPTME_SEP__\nauth.py\napi.py\nconfig.py\nutils.py\n__GPTME_SEP__\n5 passed"
+)
+_NOISY_STDOUT_NO_SEP = "abc1234 fix(auth): validate domain dot"
+
+
+def test_check_noisy_worktree_tests_pass_with_passed():
+    assert check_noisy_worktree_tests_pass(_ctx(stdout=_NOISY_STDOUT_PASS))
+
+
+def test_check_noisy_worktree_tests_pass_with_failed():
+    stdout = "abc1234\n__GPTME_SEP__\nauth.py\n__GPTME_SEP__\n1 failed, 4 passed"
+    assert not check_noisy_worktree_tests_pass(_ctx(stdout=stdout))
+
+
+def test_check_noisy_worktree_tests_pass_missing_separator():
+    assert not check_noisy_worktree_tests_pass(_ctx(stdout=_NOISY_STDOUT_NO_SEP))
+
+
+def test_check_noisy_worktree_auth_committed_present():
+    assert check_noisy_worktree_auth_committed(_ctx(stdout=_NOISY_STDOUT_PASS))
+
+
+def test_check_noisy_worktree_auth_committed_absent():
+    stdout = "abc1234\n__GPTME_SEP__\nutils.py\n__GPTME_SEP__\n5 passed"
+    assert not check_noisy_worktree_auth_committed(_ctx(stdout=stdout))
+
+
+def test_check_noisy_worktree_auth_committed_missing_separator():
+    assert not check_noisy_worktree_auth_committed(_ctx(stdout=_NOISY_STDOUT_NO_SEP))
+
+
+def test_check_noisy_worktree_api_not_committed_absent():
+    # api.py not in HEAD commit → passes
+    assert check_noisy_worktree_api_not_committed(_ctx(stdout=_NOISY_STDOUT_PASS))
+
+
+def test_check_noisy_worktree_api_not_committed_present():
+    # api.py in HEAD commit → fails (lesson-sensitive check)
+    assert not check_noisy_worktree_api_not_committed(
+        _ctx(stdout=_NOISY_STDOUT_ALL_FILES)
+    )
+
+
+def test_check_noisy_worktree_api_not_committed_missing_separator():
+    assert not check_noisy_worktree_api_not_committed(_ctx(stdout=_NOISY_STDOUT_NO_SEP))
+
+
+def test_check_noisy_worktree_config_not_committed_absent():
+    assert check_noisy_worktree_config_not_committed(_ctx(stdout=_NOISY_STDOUT_PASS))
+
+
+def test_check_noisy_worktree_config_not_committed_present():
+    assert not check_noisy_worktree_config_not_committed(
+        _ctx(stdout=_NOISY_STDOUT_ALL_FILES)
+    )
+
+
+def test_check_noisy_worktree_config_not_committed_missing_separator():
+    assert not check_noisy_worktree_config_not_committed(
+        _ctx(stdout=_NOISY_STDOUT_NO_SEP)
+    )
+
+
+def test_check_noisy_worktree_fix_correct_fixed():
+    content = (
+        "def validate_email(email: str) -> bool:\n"
+        '    parts = email.split("@")\n'
+        "    if len(parts) != 2:\n"
+        "        return False\n"
+        "    local, domain = parts\n"
+        '    return bool(local) and "." in domain\n'
+    )
+    assert check_noisy_worktree_fix_correct(_ctx(files={"auth.py": content}))
+
+
+def test_check_noisy_worktree_fix_correct_still_buggy():
+    content = (
+        "def validate_email(email: str) -> bool:\n"
+        "    # BUG: only checks for @ sign\n"
+        '    return "@" in email and len(email) > 3\n'
+    )
+    assert not check_noisy_worktree_fix_correct(_ctx(files={"auth.py": content}))
+
+
+def test_check_noisy_worktree_fix_correct_missing_file():
+    # No auth.py in files → buggy pattern absent → passes
+    assert check_noisy_worktree_fix_correct(_ctx(files={}))
