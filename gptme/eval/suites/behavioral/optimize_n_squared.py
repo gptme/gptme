@@ -8,13 +8,13 @@ if TYPE_CHECKING:
     from gptme.eval.types import EvalSpec
 
 
-def check_tests_pass(ctx):
+def check_optimize_tests_pass(ctx):
     """All tests should pass after the optimization."""
     return ctx.exit_code == 0 and "failed" not in ctx.stdout.lower()
 
 
 def check_no_nested_loop(ctx):
-    """find_duplicates should not use nested for/while loops (O(n²) pattern)."""
+    """find_duplicates should not use nested for/while loops or O(n²) comprehensions."""
     content = ctx.files.get("analytics.py", "")
     if isinstance(content, bytes):
         content = content.decode()
@@ -24,12 +24,39 @@ def check_no_nested_loop(ctx):
         return False
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name == "find_duplicates":
-            # Walk all children; if we find a loop inside a loop, fail
+            # 1. Nested for/while loops
             for child in ast.walk(node):
                 if child is not node and isinstance(child, ast.For | ast.While):
                     for grandchild in ast.walk(child):
                         if grandchild is not child and isinstance(
                             grandchild, ast.For | ast.While
+                        ):
+                            return False
+            # 2. Comprehensions with multiple generators (e.g. [x for x in a for y in b])
+            for child in ast.walk(node):
+                if (
+                    isinstance(
+                        child,
+                        ast.ListComp | ast.SetComp | ast.DictComp | ast.GeneratorExp,
+                    )
+                    and len(child.generators) > 1
+                ):
+                    return False
+            # 3. .count() called inside any loop or comprehension (O(n) per call → O(n²))
+            for child in ast.walk(node):
+                if isinstance(
+                    child,
+                    ast.For
+                    | ast.While
+                    | ast.ListComp
+                    | ast.SetComp
+                    | ast.DictComp
+                    | ast.GeneratorExp,
+                ):
+                    for descendant in ast.walk(child):
+                        if (
+                            isinstance(descendant, ast.Attribute)
+                            and descendant.attr == "count"
                         ):
                             return False
     return True
@@ -126,7 +153,7 @@ def test_large_input():
     ),
     "tools": ["shell", "save", "read"],
     "expect": {
-        "tests pass": check_tests_pass,
+        "tests pass": check_optimize_tests_pass,
         "no nested loop": check_no_nested_loop,
         "uses efficient structure": check_uses_efficient_structure,
         "signature preserved": check_signature_preserved,

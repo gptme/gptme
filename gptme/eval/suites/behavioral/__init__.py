@@ -118,6 +118,7 @@ from .noisy_worktree_fix import (  # noqa: F401
 )
 from .optimize_n_squared import (  # noqa: F401
     check_no_nested_loop,
+    check_optimize_tests_pass,
     check_signature_preserved,
     check_uses_efficient_structure,
 )

@@ -617,6 +617,21 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
             """)
         )
 
+    elif scenario_name == "optimize-n-squared":
+        # Rewrite find_duplicates using Counter for O(n) performance
+        (workspace / "analytics.py").write_text(
+            textwrap.dedent("""\
+            \"\"\"Analytics utilities.\"\"\"
+            from collections import Counter
+
+
+            def find_duplicates(items: list) -> list:
+                \"\"\"Return a sorted list of items that appear more than once in *items*.\"\"\"
+                counts = Counter(items)
+                return sorted(item for item, count in counts.items() if count > 1)
+            """)
+        )
+
     else:
         raise ValueError(f"Unknown scenario: {scenario_name}")
 
