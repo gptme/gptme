@@ -40,7 +40,7 @@ Feature Comparison
 .. |partial| unicode:: U+1F7E1
 
 .. list-table:: Feature Comparison
-   :widths: 22 9 9 9 9 9 9 9 9
+   :widths: 20 8 8 8 8 8 8 8 8 8
    :header-rows: 1
 
    * - Feature
@@ -52,6 +52,7 @@ Feature Comparison
      - Codex
      - Cline
      - OpenClaw
+     - Devin
    * - Open source
      - |check|
      - |cross|
@@ -61,6 +62,7 @@ Feature Comparison
      - |check|
      - |check|
      - |check|
+     - |cross|
    * - Model-agnostic
      - |check|
      - |cross|
@@ -70,6 +72,7 @@ Feature Comparison
      - |cross|
      - |check|
      - |check|
+     - |cross|
    * - Terminal-native
      - |check|
      - |check|
@@ -77,6 +80,7 @@ Feature Comparison
      - |cross|
      - |partial|
      - |check|
+     - |cross|
      - |cross|
      - |cross|
    * - Autonomous mode
@@ -88,8 +92,10 @@ Feature Comparison
      - |cross|
      - |cross|
      - |cross|
+     - |check|
    * - Git-based memory
      - |check|
+     - |cross|
      - |cross|
      - |cross|
      - |cross|
@@ -106,6 +112,7 @@ Feature Comparison
      - |cross|
      - |cross|
      - |cross|
+     - |cross|
    * - Plugin/tool system
      - |check|
      - MCP
@@ -115,6 +122,7 @@ Feature Comparison
      - |cross|
      - MCP
      - |check|
+     - |partial|
    * - Web UI
      - |check|
      - |cross|
@@ -124,6 +132,7 @@ Feature Comparison
      - |cross|
      - N/A
      - |cross|
+     - |check|
    * - Self-hosted
      - |check|
      - |cross|
@@ -133,6 +142,7 @@ Feature Comparison
      - |check|
      - |check|
      - |check|
+     - |cross|
    * - Price
      - Free
      - $20/mo+
@@ -142,6 +152,7 @@ Feature Comparison
      - Free
      - Free
      - Free
+     - $500/mo
 
 
 Overview
@@ -311,7 +322,7 @@ Key features:
 
 - AI-native IDE experience
 - Git checkpointing
-- Great tab completion (from `acquiring Supermaven <https://www.coplay.dev/blog/a-brief-history-of-cursor-s-tab-completion>`_)
+- Great tab completion (from `acquiring Supermaven <https://coplay.dev/blog/a-brief-history-of-cursors-tab-completion>`_)
 - MCP support for extensibility
 
 Differences to gptme:
