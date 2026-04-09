@@ -9,14 +9,15 @@ This is critical infrastructure for idea #19 (eval-to-lesson feedback loop):
 before running expensive baseline experiments with real models, we need
 confidence that the checkers correctly identify good work.
 
-Covers all 21 behavioral scenarios:
+Covers all 22 behavioral scenarios:
   git-selective-commit, multi-file-rename, iterative-debug,
   stage-new-files, write-test-suite, test-driven-error-handling,
   merge-conflict-resolution, extract-function-refactor, debug-data-pipeline,
   scope-discipline-bugfix, add-logging, use-existing-helper,
   add-feature-preserve-default, handle-specific-exception,
   fix-security-path-traversal, refactor-for-testability, add-type-hints,
-  noisy-worktree-fix, fix-data-mutation, optimize-n-squared, remove-dead-code
+  noisy-worktree-fix, fix-data-mutation, optimize-n-squared, remove-dead-code,
+  fix-mutable-default
 """
 
 import subprocess
