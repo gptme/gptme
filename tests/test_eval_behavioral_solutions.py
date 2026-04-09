@@ -387,6 +387,51 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
             """)
         )
 
+    elif scenario_name == "fix-security-path-traversal":
+        # Fix path traversal: resolve both paths and validate containment.
+        (workspace / "server.py").write_text(
+            textwrap.dedent("""\
+            \"\"\"Minimal static file server.\"\"\"
+
+            import os
+
+
+            def serve_file(base_dir: str, filename: str) -> bytes:
+                \"\"\"Return the contents of *filename* from *base_dir*.
+
+                Raises FileNotFoundError if the file does not exist.
+                Raises ValueError if *filename* is absolute or escapes base_dir.
+                \"\"\"
+                if os.path.isabs(filename):
+                    raise ValueError(f"Absolute paths not allowed: {filename!r}")
+
+                base = os.path.realpath(base_dir)
+                filepath = os.path.realpath(os.path.join(base_dir, filename))
+
+                if not filepath.startswith(base + os.sep) and filepath != base:
+                    raise ValueError(
+                        f"Path escapes base directory: {filename!r}"
+                    )
+
+                with open(filepath, "rb") as f:
+                    return f.read()
+            """)
+        )
+        original = (workspace / "test_server.py").read_text()
+        (workspace / "test_server.py").write_text(
+            original
+            + textwrap.dedent("""\
+
+
+            def test_blocks_path_traversal(tmp_path):
+                \"\"\"Requesting ../../etc/passwd must raise ValueError.\"\"\"
+                safe_dir = tmp_path / "safe"
+                safe_dir.mkdir()
+                with pytest.raises(ValueError, match="escapes"):
+                    serve_file(str(safe_dir), "../../etc/passwd")
+            """)
+        )
+
     else:
         raise ValueError(f"Unknown scenario: {scenario_name}")
 

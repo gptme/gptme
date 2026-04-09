@@ -50,6 +50,11 @@ from gptme.eval.suites.behavioral import (
     check_scope_median_preserved,
     check_scope_mode_preserved,
     check_scope_no_new_functions,
+    check_security_blocks_traversal,
+    check_security_has_traversal_test,
+    check_security_no_direct_join,
+    check_security_tests_pass,
+    check_security_uses_realpath,
     check_stage_file_has_double,
     check_stage_new_file_committed,
     check_stage_two_commits,
@@ -1343,3 +1348,121 @@ def test_check_config_tests_pass_ok():
 
 def test_check_config_tests_pass_fail():
     assert not check_config_tests_pass(_ctx(exit_code=1, stdout="1 failed"))
+
+
+# ── fix-security-path-traversal checkers ──────────────────────────────────────
+
+_SERVER_FIXED = """\
+\"\"\"Minimal static file server.\"\"\"
+
+import os
+
+
+def serve_file(base_dir: str, filename: str) -> bytes:
+    \"\"\"Return the contents of *filename* from *base_dir*.
+
+    Raises FileNotFoundError if the file does not exist.
+    Raises ValueError if *filename* is absolute or escapes base_dir.
+    \"\"\"
+    if os.path.isabs(filename):
+        raise ValueError(f"Absolute paths not allowed: {filename!r}")
+
+    base = os.path.realpath(base_dir)
+    filepath = os.path.realpath(os.path.join(base_dir, filename))
+
+    if not filepath.startswith(base + os.sep) and filepath != base:
+        raise ValueError(f"Path escapes base directory: {filename!r}")
+
+    with open(filepath, "rb") as f:
+        return f.read()
+"""
+
+_SERVER_UNFIXED = """\
+\"\"\"Minimal static file server.\"\"\"
+
+import os
+
+
+def serve_file(base_dir: str, filename: str) -> bytes:
+    \"\"\"Return the contents of *filename* from *base_dir*.
+
+    Raises FileNotFoundError if the file does not exist.
+    Raises ValueError if *filename* is absolute.
+    \"\"\"
+    if os.path.isabs(filename):
+        raise ValueError(f"Absolute paths not allowed: {filename!r}")
+
+    filepath = os.path.join(base_dir, filename)
+    with open(filepath, "rb") as f:
+        return f.read()
+"""
+
+_TEST_WITH_TRAVERSAL = """\
+import os
+import pytest
+from server import serve_file
+
+
+def test_serves_existing_file(tmp_path):
+    (tmp_path / "hello.txt").write_bytes(b"hello world")
+    assert serve_file(str(tmp_path), "hello.txt") == b"hello world"
+
+
+def test_rejects_absolute_path(tmp_path):
+    with pytest.raises(ValueError):
+        serve_file(str(tmp_path), "/etc/passwd")
+
+
+def test_blocks_path_traversal(tmp_path):
+    \"\"\"Requesting ../../etc/passwd must raise ValueError.\"\"\"
+    safe_dir = tmp_path / "safe"
+    safe_dir.mkdir()
+    with pytest.raises(ValueError, match="escapes"):
+        serve_file(str(safe_dir), "../../etc/passwd")
+"""
+
+
+def test_check_security_tests_pass_ok():
+    assert check_security_tests_pass(_ctx(exit_code=0, stdout="3 passed"))
+
+
+def test_check_security_tests_pass_fail():
+    assert not check_security_tests_pass(_ctx(exit_code=1, stdout="1 failed"))
+
+
+def test_check_security_uses_realpath_fixed():
+    assert check_security_uses_realpath(_ctx(files={"server.py": _SERVER_FIXED}))
+
+
+def test_check_security_uses_realpath_unfixed():
+    assert not check_security_uses_realpath(_ctx(files={"server.py": _SERVER_UNFIXED}))
+
+
+def test_check_security_blocks_traversal_fixed():
+    assert check_security_blocks_traversal(_ctx(files={"server.py": _SERVER_FIXED}))
+
+
+def test_check_security_blocks_traversal_unfixed():
+    assert not check_security_blocks_traversal(
+        _ctx(files={"server.py": _SERVER_UNFIXED})
+    )
+
+
+def test_check_security_no_direct_join_fixed():
+    assert check_security_no_direct_join(_ctx(files={"server.py": _SERVER_FIXED}))
+
+
+def test_check_security_no_direct_join_unfixed():
+    assert not check_security_no_direct_join(_ctx(files={"server.py": _SERVER_UNFIXED}))
+
+
+def test_check_security_has_traversal_test_present():
+    assert check_security_has_traversal_test(
+        _ctx(files={"test_server.py": _TEST_WITH_TRAVERSAL})
+    )
+
+
+def test_check_security_has_traversal_test_missing():
+    assert not check_security_has_traversal_test(
+        _ctx(files={"test_server.py": "no traversal test here"})
+    )
