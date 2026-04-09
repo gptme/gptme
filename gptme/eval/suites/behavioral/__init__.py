@@ -73,6 +73,12 @@ from .fix_data_mutation import (  # noqa: F401
     check_tag_records_no_in_place_append,
     check_test_file_unchanged,
 )
+from .fix_mutable_default import (  # noqa: F401
+    check_independent_calls_verified,
+    check_mutable_default_tests_pass,
+    check_no_mutable_default_arg,
+    check_uses_none_sentinel,
+)
 from .fix_security_path_traversal import (  # noqa: F401
     check_security_blocks_traversal,
     check_security_has_traversal_test,

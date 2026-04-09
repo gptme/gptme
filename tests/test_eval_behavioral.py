@@ -26,6 +26,7 @@ from gptme.eval.suites.behavioral import (
     check_git_selective_commit_msg,
     check_git_selective_config_not_committed,
     check_git_selective_tests_pass,
+    check_independent_calls_verified,
     check_live_functions_intact,
     check_logging_debug_or_info_used,
     check_logging_error_level_used,
@@ -37,7 +38,9 @@ from gptme.eval.suites.behavioral import (
     check_merge_null_safety,
     check_merge_tests_pass,
     check_merge_upper_function,
+    check_mutable_default_tests_pass,
     check_mutation_tests_pass,
+    check_no_mutable_default_arg,
     check_no_nested_loop,
     check_noisy_worktree_api_not_committed,
     check_noisy_worktree_auth_committed,
@@ -83,6 +86,7 @@ from gptme.eval.suites.behavioral import (
     check_typehints_mypy_passes,
     check_typehints_uses_generic_collection,
     check_uses_efficient_structure,
+    check_uses_none_sentinel,
     check_write_tests_covers_extract_emails,
     check_write_tests_covers_truncate,
     check_write_tests_covers_word_count,
@@ -2161,3 +2165,139 @@ def test_check_processor_unchanged_original():
 
 def test_check_processor_unchanged_missing():
     assert not check_processor_unchanged(_ctx(files={"processor.py": ""}))
+
+
+# ── fix-mutable-default ───────────────────────────────────────────────────────
+
+_RECORDS_BUGGY = """\
+def collect_records(items, result=[]):
+    for item in items:
+        stripped = item.strip()
+        if stripped:
+            result.append(stripped)
+    return result
+
+
+def deduplicate(items, seen=[]):
+    for item in items:
+        if item not in seen:
+            seen.append(item)
+    return seen
+"""
+
+_RECORDS_FIXED = """\
+def collect_records(items, result=None):
+    if result is None:
+        result = []
+    for item in items:
+        stripped = item.strip()
+        if stripped:
+            result.append(stripped)
+    return result
+
+
+def deduplicate(items, seen=None):
+    if seen is None:
+        seen = []
+    for item in items:
+        if item not in seen:
+            seen.append(item)
+    return seen
+"""
+
+_RECORDS_FIXED_ALT = """\
+def collect_records(items, result=None):
+    out = result if result is not None else []
+    for item in items:
+        stripped = item.strip()
+        if stripped:
+            out.append(stripped)
+    return out
+
+
+def deduplicate(items, seen=None):
+    unique = seen if seen is not None else []
+    for item in items:
+        if item not in unique:
+            unique.append(item)
+    return unique
+"""
+
+_TESTS_PASSED_OUTPUT = """\
+test_collect_basic PASSED
+test_collect_strips_whitespace PASSED
+test_collect_skips_empty PASSED
+test_collect_independent_calls PASSED
+test_deduplicate_basic PASSED
+test_deduplicate_preserves_order PASSED
+test_deduplicate_independent_calls PASSED
+7 passed in 0.05s
+"""
+
+_TESTS_FAILED_OUTPUT = """\
+test_collect_independent_calls FAILED
+test_deduplicate_independent_calls FAILED
+5 passed, 2 failed in 0.04s
+"""
+
+
+def test_check_mutable_default_tests_pass_success():
+    assert check_mutable_default_tests_pass(
+        _ctx(stdout=_TESTS_PASSED_OUTPUT, exit_code=0)
+    )
+
+
+def test_check_mutable_default_tests_pass_failure():
+    assert not check_mutable_default_tests_pass(
+        _ctx(stdout=_TESTS_FAILED_OUTPUT, exit_code=1)
+    )
+
+
+def test_check_mutable_default_tests_pass_no_passed_word():
+    assert not check_mutable_default_tests_pass(_ctx(stdout="", exit_code=0))
+
+
+def test_check_no_mutable_default_arg_detects_list():
+    assert not check_no_mutable_default_arg(_ctx(files={"records.py": _RECORDS_BUGGY}))
+
+
+def test_check_no_mutable_default_arg_passes_fixed():
+    assert check_no_mutable_default_arg(_ctx(files={"records.py": _RECORDS_FIXED}))
+
+
+def test_check_no_mutable_default_arg_passes_alt_fixed():
+    assert check_no_mutable_default_arg(_ctx(files={"records.py": _RECORDS_FIXED_ALT}))
+
+
+def test_check_no_mutable_default_arg_empty_file():
+    assert check_no_mutable_default_arg(_ctx(files={"records.py": ""}))
+
+
+def test_check_uses_none_sentinel_fixed():
+    assert check_uses_none_sentinel(_ctx(files={"records.py": _RECORDS_FIXED}))
+
+
+def test_check_uses_none_sentinel_buggy():
+    assert not check_uses_none_sentinel(_ctx(files={"records.py": _RECORDS_BUGGY}))
+
+
+def test_check_independent_calls_verified_both_pass():
+    output = (
+        "test_collect_independent_calls PASSED\n"
+        "test_deduplicate_independent_calls PASSED\n"
+        "7 passed in 0.05s\n"
+    )
+    assert check_independent_calls_verified(_ctx(stdout=output, exit_code=0))
+
+
+def test_check_independent_calls_verified_one_fails():
+    output = (
+        "test_collect_independent_calls PASSED\n"
+        "test_deduplicate_independent_calls FAILED\n"
+        "6 passed, 1 failed\n"
+    )
+    assert not check_independent_calls_verified(_ctx(stdout=output, exit_code=1))
+
+
+def test_check_independent_calls_verified_missing():
+    assert not check_independent_calls_verified(_ctx(stdout="7 passed", exit_code=0))
