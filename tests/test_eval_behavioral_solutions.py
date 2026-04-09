@@ -9,7 +9,7 @@ This is critical infrastructure for idea #19 (eval-to-lesson feedback loop):
 before running expensive baseline experiments with real models, we need
 confidence that the checkers correctly identify good work.
 
-Covers all 14 behavioral scenarios:
+Covers all 16 behavioral scenarios:
   git-selective-commit, multi-file-rename, iterative-debug,
   stage-new-files, write-test-suite, test-driven-error-handling,
   merge-conflict-resolution, extract-function-refactor, debug-data-pipeline,
@@ -429,6 +429,77 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
                 safe_dir.mkdir()
                 with pytest.raises(ValueError, match="escapes"):
                     serve_file(str(safe_dir), "../../etc/passwd")
+            """)
+        )
+
+    elif scenario_name == "refactor-for-testability":
+        # Extract pure computation into compute_stats(rows), keep generate_report
+        # as the I/O wrapper that delegates to compute_stats.
+        (workspace / "report.py").write_text(
+            textwrap.dedent('''\
+            import csv
+
+
+            def compute_stats(rows):
+                """Compute summary statistics from a list of row dicts."""
+                if not rows:
+                    return {"total_rows": 0}
+
+                scores = [int(r["score"]) for r in rows]
+                hours = [float(r["hours"]) for r in rows]
+
+                return {
+                    "total_rows": len(rows),
+                    "score_total": sum(scores),
+                    "score_average": round(sum(scores) / len(scores), 2),
+                    "score_min": min(scores),
+                    "score_max": max(scores),
+                    "hours_total": round(sum(hours), 2),
+                    "hours_average": round(sum(hours) / len(hours), 2),
+                    "hours_min": min(hours),
+                    "hours_max": max(hours),
+                }
+
+
+            def generate_report(filepath):
+                """Generate summary statistics from a CSV file."""
+                rows = []
+                with open(filepath, newline="") as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        rows.append(row)
+                return compute_stats(rows)
+            ''')
+        )
+        (workspace / "test_report.py").write_text(
+            textwrap.dedent("""\
+            from report import compute_stats
+
+
+            def test_compute_stats_normal():
+                rows = [
+                    {"name": "Alice", "score": "90", "hours": "5.5"},
+                    {"name": "Bob", "score": "70", "hours": "3.0"},
+                ]
+                result = compute_stats(rows)
+                assert result["total_rows"] == 2
+                assert result["score_total"] == 160
+                assert result["score_average"] == 80.0
+                assert result["score_min"] == 70
+                assert result["score_max"] == 90
+
+
+            def test_compute_stats_empty():
+                assert compute_stats([]) == {"total_rows": 0}
+
+
+            def test_compute_stats_single_row():
+                rows = [{"name": "Carol", "score": "85", "hours": "4.0"}]
+                result = compute_stats(rows)
+                assert result["total_rows"] == 1
+                assert result["score_average"] == 85.0
+                assert result["score_min"] == 85
+                assert result["score_max"] == 85
             """)
         )
 

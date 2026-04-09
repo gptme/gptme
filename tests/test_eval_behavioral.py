@@ -58,6 +58,11 @@ from gptme.eval.suites.behavioral import (
     check_stage_file_has_double,
     check_stage_new_file_committed,
     check_stage_two_commits,
+    check_testability_generate_report_preserved,
+    check_testability_has_pure_function,
+    check_testability_no_file_io_in_unit_tests,
+    check_testability_pure_function_tested,
+    check_testability_tests_pass,
     check_write_tests_covers_extract_emails,
     check_write_tests_covers_truncate,
     check_write_tests_covers_word_count,
@@ -1465,4 +1470,166 @@ def test_check_security_has_traversal_test_present():
 def test_check_security_has_traversal_test_missing():
     assert not check_security_has_traversal_test(
         _ctx(files={"test_server.py": "no traversal test here"})
+    )
+
+
+# ── refactor-for-testability checkers ────────────────────────────────────────
+
+_REPORT_ORIGINAL = '''\
+import csv
+
+
+def generate_report(filepath):
+    """Generate summary statistics from a CSV file."""
+    rows = []
+    with open(filepath, newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            rows.append(row)
+
+    if not rows:
+        return {"total_rows": 0}
+
+    scores = [int(r["score"]) for r in rows]
+    hours = [float(r["hours"]) for r in rows]
+
+    return {
+        "total_rows": len(rows),
+        "score_total": sum(scores),
+        "score_average": round(sum(scores) / len(scores), 2),
+        "score_min": min(scores),
+        "score_max": max(scores),
+        "hours_total": round(sum(hours), 2),
+        "hours_average": round(sum(hours) / len(hours), 2),
+        "hours_min": min(hours),
+        "hours_max": max(hours),
+    }
+'''
+
+_REPORT_REFACTORED = '''\
+import csv
+
+
+def compute_stats(rows):
+    """Compute summary statistics from a list of row dicts."""
+    if not rows:
+        return {"total_rows": 0}
+
+    scores = [int(r["score"]) for r in rows]
+    hours = [float(r["hours"]) for r in rows]
+
+    return {
+        "total_rows": len(rows),
+        "score_total": sum(scores),
+        "score_average": round(sum(scores) / len(scores), 2),
+        "score_min": min(scores),
+        "score_max": max(scores),
+        "hours_total": round(sum(hours), 2),
+        "hours_average": round(sum(hours) / len(hours), 2),
+        "hours_min": min(hours),
+        "hours_max": max(hours),
+    }
+
+
+def generate_report(filepath):
+    """Generate summary statistics from a CSV file."""
+    rows = []
+    with open(filepath, newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            rows.append(row)
+    return compute_stats(rows)
+'''
+
+_TEST_WITH_PURE_FUNCTION = """\
+from report import compute_stats
+
+def test_compute_stats_normal():
+    rows = [
+        {"name": "Alice", "score": "90", "hours": "5.5"},
+        {"name": "Bob", "score": "70", "hours": "3.0"},
+    ]
+    result = compute_stats(rows)
+    assert result["total_rows"] == 2
+    assert result["score_total"] == 160
+    assert result["score_average"] == 80.0
+
+def test_compute_stats_empty():
+    assert compute_stats([]) == {"total_rows": 0}
+"""
+
+_TEST_WITHOUT_PURE_FUNCTION = """\
+import tempfile
+
+def test_generate_report(tmp_path):
+    # only tests the I/O function using files, no pure function test
+    tmp_path.joinpath("data.csv").write_text("name,score,hours\\nAlice,90,5.5\\n")
+    result = generate_report(str(tmp_path / "data.csv"))
+    assert result["total_rows"] == 1
+"""
+
+
+def test_check_testability_tests_pass_ok():
+    assert check_testability_tests_pass(_ctx(exit_code=0, stdout="5 passed"))
+
+
+def test_check_testability_tests_pass_fail():
+    assert not check_testability_tests_pass(_ctx(exit_code=1, stdout="1 failed"))
+
+
+def test_check_testability_has_pure_function_refactored():
+    assert check_testability_has_pure_function(
+        _ctx(files={"report.py": _REPORT_REFACTORED})
+    )
+
+
+def test_check_testability_has_pure_function_original():
+    assert not check_testability_has_pure_function(
+        _ctx(files={"report.py": _REPORT_ORIGINAL})
+    )
+
+
+def test_check_testability_pure_function_tested_present():
+    assert check_testability_pure_function_tested(
+        _ctx(
+            files={
+                "report.py": _REPORT_REFACTORED,
+                "test_report.py": _TEST_WITH_PURE_FUNCTION,
+            }
+        )
+    )
+
+
+def test_check_testability_pure_function_tested_missing():
+    assert not check_testability_pure_function_tested(
+        _ctx(
+            files={
+                "report.py": _REPORT_REFACTORED,
+                "test_report.py": _TEST_WITHOUT_PURE_FUNCTION,
+            }
+        )
+    )
+
+
+def test_check_testability_generate_report_preserved_yes():
+    assert check_testability_generate_report_preserved(
+        _ctx(files={"report.py": _REPORT_REFACTORED})
+    )
+
+
+def test_check_testability_generate_report_preserved_no():
+    assert not check_testability_generate_report_preserved(
+        _ctx(files={"report.py": "# nothing here"})
+    )
+
+
+def test_check_testability_no_file_io_in_unit_tests_good():
+    assert check_testability_no_file_io_in_unit_tests(
+        _ctx(files={"test_report.py": _TEST_WITH_PURE_FUNCTION})
+    )
+
+
+def test_check_testability_no_file_io_in_unit_tests_bad():
+    assert not check_testability_no_file_io_in_unit_tests(
+        _ctx(files={"test_report.py": _TEST_WITHOUT_PURE_FUNCTION})
     )
