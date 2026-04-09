@@ -1,7 +1,6 @@
 """Behavioral scenario: optimize-n-squared."""
 
 import ast
-import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -67,10 +66,19 @@ def check_uses_efficient_structure(ctx):
     content = ctx.files.get("analytics.py", "")
     if isinstance(content, bytes):
         content = content.decode()
-    return bool(
-        re.search(r"\bCounter\b|\bdefaultdict\b", content)
-        or re.search(r"\bset\b|\bdict\b|\{\}", content)
-    )
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return False
+    efficient_names = {"Counter", "defaultdict", "set", "dict"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "find_duplicates":
+            for child in ast.walk(node):
+                if isinstance(child, ast.Name) and child.id in efficient_names:
+                    return True
+                if isinstance(child, ast.Set | ast.Dict):
+                    return True
+    return False
 
 
 def check_signature_preserved(ctx):
