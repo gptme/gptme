@@ -9,12 +9,12 @@ This is critical infrastructure for idea #19 (eval-to-lesson feedback loop):
 before running expensive baseline experiments with real models, we need
 confidence that the checkers correctly identify good work.
 
-Covers all 13 behavioral scenarios:
+Covers all 14 behavioral scenarios:
   git-selective-commit, multi-file-rename, iterative-debug,
   stage-new-files, write-test-suite, test-driven-error-handling,
   merge-conflict-resolution, extract-function-refactor, debug-data-pipeline,
   scope-discipline-bugfix, add-logging, use-existing-helper,
-  add-feature-preserve-default
+  add-feature-preserve-default, handle-specific-exception
 """
 
 import subprocess
@@ -308,7 +308,7 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
             '    """\n'
             "    normalized = normalize_email(email)\n"
             '    if "@" not in normalized or "." not in normalized.split("@")[-1]:\n'
-            "        raise ValueError(f\"Invalid email: {email!r}\")\n"
+            '        raise ValueError(f"Invalid email: {email!r}")\n'
             '    return {"email": normalized, "active": True}\n'
         )
 
@@ -348,6 +348,42 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
             def test_include_chars_false_explicit():
                 result = summarize("hello", include_chars=False)
                 assert set(result.keys()) == {"words", "lines"}
+            """)
+        )
+
+    elif scenario_name == "handle-specific-exception":
+        # Narrow the broad except Exception: to json.JSONDecodeError,
+        # and add a test verifying FileNotFoundError propagates.
+        (workspace / "config.py").write_text(
+            textwrap.dedent("""\
+            \"\"\"Application configuration loader.\"\"\"
+
+            import json
+
+
+            def parse_config(path):
+                \"\"\"Load configuration from a JSON file.
+
+                Raises FileNotFoundError if the file does not exist.
+                Returns an empty dict if the file contains invalid JSON.
+                \"\"\"
+                try:
+                    with open(path) as f:
+                        return json.load(f)
+                except json.JSONDecodeError:
+                    return {}
+            """)
+        )
+        original = (workspace / "test_config.py").read_text()
+        (workspace / "test_config.py").write_text(
+            original
+            + textwrap.dedent("""\
+
+
+            def test_missing_file_raises():
+                import pytest
+                with pytest.raises(FileNotFoundError):
+                    parse_config("/nonexistent/path/config.json")
             """)
         )
 
