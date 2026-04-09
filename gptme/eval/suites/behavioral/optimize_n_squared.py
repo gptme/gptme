@@ -26,10 +26,10 @@ def check_no_nested_loop(ctx):
         if isinstance(node, ast.FunctionDef) and node.name == "find_duplicates":
             # Walk all children; if we find a loop inside a loop, fail
             for child in ast.walk(node):
-                if child is not node and isinstance(child, (ast.For, ast.While)):
+                if child is not node and isinstance(child, ast.For | ast.While):
                     for grandchild in ast.walk(child):
                         if grandchild is not child and isinstance(
-                            grandchild, (ast.For, ast.While)
+                            grandchild, ast.For | ast.While
                         ):
                             return False
     return True
