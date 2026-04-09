@@ -568,6 +568,35 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
             """)
         )
 
+    elif scenario_name == "noisy-worktree-fix":
+        # setup.sh introduced the bug in the working tree without committing it.
+        # First commit the buggy state so auth.py differs from HEAD, then fix and
+        # commit only auth.py — leaving api.py, config.py, utils.py uncommitted.
+        _run("git add auth.py", cwd=workspace)
+        _run(
+            'git commit -q -m "chore: introduce auth bug (test artifact)"',
+            cwd=workspace,
+        )
+        (workspace / "auth.py").write_text(
+            textwrap.dedent("""\
+            \"\"\"Authentication utilities.\"\"\"
+
+
+            def validate_email(email: str) -> bool:
+                \"\"\"Return True if email looks valid (must have @ and a dot in the domain).\"\"\"
+                parts = email.split("@")
+                if len(parts) != 2:
+                    return False
+                local, domain = parts
+                return bool(local) and "." in domain
+            """)
+        )
+        _run("git add auth.py", cwd=workspace)
+        _run(
+            'git commit -m "fix(auth): fix email validation to require dot in domain"',
+            cwd=workspace,
+        )
+
     else:
         raise ValueError(f"Unknown scenario: {scenario_name}")
 
