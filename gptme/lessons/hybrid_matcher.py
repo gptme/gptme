@@ -399,8 +399,9 @@ class HybridLessonMatcher(LessonMatcher):
         if not context.tools_used or not lesson.metadata.tools:
             return 0.0
 
+        tools_lower = {t.lower() for t in context.tools_used}
         for tool in lesson.metadata.tools:
-            if tool in context.tools_used:
+            if tool.lower() in tools_lower:
                 return self.config.tool_bonus
 
         return 0.0
