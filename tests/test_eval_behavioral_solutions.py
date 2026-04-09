@@ -631,6 +631,7 @@ def _get_workspace_files(
 
 
 @pytest.mark.parametrize("scenario", behavioral_tests, ids=lambda t: t["name"])
+@pytest.mark.timeout(30)
 def test_reference_solution_passes_all_checkers(
     tmp_path: Path, scenario: EvalSpec
 ) -> None:

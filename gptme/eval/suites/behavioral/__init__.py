@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from gptme.eval.types import EvalSpec
 
-
 def _discover_tests() -> "list[EvalSpec]":
     """Auto-discover scenario modules; wrapped to avoid leaking loop vars."""
     package_dir = Path(__file__).parent
