@@ -873,7 +873,7 @@ def check_typehints_function_returns_annotated(ctx):
     if module is None:
         return False
     for node in ast.walk(module):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             if node.name.startswith("__") and node.name.endswith("__"):
                 continue
             if node.returns is None:
