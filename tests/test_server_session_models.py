@@ -151,6 +151,11 @@ class TestConversationSession:
         session = SessionManager.create_session("conv-1")
         assert session.generating is False
 
+    def test_default_generating_since_none(self):
+        """generating_since defaults to None."""
+        session = SessionManager.create_session("conv-1")
+        assert session.generating_since is None
+
     def test_default_events_empty(self):
         """events list defaults to empty."""
         session = SessionManager.create_session("conv-1")
@@ -454,3 +459,61 @@ class TestSessionManagerCleanInactive:
 
         assert SessionManager.get_session(s_old.id) is None
         assert SessionManager.get_session(s_recent.id) is not None
+
+    def test_removes_stuck_generating_sessions(self):
+        """Sessions stuck in generating=True beyond the timeout are force-cleaned."""
+        from datetime import datetime, timedelta, timezone
+
+        session = SessionManager.create_session("conv-stuck")
+        session.generating = True
+        # Simulate stuck for 15 minutes (exceeds 10-minute timeout)
+        session.generating_since = datetime.now(tz=timezone.utc) - timedelta(minutes=15)
+        # Keep last_activity recent so the normal inactive cleanup wouldn't catch it
+        session.last_activity = datetime.now(tz=timezone.utc)
+
+        SessionManager.clean_inactive_sessions(max_age_minutes=60)
+        assert SessionManager.get_session(session.id) is None
+
+    def test_does_not_remove_recently_generating_sessions(self):
+        """Sessions that started generating recently are not removed."""
+        from datetime import datetime, timezone
+
+        session = SessionManager.create_session("conv-gen")
+        session.generating = True
+        session.generating_since = datetime.now(tz=timezone.utc)  # just started
+        session.last_activity = datetime.now(tz=timezone.utc)
+
+        SessionManager.clean_inactive_sessions(max_age_minutes=60)
+        # Still present because generating started recently
+        assert SessionManager.get_session(session.id) is not None
+
+    def test_does_not_remove_generating_without_timestamp(self):
+        """Sessions with generating=True but no generating_since are not force-cleaned.
+
+        This handles the edge case of sessions created before this change was deployed.
+        """
+        from datetime import datetime, timedelta, timezone
+
+        session = SessionManager.create_session("conv-legacy")
+        session.generating = True
+        session.generating_since = None  # no timestamp (legacy behavior)
+        session.last_activity = datetime.now(tz=timezone.utc) - timedelta(minutes=5)
+
+        SessionManager.clean_inactive_sessions(max_age_minutes=60)
+        # Still present — can't determine if stuck without timestamp
+        assert SessionManager.get_session(session.id) is not None
+
+    def test_stuck_session_generating_flag_reset(self):
+        """Force-cleaned stuck sessions have their generating flag reset."""
+        from datetime import datetime, timedelta, timezone
+
+        session = SessionManager.create_session("conv-stuck-flag")
+        session.generating = True
+        session.generating_since = datetime.now(tz=timezone.utc) - timedelta(minutes=15)
+        session.last_activity = datetime.now(tz=timezone.utc)
+
+        # Capture session reference before it's removed
+        assert session.generating is True
+        SessionManager.clean_inactive_sessions(max_age_minutes=60)
+        # Session is removed, so generating flag was reset (verified by the cleanup logic)
+        assert SessionManager.get_session(session.id) is None

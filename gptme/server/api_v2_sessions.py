@@ -11,6 +11,7 @@ import logging
 import time
 import uuid
 from collections.abc import Generator
+from datetime import datetime, timezone
 
 import flask
 from flask import request
@@ -308,6 +309,7 @@ def api_conversation_step(conversation_id: str):
         # check above and those calls — enough for a second request to slip through
         # on threaded WSGI servers.
         session.generating = True
+        session.generating_since = datetime.now(tz=timezone.utc)
 
     # Wrap setup in try/finally so any unexpected exception (get_default_model,
     # config I/O, etc.) resets the flag rather than leaving the session
@@ -407,6 +409,7 @@ def api_conversation_step(conversation_id: str):
     finally:
         if not _step_dispatched:
             session.generating = False
+            session.generating_since = None
 
     # Wait briefly for early errors (bad model, auth failure, empty messages, etc.)
     # so we can return them in the HTTP response instead of swallowing silently.
@@ -791,6 +794,7 @@ def api_conversation_interrupt(conversation_id: str):
 
     # Mark session as not generating
     session.generating = False
+    session.generating_since = None
 
     # Clear pending tools
     session.pending_tools.clear()

@@ -69,6 +69,9 @@ class ConversationSession(BaseSession):
 
     # Server-specific fields (all have defaults, required for dataclass inheritance)
     generating: bool = False
+    generating_since: datetime | None = (
+        None  # When generation started (for stuck detection)
+    )
     last_error: str | None = None
     events: list[EventType] = field(default_factory=list)
     pending_tools: dict[str, ToolExecution] = field(default_factory=dict)
@@ -128,14 +131,40 @@ class SessionManager:
             session.touch()  # Update last_activity timestamp
             session.event_flag.set()  # Signal that new events are available
 
+    # Max time a session can remain in generating=True before being considered stuck.
+    # Protects against sessions permanently stuck when a step thread crashes
+    # without resetting the generating flag.
+    _STUCK_GENERATING_TIMEOUT_MINUTES = 10
+
     @classmethod
     def clean_inactive_sessions(cls, max_age_minutes: int = 60) -> None:
-        """Clean up inactive sessions."""
-        cutoff = datetime.now(tz=timezone.utc) - timedelta(minutes=max_age_minutes)
+        """Clean up inactive sessions.
+
+        Also detects sessions stuck in generating=True state: if a session has
+        been generating for longer than _STUCK_GENERATING_TIMEOUT_MINUTES, it is
+        force-cleaned to prevent permanent resource leaks.
+        """
+        now = datetime.now(tz=timezone.utc)
+        cutoff = now - timedelta(minutes=max_age_minutes)
+        stuck_cutoff = now - timedelta(minutes=cls._STUCK_GENERATING_TIMEOUT_MINUTES)
         to_remove = []
 
         for session_id, session in list(cls._sessions.items()):
             if session.last_activity < cutoff and not session.generating:
+                to_remove.append(session_id)
+            elif (
+                session.generating
+                and session.generating_since is not None
+                and session.generating_since < stuck_cutoff
+            ):
+                logger.warning(
+                    "Force-cleaning stuck session %s (generating since %s, "
+                    "exceeded %d min timeout)",
+                    session_id,
+                    session.generating_since.isoformat(),
+                    cls._STUCK_GENERATING_TIMEOUT_MINUTES,
+                )
+                session.generating = False
                 to_remove.append(session_id)
 
         for session_id in to_remove:
