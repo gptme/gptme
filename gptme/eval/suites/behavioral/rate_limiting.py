@@ -158,7 +158,7 @@ def test_rate_limit_backoff_increases():
         if call_count < 4:
             raise HTTPError("url", 429, "Too Many Requests", {}, None)
         mock_resp = MagicMock()
-        mock_resp.read.return_value = b'{"ok": True}'
+        mock_resp.read.return_value = b'{"ok": true}'
         mock_resp.__enter__ = lambda self: self
         mock_resp.__exit__ = MagicMock(return_value=False)
         return mock_resp
