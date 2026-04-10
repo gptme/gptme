@@ -75,6 +75,41 @@ Here are some compelling examples to get you started:
     # Resume conversations
     gptme -r
 
+Local Models (No API Key Required)
+-----------------------------------
+
+To run gptme without an API key, use a local model via `Ollama <https://ollama.com>`_:
+
+.. code-block:: bash
+
+    # Install Ollama (see https://ollama.com), then pull a model
+    ollama pull llama3.2:1b
+    ollama serve  # run in background or separate terminal
+
+    # Use with gptme (OPENAI_BASE_URL is required by the local provider)
+    export OPENAI_BASE_URL="http://127.0.0.1:11434/v1"
+    gptme "hello" -m local/llama3.2:1b
+
+For better results on coding tasks, use a larger model:
+
+.. code-block:: bash
+
+    ollama pull llama3.1:8b
+    export OPENAI_BASE_URL="http://127.0.0.1:11434/v1"
+    gptme -m local/llama3.1:8b
+
+.. tip::
+
+   Local models work well for simple tasks and private workflows. For complex multi-step
+   coding work, API-based models (Claude, GPT-4o) give better results.
+
+   If gptme shows an error about the summary model, configure ``model.summary`` in
+   :doc:`config` to point to a local model, or pass ``-m local/MODEL_NAME`` to use the
+   same model for both chat and summaries.
+
+See :doc:`providers` for ``llama.cpp``, Groq, and all other local and remote provider options.
+
+
 Next Steps
 ----------
 
