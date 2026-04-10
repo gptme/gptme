@@ -216,6 +216,8 @@ def test_fetch_metrics_valid(monkeypatch):
 
     mock_response = MagicMock()
     mock_response.read.return_value = json.dumps({"status": "ok", "data": [1, 2, 3]}).encode()
+    mock_response.__enter__ = lambda s: s
+    mock_response.__exit__ = MagicMock(return_value=False)
 
     import urllib.request
     original_urlopen = urllib.request.urlopen
@@ -253,6 +255,8 @@ def test_get_data_deprecated():
 
     mock_response = MagicMock()
     mock_response.read.return_value = json.dumps({"key": "value"}).encode()
+    mock_response.__enter__ = lambda s: s
+    mock_response.__exit__ = MagicMock(return_value=False)
 
     original_urlopen = urllib.request.urlopen
 
@@ -295,6 +299,8 @@ def test_fetch_metrics_with_params():
         captured_url.append(url)
         mock_response = MagicMock()
         mock_response.read.return_value = json.dumps({"status": "ok"}).encode()
+        mock_response.__enter__ = lambda s: s
+        mock_response.__exit__ = MagicMock(return_value=False)
         return mock_response
 
     original_urlopen = urllib.request.urlopen

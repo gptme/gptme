@@ -9,7 +9,7 @@ This is critical infrastructure for idea #19 (eval-to-lesson feedback loop):
 before running expensive baseline experiments with real models, we need
 confidence that the checkers correctly identify good work.
 
-Covers all 22 behavioral scenarios:
+Covers all 23 behavioral scenarios:
   git-selective-commit, multi-file-rename, iterative-debug,
   stage-new-files, write-test-suite, test-driven-error-handling,
   merge-conflict-resolution, extract-function-refactor, debug-data-pipeline,
@@ -17,7 +17,7 @@ Covers all 22 behavioral scenarios:
   add-feature-preserve-default, handle-specific-exception,
   fix-security-path-traversal, refactor-for-testability, add-type-hints,
   noisy-worktree-fix, fix-data-mutation, optimize-n-squared, remove-dead-code,
-  fix-mutable-default
+  fix-mutable-default, add-deprecation-warning
 """
 
 import subprocess
@@ -683,6 +683,86 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
                     if item not in seen:
                         seen.append(item)
                 return seen
+            """)
+        )
+
+    elif scenario_name == "add-deprecation-warning":
+        # Add warnings.warn() with DeprecationWarning to get_data()
+        (workspace / "api_client.py").write_text(
+            textwrap.dedent("""\
+            \"\"\"API client module for the metrics service.\"\"\"
+
+            import urllib.request
+            import json
+            import warnings
+            from typing import Any
+
+
+            def fetch_metrics(endpoint: str, params: dict[str, str] | None = None) -> dict[str, Any]:
+                \"\"\"
+                Fetch metrics from the given endpoint.
+
+                Args:
+                    endpoint: The API endpoint URL
+                    params: Optional query parameters
+
+                Returns:
+                    The JSON response as a dictionary
+                \"\"\"
+                url = endpoint
+                if params:
+                    query = "&".join(f"{k}={v}" for k, v in params.items())
+                    url = f"{endpoint}?{query}"
+
+                with urllib.request.urlopen(url) as response:
+                    return json.loads(response.read().decode())
+
+
+            def get_summary(metrics: list[dict[str, Any]]) -> dict[str, float]:
+                \"\"\"
+                Calculate summary statistics from a list of metric dictionaries.
+
+                Args:
+                    metrics: List of metric dictionaries with 'value' keys
+
+                Returns:
+                    Dictionary with min, max, and average values
+                \"\"\"
+                if not metrics:
+                    return {"min": 0.0, "max": 0.0, "average": 0.0}
+
+                values = [m["value"] for m in metrics if "value" in m]
+                if not values:
+                    return {"min": 0.0, "max": 0.0, "average": 0.0}
+
+                return {
+                    "min": min(values),
+                    "max": max(values),
+                    "average": sum(values) / len(values),
+                }
+
+
+            # DEPRECATED: Use fetch_metrics instead
+            def get_data(url: str) -> dict[str, Any]:
+                \"\"\"
+                Fetch JSON data from a URL.
+
+                DEPRECATED: Use fetch_metrics() instead. This function will be removed
+                in a future version.
+
+                Args:
+                    url: The URL to fetch from
+
+                Returns:
+                    The JSON response as a dictionary
+                \"\"\"
+                warnings.warn(
+                    "get_data() is deprecated, use fetch_metrics() instead.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+                with urllib.request.urlopen(url) as response:
+                    return json.loads(response.read().decode())
             """)
         )
 
