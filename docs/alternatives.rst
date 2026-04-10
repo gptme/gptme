@@ -483,7 +483,6 @@ Differences to gptme:
 - **Runtime cost**: $0.08/hr for 24/7 agents (~$58/mo per agent) on top of token costs; gptme has no runtime fee
 - **No self-hosting**: Cloud-only platform; gptme runs on your own machine
 - **Memory still in preview**: Cross-session memory is a "research preview" feature; gptme agents have full git-based persistent memory out of the box
-- **Validates the category**: Anthropic building this confirms that persistent autonomous agents are the next frontier — and gptme has been doing it longer and with more flexibility
 
 .. note::
 
