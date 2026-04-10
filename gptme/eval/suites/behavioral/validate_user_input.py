@@ -14,12 +14,7 @@ def check_type_validation(ctx):
     content = ctx.files.get("user_service.py", "")
     if isinstance(content, bytes):
         content = content.decode()
-    return (
-        "isinstance" in content
-        or "type(" in content
-        or "TypeError" in content
-        or "int(" in content
-    )
+    return "isinstance" in content or "type(" in content or "TypeError" in content
 
 
 def check_range_validation(ctx):
