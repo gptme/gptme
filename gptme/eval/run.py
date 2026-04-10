@@ -189,7 +189,8 @@ def run_evals(
             model_results[config][test_name] = result
 
         # worse-case run time, with some buffer to account for overhead
-        max_timeout = timeout * len(evals) / parallel + 10
+        # n_runs accounts for all model×eval combinations, not just evals
+        max_timeout = timeout * n_runs / parallel + 10
         completed = set()
         try:
             # TODO: can we do better than this? handle timeouts within futures instead?
