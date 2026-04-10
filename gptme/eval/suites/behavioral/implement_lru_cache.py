@@ -43,14 +43,20 @@ def check_has_cache_structure(ctx):
 
 
 def check_has_capacity_limit(ctx):
-    """Should respect the max_size capacity limit."""
+    """Should use the capacity limit to enforce max cache size."""
     content = _get_source(ctx)
-    return (
-        "max_size" in content
-        or "maxsize" in content
-        or "_max_size" in content
-        or "capacity" in content.lower()
-    )
+    module = parse_python_source(content)
+    if module is None:
+        return False
+    # The stub already stores self._max_size — the agent must *use* it in a comparison.
+    # Look for a Compare node where one side references max_size/maxsize/_max_size.
+    for node in ast.walk(module):
+        if isinstance(node, ast.Compare):
+            parts = [node.left, *node.comparators]
+            src_parts = [ast.unparse(p) for p in parts]
+            if any("max_size" in p or "maxsize" in p for p in src_parts):
+                return True
+    return False
 
 
 def check_has_eviction(ctx):
@@ -77,11 +83,10 @@ def check_has_eviction(ctx):
 def check_has_recency_tracking(ctx):
     """Should track access order to implement LRU eviction."""
     content = _get_source(ctx)
-    # OrderedDict.move_to_end is the canonical stdlib approach
-    # Also accept manual order tracking or deque
+    # OrderedDict without move_to_end is FIFO, not LRU — require move_to_end explicitly.
+    # Also accept manual order tracking via deque, a separate _order list, or functools.lru_cache.
     return (
         "move_to_end" in content
-        or "OrderedDict" in content
         or "deque" in content
         or "_order" in content
         or "lru_cache" in content
