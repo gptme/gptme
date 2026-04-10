@@ -38,7 +38,7 @@ def check_has_retry_loop(ctx):
     for node in ast.walk(module):
         if isinstance(node, ast.FunctionDef) and node.name == "get":
             for child in ast.walk(node):
-                if isinstance(child, (ast.For, ast.While)):
+                if isinstance(child, ast.For | ast.While):
                     return True
     return False
 
