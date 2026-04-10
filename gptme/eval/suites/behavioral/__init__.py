@@ -36,6 +36,13 @@ tests: list["EvalSpec"] = _discover_tests()
 
 # Re-export all checker functions for backward compatibility.
 # Tests and external code may import them directly from this package.
+from .add_deprecation_warning import (  # noqa: F401
+    check_deprecation_category,
+    check_deprecation_warning_issued,
+    check_docstring_updated,
+    check_migration_guidance,
+    check_tests_pass,
+)
 from .add_feature_preserve_default import (  # noqa: F401
     check_compat_has_default_param,
     check_compat_new_tests_exist,

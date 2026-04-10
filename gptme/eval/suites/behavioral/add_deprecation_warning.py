@@ -39,22 +39,50 @@ def _get_function_def(module: ast.Module, name: str) -> ast.FunctionDef | None:
     return None
 
 
-def _has_warnings_warn_call(source: str) -> bool:
-    """Check if source contains any warnings.warn() call."""
+def _is_warnings_warn_call(node: ast.AST) -> bool:
+    """Return True if the AST node is a warnings.warn(...) call."""
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "warn"
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "warnings"
+    )
+
+
+def _has_warnings_warn_call_in_func(source: str, func_name: str) -> bool:
+    """Check if warnings.warn() is called inside the named function body."""
     try:
         tree = ast.parse(source)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call):
-                if (
-                    isinstance(node.func, ast.Attribute)
-                    and node.func.attr == "warn"
-                    and isinstance(node.func.value, ast.Name)
-                    and node.func.value.id == "warnings"
-                ):
-                    return True
-        return False
+        func = _get_function_def(tree, func_name)
+        if func is None:
+            return False
+        return any(_is_warnings_warn_call(node) for node in ast.walk(func))
     except SyntaxError:
         return False
+
+
+def _get_warn_message_in_func(source: str, func_name: str) -> str:
+    """Return the first-arg string literal of warnings.warn() inside the named function."""
+    try:
+        tree = ast.parse(source)
+        func = _get_function_def(tree, func_name)
+        if func is None:
+            return ""
+        for node in ast.walk(func):
+            if (
+                isinstance(node, ast.Call)
+                and _is_warnings_warn_call(node)
+                and node.args
+            ):
+                first_arg = node.args[0]
+                if isinstance(first_arg, ast.Constant) and isinstance(
+                    first_arg.value, str
+                ):
+                    return first_arg.value
+        return ""
+    except SyntaxError:
+        return ""
 
 
 def _has_deprecation_warning_category(source: str) -> bool:
@@ -91,7 +119,7 @@ def check_tests_pass(ctx):
 def check_deprecation_warning_issued(ctx):
     """get_data() should issue a DeprecationWarning when called."""
     source = _get_client_source(ctx)
-    return _has_warnings_warn_call(source)
+    return _has_warnings_warn_call_in_func(source, "get_data")
 
 
 def check_deprecation_category(ctx):
@@ -116,18 +144,13 @@ def check_docstring_updated(ctx):
 def check_migration_guidance(ctx):
     """The deprecation warning message should provide migration guidance."""
     source = _get_client_source(ctx)
-    # Look for migration guidance in warnings.warn message
-    # Should mention fetch_metrics OR "use X instead" pattern
-    has_fetchmetrics = "fetch_metrics" in source
-    has_use_instead = (
-        re.search(
-            r"warnings\.warn\s*\([^)]*use.*instead",
-            source,
-            re.IGNORECASE | re.DOTALL,
-        )
-        is not None
+    # Check that the warnings.warn() message inside get_data() mentions the replacement
+    msg = _get_warn_message_in_func(source, "get_data")
+    if not msg:
+        return False
+    return "fetch_metrics" in msg or bool(
+        re.search(r"use\s+\S+\s+instead", msg, re.IGNORECASE)
     )
-    return has_fetchmetrics or has_use_instead
 
 
 test: "EvalSpec" = {
