@@ -36,6 +36,14 @@ tests: list["EvalSpec"] = _discover_tests()
 
 # Re-export all checker functions for backward compatibility.
 # Tests and external code may import them directly from this package.
+from .add_docstrings import (  # noqa: F401
+    check_all_functions_have_docstrings,
+    check_compute_stats_all_documented,
+    check_docstring_tests_pass,
+    check_parse_args_documented,
+    check_parse_returns_documented,
+    check_validate_email_raises_documented,
+)
 from .add_feature_preserve_default import (  # noqa: F401
     check_compat_has_default_param,
     check_compat_new_tests_exist,

@@ -1,11 +1,13 @@
 from types import SimpleNamespace
 
 from gptme.eval.suites.behavioral import (
+    check_all_functions_have_docstrings,
     check_apply_updates_returns_new_dict,
     check_compat_has_default_param,
     check_compat_new_tests_exist,
     check_compat_original_tests_intact,
     check_compat_tests_pass,
+    check_compute_stats_all_documented,
     check_config_catches_json_error,
     check_config_no_bare_except,
     check_config_propagates_file_error,
@@ -14,6 +16,7 @@ from gptme.eval.suites.behavioral import (
     check_debug_fix_in_file,
     check_debug_no_syntax_error,
     check_debug_tests_pass,
+    check_docstring_tests_pass,
     check_error_handling_parse_csv,
     check_error_handling_safe_divide,
     check_error_handling_source_unchanged,
@@ -47,6 +50,8 @@ from gptme.eval.suites.behavioral import (
     check_noisy_worktree_config_not_committed,
     check_noisy_worktree_fix_correct,
     check_noisy_worktree_tests_pass,
+    check_parse_args_documented,
+    check_parse_returns_documented,
     check_pipeline_extract_emails_fixed,
     check_pipeline_source_unchanged,
     check_pipeline_tests_pass,
@@ -87,6 +92,7 @@ from gptme.eval.suites.behavioral import (
     check_typehints_uses_generic_collection,
     check_uses_efficient_structure,
     check_uses_none_sentinel,
+    check_validate_email_raises_documented,
     check_write_tests_covers_extract_emails,
     check_write_tests_covers_truncate,
     check_write_tests_covers_word_count,
@@ -2315,3 +2321,146 @@ def test_check_independent_calls_verified_one_fails():
 
 def test_check_independent_calls_verified_missing():
     assert not check_independent_calls_verified(_ctx(stdout="7 passed", exit_code=0))
+
+
+# --- add-docstrings scenario tests ---
+
+_UTILS_WITH_DOCSTRINGS = '''\
+import re
+
+
+def parse_args(input_str):
+    """Parse a shell-like argument string into a list of tokens.
+
+    Handles quoted strings (both single and double quotes) as single arguments.
+    Whitespace outside quotes separates arguments.
+
+    Args:
+        input_str: The input string to parse.
+
+    Returns:
+        A list of string tokens extracted from the input.
+    """
+    parts = []
+    current = ""
+    in_quotes = False
+    quote_char = None
+    for ch in input_str:
+        if ch in ('"', "'") and not in_quotes:
+            in_quotes = True
+            quote_char = ch
+        elif ch == quote_char and in_quotes:
+            in_quotes = False
+            quote_char = None
+        elif ch == " " and not in_quotes:
+            if current:
+                parts.append(current)
+                current = ""
+        else:
+            current += ch
+    if current:
+        parts.append(current)
+    return parts
+
+
+def validate_email(email):
+    """Validate and normalize an email address.
+
+    Checks basic email format and normalizes to lowercase.
+
+    Args:
+        email: The email address to validate.
+
+    Returns:
+        The normalized lowercase email address.
+
+    Raises:
+        ValueError: If email is empty, missing @, has empty local/domain parts,
+            or contains invalid characters.
+    """
+    if not email or "@" not in email:
+        raise ValueError(f"Invalid email: {email}")
+    local, domain = email.rsplit("@", 1)
+    if not local or not domain:
+        raise ValueError(f"Invalid email: {email}")
+    if not re.match(r"^[\\w.-]+$", local):
+        raise ValueError(f"Invalid email local part: {local}")
+    if "." not in domain:
+        raise ValueError(f"Invalid email domain: {domain}")
+    return email.lower()
+
+
+def compute_stats(numbers):
+    """Compute basic statistics for a list of numbers.
+
+    >>> compute_stats([1, 2, 3, 4, 5])
+    {\'mean\': 3.0, \'median\': 3.0, \'count\': 5}
+
+    Args:
+        numbers: A list of numeric values.
+
+    Returns:
+        A dict with keys "mean", "median", and "count".
+    """
+    if not numbers:
+        return {"mean": 0, "median": 0, "count": 0}
+    return {"mean": 3.0, "median": 3.0, "count": 3}
+'''
+
+
+def test_check_docstring_tests_pass():
+    assert check_docstring_tests_pass(_ctx(exit_code=0, stdout="all passed"))
+    assert not check_docstring_tests_pass(_ctx(exit_code=1, stdout="1 failed"))
+
+
+def test_check_all_functions_have_docstrings_true():
+    assert check_all_functions_have_docstrings(
+        _ctx(files={"utils.py": _UTILS_WITH_DOCSTRINGS})
+    )
+
+
+def test_check_all_functions_have_docstrings_false():
+    content = "def parse_args(input_str):\n    parts = []\n    return parts\n"
+    assert not check_all_functions_have_docstrings(_ctx(files={"utils.py": content}))
+
+
+def test_check_parse_args_documented_true():
+    assert check_parse_args_documented(_ctx(files={"utils.py": _UTILS_WITH_DOCSTRINGS}))
+
+
+def test_check_parse_args_documented_false():
+    content = 'def parse_args(input_str):\n    """Just a summary."""\n    pass\n'
+    assert not check_parse_args_documented(_ctx(files={"utils.py": content}))
+
+
+def test_check_parse_returns_documented_true():
+    assert check_parse_returns_documented(
+        _ctx(files={"utils.py": _UTILS_WITH_DOCSTRINGS})
+    )
+
+
+def test_check_parse_returns_documented_false():
+    content = 'def parse_args(input_str):\n    """Args: input_str - the string."""\n    pass\n'
+    assert not check_parse_returns_documented(_ctx(files={"utils.py": content}))
+
+
+def test_check_validate_email_raises_documented_true():
+    assert check_validate_email_raises_documented(
+        _ctx(files={"utils.py": _UTILS_WITH_DOCSTRINGS})
+    )
+
+
+def test_check_validate_email_raises_documented_false():
+    content = 'def validate_email(email):\n    """Validates email."""\n    pass\n'
+    assert not check_validate_email_raises_documented(_ctx(files={"utils.py": content}))
+
+
+def test_check_compute_stats_all_documented_true():
+    assert check_compute_stats_all_documented(
+        _ctx(files={"utils.py": _UTILS_WITH_DOCSTRINGS})
+    )
+
+
+def test_check_compute_stats_all_documented_false():
+    content = 'def compute_stats(numbers):\n    """Compute stats."""\n    return {}\n'
+    assert not check_compute_stats_all_documented(_ctx(files={"utils.py": content}))
