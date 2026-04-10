@@ -196,7 +196,7 @@ jobs:
         echo "✅ gptme-server.exe --help executed successfully"
 
     - name: Upload executable artifact
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@v7
       with:
         name: gptme-server-${{ matrix.os }}
         path: |
