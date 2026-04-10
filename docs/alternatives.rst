@@ -2,8 +2,8 @@ Alternatives
 ============
 
 .. meta::
-   :description: Compare gptme with Claude Code, Aider, Cursor, Devin, OpenHands, and other AI coding agents. Open source, model-agnostic, terminal-native.
-   :keywords: Claude Code alternative, open source coding agent, Aider alternative, Devin alternative, AI coding assistant comparison, gptme vs Claude Code, gptme vs Aider
+   :description: Compare gptme with Claude Code, Claude Managed Agents, Aider, Cursor, Devin, OpenHands, and other AI coding agents. Open source, model-agnostic, terminal-native.
+   :keywords: Claude Code alternative, Claude Managed Agents alternative, open source coding agent, Aider alternative, Devin alternative, AI coding assistant comparison, gptme vs Claude Code, gptme vs Aider
 
 .. contents::
    :local:
@@ -40,12 +40,13 @@ Feature Comparison
 .. |partial| unicode:: U+1F7E1
 
 .. list-table:: Feature Comparison
-   :widths: 20 8 8 8 8 8 8 8 8 8
+   :widths: 18 7 7 7 7 7 7 7 7 7 7
    :header-rows: 1
 
    * - Feature
      - gptme
      - Claude Code
+     - CMA
      - Aider
      - Cursor
      - OpenHands
@@ -55,6 +56,7 @@ Feature Comparison
      - Devin
    * - Open source
      - |check|
+     - |cross|
      - |cross|
      - |check|
      - |cross|
@@ -66,6 +68,7 @@ Feature Comparison
    * - Model-agnostic
      - |check|
      - |cross|
+     - |cross|
      - |check|
      - |partial|
      - |check|
@@ -76,6 +79,7 @@ Feature Comparison
    * - Terminal-native
      - |check|
      - |check|
+     - |cross|
      - |check|
      - |cross|
      - |partial|
@@ -86,6 +90,7 @@ Feature Comparison
    * - Autonomous mode
      - |check|
      - |partial|
+     - |check|
      - |cross|
      - |cross|
      - |partial|
@@ -95,6 +100,7 @@ Feature Comparison
      - |check|
    * - Git-based memory
      - |check|
+     - |cross|
      - |cross|
      - |cross|
      - |cross|
@@ -113,9 +119,11 @@ Feature Comparison
      - |cross|
      - |cross|
      - |cross|
+     - |cross|
    * - Plugin/tool system
      - |check|
      - MCP
+     - |check|
      - |check|
      - MCP
      - |check|
@@ -125,6 +133,7 @@ Feature Comparison
      - |partial|
    * - Web UI
      - |check|
+     - |cross|
      - |cross|
      - |partial|
      - N/A
@@ -136,6 +145,7 @@ Feature Comparison
    * - Self-hosted
      - |check|
      - |cross|
+     - |cross|
      - |check|
      - |cross|
      - |check|
@@ -146,6 +156,7 @@ Feature Comparison
    * - Price
      - Free
      - $20/mo+
+     - Pay-per-use
      - Free
      - $20/mo
      - Free
@@ -181,6 +192,13 @@ Overview
      - Coding
      - Cloud
      - $20/mo+
+     - VC
+     - |cross|
+   * - Claude Managed Agents
+     - API
+     - Autonomous agents
+     - Cloud
+     - Pay-per-use
      - VC
      - |cross|
    * - Aider
