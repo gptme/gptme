@@ -218,6 +218,96 @@ class TestConversationSession:
         s1.events.append({"type": "ping"})  # type: ignore[arg-type]
         assert s2.events == []
 
+    def test_events_count_matches_len_initially(self):
+        """events_count equals len(events) when no trimming has occurred."""
+        session = SessionManager.create_session("conv-1")
+        for _i in range(5):
+            session.events.append({"type": "ping"})  # type: ignore[arg-type]
+        assert session.events_count == 5
+        assert session.events_count == len(session.events)
+
+    def test_events_offset_starts_at_zero(self):
+        """_events_offset starts at 0."""
+        session = SessionManager.create_session("conv-1")
+        assert session._events_offset == 0
+
+    def test_get_events_since_returns_all_from_zero(self):
+        """get_events_since(0) returns all events."""
+        session = SessionManager.create_session("conv-1")
+        for i in range(3):
+            session.events.append({"type": "ping", "n": i})  # type: ignore[arg-type]
+        result = session.get_events_since(0)
+        assert len(result) == 3
+
+    def test_get_events_since_returns_subset(self):
+        """get_events_since returns events from the given index onward."""
+        session = SessionManager.create_session("conv-1")
+        for i in range(5):
+            session.events.append({"type": "ping", "n": i})  # type: ignore[arg-type]
+        result = session.get_events_since(3)
+        assert len(result) == 2
+        assert result[0]["n"] == 3  # type: ignore[typeddict-item]
+        assert result[1]["n"] == 4  # type: ignore[typeddict-item]
+
+    def test_trim_events_no_clients(self):
+        """trim_events trims when over threshold and no clients connected."""
+        session = SessionManager.create_session("conv-1")
+        # Fill beyond _MAX_EVENTS
+        for i in range(session._MAX_EVENTS + 500):
+            session.events.append({"type": "ping", "n": i})  # type: ignore[arg-type]
+        assert len(session.events) == session._MAX_EVENTS + 500
+
+        session.trim_events()
+        assert len(session.events) == session._KEEP_EVENTS
+        assert (
+            session._events_offset == session._MAX_EVENTS + 500 - session._KEEP_EVENTS
+        )
+        assert session.events_count == session._MAX_EVENTS + 500
+
+    def test_trim_events_preserves_absolute_indexing(self):
+        """After trimming, get_events_since still works with absolute indices."""
+        session = SessionManager.create_session("conv-1")
+        total = session._MAX_EVENTS + 100
+        for i in range(total):
+            session.events.append({"type": "ping", "n": i})  # type: ignore[arg-type]
+        session.trim_events()
+
+        # The last event should still be retrievable
+        result = session.get_events_since(total - 1)
+        assert len(result) == 1
+        assert result[0]["n"] == total - 1  # type: ignore[typeddict-item]
+
+    def test_trim_events_skipped_when_clients_connected(self):
+        """trim_events does not trim when clients are connected."""
+        session = SessionManager.create_session("conv-1")
+        session.clients.add("client-1")
+        for i in range(session._MAX_EVENTS + 500):
+            session.events.append({"type": "ping", "n": i})  # type: ignore[arg-type]
+
+        session.trim_events()
+        # No trimming because a client is connected
+        assert len(session.events) == session._MAX_EVENTS + 500
+        assert session._events_offset == 0
+
+    def test_trim_events_skipped_below_threshold(self):
+        """trim_events does nothing when below _MAX_EVENTS."""
+        session = SessionManager.create_session("conv-1")
+        for i in range(100):
+            session.events.append({"type": "ping", "n": i})  # type: ignore[arg-type]
+        session.trim_events()
+        assert len(session.events) == 100
+        assert session._events_offset == 0
+
+    def test_get_events_since_clamps_negative_relative_index(self):
+        """get_events_since with index before offset returns all available events."""
+        session = SessionManager.create_session("conv-1")
+        for i in range(session._MAX_EVENTS + 100):
+            session.events.append({"type": "ping", "n": i})  # type: ignore[arg-type]
+        session.trim_events()
+        # Requesting from index 0, which was trimmed away
+        result = session.get_events_since(0)
+        assert len(result) == session._KEEP_EVENTS
+
 
 # ---------------------------------------------------------------------------
 # SessionManager
@@ -413,6 +503,20 @@ class TestSessionManagerAddEvent:
         # Should not raise
         event: ErrorEvent = {"type": "error", "error": "nowhere"}
         SessionManager.add_event("unknown-conv", event)
+
+    def test_add_event_trims_when_over_threshold(self):
+        """add_event triggers trimming when events exceed threshold."""
+        session = SessionManager.create_session("conv-1")
+        # Fill to just below threshold
+        for i in range(session._MAX_EVENTS):
+            session.events.append({"type": "ping", "n": i})  # type: ignore[arg-type]
+        assert len(session.events) == session._MAX_EVENTS
+
+        # One more event via add_event pushes over threshold and triggers trim
+        event: ErrorEvent = {"type": "error", "error": "trigger trim"}
+        SessionManager.add_event("conv-1", event)
+        assert len(session.events) == session._KEEP_EVENTS
+        assert session.events_count == session._MAX_EVENTS + 1
 
 
 class TestSessionManagerCleanInactive:

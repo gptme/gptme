@@ -74,6 +74,7 @@ class ConversationSession(BaseSession):
     )
     last_error: str | None = None
     events: list[EventType] = field(default_factory=list)
+    _events_offset: int = 0  # number of events trimmed from front of list
     pending_tools: dict[str, ToolExecution] = field(default_factory=dict)
     auto_confirm_count: int = 0
     clients: set[str] = field(default_factory=set)
@@ -88,6 +89,34 @@ class ConversationSession(BaseSession):
     # Index of the last user message processed through ACP mode.
     # Prevents duplicate /step calls from re-sending the same user message.
     acp_last_user_msg_index: int = -1
+
+    # Maximum events to keep in memory per session before trimming.
+    # Each LLM token generates one event, so a 10K-token response = 10K events.
+    # At ~200 bytes/event, 10K events ≈ 2MB. We trim to keep_last when exceeded.
+    _MAX_EVENTS = 10_000
+    _KEEP_EVENTS = 1_000
+
+    @property
+    def events_count(self) -> int:
+        """Absolute event count (including trimmed events)."""
+        return self._events_offset + len(self.events)
+
+    def get_events_since(self, abs_index: int) -> list[EventType]:
+        """Get events from an absolute index (accounting for trimmed events)."""
+        rel_index = max(0, abs_index - self._events_offset)
+        return self.events[rel_index:]
+
+    def trim_events(self) -> None:
+        """Trim old events when the list exceeds _MAX_EVENTS.
+
+        Only trims when no clients are connected to avoid breaking
+        in-flight SSE streams that reference absolute indices.
+        """
+        if len(self.events) <= self._MAX_EVENTS or self.clients:
+            return
+        trim_count = len(self.events) - self._KEEP_EVENTS
+        self._events_offset += trim_count
+        self.events = self.events[trim_count:]
 
 
 class SessionManager:
@@ -128,6 +157,7 @@ class SessionManager:
         """Add an event to all sessions for a conversation."""
         for session in cls.get_sessions_for_conversation(conversation_id):
             session.events.append(event)
+            session.trim_events()
             session.touch()  # Update last_activity timestamp
             session.event_flag.set()  # Signal that new events are available
 

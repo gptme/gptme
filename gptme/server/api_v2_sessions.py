@@ -155,14 +155,14 @@ def api_conversation_events(conversation_id: str):
             # Send immediate ping to ensure connection is established right away
             yield f"data: {flask.json.dumps({'type': 'ping'})}\n\n"
 
-            # Create an event queue
-            last_event_index = 0
+            # Track position using absolute event indices (offset-aware)
+            last_event_index = session.events_count
 
             while True:
                 # Check if there are new events
-                if last_event_index < (new_index := len(session.events)):
+                if last_event_index < (new_index := session.events_count):
                     # Send any new events
-                    for event in session.events[last_event_index:new_index]:
+                    for event in session.get_events_since(last_event_index):
                         yield f"data: {flask.json.dumps(event)}\n\n"
                     last_event_index = new_index
 
@@ -177,7 +177,7 @@ def api_conversation_events(conversation_id: str):
                 # Re-check after clearing: events may have arrived between the
                 # check above and the clear(), which would otherwise delay
                 # delivery by up to the full wait timeout.
-                if last_event_index < len(session.events):
+                if last_event_index < session.events_count:
                     continue
 
                 session.event_flag.wait(timeout=15)
@@ -376,8 +376,8 @@ def api_conversation_step(conversation_id: str):
         if acp_runtime is not None and model:
             acp_runtime.model = model
 
-        # Snapshot event count before starting, so we can detect new events below
-        initial_event_count = len(session.events)
+        # Snapshot absolute event count before starting, so we can detect new events below
+        initial_event_count = session.events_count
 
         # Route through ACP subprocess if the session has opted in
         if acp_runtime is not None:
@@ -420,7 +420,7 @@ def api_conversation_step(conversation_id: str):
     deadline = time.monotonic() + _STARTUP_TIMEOUT
     while time.monotonic() < deadline:
         # Check new events since we started
-        new_events = session.events[initial_event_count:]
+        new_events = session.get_events_since(initial_event_count)
         for event in new_events:
             event_type = event.get("type") if isinstance(event, dict) else None
             if event_type == "error":
