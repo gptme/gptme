@@ -16,7 +16,7 @@ def _get_source(ctx, filename: str = "client.py") -> str:
     return content
 
 
-def check_tests_pass(ctx):
+def check_circuit_breaker_tests_pass(ctx):
     """All tests should pass after adding circuit breaker."""
     return ctx.exit_code == 0 and "failed" not in ctx.stdout.lower()
 
@@ -59,9 +59,10 @@ def check_has_success_reset(ctx):
     """Should reset circuit on successful call."""
     content = _get_source(ctx)
     return (
-        "success" in content.lower()
-        or "reset" in content.lower()
-        or "ok" in content.lower()
+        "reset" in content.lower()
+        or "success" in content.lower()
+        or "failure_count = 0" in content.lower()
+        or "failures = 0" in content.lower()
     )
 
 
@@ -149,10 +150,10 @@ def test_circuit_opens_after_failures():
         for _ in range(5):
             try:
                 client.get("/data")
-            except HTTPError:
+            except (HTTPError, CircuitOpenError):
                 pass
 
-        # After 5 failures, circuit should be open
+        # After 5 consecutive failures (threshold is 3), circuit should be open
         with pytest.raises(CircuitOpenError):
             client.get("/data")
 
@@ -245,7 +246,7 @@ test: "EvalSpec" = {
     ),
     "tools": ["shell", "save", "read"],
     "expect": {
-        "all tests pass": check_tests_pass,
+        "all tests pass": check_circuit_breaker_tests_pass,
         "has circuit breaker": check_has_circuit_breaker,
         "has failure tracking": check_has_failure_tracking,
         "has success reset": check_has_success_reset,

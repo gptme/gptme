@@ -923,6 +923,71 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
             """)
         )
 
+    elif scenario_name == "circuit-breaker":
+        (workspace / "client.py").write_text(
+            textwrap.dedent("""\
+            \"\"\"API client with circuit breaker pattern.\"\"\"
+
+            import urllib.request
+            import json
+
+
+            class CircuitOpenError(Exception):
+                \"\"\"Raised when circuit breaker is open.\"\"\"
+
+
+            class CircuitBreaker:
+                \"\"\"Circuit breaker: tracks failures and opens after threshold.\"\"\"
+
+                OPEN = "open"
+                CLOSED = "closed"
+                FAILURE_THRESHOLD = 3
+
+                def __init__(self):
+                    self.failure_count = 0
+                    self.state = self.CLOSED
+
+                def record_failure(self):
+                    self.failure_count += 1
+                    if self.failure_count >= self.FAILURE_THRESHOLD:
+                        self.state = self.OPEN
+
+                def record_success(self):
+                    self.failure_count = 0
+                    self.state = self.CLOSED
+
+                def is_open(self):
+                    return self.state == self.OPEN
+
+
+            class APIClient:
+                \"\"\"API client with circuit breaker protection.\"\"\"
+
+                def __init__(self, api_key: str):
+                    self.api_key = api_key
+                    self.base_url = "https://api.example.com"
+                    self._circuit_breaker = CircuitBreaker()
+
+                def get(self, endpoint: str) -> dict:
+                    \"\"\"Make a GET request, raising CircuitOpenError if circuit is open.\"\"\"
+                    if self._circuit_breaker.is_open():
+                        raise CircuitOpenError("Circuit is open")
+                    url = f"{self.base_url}/{endpoint}"
+                    req = urllib.request.Request(
+                        url, headers={"Authorization": f"Bearer {self.api_key}"}
+                    )
+                    try:
+                        with urllib.request.urlopen(req, timeout=10) as resp:
+                            result = json.loads(resp.read().decode())
+                            self._circuit_breaker.record_success()
+                            return result
+                    except urllib.error.HTTPError as e:
+                        if e.code >= 500:
+                            self._circuit_breaker.record_failure()
+                        raise
+            """)
+        )
+
     elif scenario_name == "rate-limiting":
         # Write the implemented solution with exponential backoff
         (workspace / "client.py").write_text(
