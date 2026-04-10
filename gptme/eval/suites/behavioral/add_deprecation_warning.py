@@ -85,27 +85,25 @@ def _get_warn_message_in_func(source: str, func_name: str) -> str:
         return ""
 
 
-def _has_deprecation_warning_category(source: str) -> bool:
-    """Check if any warnings.warn call uses DeprecationWarning as the category."""
+def _has_deprecation_warning_category_in_func(source: str, func_name: str) -> bool:
+    """Check if warnings.warn() with DeprecationWarning is called inside the named function."""
     try:
         tree = ast.parse(source)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call):
-                if (
-                    isinstance(node.func, ast.Attribute)
-                    and node.func.attr == "warn"
-                    and isinstance(node.func.value, ast.Name)
-                    and node.func.value.id == "warnings"
-                ):
-                    # Check second positional arg or category keyword
-                    if len(node.args) >= 2:
-                        cat = node.args[1]
-                        if isinstance(cat, ast.Name) and cat.id == "DeprecationWarning":
-                            return True
-                    for kw in node.keywords:
-                        if kw.arg == "category" and isinstance(kw.value, ast.Name):
-                            if kw.value.id == "DeprecationWarning":
-                                return True
+        func = _get_function_def(tree, func_name)
+        if func is None:
+            return False
+        for node in ast.walk(func):
+            if not isinstance(node, ast.Call) or not _is_warnings_warn_call(node):
+                continue
+            # Check second positional arg or category keyword
+            if len(node.args) >= 2:
+                cat = node.args[1]
+                if isinstance(cat, ast.Name) and cat.id == "DeprecationWarning":
+                    return True
+            for kw in node.keywords:
+                if kw.arg == "category" and isinstance(kw.value, ast.Name):
+                    if kw.value.id == "DeprecationWarning":
+                        return True
         return False
     except SyntaxError:
         return False
@@ -125,7 +123,7 @@ def check_deprecation_warning_issued(ctx):
 def check_deprecation_category(ctx):
     """DeprecationWarning should be the explicit category (not just UserWarning)."""
     source = _get_client_source(ctx)
-    return _has_deprecation_warning_category(source)
+    return _has_deprecation_warning_category_in_func(source, "get_data")
 
 
 def check_docstring_updated(ctx):
