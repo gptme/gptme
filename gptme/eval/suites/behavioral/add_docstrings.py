@@ -136,6 +136,9 @@ def parse_args(input_str):
     quote_char = None
     for ch in input_str:
         if ch in ('"', "'") and not in_quotes:
+            if current:
+                parts.append(current)
+                current = ""
             in_quotes = True
             quote_char = ch
         elif ch == quote_char and in_quotes:

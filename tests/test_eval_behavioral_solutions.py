@@ -9,7 +9,7 @@ This is critical infrastructure for idea #19 (eval-to-lesson feedback loop):
 before running expensive baseline experiments with real models, we need
 confidence that the checkers correctly identify good work.
 
-Covers all 22 behavioral scenarios:
+Covers all 24 behavioral scenarios:
   git-selective-commit, multi-file-rename, iterative-debug,
   stage-new-files, write-test-suite, test-driven-error-handling,
   merge-conflict-resolution, extract-function-refactor, debug-data-pipeline,
@@ -17,7 +17,7 @@ Covers all 22 behavioral scenarios:
   add-feature-preserve-default, handle-specific-exception,
   fix-security-path-traversal, refactor-for-testability, add-type-hints,
   noisy-worktree-fix, fix-data-mutation, optimize-n-squared, remove-dead-code,
-  fix-mutable-default
+  fix-mutable-default, add-docstrings
 """
 
 import subprocess
@@ -657,6 +657,100 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
             def _normalize_value(value: str) -> str:
                 \"\"\"Normalize a string value for storage.\"\"\"
                 return value.strip().lower()
+            """)
+        )
+
+    elif scenario_name == "add-docstrings":
+        # Add Google-style docstrings to all three functions in utils.py
+        (workspace / "utils.py").write_text(
+            textwrap.dedent("""\
+            import re
+
+
+            def parse_args(input_str):
+                \"\"\"Parse a string of arguments respecting quoted substrings.
+
+                Args:
+                    input_str: The input string to parse, where spaces separate
+                        tokens and quoted substrings are treated as single tokens.
+
+                Returns:
+                    list[str]: A list of parsed argument tokens.
+                \"\"\"
+                parts = []
+                current = ""
+                in_quotes = False
+                quote_char = None
+                for ch in input_str:
+                    if ch in ('"', "'") and not in_quotes:
+                        if current:
+                            parts.append(current)
+                            current = ""
+                        in_quotes = True
+                        quote_char = ch
+                    elif ch == quote_char and in_quotes:
+                        in_quotes = False
+                        quote_char = None
+                    elif ch == " " and not in_quotes:
+                        if current:
+                            parts.append(current)
+                            current = ""
+                    else:
+                        current += ch
+                if current:
+                    parts.append(current)
+                return parts
+
+
+            def validate_email(email):
+                \"\"\"Validate an email address and return it lowercased.
+
+                Args:
+                    email: The email address string to validate.
+
+                Returns:
+                    The email address converted to lowercase.
+
+                Raises:
+                    ValueError: If the email is empty, missing '@', has an
+                        empty local part or domain, has an invalid local part,
+                        or has a domain without a dot.
+                \"\"\"
+                if not email or "@" not in email:
+                    raise ValueError(f"Invalid email: {email}")
+                local, domain = email.rsplit("@", 1)
+                if not local or not domain:
+                    raise ValueError(f"Invalid email: {email}")
+                if not re.match(r"^[\\w.-]+$", local):
+                    raise ValueError(f"Invalid email local part: {local}")
+                if "." not in domain:
+                    raise ValueError(f"Invalid email domain: {domain}")
+                return email.lower()
+
+
+            def compute_stats(numbers):
+                \"\"\"Compute basic statistics for a list of numbers.
+
+                Args:
+                    numbers: A list of numeric values to summarize.
+
+                Returns:
+                    dict: A dictionary with keys 'mean', 'median', and 'count'.
+
+                Example:
+                    >>> compute_stats([1, 2, 3, 4, 5])
+                    {'mean': 3.0, 'median': 3.0, 'count': 5}
+                \"\"\"
+                if not numbers:
+                    return {"mean": 0, "median": 0, "count": 0}
+                n = len(numbers)
+                mean = sum(numbers) / n
+                sorted_nums = sorted(numbers)
+                if n % 2 == 0:
+                    median = (sorted_nums[n // 2 - 1] + sorted_nums[n // 2]) / 2
+                else:
+                    median = sorted_nums[n // 2]
+                return {"mean": mean, "median": median, "count": n}
             """)
         )
 
