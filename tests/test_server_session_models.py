@@ -515,5 +515,7 @@ class TestSessionManagerCleanInactive:
         # Capture session reference before it's removed
         assert session.generating is True
         SessionManager.clean_inactive_sessions(max_age_minutes=60)
-        # Session is removed, so generating flag was reset (verified by the cleanup logic)
+        # Session is removed from the manager
         assert SessionManager.get_session(session.id) is None
+        # generating flag is reset to False before removal (the key invariant this test verifies)
+        assert session.generating is False
