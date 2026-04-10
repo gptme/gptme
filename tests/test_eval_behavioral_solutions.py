@@ -9,7 +9,7 @@ This is critical infrastructure for idea #19 (eval-to-lesson feedback loop):
 before running expensive baseline experiments with real models, we need
 confidence that the checkers correctly identify good work.
 
-Covers all 24 behavioral scenarios:
+Covers all 25 behavioral scenarios:
   git-selective-commit, multi-file-rename, iterative-debug,
   stage-new-files, write-test-suite, test-driven-error-handling,
   merge-conflict-resolution, extract-function-refactor, debug-data-pipeline,
@@ -17,7 +17,8 @@ Covers all 24 behavioral scenarios:
   add-feature-preserve-default, handle-specific-exception,
   fix-security-path-traversal, refactor-for-testability, add-type-hints,
   noisy-worktree-fix, fix-data-mutation, optimize-n-squared, remove-dead-code,
-  fix-mutable-default, add-deprecation-warning, retry-with-backoff
+  fix-mutable-default, add-deprecation-warning, retry-with-backoff,
+  validate-user-input
 """
 
 import subprocess
@@ -796,6 +797,35 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
                     response.raise_for_status()
                     return response.json()
                 return retry_with_backoff(_fetch)
+            """)
+        )
+
+    elif scenario_name == "validate-user-input":
+        (workspace / "user_service.py").write_text(
+            textwrap.dedent("""\
+            \"\"\"User service for managing user profiles.\"\"\"
+
+
+            def create_user(name: str, age: int, email: str) -> dict:
+                \"\"\"Create a new user profile.
+
+                Args:
+                    name: Full name of the user.
+                    age: Age in years.
+                    email: Email address.
+
+                Returns:
+                    Dict with user info.
+                \"\"\"
+                if not isinstance(name, str):
+                    raise TypeError(f"name must be a string, got {type(name).__name__}")
+                if not isinstance(age, int):
+                    raise TypeError(f"age must be an integer, got {type(age).__name__}")
+                if not name.strip():
+                    raise ValueError("name must not be empty or whitespace-only")
+                if age < 0 or age > 150:
+                    raise ValueError(f"age must be between 0 and 150, got {age}")
+                return {"name": name, "age": age, "email": email}
             """)
         )
 
