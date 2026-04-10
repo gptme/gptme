@@ -153,7 +153,7 @@ from .retry_with_backoff import (  # noqa: F401
     check_max_retries,
     check_retry_function_exists,
     check_retry_imported,
-    check_tests_pass,
+    check_retry_tests_pass,
 )
 from .scope_discipline_bugfix import (  # noqa: F401
     check_scope_mean_fixed,

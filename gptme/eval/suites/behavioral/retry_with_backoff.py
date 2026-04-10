@@ -58,7 +58,7 @@ def check_max_retries(ctx):
     )
 
 
-def check_tests_pass(ctx):
+def check_retry_tests_pass(ctx):
     """All tests should pass after adding retry logic."""
     return ctx.exit_code == 0 and "failed" not in ctx.stdout.lower()
 
@@ -147,6 +147,6 @@ def test_fetch_user_eventual_failure(mocker):
         "retry function exists": check_retry_function_exists,
         "exponential backoff implemented": check_exponential_backoff,
         "max retries limit exists": check_max_retries,
-        "all tests pass": check_tests_pass,
+        "all tests pass": check_retry_tests_pass,
     },
 }
