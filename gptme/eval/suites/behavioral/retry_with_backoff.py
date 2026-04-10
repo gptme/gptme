@@ -37,7 +37,7 @@ def check_exponential_backoff(ctx):
     # Look for a loop where sleep delay increases
     found_backoff = False
     for node in ast.walk(module):
-        if isinstance(node, (ast.For, ast.While)):
+        if isinstance(node, ast.For | ast.While):
             loop_code = ast.unparse(node) if hasattr(ast, "unparse") else str(node)
             if "sleep" in loop_code.lower() and any(
                 op in loop_code for op in ["*", "**", "+="]
