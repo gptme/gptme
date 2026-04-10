@@ -3,9 +3,6 @@ name: WebUI
 on:
   push:
     branches: [ master ]
-    paths:
-      - 'webui/**'
-      - '.github/workflows/webui.yml'
   pull_request:
     branches: [ master, 'dev/*' ]
     paths:
