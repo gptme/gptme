@@ -9,7 +9,7 @@ This is critical infrastructure for idea #19 (eval-to-lesson feedback loop):
 before running expensive baseline experiments with real models, we need
 confidence that the checkers correctly identify good work.
 
-Covers all 22 behavioral scenarios:
+Covers all 23 behavioral scenarios:
   git-selective-commit, multi-file-rename, iterative-debug,
   stage-new-files, write-test-suite, test-driven-error-handling,
   merge-conflict-resolution, extract-function-refactor, debug-data-pipeline,
@@ -17,7 +17,7 @@ Covers all 22 behavioral scenarios:
   add-feature-preserve-default, handle-specific-exception,
   fix-security-path-traversal, refactor-for-testability, add-type-hints,
   noisy-worktree-fix, fix-data-mutation, optimize-n-squared, remove-dead-code,
-  fix-mutable-default
+  fix-mutable-default, retry-with-backoff
 """
 
 import subprocess
@@ -685,6 +685,49 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
                 return seen
             """)
         )
+
+    elif scenario_name == "retry-with-backoff":
+        # Implement retry with exponential backoff (no docstrings to avoid escaping issues)
+        solution = (
+            "import time\n"
+            "\n"
+            "\n"
+            "class FetchError(Exception):\n"
+            "    pass\n"
+            "\n"
+            "\n"
+            "def fetch_data(url: str, max_retries: int = 5, base_delay: float = 1.0) -> dict:\n"
+            "    import json\n"
+            "    import urllib.request\n"
+            "    from urllib.error import HTTPError\n"
+            "\n"
+            "    last_error = None\n"
+            "    for attempt in range(max_retries + 1):\n"
+            "        try:\n"
+            "            req = urllib.request.Request(url)\n"
+            "            with urllib.request.urlopen(req, timeout=5) as resp:\n"
+            "                return json.loads(resp.read().decode())\n"
+            "        except (ConnectionError, TimeoutError) as e:\n"
+            "            last_error = e\n"
+            "            if attempt < max_retries:\n"
+            "                time.sleep(base_delay * (2 ** attempt))\n"
+            "        except HTTPError as e:\n"
+            '            raise FetchError(f"Failed to fetch {url}: {e}") from e\n'
+            "        except Exception as e:\n"
+            "            last_error = e\n"
+            "\n"
+            "    raise FetchError(\n"
+            '        f"Failed to fetch {url} after {max_retries} retries: {last_error}"\n'
+            "    )\n"
+        )
+        (workspace / "fetcher.py").write_text(solution)
+        # Fix the test bug: assertions use True (Python) but mock bytes use true (JSON)
+        # Keep JSON true in mock bytes (valid JSON), fix assertions to expect True
+        p = workspace / "test_fetcher.py"
+        p.write_text(
+            p.read_text().replace('= {"retried": true}', '= {"retried": True}')
+        )
+        p.write_text(p.read_text().replace('= {"done": true}', '= {"done": True}'))
 
     else:
         raise ValueError(f"Unknown scenario: {scenario_name}")
