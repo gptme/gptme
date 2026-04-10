@@ -80,6 +80,7 @@ def fetch_user(user_id: int) -> dict:
     return response.json()
 ''',
         "test_api_client.py": '''\
+import requests
 import pytest
 from unittest.mock import patch, MagicMock
 from api_client import fetch_user
