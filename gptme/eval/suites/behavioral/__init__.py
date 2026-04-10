@@ -112,6 +112,15 @@ from .handle_specific_exception import (  # noqa: F401
     check_config_propagates_file_error,
     check_config_tests_pass,
 )
+from .implement_lru_cache import (  # noqa: F401
+    check_has_cache_structure,
+    check_has_capacity_limit,
+    check_has_eviction,
+    check_has_recency_tracking,
+)
+from .implement_lru_cache import (  # noqa: F401
+    check_tests_pass as check_lru_cache_tests_pass,
+)
 from .iterative_debug import (  # noqa: F401
     check_debug_fix_in_file,
     check_debug_no_syntax_error,

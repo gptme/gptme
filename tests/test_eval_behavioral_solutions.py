@@ -1044,6 +1044,59 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
             """)
         )
 
+    elif scenario_name == "implement-lru-cache":
+        (workspace / "cache.py").write_text(
+            textwrap.dedent("""\
+            \"\"\"Data access layer with LRU caching.\"\"\"
+
+            from collections import OrderedDict
+            from typing import Any
+
+
+            class DataStore:
+                \"\"\"Simulates a database or slow data source.\"\"\"
+
+                def __init__(self):
+                    self._call_count = 0
+                    self._data = {
+                        "user:1": {"id": 1, "name": "Alice"},
+                        "user:2": {"id": 2, "name": "Bob"},
+                        "user:3": {"id": 3, "name": "Carol"},
+                        "user:4": {"id": 4, "name": "Dave"},
+                        "user:5": {"id": 5, "name": "Eve"},
+                    }
+
+                @property
+                def call_count(self) -> int:
+                    return self._call_count
+
+                def get(self, key: str) -> Any:
+                    \"\"\"Fetch a record (simulates an expensive operation).\"\"\"
+                    self._call_count += 1
+                    return self._data.get(key)
+
+
+            class CachedDataStore:
+                \"\"\"DataStore wrapper with LRU (Least Recently Used) caching.\"\"\"
+
+                def __init__(self, store: DataStore, max_size: int = 3):
+                    self._store = store
+                    self._max_size = max_size
+                    self._cache: OrderedDict = OrderedDict()
+
+                def get(self, key: str) -> Any:
+                    \"\"\"Return the record for *key*, using cache when possible.\"\"\"
+                    if key in self._cache:
+                        self._cache.move_to_end(key)
+                        return self._cache[key]
+                    value = self._store.get(key)
+                    self._cache[key] = value
+                    if len(self._cache) > self._max_size:
+                        self._cache.popitem(last=False)
+                    return value
+            """)
+        )
+
     else:
         raise ValueError(f"Unknown scenario: {scenario_name}")
 
