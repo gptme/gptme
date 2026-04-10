@@ -465,10 +465,36 @@ Differences to gptme:
 Disclaimer: gptme author Erik was an early hire at Lovable.
 
 
+Claude Managed Agents
+^^^^^^^^^^^^^^^^^^^^^
+
+`Claude Managed Agents <https://platform.claude.com/docs/en/managed-agents/overview>`_ is Anthropic's hosted platform for running autonomous agents with sandboxed execution, built-in tools, and state management. Released April 8, 2026.
+
+Key features:
+
+- Cloud-hosted sandbox execution (no local setup required)
+- Built-in tool suite (web search, code execution, file management)
+- State management across tool calls within a session
+- REST API for programmatic control
+
+Differences to gptme:
+
+- **Model lock-in**: Claude Managed Agents only runs Claude; gptme works with any provider
+- **Runtime cost**: $0.08/hr for 24/7 agents (~$58/mo per agent) on top of token costs; gptme has no runtime fee
+- **No self-hosting**: Cloud-only platform; gptme runs on your own machine
+- **Memory still in preview**: Cross-session memory is a "research preview" feature; gptme agents have full git-based persistent memory out of the box
+- **Validates the category**: Anthropic building this confirms that persistent autonomous agents are the next frontier — and gptme has been doing it longer and with more flexibility
+
+.. note::
+
+   CMA launching validates the autonomous agent category. If Anthropic thinks managed
+   agents are worth building, the open-source, model-agnostic alternative matters more.
+
+
 Other Claude Products
 ^^^^^^^^^^^^^^^^^^^^^
 
-Anthropic offers several AI products beyond Claude Code:
+Anthropic offers several AI products beyond Claude Code and Claude Managed Agents:
 
 - **Claude Projects**: Upload files and chat with them in a project context. Released Jun 25, 2024.
 - **Claude Artifacts**: Preview HTML and React components inline — like a mini Lovable.dev. Released Aug 27, 2024.
