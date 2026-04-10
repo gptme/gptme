@@ -35,7 +35,7 @@ def check_has_cache_structure(ctx):
         if isinstance(node, ast.Assign):
             for target in node.targets:
                 if isinstance(target, ast.Attribute) and isinstance(
-                    node.value, (ast.Dict, ast.Call)
+                    node.value, ast.Dict | ast.Call
                 ):
                     if "cache" in target.attr.lower():
                         return True
