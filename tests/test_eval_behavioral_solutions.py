@@ -1097,6 +1097,36 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
             """)
         )
 
+    elif scenario_name == "implement-event-emitter":
+        (workspace / "emitter.py").write_text(
+            textwrap.dedent("""\
+            \"\"\"Simple event emitter (Observer pattern) implementation.\"\"\"
+
+            from collections import defaultdict
+            from typing import Callable
+
+
+            class EventEmitter:
+                \"\"\"Emit named events and notify registered listeners.\"\"\"
+
+                def __init__(self) -> None:
+                    self._handlers: dict[str, list[Callable]] = defaultdict(list)
+
+                def on(self, event: str, handler: Callable) -> None:
+                    self._handlers[event].append(handler)
+
+                def off(self, event: str, handler: Callable) -> None:
+                    try:
+                        self._handlers[event].remove(handler)
+                    except (KeyError, ValueError):
+                        pass
+
+                def emit(self, event: str, *args, **kwargs) -> None:
+                    for handler in list(self._handlers[event]):
+                        handler(*args, **kwargs)
+            """)
+        )
+
     else:
         raise ValueError(f"Unknown scenario: {scenario_name}")
 
