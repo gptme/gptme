@@ -167,7 +167,7 @@ def test_circuit_resets_on_success():
     def mock_urlopen(*args, **kwargs):
         nonlocal call_count
         call_count += 1
-        if call_count <= 2:
+        if call_count <= 2 or call_count == 4:
             raise HTTPError("url", 503, "Service Unavailable", {}, None)
         mock_resp = MagicMock()
         mock_resp.read.return_value = b'{"ok": true}'
@@ -187,11 +187,13 @@ def test_circuit_resets_on_success():
         result = client.get("/data")
         assert result == {"ok": True}
 
-        # Another failure shouldn't open circuit immediately
-        try:
+        # Fourth call fails — but circuit was just reset, so it stays closed
+        with pytest.raises(HTTPError):
             client.get("/data")
-        except HTTPError:
-            pass
+
+        # Fifth call succeeds — circuit still closed (only 1 failure since reset)
+        result = client.get("/data")
+        assert result == {"ok": True}
 
 
 def test_raises_on_circuit_open():
