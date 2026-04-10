@@ -86,7 +86,8 @@ To run gptme without an API key, use a local model via `Ollama <https://ollama.c
     ollama pull llama3.2:1b
     ollama serve  # run in background or separate terminal
 
-    # Use with gptme
+    # Use with gptme (OPENAI_BASE_URL is required by the local provider)
+    export OPENAI_BASE_URL="http://127.0.0.1:11434/v1"
     gptme "hello" -m local/llama3.2:1b
 
 For better results on coding tasks, use a larger model:
@@ -94,6 +95,7 @@ For better results on coding tasks, use a larger model:
 .. code-block:: bash
 
     ollama pull llama3.1:8b
+    export OPENAI_BASE_URL="http://127.0.0.1:11434/v1"
     gptme -m local/llama3.1:8b
 
 .. tip::
