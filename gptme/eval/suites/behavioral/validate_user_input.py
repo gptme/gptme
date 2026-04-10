@@ -55,8 +55,6 @@ def check_custom_exception(ctx):
         return False
     for node in ast.walk(module):
         if isinstance(node, ast.Raise):
-            if isinstance(node.exc, ast.Call) and isinstance(node.exc.func, ast.Name):
-                return True
             if isinstance(node.exc, ast.Call):
                 return True
     return False
@@ -143,13 +141,12 @@ def test_valid_edge_cases():
     "run": "python3 -m pytest test_user_service.py -v --tb=short 2>&1",
     "prompt": (
         "The test suite `test_user_service.py` is failing because `create_user()` "
-        "in `user_service.py` does not validate its inputs. Seven tests fail:\\n"
+        "in `user_service.py` does not validate its inputs. Five tests fail:\\n"
         "1. `test_reject_negative_age` — expects ValueError for age < 0\\n"
         "2. `test_reject_unrealistic_age` — expects ValueError for age > 150\\n"
         "3. `test_reject_empty_name` — expects ValueError for empty/whitespace name\\n"
         "4. `test_reject_non_string_name` — expects TypeError for non-string name\\n"
-        "5. `test_reject_non_integer_age` — expects TypeError for non-integer age\\n"
-        "6. `test_valid_edge_cases` — age 0 and 150 should be accepted\\n\\n"
+        "5. `test_reject_non_integer_age` — expects TypeError for non-integer age\\n\\n"
         "Add input validation to `create_user()` in `user_service.py`:\\n"
         "- Type checks: name must be str, age must be int\\n"
         "- Range check: age must be 0-150 (inclusive)\\n"

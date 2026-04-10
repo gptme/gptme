@@ -185,6 +185,7 @@ from .validate_user_input import (  # noqa: F401
     check_custom_exception,
     check_range_validation,
     check_string_sanitization,
+    check_tests_pass,
     check_type_validation,
 )
 from .write_test_suite import (  # noqa: F401
