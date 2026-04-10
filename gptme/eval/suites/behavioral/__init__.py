@@ -148,6 +148,13 @@ from .remove_dead_code import (  # noqa: F401
     check_live_functions_intact,
     check_processor_unchanged,
 )
+from .retry_with_backoff import (  # noqa: F401
+    check_exponential_backoff,
+    check_max_retries,
+    check_retry_function_exists,
+    check_retry_imported,
+    check_tests_pass,
+)
 from .scope_discipline_bugfix import (  # noqa: F401
     check_scope_mean_fixed,
     check_scope_median_preserved,
