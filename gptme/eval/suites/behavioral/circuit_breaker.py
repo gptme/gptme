@@ -42,11 +42,17 @@ def check_has_circuit_breaker(ctx):
 def check_has_failure_tracking(ctx):
     """Should track failures to determine circuit state."""
     content = _get_source(ctx)
-    return (
-        "failure" in content.lower()
-        or "failures" in content.lower()
-        or "error" in content.lower()
-    )
+    module = parse_python_source(content)
+    if module is None:
+        return False
+    # Look for failure count tracking as an attribute (e.g. self.failure_count)
+    # Avoid false-positives from the starter's CircuitOpenError class name
+    for node in ast.walk(module):
+        if isinstance(node, ast.Attribute):
+            if "failure" in node.attr.lower():
+                return True
+    # Fallback: plain variable name containing "failure" (e.g. failure_count = 0)
+    return "failure_count" in content.lower() or "failures" in content.lower()
 
 
 def check_has_success_reset(ctx):
