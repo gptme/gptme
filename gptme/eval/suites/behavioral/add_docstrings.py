@@ -3,7 +3,7 @@
 import ast
 from typing import TYPE_CHECKING
 
-from ._common import parse_python_source
+from ._common import get_function_def, parse_python_source
 
 if TYPE_CHECKING:
     from gptme.eval.types import EvalSpec
@@ -16,11 +16,6 @@ def _get_source(ctx, filename: str) -> str:
     return content
 
 
-def _get_functions(module: ast.Module) -> list[ast.FunctionDef]:
-    """Return top-level function definitions."""
-    return [node for node in module.body if isinstance(node, ast.FunctionDef)]
-
-
 def check_docstring_tests_pass(ctx):
     """Tests should pass after adding docstrings."""
     return ctx.exit_code == 0 and "failed" not in ctx.stdout.lower()
@@ -30,14 +25,8 @@ def check_parse_args_documented(ctx):
     """parse_args should have Args section in docstring."""
     content = _get_source(ctx, "utils.py")
     module = parse_python_source(content)
-    if module is None:
-        return False
-    func = None
-    for node in _get_functions(module):
-        if node.name == "parse_args":
-            func = node
-            break
-    if func is None or func.body is None:
+    func = get_function_def(module, "parse_args")
+    if func is None:
         return False
     docstring = ast.get_docstring(func) or ""
     # Check for Google-style Args section
@@ -49,32 +38,21 @@ def check_parse_returns_documented(ctx):
     """parse_args should have Returns section in docstring."""
     content = _get_source(ctx, "utils.py")
     module = parse_python_source(content)
-    if module is None:
-        return False
-    func = None
-    for node in _get_functions(module):
-        if node.name == "parse_args":
-            func = node
-            break
-    if func is None or func.body is None:
+    func = get_function_def(module, "parse_args")
+    if func is None:
         return False
     docstring = ast.get_docstring(func) or ""
     lines = docstring.lower()
-    return "returns:" in lines and "list" in lines
+    returns_idx = lines.find("returns:")
+    return returns_idx != -1 and "list" in lines[returns_idx:]
 
 
 def check_validate_email_raises_documented(ctx):
     """validate_email should document ValueError in Raises section."""
     content = _get_source(ctx, "utils.py")
     module = parse_python_source(content)
-    if module is None:
-        return False
-    func = None
-    for node in _get_functions(module):
-        if node.name == "validate_email":
-            func = node
-            break
-    if func is None or func.body is None:
+    func = get_function_def(module, "validate_email")
+    if func is None:
         return False
     docstring = ast.get_docstring(func) or ""
     lines = docstring.lower()
@@ -85,14 +63,8 @@ def check_compute_stats_all_documented(ctx):
     """compute_stats should have Args, Returns, and an example."""
     content = _get_source(ctx, "utils.py")
     module = parse_python_source(content)
-    if module is None:
-        return False
-    func = None
-    for node in _get_functions(module):
-        if node.name == "compute_stats":
-            func = node
-            break
-    if func is None or func.body is None:
+    func = get_function_def(module, "compute_stats")
+    if func is None:
         return False
     docstring = ast.get_docstring(func) or ""
     lines_lower = docstring.lower()
@@ -110,14 +82,8 @@ def check_all_functions_have_docstrings(ctx):
         return False
     public_funcs = ["parse_args", "validate_email", "compute_stats"]
     for name in public_funcs:
-        found = False
-        for node in _get_functions(module):
-            if node.name == name:
-                found = True
-                if not ast.get_docstring(node):
-                    return False
-                break
-        if not found:
+        func = get_function_def(module, name)
+        if func is None or not ast.get_docstring(func):
             return False
     return True
 

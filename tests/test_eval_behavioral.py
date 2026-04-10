@@ -2404,7 +2404,7 @@ def compute_stats(numbers):
     """
     if not numbers:
         return {"mean": 0, "median": 0, "count": 0}
-    return {"mean": 3.0, "median": 3.0, "count": 3}
+    return {"mean": 3.0, "median": 3.0, "count": 5}
 '''
 
 
