@@ -9,7 +9,7 @@ This is critical infrastructure for idea #19 (eval-to-lesson feedback loop):
 before running expensive baseline experiments with real models, we need
 confidence that the checkers correctly identify good work.
 
-Covers all 23 behavioral scenarios:
+Covers all 24 behavioral scenarios:
   git-selective-commit, multi-file-rename, iterative-debug,
   stage-new-files, write-test-suite, test-driven-error-handling,
   merge-conflict-resolution, extract-function-refactor, debug-data-pipeline,
@@ -17,7 +17,7 @@ Covers all 23 behavioral scenarios:
   add-feature-preserve-default, handle-specific-exception,
   fix-security-path-traversal, refactor-for-testability, add-type-hints,
   noisy-worktree-fix, fix-data-mutation, optimize-n-squared, remove-dead-code,
-  fix-mutable-default, add-deprecation-warning
+  fix-mutable-default, add-deprecation-warning, retry-with-backoff
 """
 
 import subprocess
@@ -763,6 +763,39 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
                 )
                 with urllib.request.urlopen(url) as response:
                     return json.loads(response.read().decode())
+            """)
+        )
+
+    elif scenario_name == "retry-with-backoff":
+        (workspace / "api_client.py").write_text(
+            textwrap.dedent("""\
+            \"\"\"API client for fetching user data.\"\"\"
+
+            import time
+            import requests
+
+
+            def retry_with_backoff(func, max_retries=3, base_delay=0.1):
+                \"\"\"Retry a function with exponential backoff.\"\"\"
+                for attempt in range(max_retries):
+                    try:
+                        return func()
+                    except Exception:
+                        if attempt < max_retries - 1:
+                            delay = base_delay * (2 ** attempt)
+                            time.sleep(delay)
+                        else:
+                            raise
+
+
+            def fetch_user(user_id: int) -> dict:
+                \"\"\"Fetch a user from the API. Retries on transient failures.\"\"\"
+                url = f"https://api.example.com/users/{user_id}"
+                def _fetch():
+                    response = requests.get(url, timeout=5)
+                    response.raise_for_status()
+                    return response.json()
+                return retry_with_backoff(_fetch)
             """)
         )
 
