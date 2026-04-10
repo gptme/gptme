@@ -22,9 +22,19 @@ def check_range_validation(ctx):
     content = ctx.files.get("user_service.py", "")
     if isinstance(content, bytes):
         content = content.decode()
-    return "ValueError" in content and any(
-        op in content for op in ["<", ">", "<=", ">="]
-    )
+    if "ValueError" not in content:
+        return False
+    module = parse_python_source(content)
+    if module is None:
+        return False
+    for node in ast.walk(module):
+        if isinstance(node, ast.Compare):
+            for comparator in node.comparators:
+                if isinstance(comparator, ast.Constant) and isinstance(
+                    comparator.value, int
+                ):
+                    return True
+    return False
 
 
 def check_string_sanitization(ctx):
