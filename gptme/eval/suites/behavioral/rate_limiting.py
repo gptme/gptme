@@ -106,7 +106,6 @@ class APIClient:
 '''
 
 TEST_CLIENT_SRC = '''\
-import time
 from unittest.mock import patch, MagicMock
 from urllib.error import HTTPError
 
@@ -131,10 +130,8 @@ def test_successful_request():
 def test_respects_rate_limit():
     """Should wait when rate limit is encountered."""
     client = APIClient("test-key")
-    call_times = []
 
     def mock_urlopen(*args, **kwargs):
-        call_times.append(time.time())
         raise HTTPError("url", 429, "Too Many Requests", {}, None)
 
     with patch("urllib.request.urlopen", side_effect=mock_urlopen):
