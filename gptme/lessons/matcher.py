@@ -120,10 +120,11 @@ class LessonMatcher:
             # Skills should use explicit `keywords:` in frontmatter for matching.
             # See: https://github.com/gptme/gptme-contrib/issues/139
 
-            # Tool matching
+            # Tool matching (case-insensitive for consistency with keywords)
             if context.tools_used and lesson.metadata.tools:
+                tools_lower = {t.lower() for t in context.tools_used}
                 for tool in lesson.metadata.tools:
-                    if tool in context.tools_used:
+                    if tool.lower() in tools_lower:
                         score += 2.0  # Higher weight for tool matches
                         matched_by.append(f"tool:{tool}")
 

@@ -1,8 +1,14 @@
 import { useState, type FC } from 'react';
 import { DeleteConversationConfirmationDialog } from './DeleteConversationConfirmationDialog';
-import { Trash, Loader2 } from 'lucide-react';
+import { Trash, Loader2, Download } from 'lucide-react';
+import { conversations$ } from '@/stores/conversations';
+import {
+  exportConversationAsMarkdown,
+  exportConversationAsJSON,
+  getExportableMessages,
+} from '@/utils/exportConversation';
 import { toast } from 'sonner';
-import { ModelSelector } from './ModelSelector';
+import { ModelPickerField } from './ModelPicker';
 import {
   Form,
   FormField,
@@ -133,7 +139,7 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
               />
 
               {/* Model Field */}
-              <ModelSelector
+              <ModelPickerField
                 control={control}
                 name="chat.model"
                 disabled={isSubmitting}
@@ -221,6 +227,62 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
                     </FormItem>
                   )}
                 />
+              </div>
+
+              {/* Export */}
+              <div className="mt-8 space-y-4">
+                <h3 className="text-lg font-medium">Export</h3>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const conv = conversations$.get(conversationId)?.get();
+                      if (!conv?.data?.log?.length) {
+                        toast.error('No messages to export');
+                        return;
+                      }
+
+                      const exportableMessages = getExportableMessages(conv.data.log);
+                      if (!exportableMessages.length) {
+                        toast.error('No visible messages to export');
+                        return;
+                      }
+
+                      exportConversationAsMarkdown(
+                        conversationId,
+                        conv.data.name || conversationId,
+                        exportableMessages
+                      );
+                      toast.success('Exported as Markdown');
+                    }}
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    Markdown
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const conv = conversations$.get(conversationId)?.get();
+                      if (!conv?.data?.log?.length) {
+                        toast.error('No messages to export');
+                        return;
+                      }
+                      exportConversationAsJSON(
+                        conversationId,
+                        conv.data.name || conversationId,
+                        conv.data.log
+                      );
+                      toast.success('Exported as JSON');
+                    }}
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    JSON
+                  </Button>
+                </div>
               </div>
 
               {/* Danger Zone */}

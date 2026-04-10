@@ -43,7 +43,7 @@ def _complete_model(partial: str, _prev_args: list[str]) -> list[tuple[str, str]
                 is_current = current and current.full == full_name
                 desc = "(current)" if is_current else ""
                 completions.append((full_name, desc))
-    except Exception:
+    except (ImportError, ValueError, AttributeError, OSError):
         # Fall back to empty list on error (provider prefixes will still show)
         pass
 

@@ -127,13 +127,11 @@ class Config:
         return default
 
     def get_env_required(self, key: str) -> str:
-        """Gets an environment variable, checks the config file if it's not set in the environment."""
-        if (
-            val := os.environ.get(key)
-            or (self.chat and self.chat.env.get(key))
-            or (self.project and self.project.env.get(key))
-            or self.user.env.get(key)
-        ):
+        """Gets an environment variable, checks the config file if it's not set in the environment.
+
+        Uses the same ``GPTME_`` prefix lookup logic as ``get_env()``.
+        """
+        if val := self.get_env(key):
             return val
         raise KeyError(  # pragma: no cover
             f"Environment variable {key} not set in env or config, see README."

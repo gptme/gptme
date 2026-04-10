@@ -1,4 +1,5 @@
 # edited from the original swebench/harness/test_spec.py
+import logging
 import os
 import re
 import subprocess
@@ -23,6 +24,8 @@ from .swe_bench_constants import (
     MAP_REPO_TO_TEST_FRAMEWORK,
     MAP_VER_TO_INSTALL,
 )
+
+logger = logging.getLogger(__name__)
 
 DIFF_MODIFIED_FILE_REGEX = r"--- a/(.*)"
 
@@ -130,19 +133,30 @@ class TestSpec:
     def reset_repo(self):
         script = "\n".join(self.reset_repo_script_list)
         print(f"Running script: {script}")
-        res = subprocess.run(script, shell=True, check=False)
-        return res.returncode == 0
+        try:
+            res = subprocess.run(script, shell=True, check=False, timeout=600)
+            return res.returncode == 0
+        except subprocess.TimeoutExpired:
+            logger.error("reset_repo timed out after 600s")
+            return False
 
     def eval_repo(self):
         script = "\n".join(self.eval_script_list)
         print(f"Running script: {script}")
-        res = subprocess.run(script, shell=True, check=False)
-        return res.returncode == 0
+        try:
+            res = subprocess.run(script, shell=True, check=False, timeout=600)
+            return res.returncode == 0
+        except subprocess.TimeoutExpired:
+            logger.error("eval_repo timed out after 600s")
+            return False
 
     def setup_repo(self):
         script = "\n".join(self.repo_script_list)
         print(f"Running script: {script}")
-        subprocess.run(script, shell=True, check=False)
+        try:
+            subprocess.run(script, shell=True, check=False, timeout=600)
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError("setup_repo timed out after 600s") from e
         return self.repo_dir
 
 

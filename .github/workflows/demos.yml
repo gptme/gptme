@@ -110,6 +110,13 @@ jobs:
           --output-dir demo_output
           --server-url http://localhost:5701
 
+      - name: Install ffmpeg
+        if: >-
+          github.event_name == 'schedule' ||
+          github.event.inputs.mode == 'all' ||
+          github.event.inputs.mode == 'recording'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
       - name: Capture recording
         if: >-
           github.event_name == 'schedule' ||

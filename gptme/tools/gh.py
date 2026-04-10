@@ -1,4 +1,33 @@
+"""GitHub integration tool.
+
+Use native handlers only when they help the assistant succeed more reliably
+than a raw ``gh`` command in the shell tool.  The native path is worth it when
+it collapses several API calls into one response, keeps CI state structured and
+actionable, or adds merge safety guards that are easy to miss in ad-hoc CLI use.
+
+Native operations that materially help:
+
+- ``issue view`` — combines issue body and comments in one call
+- ``pr view``    — combines PR body, comments, review-thread resolution, CI,
+                    and mergeability in one call
+- ``pr status``  — structured check-run summary with actionable run IDs
+- ``pr checks``  — polls CI until completion with live progress updates
+- ``pr merge``   — squash default, ``--match-head-commit`` guard, auto-merge
+- ``run view``   — extracts and structures failed log sections from CI runs
+
+Adding a new native wrapper
+---------------------------
+Before wrapping a ``gh`` subcommand, ask: "Will this help the assistant do
+better than a single ``gh`` command in the shell tool?"  If not, don't add it
+— the pass-through already covers it without bloating instructions.
+
+Good candidates combine multiple API calls into one response, add safety
+guards, or poll/wait for completion.
+"""
+
 import json
+import logging
+import shlex
 import shutil
 import subprocess
 import time
@@ -6,20 +35,16 @@ from collections.abc import Generator
 
 from ..message import Message
 from ..util.gh import (
-    _get_repo_from_git_remote,
     get_github_issue_content,
-    get_github_issue_list,
     get_github_pr_content,
-    get_github_pr_diff,
-    get_github_pr_list,
     get_github_run_logs,
     merge_github_pr,
     parse_github_ref,
     parse_github_url,
-    search_github_issues,
-    search_github_prs,
 )
 from . import Parameter, ToolSpec, ToolUse
+
+logger = logging.getLogger(__name__)
 
 
 def has_gh_tool() -> bool:
@@ -41,6 +66,7 @@ def _get_pr_check_runs(
             capture_output=True,
             text=True,
             check=True,
+            timeout=30,
         )
         pr_details = json.loads(pr_details_result.stdout)
         head_sha = pr_details.get("head", {}).get("sha")
@@ -54,6 +80,7 @@ def _get_pr_check_runs(
             capture_output=True,
             text=True,
             check=True,
+            timeout=30,
         )
 
         check_runs_data = json.loads(check_runs_result.stdout)
@@ -61,6 +88,8 @@ def _get_pr_check_runs(
 
         return head_sha, check_runs, None
 
+    except subprocess.TimeoutExpired:
+        return None, None, "GitHub API call timed out after 30s"
     except subprocess.CalledProcessError as e:
         return None, None, f"Failed to fetch check status: {e}"
     except (json.JSONDecodeError, KeyError) as e:
@@ -71,8 +100,6 @@ def _wait_for_checks(
     owner: str, repo: str, url: str, commit_sha: str | None = None
 ) -> Generator[Message, None, None]:
     """Wait for all GitHub Actions checks to complete on a PR or commit."""
-    import logging
-
     logger = logging.getLogger(__name__)
 
     # Use provided commit SHA or get from PR
@@ -108,8 +135,17 @@ def _wait_for_checks(
 
     previous_status = None
     poll_interval = 10  # seconds
+    max_wait = 30 * 60  # 30 minutes
+    start_time = time.time()
 
     while True:
+        if time.time() - start_time > max_wait:
+            yield Message(
+                "system",
+                f"\n⏱️ Timed out after {max_wait // 60} minutes waiting for checks to complete.\n",
+            )
+            return
+
         # Get check runs for the original commit directly
         try:
             check_runs_result = subprocess.run(
@@ -117,10 +153,16 @@ def _wait_for_checks(
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=30,
             )
             check_runs_data = json.loads(check_runs_result.stdout)
             check_runs = check_runs_data.get("check_runs", [])
-        except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError) as e:
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            json.JSONDecodeError,
+            KeyError,
+        ) as e:
             yield Message("system", f"Error fetching checks: {e}")
             return
 
@@ -301,20 +343,6 @@ def _format_check_results(check_runs: list, head_sha: str, pr_number: int) -> st
     return output
 
 
-def _parse_list_flags(args: list[str], start: int = 2) -> dict[str, str]:
-    """Parse --flag value pairs from args starting at given index."""
-    flags: dict[str, str] = {}
-    i = start
-    while i < len(args):
-        if args[i].startswith("--") and i + 1 < len(args):
-            key = args[i][2:]  # Strip --
-            flags[key] = args[i + 1]
-            i += 2
-        else:
-            i += 1
-    return flags
-
-
 def _extract_url(
     args: list[str] | None, kwargs: dict[str, str] | None, arg_offset: int = 2
 ) -> str | None:
@@ -352,39 +380,6 @@ def _resolve_ref(
     return github_info, None
 
 
-def _resolve_repo_for_list(
-    args: list[str],
-) -> tuple[str | None, str | None, dict[str, str], Message | None]:
-    """Parse repo and flags for list commands.
-
-    Returns (owner, repo, flags, error_message). If owner is None,
-    the caller should yield the error message and return.
-    """
-    flags = _parse_list_flags(args)
-    owner: str | None = None
-    repo: str | None = None
-    repo_flag = flags.get("repo")
-    if repo_flag and "/" in repo_flag:
-        owner, repo = repo_flag.split("/", 1)
-    else:
-        repo_info = _get_repo_from_git_remote()
-        if repo_info:
-            owner, repo = repo_info
-
-    if not owner or not repo:
-        return (
-            None,
-            None,
-            flags,
-            Message(
-                "system",
-                "Error: Could not determine repository. Use --repo owner/repo or run from a git repo.",
-            ),
-        )
-
-    return owner, repo, flags, None
-
-
 def _handle_pr_status(
     args: list[str] | None, kwargs: dict[str, str] | None
 ) -> Generator[Message, None, None]:
@@ -407,12 +402,18 @@ def _handle_pr_status(
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=30,
             )
             data = json.loads(result.stdout)
             head_sha = commit_sha
             check_runs = data.get("check_runs", [])
             error = None
-        except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError) as e:
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            json.JSONDecodeError,
+            KeyError,
+        ) as e:
             error = f"Failed to fetch checks: {e}"
             head_sha, check_runs = None, None
     else:
@@ -498,12 +499,63 @@ def _handle_pr_merge(
         yield Message("system", f"Error: {result['message']}")
 
 
+def _passthrough_gh(
+    args: list[str] | None, code: str | None
+) -> Generator[Message, None, None]:
+    """Pass unrecognized commands through to the gh CLI."""
+    if args:
+        cmd = ["gh"] + list(args)
+    elif code:
+        cmd_str = code.strip().removeprefix("gh ")
+        try:
+            cmd = ["gh"] + shlex.split(cmd_str)
+        except ValueError as e:
+            yield Message("system", f"Error parsing command: {e}")
+            return
+    else:
+        yield Message("system", "Error: No command provided")
+        return
+
+    logger.info("gh pass-through: %s", shlex.join(cmd))
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=60, check=False
+        )
+        output = result.stdout.strip()
+        stderr = result.stderr.strip()
+        if result.returncode != 0:
+            details = []
+            if stderr:
+                details.append(f"stderr:\n{stderr}")
+            if output:
+                details.append(f"stdout:\n{output}")
+            msg = f"Error (exit {result.returncode})"
+            if details:
+                msg += "\n\n" + "\n\n".join(details)
+            yield Message("system", msg)
+        elif output:
+            yield Message("system", output)
+        else:
+            yield Message("system", "(no output)")
+    except subprocess.TimeoutExpired:
+        yield Message("system", "Error: Command timed out after 60 seconds")
+    except FileNotFoundError:
+        yield Message(
+            "system",
+            "Error: gh CLI not found. Install from https://cli.github.com/",
+        )
+
+
 def execute_gh(
     code: str | None,
     args: list[str] | None,
     kwargs: dict[str, str] | None,
 ) -> Generator[Message, None, None]:
-    """Execute GitHub operations."""
+    """Execute GitHub operations.
+
+    Native handlers for high-value operations (issue view, pr view/status/checks/merge,
+    run view).  Everything else passes through to the gh CLI unchanged.
+    """
     if args and len(args) >= 2 and args[0] == "pr" and args[1] == "merge":
         yield from _handle_pr_merge(args, kwargs)
 
@@ -522,29 +574,6 @@ def execute_gh(
         yield from _wait_for_checks(
             info["owner"], info["repo"], url, commit_sha=commit_sha
         )
-
-    elif args and len(args) >= 2 and args[0] == "pr" and args[1] == "diff":
-        info, err = _resolve_ref(args, kwargs, "pull", "PR reference")
-        if err:
-            yield err
-            return
-
-        assert info is not None
-        if info["type"] != "pull":
-            yield Message(
-                "system",
-                f"Error: Reference is not a GitHub PR (got {info['type']}). Use `gh issue view` for issues.",
-            )
-            return
-
-        content = get_github_pr_diff(info["owner"], info["repo"], info["number"])
-        if content:
-            yield Message("system", content)
-        else:
-            yield Message(
-                "system",
-                "Error: Failed to fetch PR diff. Make sure 'gh' CLI is installed and authenticated.",
-            )
 
     elif args and len(args) >= 2 and args[0] == "pr" and args[1] == "view":
         info, err = _resolve_ref(args, kwargs, "pull", "PR reference")
@@ -570,60 +599,17 @@ def execute_gh(
                 "Error: Failed to fetch PR content. Make sure 'gh' CLI is installed and authenticated.",
             )
 
-    elif args and len(args) >= 2 and args[0] == "issue" and args[1] == "list":
-        owner, repo, flags, err = _resolve_repo_for_list(args)
-        if err:
-            yield err
-            return
-
-        assert owner is not None and repo is not None
-        state = flags.get("state", "open")
-        limit_str = flags.get("limit", "20")
-        limit = int(limit_str) if limit_str.isdecimal() else 20
-        labels = flags.get("label", "").split(",") if flags.get("label") else None
-
-        content = get_github_issue_list(
-            owner, repo, state=state, labels=labels, limit=limit
-        )
-        if content:
-            yield Message("system", content)
-        else:
-            yield Message(
-                "system",
-                f"Error: Failed to list issues for {owner}/{repo}.",
-            )
-
-    elif args and len(args) >= 2 and args[0] == "pr" and args[1] == "list":
-        owner, repo, flags, err = _resolve_repo_for_list(args)
-        if err:
-            yield err
-            return
-
-        assert owner is not None and repo is not None
-        state = flags.get("state", "open")
-        limit_str = flags.get("limit", "20")
-        limit = int(limit_str) if limit_str.isdecimal() else 20
-
-        content = get_github_pr_list(owner, repo, state=state, limit=limit)
-        if content:
-            yield Message("system", content)
-        else:
-            yield Message(
-                "system",
-                f"Error: Failed to list pull requests for {owner}/{repo}.",
-            )
-
     elif args and len(args) >= 2 and args[0] == "issue" and args[1] == "view":
-        info, err = _resolve_ref(args, kwargs, "issues", "issue reference")
+        info, err = _resolve_ref(args, kwargs, "issue", "issue reference")
         if err:
             yield err
             return
 
         assert info is not None
-        if info["type"] != "issues":
+        if info["type"] == "pull":
             yield Message(
                 "system",
-                f"Error: URL is not a GitHub issue URL (got {info['type']}). Use `gh pr view` for pull requests.",
+                f"Error: Reference is not a GitHub issue (got {info['type']}). Use `gh pr view` for pull requests.",
             )
             return
 
@@ -635,6 +621,7 @@ def execute_gh(
                 "system",
                 "Error: Failed to fetch issue content. Make sure 'gh' CLI is installed and authenticated.",
             )
+
     elif args and len(args) >= 2 and args[0] == "run" and args[1] == "view":
         if len(args) < 3:
             yield Message(
@@ -659,148 +646,32 @@ def execute_gh(
                 f"Error: Failed to fetch run {run_id}. Make sure 'gh' CLI is installed and authenticated.",
             )
 
-    elif (
-        args and len(args) >= 2 and args[0] == "search" and args[1] in ("issues", "prs")
-    ):
-        search_type = args[1]
-        # Parse query and search_flags from remaining args
-        query_parts: list[str] = []
-        search_flags: dict[str, str] = {}
-        i = 2
-        while i < len(args):
-            arg = args[i]
-            if arg.startswith("--"):
-                if i + 1 >= len(args) or args[i + 1].startswith("--"):
-                    yield Message(
-                        "system",
-                        f"Error: Flag {arg} requires a value. Usage: gh search {search_type} <query> [--repo owner/repo] [--state open|closed] [--author user] [--label name] [--limit N]",
-                    )
-                    return
-                flag_name = arg[2:]
-                search_flags[flag_name] = args[i + 1]
-                i += 2
-                continue
-
-            query_parts.append(arg)
-            i += 1
-
-        query = " ".join(query_parts)
-        if not query:
-            yield Message(
-                "system",
-                f"Error: No search query provided. Usage: gh search {search_type} <query> [--repo owner/repo] [--state open|closed] [--author user] [--label name] [--limit N]",
-            )
-            return
-
-        limit_str = search_flags.get("limit", "20")
-        if not limit_str.isdecimal():
-            yield Message(
-                "system",
-                f"Error: --limit requires a positive integer, got {limit_str!r}.",
-            )
-            return
-        limit = int(limit_str)
-
-        if search_type == "prs" and search_flags.get("assignee"):
-            yield Message(
-                "system",
-                "Error: --assignee is not supported for PR search (GitHub API limitation). Use --author to filter by PR author.",
-            )
-            return
-
-        if search_type == "issues":
-            content = search_github_issues(
-                query,
-                repo=search_flags.get("repo"),
-                state=search_flags.get("state"),
-                author=search_flags.get("author"),
-                assignee=search_flags.get("assignee"),
-                label=search_flags.get("label"),
-                limit=limit,
-            )
-        else:
-            content = search_github_prs(
-                query,
-                repo=search_flags.get("repo"),
-                state=search_flags.get("state"),
-                author=search_flags.get("author"),
-                label=search_flags.get("label"),
-                limit=limit,
-            )
-
-        if content:
-            yield Message("system", content)
-        else:
-            yield Message(
-                "system",
-                f"Error: Failed to search {search_type}. Make sure 'gh' CLI is installed and authenticated.",
-            )
-
     else:
-        yield Message(
-            "system",
-            "Error: Unknown gh command. Available: gh issue list, gh issue view, gh pr list, gh pr view, gh pr diff, gh pr merge, gh pr status, gh pr checks, gh run view, gh search issues, gh search prs\n\nReferences can be URLs, owner/repo#N, #N, or bare numbers.",
-        )
+        # Pass through to gh CLI for all other commands
+        yield from _passthrough_gh(args, code)
 
 
-instructions = """Interact with GitHub via the GitHub CLI (gh).
+instructions = """Use this tool when GitHub work needs fewer round-trips, structured CI data,
+or safer merges than a raw `gh` shell command.
 
-Refs: full URLs, `owner/repo#N`, `#N`, or bare `N` (when in a git repo).
+Refs: full URLs, `owner/repo#N`, `#N`, or bare `N` in a git repo.
 
-List issues/PRs:
-```gh issue list --repo owner/repo --state open --limit 20
-gh pr list --repo owner/repo --state open --limit 20
-```
+Native paths help the agent finish GitHub tasks with less hallucination risk:
+- `gh issue view <ref>` gets issue body and comments in one result
+- `gh pr view <ref>` gets PR body, comments, review threads, CI, and mergeability in one result
+- `gh pr status <ref> [commit_sha]` returns structured CI state with run IDs
+- `gh pr checks <ref> [commit_sha]` waits for checks to settle
+- `gh pr merge <ref> ...` adds squash-by-default and optional head-commit protection
+- `gh run view <run-id>` extracts failed-job logs
 
-Search issues/PRs across repos:
-```gh search issues "bug fix" --repo owner/repo --state open --limit 10
-gh search prs "feature" --author username --state open
-```
-
-Read issue/PR:
-```gh issue view owner/repo#42
-gh pr view owner/repo#123
-```
-
-Inspect code changes:
-```gh pr diff owner/repo#123
-```
-
-Merge a pull request (default: squash):
-```gh pr merge owner/repo#123
-gh pr merge owner/repo#123 --rebase
-gh pr merge owner/repo#123 --squash --auto --delete-branch --match-head-commit abc1234
-```
-
-CI status:
-```gh pr status <ref> [commit_sha]
-gh pr checks <ref> [commit_sha]
-gh run view <run-id>
-```
-
-Multi-line comments:
-```shell
-gh issue comment NUM --repo owner/repo --body-file - << 'EOF'
-Body here
-EOF
-```
-
-For other operations, use the `shell` tool with `gh`."""
+All other valid `gh` subcommands pass through unchanged."""
 
 
 def examples(tool_format):
     return f"""
-> User: read issue #42 on owner/repo
-> Assistant:
-{ToolUse("gh", ["issue", "view", "owner/repo#42"], None).to_output(tool_format)}
-
 > User: read PR #123 on owner/repo
 > Assistant:
 {ToolUse("gh", ["pr", "view", "owner/repo#123"], None).to_output(tool_format)}
-
-> User: show the code changes in this PR
-> Assistant:
-{ToolUse("gh", ["pr", "diff", "owner/repo#123"], None).to_output(tool_format)}
 
 > User: check CI status for this PR
 > Assistant:
@@ -809,46 +680,21 @@ def examples(tool_format):
             "gh", ["pr", "status", "https://github.com/owner/repo/pull/123"], None
         ).to_output(tool_format)
     }
-> System: PR #123 checks (abc1234):
-> System: Total: 6 checks
-> System: ✅ 4 passed
-> System: ❌ 2 failed
 > System:
-> System: Failed runs:
-> System:   - build (run 12345678)
-> System:   - test (run 12345679)
-> System:
-> System: View logs: gh run view <run_id> --log-failed
+PR #123 checks (abc1234):
+Total: 6 checks
+✅ 4 passed
+❌ 2 failed
 
-> User: check status of specific commit abc1234
-> Assistant:
-{
-        ToolUse(
-            "gh",
-            ["pr", "status", "https://github.com/owner/repo/pull/123", "abc1234"],
-            None,
-        ).to_output(tool_format)
-    }
+Failed runs:
+  - build (run 12345678)
+  - test (run 12345679)
+
+View logs: gh run view <run_id> --log-failed
 
 > User: show me the failed build logs
 > Assistant:
 {ToolUse("gh", ["run", "view", "12345678"], None).to_output(tool_format)}
-> System: ## Run 12345678: Fix auth flow
-> System:
-> System: **Workflow**: CI
-> System: **Branch**: fix/auth
-> System: **Status**: completed (failure)
-> System:
-> System: ### Jobs
-> System:   ✅ lint: success
-> System:   ❌ test: failure
-> System:
-> System: ### Failed Job Logs
-> System:
-> System: #### test
-> System:   ❌ Failed step: Run tests
-> System:
-> System: [extracted error sections with context]
 
 > User: wait for CI checks to complete on a PR
 > Assistant:
@@ -857,16 +703,10 @@ def examples(tool_format):
             "gh", ["pr", "checks", "https://github.com/owner/repo/pull/123"], None
         ).to_output(tool_format)
     }
-> System: Waiting for checks on commit abc1234...
-> System: [12:34:56] ✅ 4 passed, ❌ 2 failed, 🔄 3 in progress
-> System: ...
-> System: ❌ Checks failed: 2 failed, 4 passed
 
 > User: merge PR #123 on owner/repo
 > Assistant:
 {ToolUse("gh", ["pr", "merge", "owner/repo#123"], None).to_output(tool_format)}
-> System: ✓ Squashed and merged pull request #123
-> System: Merge commit: abc1234def5678
 
 > User: auto-merge PR when checks pass, and delete the branch
 > Assistant:
@@ -877,20 +717,14 @@ def examples(tool_format):
             None,
         ).to_output(tool_format)
     }
-> System: ✓ Pull request #123 will be automatically merged via squash when all checks pass
 
-> User: create a public repo from the current directory, and push. Note that --confirm and -y are deprecated, and no longer needed.
+> User: read issue #42 on owner/repo
 > Assistant:
-{
-        ToolUse(
-            "shell",
-            [],
-            '''
-REPO=$(basename $(pwd))
-gh repo create $REPO --public --source . --push
-'''.strip(),
-        ).to_output(tool_format)
-    }
+{ToolUse("gh", ["issue", "view", "owner/repo#42"], None).to_output(tool_format)}
+
+> User: show issues (pass-through to gh CLI)
+> Assistant:
+{ToolUse("gh", ["issue", "list", "--repo", "owner/repo"], None).to_output(tool_format)}
 
 > User: post a multi-line comment on issue 42
 > Assistant:
@@ -898,7 +732,7 @@ gh repo create $REPO --public --source . --push
         ToolUse(
             "shell",
             [],
-            '''gh issue comment 42 --repo $REPO --body-file - << 'EOF'
+            '''gh issue comment 42 --repo owner/repo --body-file - << 'EOF'
 ## Summary
 
 Work is complete. Here are the details:
@@ -909,42 +743,6 @@ See PR #123 for the implementation.
 EOF''',
         ).to_output(tool_format)
     }
-
-> User: show issues
-> Assistant:
-{ToolUse("gh", ["issue", "list", "--repo", "owner/repo"], None).to_output(tool_format)}
-
-> User: show open PRs
-> Assistant:
-{ToolUse("gh", ["pr", "list", "--repo", "owner/repo"], None).to_output(tool_format)}
-
-> User: search for authentication issues in owner/repo
-> Assistant:
-{
-        ToolUse(
-            "gh", ["search", "issues", "authentication", "--repo", "owner/repo"], None
-        ).to_output(tool_format)
-    }
-
-> User: find my open PRs
-> Assistant:
-{
-        ToolUse(
-            "gh", ["search", "prs", "fix", "--author", "@me", "--state", "open"], None
-        ).to_output(tool_format)
-    }
-
-> User: show recent workflows
-> Assistant:
-{ToolUse("shell", [], "gh run list --repo $REPO --limit 5").to_output(tool_format)}
-
-> User: show workflow
-> Assistant:
-{ToolUse("shell", [], "gh run view $RUN --repo $REPO --log").to_output(tool_format)}
-
-> User: wait for workflow to finish
-> Assistant:
-{ToolUse("shell", [], "gh run watch $RUN --repo $REPO").to_output(tool_format)}
 """
 
 

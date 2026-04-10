@@ -184,6 +184,25 @@ def get_model(model: str) -> ModelMeta:
             # The routing logic in __init__.py handles custom providers via is_custom_provider()
             return ModelMeta(provider="unknown", model=model, context=128_000)
 
+        # Check if model starts with a plugin provider prefix
+        from ..provider_plugins import get_provider_plugin  # fmt: skip
+
+        plugin = get_provider_plugin(provider_prefix)
+        if plugin:
+            # Look up exact model in plugin's model list
+            for m in plugin.models:
+                if m.model == model or (
+                    m.model.startswith(f"{provider_prefix}/")
+                    and m.model.split("/", 1)[-1] == model.split("/", 1)[-1]
+                ):
+                    return m
+            # Model not found in plugin list - return generic metadata so it still works
+            log_warn_once(
+                f"Model {model!r} not found in plugin {provider_prefix!r} model list; "
+                "using generic 128k context fallback"
+            )
+            return ModelMeta(provider="unknown", model=model, context=128_000)
+
     # Check if model has provider/model format with built-in provider
     if any(model.startswith(f"{provider}/") for provider in PROVIDERS):
         provider_str, model_name = model.split("/", 1)

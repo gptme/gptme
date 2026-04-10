@@ -294,6 +294,9 @@ def retry_on_overloaded(max_retries: int = 5, base_delay: float = 1.0):
                     _handle_anthropic_transient_error(
                         e, attempt, max_retries, base_delay
                     )
+            # _handle_anthropic_transient_error raises on last attempt,
+            # but guard against silent None return if logic changes
+            raise RuntimeError("retry exhausted without raising")  # pragma: no cover
 
         return wrapper
 
@@ -333,6 +336,9 @@ def retry_generator_on_overloaded(max_retries: int = 5, base_delay: float = 1.0)
                     _handle_anthropic_transient_error(
                         e, attempt, max_retries, base_delay
                     )
+            # _handle_anthropic_transient_error raises on last attempt,
+            # but guard against silent None return if logic changes
+            raise RuntimeError("retry exhausted without raising")  # pragma: no cover
 
         return wrapper
 
@@ -991,7 +997,14 @@ def _prepare_messages_for_api(
         "yes",
     )
     if web_search_enabled:
-        max_uses = int(os.environ.get("GPTME_ANTHROPIC_WEB_SEARCH_MAX_USES", "5"))
+        _max_uses_str = os.environ.get("GPTME_ANTHROPIC_WEB_SEARCH_MAX_USES", "5")
+        try:
+            max_uses = int(_max_uses_str)
+        except ValueError as e:
+            raise ValueError(
+                f"Invalid GPTME_ANTHROPIC_WEB_SEARCH_MAX_USES value: {_max_uses_str!r}. "
+                "Must be a valid integer."
+            ) from e
         web_search_tool = _create_web_search_tool(max_uses=max_uses)
         if tools_dict is None:
             tools_dict = []

@@ -234,9 +234,9 @@ Plugins (Packaging Mechanism)
 
 **Examples**:
 
-- `consortium <https://github.com/gptme/gptme-contrib/tree/master/plugins/consortium>`_ - AI collaboration tools
-- `imagen <https://github.com/gptme/gptme-contrib/tree/master/plugins/imagen>`_ - Image generation
-- `example-hooks <https://github.com/gptme/gptme-contrib/tree/master/plugins/example-hooks>`_ - Hook system demonstrations
+- `consortium <https://github.com/gptme/gptme-contrib/tree/master/plugins/gptme-consortium>`_ - AI collaboration tools
+- `imagen <https://github.com/gptme/gptme-contrib/tree/master/plugins/gptme-imagen>`_ - Image generation
+- `hooks examples <https://github.com/gptme/gptme-contrib/tree/master/plugins/gptme-hooks-examples>`_ - Hook system demonstrations
 
 See :doc:`plugins` for complete documentation.
 

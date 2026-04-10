@@ -29,6 +29,7 @@ from .types import (
     _subagent_results,
     _subagent_results_lock,
     _subagents,
+    _subagents_lock,
 )
 
 
@@ -87,12 +88,12 @@ Assistant: I'll use full context mode for comprehensive analysis.
 
 #### Selective Context (choose specific components)
 User: write tests using pytest
-Assistant: I'll use selective mode to share only project files, not context_cmd output.
+Assistant: I'll use subprocess mode so selective context can include workspace files without inheriting the full parent context.
 {
         ToolUse(
             "ipython",
             [],
-            'subagent("tests", "Write pytest tests for the calculate function", context_mode="selective", context_include=["files"])',
+            'subagent("tests", "Write pytest tests for the calculate function", context_mode="selective", context_include=["workspace"], use_subprocess=True)',
         ).to_output(tool_format)
     }
 
@@ -312,6 +313,7 @@ __all__ = [
     "_get_complete_instruction",
     # Module-level state (re-exported for backward compatibility)
     "_subagents",
+    "_subagents_lock",
     "_subagent_results",
     "_subagent_results_lock",
     "_completion_queue",

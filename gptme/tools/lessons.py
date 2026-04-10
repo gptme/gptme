@@ -14,6 +14,7 @@ Commands provided:
 
 import importlib
 import logging
+import re
 from collections.abc import Generator
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -22,7 +23,7 @@ from typing import TYPE_CHECKING
 from ..commands import CommandContext
 from ..config import get_config
 from ..hooks import HookType, StopPropagation
-from ..lessons import LessonIndex, LessonMatcher, MatchContext
+from ..lessons import Lesson, LessonIndex, LessonMatcher, MatchContext
 from ..lessons.commands import lesson
 from ..message import Message
 from .base import ToolSpec
@@ -31,6 +32,45 @@ if TYPE_CHECKING:
     from ..logmanager import LogManager
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_holdout_lessons(raw: str | None) -> set[str]:
+    """Parse comma-separated lesson identifiers from HOLDOUT_LESSONS."""
+    if not raw:
+        return set()
+    return {
+        token.strip().lower().replace("\\", "/")
+        for token in raw.split(",")
+        if token.strip()
+    }
+
+
+def _is_holdout_lesson(lesson: "Lesson", holdout_lessons: set[str]) -> bool:
+    """Return True if the lesson matches a configured holdout identifier."""
+    if not holdout_lessons:
+        return False
+
+    path = lesson.path
+    path_str = str(path).lower().replace("\\", "/")
+    identifiers = {
+        path_str,
+        path.name.lower(),
+        (path.parent.name if path.name.upper() == "SKILL.MD" else path.stem).lower(),
+    }
+
+    lesson_id = getattr(lesson.metadata, "id", None)
+    if lesson_id:
+        identifiers.add(str(lesson_id).strip().lower())
+
+    for token in holdout_lessons:
+        if token in identifiers:
+            return True
+        if "/" in token or token.endswith(".md"):
+            normalized = token.lstrip("./")
+            if path_str == normalized or path_str.endswith(f"/{normalized}"):
+                return True
+
+    return False
 
 
 def _get_ace_components() -> tuple[type | None, type | None]:
@@ -94,6 +134,9 @@ def _get_lesson_index() -> LessonIndex:
     return index
 
 
+_LESSON_PATH_RE = re.compile(r"^\*Path:\s+(.+)\*$")
+
+
 def _get_included_lessons_from_log(log: list[Message]) -> set[str]:
     """Extract lesson paths that have already been included in the conversation.
 
@@ -109,12 +152,10 @@ def _get_included_lessons_from_log(log: list[Message]) -> set[str]:
         if msg.role == "system" and "# Relevant Lessons" in msg.content:
             # Extract lesson paths from formatted lessons
             # Format: *Path: /some/path/lesson.md*
-            lines = msg.content.split("\n")
-            for line in lines:
-                if line.startswith("*Path: ") and line.endswith("*"):
-                    # Extract path between "*Path: " and final "*"
-                    path_str = line[7:-1]  # Remove "*Path: " prefix and "*" suffix
-                    included.add(path_str)
+            for line in msg.content.split("\n"):
+                m = _LESSON_PATH_RE.match(line)
+                if m:
+                    included.add(m.group(1))
 
     return included
 
@@ -157,6 +198,11 @@ def _extract_recent_tools(log: list[Message], limit: int = 10) -> list[str]:
 def _extract_message_content(log: list[Message], limit: int = 10) -> str:
     """Extract message content from recent user and assistant messages.
 
+    Always includes the first user message (initial prompt) to ensure
+    session-level topic keywords are available for lesson matching,
+    even in long conversations where the initial context has scrolled
+    past the recent-message window.
+
     Args:
         log: Conversation log
         limit: Number of recent messages to check
@@ -164,14 +210,22 @@ def _extract_message_content(log: list[Message], limit: int = 10) -> str:
     Returns:
         Combined message content string
     """
-    messages = [
-        msg.content
-        for msg in reversed(log[-limit:])
-        if msg.role in ("user", "assistant")
-    ]
+    # Find the first user message (initial prompt sets the session topic)
+    first_user_msg = None
+    for msg in log:
+        if msg.role == "user":
+            first_user_msg = msg.content
+            break
 
-    # Combine messages (most recent first, so reverse to get chronological)
-    combined = " ".join(reversed(messages))
+    # Get recent messages
+    recent = log[-limit:]
+    messages = [msg.content for msg in recent if msg.role in ("user", "assistant")]
+
+    # Prepend first user message if not already in the recent window
+    if first_user_msg and first_user_msg not in messages:
+        messages.insert(0, first_user_msg)
+
+    combined = " ".join(messages)
 
     logger.debug(
         f"Extracted content from {len(messages)} messages "
@@ -203,6 +257,7 @@ def auto_include_lessons_hook(
     # Get configuration
     config = get_config()
     auto_include = config.get_env_bool("GPTME_LESSONS_AUTO_INCLUDE", True)
+    holdout_lessons = _parse_holdout_lessons(config.get_env("GPTME_LESSONS_HOLDOUT"))
 
     if not auto_include:
         logger.debug("Auto-inclusion disabled")
@@ -220,27 +275,25 @@ def auto_include_lessons_hook(
     # Get session stats and check if we've hit the limit
     stats = _get_session_stats()
 
+    # Get messages from log
+    messages = manager.log.messages
+
+    # Get lessons already included (also used to initialize stats on resume)
+    included_lessons = _get_included_lessons_from_log(messages)
+
     # Initialize stats from log if empty (e.g., when resuming a conversation)
-    if not stats.unique_lessons:
-        included_in_log = _get_included_lessons_from_log(manager.log.messages)
-        if included_in_log:
-            stats.unique_lessons.update(included_in_log)
-            stats.total_matched = len(included_in_log)
-            logger.debug(
-                f"Initialized session stats from log: {len(included_in_log)} lessons"
-            )
+    if not stats.unique_lessons and included_lessons:
+        stats.unique_lessons.update(included_lessons)
+        stats.total_matched = len(included_lessons)
+        logger.debug(
+            f"Initialized session stats from log: {len(included_lessons)} lessons"
+        )
 
     if len(stats.unique_lessons) >= max_lessons:
         logger.debug(
             f"Session lesson limit reached ({len(stats.unique_lessons)}/{max_lessons})"
         )
         return
-
-    # Get messages from log
-    messages = manager.log.messages
-
-    # Get lessons already included
-    included_lessons = _get_included_lessons_from_log(messages)
 
     # Extract message content from recent user and assistant messages
     message_content = _extract_message_content(messages)
@@ -259,9 +312,6 @@ def auto_include_lessons_hook(
     # Get lesson index and find matching lessons
     try:
         index = _get_lesson_index()
-
-        # Track whether we're using hybrid matching (for session_id support)
-        using_hybrid = False
 
         # Choose matcher based on configuration
         if use_hybrid:
@@ -290,7 +340,6 @@ def auto_include_lessons_hook(
                         f"Initialized ACE embedder with lessons_dir={lesson_dirs[0] if lesson_dirs else 'lessons'}"
                     )
                     matcher = GptmeHybridMatcher(embedder=embedder)
-                    using_hybrid = True
                 except Exception as e:
                     logger.warning(
                         f"Failed to initialize embedder: {e}. Falling back to keyword matching."
@@ -307,21 +356,15 @@ def auto_include_lessons_hook(
             logger.debug("Using keyword-only lesson matcher")
             matcher = LessonMatcher()
 
-        # Generate session_id from chat_id for tracking (only for hybrid matcher)
-        session_id = manager.chat_id
-
-        # Call matcher with appropriate parameters
-        # Only GptmeHybridMatcher supports session_id parameter
-        if using_hybrid:
-            match_results = matcher.match(index.lessons, context, session_id=session_id)
-        else:
-            match_results = matcher.match(index.lessons, context)
+        # Match lessons against context
+        match_results = matcher.match(index.lessons, context)
 
         # Filter out already included lessons (MatchResult has .lesson attribute)
         new_matches = [
             match
             for match in match_results
-            if str(match.lesson.path) not in included_lessons
+            if not _is_holdout_lesson(match.lesson, holdout_lessons)
+            and str(match.lesson.path) not in included_lessons
             and str(match.lesson.path) not in stats.unique_lessons
         ]
 

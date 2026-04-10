@@ -175,7 +175,7 @@ def handle_cmd(
     """Handles a command."""
     cmd = cmd.lstrip("/")
     logger.debug(f"Executing command: {cmd}")
-    name, *args = re.split(r"[\n\s]", cmd)
+    name, *args = [s for s in re.split(r"[\n\s]", cmd) if s]
     full_args = cmd.split(" ", 1)[1] if " " in cmd else ""
 
     # Check if command is registered

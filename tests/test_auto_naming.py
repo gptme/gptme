@@ -66,9 +66,14 @@ def test_auto_naming_generates_display_name(event_listener, wait_for_event):
     assert len(chat_config.name) <= 50
 
 
-@pytest.mark.timeout(30)
+@pytest.mark.timeout(45)
 @pytest.mark.slow
 @pytest.mark.requires_api
+@pytest.mark.skipif(
+    "claude-haiku" in os.getenv("MODEL", "").lower()
+    or "glm" in os.getenv("MODEL", "").lower(),
+    reason="Claude Haiku can exceed the SSE completion timeout here; GLM is too slow for auto-naming timeout",
+)
 def test_auto_naming_only_runs_once(event_listener, wait_for_event):
     """Test that auto-naming doesn't overwrite existing names."""
     port = event_listener["port"]
@@ -101,7 +106,7 @@ def test_auto_naming_only_runs_once(event_listener, wait_for_event):
     # We'll wait a bit to make sure it doesn't happen
     assert not wait_for_event(event_listener, "config_changed", timeout=3)
 
-    assert wait_for_event(event_listener, "generation_complete")
+    assert wait_for_event(event_listener, "generation_complete", timeout=30)
 
     # Verify that the config didn't change after generation
     assert not wait_for_event(event_listener, "config_changed", timeout=1)

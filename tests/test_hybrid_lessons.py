@@ -364,3 +364,34 @@ def test_effectiveness_score_matches_explicit_lesson_id(tmp_path):
     )
 
     assert matcher._effectiveness_score(lesson) == pytest.approx(0.8)
+
+
+@pytest.mark.skipif(not HYBRID_AVAILABLE, reason="Hybrid matching not available")
+def test_semantic_score_zero_norm_returns_zero():
+    """Zero-norm embeddings should return 0.0 instead of NaN/inf."""
+    np = pytest.importorskip("numpy")
+    from unittest.mock import MagicMock
+
+    config = HybridConfig(enable_semantic=True)
+    matcher = HybridLessonMatcher(config=config)
+
+    # Mock the embedder to return a zero vector
+    mock_embedder = MagicMock()
+    mock_embedder.encode.return_value = np.zeros(384)
+    matcher.embedder = mock_embedder
+
+    lesson = Lesson(
+        path=Path("/tmp/lessons/test-lesson.md"),
+        metadata=LessonMetadata(),
+        title="Test",
+        description="",
+        category="test",
+        body="test body",
+    )
+    context = MatchContext(message="test query")
+    query_embed = np.zeros(384)  # Zero-norm query embedding
+
+    score = matcher._semantic_score(query_embed, lesson, context)
+    assert score == 0.0
+    assert not np.isnan(score)
+    assert not np.isinf(score)

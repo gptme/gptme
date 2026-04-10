@@ -13,12 +13,18 @@ import {
   setPendingTool,
   setExecutingTool,
   addMessage,
+  setMessageStatus,
+  removeMessage,
+  replaceLog,
+  updateBranches,
+  setCurrentBranch,
   initConversation,
   selectedConversation$,
   updateConversationName,
   setNeedsInitialStep,
 } from '@/stores/conversations';
 import { playChime } from '@/utils/audio';
+import { findLatestAssistantIndexForError } from '@/utils/conversationErrorHandling';
 import { notifyGenerationComplete, notifyToolConfirmation } from '@/utils/notifications';
 import { ApiClientError } from '@/utils/api';
 
@@ -178,11 +184,17 @@ export function useConversation(conversationId: string, serverId?: string) {
               console.log('[useConversation] Generation complete');
               messageJustCompleted.current = true;
 
-              // Update the last message
+              // Update the last message with final content and metadata
               const messages$ = conversation$?.data.log;
               const lastMessage$ = messages$?.[messages$.length - 1];
               if (lastMessage$?.role.get() === 'assistant') {
                 lastMessage$.content.set(message.content);
+                if (message.metadata) {
+                  lastMessage$.metadata.set(message.metadata);
+                }
+                if (message.timestamp) {
+                  lastMessage$.timestamp.set(message.timestamp);
+                }
                 if ('isComplete' in lastMessage$) {
                   lastMessage$.isComplete.set(true);
                 }
@@ -279,6 +291,31 @@ export function useConversation(conversationId: string, serverId?: string) {
             },
             onError: (error) => {
               console.error('[useConversation] Error:', error);
+              setGenerating(conversationId, false);
+              setPendingTool(conversationId, null, null);
+              setExecutingTool(conversationId, null, null);
+              messageJustCompleted.current = false;
+
+              const messages$ = conversation$?.data.log;
+              const assistantIndex = findLatestAssistantIndexForError(messages$?.peek());
+              const assistantMessage$ =
+                assistantIndex >= 0 ? messages$?.[assistantIndex] : undefined;
+              const streamingAssistantMessage$ = assistantMessage$ as
+                | (typeof assistantMessage$ & { isComplete?: { set: (value: boolean) => void } })
+                | undefined;
+
+              if (assistantMessage$?.role.get() === 'assistant') {
+                const content = assistantMessage$.content.get();
+                if (content === '') {
+                  const timestamp = assistantMessage$.timestamp?.get();
+                  if (timestamp) {
+                    removeMessage(conversationId, timestamp);
+                  }
+                } else if (streamingAssistantMessage$?.isComplete) {
+                  streamingAssistantMessage$.isComplete.set(true);
+                }
+              }
+
               toast({
                 variant: 'destructive',
                 title: 'Error',
@@ -303,11 +340,35 @@ export function useConversation(conversationId: string, serverId?: string) {
               if (needsStep) {
                 console.log('[useConversation] Triggering initial step after subscription');
                 setNeedsInitialStep(conversationId, false);
-                // Use the api from context to trigger step
                 api.step(conversationId).catch((error) => {
                   console.error('[useConversation] Error triggering initial step:', error);
                 });
               }
+            },
+            onReconnectState: (state) => {
+              console.log('[useConversation] Restoring state on reconnect:', state);
+              if (state.generating) {
+                setGenerating(conversationId, true);
+              }
+              // Restore first pending tool (if any)
+              if (state.pendingTools.length > 0) {
+                if (state.pendingTools.length > 1) {
+                  console.warn(
+                    '[useConversation] Multiple pending tools on reconnect — only restoring the first'
+                  );
+                }
+                const pt = state.pendingTools[0];
+                setPendingTool(conversationId, pt.tool_id, pt.tooluse);
+                if (!pt.auto_confirm) {
+                  setGenerating(conversationId, false);
+                }
+              }
+            },
+            onConversationEdited: (data) => {
+              console.log('[useConversation] Conversation edited:', data);
+              updateBranches(conversationId, data.branches);
+              // Reset to main branch (setCurrentBranch also replaces data.log)
+              setCurrentBranch(conversationId, 'main');
             },
           })
           .catch((err) => {
@@ -359,30 +420,51 @@ export function useConversation(conversationId: string, serverId?: string) {
       setExecutingTool(conversationId, null, null);
     }
 
-    // Create user message
+    // Upload pending files first if any
+    let filePaths = options?.files || [];
+    if (options?.pendingFiles?.length) {
+      try {
+        const uploadResult = await api.uploadFiles(conversationId, options.pendingFiles);
+        filePaths = [...filePaths, ...uploadResult.files.map((f) => f.path)];
+      } catch (error) {
+        console.error('[useConversation] File upload failed:', error);
+        toast({
+          variant: 'destructive',
+          title: 'Upload failed',
+          description: 'Failed to upload attached files',
+        });
+        // Continue sending the message without files
+      }
+    }
+
+    // Create user message with pending status
     const userMessage: Message = {
       role: 'user',
       content: message,
       timestamp: new Date().toISOString(),
+      ...(filePaths.length > 0 ? { files: filePaths } : {}),
+      _status: 'pending',
     };
 
-    // Add message to conversation
+    // Add message to conversation (optimistic)
     addMessage(conversationId, userMessage);
 
     try {
       // Send the message
       await api.sendMessage(conversationId, userMessage);
+      setMessageStatus(conversationId, userMessage.timestamp!, 'sent');
 
       // Start generation
       await api.step(conversationId, options?.model, options?.stream);
     } catch (error) {
       console.error('Error sending message:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Failed to send message';
+      setMessageStatus(conversationId, userMessage.timestamp!, 'failed', errorMsg);
       toast({
         variant: 'destructive',
-        title: 'Error',
-        description: 'Failed to send message',
+        title: 'Failed to send',
+        description: errorMsg,
       });
-      throw error;
     }
   };
 
@@ -457,9 +539,126 @@ export function useConversation(conversationId: string, serverId?: string) {
     }
   };
 
+  const retryMessage = async (failedMessage: Message) => {
+    if (!conversation$) return;
+    // Remove the failed message and re-send
+    removeMessage(conversationId, failedMessage.timestamp!);
+    await sendMessage({
+      message: failedMessage.content,
+      options: failedMessage.files?.length ? { files: failedMessage.files } : undefined,
+    });
+  };
+
+  const editMessage = async (
+    index: number,
+    content: string,
+    truncate: boolean = false,
+    files?: string[],
+    pendingFiles?: File[]
+  ) => {
+    try {
+      // Upload any new files first, then merge with existing file paths
+      let allFiles = files;
+      if (pendingFiles?.length) {
+        const uploadResult = await api.uploadFiles(conversationId, pendingFiles);
+        const newPaths = uploadResult.files.map((f) => f.path);
+        allFiles = [...(files || []), ...newPaths];
+      }
+      const result = await api.editMessage(conversationId, index, content, truncate, allFiles);
+      // Use API response directly (SSE event may also arrive, but this is immediate)
+      replaceLog(conversationId, result.log);
+      if (result.branches) {
+        updateBranches(conversationId, result.branches);
+      }
+
+      // After truncation, trigger re-generation
+      if (truncate) {
+        await api.step(conversationId);
+      }
+    } catch (error) {
+      console.error('Error editing message:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Failed to edit message';
+      toast({ variant: 'destructive', title: 'Edit failed', description: errorMsg });
+    }
+  };
+
+  const deleteMessage = async (index: number) => {
+    try {
+      const result = await api.deleteMessage(conversationId, index);
+      replaceLog(conversationId, result.log);
+      if (result.branches) {
+        updateBranches(conversationId, result.branches);
+      }
+    } catch (error) {
+      console.error('Error deleting message:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Failed to delete message';
+      toast({ variant: 'destructive', title: 'Delete failed', description: errorMsg });
+    }
+  };
+
+  const rerunFromMessage = async (index: number) => {
+    if (!conversation$) return;
+    const log = conversation$.data.log.get();
+    const isLastMessage = index === log.length - 1;
+
+    try {
+      if (!isLastMessage) {
+        // Truncate after this message (creates backup branch)
+        const result = await api.editMessage(conversationId, index, undefined, true);
+        replaceLog(conversationId, result.log);
+        if (result.branches) {
+          updateBranches(conversationId, result.branches);
+        }
+      }
+      // Re-run tools from the (now last) assistant message
+      // This parses tool uses and sets them as pending, without calling the LLM
+      try {
+        await api.rerunTools(conversationId);
+      } catch {
+        // No tools found — fall back to step() (regenerate)
+        await api.step(conversationId);
+      }
+    } catch (error) {
+      console.error('Error re-running from message:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Failed to re-run';
+      toast({ variant: 'destructive', title: 'Re-run failed', description: errorMsg });
+    }
+  };
+
+  const regenerateMessage = async (index: number) => {
+    if (!conversation$) return;
+    // Remove the assistant message and everything after, then step to regenerate
+    // Truncate at the message BEFORE this one (the user message)
+    const prevIndex = index - 1;
+    if (prevIndex < 0) return;
+
+    try {
+      const result = await api.editMessage(conversationId, prevIndex, undefined, true);
+      replaceLog(conversationId, result.log);
+      if (result.branches) {
+        updateBranches(conversationId, result.branches);
+      }
+      await api.step(conversationId);
+    } catch (error) {
+      console.error('Error regenerating message:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Failed to regenerate';
+      toast({ variant: 'destructive', title: 'Regenerate failed', description: errorMsg });
+    }
+  };
+
+  const switchBranch = (branchName: string) => {
+    setCurrentBranch(conversationId, branchName);
+  };
+
   return {
     conversation$,
     sendMessage,
+    retryMessage,
+    editMessage,
+    deleteMessage,
+    rerunFromMessage,
+    regenerateMessage,
+    switchBranch,
     confirmTool,
     interruptGeneration,
   };

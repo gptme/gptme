@@ -1028,3 +1028,39 @@ def test_tool_exclusion_multiple(tmp_path):
         assert tool in config.chat.tools, (
             f"Default tool '{tool}' should still be in tools list after exclusion"
         )
+
+
+def test_set_config_value_creates_intermediate_sections(tmp_path, monkeypatch):
+    """Test that set_config_value creates missing intermediate TOML sections.
+
+    Regression test: previously d.get(key, {}) returned a detached dict,
+    so writes to non-existent sections were silently lost.
+    """
+    import gptme.config.user as user_mod
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("")  # empty config
+
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+    # Suppress reload_config (imported locally from gptme.config.core)
+    monkeypatch.setattr("gptme.config.core.reload_config", lambda: None)
+
+    user_mod.set_config_value("user.name", "Alice")
+
+    result = tomlkit.loads(config_file.read_text()).unwrap()
+    assert "user" in result
+    assert result["user"]["name"] == "Alice"
+
+
+def test_get_env_required_checks_gptme_prefix(monkeypatch):
+    """Test that get_env_required checks GPTME_ prefixed env vars like get_env does."""
+    from gptme.config.models import UserConfig
+
+    config = Config(user=UserConfig())
+
+    # Set GPTME_OPENAI_API_KEY but not OPENAI_API_KEY
+    monkeypatch.setenv("GPTME_OPENAI_API_KEY", "test-key-123")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    result = config.get_env_required("OPENAI_API_KEY")
+    assert result == "test-key-123"

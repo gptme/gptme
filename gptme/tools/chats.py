@@ -204,7 +204,7 @@ def read_chat(id: str, max_results: int = 5, incl_system=False) -> None:
     for conv in list_conversations():
         if conv.id == id:
             log_path = Path(conv.path)
-            logmanager = LogManager.load(log_path)
+            logmanager = LogManager.load(log_path, lock=False)
             print(f"Reading conversation: {conv.name} ({conv.id})")
             i = 0
             for msg in logmanager.log:

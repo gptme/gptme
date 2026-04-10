@@ -1402,3 +1402,79 @@ def test_adjacent_fences_bare_multifence_content_line():
     assert blocks[0].lang == "shell"
     assert "``````" in blocks[0].content
     assert "more code" in blocks[0].content
+
+
+def test_fence_preserved_in_extraction():
+    """Codeblock.fence should reflect the original fence length (3+)."""
+    # Triple backticks (default)
+    blocks = list(_extract_codeblocks("```python\ncode\n```"))
+    assert len(blocks) == 1
+    assert blocks[0].fence == "```"
+
+    # Quadruple backticks (used by md_codeblock() to wrap content with triple fences)
+    blocks = list(_extract_codeblocks("````python\ncode\n````"))
+    assert len(blocks) == 1
+    assert blocks[0].fence == "````"
+
+    # Quintuple backticks
+    blocks = list(_extract_codeblocks("`````txt\ncode\n`````"))
+    assert len(blocks) == 1
+    assert blocks[0].fence == "`````"
+
+    # to_markdown() should use the original fence
+    assert blocks[0].to_markdown().startswith("`````txt")
+
+
+# --- XML round-trip and edge-case tests ---
+
+
+def test_from_xml_basic():
+    """from_xml should parse a well-formed codeblock element."""
+    xml = '<codeblock lang="python">print("hello")</codeblock>'
+    cb = Codeblock.from_xml(xml)
+    assert cb.lang == "python"
+    assert cb.content == 'print("hello")'
+    assert cb.path is None
+
+
+def test_from_xml_with_path():
+    """from_xml should parse optional path attribute."""
+    xml = '<codeblock lang="python" path="main.py">code</codeblock>'
+    cb = Codeblock.from_xml(xml)
+    assert cb.lang == "python"
+    assert cb.content == "code"
+    assert cb.path == "main.py"
+
+
+def test_from_xml_missing_lang():
+    """from_xml should not crash when lang attribute is missing."""
+    xml = "<codeblock>some content</codeblock>"
+    cb = Codeblock.from_xml(xml)
+    assert cb.lang == ""
+    assert cb.content == "some content"
+
+
+def test_from_xml_empty_content():
+    """from_xml should handle empty content gracefully."""
+    xml = '<codeblock lang="txt"></codeblock>'
+    cb = Codeblock.from_xml(xml)
+    assert cb.lang == "txt"
+    assert cb.content == ""
+
+
+def test_xml_roundtrip():
+    """to_xml -> from_xml should preserve content."""
+    original = Codeblock("python", "x = 1 + 2\nprint(x)", "test.py")
+    xml = original.to_xml()
+    restored = Codeblock.from_xml(xml)
+    assert restored.lang == original.lang
+    assert restored.content == original.content
+    assert restored.path == original.path
+
+
+def test_xml_roundtrip_special_chars():
+    """XML round-trip should handle special characters."""
+    original = Codeblock("python", 'if x < 10 & y > 5:\n    print("ok")')
+    xml = original.to_xml()
+    restored = Codeblock.from_xml(xml)
+    assert restored.content == original.content

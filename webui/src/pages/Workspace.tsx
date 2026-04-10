@@ -1,6 +1,7 @@
 import { type FC } from 'react';
 import { useParams } from 'react-router-dom';
 import { MenuBar } from '@/components/MenuBar';
+import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { WorkspaceExplorer } from '@/components/workspace/WorkspaceExplorer';
 
 const Workspace: FC = () => {
@@ -22,6 +23,7 @@ const Workspace: FC = () => {
             </p>
           </div>
         </div>
+        <MobileBottomNav />
       </div>
     );
   }
@@ -32,6 +34,7 @@ const Workspace: FC = () => {
       <div className="flex-1 overflow-hidden">
         <WorkspaceExplorer conversationId={conversationId} />
       </div>
+      <MobileBottomNav />
     </div>
   );
 };

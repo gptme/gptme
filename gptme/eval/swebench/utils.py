@@ -1,10 +1,15 @@
+import json
 import logging
 import os
 import subprocess
-
-from datasets import DownloadMode, load_dataset
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# SWE-bench prediction format keys
+KEY_INSTANCE_ID = "instance_id"
+KEY_MODEL = "model_name_or_path"
+KEY_PATCH = "model_patch"
 
 
 def load_instances(
@@ -12,6 +17,8 @@ def load_instances(
     split: str = "test",
     force_download: bool = False,
 ) -> dict[str, dict]:
+    from datasets import DownloadMode, load_dataset  # lazy: optional eval extra
+
     download_mode = (
         DownloadMode.FORCE_REDOWNLOAD
         if force_download
@@ -44,6 +51,65 @@ def setup_swebench_repo(instance_data: dict, repo_base_dir: str | None = None) -
     )
 
 
+def write_predictions_jsonl(
+    predictions: list[dict],
+    output_path: str | Path,
+) -> Path:
+    """Write predictions in SWE-bench JSONL format for official harness evaluation.
+
+    Each prediction must have: instance_id, model_name_or_path, model_patch.
+    See: https://github.com/princeton-nlp/SWE-bench#-evaluation
+    """
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w") as f:
+        for pred in predictions:
+            f.write(json.dumps(pred) + "\n")
+    logger.info(f"Wrote {len(predictions)} predictions to {output_path}")
+    return output_path
+
+
+def append_prediction(
+    prediction: dict,
+    output_path: Path,
+) -> None:
+    """Append a single prediction to the JSONL file (for incremental writing)."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("a") as f:
+        f.write(json.dumps(prediction) + "\n")
+
+
+def load_existing_predictions(output_path: Path) -> set[str]:
+    """Load instance IDs from an existing predictions JSONL file.
+
+    Returns a set of instance_id values already present in the file.
+    Skips malformed lines with a warning.
+    """
+    if not output_path.exists():
+        return set()
+
+    existing: set[str] = set()
+    with output_path.open() as f:
+        for lineno, line in enumerate(f, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                pred = json.loads(line)
+                instance_id = pred.get(KEY_INSTANCE_ID)
+                if instance_id:
+                    existing.add(instance_id)
+                else:
+                    logger.warning(
+                        f"Line {lineno} in {output_path} missing '{KEY_INSTANCE_ID}'"
+                    )
+            except json.JSONDecodeError:
+                logger.warning(f"Skipping malformed line {lineno} in {output_path}")
+    if existing:
+        logger.info(f"Found {len(existing)} existing predictions in {output_path}")
+    return existing
+
+
 def get_file_spans_from_patch(patch: str) -> dict[str, list[str]]:
     file_spans: dict[str, list[str]] = {}
     current_file: str | None = None
@@ -71,6 +137,7 @@ def setup_github_repo(repo: str, base_commit: str, base_dir: str | None = None) 
                 check=True,
                 capture_output=True,
                 text=True,
+                timeout=300,
             )
 
         logger.info(f"Checking out commit {base_commit} in {repo_dir}")
@@ -80,6 +147,7 @@ def setup_github_repo(repo: str, base_commit: str, base_dir: str | None = None) 
             capture_output=True,
             text=True,
             cwd=repo_dir,
+            timeout=120,
         )
         subprocess.run(
             ["git", "checkout", base_commit],
@@ -87,12 +155,18 @@ def setup_github_repo(repo: str, base_commit: str, base_dir: str | None = None) 
             capture_output=True,
             text=True,
             cwd=repo_dir,
+            timeout=60,
         )
 
         return repo_dir
     except subprocess.CalledProcessError as e:
         logger.error(f"Error setting up GitHub repo: {e}")
         logger.error(f"Command output: {e.output}")
+        raise
+    except subprocess.TimeoutExpired as e:
+        logger.error(
+            f"Timed out setting up GitHub repo (command took >{e.timeout}s): {e.cmd}"
+        )
         raise
     except Exception as e:
         logger.error(f"Unexpected error setting up GitHub repo: {e}")

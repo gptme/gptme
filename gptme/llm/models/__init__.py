@@ -36,6 +36,7 @@ from .types import (
     CustomProvider,
     ModelMeta,
     Provider,
+    ProviderPlugin,
     _ModelDictMeta,
     is_custom_provider,
 )
@@ -46,6 +47,7 @@ __all__ = [
     "CustomProvider",
     "ModelMeta",
     "Provider",
+    "ProviderPlugin",
     "_ModelDictMeta",
     # Constants
     "MODEL_ALIASES",

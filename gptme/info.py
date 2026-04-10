@@ -161,7 +161,7 @@ def get_install_info() -> InstallInfo:
         # Check installer
         try:
             installer = (dist.read_text("INSTALLER") or "").strip().lower()
-        except Exception:
+        except (FileNotFoundError, OSError):
             installer = "unknown"
 
         # Check if editable via direct_url.json
@@ -175,7 +175,7 @@ def get_install_info() -> InstallInfo:
                 url = data.get("url", "")
                 if url.startswith("file://"):
                     path = url[7:]  # Strip file://
-        except Exception:
+        except (FileNotFoundError, OSError, json.JSONDecodeError, KeyError):
             pass
 
         # Also check if PathDistribution (another indicator of editable)
@@ -231,7 +231,7 @@ def get_available_providers() -> list[str]:
 
         providers = list_available_providers()
         return [name for name, _ in providers]
-    except Exception:
+    except (ImportError, OSError, ValueError, RuntimeError):
         return []
 
 
@@ -242,7 +242,7 @@ def get_default_model() -> str | None:
 
         config = get_config()
         return config.get_env("MODEL") or None
-    except Exception:
+    except (ImportError, OSError, ValueError, RuntimeError):
         return None
 
 
@@ -253,7 +253,7 @@ def get_tool_count() -> int:
 
         tools = get_available_tools(include_mcp=False)
         return sum(1 for t in tools if t.is_available)
-    except Exception:
+    except (ImportError, OSError, ValueError, RuntimeError):
         return 0
 
 
@@ -353,8 +353,6 @@ def format_version_info(verbose: bool = False, output_json: bool = False) -> str
     not_installed_extras = [e.name for e in extras if not e.installed]
 
     if output_json:
-        import json as json_mod
-
         data = {
             "version": __version__,
             "python": sys_info["python_version"],
@@ -378,7 +376,7 @@ def format_version_info(verbose: bool = False, output_json: bool = False) -> str
                 "project_config": config_info.get("project_config"),
             },
         }
-        return json_mod.dumps(data, indent=2)
+        return json.dumps(data, indent=2)
 
     # Human-readable format
     lines = [f"gptme v{__version__}"]

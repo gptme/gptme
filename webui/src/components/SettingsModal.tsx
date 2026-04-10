@@ -16,20 +16,14 @@ import { useSettings } from '@/contexts/SettingsContext';
 import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
 import { ServerConfiguration } from '@/components/settings/ServerConfiguration';
-import { observable } from '@legendapp/state';
 import { use$ } from '@legendapp/state/react';
+import { settingsModal$, type SettingsCategory } from '@/stores/settingsModal';
+export type { SettingsCategory } from '@/stores/settingsModal';
+export { settingsModal$ } from '@/stores/settingsModal';
 
 interface SettingsModalProps {
   children?: React.ReactNode;
 }
-
-export type SettingsCategory = 'servers' | 'appearance' | 'audio' | 'content' | 'about';
-
-/** Observable to open the settings modal from outside (e.g. server dropdown). */
-export const settingsModal$ = observable({
-  open: false,
-  category: 'appearance' as SettingsCategory,
-});
 
 const categories = [
   {
@@ -119,6 +113,60 @@ export const SettingsModal = forwardRef<HTMLButtonElement, SettingsModalProps>(
                       </Button>
                     );
                   })}
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="space-y-3">
+                <Label className="text-sm text-muted-foreground">Welcome Background</Label>
+                <p className="text-xs text-muted-foreground">
+                  Image URL or CSS gradient for the new-chat view. The card gets a frosted glass
+                  effect when a background is set.
+                </p>
+                <input
+                  type="text"
+                  value={settings.welcomeBackground}
+                  onChange={(e) => updateSettings({ welcomeBackground: e.target.value })}
+                  placeholder="e.g. linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { label: 'Sunset', value: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' },
+                    {
+                      label: 'Ocean',
+                      value: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    },
+                    {
+                      label: 'Forest',
+                      value: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)',
+                    },
+                    {
+                      label: 'Night',
+                      value: 'linear-gradient(135deg, #0c0c1d 0%, #1a1a3e 50%, #2d1b69 100%)',
+                    },
+                  ].map((preset) => (
+                    <Button
+                      key={preset.label}
+                      variant="outline"
+                      size="sm"
+                      className="text-xs"
+                      onClick={() => updateSettings({ welcomeBackground: preset.value })}
+                    >
+                      {preset.label}
+                    </Button>
+                  ))}
+                  {settings.welcomeBackground && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-xs text-muted-foreground"
+                      onClick={() => updateSettings({ welcomeBackground: '' })}
+                    >
+                      Clear
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>
@@ -287,7 +335,7 @@ export const SettingsModal = forwardRef<HTMLButtonElement, SettingsModalProps>(
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild>
           {children || (
-            <Button variant="ghost" size="icon">
+            <Button variant="ghost" size="icon" aria-label="Open settings">
               <Settings className="h-4 w-4" />
             </Button>
           )}

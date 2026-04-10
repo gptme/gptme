@@ -7,7 +7,9 @@ This module provides the command system for gptme, including:
 - Plugin command registration
 """
 
-from pathlib import Path
+import logging
+
+logger = logging.getLogger(__name__)
 
 # IMPORTANT: Import llm first to resolve the config<->llm circular dependency
 # The original commands.py did this implicitly via `from . import llm`
@@ -66,16 +68,18 @@ from .session import (
 
 
 def init_commands() -> None:
-    """Initialize plugin commands."""
-    from ..config import get_config
-    from ..plugins import register_plugin_commands
+    """Initialize plugin commands via the unified registry."""
+    from ..plugins.registry import get_all_plugins
 
-    config = get_config()
-    if config.project and config.project.plugins and config.project.plugins.paths:
-        register_plugin_commands(
-            plugin_paths=[Path(p) for p in config.project.plugins.paths],
-            enabled_plugins=config.project.plugins.enabled or None,
-        )
+    for plugin in get_all_plugins():
+        if plugin.register_commands:
+            try:
+                plugin.register_commands()
+                logger.debug("Registered commands from plugin: %s", plugin.name)
+            except Exception as e:
+                logger.warning(
+                    "Failed to register commands for plugin %r: %s", plugin.name, e
+                )
 
 
 __all__ = [

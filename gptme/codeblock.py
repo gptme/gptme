@@ -14,6 +14,7 @@ class Codeblock:
     content: str
     path: str | None = None
     start: int | None = field(default=None, compare=False)
+    fence: str = field(default_factory=lambda: "```", compare=False, repr=False)
 
     def __post_init__(self):
         # init path if path is None and lang is pathy
@@ -21,7 +22,7 @@ class Codeblock:
             object.__setattr__(self, "path", self.lang)  # frozen dataclass workaround
 
     def to_markdown(self) -> str:
-        return f"```{self.lang}\n{self.content}\n```"
+        return f"{self.fence}{self.lang}\n{self.content}\n{self.fence}"
 
     def to_xml(self) -> str:
         """Converts codeblock to XML with proper escaping."""
@@ -51,7 +52,12 @@ class Codeblock:
                 stripped = stripped.strip()[:-end_fence_len]
 
         lang = stripped.splitlines()[0].strip() if stripped.strip() else ""
-        return cls(lang, stripped[len(lang) :].lstrip("\n") if lang else stripped)
+        fence = "`" * fence_len if fence_len else "```"
+        return cls(
+            lang,
+            stripped[len(lang) :].lstrip("\n") if lang else stripped,
+            fence=fence,
+        )
 
     @classmethod
     @trace_function(name="codeblock.from_xml", attributes={"component": "parser"})
@@ -63,7 +69,13 @@ class Codeblock:
           </codeblock>
         """
         root = ElementTree.fromstring(content)
-        return cls(root.attrib["lang"], root.text or "", root.attrib.get("path"))
+        # Strip leading/trailing newlines added by to_xml() formatting
+        text = (root.text or "").strip("\n")
+        return cls(
+            root.attrib.get("lang", ""),
+            text,
+            root.attrib.get("path"),
+        )
 
     @property
     def is_filename(self) -> bool:
@@ -214,7 +226,10 @@ def _extract_codeblocks(
                     # content lines.
                     if re.match(r"^`{3,}\S", rest):
                         yield Codeblock(
-                            lang, "\n".join(content_lines), start=start_line
+                            lang,
+                            "\n".join(content_lines),
+                            start=start_line,
+                            fence="`" * fence_len,
                         )
                         lines[i] = rest
                         reprocess_current_line = True
@@ -225,7 +240,10 @@ def _extract_codeblocks(
                     # closing delimiter and reprocessing the remainder on the same line.
                     if rest.startswith(("<think>", "<thinking>")):
                         yield Codeblock(
-                            lang, "\n".join(content_lines), start=start_line
+                            lang,
+                            "\n".join(content_lines),
+                            start=start_line,
+                            fence="`" * fence_len,
                         )
                         lines[i] = rest
                         reprocess_current_line = True
@@ -280,7 +298,10 @@ def _extract_codeblocks(
                                     break
                                 # Either not streaming, or streaming with blank line - extract
                                 yield Codeblock(
-                                    lang, "\n".join(content_lines), start=start_line
+                                    lang,
+                                    "\n".join(content_lines),
+                                    start=start_line,
+                                    fence="`" * fence_len,
                                 )
                                 i += 1
                                 break
@@ -347,7 +368,10 @@ def _extract_codeblocks(
                                 nesting_depth -= 1
                                 if nesting_depth == 0:
                                     yield Codeblock(
-                                        lang, "\n".join(content_lines), start=start_line
+                                        lang,
+                                        "\n".join(content_lines),
+                                        start=start_line,
+                                        fence="`" * fence_len,
                                     )
                                     i += 1
                                     break
@@ -364,7 +388,10 @@ def _extract_codeblocks(
                             if nesting_depth == 0:
                                 # This closes our top-level block
                                 yield Codeblock(
-                                    lang, "\n".join(content_lines), start=start_line
+                                    lang,
+                                    "\n".join(content_lines),
+                                    start=start_line,
+                                    fence="`" * fence_len,
                                 )
                                 i += 1  # Move past the closing ```
                                 break

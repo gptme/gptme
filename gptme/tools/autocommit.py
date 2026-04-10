@@ -46,6 +46,7 @@ def autocommit() -> Message:
             capture_output=True,
             text=True,
             check=True,
+            timeout=30,
         )
 
         if not status_result_porcelain.stdout.strip():
@@ -53,12 +54,16 @@ def autocommit() -> Message:
 
         # Get current git status
         status_result = subprocess.run(
-            ["git", "status"], capture_output=True, text=True, check=True
+            ["git", "status"], capture_output=True, text=True, check=True, timeout=30
         )
 
         # Get git diff to show what changed
         diff_result = subprocess.run(
-            ["git", "diff", "HEAD"], capture_output=True, text=True, check=True
+            ["git", "diff", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
         )
 
         # Create a message for the LLM to handle the commit

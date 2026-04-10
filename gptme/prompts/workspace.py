@@ -243,7 +243,7 @@ def prompt_workspace(
             if get_config().user and get_config().user.prompt
             else []
         )
-    except Exception:
+    except (ImportError, OSError, ValueError, AttributeError):
         user_files = []
     if user_files:
         for entry in user_files:
@@ -252,7 +252,7 @@ def prompt_workspace(
                 p = config_dir / entry
             try:
                 p = p.resolve()
-            except Exception:
+            except OSError:
                 # If resolve fails (e.g., path doesn't exist yet), keep as-is
                 pass
             if p.exists():

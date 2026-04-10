@@ -182,11 +182,13 @@ def pdf_to_images(
         >>> for img in images:
         ...     view_image(img)  # Analyze with vision tool
     """
+    import atexit
     import tempfile
 
     # Determine output directory
     if output_dir is None:
         output_dir = Path(tempfile.mkdtemp(prefix="pdf_images_"))
+        atexit.register(shutil.rmtree, str(output_dir), True)
     else:
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -194,8 +196,17 @@ def pdf_to_images(
     # Download PDF if URL
     if url_or_path.startswith(("http://", "https://")):
         logger.info(f"Downloading PDF from: {url_or_path}")
-        response = requests.get(url_or_path, timeout=60)
-        response.raise_for_status()
+        try:
+            response = requests.get(url_or_path, timeout=60)
+            response.raise_for_status()
+        except requests.ConnectionError as e:
+            raise RuntimeError(f"Failed to connect to PDF URL: {url_or_path}") from e
+        except requests.Timeout as e:
+            raise RuntimeError(f"Timeout downloading PDF from: {url_or_path}") from e
+        except requests.HTTPError as e:
+            raise RuntimeError(
+                f"HTTP error {response.status_code} downloading PDF from: {url_or_path}"
+            ) from e
         pdf_path = output_dir / "input.pdf"
         pdf_path.write_bytes(response.content)
     else:
@@ -224,15 +235,22 @@ def _convert_with_pdftoppm(
     pdf_path: Path, output_prefix: Path, pages: tuple[int, int] | None, dpi: int
 ) -> list[Path]:
     """Convert PDF to images using pdftoppm."""
-    import subprocess
-
     cmd = ["pdftoppm", "-png", "-r", str(dpi)]
     if pages:
         cmd.extend(["-f", str(pages[0]), "-l", str(pages[1])])
     cmd.extend([str(pdf_path), str(output_prefix)])
 
     logger.info(f"Converting PDF with pdftoppm: {' '.join(cmd)}")
-    subprocess.run(cmd, check=True, capture_output=True, text=True)
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            f"pdftoppm timed out after 60s converting {pdf_path.name}"
+        ) from None
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(
+            f"pdftoppm failed (exit code {e.returncode}): {e.stderr or 'no output'}"
+        ) from None
 
     # pdftoppm creates files like: page-1.png, page-2.png, etc.
     return sorted(output_prefix.parent.glob(f"{output_prefix.name}-*.png"))
@@ -242,8 +260,6 @@ def _convert_with_imagemagick(
     pdf_path: Path, output_prefix: Path, pages: tuple[int, int] | None, dpi: int
 ) -> list[Path]:
     """Convert PDF to images using ImageMagick convert."""
-    import subprocess
-
     # ImageMagick uses 0-indexed pages
     if pages:
         page_spec = f"[{pages[0] - 1}-{pages[1] - 1}]"
@@ -255,7 +271,16 @@ def _convert_with_imagemagick(
     cmd = ["convert", "-density", str(dpi), input_spec, output_pattern]
 
     logger.info(f"Converting PDF with ImageMagick: {' '.join(cmd)}")
-    subprocess.run(cmd, check=True, capture_output=True, text=True)
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            f"ImageMagick timed out after 60s converting {pdf_path.name}"
+        ) from None
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(
+            f"ImageMagick failed (exit code {e.returncode}): {e.stderr or 'no output'}"
+        ) from None
 
     # ImageMagick creates files like: page-0.png, page-1.png, etc.
     return sorted(output_prefix.parent.glob(f"{output_prefix.name}-*.png"))
@@ -265,8 +290,6 @@ def _convert_with_vips(
     pdf_path: Path, output_prefix: Path, pages: tuple[int, int] | None, dpi: int
 ) -> list[Path]:
     """Convert PDF to images using vips."""
-    import subprocess
-
     output_files = []
     if pages:
         page_range = range(pages[0] - 1, pages[1])  # vips is 0-indexed
@@ -285,8 +308,10 @@ def _convert_with_vips(
             f"--dpi={dpi}",
         ]
         try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True)
+            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=60)
             output_files.append(output_file)
+        except subprocess.TimeoutExpired:
+            raise  # Timeout is not end-of-pages; propagate as a real error
         except subprocess.CalledProcessError:
             # Reached end of pages
             if not pages:

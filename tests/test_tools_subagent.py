@@ -7,6 +7,14 @@ import pytest
 from gptme.tools.subagent import SubtaskDef, _subagents, subagent
 
 
+def _wait_for_new_subagent_threads(initial_count: int, timeout: float = 1.0) -> None:
+    """Join threads started by this test before asserting on mock call metadata."""
+    for sa in _subagents[initial_count:]:
+        if sa.thread is not None:
+            sa.thread.join(timeout=timeout)
+            assert not sa.thread.is_alive()
+
+
 def test_planner_mode_requires_subtasks():
     """Test that planner mode requires subtasks parameter."""
     with pytest.raises(ValueError, match="Planner mode requires subtasks"):
@@ -561,9 +569,9 @@ def test_subprocess_actual_process_creation():
             assert process.pid is not None
             assert process.pid > 0
 
-            # Verify stdout and stderr are piped (for output isolation)
-            assert process.stdout is not None
-            assert process.stderr is not None
+            # Verify stdout and stderr are discarded (DEVNULL prevents pipe-buffer deadlock)
+            assert process.stdout is None
+            assert process.stderr is None
 
         finally:
             # Clean up - terminate the process
@@ -754,6 +762,93 @@ def test_subprocess_monitor_thread_started():
                     sa.process.kill()
 
 
+def test_subprocess_monitor_timeout():
+    """Test that _monitor_subprocess kills the process on timeout."""
+    import subprocess
+    from unittest.mock import MagicMock, patch
+
+    from gptme.tools.subagent.execution import _monitor_subprocess
+    from gptme.tools.subagent.types import (
+        Subagent,
+        _subagent_results,
+        _subagent_results_lock,
+    )
+
+    # Create a mock process that simulates a timeout
+    mock_process = MagicMock(spec=subprocess.Popen)
+    mock_process.wait.side_effect = [
+        subprocess.TimeoutExpired(cmd="gptme", timeout=2),  # first call: timeout
+        None,  # second call (after kill): reap succeeds
+    ]
+    mock_process.returncode = -9  # SIGKILL
+
+    sa = Subagent(
+        agent_id="timeout-test",
+        prompt="Test",
+        thread=None,
+        logdir=Path("/tmp/fake-logdir"),
+        model=None,
+        process=mock_process,
+        execution_mode="subprocess",
+        timeout=2,  # 2 second timeout for test
+    )
+
+    with patch("gptme.tools.subagent.hooks.notify_completion"):
+        _monitor_subprocess(sa)
+
+    # Verify: process was killed
+    mock_process.kill.assert_called_once()
+
+    # Verify: result was cached as failure with timeout message
+    with _subagent_results_lock:
+        result = _subagent_results.get("timeout-test")
+    assert result is not None
+    assert result.status == "failure"
+    assert result.result is not None
+    assert "timeout" in result.result.lower()
+
+    # Cleanup
+    with _subagent_results_lock:
+        _subagent_results.pop("timeout-test", None)
+
+
+def test_subprocess_timeout_passed_to_subagent():
+    """Test that the timeout parameter is passed through to the Subagent dataclass."""
+    import tempfile
+    from pathlib import Path
+    from unittest.mock import patch
+
+    from gptme.tools.subagent import _subagents, subagent
+
+    _subagents.clear()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        temp_logdir = Path(tmpdir) / "logs"
+        temp_logdir.mkdir()
+
+        with patch("gptme.cli.main.get_logdir", return_value=temp_logdir):
+            subagent(
+                agent_id="timeout-param-test",
+                prompt="Test",
+                use_subprocess=True,
+                timeout=600,
+            )
+
+            sa = next(
+                (s for s in _subagents if s.agent_id == "timeout-param-test"), None
+            )
+            assert sa is not None
+            assert sa.timeout == 600
+
+            # Clean up
+            if sa.process:
+                sa.process.terminate()
+                try:
+                    sa.process.wait(timeout=5)
+                except Exception:
+                    sa.process.kill()
+
+
 @pytest.mark.slow
 @pytest.mark.eval
 def test_subprocess_mode_execution_basic():
@@ -833,6 +928,8 @@ def test_subagent_with_profile(mock_create_thread: MagicMock):
 
     assert len(_subagents) == initial_count + 1
 
+    _wait_for_new_subagent_threads(initial_count)
+
     # Verify profile was passed to _create_subagent_thread
     mock_create_thread.assert_called_once()
     call_kwargs = mock_create_thread.call_args[1]
@@ -871,6 +968,8 @@ def test_subagent_with_profile_and_model(mock_create_thread: MagicMock):
 
     assert len(_subagents) == initial_count + 1
 
+    _wait_for_new_subagent_threads(initial_count)
+
     # Verify both profile and model are passed
     mock_create_thread.assert_called_once()
     call_kwargs = mock_create_thread.call_args[1]
@@ -898,6 +997,8 @@ def test_planner_with_profile(mock_create_thread: MagicMock):
 
     assert len(_subagents) == initial_count + 2
 
+    _wait_for_new_subagent_threads(initial_count)
+
     # Verify profile was passed to each executor's _create_subagent_thread call
     assert mock_create_thread.call_count == 2
     for call in mock_create_thread.call_args_list:
@@ -916,6 +1017,8 @@ def test_subagent_auto_detects_profile_from_agent_id(mock_create_thread: MagicMo
     )
 
     assert len(_subagents) == initial_count + 1
+
+    _wait_for_new_subagent_threads(initial_count)
 
     # Profile should be auto-detected from agent_id
     mock_create_thread.assert_called_once()
@@ -937,6 +1040,8 @@ def test_subagent_auto_detects_profile_alias_from_agent_id(
 
     assert len(_subagents) == initial_count + 1
 
+    _wait_for_new_subagent_threads(initial_count)
+
     # Profile should be auto-detected from alias
     mock_create_thread.assert_called_once()
     call_kwargs = mock_create_thread.call_args[1]
@@ -954,6 +1059,8 @@ def test_subagent_no_auto_detect_for_unknown_agent_id(mock_create_thread: MagicM
     )
 
     assert len(_subagents) == initial_count + 1
+
+    _wait_for_new_subagent_threads(initial_count)
 
     # No profile should be set
     mock_create_thread.assert_called_once()
@@ -976,6 +1083,8 @@ def test_subagent_explicit_profile_overrides_auto_detect(
     )
 
     assert len(_subagents) == initial_count + 1
+
+    _wait_for_new_subagent_threads(initial_count)
 
     # Explicit profile should win
     mock_create_thread.assert_called_once()

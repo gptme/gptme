@@ -442,3 +442,35 @@ def nonexistent():
         assert (
             "1 hunk" in error_msg.lower() or "applied successfully" in error_msg.lower()
         )
+
+
+def test_execute_patch_size_warning(temp_file):
+    """Test that a warning fires when the patch is large (>1000 chars) and bigger than the result.
+
+    Regression test: old condition was `1000 < full_file_len < patch_len`, which missed the case
+    where the patch removes lots of content leaving a tiny result (<1000 chars). The fix checks
+    `1000 < patch_len > full_file_len` so that it's the PATCH size, not the result size, that
+    determines whether the warning fires.
+    """
+    # Build a large (>1000 char) patch that replaces many lines with a single short line
+    long_original = "\n".join(
+        f"line {i}: some content to make this patch big enough" for i in range(25)
+    )
+    patch = f"""<<<<<<< ORIGINAL
+{long_original}
+=======
+short
+>>>>>>> UPDATED"""
+
+    assert len(patch) > 1000, (
+        f"patch must be >1000 chars for test validity, got {len(patch)}"
+    )
+    result_len = len("short\n")
+    assert result_len < 1000, (
+        "result must be <1000 chars to exercise the fixed condition"
+    )
+
+    with temp_file(long_original) as f:
+        result = next(execute_patch(patch, [f], None)).content
+
+    assert "Note: The patch was big" in result

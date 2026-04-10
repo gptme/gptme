@@ -1,7 +1,6 @@
 import { observable } from '@legendapp/state';
 import {
   DEFAULT_SERVER_CONFIG,
-  PRESET_CLOUD,
   generateServerId,
   type ServerConfig,
   type ServerRegistry,
@@ -23,8 +22,8 @@ function loadRegistry(): ServerRegistry {
         if (!parsed.connectedServerIds) {
           parsed.connectedServerIds = [parsed.activeServerId];
         }
-        // Ensure Cloud preset exists
-        ensurePresets(parsed);
+        // Migrate: make old Cloud preset removable (it pointed at a stale URL)
+        migrateCloudPreset(parsed);
         // Validate activeServerId points to an existing server
         if (!parsed.servers.some((s) => s.id === parsed.activeServerId)) {
           parsed.activeServerId = parsed.servers[0].id;
@@ -47,19 +46,16 @@ function loadRegistry(): ServerRegistry {
   return migrateFromLegacy();
 }
 
-/** Ensure both Local and Cloud presets exist in the registry */
-function ensurePresets(registry: ServerRegistry): void {
+/** Migration: remove isPreset flag from old Cloud preset entries so they become removable.
+ *  The generic Cloud preset (https://api.gptme.ai) was broken — managed cloud auth returns
+ *  an instance-specific URL, so the hardcoded preset was always stale. */
+function migrateCloudPreset(registry: ServerRegistry): void {
+  const STALE_CLOUD_URL = 'https://api.gptme.ai';
   const normalized = (url: string) => url.toLowerCase().replace(/\/+$/, '');
-  const hasCloud = registry.servers.some(
-    (s) => normalized(s.baseUrl) === normalized(PRESET_CLOUD.baseUrl)
-  );
-  if (!hasCloud) {
-    registry.servers.push({
-      ...PRESET_CLOUD,
-      id: generateServerId(),
-      createdAt: Date.now(),
-      lastUsedAt: 0,
-    });
+  for (const server of registry.servers) {
+    if (server.isPreset && normalized(server.baseUrl) === normalized(STALE_CLOUD_URL)) {
+      delete server.isPreset;
+    }
   }
 }
 
@@ -92,15 +88,8 @@ function migrateFromLegacy(): ServerRegistry {
     lastUsedAt: Date.now(),
   };
 
-  const cloudServer: ServerConfig = {
-    ...PRESET_CLOUD,
-    id: generateServerId(),
-    createdAt: Date.now(),
-    lastUsedAt: 0,
-  };
-
   const registry: ServerRegistry = {
-    servers: [localServer, cloudServer],
+    servers: [localServer],
     activeServerId: localServer.id,
     connectedServerIds: [localServer.id],
   };

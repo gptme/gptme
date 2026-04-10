@@ -126,8 +126,9 @@ describe('renderCodeBlocks', () => {
   it('should handle one python code block at start of text', () => {
     const markdown = `\`\`\`python\nThis is a code block\n\`\`\` some other text`;
 
+    // Short single-line blocks render inline instead of collapsible
     const expected =
-      '<details open="true"><summary>💻 python</summary><pre><code class="hljs language-python">This <span class="hljs-keyword">is</span> a code block</code></pre></details><p>some other text</p>';
+      '<div class="inline-codeblock"><span class="inline-codeblock-label">💻 python</span><code class="hljs language-python">This <span class="hljs-keyword">is</span> a code block</code></div><p>some other text</p>';
 
     let div = parse(markdown);
     expect(div.innerHTML).toBe(expected);
@@ -139,8 +140,9 @@ describe('renderCodeBlocks', () => {
   it('should handle one python code block at end of text', () => {
     const markdown = `some other text\n\`\`\`python\nThis is a code block\n\`\`\``;
 
+    // Short single-line blocks render inline instead of collapsible
     const expected =
-      '<p>some other text<details open="true"><summary>💻 python</summary><pre><code class="hljs language-python">This <span class="hljs-keyword">is</span> a code block</code></pre></details></p>';
+      '<p>some other text<div class="inline-codeblock"><span class="inline-codeblock-label">💻 python</span><code class="hljs language-python">This <span class="hljs-keyword">is</span> a code block</code></div></p>';
 
     let div = parse(markdown);
     expect(div.innerHTML).toBe(expected);
@@ -154,8 +156,9 @@ describe('renderMarkdownBlocks', () => {
   it('should handle one markdown block at start of text', () => {
     const markdown = `\`\`\`markdown\nThis is a markdown block\n\`\`\`\nsome other text`;
 
+    // Short single-line blocks render inline instead of collapsible
     const expected =
-      '<details open="true"><summary>💻 markdown</summary><pre><code class="hljs language-markdown">This is a markdown block</code></pre></details><p>some other text</p>';
+      '<div class="inline-codeblock"><span class="inline-codeblock-label">💻 markdown</span><code class="hljs language-markdown">This is a markdown block</code></div><p>some other text</p>';
 
     let div = parse(markdown, false, false);
     expect(div.innerHTML).toBe(expected);

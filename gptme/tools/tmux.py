@@ -106,26 +106,37 @@ def _run_tmux_command(cmd: list[str]) -> subprocess.CompletedProcess:
         check=True,
         capture_output=True,
         text=True,
+        timeout=10,
     )
     print(result.stdout, result.stderr)
     return result
 
 
 def get_sessions() -> list[str]:
-    output = subprocess.run(
-        ["tmux", "has"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        output = subprocess.run(
+            ["tmux", "has"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning("tmux has timed out")
+        return []
     if output.returncode != 0:
         return []
-    output = subprocess.run(
-        ["tmux", "list-sessions"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        output = subprocess.run(
+            ["tmux", "list-sessions"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning("tmux list-sessions timed out")
+        return []
     if output.returncode != 0:
         logger.warning(
             f"tmux list-sessions failed (rc={output.returncode}): {output.stderr.strip()}"
@@ -136,15 +147,20 @@ def get_sessions() -> list[str]:
 
 def _capture_pane(pane_id: str) -> str:
     """Capture the content of a tmux pane including scrollback history."""
-    result = subprocess.run(
-        # -p: print to stdout
-        # -S -: start from beginning of scrollback
-        # -E -: end at bottom of scrollback
-        ["tmux", "capture-pane", "-p", "-S", "-", "-E", "-", "-t", pane_id],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            # -p: print to stdout
+            # -S -: start from beginning of scrollback
+            # -E -: end at bottom of scrollback
+            ["tmux", "capture-pane", "-p", "-S", "-", "-E", "-", "-t", pane_id],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning(f"tmux capture-pane timed out for pane {pane_id}")
+        return ""
     # Strip trailing whitespace but preserve content
     return result.stdout.rstrip()
 
@@ -187,6 +203,8 @@ def new_session(command: str) -> Message:
             cmd = ["tmux", "new-session", "-d", "-s", session_id, "bash"]
             _run_tmux_command(cmd)
             break  # Success, exit retry loop
+        except subprocess.TimeoutExpired:
+            raise  # Timeout is not a session name collision, propagate immediately
         except subprocess.CalledProcessError:
             if attempt == max_retries - 1:
                 raise  # Re-raise on last attempt
@@ -226,12 +244,18 @@ def send_keys(pane_id: str, keys: str) -> Message:
     except ValueError:
         # Fall back to single argument if shlex can't parse (unmatched quotes, etc.)
         key_args = [keys]
-    result = subprocess.run(
-        ["tmux", "send-keys", "-t", pane_id, *key_args],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["tmux", "send-keys", "-t", pane_id, *key_args],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        return Message(
+            "system", f"Failed to send keys to tmux pane `{pane_id}`: timed out"
+        )
     if result.returncode != 0:
         return Message(
             "system", f"Failed to send keys to tmux pane `{pane_id}`: {result.stderr}"
@@ -278,12 +302,19 @@ def inspect_pane(pane_id: str, logdir: Path | None = None) -> Message:
 def kill_session(session_id: str) -> Message:
     if not session_id.startswith("gptme_"):
         session_id = f"gptme_{session_id}"
-    result = subprocess.run(
-        ["tmux", "kill-session", "-t", session_id],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["tmux", "kill-session", "-t", session_id],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        return Message(
+            "system",
+            f"Failed to kill tmux session with ID {session_id}: timed out",
+        )
     if result.returncode != 0:
         return Message(
             "system",
@@ -464,8 +495,15 @@ def execute_tmux(
             # Format: wait <session_id> [timeout] [stable_time]
             wait_parts = _args.split()
             wait_session_id = wait_parts[0]
-            wait_timeout = int(wait_parts[1]) if len(wait_parts) > 1 else 60
-            wait_stable = int(wait_parts[2]) if len(wait_parts) > 2 else 3
+            try:
+                wait_timeout = int(wait_parts[1]) if len(wait_parts) > 1 else 60
+                wait_stable = int(wait_parts[2]) if len(wait_parts) > 2 else 3
+            except ValueError:
+                yield Message(
+                    "system",
+                    "Error: wait timeout and stable time must be integers",
+                )
+                continue
             # Use default cache directory for saving full output when truncated
             from platformdirs import user_cache_dir
 

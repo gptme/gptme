@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from gptme.hooks.agents_md_inject import (
+    _derive_loaded_files_from_log,
     _get_loaded_files,
     on_cwd_changed,
 )
@@ -39,6 +40,63 @@ def reset_contextvars():
     _loaded_agent_files_var.reset(loaded_token)
 
 
+class TestDeriveLoadedFilesFromLog:
+    """Tests for _derive_loaded_files_from_log — server-mode fallback."""
+
+    def test_empty_log_returns_empty_set(self):
+        """Empty log has no agent instructions."""
+        from gptme.logmanager import Log
+
+        assert _derive_loaded_files_from_log(Log()) == set()
+
+    def test_parses_agent_instructions_source(self, tmp_path: Path):
+        """Extracts resolved file path from <agent-instructions source="..."> tag."""
+        from gptme.logmanager import Log
+
+        agents_file = tmp_path / "AGENTS.md"
+        agents_file.write_text("# Instructions")
+        resolved = str(agents_file.resolve())
+        # Use ~ path like the real injection code does
+        try:
+            display = "~/" + str(agents_file.resolve().relative_to(Path.home()))
+        except ValueError:
+            display = str(agents_file.resolve())
+
+        msg = Message(
+            "system",
+            f'<agent-instructions source="{display}">\n# Instructions\n</agent-instructions>',
+        )
+        log = Log(messages=[msg])
+        loaded = _derive_loaded_files_from_log(log)
+        assert resolved in loaded
+
+    def test_ignores_non_system_messages(self):
+        """User and assistant messages don't contain agent-instructions."""
+        from gptme.logmanager import Log
+
+        msg = Message("user", '<agent-instructions source="/fake/AGENTS.md">')
+        log = Log(messages=[msg])
+        assert _derive_loaded_files_from_log(log) == set()
+
+    def test_multiple_files_in_log(self, tmp_path: Path):
+        """Multiple agent-instructions messages are all parsed."""
+        from gptme.logmanager import Log
+
+        f1 = tmp_path / "AGENTS.md"
+        f2 = tmp_path / "subdir" / "CLAUDE.md"
+        f2.parent.mkdir()
+        f1.write_text("# A")
+        f2.write_text("# B")
+
+        msgs = [
+            Message("system", f'<agent-instructions source="{f1}">'),
+            Message("system", f'<agent-instructions source="{f2}">'),
+        ]
+        loaded = _derive_loaded_files_from_log(Log(messages=msgs))
+        assert str(f1.resolve()) in loaded
+        assert str(f2.resolve()) in loaded
+
+
 class TestGetLoadedFiles:
     """Tests for _get_loaded_files helper."""
 
@@ -60,6 +118,29 @@ class TestGetLoadedFiles:
         files = _get_loaded_files()
         files.add("/new/file.md")
         assert "/new/file.md" in _get_loaded_files()
+
+    def test_falls_back_to_log_when_contextvar_empty(self, tmp_path: Path):
+        """Server-mode fallback: when ContextVar is None, derive from log."""
+        from gptme.logmanager import Log
+
+        agents_file = tmp_path / "AGENTS.md"
+        agents_file.write_text("# Instructions")
+        resolved = str(agents_file.resolve())
+        try:
+            display = "~/" + str(agents_file.resolve().relative_to(Path.home()))
+        except ValueError:
+            display = str(agents_file.resolve())
+
+        msg = Message(
+            "system",
+            f'<agent-instructions source="{display}">\n# Instructions\n</agent-instructions>',
+        )
+        log = Log(messages=[msg])
+
+        # ContextVar is None (simulates fresh Flask request context)
+        assert _loaded_agent_files_var.get() is None
+        files = _get_loaded_files(log)
+        assert resolved in files
 
 
 class TestOnCwdChanged:
@@ -217,5 +298,54 @@ class TestOnCwdChanged:
             agent_msgs = [m for m in msgs if isinstance(m, Message)]
             assert len(agent_msgs) >= 1
             assert "source=" in agent_msgs[0].content
+        finally:
+            os.chdir(original)
+
+    def test_server_mode_no_reinjection_on_cwd_change(self, tmp_path: Path):
+        """Server-mode regression test for gptme#1958.
+
+        When ContextVar is None (fresh Flask request context), the hook should
+        derive already-loaded files from the conversation log and NOT re-inject.
+        """
+        from gptme.logmanager import Log
+
+        new_dir = tmp_path / "project"
+        new_dir.mkdir()
+        agents_file = new_dir / "AGENTS.md"
+        agents_file.write_text("# Instructions")
+
+        # Build the display path the way the real injection code does
+        try:
+            display = "~/" + str(agents_file.resolve().relative_to(Path.home()))
+        except ValueError:
+            display = str(agents_file.resolve())
+
+        # Simulate a log that already has this file injected (from a prior request)
+        prior_injection = Message(
+            "system",
+            f'<agent-instructions source="{display}">\n# Instructions\n</agent-instructions>',
+        )
+        log_with_prior = Log(messages=[prior_injection])
+
+        original = os.getcwd()
+        os.chdir(new_dir)
+        try:
+            # ContextVar is None — simulates a fresh Flask request context
+            assert _loaded_agent_files_var.get() is None
+
+            msgs = list(
+                on_cwd_changed(
+                    log=log_with_prior,
+                    workspace=new_dir,
+                    old_cwd=original,
+                    new_cwd=str(new_dir),
+                    tool_use=None,
+                )
+            )
+            agent_msgs = [m for m in msgs if isinstance(m, Message)]
+            # Should NOT re-inject — file is already in the log
+            assert len(agent_msgs) == 0, (
+                "AGENTS.md should not be re-injected when already present in log"
+            )
         finally:
             os.chdir(original)

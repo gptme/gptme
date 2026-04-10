@@ -14,6 +14,14 @@ def _init_tools():
     init_tools(allowlist=["save", "patch", "append"])
 
 
+def test_log_repr():
+    """Log.__repr__ should have matched brackets."""
+    log = Log([Message("user", "hello")])
+    r = repr(log)
+    assert r == "Log(messages=<1 msgs>)"
+    assert "]" not in r
+
+
 def test_branch():
     log = LogManager()
 
@@ -277,6 +285,42 @@ def test_undo_on_empty_log():
     # should return early with "Nothing to undo"
     log.undo(quiet=True)
     assert len(log.log) == 0
+
+
+def test_undo_early_return_persists_to_disk(tmp_path: Path, monkeypatch):
+    """Regression: undo() must persist when early-return path fires (log only had /undo command)."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
+    logdir = tmp_path / "logs" / "test-undo-early-return"
+    log = LogManager(logdir=logdir)
+    # A log whose only content is an /undo command message
+    log.append(Message("user", "/undo"))
+    assert len(log.log) == 1
+
+    # undo() strips the /undo msg, sees empty log, and takes the early-return path
+    log.undo(quiet=True)
+    assert len(log.log) == 0
+
+    # Reload from disk — the strip must survive
+    reloaded = LogManager.load(logdir)
+    assert len(reloaded.log) == 0
+
+
+def test_undo_persists_to_disk(tmp_path: Path, monkeypatch):
+    """Regression: undo() must persist changes to disk via write()."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
+    logdir = tmp_path / "logs" / "test-undo-persist"
+    log = LogManager(logdir=logdir)
+    log.append(Message("user", "hello"))
+    log.append(Message("assistant", "world"))
+    assert len(log.log) == 2
+
+    log.undo(quiet=True)
+    assert len(log.log) == 1
+
+    # Reload from disk — undo must survive
+    reloaded = LogManager.load(logdir)
+    assert len(reloaded.log) == 1
+    assert reloaded.log[-1].content == "hello"
 
 
 def test_read_jsonl_malformed(tmp_path):

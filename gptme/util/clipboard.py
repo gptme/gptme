@@ -25,15 +25,29 @@ def copy() -> bool:
         # check if xclip or wl-clipboard is installed
         installed = get_installed_programs(("xclip", "wl-copy"))
         if "wl-copy" in installed:
-            output = subprocess.run(["wl-copy"], input=text, text=True, check=False)
+            try:
+                output = subprocess.run(
+                    ["wl-copy"], input=text, text=True, check=False, timeout=10
+                )
+            except subprocess.TimeoutExpired:
+                print("wl-copy timed out.")
+                return False
             if output.returncode != 0:
                 print("wl-copy failed to copy to clipboard.")
                 return False
             return True
         if "xclip" in installed:
-            output = subprocess.run(
-                ["xclip", "-selection", "clipboard"], check=False, input=text, text=True
-            )
+            try:
+                output = subprocess.run(
+                    ["xclip", "-selection", "clipboard"],
+                    check=False,
+                    input=text,
+                    text=True,
+                    timeout=10,
+                )
+            except subprocess.TimeoutExpired:
+                print("xclip timed out.")
+                return False
             if output.returncode != 0:
                 print("xclip failed to copy to clipboard.")
                 return False
@@ -41,7 +55,13 @@ def copy() -> bool:
         print("No clipboard utility found. Please install xclip or wl-clipboard.")
         return False
     if platform.system() == "Darwin":
-        output = subprocess.run(["pbcopy"], check=False, input=text, text=True)
+        try:
+            output = subprocess.run(
+                ["pbcopy"], check=False, input=text, text=True, timeout=10
+            )
+        except subprocess.TimeoutExpired:
+            print("pbcopy timed out.")
+            return False
         if output.returncode != 0:
             print("pbcopy failed to copy to clipboard.")
             return False
@@ -114,7 +134,11 @@ def paste_text() -> str | None:
             installed = get_installed_programs(("xclip", "wl-paste"))
             if "wl-paste" in installed:
                 result = subprocess.run(
-                    ["wl-paste"], capture_output=True, text=True, check=False
+                    ["wl-paste"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=10,
                 )
                 if result.returncode == 0:
                     return result.stdout
@@ -124,12 +148,17 @@ def paste_text() -> str | None:
                     capture_output=True,
                     text=True,
                     check=False,
+                    timeout=10,
                 )
                 if result.returncode == 0:
                     return result.stdout
         elif platform.system() == "Darwin":
             result = subprocess.run(
-                ["pbpaste"], capture_output=True, text=True, check=False
+                ["pbpaste"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=10,
             )
             if result.returncode == 0:
                 return result.stdout

@@ -10,6 +10,7 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/lib/marked.umd.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked-highlight/lib/index.umd.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/highlight.min.js" integrity="sha512-6yoqbrcLAHDWAdQmiRlHG4+m0g/CT/V9AGyxabG8j7Jk8j3r3K6due7oqpiRMZqcYe9WM2gPcaNNxnl2ux+3tA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js" integrity="sha256-jrQbZYgx+rF1+tm80A/LLYTg7TolpVBT1OzUREuLQ6A=" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 
     <!-- Styles -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -178,14 +179,35 @@
 
             <!-- Chat input -->
             <div class="chat-input p-4">
-              <div class="mx-auto bg-white shadow-lg rounded-lg p-4" style="max-width: 800px;">
+              <div class="mx-auto bg-white shadow-lg rounded-lg p-4 relative" style="max-width: 800px;">
+                <!-- Autocomplete dropdown -->
+                <div v-if="showAutocomplete"
+                     class="absolute bottom-full left-0 right-0 mb-1 mx-4 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden z-10"
+                     style="max-height: 240px; overflow-y: auto;">
+                  <div class="px-3 py-1 text-xs text-gray-400 border-b border-gray-100 uppercase tracking-wide">
+                    {{ autocompleteType === 'command' ? 'Commands' : 'Files' }}
+                  </div>
+                  <div v-for="(item, index) in autocompleteItems"
+                       :key="getItemLabel(item)"
+                       @mousedown.prevent="selectAutocompleteItem(item)"
+                       @mouseenter="autocompleteIndex = index"
+                       class="px-4 py-2 cursor-pointer text-sm font-mono transition-colors flex items-center gap-2"
+                       :class="index === autocompleteIndex ? 'bg-blue-100 text-blue-800' : 'text-gray-700 hover:bg-gray-50'">
+                    <span v-if="autocompleteType === 'file'" class="text-gray-400 text-xs">
+                      {{ item.type === 'directory' ? '&#128193;' : '&#128196;' }}
+                    </span>
+                    {{ getItemLabel(item) }}
+                  </div>
+                </div>
                 <form @submit.prevent="sendMessage" class="flex flex-col md:flex-row">
                   <textarea
+                    ref="chatInput"
                     class="flex-grow border rounded-lg p-3 mb-2 md:mb-0 md:mr-2 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                     v-model="newMessage"
-                    placeholder="Type your message (Enter to send, Shift+Enter for newline)"
+                    placeholder="Type your message (Enter to send, Shift+Enter for newline, / for commands)"
                     rows="3"
                     @keydown="handleKeyDown"
+                    @input="onInput"
                     ></textarea>
                   <button
                     type="submit"

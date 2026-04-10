@@ -80,6 +80,10 @@ CI benchmarks enforce startup thresholds.
 
 See [docs/glossary.md](docs/glossary.md) for full terminology.
 
+## Subsystem Guides
+
+- [webui/AGENTS.md](webui/AGENTS.md) - Web UI architecture and gotchas
+
 ## Common Tasks
 
 ### Adding a new tool
@@ -92,6 +96,9 @@ See [docs/glossary.md](docs/glossary.md) for full terminology.
 ```bash
 uv run gptme-server --port 5000
 ```
+
+### Working on the web UI
+See [webui/AGENTS.md](webui/AGENTS.md) for full setup including dev servers, testing, and architecture notes.
 
 ### Building docs
 ```bash

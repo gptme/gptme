@@ -21,7 +21,7 @@ from .llm_anthropic import get_client as get_anthropic_client
 from .llm_anthropic import init as init_anthropic
 from .llm_anthropic import stream as stream_anthropic
 from .llm_openai import chat as chat_openai
-from .llm_openai import get_client as get_openai_client
+from .llm_openai import has_client as has_openai_client
 from .llm_openai import init as init_openai
 from .llm_openai import stream as stream_openai
 from .llm_openai_subscription import chat as chat_subscription
@@ -36,6 +36,11 @@ from .models import (
     get_default_model_summary,
     get_model,
     is_custom_provider,
+)
+from .provider_plugins import (
+    get_plugin_api_keys,
+    get_provider_plugin,
+    is_plugin_provider,
 )
 
 logger = logging.getLogger(__name__)
@@ -69,15 +74,29 @@ def init_llm(provider: Provider):
     config = get_config()
 
     # Check if it's a built-in OpenAI-compatible provider
-    if provider in PROVIDERS_OPENAI and not get_openai_client(provider):
+    if provider in PROVIDERS_OPENAI and not has_openai_client(provider):
         init_openai(provider, config)
     # Check if it's a custom provider (OpenAI-compatible)
-    elif is_custom_provider(provider) and not get_openai_client(provider):
+    elif is_custom_provider(provider) and not has_openai_client(provider):
         init_openai(provider, config)
     elif provider == "anthropic" and not get_anthropic_client():
         init_anthropic(config)
     elif provider == "openai-subscription" and not _subscription_initialized:
         _subscription_initialized = init_subscription(config)
+    elif (
+        plugin := get_provider_plugin(str(provider))
+    ) is not None and not has_openai_client(provider):
+        if plugin.init is not None:
+            plugin.init(config)
+            if not has_openai_client(provider):
+                raise RuntimeError(
+                    f"Plugin {plugin.name!r} init() did not register an "
+                    "OpenAI-compatible client. Call "
+                    "gptme.llm.llm_openai.init(provider, config) inside init()."
+                )
+        else:
+            # Auto-init as OpenAI-compatible client (handled by llm_openai.init)
+            init_openai(provider, config)
     else:
         logger.debug(f"Provider {provider} already initialized or unknown")
 
@@ -171,6 +190,10 @@ def get_provider_from_model(model: str) -> Provider:
     if is_custom_provider(provider_str):
         return CustomProvider(provider_str)
 
+    # Check plugin providers - also wrap in CustomProvider so OpenAI routing applies
+    if is_plugin_provider(provider_str):
+        return CustomProvider(provider_str)
+
     raise ValueError(f"Unknown provider: {provider_str}")
 
 
@@ -192,8 +215,12 @@ def _chat_complete(
     provider = get_provider_from_model(model)
 
     # Providers with native constrained decoding support
-    # Custom providers are OpenAI-compatible, so route them through the OpenAI path
-    if provider in PROVIDERS_OPENAI or is_custom_provider(provider):
+    # Custom providers and plugin providers are OpenAI-compatible, route through OpenAI path
+    if (
+        provider in PROVIDERS_OPENAI
+        or is_custom_provider(provider)
+        or is_plugin_provider(str(provider))
+    ):
         return chat_openai(
             messages, model, tools, output_schema=output_schema, max_tokens=max_tokens
         )
@@ -216,7 +243,13 @@ def _chat_complete(
 
 
 class _StreamWithMetadata:
-    """Wrapper that captures a generator's return value (metadata)."""
+    """Wrapper that captures a generator's return value (metadata).
+
+    Metadata is returned by the provider generator as its return value
+    (captured via StopIteration). When the stream is broken early (e.g.
+    tool-use detection), we still populate the model name so messages
+    always have at least basic metadata.
+    """
 
     def __init__(self, gen: Generator[str, None, MessageMetadata | None], model: str):
         self.gen = gen
@@ -229,7 +262,9 @@ class _StreamWithMetadata:
                 yield next(self.gen)
         except StopIteration as e:
             self.metadata = e.value
-            # Ensure model is set in metadata even if provider didn't include it
+        finally:
+            # Ensure model is always set, even if the stream was broken early
+            # (break_on_tooluse, KeyboardInterrupt) before the final chunk arrived
             if self.metadata is None:
                 self.metadata = {"model": self.model}
             elif "model" not in self.metadata:
@@ -245,8 +280,12 @@ def _stream(
     max_tokens: int | None = None,
 ) -> _StreamWithMetadata:
     provider = get_provider_from_model(model)
-    # Custom providers are OpenAI-compatible, so route them through the OpenAI path
-    if provider in PROVIDERS_OPENAI or is_custom_provider(provider):
+    # Custom providers and plugin providers are OpenAI-compatible, route through OpenAI path
+    if (
+        provider in PROVIDERS_OPENAI
+        or is_custom_provider(provider)
+        or is_plugin_provider(str(provider))
+    ):
         gen = stream_openai(
             messages, model, tools, output_schema=output_schema, max_tokens=max_tokens
         )
@@ -533,6 +572,11 @@ def list_available_providers() -> list[tuple[Provider, str]]:
     _token_path = _config_dir / "gptme" / "oauth" / "openai_subscription.json"
     if _token_path.exists():
         available.append((cast(Provider, "openai-subscription"), "oauth"))
+
+    # Include plugin providers that have their API key configured
+    for plugin_name, env_var in get_plugin_api_keys().items():
+        if config.get_env(env_var):
+            available.append((CustomProvider(plugin_name), env_var))
 
     return available
 

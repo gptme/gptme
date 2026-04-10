@@ -23,14 +23,6 @@ export const PRESET_LOCAL: Omit<ServerConfig, 'id' | 'createdAt' | 'lastUsedAt'>
   isPreset: true,
 };
 
-export const PRESET_CLOUD: Omit<ServerConfig, 'id' | 'createdAt' | 'lastUsedAt'> = {
-  name: 'Cloud',
-  baseUrl: 'https://api.gptme.ai',
-  authToken: null,
-  useAuthToken: false,
-  isPreset: true,
-};
-
 // Keep for backwards compat
 export const DEFAULT_SERVER_CONFIG = PRESET_LOCAL;
 

@@ -129,6 +129,67 @@ class GenerateResponse(BaseModel):
 # -------------
 
 
+class ApiCapabilities(BaseModel):
+    """Advertised server capabilities."""
+
+    external_session_catalog: bool = Field(
+        False,
+        description="Whether read-only external session catalog listing is available",
+    )
+    external_session_transcript: bool = Field(
+        False,
+        description="Whether read-only external session transcript viewing is available",
+    )
+
+
+class ApiRootResponse(BaseModel):
+    """Response from the V2 API root endpoint."""
+
+    message: str = Field(..., description="API description")
+    documentation: str = Field(..., description="Documentation URL")
+    capabilities: ApiCapabilities = Field(
+        ..., description="Advertised optional server capabilities"
+    )
+
+
+class ExternalSessionListItem(BaseModel):
+    """A read-only external session catalog item."""
+
+    id: str = Field(..., description="Opaque external session identifier")
+    session_id: str = Field(..., description="Underlying provider session identifier")
+    harness: str = Field(..., description="Harness name")
+    session_name: str | None = Field(None, description="Human-readable session name")
+    project: str | None = Field(None, description="Associated project or workspace")
+    model: str | None = Field(None, description="Model used by the session")
+    started_at: str | None = Field(None, description="Session start timestamp")
+    last_activity: str | None = Field(None, description="Last activity timestamp")
+    capabilities: list[str] = Field(
+        default_factory=list,
+        description="Read-only capabilities available for this external session",
+    )
+    trajectory_path: str = Field(
+        ...,
+        description="Absolute path to the normalized transcript backing this catalog item",
+    )
+
+
+class ExternalSessionListResponse(BaseModel):
+    """Response containing external session catalog items."""
+
+    sessions: list[ExternalSessionListItem] = Field(
+        ..., description="List of external sessions"
+    )
+
+
+class ExternalSessionResponse(BaseModel):
+    """Response containing a normalized external session transcript."""
+
+    id: str = Field(..., description="Opaque external session identifier")
+    transcript: dict = Field(
+        ..., description="Normalized external session transcript payload"
+    )
+
+
 class SessionResponse(BaseModel):
     """Session information response."""
 

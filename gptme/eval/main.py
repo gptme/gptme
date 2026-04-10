@@ -72,8 +72,9 @@ def docker_reexec(argv: list[str]) -> None:
             ["git", "rev-parse", "--show-toplevel"],
             text=True,
             cwd=Path(__file__).parent,
+            timeout=10,
         ).strip()
-    except subprocess.CalledProcessError:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
         print("Error: Not in a git repository", file=sys.stderr)
         sys.exit(1)
 
@@ -81,10 +82,14 @@ def docker_reexec(argv: list[str]) -> None:
     image = "gptme-eval:latest"
     try:
         subprocess.run(
-            ["docker", "image", "inspect", image], check=True, capture_output=True
+            ["docker", "image", "inspect", image],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         logger.info(f"Using existing Docker image: {image}")
-    except subprocess.CalledProcessError:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
         logger.info(f"Building Docker image: {image}")
         dockerfile = Path(git_root) / "scripts" / "Dockerfile.eval"
         if not dockerfile.exists():
@@ -94,6 +99,7 @@ def docker_reexec(argv: list[str]) -> None:
             ["make", "build-docker"],
             cwd=Path(git_root),
             check=True,
+            timeout=300,  # 5 min cap for Docker builds
         )
 
     # Collect environment variables to pass through
@@ -207,6 +213,44 @@ def sort_tests(test_names):
     )
 
 
+def resolve_eval_names(eval_names: list[str]) -> list[EvalSpec]:
+    """Resolve eval names/aliases to a deduplicated list of EvalSpecs.
+
+    Handles the 'all' and 'all-practical' aliases, individual test names,
+    and suite names. Deduplicates while preserving order.
+
+    Raises ValueError if an eval name is not found.
+    """
+    evals: list[EvalSpec] = []
+    for eval_name in eval_names:
+        if eval_name == "all":
+            evals.extend(
+                test for suite_tests in suites.values() for test in suite_tests
+            )
+        elif eval_name == "all-practical":
+            evals.extend(
+                test
+                for name, suite_tests in suites.items()
+                if name.startswith("practical")
+                for test in suite_tests
+            )
+        elif test := tests_map.get(eval_name):
+            evals.append(test)
+        elif suite := suites.get(eval_name) or suites.get(eval_name.replace("-", "_")):
+            evals.extend(suite)
+        else:
+            raise ValueError(f"Test or results '{eval_name}' not found")
+
+    # Deduplicate while preserving order
+    seen_names: set[str] = set()
+    deduped: list[EvalSpec] = []
+    for t in evals:
+        if t["name"] not in seen_names:
+            seen_names.add(t["name"])
+            deduped.append(t)
+    return deduped
+
+
 def print_available_tests():
     """Print available eval suites and their tests."""
     default_names = set(tests_default_ids)
@@ -231,6 +275,10 @@ def print_available_tests():
     print(f"Total: {total_tests} tests across {len(suites)} suites")
     print(f"Default suite: {', '.join(tests_default_ids)}")
     print("(* = included in default suite)")
+    print()
+    print("Aliases:")
+    print("  all             Run all suites")
+    print("  all-practical   Run all practical suites")
 
 
 def list_available_tests_json() -> dict:
@@ -462,6 +510,17 @@ def aggregate_and_display_results(result_files: list[str]):
     default=4,
     help="Minimum number of tests for a model to appear in the leaderboard (default: 4).",
 )
+@click.option(
+    "--trends",
+    is_flag=True,
+    help="Show pass-rate trends over time (use with --leaderboard).",
+)
+@click.option(
+    "--trend-days",
+    type=int,
+    default=90,
+    help="Number of days to include in trend analysis (default: 90).",
+)
 def main(
     eval_names_or_result_files: list[str],
     _model: list[str],
@@ -475,6 +534,8 @@ def main(
     leaderboard: bool = False,
     leaderboard_format: str = "markdown",
     min_tests: int = 4,
+    trends: bool = False,
+    trend_days: int = 90,
 ):
     """
     Run evals for gptme.
@@ -485,20 +546,47 @@ def main(
     Output from evals will be captured, unless a single eval is run, and saved to the results directory.
     """
     if leaderboard:
-        from .leaderboard import generate_leaderboard
-
         results_dir = Path(
             os.environ.get("EVAL_RESULTS_DIR", project_dir / "eval_results")
         )
-        try:
-            output = generate_leaderboard(
-                results_dir=results_dir,
-                output_format=leaderboard_format,
-                min_tests=min_tests,
+
+        if trends:
+            from .leaderboard import (
+                compute_rate_trends,
+                format_trends_html,
+                format_trends_markdown,
+                load_results,
             )
-        except (FileNotFoundError, ValueError) as e:
-            print(str(e), file=sys.stderr)
-            sys.exit(1)
+
+            try:
+                results = load_results(results_dir)
+                if not results:
+                    raise FileNotFoundError(f"No eval results found in {results_dir}")
+                trend_data = compute_rate_trends(
+                    results, min_tests=min_tests, window_days=trend_days
+                )
+                if not trend_data["daily_rates"]:
+                    raise ValueError("No trend data available.")
+                if leaderboard_format == "html":
+                    output = format_trends_html(trend_data)
+                else:
+                    output = format_trends_markdown(trend_data)
+            except (FileNotFoundError, ValueError) as e:
+                print(str(e), file=sys.stderr)
+                sys.exit(1)
+        else:
+            from .leaderboard import generate_leaderboard
+
+            try:
+                output = generate_leaderboard(
+                    results_dir=results_dir,
+                    output_format=leaderboard_format,
+                    min_tests=min_tests,
+                )
+            except (FileNotFoundError, ValueError) as e:
+                print(str(e), file=sys.stderr)
+                sys.exit(1)
+
         if leaderboard_format == "csv":
             print(output, end="")
         else:
@@ -666,14 +754,7 @@ def main(
                     )
         external_evals.extend(loaded)
 
-    evals_to_run: list[EvalSpec] = []
-    for eval_name in eval_names:
-        if test := tests_map.get(eval_name):
-            evals_to_run.append(test)
-        elif suite := suites.get(eval_name) or suites.get(eval_name.replace("-", "_")):
-            evals_to_run.extend(suite)
-        else:
-            raise ValueError(f"Test or results '{eval_name}' not found")
+    evals_to_run = resolve_eval_names(eval_names)
 
     # Detect name collisions between external module tests and named/suite evals
     if evals_to_run and external_evals:
@@ -741,7 +822,7 @@ def _read_case_results(cases_file: Path) -> Generator[CaseResult, None, None]:
 
 def _write_case_results(cases_file: Path, results: list[CaseResult]):
     with open(cases_file, "w", newline="") as csvfile:
-        fieldnames = ["Model", "Test", "Case", "Passed", "Duration"]
+        fieldnames = ["Case", "Passed", "Duration"]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         for result in results:
@@ -858,16 +939,20 @@ def results_to_json(
 
 def _get_commit_hash() -> str:
     """Get current commit hash and dirty status, like: a8b2ef0-dirty."""
-    git_result = subprocess.run(
-        ["git", "describe", "--always", "--dirty", "--exclude", "'*'"],
-        check=False,
-        text=True,
-        capture_output=True,
-        cwd=project_dir,
-    )
-    if git_result.returncode == 0 and git_result.stdout.strip():
-        return git_result.stdout.strip()
-    # not in a git repo, use package version
+    try:
+        git_result = subprocess.run(
+            ["git", "describe", "--always", "--dirty", "--exclude", "'*'"],
+            check=False,
+            text=True,
+            capture_output=True,
+            cwd=project_dir,
+            timeout=10,
+        )
+        if git_result.returncode == 0 and git_result.stdout.strip():
+            return git_result.stdout.strip()
+    except subprocess.TimeoutExpired:
+        pass
+    # not in a git repo or timed out, use package version
     from importlib.metadata import PackageNotFoundError, version
 
     try:

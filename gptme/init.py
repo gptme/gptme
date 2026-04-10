@@ -55,12 +55,34 @@ def init(
     _init_done = True
 
     load_dotenv()
+    _init_plugins()
     init_model(model, interactive)
     init_tools(tool_allowlist)
     init_hooks(interactive=interactive, no_confirm=no_confirm, server=server)
     init_commands()
 
     set_tool_format(tool_format)
+
+
+def _init_plugins():
+    """Discover and initialize all plugins (folder-based + entry-point)."""
+    from pathlib import Path
+
+    from .plugins import discover_all_plugins
+
+    config = get_config()
+    folder_paths: list[Path] = []
+    enabled: list[str] | None = None
+
+    if config.project and config.project.plugins:
+        for path_str in config.project.plugins.paths:
+            path = Path(path_str).expanduser()
+            if not path.is_absolute() and config.project._workspace:
+                path = config.project._workspace / path
+            folder_paths.append(path)
+        enabled = config.project.plugins.enabled or None
+
+    discover_all_plugins(folder_paths=folder_paths or None, enabled_plugins=enabled)
 
 
 def init_model(

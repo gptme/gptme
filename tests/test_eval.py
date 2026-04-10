@@ -13,7 +13,7 @@ from click.testing import CliRunner
 from gptme.config import get_config
 from gptme.eval import execute, tests
 from gptme.eval.agents import Agent, GPTMe
-from gptme.eval.main import main, results_to_json
+from gptme.eval.main import main, resolve_eval_names, results_to_json
 from gptme.eval.run import ProcessError, SyncedDict, act_process
 from gptme.eval.suites import suites, tests_map
 from gptme.eval.types import CaseResult, EvalResult, ModelConfig
@@ -60,20 +60,19 @@ def test_suite_autodiscovery():
     """Verify auto-discovery finds all practical suites and preserves ordering."""
     # All practical suites should be discovered
     practical_suites = [name for name in suites if name.startswith("practical")]
-    assert len(practical_suites) >= 14, (
-        f"Expected at least 14 practical suites, got {len(practical_suites)}: {practical_suites}"
+    assert len(practical_suites) >= 19, (
+        f"Expected at least 19 practical suites, got {len(practical_suites)}: {practical_suites}"
     )
 
-    # Verify numeric ordering for the first 14 suites
-    expected_prefix = ["practical"] + [f"practical{i}" for i in range(2, 15)]
-    assert practical_suites[:14] == expected_prefix, (
+    # Verify numeric ordering across all discovered practical suites
+    expected_practical = ["practical"] + [
+        f"practical{i}" for i in range(2, len(practical_suites) + 1)
+    ]
+    assert practical_suites == expected_practical, (
         f"Practical suites not in expected order.\n"
-        f"  Expected prefix: {expected_prefix}\n"
-        f"  Got:             {practical_suites}"
+        f"  Expected: {expected_practical}\n"
+        f"  Got:      {practical_suites}"
     )
-    # Any suites beyond 14 should also follow the same numeric pattern
-    for i, name in enumerate(practical_suites[14:], start=15):
-        assert name == f"practical{i}", f"Unexpected suite at position {i}: {name!r}"
 
     # Core suites should always be present
     for core_suite in ("basic", "init_projects", "browser"):
@@ -90,6 +89,46 @@ def test_suite_autodiscovery():
     )
 
 
+def test_suite_aliases():
+    """Test that 'all' and 'all-practical' aliases expand to correct test sets via resolve_eval_names."""
+    all_resolved = resolve_eval_names(["all"])
+    practical_resolved = resolve_eval_names(["all-practical"])
+
+    # 'all' should include every test exactly once
+    assert len(all_resolved) == len(tests)
+    assert len(all_resolved) == len({t["name"] for t in all_resolved}), (
+        "duplicates in 'all'"
+    )
+
+    # 'all-practical' should include only practical tests
+    assert len(practical_resolved) > 0
+    for t in practical_resolved:
+        assert t in all_resolved, f"{t['name']} in all-practical but not in all"
+
+    # practical tests should be a strict subset of all tests
+    assert len(practical_resolved) < len(all_resolved)
+
+    # unknown alias should raise
+    import pytest as _pytest
+
+    with _pytest.raises(ValueError, match="not found"):
+        resolve_eval_names(["nonexistent-alias"])
+
+
+def test_alias_deduplication():
+    """Test that combining alias + explicit suite doesn't run tests twice."""
+    # 'practical' is the first practical suite; combining with 'all-practical' would add it twice
+    # without deduplication
+    deduped = resolve_eval_names(["all-practical", "practical"])
+
+    names = [t["name"] for t in deduped]
+    assert len(names) == len(set(names)), "duplicates remain after dedup"
+
+    # Result should equal all-practical alone (explicit 'practical' adds nothing new)
+    all_practical = resolve_eval_names(["all-practical"])
+    assert len(deduped) == len(all_practical)
+
+
 def test_list_tests():
     """Test that --list prints available suites and tests."""
     runner = CliRunner()
@@ -100,6 +139,7 @@ def test_list_tests():
     assert "hello *" in result.output
     assert "Total:" in result.output
     assert "Default suite:" in result.output
+    assert "all-practical" in result.output
 
 
 def test_list_tests_json():

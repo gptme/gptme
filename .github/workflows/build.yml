@@ -30,6 +30,13 @@ jobs:
       with:
         driver: docker
 
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v4
+      if: vars.DOCKER_USERNAME != ''
+      with:
+        username: ${{ vars.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
     - name: Log in to GitHub Container Registry
       uses: docker/login-action@v4
       if: env.SHOULD_PUSH == 'true'

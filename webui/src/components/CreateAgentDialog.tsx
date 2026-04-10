@@ -96,6 +96,7 @@ const CreateAgentDialog: FC<Props> = ({ open, onOpenChange, onAgentCreated }) =>
         name: data.name,
         path: response.agent_path,
         description: `Agent: ${data.name}`,
+        hasAvatar: false,
         conversationCount: 0,
         lastUsed: new Date().toISOString(),
       });

@@ -1424,3 +1424,209 @@ def test_prep_deepseek_reasoner_preserves_image_files():
     assert len(result[1].files) == 1
     assert Path("/path/to/screenshot.png") in result[1].files
     assert result[1].file_hashes.get("/path/to/screenshot.png") == "hash123"
+
+
+# --- Tests for extra_body (OpenRouter provider routing) ---
+
+
+class TestExtraBody:
+    """Tests for OpenRouter extra_body provider routing preferences."""
+
+    @staticmethod
+    def _make_model(model: str, **kwargs):  # type: ignore[no-untyped-def]
+        from gptme.llm.models.types import ModelMeta
+
+        return ModelMeta(
+            provider=kwargs.pop("provider", "openrouter"),
+            model=model,
+            context=kwargs.pop("context", 128000),
+            **kwargs,
+        )
+
+    def test_non_openrouter_returns_empty(self):
+        from gptme.llm.llm_openai import extra_body
+
+        meta = self._make_model("gpt-4o", provider="openai")
+        result = extra_body("openai", meta)
+        assert result == {}
+
+    def test_openrouter_has_require_parameters(self):
+        from gptme.llm.llm_openai import extra_body
+
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        result = extra_body("openrouter", meta)
+        assert result["provider"]["require_parameters"] is True
+
+    def test_openrouter_has_data_collection_deny_by_default_for_non_reasoning(
+        self, monkeypatch
+    ):
+        """Non-reasoning models default to data_collection='deny' for privacy."""
+        from gptme.llm.llm_openai import extra_body
+
+        monkeypatch.delenv("OPENROUTER_DATA_COLLECTION", raising=False)
+        monkeypatch.delenv("GPTME_OPENROUTER_DATA_COLLECTION", raising=False)
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        result = extra_body("openrouter", meta)
+        assert result["provider"]["data_collection"] == "deny"
+
+    def test_openrouter_provider_override_with_at_sign(self):
+        from gptme.llm.llm_openai import extra_body
+
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514@anthropic")
+        result = extra_body("openrouter", meta)
+        prov = result["provider"]
+        assert prov["order"] == ["anthropic"]
+        assert prov["allow_fallbacks"] is False
+        # Should still have require_parameters (non-reasoning model)
+        assert prov["require_parameters"] is True
+
+    def test_openrouter_no_provider_override(self):
+        from gptme.llm.llm_openai import extra_body
+
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        result = extra_body("openrouter", meta)
+        prov = result["provider"]
+        assert "order" not in prov
+        assert "allow_fallbacks" not in prov
+
+    def test_openrouter_usage_accounting(self):
+        from gptme.llm.llm_openai import extra_body
+
+        meta = self._make_model("openai/gpt-4o")
+        result = extra_body("openrouter", meta)
+        assert result["usage"] == {"include": True}
+
+    def test_openrouter_reasoning_model(self):
+        from gptme.llm.llm_openai import extra_body
+
+        meta = self._make_model("openai/o3", supports_reasoning=True)
+        result = extra_body("openrouter", meta)
+        assert "reasoning" in result
+        assert result["reasoning"]["enabled"] is True
+
+    def test_openrouter_reasoning_model_no_require_parameters(self):
+        """Reasoning models must not set require_parameters=True.
+
+        The combination of require_parameters + reasoning extension can
+        eliminate all available providers — the reasoning body parameter
+        is not universally supported by all OpenRouter providers.
+        """
+        from gptme.llm.llm_openai import extra_body
+
+        meta = self._make_model(
+            "anthropic/claude-sonnet-4-20250514", supports_reasoning=True
+        )
+        result = extra_body("openrouter", meta)
+        assert "reasoning" in result
+        assert "require_parameters" not in result["provider"]
+
+    def test_openrouter_non_reasoning_model_has_require_parameters(self):
+        """Non-reasoning models should still set require_parameters=True."""
+        from gptme.llm.llm_openai import extra_body
+
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        result = extra_body("openrouter", meta)
+        assert "reasoning" not in result
+        assert result["provider"]["require_parameters"] is True
+
+    def test_openrouter_data_collection_env_override_allow(self, monkeypatch):
+        from gptme.llm.llm_openai import extra_body
+
+        monkeypatch.setenv("OPENROUTER_DATA_COLLECTION", "allow")
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        result = extra_body("openrouter", meta)
+        assert result["provider"]["data_collection"] == "allow"
+
+    def test_openrouter_data_collection_env_override_deny(self, monkeypatch):
+        from gptme.llm.llm_openai import extra_body
+
+        monkeypatch.setenv("OPENROUTER_DATA_COLLECTION", "deny")
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        result = extra_body("openrouter", meta)
+        assert result["provider"]["data_collection"] == "deny"
+
+    def test_openrouter_reasoning_model_no_data_collection_by_default(
+        self, monkeypatch
+    ):
+        """Reasoning models don't set data_collection by default.
+
+        The triple constraint (require_parameters + reasoning + data_collection="deny")
+        eliminates all available OpenRouter providers, causing 400 errors.
+        """
+        from gptme.llm.llm_openai import extra_body
+
+        monkeypatch.delenv("OPENROUTER_DATA_COLLECTION", raising=False)
+        monkeypatch.delenv("GPTME_OPENROUTER_DATA_COLLECTION", raising=False)
+        meta = self._make_model(
+            "anthropic/claude-sonnet-4-20250514", supports_reasoning=True
+        )
+        result = extra_body("openrouter", meta)
+        assert "reasoning" in result
+        assert "data_collection" not in result["provider"]
+
+    def test_openrouter_data_collection_gptme_prefixed_env(self, monkeypatch):
+        """GPTME_OPENROUTER_DATA_COLLECTION takes precedence over bare form."""
+        from gptme.llm.llm_openai import extra_body
+
+        monkeypatch.setenv("GPTME_OPENROUTER_DATA_COLLECTION", "allow")
+        monkeypatch.delenv("OPENROUTER_DATA_COLLECTION", raising=False)
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        result = extra_body("openrouter", meta)
+        assert result["provider"]["data_collection"] == "allow"
+
+    # --- Quantization routing tests ---
+
+    def test_openrouter_no_quantization_by_default(self, monkeypatch):
+        from gptme.llm.llm_openai import extra_body
+
+        monkeypatch.delenv("OPENROUTER_QUANTIZATION", raising=False)
+        monkeypatch.delenv("GPTME_OPENROUTER_QUANTIZATION", raising=False)
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        result = extra_body("openrouter", meta)
+        assert "quantizations" not in result["provider"]
+
+    def test_openrouter_quantization_single(self, monkeypatch):
+        from gptme.llm.llm_openai import extra_body
+
+        monkeypatch.setenv("OPENROUTER_QUANTIZATION", "fp16")
+        monkeypatch.delenv("GPTME_OPENROUTER_QUANTIZATION", raising=False)
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        result = extra_body("openrouter", meta)
+        assert result["provider"]["quantizations"] == ["fp16"]
+
+    def test_openrouter_quantization_multiple(self, monkeypatch):
+        from gptme.llm.llm_openai import extra_body
+
+        monkeypatch.setenv("OPENROUTER_QUANTIZATION", "fp16,bf16,fp8")
+        monkeypatch.delenv("GPTME_OPENROUTER_QUANTIZATION", raising=False)
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        result = extra_body("openrouter", meta)
+        assert result["provider"]["quantizations"] == ["fp16", "bf16", "fp8"]
+
+    def test_openrouter_quantization_whitespace_handling(self, monkeypatch):
+        from gptme.llm.llm_openai import extra_body
+
+        monkeypatch.setenv("OPENROUTER_QUANTIZATION", " fp16 , int8 , int4 ")
+        monkeypatch.delenv("GPTME_OPENROUTER_QUANTIZATION", raising=False)
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        result = extra_body("openrouter", meta)
+        assert result["provider"]["quantizations"] == ["fp16", "int8", "int4"]
+
+    def test_openrouter_quantization_empty_string_ignored(self, monkeypatch):
+        from gptme.llm.llm_openai import extra_body
+
+        monkeypatch.setenv("OPENROUTER_QUANTIZATION", "")
+        monkeypatch.delenv("GPTME_OPENROUTER_QUANTIZATION", raising=False)
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        result = extra_body("openrouter", meta)
+        assert "quantizations" not in result["provider"]
+
+    def test_openrouter_quantization_gptme_prefixed_env(self, monkeypatch):
+        """GPTME_OPENROUTER_QUANTIZATION takes precedence over bare form."""
+        from gptme.llm.llm_openai import extra_body
+
+        monkeypatch.setenv("GPTME_OPENROUTER_QUANTIZATION", "int4")
+        monkeypatch.delenv("OPENROUTER_QUANTIZATION", raising=False)
+        meta = self._make_model("anthropic/claude-sonnet-4-20250514")
+        result = extra_body("openrouter", meta)
+        assert result["provider"]["quantizations"] == ["int4"]

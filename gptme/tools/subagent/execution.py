@@ -250,9 +250,11 @@ def _run_subagent_subprocess(
         model: Model to use (or None for default)
         workspace: Workspace directory
         context_mode: Context mode (full or selective)
-        context_include: Context components to include for selective mode
-            (files, cmd, all). Legacy values like "agent" and "tools" are
-            mapped or ignored since tools/agent are always included by CLI.
+        context_include: Context components to include for selective mode.
+            "workspace" maps to the CLI's "files" context. Legacy values like
+            "files", "cmd", and "all" are still accepted in subprocess mode.
+            "agent" and "tools" are ignored here because the CLI already
+            includes them.
         output_schema: JSON schema for structured output
         profile: Agent profile name to apply via --agent-profile flag
 
@@ -335,8 +337,8 @@ def _run_subagent_subprocess(
             process = subprocess.Popen(
                 cmd,
                 stdin=stdin_file,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
                 cwd=workspace,
                 text=True,
             )
@@ -388,8 +390,8 @@ def _monitor_subprocess(
     """Monitor a subprocess and invoke callbacks when it completes.
 
     Runs in a background thread to enable non-blocking operation.
-    Uses .wait() instead of .communicate() to avoid memory issues with
-    long-running subagents that produce large outputs.
+    Subprocess stdout/stderr are sent to DEVNULL since results are read
+    from the conversation log, not the process pipes.
     """
     from .hooks import notify_completion
     from .types import (
@@ -401,8 +403,19 @@ def _monitor_subprocess(
     if not subagent.process:
         return
 
-    # Wait for process to complete (without reading stdout into memory)
-    subagent.process.wait()
+    # Track whether the process was killed due to our timeout (vs external SIGKILL)
+    _timed_out = False
+
+    # Wait for process to complete with timeout to prevent indefinite blocking
+    try:
+        subagent.process.wait(timeout=subagent.timeout)
+    except subprocess.TimeoutExpired:
+        logger.warning(
+            f"Subagent {subagent.agent_id} timed out after {subagent.timeout}s, killing"
+        )
+        _timed_out = True
+        subagent.process.kill()
+        subagent.process.wait()  # reap the killed process
 
     # Determine status based on return code
     if subagent.process.returncode == 0:
@@ -413,6 +426,10 @@ def _monitor_subprocess(
             result = log_status.result
         except Exception:
             result = "Task completed (check log for details)"
+    elif _timed_out:
+        # Process was killed because our timeout expired (not an external SIGKILL)
+        status = "failure"
+        result = f"Process killed after {subagent.timeout}s timeout"
     else:
         status = "failure"
         result = f"Process exited with code {subagent.process.returncode}"
@@ -457,7 +474,7 @@ def _run_planner(
     """
     from gptme.cli.main import get_logdir
 
-    from .types import Subagent, _subagents
+    from .types import Subagent, _subagents, _subagents_lock
 
     logger.info(
         f"Starting planner {agent_id} with {len(subtasks)} subtasks "
@@ -494,8 +511,11 @@ def _run_planner(
             )
 
         t = threading.Thread(target=run_executor, daemon=True)
+        # Register subagent BEFORE starting thread to avoid race condition
+        # (matches pattern in api.py — thread closure may look up _subagents)
+        with _subagents_lock:
+            _subagents.append(Subagent(executor_id, executor_prompt, t, logdir, model))
         t.start()
-        _subagents.append(Subagent(executor_id, executor_prompt, t, logdir, model))
 
         # Sequential mode: wait for each task to complete before starting next
         if execution_mode == "sequential":

@@ -175,11 +175,6 @@ def _record_usage(usage, model: str) -> MessageMetadata | None:
     return metadata
 
 
-# TODO: improve provider routing for openrouter: https://openrouter.ai/docs/provider-routing
-# TODO: set required-parameters: https://openrouter.ai/docs/provider-routing#required-parameters-_beta_
-# TODO: set quantization: https://openrouter.ai/docs/provider-routing#quantization
-
-
 ALLOWED_FILE_EXTS = ["jpg", "jpeg", "png", "gif", "webp"]
 
 
@@ -217,7 +212,7 @@ def init(provider: Provider, config: Config):
 
     # Set the proxy URL to the unified messages endpoint if not already set
     if proxy_url and not proxy_url.endswith("/messages"):
-        proxy_url = proxy_url + "/messages" if proxy_url else None
+        proxy_url = proxy_url + "/messages"
 
     # Get configurable API timeout (default: client's own default of 10 minutes)
     # If not set explicitly via LLM_API_TIMEOUT, we use NOT_GIVEN to let the
@@ -302,7 +297,7 @@ def init(provider: Provider, config: Config):
         api_key = config.get_env("OPENAI_API_KEY") or "ollama"
         clients[provider] = OpenAI(api_key=api_key, base_url=api_base, timeout=timeout)
     else:
-        # Check if this is a custom provider
+        # Check if this is a custom provider (config-file based)
         custom_provider = next(
             (p for p in config.user.providers if p.name == provider), None
         )
@@ -314,7 +309,24 @@ def init(provider: Provider, config: Config):
                 timeout=timeout,
             )
         else:
-            raise ValueError(f"Unknown provider: {provider}")
+            # Check if this is a plugin provider (entry-point based)
+            from .provider_plugins import get_provider_plugin  # fmt: skip
+
+            plugin = get_provider_plugin(str(provider))
+            if plugin:
+                api_key = config.get_env(plugin.api_key_env) or ""
+                if not api_key:
+                    raise KeyError(
+                        f"Missing environment variable {plugin.api_key_env} "
+                        f"required by provider plugin {plugin.name!r}"
+                    )
+                clients[provider] = OpenAI(
+                    api_key=api_key,
+                    base_url=plugin.base_url,
+                    timeout=timeout,
+                )
+            else:
+                raise ValueError(f"Unknown provider: {provider}")
 
     assert clients[provider], f"Provider {provider} not initialized"
 
@@ -324,6 +336,11 @@ def get_client(provider: Provider) -> "OpenAI":
     if provider not in clients:
         init(provider, get_config())
     return clients[provider]
+
+
+def has_client(provider: Provider) -> bool:
+    """Return whether a client already exists without triggering lazy init."""
+    return provider in clients
 
 
 def _prep_o1(msgs: Iterable[Message]) -> Generator[Message, None, None]:
@@ -393,7 +410,13 @@ def _handle_openai_transient_error(e, attempt, max_retries, base_delay):
     # This breaks out of the retry loop early to prevent test timeouts
     test_max_retries_str = os.environ.get("GPTME_TEST_MAX_RETRIES")
     if test_max_retries_str:
-        test_max_retries = int(test_max_retries_str)
+        try:
+            test_max_retries = int(test_max_retries_str)
+        except ValueError as parse_err:
+            raise ValueError(
+                f"Invalid GPTME_TEST_MAX_RETRIES value: {test_max_retries_str!r}. "
+                "Must be a valid integer."
+            ) from parse_err
         if attempt >= test_max_retries - 1:
             logger.warning(
                 f"Test max_retries={test_max_retries} reached (attempt {attempt + 1}), not retrying"
@@ -465,6 +488,9 @@ def retry_on_openai_error(max_retries: int = 5, base_delay: float = 1.0):
                     return func(*args, **kwargs)
                 except Exception as e:
                     _handle_openai_transient_error(e, attempt, max_retries, base_delay)
+            # _handle_openai_transient_error raises on last attempt,
+            # but guard against silent None return if logic changes
+            raise RuntimeError("retry exhausted without raising")  # pragma: no cover
 
         return wrapper
 
@@ -502,6 +528,9 @@ def retry_generator_on_openai_error(max_retries: int = 5, base_delay: float = 1.
                         # Can't retry after streaming has started - would cause duplicates
                         raise
                     _handle_openai_transient_error(e, attempt, max_retries, base_delay)
+            # _handle_openai_transient_error raises on last attempt,
+            # but guard against silent None return if logic changes
+            raise RuntimeError("retry exhausted without raising")  # pragma: no cover
 
         return wrapper
 
@@ -558,6 +587,8 @@ def chat(
         **optional_kwargs,
     )
     metadata = _record_usage(response.usage, model)
+    if not response.choices:
+        raise ValueError("OpenAI API returned empty choices list")
     choice = response.choices[0]
     result = []
     if choice.finish_reason == "tool_calls":
@@ -592,6 +623,7 @@ def extra_headers(provider: Provider) -> dict[str, str]:
 
 
 _OPENROUTER_REASONING_DEFAULT = 20000
+_VALID_QUANTIZATIONS = {"fp16", "bf16", "fp8", "int8", "int4", "unknown"}
 
 
 def extra_body(
@@ -629,12 +661,54 @@ def extra_body(
                     reasoning_budget = available
             if reasoning_budget > 0:
                 body["reasoning"] = {"enabled": True, "max_tokens": reasoning_budget}
+        # Provider routing preferences
+        # See: https://openrouter.ai/docs/provider-routing
+        provider_prefs: dict[str, Any] = {}
+
         if "@" in model_meta.model:
             provider_override = model_meta.model.split("@")[1]
-            body["provider"] = {
-                "order": [provider_override],
-                "allow_fallbacks": False,
-            }
+            provider_prefs["order"] = [provider_override]
+            provider_prefs["allow_fallbacks"] = False
+
+        # Ensure routed provider supports all request parameters (tools,
+        # response_format, etc.) — prevents silent failures when OpenRouter
+        # falls back to a provider that doesn't support function calling.
+        # NOTE: only set when reasoning is NOT enabled, because the
+        # combination of require_parameters=True + reasoning extension can
+        # eliminate all available providers (the reasoning body parameter
+        # is not universally supported).
+        if "reasoning" not in body:
+            provider_prefs["require_parameters"] = True
+
+        # Privacy: default to "deny" for non-reasoning models to preserve
+        # user privacy. For reasoning models, skip the default — the triple
+        # constraint (require_parameters + reasoning + data_collection="deny")
+        # eliminates all available providers and causes 400 errors.
+        if "reasoning" not in body:
+            data_collection = get_config().get_env("OPENROUTER_DATA_COLLECTION", "deny")
+        else:
+            data_collection = get_config().get_env("OPENROUTER_DATA_COLLECTION")
+        if data_collection:
+            provider_prefs["data_collection"] = data_collection
+
+        # Quantization preferences: restrict to specific precision levels.
+        # Useful for controlling quality (fp16) or cost (int4/int8).
+        # Set via OPENROUTER_QUANTIZATION env var as comma-separated values.
+        # See: https://openrouter.ai/docs/provider-routing#quantization
+        quantization = get_config().get_env("OPENROUTER_QUANTIZATION")
+        if quantization:
+            parsed = [q.strip() for q in quantization.split(",") if q.strip()]
+            if parsed:
+                invalid = [q for q in parsed if q not in _VALID_QUANTIZATIONS]
+                if invalid:
+                    logger.warning(
+                        "Unknown OPENROUTER_QUANTIZATION value(s): %s. Valid values are: %s",
+                        ", ".join(invalid),
+                        ", ".join(sorted(_VALID_QUANTIZATIONS)),
+                    )
+                provider_prefs["quantizations"] = parsed
+
+        body["provider"] = provider_prefs
     return body
 
 

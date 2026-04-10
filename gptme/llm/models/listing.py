@@ -3,6 +3,7 @@ import logging
 import time
 from typing import Any, cast
 
+from ..provider_plugins import discover_provider_plugins, get_provider_plugin
 from .data import MODELS
 from .resolution import get_model
 from .types import (
@@ -44,6 +45,11 @@ def _get_models_for_provider(
 ) -> list[ModelMeta]:
     """Get models for a specific provider, with optional dynamic fetching."""
     from .. import get_available_models  # fmt: skip
+
+    # Plugin providers serve their static model list directly
+    plugin = get_provider_plugin(str(provider))
+    if plugin:
+        return list(plugin.models)
 
     models_to_show = []
 
@@ -156,9 +162,14 @@ def get_model_list(
         CustomProvider(p.name) for p in config.user.providers
     ]
 
-    # Combine built-in and custom providers
+    # Combine built-in, custom, and plugin providers
+    plugin_providers: list[Provider] = [
+        CustomProvider(p.name) for p in discover_provider_plugins()
+    ]
     all_providers: list[Provider] = (
-        list(cast(list[Provider], list(MODELS.keys()))) + custom_providers
+        list(cast(list[Provider], list(MODELS.keys())))
+        + custom_providers
+        + plugin_providers
     )
 
     for provider in all_providers:
@@ -248,7 +259,7 @@ def _print_detailed_format(
         print(f"  ... ({len(models) - 10} more)")
 
     # Show empty message if no models configured
-    if not models and not MODELS[provider]:
+    if not models and not MODELS.get(provider):
         print("  (no models configured)")
 
 
@@ -295,7 +306,7 @@ def list_models(
             dynamic_fetch=dynamic_fetch,
         )
         if configured is not None:
-            all_models = [m for m in all_models if m.provider in configured]
+            all_models = [m for m in all_models if m.provider_key in configured]
         print(json.dumps([model_to_dict(m) for m in all_models], indent=2))
     elif simple_format:
         # Simple format: just get all models and print them
@@ -307,7 +318,7 @@ def list_models(
             dynamic_fetch=dynamic_fetch,
         )
         if configured is not None:
-            all_models = [m for m in all_models if m.provider in configured]
+            all_models = [m for m in all_models if m.provider_key in configured]
         _print_simple_format(all_models)
     else:
         # Detailed format: print by provider with formatting
@@ -325,8 +336,13 @@ def list_models(
         custom_providers: list[Provider] = [
             CustomProvider(p.name) for p in config.user.providers
         ]
+        plugin_providers_detail: list[Provider] = [
+            CustomProvider(p.name) for p in discover_provider_plugins()
+        ]
         all_providers: list[Provider] = (
-            list(cast(list[Provider], list(MODELS.keys()))) + custom_providers
+            list(cast(list[Provider], list(MODELS.keys())))
+            + custom_providers
+            + plugin_providers_detail
         )
 
         for provider in all_providers:

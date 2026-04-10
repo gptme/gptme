@@ -11,6 +11,7 @@ export interface Agent {
   name: string;
   path: string;
   description?: string;
+  hasAvatar: boolean;
   conversationCount: number;
   lastUsed: string;
   urls?: Record<string, string>;
@@ -117,14 +118,17 @@ export function extractAgentsFromConversations(conversations: ConversationSummar
           existing.urls = conversation.agent_urls;
         }
       } else if (!existing.urls && conversation.agent_urls) {
-        // Fall back to older conversation's URLs if we don't have any yet
         existing.urls = conversation.agent_urls;
+      }
+      if (conversation.agent_avatar) {
+        existing.hasAvatar = true;
       }
     } else {
       agentMap.set(agentPath, {
         name: agentName,
         path: agentPath,
-        description: `Agent: ${agentName}`,
+        description: formatPath(agentPath),
+        hasAvatar: !!conversation.agent_avatar,
         conversationCount: 1,
         lastUsed,
         urls: conversation.agent_urls,

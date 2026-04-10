@@ -23,6 +23,7 @@ from .types import (
     _subagent_results,
     _subagent_results_lock,
     _subagents,
+    _subagents_lock,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,7 @@ def subagent(
     profile: str | None = None,
     model: str | None = None,
     isolated: bool = False,
+    timeout: int = 1800,
 ):
     """Starts an asynchronous subagent. Returns None immediately.
 
@@ -70,10 +72,9 @@ def subagent(
             - "full" (default): Share complete context (agent identity, tools, workspace)
             - "selective": Share only specified context components (requires context_include)
         context_include: For selective mode, list of context components to include:
-            - "files": Project config files (gptme.toml files list)
-            - "cmd": Dynamic context_cmd output
-            - "all": Include both files and cmd
-            Note: Tools and agent identity are always included by the CLI.
+            - Thread mode supports "agent" and "tools"
+            - Subprocess mode also supports "workspace", which maps to the CLI's "files" context
+            Legacy subprocess values like "files", "cmd", and "all" are still accepted.
         use_subprocess: If True, run subagent in subprocess for output isolation.
             Subprocess mode captures stdout/stderr separately from the parent.
         use_acp: If True, run subagent via ACP (Agent Client Protocol).
@@ -96,6 +97,8 @@ def subagent(
             can modify files without affecting the parent. The worktree is
             automatically cleaned up after the subagent completes.
             Falls back to a temporary directory if not in a git repo.
+        timeout: Maximum seconds before the subprocess monitor kills the
+            subagent (default 1800 = 30 min). Only applies to subprocess mode.
 
     Returns:
         None: Starts asynchronous execution.
@@ -292,7 +295,10 @@ def subagent(
                     _subagent_results[agent_id] = ReturnType("failure", str(e))
                 notify_completion(agent_id, "failure", f"ACP error: {e}")
             finally:
-                sa_ref = next((s for s in _subagents if s.agent_id == agent_id), None)
+                with _subagents_lock:
+                    sa_ref = next(
+                        (s for s in _subagents if s.agent_id == agent_id), None
+                    )
                 if sa_ref:
                     _exec._cleanup_isolation(sa_ref)
 
@@ -314,7 +320,8 @@ def subagent(
         )
         # Append sa before starting the thread so the finally block can find it
         # (avoids race condition where fast completion can't locate sa in _subagents)
-        _subagents.append(sa)
+        with _subagents_lock:
+            _subagents.append(sa)
         t.start()
 
     elif use_subprocess:
@@ -358,8 +365,10 @@ def subagent(
             isolated=isolated,
             worktree_path=worktree_path,
             repo_path=repo_path,
+            timeout=timeout,
         )
-        _subagents.append(sa)
+        with _subagents_lock:
+            _subagents.append(sa)
 
         # Start monitor thread for hook-based completion notification
         monitor_thread = threading.Thread(
@@ -391,13 +400,15 @@ def subagent(
                 except Exception as notify_err:
                     logger.warning(f"Failed to notify subagent error: {notify_err}")
                 # Clean up worktree isolation even on failure
-                sa = next((s for s in _subagents if s.agent_id == agent_id), None)
+                with _subagents_lock:
+                    sa = next((s for s in _subagents if s.agent_id == agent_id), None)
                 if sa:
                     _exec._cleanup_isolation(sa)
                 return
 
             # Notify via hook system when complete (only if successful)
-            sa = next((s for s in _subagents if s.agent_id == agent_id), None)
+            with _subagents_lock:
+                sa = next((s for s in _subagents if s.agent_id == agent_id), None)
             if sa:
                 result = sa.status()
                 try:
@@ -430,16 +441,18 @@ def subagent(
             worktree_path=worktree_path,
             repo_path=repo_path,
         )
-        _subagents.append(sa)
+        with _subagents_lock:
+            _subagents.append(sa)
         t.start()
 
 
 def subagent_status(agent_id: str) -> dict:
     """Returns the status of a subagent."""
-    for sa in _subagents:
-        if sa.agent_id == agent_id:
-            return asdict(sa.status())
-    raise ValueError(f"Subagent with ID {agent_id} not found.")
+    with _subagents_lock:
+        sa = next((s for s in _subagents if s.agent_id == agent_id), None)
+    if sa is None:
+        raise ValueError(f"Subagent with ID {agent_id} not found.")
+    return asdict(sa.status())
 
 
 def subagent_wait(agent_id: str, timeout: int = 60) -> dict:
@@ -453,10 +466,11 @@ def subagent_wait(agent_id: str, timeout: int = 60) -> dict:
         Status dict with 'status' and 'result' keys
     """
     sa = None
-    for s in _subagents:
-        if s.agent_id == agent_id:
-            sa = s
-            break
+    with _subagents_lock:
+        for s in _subagents:
+            if s.agent_id == agent_id:
+                sa = s
+                break
 
     if sa is None:
         raise ValueError(f"Subagent with ID {agent_id} not found.")
@@ -505,10 +519,11 @@ def subagent_read_log(
         Formatted log output showing the conversation
     """
     sa = None
-    for s in _subagents:
-        if s.agent_id == agent_id:
-            sa = s
-            break
+    with _subagents_lock:
+        for s in _subagents:
+            if s.agent_id == agent_id:
+                sa = s
+                break
 
     if sa is None:
         raise ValueError(f"Subagent with ID {agent_id} not found.")

@@ -8,62 +8,36 @@ import '@testing-library/jest-dom';
 // TODO: use these tests for streaming markdown logic in smd.js (no longer using transformThinkingTags)
 
 describe('processNestedCodeBlocks', () => {
-  it('should handle nested code blocks', () => {
-    const input = `\`\`\`markdown
-Here's a nested block
-\`\`\`python
-print("hello")
-\`\`\`
-\`\`\``;
-
-    const expected = `\`\`\`markdown
-Here's a nested block
-\`\`\`python
-print("hello")
-\`\`\`
-\`\`\``;
+  it('increases outer fence backticks when inner fences are nested', () => {
+    // gptme convention: ```lang = opener, bare ``` = closer
+    const input = '```gh\nissue body\n```python\ndef foo():\n    pass\n```\n```';
 
     const result = processNestedCodeBlocks(input);
-    expect(result.processedContent).toBe(expected);
-    expect(result.langtags.filter(Boolean)).toEqual(['markdown', 'python']);
+    // Outer fence should be widened to 4 backticks so marked treats inner ``` as content
+    expect(result.processedContent).toBe(
+      '````gh\nissue body\n```python\ndef foo():\n    pass\n```\n````'
+    );
+    expect(result.langtags).toEqual(['gh', 'python']);
   });
 
   it('should not modify single code blocks', () => {
-    const input = `\`\`\`python
-print("hello")
-\`\`\``;
+    const input = '```python\nprint("hello")\n```';
 
     const result = processNestedCodeBlocks(input);
     expect(result.processedContent).toBe(input);
-    expect(result.langtags.filter(Boolean)).toEqual(['python']);
+    expect(result.langtags).toEqual(['python']);
   });
 
-  it('should handle multiple nested blocks', () => {
-    const input = `\`\`\`markdown
-First block
-\`\`\`python
-print("hello")
-\`\`\`
-Second block
-\`\`\`javascript
-console.log("world")
-\`\`\`
-\`\`\``;
-
-    const expected = `\`\`\`markdown
-First block
-\`\`\`python
-print("hello")
-\`\`\`
-Second block
-\`\`\`javascript
-console.log("world")
-\`\`\`
-\`\`\``;
+  it('handles multiple nested blocks inside one outer block', () => {
+    const input =
+      '```markdown\nFirst\n```python\nprint("hi")\n```\nSecond\n```javascript\nconsole.log("hi")\n```\n```';
 
     const result = processNestedCodeBlocks(input);
-    expect(result.processedContent).toBe(expected);
-    expect(result.langtags.filter(Boolean)).toEqual(['markdown', 'python', 'javascript']);
+    // Outer fence widened to 4 backticks
+    expect(result.processedContent).toBe(
+      '````markdown\nFirst\n```python\nprint("hi")\n```\nSecond\n```javascript\nconsole.log("hi")\n```\n````'
+    );
+    expect(result.langtags).toEqual(['markdown', 'python', 'javascript']);
   });
 
   it('returns original content when no code blocks', () => {
@@ -71,6 +45,49 @@ console.log("world")
     const result = processNestedCodeBlocks(input);
     expect(result.processedContent).toBe(input);
     expect(result.langtags).toEqual([]);
+  });
+
+  it('handles sequential (non-nested) code blocks without modification', () => {
+    const input = '```python\nprint("a")\n```\n\n```shell\nls\n```';
+
+    const result = processNestedCodeBlocks(input);
+    expect(result.processedContent).toBe(input);
+    expect(result.langtags).toEqual(['python', 'shell']);
+  });
+
+  it('handles 3-level deep nesting by propagating maxDescendantDepth upward', () => {
+    // outer ```gh contains inner ```markdown which contains ```python
+    const input = [
+      '```gh',
+      'issue body',
+      '```markdown',
+      'some docs',
+      '```python',
+      'print("hi")',
+      '```',
+      '```',
+      '```',
+    ].join('\n');
+
+    const result = processNestedCodeBlocks(input);
+    const lines = result.processedContent.split('\n');
+    // Outermost fence must be widened to 5 (inner ```markdown needs 4, so outer needs 5)
+    expect(lines[0]).toBe('`````gh');
+    expect(lines[lines.length - 1]).toBe('`````');
+    // Middle fence widened to 4
+    expect(lines[2]).toBe('````markdown');
+    expect(lines[7]).toBe('````');
+    // Innermost stays at 3
+    expect(lines[4]).toBe('```python');
+    expect(lines[6]).toBe('```');
+  });
+
+  it('handles already-widened 4-backtick fences from system prompts', () => {
+    const input = '````\n> content\n```ipython\nopen_page("url")\n```\n````';
+
+    const result = processNestedCodeBlocks(input);
+    // 4-backtick outer already wider than 3-backtick inner, no change needed
+    expect(result.processedContent).toBe(input);
   });
 });
 

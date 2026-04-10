@@ -4,8 +4,16 @@
     "jsx": "react-jsx",
     "esModuleInterop": true,
     "target": "ES2020",
+    "module": "es2020",
+    "moduleResolution": "bundler",
+    "isolatedModules": true,
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
-    "types": ["jest", "@testing-library/jest-dom"]
+    "types": ["jest", "@testing-library/jest-dom", "vite/client", "node"],
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "jest.setup.ts"]
 }

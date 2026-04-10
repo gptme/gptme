@@ -8,6 +8,8 @@ from gptme.config import Config, MCPConfig, MCPServerConfig
 from gptme.mcp.registry import MCPServerInfo
 from gptme.tools.mcp_adapter import (
     _dynamic_servers,
+    _mcp_clients,
+    _restart_mcp_client,
     create_mcp_execute_function,
     create_mcp_tools,
     get_mcp_server_info,
@@ -16,6 +18,16 @@ from gptme.tools.mcp_adapter import (
     search_mcp_servers,
     unload_mcp_server,
 )
+
+
+@pytest.fixture(autouse=True)
+def clear_mcp_state():
+    """Reset global MCP client state between tests."""
+    _dynamic_servers.clear()
+    _mcp_clients.clear()
+    yield
+    _dynamic_servers.clear()
+    _mcp_clients.clear()
 
 
 @pytest.fixture
@@ -252,6 +264,34 @@ def test_unload_mcp_server_success():
     result = unload_mcp_server("test-server")
     assert "Successfully unloaded" in result or "unloaded" in result
     assert "test-server" not in _dynamic_servers
+
+
+def test_restart_mcp_client_survives_cleanup_failure_and_reconnects(mock_config):
+    """Test restart tolerates cleanup failures from the old client."""
+
+    close_calls: list[str] = []
+
+    class BrokenLoop:
+        def close(self) -> None:
+            close_calls.append("close")
+            raise RuntimeError("cleanup boom")
+
+    class OldClient:
+        stack = None
+        loop = BrokenLoop()
+
+    new_client = MagicMock()
+    new_client.connect.return_value = (MagicMock(), MagicMock())
+
+    _mcp_clients["test-server"] = OldClient()  # type: ignore[assignment]
+
+    with patch("gptme.tools.mcp_adapter.MCPClient", return_value=new_client):
+        restarted = _restart_mcp_client("test-server", mock_config)
+
+    assert close_calls == ["close"]
+    assert restarted is new_client
+    assert _mcp_clients["test-server"] is new_client
+    new_client.connect.assert_called_once_with("test-server")
 
 
 def test_list_loaded_servers_empty():

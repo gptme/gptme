@@ -1,5 +1,5 @@
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import (
     TYPE_CHECKING,
@@ -12,6 +12,9 @@ from typing import (
 from typing_extensions import NotRequired
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from ...config import Config
     from ...tools.base import ToolFormat
 
 # Pattern to match date suffixes like -20250929 or -20250514
@@ -121,6 +124,72 @@ class ModelMeta:
         if self.provider == "unknown":
             return self.model
         return f"{self.provider}/{self.model}"
+
+    @property
+    def provider_key(self) -> str:
+        """Return the provider identifier used for availability filtering."""
+        if self.provider != "unknown":
+            return str(self.provider)
+        if "/" in self.model:
+            return self.model.split("/", 1)[0]
+        return "unknown"
+
+
+@dataclass
+class ProviderPlugin:
+    """A third-party LLM provider registered via the ``gptme.providers`` entry point group.
+
+    Install a provider plugin with::
+
+        pip install gptme-provider-minimax
+
+    The plugin package declares the entry point in its ``pyproject.toml``::
+
+        [project.entry-points."gptme.providers"]
+        minimax = "gptme_provider_minimax:provider"
+
+    Where ``provider`` is a :class:`ProviderPlugin` instance exported from the package.
+
+    Example (inside the plugin package)::
+
+        from gptme.llm.models import ModelMeta, ProviderPlugin
+
+        provider = ProviderPlugin(
+            name="minimax",
+            api_key_env="MINIMAX_API_KEY",
+            base_url="https://api.minimax.chat/v1",
+            models=[
+                ModelMeta(provider="unknown", model="minimax/abab6.5s-chat", context=245_760),
+            ],
+        )
+    """
+
+    name: str
+    """Provider name, e.g. ``"minimax"``.  Must be unique across all installed providers."""
+
+    api_key_env: str
+    """Name of the environment variable that holds the API key, e.g. ``"MINIMAX_API_KEY"``."""
+
+    base_url: str
+    """Base URL for the OpenAI-compatible API endpoint, e.g. ``"https://api.minimax.chat/v1"``."""
+
+    models: list["ModelMeta"] = field(default_factory=list)
+    """List of :class:`ModelMeta` objects describing the available models.
+
+    The ``provider`` field of each :class:`ModelMeta` should be ``"unknown"`` and
+    the ``model`` field should be the fully-qualified name (``"<provider>/<model>"``).
+    """
+
+    init: "Callable[[Config], None] | None" = None
+    """Optional custom initialisation function.
+
+    Called once before the first request is made.  Custom init functions must
+    register an OpenAI-compatible client for this provider before returning
+    (for example by calling ``gptme.llm.llm_openai.init(provider, config)``),
+    because plugin traffic is routed through the OpenAI client path.  If
+    ``None``, the provider is auto-initialised as an OpenAI-compatible client
+    using :attr:`base_url` and the key from :attr:`api_key_env`.
+    """
 
 
 class _ModelDictMeta(TypedDict):

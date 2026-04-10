@@ -86,21 +86,46 @@ def screenshot(path: Path | None = None) -> Path:
         # Ensure parent directory exists within OUTPUT_DIR
         path.parent.mkdir(parents=True, exist_ok=True)
 
-    if IS_MACOS:
-        subprocess.run(["screencapture", str(path)], check=True)
-        return path
-    if os.name == "posix":
-        # TODO: add support for specifying window/fullscreen?
-        if shutil.which("gnome-screenshot"):
-            subprocess.run(["gnome-screenshot", "-f", str(path)], check=True)
+    try:
+        if IS_MACOS:
+            subprocess.run(
+                ["screencapture", str(path)],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
             return path
-        if not IS_WAYLAND and shutil.which("scrot"):
-            subprocess.run(["scrot", "--overwrite", str(path)], check=True)
-            return path
-        raise NotImplementedError("No supported screenshot method available")
-    raise NotImplementedError(
-        "Screenshot functionality is only available on macOS and Linux."
-    )
+        if os.name == "posix":
+            # TODO: add support for specifying window/fullscreen?
+            if shutil.which("gnome-screenshot"):
+                subprocess.run(
+                    ["gnome-screenshot", "-f", str(path)],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                return path
+            if not IS_WAYLAND and shutil.which("scrot"):
+                subprocess.run(
+                    ["scrot", "--overwrite", str(path)],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                return path
+            raise NotImplementedError("No supported screenshot method available")
+        raise NotImplementedError(
+            "Screenshot functionality is only available on macOS and Linux."
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("Screenshot timed out after 10 seconds") from None
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(
+            f"Screenshot command failed (exit code {e.returncode}): {e.stderr or e.stdout or 'no output'}"
+        ) from None
 
 
 def examples(tool_format) -> str:

@@ -766,9 +766,12 @@ class TestExtractMessageContent:
     def test_limit(self):
         log = [Message(role="user", content=f"Message {i}") for i in range(20)]
         content = _extract_message_content(log, limit=3)
-        # Should only contain content from last 3 messages
+        # Should contain content from last 3 messages
         assert "Message 19" in content
-        assert "Message 0" not in content
+        # First user message is always included (initial prompt for topic matching)
+        assert "Message 0" in content
+        # But middle messages outside the window should not be
+        assert "Message 10" not in content
 
 
 # ──────────────────────────────────────────────

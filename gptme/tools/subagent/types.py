@@ -38,6 +38,7 @@ class SubtaskDef(TypedDict):
 # ---------------------------------------------------------------------------
 
 _subagents: list["Subagent"] = []
+_subagents_lock = threading.Lock()
 
 # Cache for subprocess results (keyed by agent_id)
 # This allows Subagent to remain frozen while storing mutable result state
@@ -93,6 +94,8 @@ class Subagent:
     isolated: bool = False
     worktree_path: Path | None = None
     repo_path: Path | None = None
+    # Maximum time (seconds) the subprocess monitor will wait before killing
+    timeout: int = 1800  # 30 minutes
 
     def get_log(self) -> "LogManager":
         # noreorder

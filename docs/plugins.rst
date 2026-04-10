@@ -48,6 +48,18 @@ Plugins can be configured at two levels:
 
 Project-level plugin paths are relative to the workspace root.
 
+Plugin-owned config lives under ``[plugin.<name>]``. For example:
+
+.. code-block:: toml
+
+   [plugin.my_plugin]
+   api_base = "https://example.com"
+   timeout = 30
+
+Plugin ``init(config)`` hooks can read that config via
+``config.project.plugin.get("my_plugin", {}) if config.project else {}`` and
+``config.user.plugin.get("my_plugin", {}) if config.user else {}``.
+
 Skills vs Plugins
 -----------------
 
@@ -424,6 +436,171 @@ Plugins can be distributed as:
 
       cp -r my_plugin ~/.config/gptme/plugins/
 
+.. _unified-plugins:
+
+Unified Plugin System (Entry Points)
+-------------------------------------
+
+For ``pip install``-able packages, gptme supports a unified plugin interface via Python entry points. A single ``GptmePlugin`` dataclass lets a package expose **any combination** of tools, hooks, commands, and LLM providers — no folder structure required.
+
+This is the recommended approach for published packages. It uses the same mechanism as pytest plugins, setuptools console_scripts, etc.
+
+.. rubric:: GptmePlugin Dataclass
+
+.. code-block:: python
+
+   from gptme.plugins.plugin import GptmePlugin
+
+   GptmePlugin(
+       name="my_plugin",           # Unique plugin name
+       provider=None,              # ProviderPlugin for LLM providers (optional)
+       tool_modules=["..."],       # Module names containing ToolSpec instances (optional)
+       tools=[...],                # Direct ToolSpec instances (optional)
+       register_hooks=fn,          # Callable that registers hooks (optional)
+       register_commands=fn,       # Callable that registers commands (optional)
+       init=fn,                    # Callable(Config) for plugin initialization (optional)
+   )
+
+A plugin only needs to provide the capabilities it uses — all fields except ``name`` are optional.
+
+.. rubric:: Creating a Unified Plugin
+
+1. Create a Python package with a ``GptmePlugin`` instance:
+
+.. code-block:: python
+
+   # src/my_gptme_plugin/__init__.py
+   from gptme.plugins.plugin import GptmePlugin
+   from gptme.tools.base import ToolSpec
+
+   def greet(name: str = "World") -> str:
+       """Greet someone."""
+       return f"Hello, {name}!"
+
+   greet_tool = ToolSpec(
+       name="greet",
+       desc="Greet someone by name",
+       instructions="Use this tool to greet people.",
+       functions=[greet],
+   )
+
+   plugin = GptmePlugin(
+       name="my_gptme_plugin",
+       tools=[greet_tool],
+   )
+
+2. Register the entry point in ``pyproject.toml``:
+
+.. code-block:: toml
+
+   [project]
+   name = "my-gptme-plugin"
+   version = "0.1.0"
+   dependencies = ["gptme"]
+
+   [project.entry-points."gptme.plugins"]
+   my_gptme_plugin = "my_gptme_plugin:plugin"
+
+3. Install and use:
+
+.. code-block:: bash
+
+   pip install my-gptme-plugin
+   gptme "use the greet tool to say hello to Alice"
+
+.. rubric:: Full-Featured Plugin Example
+
+A plugin that provides a tool, a hook, a command, and an LLM provider:
+
+.. code-block:: python
+
+   # src/my_full_plugin/__init__.py
+   from gptme.plugins.plugin import GptmePlugin
+   from gptme.tools.base import ToolSpec
+   from gptme.llm.models import ModelMeta, ProviderPlugin
+
+   # Tool
+   def lookup(query: str) -> str:
+       """Look up information."""
+       return f"Result for: {query}"
+
+   lookup_tool = ToolSpec(
+       name="lookup",
+       desc="Look up information",
+       instructions="Use this tool to search for information.",
+       functions=[lookup],
+   )
+
+   # Hook registration
+   def _register_hooks():
+       from gptme.hooks import HookType, register_hook
+       from gptme.message import Message
+
+       def on_session_start(logdir, workspace, initial_msgs):
+           yield Message("system", "My plugin initialized!")
+
+       register_hook("my_plugin.start", HookType.SESSION_START, on_session_start)
+
+   # Command registration
+   def _register_commands():
+       from gptme.commands import register_command, CommandContext
+       from gptme.message import Message
+
+       def status_handler(ctx: CommandContext):
+           yield Message("system", "My plugin is running!")
+
+       register_command("my-status", status_handler)
+
+   # LLM provider (optional)
+   my_provider = ProviderPlugin(
+       name="my_llm",
+       api_key_env="MY_LLM_API_KEY",
+       base_url="https://api.example.com/v1",
+       models=[ModelMeta(provider="unknown", model="my_llm/fast", context=128_000)],
+   )
+
+   # Plugin initialization (optional)
+   def _init(config):
+       """Called once at startup with the full gptme Config."""
+       # Access plugin-specific config via:
+       #   config.user.plugin.get("my_full_plugin", {})
+       pass
+
+   plugin = GptmePlugin(
+       name="my_full_plugin",
+       tools=[lookup_tool],
+       register_hooks=_register_hooks,
+       register_commands=_register_commands,
+       provider=my_provider,
+       init=_init,
+   )
+
+.. rubric:: How Discovery Works
+
+The plugin registry merges three sources in order:
+
+1. **Folder plugins** — from paths configured in ``gptme.toml``
+2. **Entry-point plugins** — from the ``gptme.plugins`` group (deduped against folder plugins)
+3. **Legacy provider plugins** — from the ``gptme.providers`` group (backward compat)
+
+If the same plugin name appears in multiple sources, folder plugins take precedence over entry-point plugins (to support editable installs where both are present). The ``plugins.enabled`` allowlist in ``gptme.toml`` can filter which plugins are loaded.
+
+.. rubric:: Factory Functions
+
+Entry points can reference either a ``GptmePlugin`` instance directly, or a callable (factory) that returns one:
+
+.. code-block:: toml
+
+   [project.entry-points."gptme.plugins"]
+   # Direct instance
+   my_plugin = "my_package:plugin"
+   # Factory function
+   my_plugin = "my_package:create_plugin"
+
+.. rubric:: Legacy Provider Entry Points
+
+The older ``gptme.providers`` entry-point group still works for provider-only plugins. For new plugins, prefer ``gptme.plugins`` with a ``provider`` field — it supports all plugin capabilities in a single registration. See :doc:`providers` for details.
+
 Migration from TOOL_MODULES
 ----------------------------
 
@@ -446,16 +623,6 @@ The plugin system is compatible with the existing ``TOOL_MODULES`` environment v
 
 Both approaches work and can coexist. The plugin system provides better organization and discoverability for complex tool collections.
 
-Future: Hooks and Commands
----------------------------
-
-Future phases will add support for:
-
-- **Hooks**: Plugin-provided hooks for events (e.g., pre-generation, post-execution)
-- **Commands**: Plugin-provided commands for the gptme CLI
-
-Stay tuned for updates!
-
 Troubleshooting
 ---------------
 
@@ -464,14 +631,21 @@ Troubleshooting
 - Ensure plugin directory has ``__init__.py``
 - Check plugin path is correctly configured in ``gptme.toml``
 - Verify path is absolute or relative to config directory
+- For entry-point plugins: verify the package is installed (``pip list | grep my-plugin``)
 
 **Tools not loading:**
 
-- Check ``tools/`` directory exists and has proper structure
+- Check ``tools/`` directory exists and has proper structure (for folder plugins)
 - Verify tool modules define ``ToolSpec`` instances
-- Look for import errors in gptme logs
+- Look for import errors in gptme logs (``GPTME_LOG_LEVEL=debug gptme``)
 
 **Plugin not enabled:**
 
 - If using ``plugins.enabled`` allowlist, ensure plugin name is included
 - Remove ``enabled`` list to load all discovered plugins
+
+**Entry-point plugin not found:**
+
+- Verify the entry point is declared in ``pyproject.toml`` under ``[project.entry-points."gptme.plugins"]``
+- Reinstall the package (``pip install -e .``) after adding or changing entry points
+- Check that the exported object is a ``GptmePlugin`` instance or a callable returning one

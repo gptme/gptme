@@ -83,9 +83,10 @@ def _get_project_git_dir_call() -> Path | None:
             capture_output=True,
             text=True,
             check=True,
+            timeout=10,
         ).stdout.strip()
         return Path(projectdir)
-    except subprocess.CalledProcessError:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return None
 
 
@@ -159,7 +160,7 @@ def _migrate_readline_history():
         try:
             logger.info(f"Migrating readline history: {old_path} -> {new_path}")
             shutil.move(str(old_path), str(new_path))
-        except Exception as e:
+        except OSError as e:
             logger.warning(f"Failed to migrate readline history: {e}")
 
 

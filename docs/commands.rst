@@ -7,7 +7,7 @@ Commands are entered by typing a forward slash (``/``) followed by the command n
 For CLI arguments and options, see the :doc:`cli` reference.
 
 .. contents:: Table of Contents
-   :depth: 2
+   :depth: 3
    :local:
    :backlinks: none
 

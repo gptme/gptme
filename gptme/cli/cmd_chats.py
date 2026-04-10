@@ -260,8 +260,6 @@ def chats_clean(max_messages: int, include_test: bool, delete: bool, json_output
 
     if not results:
         if json_output:
-            import json
-
             click.echo(
                 json.dumps(
                     {
@@ -280,8 +278,6 @@ def chats_clean(max_messages: int, include_test: bool, delete: bool, json_output
     total_size = sum(r["size_bytes"] for r in results)
 
     if json_output:
-        import json
-
         deleted_count = 0
         freed_bytes = 0
         if delete:

@@ -33,6 +33,8 @@ export interface ConversationState {
   // Whether this conversation needs initial step after connecting
   // Used to fix race condition where step() was called before event subscription
   needsInitialStep: boolean;
+  // Currently displayed branch name
+  currentBranch: string;
 }
 
 // Central store for all conversations
@@ -54,6 +56,7 @@ export function updateConversation(id: string, update: Partial<ConversationState
       showInitialSystem: false,
       chatConfig: null,
       needsInitialStep: false,
+      currentBranch: 'main',
     });
   }
   mergeIntoObservable(conversations$.get(id), update);
@@ -63,6 +66,39 @@ export function addMessage(id: string, message: Message | StreamingMessage) {
   const conv = conversations$.get(id);
   if (conv) {
     conv.data.log.push(message);
+  }
+}
+
+/** Update the _status of the last message with the given timestamp */
+export function setMessageStatus(
+  id: string,
+  timestamp: string,
+  status: 'pending' | 'sent' | 'failed',
+  error?: string
+) {
+  const conv = conversations$.get(id);
+  if (!conv) return;
+  const log = conv.data.log.get();
+  // Find the message by timestamp (searching from end since it's usually the latest)
+  for (let i = log.length - 1; i >= 0; i--) {
+    if (log[i].timestamp === timestamp) {
+      conv.data.log[i]._status.set(status);
+      if (error !== undefined) {
+        conv.data.log[i]._error.set(error);
+      }
+      break;
+    }
+  }
+}
+
+/** Remove a message by timestamp */
+export function removeMessage(id: string, timestamp: string) {
+  const conv = conversations$.get(id);
+  if (!conv) return;
+  const log = conv.data.log.get();
+  const idx = log.findIndex((m) => m.timestamp === timestamp);
+  if (idx !== -1) {
+    conv.data.log.splice(idx, 1);
   }
 }
 
@@ -108,6 +144,7 @@ export function initConversation(
     showInitialSystem: false,
     chatConfig: null,
     needsInitialStep: options?.needsInitialStep ?? false,
+    currentBranch: 'main',
   };
   conversations$.set(id, initial);
 }
@@ -119,6 +156,30 @@ export function setNeedsInitialStep(id: string, needsInitialStep: boolean) {
 // Update conversation data in the store
 export function updateConversationData(id: string, data: ConversationResponse) {
   conversations$.get(id)?.data.set(data);
+}
+
+/** Switch to a different branch, updating the displayed log */
+export function setCurrentBranch(id: string, branch: string) {
+  const conv = conversations$.get(id);
+  if (!conv) return;
+  const branches = conv.data.branches?.get();
+  if (!branches || !branches[branch]) return;
+  conv.currentBranch.set(branch);
+  conv.data.log.set(branches[branch]);
+}
+
+/** Replace the entire log (used after server-side edit) */
+export function replaceLog(id: string, log: Message[]) {
+  const conv = conversations$.get(id);
+  if (!conv) return;
+  conv.data.log.set(log);
+}
+
+/** Update branch data */
+export function updateBranches(id: string, branches: Record<string, Message[]>) {
+  const conv = conversations$.get(id);
+  if (!conv) return;
+  conv.data.branches.set(branches);
 }
 
 // Update conversation name in the store

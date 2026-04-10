@@ -137,7 +137,7 @@ def _get_display_resolution() -> tuple[int, int]:
     try:
         if IS_MACOS:
             output = subprocess.check_output(
-                ["system_profiler", "SPDisplaysDataType"], text=True
+                ["system_profiler", "SPDisplaysDataType"], text=True, timeout=10
             )
             for line in output.splitlines():
                 if "Resolution" in line:
@@ -147,14 +147,19 @@ def _get_display_resolution() -> tuple[int, int]:
                     height = int(parts[1].split()[0].strip())
                     return width, height
         else:
-            output = subprocess.check_output(["xrandr"], text=True)
+            output = subprocess.check_output(["xrandr"], text=True, timeout=10)
             for line in output.splitlines():
                 if "*" in line:  # Current resolution has an asterisk
                     # Parse "2560x1440" from the line
                     resolution = line.split()[0]
                     width, height = map(int, resolution.split("x"))
                     return width, height
-    except (subprocess.CalledProcessError, ValueError, IndexError) as e:
+    except (
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        ValueError,
+        IndexError,
+    ) as e:
         raise RuntimeError(f"Failed to get display resolution: {e}") from e
     raise RuntimeError("Failed to get display resolution")
 
@@ -200,8 +205,6 @@ def _scale_coordinates(
 
 def _run_xdotool(cmd: str, display: str | None = None) -> str:
     """Run an xdotool command with optional display setting and wait for completion."""
-    import shlex
-
     if IS_MACOS:
         raise RuntimeError("xdotool is not supported on macOS")
 
@@ -217,8 +220,11 @@ def _run_xdotool(cmd: str, display: str | None = None) -> str:
             check=True,
             capture_output=True,
             text=True,
+            timeout=10,
         )
         return result.stdout
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f"xdotool command timed out: {cmd}") from e
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"xdotool command failed: {e.stderr}") from e
 
@@ -233,7 +239,15 @@ def _macos_type(text: str) -> None:
     """
     safe_text = shlex.quote(text)
     try:
-        subprocess.run(["cliclick", "t:" + safe_text], check=True)
+        subprocess.run(
+            ["cliclick", "t:" + safe_text],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError("cliclick type command timed out") from e
     except FileNotFoundError:
         raise RuntimeError(
             "cliclick not found. Install with: brew install cliclick"
@@ -306,7 +320,9 @@ def _macos_key(key_sequence: str) -> None:
         # Use list form to avoid shell injection - cliclick accepts commands as args
         cmd_list = ["cliclick", *commands]
         logger.info(f"Running: {' '.join(cmd_list)}")
-        subprocess.run(cmd_list, check=True, capture_output=True, text=True)
+        subprocess.run(cmd_list, check=True, capture_output=True, text=True, timeout=10)
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError("cliclick key sequence timed out") from e
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Failed to send key sequence: {e.stderr}") from e
 
@@ -322,7 +338,15 @@ def _macos_mouse_move(x: int, y: int) -> None:
     """
     try:
         logger.info(f"Moving mouse to {x},{y}")
-        subprocess.run(["cliclick", f"m:{x},{y}"], check=True)
+        subprocess.run(
+            ["cliclick", f"m:{x},{y}"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError("cliclick mouse move timed out") from e
     except FileNotFoundError:
         raise RuntimeError(
             "cliclick not found. Install with: brew install cliclick"
@@ -413,9 +437,11 @@ def _macos_click(button: int) -> None:
     # Get current position
     try:
         result = subprocess.run(
-            ["cliclick", "p"], check=True, capture_output=True, text=True
+            ["cliclick", "p"], check=True, capture_output=True, text=True, timeout=10
         )
         pos = result.stdout.strip()
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError("cliclick cursor position query timed out") from e
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Failed to get cursor position: {e.stderr}") from e
 
@@ -425,8 +451,10 @@ def _macos_click(button: int) -> None:
 
     try:
         result = subprocess.run(
-            ["cliclick", cmd], check=True, capture_output=True, text=True
+            ["cliclick", cmd], check=True, capture_output=True, text=True, timeout=10
         )
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError("cliclick click command timed out") from e
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Failed to click: {e.stderr}") from e
 
@@ -438,9 +466,11 @@ def _macos_drag(x: int, y: int) -> None:
     # Get current position as drag start
     try:
         result = subprocess.run(
-            ["cliclick", "p"], check=True, capture_output=True, text=True
+            ["cliclick", "p"], check=True, capture_output=True, text=True, timeout=10
         )
         start_pos = result.stdout.strip()
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError("cliclick cursor position query timed out") from e
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Failed to get cursor position: {e.stderr}") from e
 
@@ -451,7 +481,10 @@ def _macos_drag(x: int, y: int) -> None:
             check=True,
             capture_output=True,
             text=True,
+            timeout=10,
         )
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError("cliclick drag command timed out") from e
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Failed to drag: {e.stderr}") from e
 
@@ -495,8 +528,20 @@ def computer(
         default_resolution = MAX_SCALING_TARGETS["XGA"]
         logger.info("Fallback to XGA resolution")
 
-    width = int(os.getenv("WIDTH", str(default_resolution["width"])))
-    height = int(os.getenv("HEIGHT", str(default_resolution["height"])))
+    _width_str = os.getenv("WIDTH", str(default_resolution["width"]))
+    _height_str = os.getenv("HEIGHT", str(default_resolution["height"]))
+    try:
+        width = int(_width_str)
+    except ValueError as e:
+        raise ValueError(
+            f"Invalid WIDTH env var: must be an integer, got {_width_str!r}"
+        ) from e
+    try:
+        height = int(_height_str)
+    except ValueError as e:
+        raise ValueError(
+            f"Invalid HEIGHT env var: must be an integer, got {_height_str!r}"
+        ) from e
     logger.info(f"Using API space resolution: {width}x{height}")
 
     if action in ("mouse_move", "left_click_drag"):
@@ -545,7 +590,11 @@ def computer(
             # Get current position and double-click using cliclick's dc command
             try:
                 result = subprocess.run(
-                    ["cliclick", "p"], check=True, capture_output=True, text=True
+                    ["cliclick", "p"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
                 )
                 pos = result.stdout.strip()
                 subprocess.run(
@@ -553,7 +602,10 @@ def computer(
                     check=True,
                     capture_output=True,
                     text=True,
+                    timeout=10,
                 )
+            except subprocess.TimeoutExpired as e:
+                raise RuntimeError("cliclick double-click timed out") from e
             except subprocess.CalledProcessError as e:
                 raise RuntimeError(f"Failed to double-click: {e.stderr}") from e
         else:
@@ -584,16 +636,20 @@ def computer(
     if action == "screenshot":
         path = screenshot()  # Use existing screenshot function
 
-        # Scale if needed
-        # TODO: also scale in screenshot tool for these situations
+        # Resize screenshot from physical resolution to API dimensions
         if path.exists():
-            x, y = _scale_coordinates(
-                _ScalingSource.COMPUTER, width, height, width, height
-            )
-            subprocess.run(
-                ["convert", str(path), "-resize", f"{x}x{y}!", str(path)],
-                check=True,
-            )
+            try:
+                subprocess.run(
+                    ["convert", str(path), "-resize", f"{width}x{height}!", str(path)],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+            except subprocess.TimeoutExpired as e:
+                raise RuntimeError("Image resize timed out") from e
+            except subprocess.CalledProcessError as e:
+                raise RuntimeError(f"Image resize failed: {e.stderr}") from e
             return view_image(path)
         print("Error: Screenshot failed")
         return None
@@ -601,10 +657,16 @@ def computer(
         if IS_MACOS:
             try:
                 output = subprocess.run(
-                    ["cliclick", "p"], capture_output=True, text=True, check=True
+                    ["cliclick", "p"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=10,
                 ).stdout.strip()
                 # cliclick outputs format: "x,y"
                 x, y = map(int, output.split(","))
+            except subprocess.TimeoutExpired as e:
+                raise RuntimeError("cliclick cursor position query timed out") from e
             except FileNotFoundError:
                 raise RuntimeError(
                     "cliclick not found. Install with: brew install cliclick"

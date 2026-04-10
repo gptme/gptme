@@ -60,10 +60,10 @@ To generate this table locally:
 
 .. code-block:: bash
 
-    gptme eval --leaderboard --leaderboard-format rst
-    gptme eval --leaderboard --leaderboard-format csv       # for data analysis
-    gptme eval --leaderboard --leaderboard-format markdown   # for GitHub/blog
-    gptme eval --leaderboard --leaderboard-format html       # self-contained HTML page
+    gptme-eval --leaderboard --leaderboard-format rst
+    gptme-eval --leaderboard --leaderboard-format csv       # for data analysis
+    gptme-eval --leaderboard --leaderboard-format markdown   # for GitHub/blog
+    gptme-eval --leaderboard --leaderboard-format html       # self-contained HTML page
 
 
 Usage
@@ -102,8 +102,13 @@ The evaluation suite is organized into named suites that can be run individually
   Project initialization: ``init-git``, ``init-react``, ``init-rust``. Tests the ability
   to scaffold new projects from scratch.
 
-**practical** — **practical2** — **practical3** — **practical4** — **practical5** — **practical6** — **practical7**
-  A growing series of real-world programming tasks that go beyond basic file I/O:
+**practical** — **practical2** — ... — **practical33**
+  A growing series of real-world programming tasks that go beyond basic file I/O.
+  The practical suites now cover 99 tasks across data processing, refactoring,
+  algorithms, async/concurrency, SQL, validation, graph search, dynamic
+  programming, tree data structures, and classic interview problems.
+
+  Early suites give a good feel for the format:
 
   +------------+------------------------------------------+----------------------------------+
   | Suite      | Description                              | Tests                            |
@@ -130,6 +135,24 @@ The evaluation suite is organized into named suites that can be run individually
   |            | changelog generation                     | changelog-gen                    |
   +------------+------------------------------------------+----------------------------------+
 
+  Later suites extend coverage with semver sorting, Roman numerals, matrix and
+  bracket tasks, async pipelines and worker queues, SQL analytics, tries,
+  LRU caches, interval merging, min-stack, knight moves, histogram area,
+  edit distance, BST operations, coin change, Dijkstra, spiral matrix,
+  number of islands, Kadane's algorithm, 0/1 knapsack, flood fill,
+  trapping rain water, word break, permutations, longest common subsequence,
+  stock trading with cooldown, image rotation, N-Queens, longest increasing
+  subsequence, cycle detection, sliding window maximum, decode ways,
+  meeting rooms, longest palindromic substring, jump game, task scheduler,
+  house robber, max product subarray, finding all anagrams, minimum path sum,
+  gas station, next permutation, word break II, unique paths, rotate array,
+  decode string, top-k frequent elements, partition equal subset sum,
+  3sum, majority element (Boyer-Moore voting), counting bits, combination sum,
+  generate parentheses, single number (XOR), product except self,
+  find duplicate (Floyd's cycle detection), and missing number.
+
+  For the current authoritative suite list, run ``gptme-eval --list``.
+
 Run specific tests or suites by name:
 
 .. code-block:: bash
@@ -141,8 +164,10 @@ Run all practical suites at once (useful for benchmarking):
 
 .. code-block:: bash
 
-    gptme-eval practical practical2 practical3 practical4 practical5 practical6 practical7 \
-        --model anthropic/claude-sonnet-4-6
+    gptme-eval all-practical --model anthropic/claude-sonnet-4-6
+
+    # Or run every suite (basic + browser + init_projects + practical):
+    gptme-eval all --model anthropic/claude-sonnet-4-6
 
 
 Raw Results
@@ -159,15 +184,52 @@ To view raw results locally:
     cat eval_results/*/eval_results.csv | head -50
 
     # Export leaderboard as CSV for analysis
-    gptme eval --leaderboard --leaderboard-format csv
+    gptme-eval --leaderboard --leaderboard-format csv
 
     # Export as JSON for programmatic use
-    gptme eval --leaderboard --leaderboard-format json
+    gptme-eval --leaderboard --leaderboard-format json
 
 
 Other evals
 -----------
 
-We have considered running gptme on other evals such as SWE-Bench, but have not finished it (see `PR #142 <https://github.com/gptme/gptme/pull/142>`_).
+SWE-Bench support is now available via ``gptme-eval-swebench``.
+It can:
 
-If you are interested in running gptme on other evals, drop a comment in the issues!
+- inspect datasets and instances with ``--info``
+- generate ``predictions.jsonl`` in the official SWE-Bench format
+- resume interrupted runs with ``--resume``
+- optionally invoke the official harness with ``--run-harness``
+
+Example single-instance smoke test:
+
+.. code-block:: bash
+
+    gptme-eval-swebench \
+        -m anthropic/claude-sonnet-4-6 \
+        -i django__django-11099
+
+Example full SWE-Bench Lite run:
+
+.. code-block:: bash
+
+    gptme-eval-swebench \
+        -m anthropic/claude-sonnet-4-6 \
+        --resume \
+        --run-harness \
+        --dataset princeton-nlp/SWE-bench_Lite \
+        --run-id gptme_baseline_2026
+
+Notes:
+
+- The built-in summary printed by ``gptme-eval-swebench`` is a lightweight file-coverage heuristic.
+  For authoritative pass/fail results and leaderboard submission, use the official SWE-Bench harness.
+
+- ``--run-harness`` requires Docker plus ``swebench[evaluation]`` dependencies.
+
+- Use ``gptme-eval-swebench --info`` to inspect dataset size and specific instance IDs before launching an expensive run.
+
+See also:
+
+- `PR #1994 <https://github.com/gptme/gptme/pull/1994>`_ — SWE-Bench harness integration
+- `PR #2045 <https://github.com/gptme/gptme/pull/2045>`_ — resume support for interrupted runs

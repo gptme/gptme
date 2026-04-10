@@ -4,6 +4,8 @@ import type {
   ChatConfig,
   ConversationResponse,
   CreateConversationRequest,
+  ExternalSessionCatalogItem,
+  ExternalSessionDetail,
   SendMessageRequest,
   UserInfo,
 } from '@/types/api';
@@ -332,6 +334,20 @@ export class ApiClient {
       onError: (error: string) => void;
       onConfigChanged?: (config: ChatConfig, changedFields: string[]) => void;
       onConnected?: () => void;
+      onReconnectState?: (state: {
+        generating: boolean;
+        pendingTools: Array<{
+          tool_id: string;
+          tooluse: ToolUse;
+          auto_confirm: boolean;
+        }>;
+      }) => void;
+      onConversationEdited?: (data: {
+        index: number;
+        truncated: boolean;
+        log: Message[];
+        branches: Record<string, Message[]>;
+      }) => void;
     }
   ): Promise<void> {
     // Close any existing event stream for this conversation
@@ -481,6 +497,18 @@ export class ApiClient {
             clearTimeout(sessionIdTimeout);
             // Notify that connection is established
             callbacks.onConnected?.();
+            // Restore state on reconnect (pending tools, generating flag)
+            if (callbacks.onReconnectState && (data.pending_tools?.length || data.generating)) {
+              callbacks.onReconnectState({
+                generating: data.generating ?? false,
+                pendingTools: data.pending_tools ?? [],
+              });
+            }
+            break;
+
+          case 'conversation_edited':
+            console.log(`[ApiClient] Conversation edited:`, data);
+            callbacks.onConversationEdited?.(data);
             break;
 
           case 'interrupted':
@@ -574,6 +602,22 @@ export class ApiClient {
     try {
       return await this.fetchJson<ConversationSummary[]>(
         `${this.baseUrl}/api/v2/conversations?limit=${limit}`
+      );
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw new ApiClientError('Request aborted', 499);
+      }
+      throw error;
+    }
+  }
+
+  async searchConversations(query: string, limit: number = 20): Promise<ConversationSummary[]> {
+    if (!this.isConnected) {
+      throw new ApiClientError('Not connected to API');
+    }
+    try {
+      return await this.fetchJson<ConversationSummary[]>(
+        `${this.baseUrl}/api/v2/conversations?search=${encodeURIComponent(query)}&limit=${limit}`
       );
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
@@ -697,23 +741,23 @@ export class ApiClient {
       model?: string;
       stream?: boolean;
       workspace?: string;
+      pendingFiles?: File[];
     }
   ): Promise<string> {
     // Generate conversation ID immediately
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const conversationId = `chat-${timestamp}`;
 
-    // Create user message
+    // Create user message (files will be added after upload)
     const message: Message = {
       role: 'user',
       content: userMessage,
       timestamp: new Date().toISOString(),
     };
 
-    // Create placeholder conversation in store immediately
-    // Set needsInitialStep flag so useConversation triggers step() after subscribing
-    // This fixes the race condition where tokens were missed because step() was called
-    // before the chat page mounted and subscribed to events
+    // Create placeholder conversation in store immediately.
+    // needsInitialStep is always true: useConversation triggers step() after subscribing,
+    // which fixes the race condition where step() was called before the chat page mounted.
     initConversation(
       conversationId,
       {
@@ -727,18 +771,40 @@ export class ApiClient {
       { needsInitialStep: true }
     );
 
-    // Await server-side creation to propagate errors properly
-    await this.createConversation(conversationId, [message], {
-      chat: {
-        model: options?.model,
-        stream: options?.stream,
-        workspace: options?.workspace || '.',
-      },
-    });
+    if (options?.pendingFiles?.length) {
+      // When files are attached: create an empty conversation first (no message yet),
+      // upload files, then send ONE complete message with file paths.
+      // This avoids the duplicate-message bug where createConversation sent msg_no_files
+      // and sendMessage sent a second copy of msg_with_files.
+      await this.createConversation(conversationId, [], {
+        chat: {
+          model: options?.model,
+          stream: options?.stream,
+          workspace: options?.workspace || '.',
+        },
+      });
+      try {
+        const uploadResult = await this.uploadFiles(conversationId, options.pendingFiles);
+        const filePaths = uploadResult.files.map((f) => f.path);
+        await this.sendMessage(conversationId, { ...message, files: filePaths });
+      } catch (error) {
+        console.error('[API] Failed to upload pending files:', error);
+        // Fall back: send original message without files
+        await this.sendMessage(conversationId, message);
+      }
+    } else {
+      // No files: create conversation with the initial message.
+      // useConversation will call step() after subscribing (needsInitialStep: true above).
+      await this.createConversation(conversationId, [message], {
+        chat: {
+          model: options?.model,
+          stream: options?.stream,
+          workspace: options?.workspace || '.',
+        },
+      });
+    }
 
-    // NOTE: step() is NOT called here anymore!
-    // The useConversation hook will call step() after subscribing to events,
-    // which fixes the race condition where first tokens were missed.
+    // NOTE: step() is NOT called here — useConversation calls it after subscribing to SSE.
 
     // Return ID immediately after server creation
     return conversationId;
@@ -761,6 +827,93 @@ export class ApiClient {
       }
       throw error;
     }
+  }
+
+  async editMessage(
+    logfile: string,
+    index: number,
+    content?: string,
+    truncate: boolean = false,
+    files?: string[]
+  ): Promise<ConversationResponse> {
+    if (!this.isConnected) {
+      throw new ApiClientError('Not connected to API');
+    }
+    const url = `${this.baseUrl}/api/v2/conversations/${logfile}/messages/${index}${truncate ? '?truncate=1' : ''}`;
+    const body: Record<string, unknown> = {};
+    if (content !== undefined) body.content = content;
+    if (files !== undefined) body.files = files;
+    return this.fetchJson<ConversationResponse>(url, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async deleteMessage(logfile: string, index: number): Promise<ConversationResponse> {
+    if (!this.isConnected) {
+      throw new ApiClientError('Not connected to API');
+    }
+    const url = `${this.baseUrl}/api/v2/conversations/${logfile}/messages/${index}`;
+    return this.fetchJson<ConversationResponse>(url, {
+      method: 'DELETE',
+    });
+  }
+
+  async rerunTools(logfile: string): Promise<{ status: string; tool_ids: string[] }> {
+    if (!this.isConnected) {
+      throw new ApiClientError('Not connected to API');
+    }
+    const sessionId = this.sessions$.get(logfile);
+    if (!sessionId) {
+      throw new ApiClientError('No active session for this conversation');
+    }
+    return this.fetchJson(`${this.baseUrl}/api/v2/conversations/${logfile}/rerun`, {
+      method: 'POST',
+      body: JSON.stringify({ session_id: sessionId }),
+    });
+  }
+
+  async uploadFiles(
+    conversationId: string,
+    files: File[]
+  ): Promise<{
+    files: Array<{
+      name: string;
+      path: string;
+      type: string;
+      size: number;
+      modified: string;
+      mime_type: string | null;
+    }>;
+  }> {
+    if (!this.isConnected) {
+      throw new ApiClientError('Not connected to API');
+    }
+
+    const formData = new FormData();
+    for (const file of files) {
+      formData.append('file', file, file.name);
+    }
+
+    const headers: Record<string, string> = {};
+    if (this.authHeader) {
+      headers['Authorization'] = this.authHeader;
+    }
+    // Note: do NOT set Content-Type — browser sets it with boundary for multipart
+
+    const response = await fetch(
+      `${this.baseUrl}/api/v2/conversations/${conversationId}/workspace/upload`,
+      { method: 'POST', headers, body: formData }
+    );
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new ApiClientError(
+        isApiErrorResponse(data) ? data.error : `Upload failed: ${response.status}`,
+        response.status
+      );
+    }
+    return data;
   }
 
   async step(
@@ -967,6 +1120,17 @@ export class ApiClient {
       console.error('[ApiClient] Failed to create agent:', error);
       throw error;
     }
+  }
+
+  async getExternalSessions(days = 30): Promise<ExternalSessionCatalogItem[]> {
+    const url = `${this.baseUrl}/api/v2/external-sessions?days=${days}`;
+    const resp = await this.fetchJson<{ sessions: ExternalSessionCatalogItem[] }>(url);
+    return resp.sessions ?? [];
+  }
+
+  async getExternalSession(id: string, days = 30): Promise<ExternalSessionDetail> {
+    const url = `${this.baseUrl}/api/v2/external-sessions/${id}?days=${days}`;
+    return await this.fetchJson<ExternalSessionDetail>(url);
   }
 }
 

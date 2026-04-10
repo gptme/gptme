@@ -1,7 +1,9 @@
 import base64
 import os
 import shlex
+import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from abc import abstractmethod
@@ -46,45 +48,60 @@ class SimpleExecutionEnv(FileStore, ExecutionEnv):
     upload() and download() are inherited from FileStore.
     """
 
+    def __init__(self, working_dir: Path | None = None):
+        super().__init__(working_dir=working_dir)
+        self._bin_dir: Path | None = None
+        # Ensure 'python' command is available (macOS only has 'python3')
+        if not shutil.which("python"):
+            python3 = shutil.which("python3") or sys.executable
+            if python3:
+                self._bin_dir = Path(tempfile.mkdtemp(prefix="gptme-eval-bin-"))
+                (self._bin_dir / "python").symlink_to(python3)
+
+    def cleanup(self) -> None:
+        """Clean up working directory and helper bin directory."""
+        super().cleanup()
+        if self._bin_dir and self._bin_dir.exists():
+            shutil.rmtree(self._bin_dir, ignore_errors=True)
+
     def run(self, command, silent=True) -> tuple[str, str, int]:
-        start = time.time()
         if not silent:
             print("\n--- Start of run ---")
         # Use explicit shell invocation with list-based arguments for security.
         # This avoids shell=True which can be vulnerable to shell injection.
         # The command is passed to bash -c, similar to DockerExecutionEnv.
+        env = None
+        if self._bin_dir:
+            env = os.environ.copy()
+            env["PATH"] = str(self._bin_dir) + os.pathsep + env.get("PATH", "")
         p = subprocess.Popen(
             ["/bin/bash", "-c", command],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=self.working_dir,
+            env=env,
             text=True,
         )
         if not silent:
             print("$", command)
-        stdout_full, stderr_full = "", ""
-        while p.poll() is None or p.stdout or p.stderr:
-            assert p.stdout is not None
-            assert p.stderr is not None
-            stdout = p.stdout.readline()
-            stderr = p.stderr.readline()
-            if stdout:
-                if not silent:
-                    print(stdout, end="")
-                stdout_full += stdout
-            if stderr:
-                if not silent:
-                    print(stderr, end="")
-                stderr_full += stderr
-            if not stdout and not stderr and p.poll() is not None:
-                break
-            if time.time() - start > 30:
-                if not silent:
-                    print("Timeout!")
-                p.kill()
-                break
+        # Use communicate() to read both pipes concurrently, avoiding the
+        # deadlock that sequential readline() causes when one pipe's buffer
+        # fills while the other is blocked waiting for data.
+        try:
+            stdout_full, stderr_full = p.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            if not silent:
+                print("Timeout!")
+            p.kill()
+            stdout_full, stderr_full = p.communicate()
+
         if not silent:
+            if stdout_full:
+                print(stdout_full, end="")
+            if stderr_full:
+                print(stderr_full, end="")
             print("--- Finished run ---\n")
+        assert p.returncode is not None
         return stdout_full, stderr_full, p.returncode
 
 
@@ -131,6 +148,7 @@ class DockerExecutionEnv(ExecutionEnv):
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=60,
             )
             self.container_id = result.stdout.strip()
         except subprocess.CalledProcessError as e:
@@ -140,6 +158,10 @@ class DockerExecutionEnv(ExecutionEnv):
             else:
                 error_msg += f"Error: {e.stderr}"
             raise RuntimeError(error_msg) from e
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError(
+                f"Timed out starting Docker container with image '{self.image}' after {e.timeout}s."
+            ) from e
 
     def run(self, command: str, silent: bool = True) -> tuple[str, str, int]:
         """Execute command inside Docker container."""
@@ -149,7 +171,6 @@ class DockerExecutionEnv(ExecutionEnv):
         # Ensure container_id is not None (mypy type narrowing)
         assert self.container_id is not None
 
-        start = time.time()
         if not silent:
             print("\n--- Start of run (Docker) ---")
             print("$", command)
@@ -172,28 +193,18 @@ class DockerExecutionEnv(ExecutionEnv):
             text=True,
         )
 
-        stdout_full, stderr_full = "", ""
-        while p.poll() is None or p.stdout or p.stderr:
-            assert p.stdout is not None
-            assert p.stderr is not None
-            stdout = p.stdout.readline()
-            stderr = p.stderr.readline()
-            if stdout:
-                if not silent:
-                    print(stdout, end="")
-                stdout_full += stdout
-            if stderr:
-                if not silent:
-                    print(stderr, end="")
-                stderr_full += stderr
-            if not stdout and not stderr and p.poll() is not None:
-                break
-            if time.time() - start > 30:
-                if not silent:
-                    print("Timeout!")
-                p.kill()
-                # Stop container to terminate the running command
-                if self.container_id:
+        # Use communicate() to read both pipes concurrently, avoiding the
+        # deadlock that sequential readline() causes when one pipe's buffer
+        # fills while the other is blocked waiting for data.
+        try:
+            stdout_full, stderr_full = p.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            if not silent:
+                print("Timeout!")
+            p.kill()
+            # Stop container to terminate the running command
+            if self.container_id:
+                try:
                     subprocess.run(
                         ["docker", "stop", self.container_id],
                         check=False,
@@ -201,17 +212,30 @@ class DockerExecutionEnv(ExecutionEnv):
                         stderr=subprocess.DEVNULL,
                         timeout=5,
                     )
-                break
+                except subprocess.TimeoutExpired:
+                    pass  # best-effort; cleanup() will handle removal
+            stdout_full, stderr_full = p.communicate()
 
         if not silent:
+            if stdout_full:
+                print(stdout_full, end="")
+            if stderr_full:
+                print(stderr_full, end="")
             print("--- Finished run (Docker) ---\n")
 
+        assert p.returncode is not None
         return stdout_full, stderr_full, p.returncode
 
     def upload(self, files: Files) -> None:
         """Upload files to container via mounted host directory."""
         for name, content in files.items():
             path = self.host_dir / name
+            # Validate path stays within host_dir to prevent path traversal
+            # (matches FileStore.upload check)
+            try:
+                path.resolve().relative_to(self.host_dir.resolve())
+            except ValueError as err:
+                raise ValueError(f"Path traversal detected: {name}") from err
             path.parent.mkdir(parents=True, exist_ok=True)
             if isinstance(content, str):
                 with open(path, "w") as f:
@@ -237,18 +261,26 @@ class DockerExecutionEnv(ExecutionEnv):
     def cleanup(self) -> None:
         """Stop and remove Docker container."""
         if self.container_id:
-            subprocess.run(
-                ["docker", "stop", self.container_id],
-                check=False,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            subprocess.run(
-                ["docker", "rm", self.container_id],
-                check=False,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+            try:
+                subprocess.run(
+                    ["docker", "stop", self.container_id],
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=10,
+                )
+            except subprocess.TimeoutExpired:
+                pass  # best-effort; proceed to docker rm
+            try:
+                subprocess.run(
+                    ["docker", "rm", "-f", self.container_id],
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=10,
+                )
+            except subprocess.TimeoutExpired:
+                pass  # best-effort cleanup
 
     def __del__(self) -> None:
         """Cleanup container on object destruction."""
@@ -364,8 +396,14 @@ class DockerGPTMeEnv(DockerExecutionEnv):
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=120,  # 2 min cap for docker startup / image pull
             )
             self.container_id = result.stdout.strip()
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError(
+                f"Docker container startup timed out after 120s for image '{self.image}'. "
+                "The image may need to be pre-pulled: docker pull gptme-eval:latest"
+            ) from e
         except subprocess.CalledProcessError as e:
             error_msg = f"Failed to start Docker container with image '{self.image}'.\n"
             if "Unable to find image" in e.stderr or "No such image" in e.stderr:
@@ -454,25 +492,17 @@ class DockerGPTMeEnv(DockerExecutionEnv):
             text=True,
         )
 
-        stdout_full, stderr_full = "", ""
-        while p.poll() is None or p.stdout or p.stderr:
-            assert p.stdout is not None
-            assert p.stderr is not None
-            stdout = p.stdout.readline()
-            stderr = p.stderr.readline()
-            if stdout:
-                print(stdout, end="")
-                stdout_full += stdout
-            if stderr:
-                print(stderr, end="")
-                stderr_full += stderr
-            if not stdout and not stderr and p.poll() is not None:
-                break
-            if time.time() - start > self.timeout:
-                print(f"Timeout after {self.timeout}s!")
-                p.kill()
-                # Stop container to terminate gptme
-                if self.container_id:
+        # Use communicate() to read both pipes concurrently, avoiding the
+        # deadlock that sequential readline() causes when one pipe's buffer
+        # fills while the other is blocked waiting for data.
+        try:
+            stdout_full, stderr_full = p.communicate(timeout=self.timeout)
+        except subprocess.TimeoutExpired:
+            print(f"Timeout after {self.timeout}s!")
+            p.kill()
+            # Stop container to terminate gptme
+            if self.container_id:
+                try:
                     subprocess.run(
                         ["docker", "stop", self.container_id],
                         check=False,
@@ -480,7 +510,14 @@ class DockerGPTMeEnv(DockerExecutionEnv):
                         stderr=subprocess.DEVNULL,
                         timeout=5,
                     )
-                break
+                except subprocess.TimeoutExpired:
+                    pass  # best-effort; cleanup() will handle removal
+            stdout_full, stderr_full = p.communicate()
+
+        if stdout_full:
+            print(stdout_full, end="")
+        if stderr_full:
+            print(stderr_full, end="")
 
         duration = time.time() - start
         print(f"--- Finished gptme execution (Docker) in {duration:.1f}s ---\n")
@@ -675,13 +712,16 @@ class DockerClaudeCodeEnv(DockerExecutionEnv):
             timed_out = True
             p.kill()
             if self.container_id:
-                subprocess.run(
-                    ["docker", "stop", self.container_id],
-                    check=False,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=5,
-                )
+                try:
+                    subprocess.run(
+                        ["docker", "stop", self.container_id],
+                        check=False,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=5,
+                    )
+                except subprocess.TimeoutExpired:
+                    pass  # best-effort; cleanup() will handle removal
             stdout_full, stderr_full = p.communicate()
 
         if stdout_full:

@@ -14,6 +14,7 @@ from flask import request
 from pydantic import BaseModel, Field
 
 from ..logmanager import LogManager
+from .api_v2_common import _validate_conversation_id
 from .auth import require_auth
 from .openapi_docs import ErrorResponse, api_doc_simple
 
@@ -49,6 +50,25 @@ class FileListResponse(BaseModel):
     """Response containing a list of files."""
 
     files: list[FileMetadata] = Field(..., description="List of files and directories")
+
+
+class UploadedFileMetadata(BaseModel):
+    """Metadata for an uploaded file."""
+
+    name: str = Field(..., description="File name")
+    path: str = Field(
+        ..., description="Absolute filesystem path for use in message files"
+    )
+    type: Literal["file", "directory"] = Field(..., description="File type")
+    size: int = Field(..., description="File size in bytes")
+    modified: str = Field(..., description="Last modified timestamp (ISO format)")
+    mime_type: str | None = Field(None, description="MIME type (files only)")
+
+
+class UploadFileResponse(BaseModel):
+    """Response for file upload."""
+
+    files: list[UploadedFileMetadata] = Field(..., description="List of uploaded files")
 
 
 class FilePreviewResponse(BaseModel):
@@ -149,6 +169,28 @@ def safe_workspace_path(workspace: Path, path: str | None = None) -> Path:
     return full_path
 
 
+def allocate_attachment_path(
+    attachments_dir: Path, filename: str, reserved_names: set[str] | None = None
+) -> Path:
+    """Allocate a non-conflicting path inside the attachments directory."""
+    reserved_names = reserved_names or set()
+    candidate = filename
+    candidate_path = attachments_dir / candidate
+    if candidate not in reserved_names and not candidate_path.exists():
+        return candidate_path
+
+    path = Path(filename)
+    suffix = "".join(path.suffixes)
+    stem = path.name[: -len(suffix)] if suffix else path.name
+    counter = 1
+    while True:
+        candidate = f"{stem}-{counter}{suffix}"
+        candidate_path = attachments_dir / candidate
+        if candidate not in reserved_names and not candidate_path.exists():
+            return candidate_path
+        counter += 1
+
+
 def list_directory(
     path: Path, workspace: Path, show_hidden: bool = False
 ) -> list[FileType]:
@@ -194,7 +236,17 @@ def list_directory(
             "in": "query",
             "schema": {"type": "boolean", "default": False},
             "description": "Whether to include hidden files and directories",
-        }
+        },
+        {
+            "name": "root",
+            "in": "query",
+            "schema": {
+                "type": "string",
+                "enum": ["workspace", "attachments"],
+                "default": "workspace",
+            },
+            "description": "Root directory to browse: 'workspace' (default) or 'attachments' (uploaded files)",
+        },
     ],
     tags=["workspace"],
 )
@@ -203,11 +255,25 @@ def browse_workspace(conversation_id: str, subpath: str | None = None):
 
     List contents of a conversation's workspace directory.
     Returns file metadata for a single file or directory listing.
+    Use ?root=attachments to browse uploaded attachment files instead.
     """
+    if error := _validate_conversation_id(conversation_id):
+        return error
     try:
         # Load the conversation to get its workspace
         manager = LogManager.load(conversation_id, lock=False)
-        workspace = manager.workspace
+
+        root_param = request.args.get("root", "workspace")
+        if root_param not in ("workspace", "attachments"):
+            return flask.jsonify(
+                {"error": "root must be 'workspace' or 'attachments'"}
+            ), 400
+        if root_param == "attachments":
+            workspace = manager.logdir / "attachments"
+            if not workspace.exists():
+                workspace.mkdir(parents=True, exist_ok=True)
+        else:
+            workspace = manager.workspace
 
         if not workspace.is_dir():
             return flask.jsonify({"error": "Workspace not found"}), 404
@@ -223,8 +289,174 @@ def browse_workspace(conversation_id: str, subpath: str | None = None):
 
     except ValueError as e:
         return flask.jsonify({"error": str(e)}), 400
+    except FileNotFoundError:
+        return flask.jsonify({"error": "Conversation not found"}), 404
     except Exception as e:
         logger.exception("Error browsing workspace")
+        return flask.jsonify({"error": str(e)}), 500
+
+
+@workspace_api.route(
+    "/api/v2/conversations/<string:conversation_id>/workspace/upload",
+    methods=["POST"],
+)
+@require_auth
+@api_doc_simple(
+    responses={
+        200: UploadFileResponse,
+        400: ErrorResponse,
+        404: ErrorResponse,
+        413: ErrorResponse,
+        500: ErrorResponse,
+    },
+    tags=["workspace"],
+)
+def upload_files(conversation_id: str):
+    """Upload files to conversation attachments.
+
+    Upload one or more files to a conversation's attachments directory
+    (<logdir>/attachments/). Accepts multipart/form-data with file fields.
+    Uploaded files are intended for the agent to read as context; the agent can
+    move them into the workspace if it needs to modify them.
+    Returns absolute file paths so they can be included directly in message files.
+    """
+    if error := _validate_conversation_id(conversation_id):
+        return error
+    try:
+        manager = LogManager.load(conversation_id, lock=False)
+        attachments_dir = manager.logdir / "attachments"
+
+        if not request.files:
+            return flask.jsonify({"error": "No files provided"}), 400
+
+        # Size limit: 50MB per file
+        max_size = 50 * 1024 * 1024
+
+        # Collect files from all form field names (MultiDict may have duplicates)
+        all_files = []
+        for key in request.files:
+            all_files.extend(request.files.getlist(key))
+
+        # First pass: validate all files before writing any (prevents partial-upload state)
+        validated: list[tuple[Path, bytes]] = []
+        reserved_names: set[str] = set()
+        for file in all_files:
+            if not file.filename:
+                continue
+
+            # Sanitize filename (prevent path traversal via filename)
+            filename = Path(file.filename).name
+            if not filename or filename.startswith("."):
+                continue
+
+            # Check file size by reading into memory
+            content = file.read()
+            if len(content) > max_size:
+                return (
+                    flask.jsonify(
+                        {
+                            "error": f"File '{filename}' exceeds 50MB limit "
+                            f"({len(content) / 1024 / 1024:.1f}MB)"
+                        }
+                    ),
+                    413,
+                )
+            file_path = allocate_attachment_path(
+                attachments_dir, filename, reserved_names
+            )
+            reserved_names.add(file_path.name)
+            validated.append((file_path, content))
+
+        if not validated:
+            return flask.jsonify({"error": "No valid files uploaded"}), 400
+
+        # Second pass: write all files (only reached if all files passed validation)
+        attachments_dir.mkdir(parents=True, exist_ok=True)
+        uploaded: list[FileType] = []
+        for file_path, content in validated:
+            file_path.write_bytes(content)
+            stat = file_path.stat()
+            uploaded.append(
+                {
+                    "name": file_path.name,
+                    "path": str(
+                        file_path.relative_to(manager.logdir)
+                    ),  # logdir-relative: "attachments/filename"
+                    "type": "file",
+                    "size": stat.st_size,
+                    "modified": datetime.fromtimestamp(
+                        stat.st_mtime, tz=timezone.utc
+                    ).isoformat(),
+                    "mime_type": mimetypes.guess_type(file_path)[0],
+                }
+            )
+
+        return flask.jsonify({"files": uploaded})
+
+    except FileNotFoundError:
+        return flask.jsonify({"error": "Conversation not found"}), 404
+    except ValueError as e:
+        return flask.jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.exception("Error uploading files")
+        return flask.jsonify({"error": str(e)}), 500
+
+
+@workspace_api.route(
+    "/api/v2/conversations/<string:conversation_id>/files/<path:filepath>"
+)
+@require_auth
+@api_doc_simple(
+    responses={
+        200: None,  # raw file content
+        400: ErrorResponse,
+        404: ErrorResponse,
+        500: ErrorResponse,
+    },
+    tags=["workspace"],
+)
+def serve_conversation_file(conversation_id: str, filepath: str):
+    """Serve a file from a conversation.
+
+    Serves files from the conversation's workspace or logdir (e.g. attachments/).
+    Used by the webui to display images and linked files in messages.
+
+    Looks up files relative to the conversation's logdir first, then workspace.
+    """
+    if error := _validate_conversation_id(conversation_id):
+        return error
+    try:
+        manager = LogManager.load(conversation_id, lock=False)
+        logdir = manager.logdir
+        workspace = manager.workspace
+
+        # Resolve path against logdir (covers workspace/ and attachments/)
+        try:
+            path = safe_workspace_path(logdir, filepath)
+        except ValueError:
+            return flask.jsonify({"error": "Path escapes conversation directory"}), 400
+
+        if not path.exists():
+            # Fallback: try workspace-relative (for backwards compat)
+            try:
+                path = safe_workspace_path(workspace, filepath)
+            except ValueError:
+                # filepath is valid within logdir but escapes workspace
+                # (unusual config); fall through to 404
+                pass
+
+        if not path.is_file():
+            return flask.jsonify({"error": "File not found"}), 404
+
+        mime_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
+        return flask.send_file(path, mimetype=mime_type)
+
+    except FileNotFoundError:
+        return flask.jsonify({"error": "Conversation not found"}), 404
+    except ValueError as e:
+        return flask.jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.exception("Error serving conversation file")
         return flask.jsonify({"error": str(e)}), 500
 
 
@@ -251,10 +483,21 @@ def preview_file(conversation_id: str, filepath: str):
     - Images: returned as binary data with appropriate MIME type
     - Binary files: returns metadata only
     """
+    if error := _validate_conversation_id(conversation_id):
+        return error
     try:
         # Load the conversation to get its workspace
         manager = LogManager.load(conversation_id, lock=False)
-        workspace = manager.workspace
+        root_param = flask.request.args.get("root", "workspace")
+        if root_param not in ("workspace", "attachments"):
+            return flask.jsonify(
+                {"error": "root must be 'workspace' or 'attachments'"}
+            ), 400
+        if root_param == "attachments":
+            workspace = manager.logdir / "attachments"
+            workspace.mkdir(parents=True, exist_ok=True)
+        else:
+            workspace = manager.workspace
 
         if not workspace.is_dir():
             return flask.jsonify({"error": "Workspace not found"}), 404
@@ -280,6 +523,67 @@ def preview_file(conversation_id: str, filepath: str):
 
     except ValueError as e:
         return flask.jsonify({"error": str(e)}), 400
+    except FileNotFoundError:
+        return flask.jsonify({"error": "Conversation not found"}), 404
     except Exception as e:
         logger.exception("Error previewing file")
+        return flask.jsonify({"error": str(e)}), 500
+
+
+@workspace_api.route(
+    "/api/v2/conversations/<string:conversation_id>/workspace/<path:filepath>/download"
+)
+@require_auth
+@api_doc_simple(
+    responses={
+        200: None,  # raw file content, not JSON
+        400: ErrorResponse,
+        404: ErrorResponse,
+        500: ErrorResponse,
+    },
+    tags=["workspace"],
+)
+def download_file(conversation_id: str, filepath: str):
+    """Download workspace file.
+
+    Download raw file content from the conversation's workspace.
+    Returns the file with appropriate Content-Type and Content-Disposition
+    headers for direct download.
+    """
+    if error := _validate_conversation_id(conversation_id):
+        return error
+    try:
+        manager = LogManager.load(conversation_id, lock=False)
+        root_param = flask.request.args.get("root", "workspace")
+        if root_param not in ("workspace", "attachments"):
+            return flask.jsonify(
+                {"error": "root must be 'workspace' or 'attachments'"}
+            ), 400
+        if root_param == "attachments":
+            workspace = manager.logdir / "attachments"
+            workspace.mkdir(parents=True, exist_ok=True)
+        else:
+            workspace = manager.workspace
+
+        if not workspace.is_dir():
+            return flask.jsonify({"error": "Workspace not found"}), 404
+
+        path = safe_workspace_path(workspace, filepath)
+        if not path.is_file():
+            return flask.jsonify({"error": "File not found"}), 404
+
+        return flask.send_file(
+            path,
+            mimetype=WorkspaceFile(path, workspace).mime_type
+            or "application/octet-stream",
+            as_attachment=True,
+            download_name=path.name,
+        )
+
+    except ValueError as e:
+        return flask.jsonify({"error": str(e)}), 400
+    except FileNotFoundError:
+        return flask.jsonify({"error": "Conversation not found"}), 404
+    except Exception as e:
+        logger.exception("Error downloading file")
         return flask.jsonify({"error": str(e)}), 500

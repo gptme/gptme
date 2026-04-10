@@ -481,6 +481,89 @@ class TestLessonSearch:
         assert len(results) == 1
 
 
+class TestExtraLessonDirsEnv:
+    """Tests for GPTME_LESSONS_EXTRA_DIRS environment variable."""
+
+    def test_extra_dirs_adds_lessons(self, sample_lesson_content, monkeypatch):
+        """Test that GPTME_LESSONS_EXTRA_DIRS adds extra lesson directories."""
+        clear_cache()
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_extra:
+            extra_dir = Path(tmp_extra) / "extra-lessons"
+            extra_dir.mkdir()
+            content = sample_lesson_content.replace("Test Lesson", "Extra Lesson")
+            (extra_dir / "extra.md").write_text(content)
+
+            monkeypatch.setenv("GPTME_LESSONS_EXTRA_DIRS", str(extra_dir))
+
+            # _default_dirs should include the extra dir
+            default_dirs = LessonIndex._default_dirs()
+            assert any(d.resolve() == extra_dir.resolve() for d in default_dirs), (
+                f"Extra dir not found in default dirs: {default_dirs}"
+            )
+
+    def test_extra_dirs_multiple_colon_separated(
+        self, sample_lesson_content, monkeypatch
+    ):
+        """Test that multiple dirs can be specified with colon separator."""
+        clear_cache()
+        import tempfile
+
+        with (
+            tempfile.TemporaryDirectory() as tmp1,
+            tempfile.TemporaryDirectory() as tmp2,
+        ):
+            dir1 = Path(tmp1) / "lessons1"
+            dir2 = Path(tmp2) / "lessons2"
+            dir1.mkdir()
+            dir2.mkdir()
+
+            (dir1 / "a.md").write_text(
+                sample_lesson_content.replace("Test Lesson", "Lesson A")
+            )
+            (dir2 / "b.md").write_text(
+                sample_lesson_content.replace("Test Lesson", "Lesson B")
+            )
+
+            monkeypatch.setenv("GPTME_LESSONS_EXTRA_DIRS", f"{dir1}:{dir2}")
+
+            default_dirs = LessonIndex._default_dirs()
+            resolved = [d.resolve() for d in default_dirs]
+            assert dir1.resolve() in resolved
+            assert dir2.resolve() in resolved
+
+    def test_extra_dirs_nonexistent_logs_warning(self, monkeypatch, caplog):
+        """Test that a nonexistent extra dir logs a warning but does not raise."""
+        import logging
+
+        clear_cache()
+        monkeypatch.setenv("GPTME_LESSONS_EXTRA_DIRS", "/nonexistent/path/lessons")
+
+        with caplog.at_level(logging.WARNING):
+            default_dirs = LessonIndex._default_dirs()
+        assert any("directory not found" in m for m in caplog.messages)
+        assert not any(str(d) == "/nonexistent/path/lessons" for d in default_dirs)
+
+    def test_extra_dirs_empty_string(self, monkeypatch):
+        """Test that empty string is handled gracefully."""
+        clear_cache()
+        monkeypatch.setenv("GPTME_LESSONS_EXTRA_DIRS", "")
+
+        # Should not raise or add any extra dirs
+        default_dirs = LessonIndex._default_dirs()
+        assert isinstance(default_dirs, list)
+
+    def test_extra_dirs_not_set(self, monkeypatch):
+        """Test that unset env var doesn't affect behavior."""
+        clear_cache()
+        monkeypatch.delenv("GPTME_LESSONS_EXTRA_DIRS", raising=False)
+
+        # Should work normally
+        default_dirs = LessonIndex._default_dirs()
+        assert isinstance(default_dirs, list)
+
+
 class TestWorktreeExclusion:
     """Test that lessons in worktree directories are excluded."""
 

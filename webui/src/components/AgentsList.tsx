@@ -5,6 +5,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { formatDistanceToNow } from 'date-fns';
 import type { ConversationSummary } from '@/types/conversation';
 import { selectedAgent$ } from '@/stores/sidebar';
+import { useApi } from '@/contexts/ApiContext';
 import { use$ } from '@legendapp/state/react';
 import type { FC } from 'react';
 
@@ -19,6 +20,8 @@ export const AgentsList: FC<AgentsListProps> = ({
   onSelectAgent,
   handleCreateAgent,
 }) => {
+  const { connectionConfig } = useApi();
+  const baseUrl = connectionConfig.baseUrl.replace(/\/+$/, '');
   const agents = extractAgentsFromConversations(conversations);
   const selectedAgent = use$(selectedAgent$);
 
@@ -70,9 +73,17 @@ export const AgentsList: FC<AgentsListProps> = ({
             >
               <div className="flex w-full items-center justify-between">
                 <div className="flex items-center space-x-2">
-                  <Bot
-                    className={`h-4 w-4 ${isSelected ? 'text-primary-foreground' : 'text-blue-500'}`}
-                  />
+                  {agent.hasAvatar && agent.path ? (
+                    <img
+                      src={`${baseUrl}/api/v2/agents/avatar?path=${encodeURIComponent(agent.path)}`}
+                      alt={agent.name}
+                      className="h-5 w-5 rounded-full object-cover"
+                    />
+                  ) : (
+                    <Bot
+                      className={`h-4 w-4 ${isSelected ? 'text-primary-foreground' : 'text-blue-500'}`}
+                    />
+                  )}
                   <span className="text-sm font-medium">{agent.name}</span>
                 </div>
                 <span

@@ -6,10 +6,45 @@ import os
 from pathlib import Path
 from typing import Literal, TypedDict
 
+import flask
 from typing_extensions import NotRequired
 
 from ..message import Message
-from ..util.uri import URI
+from ..util.uri import URI, is_uri
+
+
+def _validate_conversation_id(
+    conversation_id: str,
+) -> tuple[flask.Response, int] | None:
+    """Validate conversation_id to prevent path traversal attacks.
+
+    Returns None if valid, or (error_response, status_code) if invalid.
+
+    The ``..`` check is intentionally conservative: it rejects any ID containing
+    two consecutive dots, including names like ``my..project`` that aren't true
+    traversals. Since ``/`` and ``\\`` are already blocked, the only dangerous
+    single-component form is a bare ``..``, but substring matching is simpler
+    and the false-positive risk (rejecting ``..`` in a real conversation name)
+    is negligible in practice.
+    """
+    if "/" in conversation_id or ".." in conversation_id or "\\" in conversation_id:
+        return flask.jsonify({"error": "Invalid conversation_id"}), 400
+    return None
+
+
+def _validate_branch(branch: object) -> tuple[flask.Response, int] | None:
+    """Validate branch name to prevent path traversal attacks (CWE-22).
+
+    Branch names are used to construct file paths like ``branches/{branch}.jsonl``,
+    so they must not contain path separators or traversal sequences.
+
+    Returns None if valid, or (error_response, status_code) if invalid.
+    """
+    if not isinstance(branch, str):
+        return flask.jsonify({"error": "Invalid branch name"}), 400
+    if "/" in branch or ".." in branch or "\\" in branch:
+        return flask.jsonify({"error": "Invalid branch name"}), 400
+    return None
 
 
 def _is_debug_errors_enabled() -> bool:
@@ -24,18 +59,25 @@ def _is_debug_errors_enabled() -> bool:
     return os.environ.get("GPTME_DEBUG_ERRORS", "").lower() in ("1", "true", "yes")
 
 
-def _abs_to_rel_workspace(path: str | Path | URI, workspace: Path) -> str:
+def _abs_to_rel_workspace(
+    path: str | Path | URI, workspace: Path, logdir: Path | None = None
+) -> str:
     """Convert an absolute path to a relative path.
 
     URIs are returned as-is since they are not workspace-relative.
+    Files under workspace are returned relative to workspace.
+    Files under logdir (e.g. attachments/) are returned relative to logdir.
     """
     # URIs should be returned as-is (they're not workspace-relative)
-    if isinstance(path, URI):
+    if isinstance(path, URI) or (isinstance(path, str) and is_uri(path)):
         return str(path)
 
     path = Path(path).resolve()
     if path.is_relative_to(workspace):
         return str(path.relative_to(workspace))
+    # For files outside workspace (e.g. logdir/attachments/), normalize against logdir
+    if logdir is not None and path.is_relative_to(logdir):
+        return str(path.relative_to(logdir))
     return str(path)
 
 
@@ -47,6 +89,7 @@ class MessageDict(TypedDict):
     timestamp: str
     files: NotRequired[list[str] | None]
     hide: NotRequired[bool]
+    metadata: NotRequired[dict]
 
 
 class ToolUseDict(TypedDict):
@@ -77,6 +120,7 @@ class BaseEvent(TypedDict):
         "interrupted",
         "error",
         "config_changed",
+        "conversation_edited",
     ]
 
 
@@ -84,6 +128,8 @@ class ConnectedEvent(BaseEvent):
     """Sent when a client connects to the event stream."""
 
     session_id: str
+    generating: NotRequired[bool]
+    pending_tools: NotRequired[list]
 
 
 class PingEvent(BaseEvent):
@@ -179,6 +225,15 @@ class ConfigChangedEvent(BaseEvent):
     changed_fields: list[str]
 
 
+class ConversationEditedEvent(BaseEvent):
+    """Sent when a message is edited (and optionally truncated)."""
+
+    index: int
+    truncated: bool
+    log: list
+    branches: dict
+
+
 # Union type for all possible events
 EventType = (
     ConnectedEvent
@@ -193,10 +248,11 @@ EventType = (
     | InterruptedEvent
     | ErrorEvent
     | ConfigChangedEvent
+    | ConversationEditedEvent
 )
 
 
-def msg2dict(msg: Message, workspace: Path) -> MessageDict:
+def msg2dict(msg: Message, workspace: Path, logdir: Path | None = None) -> MessageDict:
     """Convert a Message object to a dictionary."""
     result: MessageDict = {
         "role": msg.role,
@@ -204,7 +260,11 @@ def msg2dict(msg: Message, workspace: Path) -> MessageDict:
         "timestamp": msg.timestamp.isoformat(),
     }
     if msg.files:
-        result["files"] = [_abs_to_rel_workspace(f, workspace) for f in msg.files]
+        result["files"] = [
+            _abs_to_rel_workspace(f, workspace, logdir) for f in msg.files
+        ]
     if msg.hide:
         result["hide"] = True
+    if msg.metadata:
+        result["metadata"] = dict(msg.metadata)
     return result

@@ -14,6 +14,7 @@ import os
 import threading
 import uuid
 from collections.abc import Iterable
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -221,9 +222,19 @@ def _append_and_notify(manager: LogManager, session: ConversationSession, msg: M
         session.conversation_id,
         {
             "type": "message_added",
-            "message": msg2dict(msg, manager.workspace),
+            "message": msg2dict(msg, manager.workspace, manager.logdir),
         },
     )
+
+
+def _persist_generation_error(
+    manager: LogManager,
+    session: ConversationSession,
+    error_message: str,
+) -> None:
+    """Persist a visible generation error message and notify SSE clients."""
+    _append_and_notify(manager, session, Message("system", f"Error: {error_message}"))
+    manager.write()
 
 
 def _try_auto_name_and_notify(
@@ -336,6 +347,7 @@ async def _acp_step(
             {"type": "error", "error": "Internal error: ACP runtime not initialized"},
         )
         session.generating = False
+        session.generating_since = None
         return
     acp_runtime = session.acp_runtime  # snapshot to avoid TOCTOU races
 
@@ -378,6 +390,7 @@ async def _acp_step(
         }
         SessionManager.add_event(conversation_id, error_event)
         session.generating = False
+        session.generating_since = None
         return
 
     next_user_index = session.acp_last_user_msg_index + 1
@@ -389,6 +402,7 @@ async def _acp_step(
         }
         SessionManager.add_event(conversation_id, duplicate_error_event)
         session.generating = False
+        session.generating_since = None
         return
 
     SessionManager.add_event(conversation_id, {"type": "generation_started"})
@@ -400,12 +414,11 @@ async def _acp_step(
         for chunk in _iter_text_from_acp_update(update):
             if not chunk:
                 continue
-            for token in chunk:
-                stream_tokens.append(token)
-                SessionManager.add_event(
-                    conversation_id,
-                    {"type": "generation_progress", "token": token},
-                )
+            stream_tokens.append(chunk)
+            SessionManager.add_event(
+                conversation_id,
+                {"type": "generation_progress", "token": chunk},
+            )
 
     acp_runtime.set_on_update(_on_acp_update)
 
@@ -434,13 +447,6 @@ async def _acp_step(
 
         manager.write()
 
-        _try_auto_name_and_notify(
-            chat_config,
-            manager.log.messages,
-            chat_config.model or "",
-            conversation_id,
-        )
-
         if final_msg is None:
             # Should not happen: pending_user_messages was non-empty above, but
             # guard explicitly instead of using assert (disabled by python -O).
@@ -458,15 +464,26 @@ async def _acp_step(
                 conversation_id,
                 {
                     "type": "generation_complete",
-                    "message": msg2dict(final_msg, manager.workspace),
+                    "message": msg2dict(final_msg, manager.workspace, manager.logdir),
                 },
             )
+
+        # Auto-generate display name AFTER signaling generation_complete,
+        # so the event isn't blocked by a potentially slow LLM call.
+        _try_auto_name_and_notify(
+            chat_config,
+            manager.log.messages,
+            chat_config.model or "",
+            conversation_id,
+        )
     except Exception as e:
         logger.exception("Error during ACP step: %s", e)
+        session.last_error = str(e)
         SessionManager.add_event(conversation_id, {"type": "error", "error": str(e)})
     finally:
         acp_runtime.set_on_update(None)
         session.generating = False
+        session.generating_since = None
 
 
 def _start_acp_step_thread(
@@ -475,7 +492,9 @@ def _start_acp_step_thread(
     workspace: Path,
 ) -> None:
     """Start an ACP-backed step in a background thread."""
+    session.last_error = None
     session.generating = True
+    session.generating_since = datetime.now(tz=timezone.utc)
 
     def _run() -> None:
         asyncio.run(_acp_step(conversation_id, session, workspace))
@@ -586,12 +605,14 @@ def step(
     # Prepare messages for the model
     msgs = prepare_messages(manager.log.messages)
     if not msgs:
+        _persist_generation_error(manager, session, "No messages to process")
         error_event: ErrorEvent = {
             "type": "error",
             "error": "No messages to process",
         }
         SessionManager.add_event(conversation_id, error_event)
         session.generating = False
+        session.generating_since = None
         return
 
     # Notify clients about generation status
@@ -607,12 +628,14 @@ def step(
         output = ""
         tooluses = []
         # Handle streaming vs non-streaming differently
-        chunks: Iterable[str]
+        metadata = None
         if stream:
-            chunks = _stream(msgs, model, tools)
+            stream_wrapper = _stream(msgs, model, tools)
+            chunks: Iterable[str] = stream_wrapper
         else:
-            response, _metadata = _chat_complete(msgs, model, tools)
+            response, metadata = _chat_complete(msgs, model, tools)
             chunks = [response]  # Wrap in list to iterate
+            stream_wrapper = None
 
         for token in (char for chunk in chunks for char in chunk):
             # check if interrupted
@@ -634,8 +657,16 @@ def step(
         else:
             tooluses = list(ToolUse.iter_from_content(output))
 
+        # Capture metadata from stream after iteration completes
+        if (
+            stream_wrapper is not None
+            and hasattr(stream_wrapper, "metadata")
+            and stream_wrapper.metadata
+        ):
+            metadata = stream_wrapper.metadata
+
         # Persist the assistant message
-        msg = Message("assistant", output)
+        msg = Message("assistant", output, metadata=metadata)
         _append_and_notify(manager, session, msg)
         # Write immediately after assistant message to ensure it's persisted
         manager.write()
@@ -654,19 +685,21 @@ def step(
         manager.write()
         logger.debug("Wrote messages to disk")
 
-        # Auto-generate display name (shared logic in util/auto_naming.py)
-        _try_auto_name_and_notify(
-            chat_config, manager.log.messages, model, conversation_id
-        )
-
         # Signal message generation complete
         logger.debug("Generation complete")
         SessionManager.add_event(
             conversation_id,
             {
                 "type": "generation_complete",
-                "message": msg2dict(msg, manager.workspace),
+                "message": msg2dict(msg, manager.workspace, manager.logdir),
             },
+        )
+
+        # Auto-generate display name AFTER signaling generation_complete,
+        # so the event isn't blocked by a potentially slow LLM call.
+        # The CLI already runs this in a background thread (chat.py).
+        _try_auto_name_and_notify(
+            chat_config, manager.log.messages, model, conversation_id
         )
 
         if len(tooluses) > 1:
@@ -709,13 +742,20 @@ def step(
                     conversation_id, session, tool_id, tooluse, model, chat_config
                 )
 
-        # Mark session as not generating
-        session.generating = False
-
     except Exception as e:
         logger.exception(f"Error during step execution: {e}")
-        SessionManager.add_event(conversation_id, {"type": "error", "error": str(e)})
+        error_message = str(e) or "Generation failed"
+        session.last_error = error_message
+        try:
+            _persist_generation_error(manager, session, error_message)
+        except Exception:
+            logger.exception("Failed to persist generation error message")
+        SessionManager.add_event(
+            conversation_id, {"type": "error", "error": error_message}
+        )
+    finally:
         session.generating = False
+        session.generating_since = None
 
 
 def start_tool_execution(
@@ -748,19 +788,22 @@ def start_tool_execution(
         # Load the conversation
         manager = LogManager.load(conversation_id, lock=False)
 
-        if tool_id not in session.pending_tools:
-            logger.error(
+        # Use .get() to atomically retrieve and handle concurrent removal — the API
+        # endpoint or another thread may have deleted this entry between the caller's
+        # check and our execution here.
+        tool_exec = session.pending_tools.get(tool_id)
+        if tool_exec is None:
+            logger.warning(
                 f"Tool {tool_id} not found in pending tools (may have been handled by another thread)"
             )
             return
-        tool_exec = session.pending_tools[tool_id]
         tool_exec.status = ToolStatus.EXECUTING
 
         # use explicit tooluse if set (may be modified), else use the one from the pending tool
         tooluse: ToolUse = edited_tooluse or tool_exec.tooluse
 
-        # Remove the tool from pending
-        del session.pending_tools[tool_id]
+        # Remove the tool from pending (use pop to avoid KeyError if concurrently removed)
+        session.pending_tools.pop(tool_id, None)
 
         # Notify about tool execution
         SessionManager.add_event(
@@ -786,6 +829,11 @@ def start_tool_execution(
             msg = Message("system", f"Error: {e!s}")
             _append_and_notify(manager, session, msg)
 
+        # Persist tool outputs to disk (every other _append_and_notify call
+        # site is followed by manager.write(); without this, tool outputs
+        # survive only in memory until the next step writes)
+        manager.write()
+
         # This implements auto-stepping similar to the CLI behavior
         _start_step_thread(conversation_id, session, model, chat_config.workspace)
 
@@ -804,31 +852,35 @@ def _start_step_thread(
     branch: str = "main",
     auto_confirm: bool = False,
     stream: bool = True,
-):
-    """Start a step execution in a background thread."""
+) -> None:
+    """Start a step execution in a background thread.
 
-    # Mark as generating before starting thread to avoid race condition
-    # where interrupt is called before the thread sets generating=True
+    Clears any previous error state before starting.
+    """
+
+    # Clear previous error and mark as generating before starting thread
+    # to avoid race condition where interrupt is called before the thread
+    # sets generating=True.
+    #
+    # NOTE: the /step route handler also sets session.generating = True early
+    # (under step_lock, with try/finally guard).  This assignment is still
+    # needed because _start_step_thread is called directly from the
+    # tool-confirm endpoint (api_conversation_tool_response), which bypasses
+    # the /step route's guard.
+    session.last_error = None
     session.generating = True
+    session.generating_since = datetime.now(tz=timezone.utc)
 
     def step_thread() -> None:
-        try:
-            step(
-                conversation_id=conversation_id,
-                session=session,
-                model=model,
-                workspace=workspace,
-                branch=branch,
-                auto_confirm=auto_confirm,
-                stream=stream,
-            )
-
-        except Exception as e:
-            logger.exception(f"Error during step execution: {e}")
-            SessionManager.add_event(
-                conversation_id, {"type": "error", "error": str(e)}
-            )
-            session.generating = False
+        step(
+            conversation_id=conversation_id,
+            session=session,
+            model=model,
+            workspace=workspace,
+            branch=branch,
+            auto_confirm=auto_confirm,
+            stream=stream,
+        )
 
     # Start step execution in a thread
     thread = threading.Thread(target=step_thread)

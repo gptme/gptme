@@ -187,9 +187,11 @@ def set_config_value(key: str, value: str) -> None:  # pragma: no cover
 
     # Set the value
     keypath = key.split(".")
-    d = doc
+    d: TOMLDocument | Container = doc
     for key in keypath[:-1]:
-        d = d.get(key, {})
+        if key not in d:
+            d[key] = tomlkit.table()
+        d = d[key]  # type: ignore[assignment]
     d[keypath[-1]] = value
 
     # Write the config

@@ -71,7 +71,7 @@ class Log:
         yield from self.messages
 
     def __repr__(self) -> str:
-        return f"Log(messages=<{len(self.messages)} msgs>])"
+        return f"Log(messages=<{len(self.messages)} msgs>)"
 
     def replace(self, **kwargs) -> "Log":
         return replace(self, **kwargs)
@@ -470,6 +470,7 @@ class LogManager:
 
         peek = self.log[-1] if self.log else None
         if not peek:
+            self.write()
             print("[yellow]Nothing to undo.[/]")
             return
 
@@ -485,6 +486,7 @@ class LogManager:
                     f"[red]  {undid.role}: {textwrap.shorten(undid.content.strip(), width=50, placeholder='...')}[/]",
                 )
             peek = self.log[-1] if self.log else None
+        self.write()
 
     @classmethod
     def load(
@@ -501,11 +503,12 @@ class LogManager:
             logdir = Path(logdir).parent
 
         logsdir = get_logs_dir()
-        if str(logsdir) not in str(logdir):
-            # if the path was not fully specified, assume its a dir in logsdir
+        logdir = Path(logdir)
+        if not logdir.is_absolute():
+            # Relative path: always resolve relative to logsdir, not CWD.
+            # Using resolve() here would be CWD-dependent and breaks when
+            # session_step.py calls os.chdir(workspace) mid-execution.
             logdir = logsdir / logdir
-        else:
-            logdir = Path(logdir)
 
         if branch == "main":
             logfile = logdir / "conversation.jsonl"
@@ -635,7 +638,11 @@ class LogManager:
         }
         if branches:
             d["branches"] = {
-                branch: [msg.to_dict() for msg in msgs]
+                branch: (
+                    [msg.to_dict() for msg in self.log]
+                    if branch == self.current_branch
+                    else [msg.to_dict() for msg in msgs]
+                )
                 for branch, msgs in self._branches.items()
             }
         return d
@@ -660,7 +667,8 @@ def prepare_messages(
     msgs_reduced = list(reduce_log(msgs))
 
     model = get_default_model()
-    assert model is not None, "No model loaded"
+    if model is None:
+        raise ValueError("No model loaded")
     if (len_from := len_tokens(msgs, model.model)) != (
         len_to := len_tokens(msgs_reduced, model.model)
     ):

@@ -294,8 +294,6 @@ module = "sounddevice.*"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-asyncio_mode = "auto"
-asyncio_default_fixture_loop_scope = "function"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "eval: marks tests as evals (deselect with '-m \"not eval\"'), these may fail, and will not run in CI",
@@ -306,6 +304,7 @@ markers = [
     "integration: marks tests as integration tests requiring external services",
     "xdist_group: marks tests that should run in the same xdist group",
 ]
+asyncio_default_fixture_loop_scope = "function"
 
 [tool.coverage.run]
 # Needed to get playwright to play nice with coverage

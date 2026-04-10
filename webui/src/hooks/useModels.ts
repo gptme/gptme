@@ -17,30 +17,14 @@ export interface ModelInfo {
 export interface ModelsResponse {
   models: ModelInfo[];
   default: string | null;
+  recommended: string[];
 }
-
-// Shows if the fetch fails
-const fallbackModels = [
-  'anthropic/claude-sonnet-4-20250514',
-  'anthropic/claude-3-5-haiku-20241022',
-  'openai/gpt-5',
-  'openai/gpt-4o',
-  'openrouter/x-ai/grok-4',
-];
-
-// Shows as recommended options in the UI, if they are available
-const recommendedModels = [
-  'anthropic/claude-sonnet-4-20250514',
-  'anthropic/claude-3-5-haiku-20241022',
-  'openai/gpt-5',
-  'openai/gpt-4o',
-  'openrouter/x-ai/grok-4',
-];
 
 export function useModels() {
   const { api } = useApi();
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [defaultModel, setDefaultModel] = useState<string | null>(null);
+  const [recommendedModels, setRecommendedModels] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -70,27 +54,13 @@ export function useModels() {
 
         setModels(data.models);
         setDefaultModel(data.default || null);
+        setRecommendedModels(data.recommended || []);
       } catch (err) {
         console.error('Failed to fetch models:', err);
         setError(err instanceof Error ? err.message : 'Failed to fetch models');
-
-        // Use fallback models
-        const fallbackModelInfos: ModelInfo[] = fallbackModels.map((model) => {
-          const [provider, modelName] = model.split('/');
-          return {
-            id: model,
-            provider,
-            model: modelName,
-            context: 128000,
-            supports_streaming: true,
-            supports_vision: false,
-            supports_reasoning: false,
-            price_input: 0,
-            price_output: 0,
-          };
-        });
-        setModels(fallbackModelInfos);
-        setDefaultModel(fallbackModels[0]);
+        setModels([]);
+        setDefaultModel(null);
+        setRecommendedModels([]);
       } finally {
         setIsLoading(false);
       }
@@ -99,11 +69,7 @@ export function useModels() {
     fetchModels();
   }, [api.baseUrl, api.authHeader]);
 
-  // Convert models to simple string array for backward compatibility
   const availableModels = models.map((model) => model.id);
-  const availableRecommendedModels = recommendedModels.filter((model) =>
-    availableModels.includes(model)
-  );
 
   return {
     models,
@@ -111,7 +77,6 @@ export function useModels() {
     defaultModel,
     isLoading,
     error,
-    fallbackModels,
-    recommendedModels: availableRecommendedModels,
+    recommendedModels,
   };
 }

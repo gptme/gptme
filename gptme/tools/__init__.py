@@ -329,7 +329,23 @@ def get_available_tools(include_mcp: bool = True) -> list[ToolSpec]:
             )
             tool_modules.extend(plugin_tool_modules)
 
-        available_tools = sorted(_discover_tools(tool_modules))
+        # Add tool modules from unified plugins (entry-point plugins)
+        from ..plugins.registry import get_all_plugins
+
+        all_plugins = get_all_plugins()
+        for plugin in all_plugins:
+            for mod in plugin.tool_modules:
+                if mod not in tool_modules:
+                    tool_modules.append(mod)
+
+        available_tools = list(_discover_tools(tool_modules))
+
+        # Add direct ToolSpec instances from unified plugins, then sort everything together
+        for plugin in all_plugins:
+            available_tools.extend(plugin.tools)
+
+        available_tools.sort()
+
         if include_mcp:
             available_tools.extend(create_mcp_tools(config))
             # Only cache if we included MCP tools

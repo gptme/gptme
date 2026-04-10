@@ -299,7 +299,6 @@ class HybridLessonMatcher(LessonMatcher):
                 effectiveness_score = self._effectiveness_score(lesson)
 
             # Component 4: Recency score
-            # NOTE: Assume recent until ACE metadata implemented (Phase 1 schema)
             recency_score = 1.0
             if self.config.enable_recency:
                 recency_score = self._recency_score(lesson)
@@ -359,10 +358,13 @@ class HybridLessonMatcher(LessonMatcher):
         lesson_text = f"{lesson.title}\n{lesson.body[:500]}"  # Limit to first 500 chars
         lesson_embed = self.embedder.encode(lesson_text, convert_to_numpy=True)
 
-        # Cosine similarity
+        # Cosine similarity (guard against zero-norm embeddings)
+        query_norm = np.linalg.norm(query_embed)
+        lesson_norm = np.linalg.norm(lesson_embed)
+        if query_norm == 0.0 or lesson_norm == 0.0:
+            return 0.0
         similarity = float(
-            np.dot(query_embed, lesson_embed)
-            / (np.linalg.norm(query_embed) * np.linalg.norm(lesson_embed))
+            np.dot(query_embed, lesson_embed) / (query_norm * lesson_norm)
         )
 
         # Normalize from [-1, 1] to [0, 1]
@@ -388,15 +390,11 @@ class HybridLessonMatcher(LessonMatcher):
     def _recency_score(self, lesson: Lesson) -> float:
         """Recency score with exponential decay (0.0-1.0).
 
-        NOTE: Returns 1.0 (assume recent) until ACE metadata implemented.
-        Will use updated timestamp when available (Phase 1).
+        Returns 1.0 (assume recent) since lesson files don't carry
+        an ``updated`` timestamp.  If recency tracking is added to
+        lesson metadata in the future, use exponential decay here:
+        ``exp(-days_since_update / config.recency_decay_days)``.
         """
-        # TODO: Implement when ACE metadata available
-        # from datetime import datetime, timezone
-        # updated = lesson.metadata.updated
-        # now = datetime.now(timezone.utc)
-        # days_since = (now - updated).days
-        # return exp(-days_since / self.config.recency_decay_days)
         return 1.0
 
     def _tool_bonus(self, lesson: Lesson, context: MatchContext) -> float:
@@ -404,8 +402,9 @@ class HybridLessonMatcher(LessonMatcher):
         if not context.tools_used or not lesson.metadata.tools:
             return 0.0
 
+        tools_lower = {t.lower() for t in context.tools_used}
         for tool in lesson.metadata.tools:
-            if tool in context.tools_used:
+            if tool.lower() in tools_lower:
                 return self.config.tool_bonus
 
         return 0.0

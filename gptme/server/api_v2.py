@@ -7,8 +7,10 @@ Session management, tool execution, and agent creation are handled by separate m
 
 import logging
 import shutil
+from dataclasses import replace
 from datetime import datetime, timezone
 from itertools import islice
+from pathlib import Path
 from typing import cast
 
 import flask
@@ -22,39 +24,37 @@ from gptme.llm.models import (
     _apply_model_filters,
     _get_models_for_provider,
     get_default_model,
+    get_recommended_model,
 )
 from gptme.prompts import get_prompt
 
 from ..commands import handle_cmd
+from ..config import get_project_config
 from ..dirs import get_logs_dir
 from ..logmanager import Log, LogManager, get_user_conversations
 from ..message import Message
 from ..tools import get_toolchain, get_tools, init_tools
 from ..util.content import is_message_command
-
-
-def _validate_conversation_id(
-    conversation_id: str,
-) -> tuple[flask.Response, int] | None:
-    """Validate conversation_id to prevent path traversal attacks.
-
-    Returns None if valid, or (error_response, status_code) if invalid.
-    """
-    if "/" in conversation_id or ".." in conversation_id or "\\" in conversation_id:
-        return flask.jsonify({"error": "Invalid conversation_id"}), 400
-    return None
-
-
+from ..util.uri import parse_file_reference
 from .api_v2_agents import agents_api
-from .api_v2_common import _abs_to_rel_workspace, msg2dict
+from .api_v2_common import (
+    _abs_to_rel_workspace,
+    _validate_branch,
+    _validate_conversation_id,
+    msg2dict,
+)
 from .api_v2_sessions import SessionManager, sessions_api
 from .auth import require_auth
+from .external_sessions import get_external_session_provider
 from .openapi_docs import (
     CONVERSATION_ID_PARAM,
+    ApiRootResponse,
     ConversationCreateRequest,
     ConversationListResponse,
     ConversationResponse,
     ErrorResponse,
+    ExternalSessionListResponse,
+    ExternalSessionResponse,
     MessageCreateRequest,
     SessionResponse,
     StatusResponse,
@@ -72,16 +72,25 @@ v2_api.register_blueprint(agents_api)
 
 
 @v2_api.route("/api/v2")
-@api_doc_simple()
+@api_doc_simple(responses={200: ApiRootResponse}, tags=["meta"])
 def api_root():
     """V2 API root.
 
     Get information about the v2 API, including available endpoints and capabilities.
     """
+    provider = get_external_session_provider()
+    capabilities = {
+        "external_session_catalog": False,
+        "external_session_transcript": False,
+    }
+    if provider is not None:
+        capabilities.update(provider.capabilities)
+
     return flask.jsonify(
         {
             "message": "gptme v2 API",
             "documentation": "https://gptme.org/docs/server.html",
+            "capabilities": capabilities,
         }
     )
 
@@ -120,6 +129,88 @@ def api_config():
     return flask.jsonify({"agent": agent_info})
 
 
+@v2_api.route("/api/v2/external-sessions")
+@require_auth
+@api_doc_simple(
+    responses={200: ExternalSessionListResponse, 503: ErrorResponse},
+    tags=["external-sessions"],
+    parameters=[
+        {
+            "name": "limit",
+            "in": "query",
+            "schema": {"type": "integer", "default": 100},
+            "description": "Maximum number of external sessions to return",
+        },
+        {
+            "name": "days",
+            "in": "query",
+            "schema": {"type": "integer", "default": 30},
+            "description": "How many recent days of session history to scan",
+        },
+    ],
+)
+def api_external_sessions():
+    """List read-only external sessions discovered by the server."""
+    provider = get_external_session_provider()
+    if provider is None:
+        return flask.jsonify({"error": "external session provider unavailable"}), 503
+
+    try:
+        limit = int(request.args.get("limit", 100))
+        days = int(request.args.get("days", 30))
+    except (ValueError, TypeError):
+        return flask.jsonify({"error": "limit and days must be integers"}), 400
+
+    limit = max(1, min(limit, 1000))
+    days = max(1, min(days, 3650))
+
+    sessions = [
+        item.to_dict() for item in provider.list_sessions(limit=limit, days=days)
+    ]
+    return flask.jsonify({"sessions": sessions})
+
+
+@v2_api.route("/api/v2/external-sessions/<string:external_session_id>")
+@require_auth
+@api_doc_simple(
+    responses={200: ExternalSessionResponse, 404: ErrorResponse, 503: ErrorResponse},
+    tags=["external-sessions"],
+    parameters=[
+        {
+            "name": "external_session_id",
+            "in": "path",
+            "required": True,
+            "schema": {"type": "string"},
+            "description": "Opaque external session identifier",
+        },
+        {
+            "name": "days",
+            "in": "query",
+            "schema": {"type": "integer", "default": 30},
+            "description": "How many recent days of session history to scan",
+        },
+    ],
+)
+def api_external_session(external_session_id: str):
+    """Get a normalized read-only external session transcript."""
+    provider = get_external_session_provider()
+    if provider is None:
+        return flask.jsonify({"error": "external session provider unavailable"}), 503
+
+    try:
+        days = int(request.args.get("days", 30))
+    except (ValueError, TypeError):
+        return flask.jsonify({"error": "days must be an integer"}), 400
+    days = max(1, min(days, 3650))
+
+    session = provider.get_session(external_session_id, days=days)
+    if session is None:
+        return flask.jsonify(
+            {"error": f"External session not found: {external_session_id}"}
+        ), 404
+    return flask.jsonify(session)
+
+
 @v2_api.route("/api/v2/conversations")
 @require_auth
 @api_doc_simple(
@@ -131,16 +222,44 @@ def api_config():
             "in": "query",
             "schema": {"type": "integer", "default": 100},
             "description": "Maximum number of conversations to return",
-        }
+        },
+        {
+            "name": "search",
+            "in": "query",
+            "schema": {"type": "string"},
+            "description": "Filter conversations by name, id, or last message preview (case-insensitive substring match)",
+        },
     ],
 )
 def api_conversations():
     """List conversations (V2).
 
     Get a list of user conversations with metadata using the V2 API.
+    Supports optional search filtering by conversation name, id, or last message preview.
     """
-    limit = int(request.args.get("limit", 100))
-    conversations = list(islice(get_user_conversations(), limit))
+    try:
+        limit = int(request.args.get("limit", 100))
+    except (ValueError, TypeError):
+        return flask.jsonify({"error": "limit must be an integer"}), 400
+    limit = max(1, min(limit, 1000))
+    search = request.args.get("search", "").strip().lower()
+
+    # Use fast tail-only scan for list/search — reads last 8KB for
+    # preview/model, skips json.loads() on every metadata line.
+    # Full file is still read for line count, but without JSON parsing.
+    if search:
+        conversations = []
+        for conv in get_user_conversations(detail=False):
+            if (
+                search in conv.name.lower()
+                or search in conv.id.lower()
+                or search in (conv.last_message_preview or "").lower()
+            ):
+                conversations.append(conv)
+                if len(conversations) >= limit:
+                    break
+    else:
+        conversations = list(islice(get_user_conversations(detail=False), limit))
     return flask.jsonify(conversations)
 
 
@@ -165,11 +284,12 @@ def api_conversation(conversation_id: str):
     manager = LogManager.load(conversation_id, lock=False)
     log_dict = manager.to_dict(branches=True)
 
-    # make all paths absolute or relative to workspace (no "../")
+    # make all paths relative to workspace or logdir (no "../" or absolute paths)
     for msg in log_dict["log"]:
         if files := msg.get("files"):
             msg["files"] = [
-                _abs_to_rel_workspace(f, chat_config.workspace) for f in files
+                _abs_to_rel_workspace(f, chat_config.workspace, manager.logdir)
+                for f in files
             ]
 
     # Include agent info if available
@@ -211,16 +331,32 @@ def api_conversation_put(conversation_id: str):
         return error
 
     logdir = get_logs_dir() / conversation_id
-    if logdir.exists():
+
+    req_json = flask.request.json or {}
+
+    # Validate auto_confirm type before any side effects (CWE-20: truthy coercion).
+    # "false" (string) is truthy in Python — must reject non-bool/int values.
+    # Same pattern as api_v2_sessions.py.
+    auto_confirm = req_json.get("auto_confirm", False)
+    if type(auto_confirm) not in (bool, int):
+        return (
+            flask.jsonify(
+                {
+                    "error": "Invalid 'auto_confirm' value",
+                    "message": "'auto_confirm' must be a boolean or integer",
+                }
+            ),
+            400,
+        )
+
+    # Create the log directory atomically to avoid TOCTOU race
+    try:
+        logdir.mkdir(parents=True)
+    except FileExistsError:
         return (
             flask.jsonify({"error": f"Conversation already exists: {conversation_id}"}),
             409,
         )
-
-    req_json = flask.request.json or {}
-
-    # Create the log directory
-    logdir.mkdir(parents=True)
 
     # Load or create the chat config, overriding values from request config if provided
     config_dict = req_json.get("config", {})
@@ -257,7 +393,6 @@ def api_conversation_put(conversation_id: str):
         )
         msgs.append(Message(msg["role"], msg["content"], timestamp=timestamp))
 
-    logdir.mkdir(parents=True, exist_ok=True)
     log = LogManager.load(logdir=logdir, initial_msgs=msgs, create=True)
     log.write()
 
@@ -276,9 +411,12 @@ def api_conversation_put(conversation_id: str):
     # Create a session for this conversation
     session = SessionManager.create_session(conversation_id)
 
-    # Check for auto_confirm parameter and set auto_confirm_count
-    if req_json and req_json.get("auto_confirm"):
-        session.auto_confirm_count = 999  # High number to essentially make it unlimited
+    # Set auto_confirm_count from the already-validated auto_confirm value
+    if type(auto_confirm) is bool:
+        if auto_confirm:
+            session.auto_confirm_count = 999
+    elif auto_confirm > 0:
+        session.auto_confirm_count = auto_confirm
 
     return flask.jsonify(
         {"status": "ok", "conversation_id": conversation_id, "session_id": session.id}
@@ -304,6 +442,10 @@ def api_conversation_post(conversation_id: str):
     if "role" not in req_json or "content" not in req_json:
         return flask.jsonify({"error": "Missing required fields (role, content)"}), 400
 
+    # Validate field types
+    if not isinstance(req_json["content"], str):
+        return flask.jsonify({"error": "content must be a string"}), 400
+
     # Validate role against allowed values
     valid_roles = ("system", "user", "assistant")
     if req_json["role"] not in valid_roles:
@@ -317,6 +459,8 @@ def api_conversation_post(conversation_id: str):
         )
 
     branch = req_json.get("branch", "main")
+    if error := _validate_branch(branch):
+        return error
     tool_allowlist = req_json.get("tools", None)
 
     init_tools(tool_allowlist)
@@ -329,8 +473,17 @@ def api_conversation_post(conversation_id: str):
             404,
         )
 
+    # Validate and convert file paths from JSON strings to Path objects
+    files_raw = req_json.get("files", [])
+    if not isinstance(files_raw, list) or not all(
+        isinstance(f, str) for f in files_raw
+    ):
+        return flask.jsonify({"error": "files must be a list of strings"}), 400
+    file_paths = [Path(f) for f in files_raw]
     msg = Message(
-        req_json["role"], req_json["content"], files=req_json.get("files", [])
+        req_json["role"],
+        req_json["content"],
+        files=file_paths,  # type: ignore[arg-type]  # list[Path] is valid for list[FilePath]
     )
 
     # Check if the message is a slash command (e.g. /help, /model, /tools)
@@ -348,7 +501,10 @@ def api_conversation_post(conversation_id: str):
         log.append(msg)
         SessionManager.add_event(
             conversation_id,
-            {"type": "message_added", "message": msg2dict(msg, log.workspace)},
+            {
+                "type": "message_added",
+                "message": msg2dict(msg, log.workspace, log.logdir),
+            },
         )
 
         # Execute the command and collect response messages
@@ -359,9 +515,12 @@ def api_conversation_post(conversation_id: str):
                 responses.append(resp)
                 SessionManager.add_event(
                     conversation_id,
-                    {"type": "message_added", "message": msg2dict(resp, log.workspace)},
+                    {
+                        "type": "message_added",
+                        "message": msg2dict(resp, log.workspace, log.logdir),
+                    },
                 )
-        except (Exception, SystemExit) as e:
+        except Exception as e:
             logger.exception("Error executing command: %s", msg.content)
             error_msg = Message("system", f"Command error: {e}")
             log.append(error_msg)
@@ -370,7 +529,7 @@ def api_conversation_post(conversation_id: str):
                 conversation_id,
                 {
                     "type": "message_added",
-                    "message": msg2dict(error_msg, log.workspace),
+                    "message": msg2dict(error_msg, log.workspace, log.logdir),
                 },
             )
 
@@ -385,11 +544,245 @@ def api_conversation_post(conversation_id: str):
         conversation_id,
         {
             "type": "message_added",
-            "message": msg2dict(msg, log.workspace),
+            "message": msg2dict(msg, log.workspace, log.logdir),
         },
     )
 
     return flask.jsonify({"status": "ok"})
+
+
+@v2_api.route(
+    "/api/v2/conversations/<string:conversation_id>/messages/<int:index>",
+    methods=["PATCH"],
+)
+@require_auth
+@api_doc(
+    summary="Edit message in conversation (V2)",
+    description="Edit a user message in a conversation. With ?truncate=1, removes all messages after the edited one.",
+    responses={
+        200: ConversationResponse,
+        400: ErrorResponse,
+        404: ErrorResponse,
+        409: ErrorResponse,
+    },
+    parameters=[
+        CONVERSATION_ID_PARAM,
+        {
+            "name": "index",
+            "in": "path",
+            "required": True,
+            "schema": {"type": "integer"},
+            "description": "Message index",
+        },
+        {
+            "name": "truncate",
+            "in": "query",
+            "required": False,
+            "schema": {"type": "string", "enum": ["0", "1"]},
+            "description": "If '1', remove all messages after the edited one",
+        },
+    ],
+    tags=["conversations-v2"],
+)
+def api_conversation_edit_message(conversation_id: str, index: int):
+    """Edit a message in a conversation.
+
+    Only user messages can be edited. Creates a backup branch before editing.
+    With ?truncate=1, removes all messages after the edited one.
+    """
+    # Validate conversation_id to prevent path traversal
+    if error := _validate_conversation_id(conversation_id):
+        return error
+
+    req_json = request.get_json(silent=True)
+    if req_json is None:
+        req_json = {}
+    elif not isinstance(req_json, dict):
+        return flask.jsonify({"error": "JSON body must be an object"}), 400
+
+    content = req_json.get("content")
+    files = req_json.get("files")  # Optional list of file paths
+    truncate = request.args.get("truncate") == "1"
+
+    if content is not None and not isinstance(content, str):
+        return flask.jsonify({"error": "content must be a string"}), 400
+    if files is not None and (
+        not isinstance(files, list) or not all(isinstance(f, str) for f in files)
+    ):
+        return flask.jsonify({"error": "files must be a list of strings"}), 400
+
+    # Content or files required for edits, but optional for pure truncation
+    has_changes = (content and content.strip()) or files is not None
+    if not truncate and not has_changes:
+        return flask.jsonify({"error": "content or files is required"}), 400
+
+    # Check if generation is in progress
+    sessions = SessionManager.get_sessions_for_conversation(conversation_id)
+    for sess in sessions:
+        if sess.generating:
+            return (
+                flask.jsonify({"error": "Cannot edit while generation is in progress"}),
+                409,
+            )
+
+    try:
+        manager = LogManager.load(conversation_id, lock=False)
+    except FileNotFoundError:
+        return (
+            flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
+            404,
+        )
+
+    msgs = list(manager.log.messages)
+    if index < 0 or index >= len(msgs):
+        return (
+            flask.jsonify(
+                {"error": f"Message index {index} out of range (0-{len(msgs) - 1})"}
+            ),
+            404,
+        )
+
+    # Content/file changes are only allowed on user messages.
+    # Truncation (without content change) is allowed on any message.
+    content_changed = content is not None and content != msgs[index].content
+    files_changed = files is not None and [str(f) for f in msgs[index].files] != files
+    if (content_changed or files_changed) and msgs[index].role != "user":
+        return flask.jsonify({"error": "Can only edit user messages"}), 400
+
+    if content_changed or files_changed:
+        replacements: dict = {}
+        if content_changed:
+            replacements["content"] = content
+        if files_changed and files is not None:
+            replacements["files"] = [parse_file_reference(f) for f in files]
+        edited_msg = replace(msgs[index], **replacements)
+        new_msgs = msgs[:index] + [edited_msg] + ([] if truncate else msgs[index + 1 :])
+    elif truncate:
+        new_msgs = msgs[: index + 1]
+    else:
+        return flask.jsonify({"error": "No changes requested"}), 400
+
+    manager.edit(Log(new_msgs))
+
+    # Build response with updated conversation
+    log_dict = manager.to_dict(branches=True)
+
+    # Emit SSE event
+    SessionManager.add_event(
+        conversation_id,
+        {
+            "type": "conversation_edited",
+            "index": index,
+            "truncated": truncate,
+            "log": log_dict.get("log", []),
+            "branches": log_dict.get("branches", {}),
+        },
+    )
+
+    return flask.jsonify(log_dict)
+
+
+@v2_api.route(
+    "/api/v2/conversations/<string:conversation_id>/messages/<int:index>",
+    methods=["DELETE"],
+)
+@require_auth
+@api_doc(
+    summary="Delete message from conversation (V2)",
+    description="Delete a message from a conversation. Creates a backup branch before deleting.",
+    responses={
+        200: ConversationResponse,
+        400: ErrorResponse,
+        404: ErrorResponse,
+        409: ErrorResponse,
+    },
+    parameters=[
+        CONVERSATION_ID_PARAM,
+        {
+            "name": "index",
+            "in": "path",
+            "required": True,
+            "schema": {"type": "integer"},
+            "description": "Message index",
+        },
+    ],
+    tags=["conversations-v2"],
+)
+def api_conversation_delete_message(conversation_id: str, index: int):
+    """Delete a message from a conversation.
+
+    Removes the message at the given index and keeps all other messages intact.
+    Creates a backup branch before deleting.
+    """
+    # Validate conversation_id to prevent path traversal
+    if error := _validate_conversation_id(conversation_id):
+        return error
+
+    # Check if generation is in progress
+    sessions = SessionManager.get_sessions_for_conversation(conversation_id)
+    for sess in sessions:
+        if sess.generating:
+            return (
+                flask.jsonify(
+                    {"error": "Cannot delete while generation is in progress"}
+                ),
+                409,
+            )
+
+    try:
+        manager = LogManager.load(conversation_id, lock=False)
+    except FileNotFoundError:
+        return (
+            flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
+            404,
+        )
+
+    msgs = list(manager.log.messages)
+    if index < 0 or index >= len(msgs):
+        return (
+            flask.jsonify(
+                {"error": f"Message index {index} out of range (0-{len(msgs) - 1})"}
+            ),
+            404,
+        )
+
+    # Cannot delete system messages
+    if msgs[index].role == "system":
+        return flask.jsonify({"error": "Cannot delete system messages"}), 400
+
+    new_msgs = msgs[:index] + msgs[index + 1 :]
+
+    # Validate role sequence: consecutive same-role messages break LLM APIs
+    non_system = [m for m in new_msgs if m.role != "system"]
+    for i in range(1, len(non_system)):
+        if non_system[i].role == non_system[i - 1].role:
+            return (
+                flask.jsonify(
+                    {
+                        "error": f"Deleting this message would create consecutive {non_system[i].role!r} messages, which is not supported by LLM APIs"
+                    }
+                ),
+                400,
+            )
+
+    manager.edit(Log(new_msgs))
+
+    # Build response with updated conversation
+    log_dict = manager.to_dict(branches=True)
+
+    # Emit SSE event (reuse conversation_edited — client handles log replacement)
+    SessionManager.add_event(
+        conversation_id,
+        {
+            "type": "conversation_edited",
+            "index": index,
+            "truncated": False,
+            "log": log_dict.get("log", []),
+            "branches": log_dict.get("branches", {}),
+        },
+    )
+
+    return flask.jsonify(log_dict)
 
 
 @v2_api.route("/api/v2/conversations/<string:conversation_id>", methods=["DELETE"])
@@ -497,10 +890,22 @@ def api_models():
             for model in models
         )
 
+    # Build recommended models list from core definitions
+    recommended: list[str] = []
+    for provider in providers_to_check:
+        try:
+            rec = get_recommended_model(provider)
+            full_id = f"{provider}/{rec}"
+            if any(m["id"] == full_id for m in models_data):
+                recommended.append(full_id)
+        except ValueError:
+            pass
+
     return flask.jsonify(
         {
             "models": models_data,
             "default": default_model.full if default_model else None,
+            "recommended": recommended,
         }
     )
 
@@ -658,6 +1063,96 @@ def api_conversation_agent_avatar(conversation_id: str):
         return flask.jsonify({"error": "Avatar file not found"}), 404
 
     return flask.send_file(full_path)
+
+
+def _serve_agent_avatar(agent_path_str: str):
+    """Shared helper to serve an agent's avatar by its workspace path."""
+    from pathlib import Path
+
+    agent_path = Path(agent_path_str)
+    project_config = get_project_config(agent_path, quiet=True)
+    if not project_config or not project_config.agent:
+        return flask.jsonify({"error": "Agent not found"}), 404
+
+    avatar = project_config.agent.avatar
+    if not avatar:
+        return flask.jsonify({"error": "No avatar configured"}), 404
+
+    # If it's a URL, redirect to it
+    if avatar.startswith(("http://", "https://")):
+        return flask.redirect(avatar)
+
+    # Otherwise, serve the file from agent workspace
+    full_path = agent_path / avatar
+    try:
+        full_path.resolve().relative_to(agent_path.resolve())
+    except ValueError:
+        return flask.jsonify({"error": "Invalid avatar path"}), 400
+
+    if not full_path.exists():
+        return flask.jsonify({"error": "Avatar file not found"}), 404
+
+    return flask.send_file(full_path)
+
+
+@v2_api.route("/api/v2/agents", methods=["GET"])
+@require_auth
+@api_doc(
+    summary="List agents",
+    description="List agents discovered from conversation history",
+    responses={200: None},
+    tags=["agents"],
+)
+def api_agents():
+    """List agents extracted from conversations."""
+    agent_map: dict[str, dict] = {}
+    for conv in get_user_conversations():
+        if not conv.agent_path:
+            continue
+        path = conv.agent_path
+        if path not in agent_map:
+            agent_map[path] = {
+                "name": conv.agent_name or path.split("/")[-1],
+                "path": path,
+                "has_avatar": conv.agent_avatar is not None,
+                "urls": conv.agent_urls,
+                "conversation_count": 0,
+                "last_used": conv.modified,
+            }
+        entry = agent_map[path]
+        entry["conversation_count"] += 1
+        if conv.modified > entry["last_used"]:
+            entry["last_used"] = conv.modified
+            if conv.agent_urls:
+                entry["urls"] = conv.agent_urls
+            if conv.agent_avatar is not None:
+                entry["has_avatar"] = True
+    return flask.jsonify(list(agent_map.values()))
+
+
+@v2_api.route("/api/v2/agents/avatar", methods=["GET"])
+@require_auth
+@api_doc(
+    summary="Get agent avatar by path",
+    description="Serve an agent's avatar image by its workspace path",
+    responses={200: None, 404: ErrorResponse},
+    parameters=[
+        {
+            "name": "path",
+            "in": "query",
+            "required": True,
+            "schema": {"type": "string"},
+            "description": "Agent workspace path",
+        }
+    ],
+    tags=["agents"],
+)
+def api_agent_avatar():
+    """Serve an agent's avatar by workspace path."""
+    agent_path = request.args.get("path")
+    if not agent_path:
+        return flask.jsonify({"error": "path parameter required"}), 400
+    return _serve_agent_avatar(agent_path)
 
 
 @v2_api.route("/api/v2/user", methods=["GET"])

@@ -4,6 +4,7 @@ Tools for viewing images, giving the assistant vision.
 Requires a model which supports vision, such as GPT-4o, Anthropic, and Llama 3.2.
 """
 
+import atexit
 import tempfile
 from pathlib import Path
 
@@ -11,6 +12,20 @@ from PIL import Image
 
 from ..message import Message
 from .base import ToolSpec
+
+# Track temp files for cleanup on exit
+_temp_files: list[Path] = []
+
+
+def _cleanup_temp_files() -> None:
+    for f in _temp_files:
+        try:
+            f.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+atexit.register(_cleanup_temp_files)
 
 
 def view_image(image_path: "Path | str | Image.Image") -> Message:
@@ -20,6 +35,7 @@ def view_image(image_path: "Path | str | Image.Image") -> Message:
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
             image_path.save(tmp.name)
             image_path = Path(tmp.name)
+            _temp_files.append(image_path)
 
     if isinstance(image_path, str):
         image_path = Path(image_path)
@@ -73,6 +89,7 @@ def view_image(image_path: "Path | str | Image.Image") -> Message:
                 dimensions = new_size
 
             scaled_path = Path(tmp.name)
+            _temp_files.append(scaled_path)
 
         action = "scaled and compressed" if compressed_size > MAX_SIZE else "compressed"
         return Message(

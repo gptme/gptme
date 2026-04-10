@@ -605,8 +605,8 @@ class ToolUse:
             tool_uses = list(cls._iter_from_markdown(content, streaming=streaming))
 
         # return them in the order they appear
-        assert all(x.start is not None for x in tool_uses)
-        tool_uses.sort(key=lambda x: x.start or 0)
+        # sort by position; tools with unknown position (None) go last
+        tool_uses.sort(key=lambda x: x.start if x.start is not None else len(content))
         yield from tool_uses
 
         # don't continue unless tool format (or override allows it)
@@ -712,7 +712,7 @@ class ToolUse:
 
             # Handle gptme format: <tool-use><toolname>...</toolname></tool-use>
             for tooluse in tree.xpath("//tool-use"):
-                for child in tooluse.getchildren():
+                for child in tooluse:
                     tool_name = child.tag
                     args = list(child.attrib.values())
                     # Use itertext() to capture text across child elements
@@ -720,13 +720,16 @@ class ToolUse:
                     tool_content = "".join(child.itertext()).strip()
 
                     # Find the start position of the tool in the original content
+                    # HTMLParser lowercases tag names, so try case-insensitive
                     start_pos = content.find(f"<{tool_name}")
+                    if start_pos == -1:
+                        start_pos = content.lower().find(f"<{tool_name.lower()}")
 
                     yield ToolUse(
                         tool_name,
                         args,
                         tool_content,
-                        start=start_pos,
+                        start=start_pos if start_pos >= 0 else None,
                         _format="xml",
                     )
 
@@ -751,7 +754,7 @@ class ToolUse:
                         tool_name,
                         args,
                         tool_content,
-                        start=start_pos,
+                        start=start_pos if start_pos >= 0 else None,
                         _format="xml",
                     )
         except etree.ParseError as e:

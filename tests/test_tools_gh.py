@@ -1,7 +1,8 @@
 """Unit tests for the gh tool (gptme/tools/gh.py).
 
 Tests _get_pr_check_runs, _wait_for_checks, _format_check_results,
-_extract_url, _handle_pr_status, and execute_gh with mocked subprocess.
+_extract_url, _handle_pr_status, _handle_pr_merge, _resolve_ref,
+execute_gh, and pass-through with mocked subprocess.
 """
 
 import json
@@ -14,9 +15,8 @@ from gptme.tools.gh import (
     _get_pr_check_runs,
     _handle_pr_merge,
     _handle_pr_status,
-    _parse_list_flags,
+    _passthrough_gh,
     _resolve_ref,
-    _resolve_repo_for_list,
     _wait_for_checks,
     execute_gh,
 )
@@ -500,10 +500,12 @@ class TestExecuteGh:
         )
         mock_wait.assert_called_once()
 
-    def test_unknown_command(self):
-        messages = list(execute_gh(None, ["unknown", "command"], None))
-        assert len(messages) == 1
-        assert "Unknown gh command" in messages[0].content
+    @patch("gptme.tools.gh._passthrough_gh")
+    def test_unknown_command_passes_through_to_cli(self, mock_passthrough):
+        """Unknown commands dispatch to the gh CLI pass-through."""
+        mock_passthrough.return_value = iter([])
+        list(execute_gh(None, ["unknown", "command"], None))
+        mock_passthrough.assert_called_once_with(["unknown", "command"], None)
 
     def test_pr_checks_no_url(self):
         messages = list(execute_gh(None, ["pr", "checks"], None))
@@ -559,11 +561,32 @@ class TestExecuteGh:
 
     # --- gh issue view ---
 
-    def test_issue_view_no_url(self):
-        """gh issue view with no URL."""
+    def test_issue_view_no_ref(self):
+        """gh issue view with no reference."""
         messages = list(execute_gh(None, ["issue", "view"], None))
         assert len(messages) == 1
         assert "No issue reference provided" in messages[0].content
+
+    def test_issue_view_invalid_url(self):
+        """gh issue view with invalid URL."""
+        messages = list(
+            execute_gh(None, ["issue", "view", "https://invalid.com"], None)
+        )
+        assert len(messages) == 1
+        assert "Could not parse GitHub reference" in messages[0].content
+
+    def test_issue_view_rejects_pr_url(self):
+        """gh issue view rejects PR references with a helpful message."""
+        messages = list(
+            execute_gh(
+                None,
+                ["issue", "view", "https://github.com/owner/repo/pull/42"],
+                None,
+            )
+        )
+        assert len(messages) == 1
+        assert "Reference is not a GitHub issue" in messages[0].content
+        assert "Use `gh pr view` for pull requests" in messages[0].content
 
     @patch("gptme.tools.gh.get_github_issue_content")
     def test_issue_view_success(self, mock_content):
@@ -580,26 +603,14 @@ class TestExecuteGh:
         assert messages[0].content == "Issue content here"
         mock_content.assert_called_once_with("owner", "repo", "42")
 
-    def test_issue_view_invalid_url(self):
-        """gh issue view with invalid URL."""
-        messages = list(
-            execute_gh(None, ["issue", "view", "https://invalid.com"], None)
-        )
+    @patch("gptme.tools.gh.get_github_issue_content")
+    def test_issue_view_shorthand_ref(self, mock_content):
+        """gh issue view with owner/repo#N shorthand."""
+        mock_content.return_value = "Issue body"
+        messages = list(execute_gh(None, ["issue", "view", "owner/repo#42"], None))
         assert len(messages) == 1
-        assert "Could not parse GitHub reference" in messages[0].content
-
-    def test_issue_view_pr_url_rejected(self):
-        """gh issue view with a PR URL gives helpful error."""
-        messages = list(
-            execute_gh(
-                None,
-                ["issue", "view", "https://github.com/owner/repo/pull/123"],
-                None,
-            )
-        )
-        assert len(messages) == 1
-        assert "not a GitHub issue URL" in messages[0].content
-        assert "gh pr view" in messages[0].content
+        assert messages[0].content == "Issue body"
+        mock_content.assert_called_once_with("owner", "repo", "42")
 
     @patch("gptme.tools.gh.get_github_issue_content")
     def test_issue_view_fetch_failure(self, mock_content):
@@ -614,73 +625,6 @@ class TestExecuteGh:
         )
         assert len(messages) == 1
         assert "Failed to fetch issue content" in messages[0].content
-
-    def test_unknown_command_lists_issue_view(self):
-        """Error message for unknown command includes gh issue view."""
-        messages = list(execute_gh(None, ["unknown", "command"], None))
-        assert len(messages) == 1
-        assert "gh issue view" in messages[0].content
-
-    # --- gh pr diff ---
-
-    def test_pr_diff_no_url(self):
-        """gh pr diff with no URL."""
-        messages = list(execute_gh(None, ["pr", "diff"], None))
-        assert len(messages) == 1
-        assert "No PR" in messages[0].content
-
-    def test_pr_diff_invalid_url(self):
-        """gh pr diff with invalid URL."""
-        messages = list(execute_gh(None, ["pr", "diff", "https://invalid.com"], None))
-        assert len(messages) == 1
-        assert "Could not parse" in messages[0].content
-
-    def test_pr_diff_issue_url(self):
-        """gh pr diff with an issue URL returns a clear error."""
-        messages = list(
-            execute_gh(
-                None,
-                ["pr", "diff", "https://github.com/owner/repo/issues/1"],
-                None,
-            )
-        )
-        assert len(messages) == 1
-        assert "not a GitHub PR" in messages[0].content
-
-    @patch("gptme.tools.gh.get_github_pr_diff")
-    def test_pr_diff_success(self, mock_diff):
-        """gh pr diff returns diff content."""
-        mock_diff.return_value = "PR #1 diff:\n\n file.py | 5 +++++\n\n+new code"
-        messages = list(
-            execute_gh(
-                None,
-                ["pr", "diff", "https://github.com/owner/repo/pull/1"],
-                None,
-            )
-        )
-        assert len(messages) == 1
-        assert "PR #1 diff" in messages[0].content
-        mock_diff.assert_called_once_with("owner", "repo", "1")
-
-    @patch("gptme.tools.gh.get_github_pr_diff")
-    def test_pr_diff_fetch_failure(self, mock_diff):
-        """gh pr diff when fetch fails."""
-        mock_diff.return_value = None
-        messages = list(
-            execute_gh(
-                None,
-                ["pr", "diff", "https://github.com/owner/repo/pull/1"],
-                None,
-            )
-        )
-        assert len(messages) == 1
-        assert "Failed to fetch PR diff" in messages[0].content
-
-    def test_unknown_command_lists_pr_diff(self):
-        """Error message for unknown command includes gh pr diff."""
-        messages = list(execute_gh(None, ["unknown", "command"], None))
-        assert len(messages) == 1
-        assert "gh pr diff" in messages[0].content
 
     # --- gh run view ---
 
@@ -713,186 +657,83 @@ class TestExecuteGh:
         assert len(messages) == 1
         assert "Failed to fetch run" in messages[0].content
 
-    def test_unknown_command_lists_run_view(self):
-        """Error message for unknown command includes gh run view."""
-        messages = list(execute_gh(None, ["unknown", "command"], None))
-        assert len(messages) == 1
-        assert "gh run view" in messages[0].content
+    # --- pass-through ---
 
-
-# --- _parse_list_flags ---
-
-
-class TestParseListFlags:
-    def test_empty_args(self):
-        """No flags returns empty dict."""
-        assert _parse_list_flags(["issue", "list"]) == {}
-
-    def test_repo_flag(self):
-        flags = _parse_list_flags(["issue", "list", "--repo", "owner/repo"])
-        assert flags == {"repo": "owner/repo"}
-
-    def test_multiple_flags(self):
-        flags = _parse_list_flags(
-            ["issue", "list", "--repo", "o/r", "--state", "closed", "--limit", "10"]
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_unknown_command_passes_through(self, mock_run):
+        """Unknown commands pass through to gh CLI."""
+        mock_run.return_value = MagicMock(
+            stdout="output from gh", stderr="", returncode=0
         )
-        assert flags == {"repo": "o/r", "state": "closed", "limit": "10"}
-
-    def test_label_flag(self):
-        flags = _parse_list_flags(["issue", "list", "--label", "bug,enhancement"])
-        assert flags == {"label": "bug,enhancement"}
-
-
-# --- gh issue list ---
-
-
-class TestIssueList:
-    @patch("gptme.tools.gh._get_repo_from_git_remote")
-    @patch("gptme.tools.gh.get_github_issue_list")
-    def test_issue_list_with_repo(self, mock_list, mock_remote):
-        """gh issue list --repo owner/repo returns structured output."""
-        mock_list.return_value = "Issues in owner/repo (open):\n\n  #1 Test issue"
-        messages = list(
-            execute_gh(None, ["issue", "list", "--repo", "owner/repo"], None)
-        )
+        messages = list(execute_gh(None, ["issue", "list", "--repo", "o/r"], None))
         assert len(messages) == 1
-        assert "Issues in owner/repo" in messages[0].content
-        mock_list.assert_called_once_with(
-            "owner", "repo", state="open", labels=None, limit=20
-        )
-        mock_remote.assert_not_called()
+        assert messages[0].content == "output from gh"
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        assert cmd == ["gh", "issue", "list", "--repo", "o/r"]
 
-    @patch("gptme.tools.gh._get_repo_from_git_remote")
-    @patch("gptme.tools.gh.get_github_issue_list")
-    def test_issue_list_auto_detect_repo(self, mock_list, mock_remote):
-        """gh issue list without --repo uses git remote."""
-        mock_remote.return_value = ("auto-owner", "auto-repo")
-        mock_list.return_value = "Issues in auto-owner/auto-repo (open):\n\n  #1 Issue"
-        messages = list(execute_gh(None, ["issue", "list"], None))
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_passthrough_error(self, mock_run):
+        """Pass-through reports gh CLI errors, including partial stdout."""
+        mock_run.return_value = MagicMock(
+            stdout="partial results", stderr="not found", returncode=1
+        )
+        messages = list(execute_gh(None, ["bad", "command"], None))
         assert len(messages) == 1
-        mock_remote.assert_called_once()
-        mock_list.assert_called_once_with(
-            "auto-owner", "auto-repo", state="open", labels=None, limit=20
+        assert "Error (exit 1)" in messages[0].content
+        assert "stderr:\nnot found" in messages[0].content
+        assert "stdout:\npartial results" in messages[0].content
+
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_passthrough_code_string(self, mock_run):
+        """Code-string invocations are parsed and passed to gh."""
+        mock_run.return_value = MagicMock(stdout="ok", stderr="", returncode=0)
+        messages = list(_passthrough_gh(None, 'gh issue list --repo "o/r"'))
+        assert len(messages) == 1
+        assert messages[0].content == "ok"
+        mock_run.assert_called_once_with(
+            ["gh", "issue", "list", "--repo", "o/r"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
         )
 
-    @patch("gptme.tools.gh._get_repo_from_git_remote")
-    def test_issue_list_no_repo_detected(self, mock_remote):
-        """gh issue list without --repo and no git remote fails gracefully."""
-        mock_remote.return_value = None
-        messages = list(execute_gh(None, ["issue", "list"], None))
+    def test_passthrough_parse_error(self):
+        """Malformed code-string invocations return a parse error."""
+        messages = list(_passthrough_gh(None, 'gh issue comment --body "unterminated'))
         assert len(messages) == 1
-        assert "Could not determine repository" in messages[0].content
+        assert "Error parsing command" in messages[0].content
 
-    @patch("gptme.tools.gh._get_repo_from_git_remote")
-    @patch("gptme.tools.gh.get_github_issue_list")
-    def test_issue_list_with_filters(self, mock_list, mock_remote):
-        """gh issue list with --state, --label, --limit flags."""
-        mock_list.return_value = "Issues in o/r (closed):\n\n  #5 Closed issue"
-        messages = list(
-            execute_gh(
-                None,
-                [
-                    "issue",
-                    "list",
-                    "--repo",
-                    "o/r",
-                    "--state",
-                    "closed",
-                    "--label",
-                    "bug",
-                    "--limit",
-                    "5",
-                ],
-                None,
-            )
-        )
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_passthrough_timeout(self, mock_run):
+        """Pass-through reports timeouts cleanly."""
+        mock_run.side_effect = subprocess.TimeoutExpired(["gh", "issue"], timeout=60)
+        messages = list(_passthrough_gh(["issue", "list"], None))
         assert len(messages) == 1
-        mock_list.assert_called_once_with(
-            "o", "r", state="closed", labels=["bug"], limit=5
-        )
+        assert "timed out after 60 seconds" in messages[0].content
 
-    @patch("gptme.tools.gh._get_repo_from_git_remote")
-    @patch("gptme.tools.gh.get_github_issue_list")
-    def test_issue_list_fetch_failure(self, mock_list, mock_remote):
-        """gh issue list when fetch fails."""
-        mock_list.return_value = None
-        messages = list(
-            execute_gh(None, ["issue", "list", "--repo", "owner/repo"], None)
-        )
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_passthrough_missing_cli(self, mock_run):
+        """Pass-through reports missing gh CLI cleanly."""
+        mock_run.side_effect = FileNotFoundError
+        messages = list(_passthrough_gh(["issue", "list"], None))
         assert len(messages) == 1
-        assert "Failed to list issues" in messages[0].content
+        assert "gh CLI not found" in messages[0].content
 
-
-# --- gh pr list ---
-
-
-class TestPrList:
-    @patch("gptme.tools.gh._get_repo_from_git_remote")
-    @patch("gptme.tools.gh.get_github_pr_list")
-    def test_pr_list_with_repo(self, mock_list, mock_remote):
-        """gh pr list --repo owner/repo returns structured output."""
-        mock_list.return_value = "Pull requests in owner/repo (open):\n\n  #10 PR"
-        messages = list(execute_gh(None, ["pr", "list", "--repo", "owner/repo"], None))
+    def test_passthrough_no_command(self):
+        """Pass-through rejects empty invocations explicitly."""
+        messages = list(_passthrough_gh(None, None))
         assert len(messages) == 1
-        assert "Pull requests in owner/repo" in messages[0].content
-        mock_list.assert_called_once_with("owner", "repo", state="open", limit=20)
-        mock_remote.assert_not_called()
+        assert messages[0].content == "Error: No command provided"
 
-    @patch("gptme.tools.gh._get_repo_from_git_remote")
-    @patch("gptme.tools.gh.get_github_pr_list")
-    def test_pr_list_auto_detect_repo(self, mock_list, mock_remote):
-        """gh pr list without --repo uses git remote."""
-        mock_remote.return_value = ("auto-owner", "auto-repo")
-        mock_list.return_value = (
-            "Pull requests in auto-owner/auto-repo (open):\n\n  #1 PR"
-        )
-        messages = list(execute_gh(None, ["pr", "list"], None))
+    @patch("gptme.tools.gh.subprocess.run")
+    def test_passthrough_no_output(self, mock_run):
+        """Successful pass-throughs with empty stdout report no output explicitly."""
+        mock_run.return_value = MagicMock(stdout="", stderr="", returncode=0)
+        messages = list(_passthrough_gh(["issue", "list"], None))
         assert len(messages) == 1
-        mock_remote.assert_called_once()
-
-    @patch("gptme.tools.gh._get_repo_from_git_remote")
-    def test_pr_list_no_repo_detected(self, mock_remote):
-        """gh pr list without --repo and no git remote fails gracefully."""
-        mock_remote.return_value = None
-        messages = list(execute_gh(None, ["pr", "list"], None))
-        assert len(messages) == 1
-        assert "Could not determine repository" in messages[0].content
-
-    @patch("gptme.tools.gh._get_repo_from_git_remote")
-    @patch("gptme.tools.gh.get_github_pr_list")
-    def test_pr_list_with_state_and_limit(self, mock_list, mock_remote):
-        """gh pr list with --state and --limit flags."""
-        mock_list.return_value = "Pull requests in o/r (merged):\n\n  #2 Merged PR"
-        messages = list(
-            execute_gh(
-                None,
-                ["pr", "list", "--repo", "o/r", "--state", "merged", "--limit", "10"],
-                None,
-            )
-        )
-        assert len(messages) == 1
-        mock_list.assert_called_once_with("o", "r", state="merged", limit=10)
-
-    @patch("gptme.tools.gh._get_repo_from_git_remote")
-    @patch("gptme.tools.gh.get_github_pr_list")
-    def test_pr_list_fetch_failure(self, mock_list, mock_remote):
-        """gh pr list when fetch fails."""
-        mock_list.return_value = None
-        messages = list(execute_gh(None, ["pr", "list", "--repo", "owner/repo"], None))
-        assert len(messages) == 1
-        assert "Failed to list pull requests" in messages[0].content
-
-    def test_unknown_command_lists_issue_list(self):
-        """Error message for unknown command includes gh issue list."""
-        messages = list(execute_gh(None, ["unknown", "command"], None))
-        assert len(messages) == 1
-        assert "gh issue list" in messages[0].content
-
-    def test_unknown_command_lists_pr_list(self):
-        """Error message for unknown command includes gh pr list."""
-        messages = list(execute_gh(None, ["unknown", "command"], None))
-        assert len(messages) == 1
-        assert "gh pr list" in messages[0].content
+        assert messages[0].content == "(no output)"
 
 
 # --- _resolve_ref ---
@@ -955,393 +796,6 @@ class TestResolveRef:
         assert err is None
         assert info is not None
         assert info["owner"] == "owner"
-
-
-# --- _resolve_repo_for_list ---
-
-
-class TestResolveRepoForList:
-    def test_repo_from_flag(self):
-        """--repo flag provides owner/repo."""
-        owner, repo, flags, err = _resolve_repo_for_list(
-            ["issue", "list", "--repo", "owner/repo"]
-        )
-        assert err is None
-        assert owner == "owner"
-        assert repo == "repo"
-        assert flags["repo"] == "owner/repo"
-
-    @patch("gptme.tools.gh._get_repo_from_git_remote")
-    def test_repo_from_git_remote(self, mock_remote):
-        """Without --repo, falls back to git remote."""
-        mock_remote.return_value = ("remote-owner", "remote-repo")
-        owner, repo, flags, err = _resolve_repo_for_list(["issue", "list"])
-        assert err is None
-        assert owner == "remote-owner"
-        assert repo == "remote-repo"
-
-    @patch("gptme.tools.gh._get_repo_from_git_remote")
-    def test_no_repo_detected(self, mock_remote):
-        """No --repo and no git remote returns error."""
-        mock_remote.return_value = None
-        owner, repo, flags, err = _resolve_repo_for_list(["issue", "list"])
-        assert owner is None
-        assert repo is None
-        assert err is not None
-        assert "Could not determine repository" in err.content
-
-    def test_flags_preserved(self):
-        """Other flags are parsed and returned."""
-        owner, repo, flags, err = _resolve_repo_for_list(
-            ["pr", "list", "--repo", "o/r", "--state", "closed", "--limit", "5"]
-        )
-        assert err is None
-        assert flags["state"] == "closed"
-        assert flags["limit"] == "5"
-
-
-# --- gh search dispatch ---
-
-
-class TestSearchDispatch:
-    @patch("gptme.tools.gh.search_github_issues")
-    def test_search_issues_dispatches(self, mock_search):
-        """gh search issues dispatches to search_github_issues."""
-        mock_search.return_value = "Search results"
-        messages = list(execute_gh(None, ["search", "issues", "auth", "bug"], None))
-        assert len(messages) == 1
-        assert messages[0].content == "Search results"
-        mock_search.assert_called_once_with(
-            "auth bug",
-            repo=None,
-            state=None,
-            author=None,
-            assignee=None,
-            label=None,
-            limit=20,
-        )
-
-    @patch("gptme.tools.gh.search_github_prs")
-    def test_search_prs_dispatches(self, mock_search):
-        """gh search prs dispatches to search_github_prs."""
-        mock_search.return_value = "PR results"
-        messages = list(execute_gh(None, ["search", "prs", "feature"], None))
-        assert len(messages) == 1
-        assert messages[0].content == "PR results"
-        mock_search.assert_called_once_with(
-            "feature",
-            repo=None,
-            state=None,
-            author=None,
-            label=None,
-            limit=20,
-        )
-
-    @patch("gptme.tools.gh.search_github_issues")
-    def test_search_issues_with_flags(self, mock_search):
-        """gh search issues passes flags correctly."""
-        mock_search.return_value = "results"
-        messages = list(
-            execute_gh(
-                None,
-                [
-                    "search",
-                    "issues",
-                    "bug",
-                    "--repo",
-                    "owner/repo",
-                    "--state",
-                    "open",
-                    "--author",
-                    "alice",
-                    "--label",
-                    "critical",
-                    "--limit",
-                    "5",
-                ],
-                None,
-            )
-        )
-        assert len(messages) == 1
-        mock_search.assert_called_once_with(
-            "bug",
-            repo="owner/repo",
-            state="open",
-            author="alice",
-            assignee=None,
-            label="critical",
-            limit=5,
-        )
-
-    @patch("gptme.tools.gh.search_github_prs")
-    def test_search_prs_with_flags(self, mock_search):
-        """gh search prs passes flags correctly."""
-        mock_search.return_value = "results"
-        messages = list(
-            execute_gh(
-                None,
-                ["search", "prs", "fix", "--author", "bob", "--state", "merged"],
-                None,
-            )
-        )
-        assert len(messages) == 1
-        mock_search.assert_called_once_with(
-            "fix",
-            repo=None,
-            state="merged",
-            author="bob",
-            label=None,
-            limit=20,
-        )
-
-    def test_search_no_query(self):
-        """gh search issues without query shows error."""
-        messages = list(execute_gh(None, ["search", "issues"], None))
-        assert len(messages) == 1
-        assert "No search query" in messages[0].content
-
-    def test_search_trailing_flag_errors(self):
-        """gh search rejects flags without values."""
-        messages = list(execute_gh(None, ["search", "issues", "auth", "--state"], None))
-        assert len(messages) == 1
-        assert "Flag --state requires a value" in messages[0].content
-
-    def test_search_flag_followed_by_flag_errors(self):
-        """gh search rejects flags whose next token is another flag."""
-        messages = list(
-            execute_gh(
-                None,
-                ["search", "issues", "auth", "--state", "--author", "bob"],
-                None,
-            )
-        )
-        assert len(messages) == 1
-        assert "Flag --state requires a value" in messages[0].content
-
-    @patch("gptme.tools.gh.search_github_issues")
-    def test_search_flag_without_value(self, mock_search):
-        """Dangling search flags return an explicit error."""
-        messages = list(execute_gh(None, ["search", "issues", "auth", "--state"], None))
-        assert len(messages) == 1
-        assert "Flag --state requires a value" in messages[0].content
-        mock_search.assert_not_called()
-
-    def test_search_invalid_limit(self):
-        """gh search rejects non-integer --limit values explicitly."""
-        for bad_limit in ["abc", "-5", "1.5"]:
-            messages = list(
-                execute_gh(
-                    None,
-                    ["search", "issues", "auth", "--limit", bad_limit],
-                    None,
-                )
-            )
-            assert len(messages) == 1, f"Expected 1 message for limit={bad_limit!r}"
-            assert "--limit requires a positive integer" in messages[0].content
-
-    @patch("gptme.tools.gh.search_github_issues")
-    def test_search_failure(self, mock_search):
-        """gh search returns error on failure."""
-        mock_search.return_value = None
-        messages = list(execute_gh(None, ["search", "issues", "query"], None))
-        assert len(messages) == 1
-        assert "Failed to search" in messages[0].content
-
-    @patch("gptme.tools.gh.search_github_issues")
-    def test_search_issues_multi_word_query(self, mock_search):
-        """Multi-word queries are joined correctly."""
-        mock_search.return_value = "results"
-        list(execute_gh(None, ["search", "issues", "fix", "auth", "bug"], None))
-        mock_search.assert_called_once()
-        assert mock_search.call_args[0][0] == "fix auth bug"
-
-    def test_search_prs_rejects_assignee(self):
-        """gh search prs rejects --assignee with a clear error (not silently ignored)."""
-        messages = list(
-            execute_gh(
-                None,
-                ["search", "prs", "auth", "--assignee", "alice"],
-                None,
-            )
-        )
-        assert len(messages) == 1
-        assert "--assignee is not supported for PR search" in messages[0].content
-        assert "--author" in messages[0].content
-
-    @patch("gptme.tools.gh.search_github_issues")
-    def test_search_issues_flags_between_words(self, mock_search):
-        """Flags interspersed with query words are parsed correctly."""
-        mock_search.return_value = "results"
-        list(
-            execute_gh(
-                None,
-                ["search", "issues", "auth", "--repo", "o/r", "bug"],
-                None,
-            )
-        )
-        mock_search.assert_called_once()
-        assert mock_search.call_args[0][0] == "auth bug"
-        assert mock_search.call_args[1]["repo"] == "o/r"
-
-    # --- gh pr merge ---
-
-    @patch("gptme.tools.gh._handle_pr_merge")
-    def test_dispatch_merge(self, mock_merge):
-        """gh pr merge dispatches to _handle_pr_merge."""
-        mock_merge.return_value = iter([])
-        list(
-            execute_gh(
-                None,
-                ["pr", "merge", "https://github.com/owner/repo/pull/1"],
-                None,
-            )
-        )
-        mock_merge.assert_called_once()
-
-    def test_pr_merge_no_ref(self):
-        """gh pr merge with no reference gives error."""
-        messages = list(execute_gh(None, ["pr", "merge"], None))
-        assert len(messages) == 1
-        assert "No PR reference provided" in messages[0].content
-
-    def test_pr_merge_invalid_ref(self):
-        """gh pr merge with invalid reference gives parse error."""
-        messages = list(execute_gh(None, ["pr", "merge", "https://invalid.com"], None))
-        assert len(messages) == 1
-        assert "Could not parse GitHub reference" in messages[0].content
-
-    @patch("gptme.tools.gh.merge_github_pr")
-    def test_pr_merge_success(self, mock_merge):
-        """gh pr merge returns success with SHA."""
-        mock_merge.return_value = {
-            "success": True,
-            "message": "✓ Squashed and merged pull request #42",
-            "url": "https://github.com/owner/repo/pull/42",
-            "sha": "abc1234",
-        }
-        messages = list(
-            execute_gh(
-                None,
-                ["pr", "merge", "https://github.com/owner/repo/pull/42"],
-                None,
-            )
-        )
-        assert len(messages) == 1
-        assert "merged" in messages[0].content.lower()
-        assert "abc1234" in messages[0].content
-
-    @patch("gptme.tools.gh.merge_github_pr")
-    def test_pr_merge_failure(self, mock_merge):
-        """gh pr merge returns error on failure."""
-        mock_merge.return_value = {
-            "success": False,
-            "message": "Cannot merge PR #42: merge conflicts exist.",
-        }
-        messages = list(
-            execute_gh(
-                None,
-                ["pr", "merge", "https://github.com/owner/repo/pull/42"],
-                None,
-            )
-        )
-        assert len(messages) == 1
-        assert "Error:" in messages[0].content
-        assert "merge conflicts" in messages[0].content
-
-    @patch("gptme.tools.gh.merge_github_pr")
-    def test_pr_merge_squash_default(self, mock_merge):
-        """gh pr merge defaults to squash."""
-        mock_merge.return_value = {"success": True, "message": "Merged"}
-        list(
-            execute_gh(
-                None,
-                ["pr", "merge", "https://github.com/owner/repo/pull/42"],
-                None,
-            )
-        )
-        assert mock_merge.call_args[1]["method"] == "squash"
-
-    @patch("gptme.tools.gh.merge_github_pr")
-    def test_pr_merge_rebase_flag(self, mock_merge):
-        """gh pr merge --rebase passes rebase method."""
-        mock_merge.return_value = {"success": True, "message": "Merged"}
-        list(
-            execute_gh(
-                None,
-                ["pr", "merge", "https://github.com/owner/repo/pull/42", "--rebase"],
-                None,
-            )
-        )
-        assert mock_merge.call_args[1]["method"] == "rebase"
-
-    @patch("gptme.tools.gh.merge_github_pr")
-    def test_pr_merge_auto_flag(self, mock_merge):
-        """gh pr merge --auto enables auto-merge."""
-        mock_merge.return_value = {"success": True, "message": "Auto-merge enabled"}
-        list(
-            execute_gh(
-                None,
-                [
-                    "pr",
-                    "merge",
-                    "https://github.com/owner/repo/pull/42",
-                    "--squash",
-                    "--auto",
-                ],
-                None,
-            )
-        )
-        assert mock_merge.call_args[1]["auto"] is True
-
-    @patch("gptme.tools.gh.merge_github_pr")
-    def test_pr_merge_delete_branch(self, mock_merge):
-        """gh pr merge --delete-branch passes flag."""
-        mock_merge.return_value = {"success": True, "message": "Merged"}
-        list(
-            execute_gh(
-                None,
-                [
-                    "pr",
-                    "merge",
-                    "https://github.com/owner/repo/pull/42",
-                    "--delete-branch",
-                ],
-                None,
-            )
-        )
-        assert mock_merge.call_args[1]["delete_branch"] is True
-
-    @patch("gptme.tools.gh.merge_github_pr")
-    def test_pr_merge_match_head_commit(self, mock_merge):
-        """gh pr merge --match-head-commit passes SHA."""
-        mock_merge.return_value = {"success": True, "message": "Merged"}
-        list(
-            execute_gh(
-                None,
-                [
-                    "pr",
-                    "merge",
-                    "https://github.com/owner/repo/pull/42",
-                    "--match-head-commit",
-                    "abc123",
-                ],
-                None,
-            )
-        )
-        assert mock_merge.call_args[1]["match_head_commit"] == "abc123"
-
-    @patch("gptme.tools.gh.merge_github_pr")
-    def test_pr_merge_short_ref(self, mock_merge):
-        """gh pr merge works with owner/repo#N reference."""
-        mock_merge.return_value = {"success": True, "message": "Merged"}
-        list(execute_gh(None, ["pr", "merge", "owner/repo#42"], None))
-        mock_merge.assert_called_once()
-        assert mock_merge.call_args[0] == ("owner", "repo", "42")
-
-    def test_unknown_command_lists_pr_merge(self):
-        """Error message for unknown commands includes gh pr merge."""
-        messages = list(execute_gh(None, ["foo", "bar"], None))
-        assert "gh pr merge" in messages[0].content
 
 
 # --- _handle_pr_merge unit tests ---

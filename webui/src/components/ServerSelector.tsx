@@ -325,6 +325,7 @@ export const ServerSelector: FC = () => {
                         size="icon"
                         className="h-6 w-6 shrink-0"
                         onClick={copyCommand}
+                        aria-label="Copy command"
                       >
                         <Copy className="h-3 w-3" />
                       </Button>

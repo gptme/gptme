@@ -28,7 +28,9 @@ def get_tmux_content(lines: int | None = None):
     if lines:
         cmd.extend(["-S", f"-{lines}"])
 
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, text=True, check=True)
+    result = subprocess.run(
+        cmd, stdout=subprocess.PIPE, text=True, check=True, timeout=10
+    )
     return result.stdout
 
 

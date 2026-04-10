@@ -74,7 +74,7 @@ def validate_api_key(
         return False, "Request timed out. Please check your network connection."
     except requests.exceptions.ConnectionError:
         return False, "Could not connect to the API. Please check your network."
-    except Exception as e:
+    except requests.exceptions.RequestException as e:
         logger.exception(f"Unexpected error validating {provider} API key")
         return False, f"Validation failed: {e}"
 
@@ -123,7 +123,7 @@ def _validate_anthropic(api_key: str, timeout: int) -> tuple[bool, str]:
         # Bad request means key is valid but request format was wrong (expected)
         try:
             error_data = response.json()
-        except Exception:
+        except ValueError:
             return False, "Invalid API key. Please check your key and try again."
         if "authentication" in error_data.get("error", {}).get("message", "").lower():
             return False, "Invalid API key. Please check your key and try again."
@@ -167,7 +167,7 @@ def _validate_google(api_key: str, timeout: int) -> tuple[bool, str]:
     if response.status_code == 400:
         try:
             error = response.json().get("error", {})
-        except Exception:
+        except ValueError:
             error = {}
         if error.get("status") == "INVALID_ARGUMENT":
             return False, "Invalid API key. Please check your key and try again."

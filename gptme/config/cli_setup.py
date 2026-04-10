@@ -29,7 +29,7 @@ def _get_model_default_tool_format(model: str | None) -> str | None:
 
         meta = get_model(model)
         return meta.default_tool_format
-    except Exception:
+    except (ImportError, KeyError, ValueError, AttributeError):
         return None
 
 

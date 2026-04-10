@@ -34,9 +34,18 @@ _plugin_cache: dict[tuple[Path, ...], list[Plugin]] = {}
 # Track which plugins have been logged as loaded (to avoid duplicate logs)
 _loaded_plugins: set[str] = set()
 
+from .plugin import GptmePlugin
+from .registry import (
+    discover_all_plugins,
+    get_all_plugins,
+)
+
 __all__ = [
+    "GptmePlugin",
     "Plugin",
+    "discover_all_plugins",
     "discover_plugins",
+    "get_all_plugins",
     "get_plugin_tool_modules",
     "register_plugin_hooks",
     "register_plugin_commands",

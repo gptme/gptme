@@ -10,17 +10,25 @@ import tomlkit
 from gptme.config import MCPConfig, MCPServerConfig, UserConfig
 
 
-def test_mcp_cli_commands():
-    """Test MCP CLI command logic"""
+def test_mcp_cli_commands(monkeypatch):
+    """Test MCP CLI command logic without hitting the live registry."""
     from click.testing import CliRunner
 
     from gptme.cli.cmd_mcp import mcp_info
+    from gptme.mcp.registry import MCPRegistry
+
+    monkeypatch.setattr(
+        MCPRegistry,
+        "get_server_details",
+        lambda self, server_name: None,
+    )
 
     # Test with mock data - this would normally use the config system
     runner = CliRunner()
 
     # Test info command with non-existent server
     result = runner.invoke(mcp_info, ["nonexistent"])
+    assert result.exit_code == 0
     # Updated to match improved error message that searches registries
     assert "not configured locally" in result.output
     assert "not found in registries either" in result.output
@@ -308,3 +316,51 @@ def test_mcp_roots_adapter_functions():
     # Test remove_mcp_root for non-existent server
     result = remove_mcp_root("nonexistent", "file:///test")
     assert "not loaded" in result
+
+
+def test_mcp_client_event_loop_isolation():
+    """Test that creating multiple MCPClient instances doesn't pollute the global event loop.
+
+    Previously, MCPClient.__init__ called asyncio.set_event_loop(self.loop),
+    which meant each new client would overwrite the thread-global event loop.
+    With multiple MCP servers configured, this caused the last-created client's
+    loop to become the global one, potentially breaking async operations on
+    earlier clients or other code that relies on the global event loop.
+    """
+    import asyncio
+
+    from gptme.mcp.client import MCPClient
+
+    # Save whatever the current event loop policy gives us
+    original_loop = None
+    try:
+        original_loop = asyncio.get_event_loop_policy().get_event_loop()
+    except RuntimeError:
+        # No current event loop — that's fine
+        pass
+
+    # Create multiple clients (simulating multiple MCP servers)
+    client_a = MCPClient()
+    client_b = MCPClient()
+    client_c = MCPClient()
+
+    # Each client should have its own distinct event loop
+    assert client_a.loop is not client_b.loop
+    assert client_b.loop is not client_c.loop
+    assert client_a.loop is not client_c.loop
+
+    # The global event loop should NOT have been changed by creating clients
+    try:
+        current_loop = asyncio.get_event_loop_policy().get_event_loop()
+        if original_loop is not None:
+            assert current_loop is original_loop, (
+                "MCPClient.__init__ should not change the thread-global event loop"
+            )
+    except RuntimeError:
+        # No event loop set — also acceptable if there wasn't one before
+        assert original_loop is None
+
+    # Clean up
+    client_a.loop.close()
+    client_b.loop.close()
+    client_c.loop.close()

@@ -12,7 +12,7 @@ import subprocess
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 import flask
 from pydantic import BaseModel, Field
@@ -667,7 +667,7 @@ def api_tasks_list():
 
         # Return with stored status (no side effects in GET)
         tasks_info = [asdict(task) for task in tasks]
-        return flask.jsonify(tasks_info)
+        return flask.jsonify({"tasks": tasks_info})
 
     except Exception as e:
         logger.error(f"Error listing tasks: {e}")
@@ -688,11 +688,32 @@ def api_tasks_create():
     A conversation will be automatically created for the task.
     """
     req_json = flask.request.json
-    if not req_json:
+    if not req_json or not isinstance(req_json, dict):
         return flask.jsonify({"error": "No JSON data provided"}), 400
 
     if "content" not in req_json:
         return flask.jsonify({"error": "Missing required field: content"}), 400
+
+    if not isinstance(req_json["content"], str):
+        return flask.jsonify({"error": "content must be a string"}), 400
+
+    # Validate target_type if provided
+    valid_target_types = get_args(TargetType)
+    target_type = req_json.get("target_type", "stdout")
+    if target_type not in valid_target_types:
+        return flask.jsonify(
+            {"error": f"target_type must be one of: {', '.join(valid_target_types)}"}
+        ), 400
+
+    # Validate target_repo if provided
+    target_repo = req_json.get("target_repo")
+    if target_repo is not None and not isinstance(target_repo, str):
+        return flask.jsonify({"error": "target_repo must be a string"}), 400
+
+    # Validate metadata if provided
+    metadata = req_json.get("metadata", {})
+    if not isinstance(metadata, dict):
+        return flask.jsonify({"error": "metadata must be an object"}), 400
 
     try:
         # Generate task ID
@@ -704,10 +725,10 @@ def api_tasks_create():
             content=req_json["content"],
             created_at=datetime.now(tz=timezone.utc).isoformat(),
             status="pending",
-            target_type=req_json.get("target_type", "stdout"),
-            target_repo=req_json.get("target_repo"),
+            target_type=target_type,
+            target_repo=target_repo,
             conversation_ids=[],
-            metadata=req_json.get("metadata", {}),
+            metadata=metadata,
         )
 
         # Create initial conversation
@@ -784,6 +805,26 @@ def api_tasks_update(task_id: str):
     req_json = flask.request.json
     if not req_json:
         return flask.jsonify({"error": "No JSON data provided"}), 400
+
+    # Validate field types before applying
+    if "content" in req_json and not isinstance(req_json["content"], str):
+        return flask.jsonify({"error": "content must be a string"}), 400
+
+    valid_target_types = get_args(TargetType)
+    if "target_type" in req_json and req_json["target_type"] not in valid_target_types:
+        return flask.jsonify(
+            {"error": f"target_type must be one of: {', '.join(valid_target_types)}"}
+        ), 400
+
+    if (
+        "target_repo" in req_json
+        and req_json["target_repo"] is not None
+        and not isinstance(req_json["target_repo"], str)
+    ):
+        return flask.jsonify({"error": "target_repo must be a string or null"}), 400
+
+    if "metadata" in req_json and not isinstance(req_json["metadata"], dict):
+        return flask.jsonify({"error": "metadata must be an object"}), 400
 
     try:
         # Update allowed fields

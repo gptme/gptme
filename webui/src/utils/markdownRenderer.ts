@@ -125,6 +125,24 @@ export function customRenderer(
         }
       }
 
+      // Convert short code blocks (≤2 lines) from <details> to inline display.
+      // Long lines scroll horizontally; the label stays fixed on the left.
+      if (data.code && data.summary) {
+        const codeText = (data.code.textContent || '').replace(/\n$/, '');
+        const lineCount = codeText.split('\n').length;
+        const details = data.summary.parentElement; // the <details> element
+
+        if (lineCount <= 2 && codeText.length <= 1000 && details?.tagName === 'DETAILS') {
+          // Replace <details><summary>...<pre><code>... with inline element
+          const inline = document.createElement('div');
+          inline.className = 'inline-codeblock';
+          inline.innerHTML =
+            `<span class="inline-codeblock-label">${data.summary.innerHTML}</span>` +
+            `<code class="${data.code.className}">${data.code.innerHTML}</code>`;
+          details.replaceWith(inline);
+        }
+      }
+
       data.summary = null;
       data.lang = null;
       data.code = null;

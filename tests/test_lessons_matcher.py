@@ -455,3 +455,83 @@ Test content.
         # Should only return ONE result despite two entries in input
         assert len(results) == 1
         assert results[0].lesson.title == "Test Lesson"
+
+
+class TestToolMatching:
+    """Tests for tool-based lesson matching."""
+
+    def test_tool_match_exact_case(self):
+        """Test tool matching with exact case."""
+        lessons = [
+            Lesson(
+                title="Shell Guide",
+                category="tools",
+                description="Shell tips",
+                body="# Shell\n\nContent",
+                metadata=LessonMetadata(keywords=["shell"], tools=["shell"]),
+                path=Path("/lessons/shell-guide.md"),
+            ),
+        ]
+        matcher = LessonMatcher()
+        context = MatchContext(message="running a command", tools_used=["shell"])
+        results = matcher.match(lessons, context)
+
+        assert len(results) == 1
+        assert "tool:shell" in results[0].matched_by
+
+    def test_tool_match_case_insensitive(self):
+        """Test tool matching is case-insensitive."""
+        lessons = [
+            Lesson(
+                title="Patch Guide",
+                category="tools",
+                description="Patch tips",
+                body="# Patch\n\nContent",
+                metadata=LessonMetadata(keywords=[], tools=["Patch"]),
+                path=Path("/lessons/patch-guide.md"),
+            ),
+        ]
+        matcher = LessonMatcher()
+        # Context has lowercase tool name (from code blocks)
+        context = MatchContext(message="editing a file", tools_used=["patch"])
+        results = matcher.match(lessons, context)
+
+        assert len(results) == 1
+        assert "tool:Patch" in results[0].matched_by
+
+    def test_tool_match_case_insensitive_reverse(self):
+        """Test tool matching when lesson has lowercase but context has mixed case."""
+        lessons = [
+            Lesson(
+                title="IPython Guide",
+                category="tools",
+                description="IPython tips",
+                body="# IPython\n\nContent",
+                metadata=LessonMetadata(keywords=[], tools=["ipython"]),
+                path=Path("/lessons/ipython-guide.md"),
+            ),
+        ]
+        matcher = LessonMatcher()
+        context = MatchContext(message="analyzing data", tools_used=["IPython"])
+        results = matcher.match(lessons, context)
+
+        assert len(results) == 1
+        assert "tool:ipython" in results[0].matched_by
+
+    def test_tool_no_match(self):
+        """Test tool matching returns nothing for unmatched tools."""
+        lessons = [
+            Lesson(
+                title="Browser Guide",
+                category="tools",
+                description="Browser tips",
+                body="# Browser\n\nContent",
+                metadata=LessonMetadata(keywords=[], tools=["browser"]),
+                path=Path("/lessons/browser-guide.md"),
+            ),
+        ]
+        matcher = LessonMatcher()
+        context = MatchContext(message="something", tools_used=["shell"])
+        results = matcher.match(lessons, context)
+
+        assert len(results) == 0

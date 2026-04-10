@@ -94,7 +94,8 @@ def truncate_msg(msg: Message, lines_pre=10, lines_post=10) -> Message | None:
         # replace the codeblock with the truncated version
         content_staged_prev = content_staged
         content_staged = content_staged.replace(
-            full_block, Codeblock(codeblock.lang, content).to_markdown()
+            full_block,
+            Codeblock(codeblock.lang, content, fence=codeblock.fence).to_markdown(),
         )
         assert content_staged != content_staged_prev
         assert full_block not in content_staged

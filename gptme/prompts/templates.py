@@ -282,7 +282,7 @@ def prompt_systeminfo(
     if platform.system() == "Linux":
         try:
             release_info = platform.freedesktop_os_release()
-        except Exception:
+        except OSError:
             release_info = {}
         os_info = release_info.get("NAME", "Linux")
         os_version = (

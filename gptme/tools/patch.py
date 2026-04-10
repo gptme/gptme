@@ -330,7 +330,7 @@ def execute_patch_impl(
             ) from err
 
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             original_content = f.read()
 
         # Apply the patch
@@ -340,13 +340,13 @@ def execute_patch_impl(
         patch_len = len(content)
         full_file_len = len(patched_content)
         warnings = []
-        if 1000 < full_file_len < patch_len:
+        if patch_len > 1000 and patch_len > full_file_len:
             warnings.append(
                 "Note: The patch was big and larger than the file. In the future, try writing smaller patches or use the save tool instead."
             )
 
         # Write the patched content
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             f.write(patched_content)
 
         # Return success message with any warnings

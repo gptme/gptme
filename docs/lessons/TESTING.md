@@ -206,7 +206,7 @@ echo "All tests passed!"
 bash tests/integration/test_lesson_e2e.sh
 
 # Test with different models
-GPTME_MODEL=anthropic/claude-sonnet-3-5-20240620 bash tests/integration/test_lesson_e2e.sh
+GPTME_MODEL=anthropic/claude-sonnet-4-6 bash tests/integration/test_lesson_e2e.sh
 ```
 
 ## Cross-Platform Testing
@@ -248,7 +248,7 @@ zsh tests/integration/test_lesson_e2e.sh
 
 ```powershell
 # Windows PowerShell
-$env:GPTME_MODEL = "anthropic/claude-sonnet-3-5-20240620"
+$env:GPTME_MODEL = "anthropic/claude-sonnet-4-6"
 python -m pytest tests/ -v
 
 # Git Bash

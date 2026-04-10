@@ -40,7 +40,7 @@ def _is_interactive_mode() -> bool:
 
         hooks = get_hooks(HookType.TOOL_CONFIRM)
         return any(h.name == "cli_confirm" and h.enabled for h in hooks)
-    except Exception:
+    except (ImportError, AttributeError):
         return False
 
 
@@ -303,9 +303,10 @@ def git_branch() -> str | None:
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=10,
             )
             return branch.stdout.strip()
-        except subprocess.CalledProcessError:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             logger.error("Failed to get git branch")
             return None
     return None
@@ -322,14 +323,16 @@ def gh_pr_status() -> str | None:
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=30,
             )
             p_diff = subprocess.run(
                 ["gh", "pr", "diff"],
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=60,
             )
-        except subprocess.CalledProcessError as e:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             logger.error(f"Failed to get PR info: {e}")
             return None
 
@@ -357,14 +360,22 @@ def git_status() -> str | None:
     """Get git status if in a repository."""
     try:
         git_status = subprocess.run(
-            ["git", "status"], capture_output=True, text=True, check=True
+            ["git", "status"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
         )
         logger.debug("Including git status in context")
         output = git_status.stdout
         if len(output) > 10000:
             output = output[:10000] + "\n... (truncated)"
         return md_codeblock("git status", output)
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except (
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        FileNotFoundError,
+    ):
         logger.debug("Not in a git repository or git not available")
     return None
 
@@ -415,9 +426,10 @@ def get_changed_files() -> list[Path]:
             capture_output=True,
             text=True,
             check=True,
+            timeout=10,
         )
         return [Path(f) for f in p.stdout.splitlines()]
-    except subprocess.CalledProcessError as e:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
         logger.debug(f"Error getting git diff files: {e}")
         return []
 
@@ -517,7 +529,10 @@ def include_paths(msg: Message, workspace: Path | None = None) -> Message:
                 # Store path relative to workspace if provided
                 file = file.expanduser()
                 if workspace and not file.is_absolute():
-                    file = file.absolute().relative_to(workspace)
+                    try:
+                        file = file.absolute().relative_to(workspace)
+                    except ValueError:
+                        file = file.absolute()
                 logger.debug(f"auto-attaching file: {file}")
                 files.append(file)
 

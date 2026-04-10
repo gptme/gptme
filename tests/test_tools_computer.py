@@ -347,6 +347,28 @@ def test_run_xdotool_macos_raises():
         _run_xdotool("key Return")
 
 
+@mock.patch("gptme.tools.computer.IS_MACOS", False)
+def test_run_xdotool_timeout():
+    """Test that xdotool timeout raises RuntimeError."""
+    with mock.patch("subprocess.run") as mock_run:
+        mock_run.side_effect = subprocess.TimeoutExpired("xdotool", 10)
+        with pytest.raises(RuntimeError, match="xdotool command timed out"):
+            _run_xdotool("key Return")
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", False)
+def test_get_display_resolution_timeout():
+    """Test that xrandr timeout raises RuntimeError."""
+    with (
+        mock.patch(
+            "subprocess.check_output",
+            side_effect=subprocess.TimeoutExpired("xrandr", 10),
+        ),
+        pytest.raises(RuntimeError, match="Failed to get display resolution"),
+    ):
+        _get_display_resolution()
+
+
 # === computer() action validation tests ===
 
 
@@ -591,10 +613,20 @@ def test_computer_screenshot_success(
         args=[], returncode=0
     )
 
-    result = computer("screenshot")
+    # Unset WIDTH/HEIGHT so env vars don't override the mocked display resolution.
+    with mock.patch.dict("os.environ", {}, clear=False) as env:
+        env.pop("WIDTH", None)
+        env.pop("HEIGHT", None)
+        result = computer("screenshot")
     mock_screenshot.assert_called_once()
     mock_view_image.assert_called_once_with(mock_path)
     assert result == "image_message"
+    # Verify resize uses correct API dimensions, not squared coordinates.
+    cmd = mock_subprocess_run.call_args[0][0]
+    assert "-resize" in cmd
+    resize_dim = cmd[cmd.index("-resize") + 1]
+    # With physical 1920x1080 (16:9), FWXGA (1366x768) is the closest API target.
+    assert resize_dim == "1366x768!"
 
 
 @mock.patch("gptme.tools.computer.IS_MACOS", False)

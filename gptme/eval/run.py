@@ -324,7 +324,14 @@ def execute(
         if status not in ("timeout", "error"):
             # check and collect results
             run_start = time.time()
-            env = DockerExecutionEnv() if use_docker else SimpleExecutionEnv()
+            # For local (non-Docker) runs, reuse the agent's workspace directory so
+            # the run script has access to the full git history and all side-effects
+            # (e.g. installed packages, git objects) without serialisation round-trips.
+            env: DockerExecutionEnv | SimpleExecutionEnv
+            if use_docker:
+                env = DockerExecutionEnv()
+            else:
+                env = SimpleExecutionEnv(working_dir=Path(workspace_dir))
             try:
                 # Restore specific input fixture files before running checks.
                 # Some tests provide input files (e.g. old.json/new.json for json-diff)
@@ -334,11 +341,19 @@ def execute(
                 # in hello-patch), as those need to stay modified.
                 restore_files = test.get("restore_files", [])
                 all_fixtures = test["files"]
-                files_for_run = {
-                    **files,
-                    **{k: v for k, v in all_fixtures.items() if k in restore_files},
-                }
-                env.upload(files_for_run)
+                if use_docker:
+                    # Docker: upload all agent output files + restore fixture inputs.
+                    files_for_run = {
+                        **files,
+                        **{k: v for k, v in all_fixtures.items() if k in restore_files},
+                    }
+                    env.upload(files_for_run)
+                elif restore_files:
+                    # Local workspace reuse: files are already in place.
+                    # Only re-upload fixture inputs the agent may have clobbered.
+                    env.upload(
+                        {k: v for k, v in all_fixtures.items() if k in restore_files}
+                    )
                 logger.debug(f"Running check: {test['run']}")
                 stdout_run, stderr_run, exit_code = env.run(test["run"])
                 time_run = time.time() - run_start
@@ -426,8 +441,6 @@ def act_process(
     # Note: suppress_output is passed directly to avoid os.environ race conditions
     if suppress_output:
         # Redirect to null during optimization
-        import io
-
         stdout = StreamTee(io.StringIO(), keep=False)
         stderr = StreamTee(io.StringIO(), keep=False)
         subprocess_logger.info("Output suppression enabled for GEPA optimization")

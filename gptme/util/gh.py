@@ -71,6 +71,7 @@ def _get_github_actions_status(owner: str, repo: str, sha: str) -> str | None:
             capture_output=True,
             text=True,
             check=False,
+            timeout=30,
         )
 
         if check_runs_result.returncode != 0:
@@ -151,7 +152,12 @@ def _get_github_actions_status(owner: str, repo: str, sha: str) -> str | None:
 
         return "\n".join(lines) if lines else None
 
-    except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError) as e:
+    except (
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        json.JSONDecodeError,
+        KeyError,
+    ) as e:
         logger.debug(f"Failed to get GitHub Actions status: {e}")
         return None
 
@@ -171,6 +177,7 @@ def _get_repo_from_git_remote(
             text=True,
             check=True,
             cwd=str(workspace) if workspace else None,
+            timeout=10,
         )
         remote_url = result.stdout.strip()
 
@@ -188,7 +195,13 @@ def _get_repo_from_git_remote(
             path_parts = parsed.path.strip("/").removesuffix(".git").split("/")
             if len(path_parts) == 2:
                 return path_parts[0], path_parts[1]
-    except (subprocess.CalledProcessError, OSError, ValueError, AttributeError):
+    except (
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        OSError,
+        ValueError,
+        AttributeError,
+    ):
         pass
     return None
 
@@ -317,6 +330,7 @@ def get_github_pr_diff(
             capture_output=True,
             text=True,
             check=True,
+            timeout=30,
         )
 
         # Get full unified diff
@@ -325,6 +339,7 @@ def get_github_pr_diff(
             capture_output=True,
             text=True,
             check=True,
+            timeout=60,
         )
 
         stat_text = stat_result.stdout.strip()
@@ -356,7 +371,7 @@ def get_github_pr_diff(
             )
 
         return output
-    except subprocess.CalledProcessError as e:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
         logger.warning(f"Failed to get PR diff: {e}")
         return None
 
@@ -403,7 +418,9 @@ def get_github_issue_list(
             cmd.extend(["--label", label])
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, check=True, timeout=30
+        )
         issues = json.loads(result.stdout)
 
         if not issues:
@@ -439,7 +456,7 @@ def get_github_issue_list(
         output += f"\nShowing {len(issues)} {state_label}."
         return output
 
-    except subprocess.CalledProcessError as e:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
         logger.warning(f"Failed to list issues: {e}")
         return None
     except json.JSONDecodeError as e:
@@ -483,7 +500,9 @@ def get_github_pr_list(
     ]
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, check=True, timeout=30
+        )
         prs = json.loads(result.stdout)
 
         if not prs:
@@ -527,7 +546,7 @@ def get_github_pr_list(
         output += f"\nShowing {len(prs)} {state_label}."
         return output
 
-    except subprocess.CalledProcessError as e:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
         logger.warning(f"Failed to list PRs: {e}")
         return None
     except json.JSONDecodeError as e:
@@ -536,7 +555,11 @@ def get_github_pr_list(
 
 
 def get_github_issue_content(owner: str, repo: str, number: str) -> str | None:
-    """Get GitHub issue content using gh CLI."""
+    """Get GitHub issue content with comments and linked PRs using gh CLI.
+
+    Combines the issue body, all comments, and any linked pull requests
+    in a single response — saving the caller multiple round-trips.
+    """
     if not shutil.which("gh"):
         logger.debug("gh CLI not available for GitHub issue handling")
         return None
@@ -548,6 +571,7 @@ def get_github_issue_content(owner: str, repo: str, number: str) -> str | None:
             capture_output=True,
             text=True,
             check=True,
+            timeout=30,
         )
 
         # Get the comments
@@ -556,6 +580,7 @@ def get_github_issue_content(owner: str, repo: str, number: str) -> str | None:
             capture_output=True,
             text=True,
             check=True,
+            timeout=60,
         )
 
         # Combine issue and comments
@@ -563,9 +588,74 @@ def get_github_issue_content(owner: str, repo: str, number: str) -> str | None:
         if comments_result.stdout.strip():
             content += "\n\n" + comments_result.stdout
 
+        # Fetch linked PRs via timeline events (best-effort)
+        linked_prs = _get_linked_prs(owner, repo, number)
+        if linked_prs:
+            content += "\n\nLinked pull requests:\n" + linked_prs
+
         return content
-    except subprocess.CalledProcessError as e:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
         logger.warning(f"Failed to get GitHub issue content: {e}")
+        return None
+
+
+def _get_linked_prs(owner: str, repo: str, issue_number: str) -> str | None:
+    """Fetch PRs linked to an issue via timeline events (best-effort).
+
+    Uses NDJSON output (one object per line) instead of array wrapping,
+    because ``gh api --paginate --jq`` applies the jq filter per-page —
+    wrapping in ``[...]`` would produce multiple concatenated arrays that
+    ``json.loads`` cannot parse.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "gh",
+                "api",
+                f"/repos/{owner}/{repo}/issues/{issue_number}/timeline",
+                "--paginate",
+                "--jq",
+                (
+                    '.[] | select(.event == "cross-referenced" and .source.issue.pull_request != null) '
+                    "| {number: .source.issue.number, title: .source.issue.title, "
+                    "state: .source.issue.state, repo: .source.issue.repository.full_name}"
+                ),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+
+        # Parse NDJSON (one JSON object per line) and deduplicate
+        seen: set[int] = set()
+        prs: list[dict] = []
+        for line in result.stdout.strip().splitlines():
+            pr = json.loads(line)
+            if pr["number"] not in seen:
+                seen.add(pr["number"])
+                prs.append(pr)
+
+        if not prs:
+            return None
+
+        lines = []
+        for pr in prs:
+            state_icon = "✅" if pr["state"] == "closed" else "🔄"
+            repo_name = pr.get("repo")
+            repo_prefix = (
+                repo_name
+                if isinstance(repo_name, str)
+                and repo_name
+                and repo_name != f"{owner}/{repo}"
+                else ""
+            )
+            ref = f"{repo_prefix}#{pr['number']}" if repo_prefix else f"#{pr['number']}"
+            lines.append(f"  {state_icon} {ref}: {pr['title']}")
+        return "\n".join(lines)
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, KeyError):
         return None
 
 
@@ -590,6 +680,7 @@ def get_github_pr_content(url: str) -> str | None:
             capture_output=True,
             text=True,
             check=True,
+            timeout=30,
         )
 
         # Get the PR comments
@@ -598,6 +689,7 @@ def get_github_pr_content(url: str) -> str | None:
             capture_output=True,
             text=True,
             check=True,
+            timeout=60,
         )
 
         # Get PR details to extract HEAD commit SHA
@@ -606,6 +698,7 @@ def get_github_pr_content(url: str) -> str | None:
             capture_output=True,
             text=True,
             check=False,
+            timeout=30,
         )
 
         # Get review comments (inline code comments) using GitHub API
@@ -614,6 +707,7 @@ def get_github_pr_content(url: str) -> str | None:
             capture_output=True,
             text=True,
             check=False,  # Don't fail if this doesn't work
+            timeout=60,
         )
 
         # Get review threads to check resolution status using GraphQL
@@ -653,6 +747,7 @@ def get_github_pr_content(url: str) -> str | None:
             capture_output=True,
             text=True,
             check=False,
+            timeout=30,
         )
 
         # Combine all content
@@ -793,7 +888,7 @@ def get_github_pr_content(url: str) -> str | None:
                 logger.debug("Failed to parse PR details JSON")
 
         return content
-    except subprocess.CalledProcessError as e:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
         logger.warning(f"Failed to get GitHub PR content: {e}")
         return None
 
@@ -914,6 +1009,7 @@ def get_github_run_logs(
             capture_output=True,
             text=True,
             check=True,
+            timeout=30,
         )
         run_data = json.loads(run_result.stdout)
 
@@ -973,6 +1069,7 @@ def get_github_run_logs(
             capture_output=True,
             text=True,
             check=False,
+            timeout=60,
         )
         all_log_text = (
             log_result.stdout
@@ -1037,6 +1134,7 @@ def get_github_run_logs(
                     capture_output=True,
                     text=True,
                     check=False,
+                    timeout=60,
                 )
                 if api_result.returncode == 0 and api_result.stdout.strip():
                     extracted = _extract_failure_sections(api_result.stdout)
@@ -1052,7 +1150,7 @@ def get_github_run_logs(
 
         return output
 
-    except subprocess.CalledProcessError as e:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
         logger.warning(f"Failed to get run info: {e}")
         return None
     except json.JSONDecodeError as e:
@@ -1110,7 +1208,9 @@ def search_github_issues(
         cmd.extend(["--label", label])
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, check=True, timeout=30
+        )
         issues = json.loads(result.stdout)
 
         if not issues:
@@ -1156,7 +1256,7 @@ def search_github_issues(
         output += f"\nShowing {len(issues)} results."
         return output
 
-    except subprocess.CalledProcessError as e:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
         logger.warning(f"Failed to search issues: {e}")
         return None
     except json.JSONDecodeError as e:
@@ -1210,7 +1310,9 @@ def search_github_prs(
         cmd.extend(["--label", label])
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, check=True, timeout=30
+        )
         prs = json.loads(result.stdout)
 
         if not prs:
@@ -1256,7 +1358,7 @@ def search_github_prs(
         output += f"\nShowing {len(prs)} results."
         return output
 
-    except subprocess.CalledProcessError as e:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
         logger.warning(f"Failed to search PRs: {e}")
         return None
     except json.JSONDecodeError as e:
@@ -1318,6 +1420,7 @@ def merge_github_pr(
             capture_output=True,
             text=True,
             check=True,
+            timeout=30,
         )
 
         stdout = result.stdout.strip()
@@ -1346,17 +1449,24 @@ def merge_github_pr(
                     capture_output=True,
                     text=True,
                     check=True,
+                    timeout=30,
                 )
                 sha = api_result.stdout.strip()
                 if sha and sha != "null":
                     response["sha"] = sha
-            except subprocess.CalledProcessError:
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
                 pass  # Non-critical — merge succeeded, just can't fetch SHA
 
         return response
 
-    except subprocess.CalledProcessError as e:
-        stderr = e.stderr.strip() if e.stderr else ""
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        if isinstance(e, subprocess.TimeoutExpired):
+            return {
+                "success": False,
+                "message": f"Failed to merge PR #{pr_number}: gh CLI timed out after {e.timeout}s",
+            }
+        stderr = getattr(e, "stderr", "") or ""
+        stderr = stderr.strip() if stderr else ""
         # Provide helpful messages for common failure modes
         if "merge conflict" in stderr.lower() or "not mergeable" in stderr.lower():
             return {
@@ -1385,4 +1495,129 @@ def merge_github_pr(
         return {
             "success": False,
             "message": f"Failed to merge PR #{pr_number}: {stderr or str(e)}",
+        }
+
+
+def create_github_issue(
+    owner: str,
+    repo: str,
+    title: str,
+    body: str = "",
+    labels: list[str] | None = None,
+    assignees: list[str] | None = None,
+) -> dict[str, object]:
+    """Create a GitHub issue using the gh CLI.
+
+    Returns:
+        Dict with keys: success (bool), number (int), url (str), message (str)
+    """
+    cmd = [
+        "gh",
+        "issue",
+        "create",
+        "--repo",
+        f"{owner}/{repo}",
+        "--title",
+        title,
+    ]
+    cmd.extend(["--body", body])
+    if labels:
+        cmd.extend(["--label", ",".join(labels)])
+    if assignees:
+        cmd.extend(["--assignee", ",".join(assignees)])
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        )
+        # gh issue create outputs the URL on success
+        url = result.stdout.strip()
+        # Extract issue number from URL (e.g. https://github.com/owner/repo/issues/42)
+        number = url.rsplit("/", 1)[-1] if "/" in url else ""
+        return {
+            "success": True,
+            "number": int(number) if number.isdigit() else 0,
+            "url": url,
+            "message": f"Created issue #{number}: {title}",
+        }
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        if isinstance(e, subprocess.TimeoutExpired):
+            return {
+                "success": False,
+                "number": 0,
+                "url": "",
+                "message": f"Failed to create issue: gh CLI timed out after {e.timeout}s",
+            }
+        stderr = getattr(e, "stderr", "") or ""
+        stderr = stderr.strip() if stderr else ""
+        return {
+            "success": False,
+            "number": 0,
+            "url": "",
+            "message": f"Failed to create issue: {stderr or str(e)}",
+        }
+
+
+def comment_on_github(
+    owner: str,
+    repo: str,
+    number: int,
+    body: str,
+    kind: str = "issue",
+) -> dict[str, object]:
+    """Comment on a GitHub issue or PR using the gh CLI.
+
+    Args:
+        owner: Repository owner
+        repo: Repository name
+        number: Issue or PR number
+        body: Comment body text
+        kind: "issue" or "pr"
+
+    Returns:
+        Dict with keys: success (bool), url (str), message (str)
+    """
+    subcmd = "issue" if kind == "issue" else "pr"
+    cmd = [
+        "gh",
+        subcmd,
+        "comment",
+        str(number),
+        "--repo",
+        f"{owner}/{repo}",
+        "--body",
+        body,
+    ]
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        )
+        url = result.stdout.strip()
+        return {
+            "success": True,
+            "url": url,
+            "message": f"Commented on {subcmd} #{number}",
+        }
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        if isinstance(e, subprocess.TimeoutExpired):
+            return {
+                "success": False,
+                "url": "",
+                "message": f"Failed to comment on {subcmd} #{number}: gh CLI timed out after {e.timeout}s",
+            }
+        stderr = getattr(e, "stderr", "") or ""
+        stderr = stderr.strip() if stderr else ""
+        return {
+            "success": False,
+            "url": "",
+            "message": f"Failed to comment on {subcmd} #{number}: {stderr or str(e)}",
         }

@@ -116,7 +116,12 @@ def _run_rag_cmd(cmd: list[str]) -> subprocess.CompletedProcess:
     """Run a gptme-rag command and handle errors."""
     start = time.monotonic()
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, check=True)
+        return subprocess.run(
+            cmd, capture_output=True, text=True, check=True, timeout=60
+        )
+    except subprocess.TimeoutExpired as e:
+        logger.error("gptme-rag command timed out after 60s")
+        raise RuntimeError("gptme-rag command timed out after 60s") from e
     except subprocess.CalledProcessError as e:
         logger.error(f"gptme-rag command failed: {e.stderr}")
         raise RuntimeError(f"gptme-rag command failed: {e.stderr}") from e

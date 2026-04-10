@@ -139,6 +139,28 @@
   background-color: hsl(var(--codesnip-background));
 }
 
+/* Short code blocks (≤2 lines) rendered inline instead of collapsible <details> */
+.chat-message .inline-codeblock {
+  @apply my-2 flex overflow-hidden rounded-md border border-border font-sans text-sm dark:border-stone-950;
+  background-color: hsl(var(--code-background));
+}
+
+.chat-message .inline-codeblock .inline-codeblock-label {
+  @apply flex-shrink-0 self-stretch whitespace-nowrap bg-muted px-3 py-1.5 text-xs;
+  /* Label fills full height and keeps left rounding from parent */
+}
+
+.chat-message .inline-codeblock > code {
+  @apply min-w-0 flex-1 border-0 bg-transparent py-1.5 text-white text-xs;
+  background-color: transparent !important;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+  /* Hanging indent: first line flush, wrapped lines indented 2ch */
+  padding-left: calc(0.75rem + 2ch);
+  text-indent: -2ch;
+}
+
 .chat-message details {
   @apply my-2 overflow-hidden rounded-md border border-border bg-white font-sans text-sm dark:border-stone-950 dark:bg-slate-900;
 }
@@ -146,6 +168,11 @@
 .chat-message details summary {
   @apply cursor-pointer rounded-md bg-muted px-3 py-2 text-xs transition-colors;
   user-select: none;
+  list-style: none;
+}
+
+.chat-message details summary::-webkit-details-marker {
+  display: none;
 }
 
 .chat-message details:not([open]) summary {

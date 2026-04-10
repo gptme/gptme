@@ -429,6 +429,31 @@ no name
         uses = list(ToolUse._iter_from_xml(content))
         assert len(uses) == 0
 
+    def test_start_position_not_negative(self):
+        """start should be None (not -1) when tag can't be found in original content."""
+        content = """<tool-use>
+<shell>
+echo hello
+</shell>
+</tool-use>"""
+        uses = list(ToolUse._iter_from_xml(content))
+        assert len(uses) == 1
+        # start should be a non-negative int or None, never -1
+        assert uses[0].start is None or uses[0].start >= 0
+
+    def test_start_position_found(self):
+        """start should point to the actual tag location in the content."""
+        content = """some text <tool-use>
+<shell>
+echo hello
+</shell>
+</tool-use>"""
+        uses = list(ToolUse._iter_from_xml(content))
+        assert len(uses) == 1
+        assert uses[0].start is not None
+        assert uses[0].start >= 0
+        assert content[uses[0].start :].startswith("<shell")
+
 
 # ── ToolUse.iter_from_content (tool format) ────────────────────────
 

@@ -2,7 +2,7 @@ import { type Agent } from '@/utils/workspaceUtils';
 import { observable } from '@legendapp/state';
 import type { ImperativePanelHandle } from 'react-resizable-panels';
 
-export const leftSidebarVisible$ = observable(true);
+export const leftSidebarVisible$ = observable(false);
 export const leftSidebarCollapsed$ = observable(false);
 export const rightSidebarVisible$ = observable(true);
 export const rightSidebarCollapsed$ = observable(false);

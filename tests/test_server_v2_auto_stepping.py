@@ -127,3 +127,47 @@ def test_auto_stepping(
         assert messages[6]["role"] == "assistant"
         assert messages[7]["role"] == "system"
         assert messages[8]["role"] == "assistant"
+
+
+@pytest.mark.timeout(30)
+def test_generation_error_persists_system_message(
+    setup_conversation, event_listener, wait_for_event
+):
+    """Generation failures should be visible in the conversation log, not SSE-only."""
+    port, conversation_id, session_id = setup_conversation
+
+    requests.post(
+        f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "Say hello"},
+    )
+
+    with unittest.mock.patch(
+        "gptme.server.session_step._stream",
+        side_effect=RuntimeError("provider quota exceeded"),
+    ):
+        response = requests.post(
+            f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
+            json={
+                "session_id": session_id,
+                "model": "openai/mock-model",
+            },
+        )
+
+        # Step now returns 500 when it detects the LLM error (instead of
+        # silently returning 200 and only surfacing the error via SSE).
+        assert response.status_code == 500
+        assert wait_for_event(event_listener, "generation_started")
+        assert wait_for_event(event_listener, "message_added")
+        assert wait_for_event(event_listener, "error")
+
+    resp = requests.get(
+        f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+    )
+    assert resp.status_code == 200
+
+    messages = resp.json()["log"]
+    assert not any(
+        m["role"] == "assistant" and m.get("content", "") == "" for m in messages
+    ), "Lingering empty assistant placeholder found in log after error"
+    assert messages[-1]["role"] == "system"
+    assert messages[-1]["content"] == "Error: provider quota exceeded"

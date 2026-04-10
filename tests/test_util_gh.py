@@ -1,15 +1,21 @@
 """Tests for GitHub utility functions."""
 
 import json
+import subprocess
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from gptme.util.gh import (
     _extract_failure_sections,
+    _get_github_actions_status,
     _get_repo_from_git_remote,
+    comment_on_github,
+    create_github_issue,
+    get_github_issue_content,
     get_github_issue_list,
     get_github_pr_content,
+    get_github_pr_diff,
     get_github_pr_list,
     get_github_run_logs,
     merge_github_pr,
@@ -1143,3 +1149,267 @@ class TestMergeGithubPr:
 
         result = merge_github_pr("owner", "repo", 42)
         assert result["url"] == "https://github.com/owner/repo/pull/42"
+
+
+# --- create_github_issue tests ---
+
+
+class TestCreateGitHubIssue:
+    """Tests for create_github_issue."""
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_success_minimal(self, mock_run):
+        """Successful issue creation with minimal args."""
+        mock_run.return_value = MagicMock(
+            stdout="https://github.com/owner/repo/issues/42\n",
+            returncode=0,
+        )
+        result = create_github_issue("owner", "repo", "Bug report")
+        assert result["success"] is True
+        assert result["number"] == 42
+        assert "issues/42" in str(result["url"])
+        cmd = mock_run.call_args[0][0]
+        assert "issue" in cmd
+        assert "create" in cmd
+        assert "--title" in cmd
+        assert "Bug report" in cmd
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_success_with_body_labels_assignees(self, mock_run):
+        """All optional fields passed to gh CLI."""
+        mock_run.return_value = MagicMock(
+            stdout="https://github.com/o/r/issues/1\n", returncode=0
+        )
+        result = create_github_issue(
+            "o", "r", "Title", body="Body", labels=["bug", "p1"], assignees=["alice"]
+        )
+        assert result["success"] is True
+        cmd = mock_run.call_args[0][0]
+        assert "--body" in cmd
+        idx = cmd.index("--body")
+        assert cmd[idx + 1] == "Body"
+        assert "--label" in cmd
+        idx = cmd.index("--label")
+        assert cmd[idx + 1] == "bug,p1"
+        assert "--assignee" in cmd
+        idx = cmd.index("--assignee")
+        assert cmd[idx + 1] == "alice"
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_no_body(self, mock_run):
+        """Empty body still passes --body '' to avoid non-TTY interactive prompt."""
+        mock_run.return_value = MagicMock(
+            stdout="https://github.com/o/r/issues/1\n", returncode=0
+        )
+        create_github_issue("o", "r", "Title", body="")
+        cmd = mock_run.call_args[0][0]
+        assert "--body" in cmd
+        assert cmd[cmd.index("--body") + 1] == ""
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_failure(self, mock_run):
+        """CalledProcessError returns failure dict."""
+        mock_run.side_effect = subprocess.CalledProcessError(
+            1, "gh", stderr="Not Found"
+        )
+        result = create_github_issue("o", "r", "Title")
+        assert result["success"] is False
+        assert "Not Found" in str(result["message"])
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_non_numeric_url(self, mock_run):
+        """Handles unexpected URL format gracefully."""
+        mock_run.return_value = MagicMock(stdout="unexpected output\n", returncode=0)
+        result = create_github_issue("o", "r", "Title")
+        assert result["success"] is True
+        assert result["number"] == 0  # Can't parse number
+
+
+# --- comment_on_github tests ---
+
+
+class TestCommentOnGitHub:
+    """Tests for comment_on_github."""
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_issue_comment_success(self, mock_run):
+        """Successful issue comment."""
+        mock_run.return_value = MagicMock(
+            stdout="https://github.com/o/r/issues/42#issuecomment-123\n",
+            returncode=0,
+        )
+        result = comment_on_github("o", "r", 42, "Hello", kind="issue")
+        assert result["success"] is True
+        assert "issue #42" in str(result["message"])
+        cmd = mock_run.call_args[0][0]
+        assert cmd[1] == "issue"
+        assert cmd[2] == "comment"
+        assert cmd[3] == "42"
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_pr_comment_success(self, mock_run):
+        """Successful PR comment."""
+        mock_run.return_value = MagicMock(
+            stdout="https://github.com/o/r/pull/10#issuecomment-456\n",
+            returncode=0,
+        )
+        result = comment_on_github("o", "r", 10, "LGTM", kind="pr")
+        assert result["success"] is True
+        cmd = mock_run.call_args[0][0]
+        assert cmd[1] == "pr"
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_comment_body_passed(self, mock_run):
+        """Comment body is passed correctly."""
+        mock_run.return_value = MagicMock(stdout="", returncode=0)
+        comment_on_github("o", "r", 1, "Multi\nline\nbody", kind="issue")
+        cmd = mock_run.call_args[0][0]
+        idx = cmd.index("--body")
+        assert cmd[idx + 1] == "Multi\nline\nbody"
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_comment_failure(self, mock_run):
+        """CalledProcessError returns failure dict."""
+        mock_run.side_effect = subprocess.CalledProcessError(
+            1, "gh", stderr="Forbidden"
+        )
+        result = comment_on_github("o", "r", 42, "text", kind="issue")
+        assert result["success"] is False
+        assert "Forbidden" in str(result["message"])
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_repo_flag(self, mock_run):
+        """--repo flag is constructed correctly."""
+        mock_run.return_value = MagicMock(stdout="", returncode=0)
+        comment_on_github("owner", "repo", 5, "Hi", kind="pr")
+        cmd = mock_run.call_args[0][0]
+        idx = cmd.index("--repo")
+        assert cmd[idx + 1] == "owner/repo"
+
+
+# ── Timeout handling ──────────────────────────────────────────────────
+
+
+class TestSubprocessTimeouts:
+    """Verify all subprocess calls pass a timeout and handle TimeoutExpired."""
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_get_github_issue_list_timeout(self, mock_run):
+        """TimeoutExpired on issue list returns None gracefully."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="gh", timeout=30)
+        result = get_github_issue_list("owner", "repo")
+        assert result is None
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_get_github_pr_list_timeout(self, mock_run):
+        """TimeoutExpired on PR list returns None gracefully."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="gh", timeout=30)
+        result = get_github_pr_list("owner", "repo")
+        assert result is None
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_get_github_pr_content_timeout(self, mock_run):
+        """TimeoutExpired on PR content returns None gracefully."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="gh", timeout=30)
+        result = get_github_pr_content("https://github.com/owner/repo/pull/1")
+        assert result is None
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_get_github_run_logs_timeout(self, mock_run):
+        """TimeoutExpired on run logs returns None gracefully."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="gh", timeout=30)
+        result = get_github_run_logs("12345")
+        assert result is None
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_search_github_issues_timeout(self, mock_run):
+        """TimeoutExpired on issue search returns None gracefully."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="gh", timeout=30)
+        result = search_github_issues("test query")
+        assert result is None
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_search_github_prs_timeout(self, mock_run):
+        """TimeoutExpired on PR search returns None gracefully."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="gh", timeout=30)
+        result = search_github_prs("test query")
+        assert result is None
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_create_github_issue_timeout(self, mock_run):
+        """TimeoutExpired on issue creation returns failure dict."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="gh", timeout=30)
+        result = create_github_issue("owner", "repo", "title", "body")
+        assert result["success"] is False
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_comment_on_github_timeout(self, mock_run):
+        """TimeoutExpired on commenting returns failure dict."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="gh", timeout=30)
+        result = comment_on_github("owner", "repo", 1, "body")
+        assert result["success"] is False
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_merge_github_pr_timeout(self, mock_run):
+        """TimeoutExpired on merge returns failure dict."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="gh", timeout=30)
+        result = merge_github_pr("owner", "repo", 1)
+        assert result["success"] is False
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_get_repo_from_git_remote_timeout(self, mock_run):
+        """TimeoutExpired on git remote returns None gracefully."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=10)
+        result = _get_repo_from_git_remote()
+        assert result is None
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_get_github_pr_diff_timeout(self, mock_run):
+        """TimeoutExpired on PR diff returns None gracefully."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="gh", timeout=60)
+        result = get_github_pr_diff("owner", "repo", "1")
+        assert result is None
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_get_github_issue_content_timeout(self, mock_run):
+        """TimeoutExpired on issue content returns None gracefully."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="gh", timeout=60)
+        result = get_github_issue_content("owner", "repo", "1")
+        assert result is None
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_get_github_actions_status_timeout(self, mock_run):
+        """TimeoutExpired on actions status returns None gracefully."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="gh", timeout=30)
+        result = _get_github_actions_status("owner", "repo", "abc123")
+        assert result is None
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_merge_github_pr_timeout_message(self, mock_run):
+        """TimeoutExpired on merge returns a clean timeout message (not raw CLI invocation)."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="gh", timeout=30)
+        result = merge_github_pr("owner", "repo", 1)
+        assert result["success"] is False
+        msg = str(result["message"])
+        assert "timed out" in msg
+        assert "gh pr merge" not in msg
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_create_github_issue_timeout_message(self, mock_run):
+        """TimeoutExpired on issue creation returns a clean timeout message."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="gh", timeout=30)
+        result = create_github_issue("owner", "repo", "title", "body")
+        assert result["success"] is False
+        msg = str(result["message"])
+        assert "timed out" in msg
+        assert "gh issue create" not in msg
+
+    @patch("gptme.util.gh.subprocess.run")
+    def test_comment_on_github_timeout_message(self, mock_run):
+        """TimeoutExpired on commenting returns a clean timeout message."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="gh", timeout=30)
+        result = comment_on_github("owner", "repo", 1, "body")
+        assert result["success"] is False
+        msg = str(result["message"])
+        assert "timed out" in msg
+        assert "gh issue comment" not in msg

@@ -146,8 +146,6 @@ def _glob_to_keywords(glob_pattern: str) -> list[str]:
     }
 
     # Extract file extension
-    import re
-
     ext_match = re.search(r"\*\.(\w+)", glob_pattern)
     if ext_match:
         ext = f".{ext_match.group(1)}"

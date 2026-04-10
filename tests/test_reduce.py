@@ -145,6 +145,25 @@ def test_reduce_log_all_pinned():
     assert reduced == msgs
 
 
+def test_truncate_msg_quad_fence():
+    """Quadruple-backtick codeblocks (e.g. from md_codeblock) must survive truncation.
+
+    Before the fix, truncate_msg would AssertionError because to_markdown()
+    reconstructed with triple backticks while the original had quadruple.
+    """
+    lines = "\n".join(f"line_{i}" for i in range(50))
+    content = f"````python\n{lines}\n````"
+    msg = Message("assistant", content=content)
+    truncated = truncate_msg(msg)
+    assert truncated is not None
+    assert "[...]" in truncated.content
+    # Fence length must be preserved
+    assert "````python" in truncated.content
+    assert truncated.content.rstrip().endswith("````")
+    # Must NOT contain triple-backtick version (that would be the old broken behavior)
+    assert "```python" not in truncated.content.replace("````python", "")
+
+
 @pytest.mark.slow
 def test_reduce_log():
     msgs = [

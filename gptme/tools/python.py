@@ -227,9 +227,11 @@ def execute_python(
         return
 
     if result.result is not None:
+        # show stdout before result if both exist
+        if captured_stdout:
+            output += md_codeblock("stdout", captured_stdout.rstrip()) + "\n\n"
         output += f"Result:\n{md_codeblock('', str(result.result))}\n\n"
 
-    # only show stdout if there is no result
     elif captured_stdout:
         output += md_codeblock("stdout", captured_stdout.rstrip()) + "\n\n"
     if captured_stderr:
