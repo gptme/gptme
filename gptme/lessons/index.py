@@ -442,23 +442,6 @@ class LessonIndex:
 
         return results
 
-    def find_by_keywords(self, keywords: list[str]) -> list[Lesson]:
-        """Find lessons matching any of the given keywords.
-
-        Args:
-            keywords: List of keywords to match
-
-        Returns:
-            List of matching lessons
-        """
-        results = [
-            lesson
-            for lesson in self.lessons
-            if any(kw in lesson.metadata.keywords for kw in keywords)
-        ]
-
-        return results
-
     def get_by_category(self, category: str) -> list[Lesson]:
         """Get all lessons in a category.
 

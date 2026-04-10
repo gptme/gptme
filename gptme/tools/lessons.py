@@ -275,27 +275,25 @@ def auto_include_lessons_hook(
     # Get session stats and check if we've hit the limit
     stats = _get_session_stats()
 
+    # Get messages from log
+    messages = manager.log.messages
+
+    # Get lessons already included (also used to initialize stats on resume)
+    included_lessons = _get_included_lessons_from_log(messages)
+
     # Initialize stats from log if empty (e.g., when resuming a conversation)
-    if not stats.unique_lessons:
-        included_in_log = _get_included_lessons_from_log(manager.log.messages)
-        if included_in_log:
-            stats.unique_lessons.update(included_in_log)
-            stats.total_matched = len(included_in_log)
-            logger.debug(
-                f"Initialized session stats from log: {len(included_in_log)} lessons"
-            )
+    if not stats.unique_lessons and included_lessons:
+        stats.unique_lessons.update(included_lessons)
+        stats.total_matched = len(included_lessons)
+        logger.debug(
+            f"Initialized session stats from log: {len(included_lessons)} lessons"
+        )
 
     if len(stats.unique_lessons) >= max_lessons:
         logger.debug(
             f"Session lesson limit reached ({len(stats.unique_lessons)}/{max_lessons})"
         )
         return
-
-    # Get messages from log
-    messages = manager.log.messages
-
-    # Get lessons already included
-    included_lessons = _get_included_lessons_from_log(messages)
 
     # Extract message content from recent user and assistant messages
     message_content = _extract_message_content(messages)

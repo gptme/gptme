@@ -358,10 +358,13 @@ class HybridLessonMatcher(LessonMatcher):
         lesson_text = f"{lesson.title}\n{lesson.body[:500]}"  # Limit to first 500 chars
         lesson_embed = self.embedder.encode(lesson_text, convert_to_numpy=True)
 
-        # Cosine similarity
+        # Cosine similarity (guard against zero-norm embeddings)
+        query_norm = np.linalg.norm(query_embed)
+        lesson_norm = np.linalg.norm(lesson_embed)
+        if query_norm == 0.0 or lesson_norm == 0.0:
+            return 0.0
         similarity = float(
-            np.dot(query_embed, lesson_embed)
-            / (np.linalg.norm(query_embed) * np.linalg.norm(lesson_embed))
+            np.dot(query_embed, lesson_embed) / (query_norm * lesson_norm)
         )
 
         # Normalize from [-1, 1] to [0, 1]
