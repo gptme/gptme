@@ -19,7 +19,7 @@ Covers all 30 behavioral scenarios:
   noisy-worktree-fix, fix-data-mutation, optimize-n-squared, remove-dead-code,
   fix-mutable-default, add-deprecation-warning, add-docstrings, retry-with-backoff,
   validate-user-input, rate-limiting, circuit-breaker, implement-lru-cache,
-  implement-event-emitter
+  implement-event-emitter, implement-state-machine
 """
 
 import subprocess
@@ -1125,6 +1125,61 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
                 def emit(self, event: str, *args, **kwargs) -> None:
                     for handler in list(self._handlers[event]):
                         handler(*args, **kwargs)
+            """)
+        )
+
+    elif scenario_name == "implement-state-machine":
+        (workspace / "task_state.py").write_text(
+            textwrap.dedent("""\
+
+            \"\"\"Task state machine with transition validation.\"\"\"
+
+            from enum import Enum
+
+
+            class TaskState(str, Enum):
+                BACKLOG = "backlog"
+                TODO = "todo"
+                ACTIVE = "active"
+                WAITING = "waiting"
+                DONE = "done"
+                CANCELLED = "cancelled"
+
+
+            class InvalidTransitionError(Exception):
+                pass
+
+
+            _ALLOWED: dict[TaskState, set[TaskState]] = {
+                TaskState.BACKLOG: {TaskState.TODO, TaskState.CANCELLED},
+                TaskState.TODO: {TaskState.ACTIVE, TaskState.CANCELLED},
+                TaskState.ACTIVE: {TaskState.WAITING, TaskState.DONE, TaskState.CANCELLED},
+                TaskState.WAITING: {TaskState.ACTIVE, TaskState.CANCELLED},
+                TaskState.DONE: set(),
+                TaskState.CANCELLED: set(),
+            }
+
+
+            class TaskStateMachine:
+                \"\"\"Finite state machine for task lifecycle management.\"\"\"
+
+                def __init__(self, initial_state: TaskState = TaskState.BACKLOG) -> None:
+                    if not isinstance(initial_state, TaskState):
+                        raise TypeError(f"Expected TaskState, got {type(initial_state).__name__}")
+                    self._state = initial_state
+
+                @property
+                def state(self) -> TaskState:
+                    return self._state
+
+                def transition(self, target: TaskState) -> None:
+                    if not isinstance(target, TaskState):
+                        raise TypeError(f"Expected TaskState, got {type(target).__name__}")
+                    if target not in _ALLOWED.get(self._state, set()):
+                        raise InvalidTransitionError(
+                            f"Cannot transition from {self._state.value} to {target.value}"
+                        )
+                    self._state = target
             """)
         )
 
