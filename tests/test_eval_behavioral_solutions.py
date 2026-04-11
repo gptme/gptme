@@ -1128,6 +1128,21 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
             """)
         )
 
+    elif scenario_name == "fix-off-by-one-loop":
+        # Fix TWO bugs: range(1, n) -> range(1, n+1) AND return total + n -> return total
+        p = workspace / "math_utils.py"
+        p.write_text(
+            p.read_text()
+            .replace(
+                "for i in range(1, n):  # BUG: off-by-one, iterates 1 to n-1",
+                "for i in range(1, n + 1):",
+            )
+            .replace(
+                "return total + n  # BUG: adds n again, but loop already misses it",
+                "return total",
+            )
+        )
+
     else:
         raise ValueError(f"Unknown scenario: {scenario_name}")
 
