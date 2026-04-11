@@ -19,7 +19,7 @@ Covers all 30 behavioral scenarios:
   noisy-worktree-fix, fix-data-mutation, optimize-n-squared, remove-dead-code,
   fix-mutable-default, add-deprecation-warning, add-docstrings, retry-with-backoff,
   validate-user-input, rate-limiting, circuit-breaker, implement-lru-cache,
-  implement-event-emitter
+  implement-event-emitter, implement-priority-queue
 """
 
 import subprocess
@@ -1125,6 +1125,53 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
                 def emit(self, event: str, *args, **kwargs) -> None:
                     for handler in list(self._handlers[event]):
                         handler(*args, **kwargs)
+            """)
+        )
+
+    elif scenario_name == "implement-priority-queue":
+        (workspace / "priority_queue.py").write_text(
+            textwrap.dedent("""\
+            \"\"\"Task scheduler using a priority queue.\"\"\"
+
+            import heapq
+            from typing import Any
+
+
+            class PriorityQueue:
+                \"\"\"Min-heap priority queue for task scheduling.\"\"\"
+
+                def __init__(self, initial: list[tuple[int, Any]] | None = None):
+                    self._data: list[tuple[int, int, Any]] = []
+                    self._counter = 0
+                    if initial:
+                        for priority, item in initial:
+                            heapq.heappush(self._data, (priority, self._counter, item))
+                            self._counter += 1
+
+                def push(self, priority: int, item: Any) -> None:
+                    \"\"\"Insert an item with the given priority.\"\"\"
+                    heapq.heappush(self._data, (priority, self._counter, item))
+                    self._counter += 1
+
+                def pop(self) -> Any:
+                    \"\"\"Remove and return the highest-priority item.\"\"\"
+                    if not self._data:
+                        raise IndexError("pop from empty queue")
+                    return heapq.heappop(self._data)[2]
+
+                def peek(self) -> Any:
+                    \"\"\"Return the highest-priority item without removing it.\"\"\"
+                    if not self._data:
+                        raise IndexError("peek from empty queue")
+                    return self._data[0][2]
+
+                def __len__(self) -> int:
+                    \"\"\"Return the number of items in the queue.\"\"\"
+                    return len(self._data)
+
+                def is_empty(self) -> bool:
+                    \"\"\"Return True if the queue contains no items.\"\"\"
+                    return len(self._data) == 0
             """)
         )
 
