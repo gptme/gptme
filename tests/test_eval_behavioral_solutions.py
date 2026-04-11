@@ -9,7 +9,7 @@ This is critical infrastructure for idea #19 (eval-to-lesson feedback loop):
 before running expensive baseline experiments with real models, we need
 confidence that the checkers correctly identify good work.
 
-Covers all 30 behavioral scenarios:
+Covers all 31 behavioral scenarios:
   git-selective-commit, multi-file-rename, iterative-debug,
   stage-new-files, write-test-suite, test-driven-error-handling,
   merge-conflict-resolution, extract-function-refactor, debug-data-pipeline,
@@ -19,7 +19,7 @@ Covers all 30 behavioral scenarios:
   noisy-worktree-fix, fix-data-mutation, optimize-n-squared, remove-dead-code,
   fix-mutable-default, add-deprecation-warning, add-docstrings, retry-with-backoff,
   validate-user-input, rate-limiting, circuit-breaker, implement-lru-cache,
-  implement-event-emitter
+  implement-event-emitter, implement-memoization
 """
 
 import subprocess
@@ -1095,6 +1095,47 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
                     if len(self._cache) > self._max_size:
                         self._cache.popitem(last=False)
                     return value
+            """)
+        )
+
+    elif scenario_name == "implement-memoization":
+        (workspace / "memo.py").write_text(
+            textwrap.dedent("""\
+            \"""Memoization decorator for caching expensive function calls.\"""
+            from functools import wraps
+
+
+            def memoize(fn):
+                \"""Cache results of *fn* based on its arguments.\"""
+                cache = {}
+
+                def wrapper(*args, **kwargs):
+                    key = (args, tuple(sorted(kwargs.items())))
+                    if key not in cache:
+                        cache[key] = fn(*args, **kwargs)
+                    return cache[key]
+                return wrapper
+
+
+            @memoize
+            def fibonacci(n):
+                \"""Compute the nth Fibonacci number (slow recursive implementation).\"""
+                if n <= 1:
+                    return n
+                return fibonacci(n - 1) + fibonacci(n - 2)
+
+
+            @memoize
+            def factorial(n):
+                \"""Compute n! (slow recursive implementation).\"""
+                if n <= 1:
+                    return 1
+                return n * factorial(n - 1)
+
+
+            def computeheavy(x, y):
+                \"""A non-decorated function to verify memoize works on any callable.\"""
+                return x ** y
             """)
         )
 
