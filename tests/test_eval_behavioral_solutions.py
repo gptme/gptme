@@ -9,7 +9,7 @@ This is critical infrastructure for idea #19 (eval-to-lesson feedback loop):
 before running expensive baseline experiments with real models, we need
 confidence that the checkers correctly identify good work.
 
-Covers all 30 behavioral scenarios:
+Covers all 32 behavioral scenarios:
   git-selective-commit, multi-file-rename, iterative-debug,
   stage-new-files, write-test-suite, test-driven-error-handling,
   merge-conflict-resolution, extract-function-refactor, debug-data-pipeline,
@@ -19,7 +19,7 @@ Covers all 30 behavioral scenarios:
   noisy-worktree-fix, fix-data-mutation, optimize-n-squared, remove-dead-code,
   fix-mutable-default, add-deprecation-warning, add-docstrings, retry-with-backoff,
   validate-user-input, rate-limiting, circuit-breaker, implement-lru-cache,
-  implement-event-emitter
+  implement-event-emitter, implement-connection-pool, implement-retry-decorator
 """
 
 import subprocess
@@ -1125,6 +1125,125 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
                 def emit(self, event: str, *args, **kwargs) -> None:
                     for handler in list(self._handlers[event]):
                         handler(*args, **kwargs)
+            """)
+        )
+
+    elif scenario_name == "implement-connection-pool":
+        # ConnectionPool with acquire/release, idle reuse, max_size enforcement.
+        # The POOL_SRC fixture only provides PooledConnection; ConnectionPool is
+        # what the agent must implement.  Tests import both from db_pool.
+        (workspace / "db_pool.py").write_text(
+            textwrap.dedent("""\
+            \"\"\"Database connection pool.\"\"\"
+
+            import sqlite3
+
+
+            class PooledConnection:
+                \"\"\"Wrapper around a database connection for pool tracking.\"\"\"
+
+                def __init__(self, conn: sqlite3.Connection, release_callback):
+                    self._conn = conn
+                    self._release = release_callback
+
+                def cursor(self):
+                    return self._conn.cursor()
+
+                def commit(self):
+                    self._conn.commit()
+
+                def close(self):
+                    \"\"\"Return connection to pool instead of closing.\"\"\"
+                    self._release(self._conn)
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, exc_type, exc_val, exc_tb):
+                    if exc_type is None:
+                        self._conn.commit()
+                    self._release(self._conn)
+                    return False
+
+
+            class ConnectionPool:
+                \"\"\"Manages a pool of reusable database connections.\"\"\"
+
+                def __init__(self, db_path: str, max_size: int = 5):
+                    self._db_path = db_path
+                    self._max_size = max_size
+                    self._idle: list[sqlite3.Connection] = []
+                    self._active: set[int] = set()
+                    self._all_conns: list[sqlite3.Connection] = []
+
+                def acquire(self) -> PooledConnection:
+                    if self._idle:
+                        conn = self._idle.pop(0)
+                        self._active.add(id(conn))
+                        return PooledConnection(conn, self._do_release)
+                    if len(self._all_conns) >= self._max_size:
+                        raise RuntimeError("Connection pool exhausted")
+                    conn = sqlite3.connect(self._db_path)
+                    self._all_conns.append(conn)
+                    self._active.add(id(conn))
+                    return PooledConnection(conn, self._do_release)
+
+                def _do_release(self, conn: sqlite3.Connection) -> None:
+                    conn_id = id(conn)
+                    if conn_id not in self._active:
+                        return
+                    self._active.discard(conn_id)
+                    self._idle.append(conn)
+
+                def release(self, conn: PooledConnection) -> None:
+                    self._do_release(conn._conn)
+
+                @property
+                def active_count(self) -> int:
+                    return len(self._active)
+
+                @property
+                def idle_count(self) -> int:
+                    return len(self._idle)
+            """)
+        )
+
+    elif scenario_name == "implement-retry-decorator":
+        # Generic retry decorator with exponential backoff and functools.wraps.
+        (workspace / "retry.py").write_text(
+            textwrap.dedent("""\
+            \"\"\"Retry utilities for unreliable operations.\"\"\"
+
+            import functools
+            import time
+
+
+            def retry(
+                max_attempts: int = 3,
+                exceptions: tuple = (Exception,),
+                base_delay: float = 1.0,
+            ):
+                \"\"\"Decorator that retries a function on specified exceptions.
+
+                Args:
+                    max_attempts: Maximum number of tries (including the first call).
+                    exceptions: Tuple of exception types to catch and retry.
+                    base_delay: Initial delay in seconds for exponential backoff.
+                \"\"\"
+                def decorator(func):
+                    @functools.wraps(func)
+                    def wrapper(*args, **kwargs):
+                        last_exc = None
+                        for attempt in range(max_attempts):
+                            try:
+                                return func(*args, **kwargs)
+                            except exceptions as e:
+                                last_exc = e
+                                if attempt < max_attempts - 1:
+                                    time.sleep(base_delay * (2 ** attempt))
+                        raise last_exc
+                    return wrapper
+                return decorator
             """)
         )
 
