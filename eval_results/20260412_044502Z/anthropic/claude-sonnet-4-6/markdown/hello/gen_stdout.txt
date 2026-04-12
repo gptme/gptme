@@ -1,0 +1,30 @@
+
+--- Start of generation ---
+[04:43:44] Using model: anthropic/claude-sonnet-4-6                             
+[04:43:45] Using logdir:                                                        
+           ~/.local/share/gptme/logs/2026-04-12-gptme-evals-anthropic--claude-so
+           nnet-4-6-markdown-aad45728                                           
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2026-04-12-gptme-evals-anthropic--claude-so
+           nnet-4-6-markdown-aad45728/workspace                                 
+Skipped 2 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: write a script hello.py which prints "Hello, world!"
+Assistant: Thinking...                                                                                Assistant: 
+<think>       <think>
+Simple task.
+<!-- think-sig: EskBClsIDBgCKkBVw1KTUvy7ptjvU5KhOrJzn6FiU+sGl7uyv3E5tQNCLoTMrYyNrZ9cIwIzQisu+ee9oMZ6wWLLF2btcTWRVWCAMhFjbGF1ZGUtc29ubmV0LTQtNjgAEgzmoME8sswBKfl/49UaDKcALLhCv9geROLMDCIwmP9CSFfHtP1X36Oe0vo3VgbBcUfAyccpNiyC50fAO7u0VbQxq+lzbOY8VJTjoQUsKhzGc8Gr4mBKn2W8EVmv7iuD2aQkaoP7igQ+6Rc7GAE= -->
+</think>        </think>
+
+```save hello.py
+print("Hello, world!")
+```                                                                                System: ✅ Saved to hello.py
+Assistant: Thinking...                                                                                Assistant: 
+<think>       <think>
+The file has been saved successfully.
+<!-- think-sig: EuIBClsIDBgCKkA2MOekiOVR005D4rlHHGWCSVKQ6qi6CKHjYrbew+I+AFBjl0FrjZ9ke0IZYuuB0nOIe4U9778D9eixf3r+aAPGMhFjbGF1ZGUtc29ubmV0LTQtNjgAEgyt5/pPYDS0LVQIL1saDF40cNdTZhuJs5rE8iIw+3gr/TgXzxK42eHlP0WZb43UPI3Qcy9YsOIcRrg33O7/5kIePDBZJhl0ysyN7yv7KjV5+cQ+o7YLmRxxFlPWCGkvH81EDxH7edsn1/rsgWPRN9j7iam7Up98y77nA0p65PfHlA2UdBgB -->
+</think>        </think>
+
+The script `hello.py` has been created. It prints `Hello, world!` when run.                                                                                [04:43:47] Session: $0.01 | 2 turns | 1k context | 0% cached                    
+--- Finished generation ---
+
