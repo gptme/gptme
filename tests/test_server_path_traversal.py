@@ -374,33 +374,59 @@ class TestAgentCreationPathValidation:
             content_type="application/json",
         )
 
-    def test_rejects_absolute_path_outside_cwd(self, client: FlaskClient):
+    def test_rejects_absolute_path_outside_cwd(
+        self, client: FlaskClient, tmp_path, monkeypatch
+    ):
         """Absolute paths outside server working directory must be rejected."""
+        from gptme.server import api_v2_agents
+
+        monkeypatch.setattr(
+            api_v2_agents, "INITIAL_WORKING_DIRECTORY", tmp_path.resolve()
+        )
         response = self._put_agent(client, path="/tmp/evil-agent")
         assert response.status_code == 400
         data = response.get_json()
-        assert "working directory" in data["error"].lower()
+        assert data["error"] == "Path must be within the server working directory"
 
-    def test_rejects_home_directory_path(self, client: FlaskClient):
+    def test_rejects_home_directory_path(
+        self, client: FlaskClient, tmp_path, monkeypatch
+    ):
         """Paths under home directory but outside cwd must be rejected."""
+        from gptme.server import api_v2_agents
+
+        monkeypatch.setattr(
+            api_v2_agents, "INITIAL_WORKING_DIRECTORY", tmp_path.resolve()
+        )
         response = self._put_agent(client, path="~/sneaky-agent")
         assert response.status_code == 400
         data = response.get_json()
-        assert "working directory" in data["error"].lower()
+        assert data["error"] == "Path must be within the server working directory"
 
-    def test_rejects_traversal_in_path(self, client: FlaskClient):
+    def test_rejects_traversal_in_path(
+        self, client: FlaskClient, tmp_path, monkeypatch
+    ):
         """Path traversal via ../ must be rejected."""
+        from gptme.server import api_v2_agents
+
+        monkeypatch.setattr(
+            api_v2_agents, "INITIAL_WORKING_DIRECTORY", tmp_path.resolve()
+        )
         response = self._put_agent(client, path="../../../tmp/escape")
         assert response.status_code == 400
         data = response.get_json()
-        assert "working directory" in data["error"].lower()
+        assert data["error"] == "Path must be within the server working directory"
 
-    def test_rejects_etc_path(self, client: FlaskClient):
+    def test_rejects_etc_path(self, client: FlaskClient, tmp_path, monkeypatch):
         """System directories must be rejected."""
+        from gptme.server import api_v2_agents
+
+        monkeypatch.setattr(
+            api_v2_agents, "INITIAL_WORKING_DIRECTORY", tmp_path.resolve()
+        )
         response = self._put_agent(client, path="/etc/gptme-agent")
         assert response.status_code == 400
         data = response.get_json()
-        assert "working directory" in data["error"].lower()
+        assert data["error"] == "Path must be within the server working directory"
 
 
 class TestValidateBranchUnit:

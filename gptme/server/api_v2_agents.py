@@ -29,7 +29,7 @@ from .openapi_docs import (
 logger = logging.getLogger(__name__)
 
 # Store the initial working directory when the module is imported
-INITIAL_WORKING_DIRECTORY = Path.cwd()
+INITIAL_WORKING_DIRECTORY = Path.cwd().resolve()
 
 
 def slugify_name(name: str) -> str:
@@ -80,21 +80,26 @@ def api_agents_put():
         agent_slug = slugify_name(agent_name)
         path = INITIAL_WORKING_DIRECTORY / agent_slug
     else:
-        path = Path(path).expanduser().resolve()
+        path = Path(path).expanduser()
 
     # Ensure path is a Path object and resolved
-    path = Path(path).expanduser().resolve()
+    path = Path(path).resolve()
 
     # Validate that the resolved path is within the server's working directory
     # to prevent creating workspaces at arbitrary filesystem locations
     try:
         path.relative_to(INITIAL_WORKING_DIRECTORY)
     except ValueError:
+        logger.warning(
+            "Rejected agent creation path outside working directory",
+            extra={
+                "requested_path": str(path),
+                "working_directory": str(INITIAL_WORKING_DIRECTORY),
+            },
+        )
         return (
             flask.jsonify(
-                {
-                    "error": f"Path must be within the server working directory: {INITIAL_WORKING_DIRECTORY}"
-                }
+                {"error": "Path must be within the server working directory"}
             ),
             400,
         )
