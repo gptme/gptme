@@ -85,6 +85,20 @@ def api_agents_put():
     # Ensure path is a Path object and resolved
     path = Path(path).expanduser().resolve()
 
+    # Validate that the resolved path is within the server's working directory
+    # to prevent creating workspaces at arbitrary filesystem locations
+    try:
+        path.relative_to(INITIAL_WORKING_DIRECTORY)
+    except ValueError:
+        return (
+            flask.jsonify(
+                {
+                    "error": f"Path must be within the server working directory: {INITIAL_WORKING_DIRECTORY}"
+                }
+            ),
+            400,
+        )
+
     # Parse project config if provided
     project_config = req_json.get("project_config")
     if project_config:
