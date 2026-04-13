@@ -56,17 +56,11 @@ def check_has_transition_method(ctx):
 def check_has_allowed_transitions(ctx):
     """Should define allowed transitions (dict, set, or method-based)."""
     content = _get_source(ctx)
-    if (
-        "allowed" in content.lower()
-        or "transitions" in content.lower()
-        or "valid" in content.lower()
-    ):
-        return True
-    # Check AST for dict literal with state strings as keys
     module = parse_python_source(content)
     if module is None:
         return False
     for node in ast.walk(module):
+        # Check for dict literal with state strings as keys
         if isinstance(node, ast.Dict):
             for key in node.keys:
                 if isinstance(key, ast.Constant) and isinstance(key.value, str):
@@ -79,6 +73,14 @@ def check_has_allowed_transitions(ctx):
                         "cancelled",
                     ):
                         return True
+        # Check for variable assignments named "allowed*" or "transitions*"
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                if hasattr(target, "id") and any(
+                    kw in target.id.lower() for kw in ("allowed", "transition")
+                ):
+                    return True
     return False
 
 
@@ -115,14 +117,13 @@ def check_has_get_state(ctx):
     for node in ast.walk(module):
         if isinstance(node, ast.ClassDef) and "State" in node.name:
             for child in node.body:
-                if isinstance(child, ast.FunctionDef | ast.Attribute):
-                    if isinstance(child, ast.FunctionDef) and child.name in (
-                        "get_state",
-                        "state",
-                        "current",
-                        "status",
-                    ):
-                        return True
+                if isinstance(child, ast.FunctionDef) and child.name in (
+                    "get_state",
+                    "state",
+                    "current",
+                    "status",
+                ):
+                    return True
                 if isinstance(child, ast.AnnAssign) and hasattr(child.target, "id"):
                     if child.target.id in ("state", "current", "_state"):
                         return True
