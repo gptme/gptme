@@ -190,12 +190,15 @@ describe('ConversationList', () => {
   describe('date group headers', () => {
     it('renders date group headers for conversations', () => {
       const now = Date.now() / 1000;
+      const daysAgo = 40;
+      const oldDate = new Date((now - 60 * 60 * 24 * daysAgo) * 1000);
+      const expectedMonth = oldDate.toLocaleString('default', { month: 'long' });
       const convs = [
         createConversation({ id: 'today-conv', name: 'Today Chat', modified: now }),
         createConversation({
           id: 'old-conv',
           name: 'Old Chat',
-          modified: now - 60 * 60 * 24 * 40, // 40 days ago
+          modified: now - 60 * 60 * 24 * daysAgo, // daysAgo days ago
         }),
       ];
       renderWithProviders(<ConversationList {...defaultProps} conversations={convs} />);
@@ -203,7 +206,7 @@ describe('ConversationList', () => {
       expect(headers.length).toBeGreaterThanOrEqual(2);
       expect(headers[0]).toHaveTextContent('Today');
       // Monthly drill-down: "Older" group is broken into month names
-      expect(headers[headers.length - 1]).toHaveTextContent('February');
+      expect(headers[headers.length - 1]).toHaveTextContent(expectedMonth);
     });
 
     it('shows single group header when all conversations are from today', () => {
