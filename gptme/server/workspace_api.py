@@ -20,6 +20,9 @@ from .openapi_docs import ErrorResponse, api_doc_simple
 
 logger = logging.getLogger(__name__)
 
+# Maximum bytes returned for text-file preview to avoid OOM on huge files.
+MAX_PREVIEW_BYTES = 10 * 1024 * 1024  # 10 MB
+
 workspace_api = flask.Blueprint("workspace_api", __name__)
 
 
@@ -511,10 +514,16 @@ def preview_file(conversation_id: str, filepath: str):
 
         # Handle different file types
         if wfile.is_text:
-            # Text files
+            # Text files — cap preview to avoid OOM on huge files
+            file_size = path.stat().st_size
+            truncated = file_size > MAX_PREVIEW_BYTES
             with open(path) as f:
-                content = f.read()
-            return flask.jsonify({"type": "text", "content": content})
+                content = f.read(MAX_PREVIEW_BYTES)
+            resp: dict = {"type": "text", "content": content}
+            if truncated:
+                resp["truncated"] = True
+                resp["total_size"] = file_size
+            return flask.jsonify(resp)
         if mime_type and mime_type.startswith("image/"):
             # Images
             return flask.send_file(path, mimetype=mime_type)

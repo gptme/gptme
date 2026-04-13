@@ -77,12 +77,15 @@ def _is_valid_image_content(path: "Path") -> bool:
     runtime dependency (needed for vision support), so no extra install cost.
     """
     try:
-        from PIL import Image
+        from PIL import Image, UnidentifiedImageError
 
         with Image.open(path) as img:
             _ = img.format  # triggers format detection from file content
         return True
+    except (UnidentifiedImageError, FileNotFoundError, IsADirectoryError, OSError):
+        return False
     except Exception:
+        logger.warning("Unexpected error validating image %s", path, exc_info=True)
         return False
 
 
