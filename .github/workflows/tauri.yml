@@ -281,6 +281,8 @@ jobs:
       needs.build.result == 'success' &&
       (startsWith(github.ref, 'refs/tags/v') || inputs.tag != '')
     needs: [lint, test, build, build-sidecar]
+    env:
+      HAS_APPLE_SIGNING: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.KEYCHAIN_PASSWORD != '' && secrets.APPLE_ID != '' && secrets.APPLE_ID_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -452,7 +454,8 @@ jobs:
           print(f"Tauri semver version: {semver_version}")
           PY
 
-      - name: Build and publish release
+      - name: Build and publish release (signed macOS)
+        if: matrix.platform == 'macos-latest' && env.HAS_APPLE_SIGNING == 'true'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -462,6 +465,20 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: tauri
+          tagName: ${{ inputs.tag || github.ref_name }}
+          releaseName: 'gptme ${{ inputs.tag || github.ref_name }}'
+          releaseBody: 'Desktop app release. See the assets to download and install.'
+          releaseDraft: ${{ inputs.tag == '' }}
+          prerelease: ${{ contains(inputs.tag || github.ref_name, '.dev') || contains(inputs.tag || github.ref_name, '.a') || contains(inputs.tag || github.ref_name, '.b') || contains(inputs.tag || github.ref_name, '.rc') }}
+          args: ${{ matrix.args }}
+
+      - name: Build and publish release (unsigned/fallback)
+        if: matrix.platform != 'macos-latest' || env.HAS_APPLE_SIGNING != 'true'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: tauri
           tagName: ${{ inputs.tag || github.ref_name }}
