@@ -634,7 +634,9 @@ class TestCLI:
         ).is_file()
 
     @pytest.mark.slow
-    @pytest.mark.timeout(120)  # clones from GitHub, needs more than the default 60s
+    @pytest.mark.timeout(
+        240
+    )  # clones from GitHub + submodules; 120s was too tight in CI
     def test_create_template_mode_e2e(self, runner, tmp_path, monkeypatch):
         """Test full `gptme-agent create` using the real gptme-agent-template repo.
 
