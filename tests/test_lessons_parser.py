@@ -467,8 +467,7 @@ Description.
             lesson = parse_lesson(lesson_file)
 
             # Non-string elements should be filtered (YAML parses 123 as int, true as bool)
-            assert "shell" in lesson.metadata.tools
-            assert "python" in lesson.metadata.tools
+            assert lesson.metadata.tools == ["shell", "python"]
 
 
 class TestLessonDataclasses:
