@@ -514,11 +514,14 @@ def preview_file(conversation_id: str, filepath: str):
 
         # Handle different file types
         if wfile.is_text:
-            # Text files — cap preview to avoid OOM on huge files
+            # Text files — cap preview to avoid OOM on huge files.
+            # Read in binary mode so MAX_PREVIEW_BYTES is a hard byte limit,
+            # not a character limit (which would be up to 4× larger for UTF-8).
             file_size = path.stat().st_size
             truncated = file_size > MAX_PREVIEW_BYTES
-            with open(path) as f:
-                content = f.read(MAX_PREVIEW_BYTES)
+            with open(path, "rb") as fb:
+                raw = fb.read(MAX_PREVIEW_BYTES)
+            content = raw.decode("utf-8", errors="replace")
             resp: dict = {"type": "text", "content": content}
             if truncated:
                 resp["truncated"] = True
