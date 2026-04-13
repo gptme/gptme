@@ -366,6 +366,111 @@ Description.
             assert lesson.metadata.keywords == []
 
 
+class TestToolsFieldValidation:
+    """Tests for tools field validation in lesson frontmatter."""
+
+    def test_tools_as_list(self):
+        """Test that tools as a list works correctly."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lesson_dir = Path(tmpdir) / "tools"
+            lesson_dir.mkdir()
+            lesson_file = lesson_dir / "test.md"
+
+            content = """---
+match:
+  keywords:
+    - test
+  tools:
+    - shell
+    - python
+---
+
+# Test Lesson
+
+Description.
+"""
+            lesson_file.write_text(content)
+            lesson = parse_lesson(lesson_file)
+
+            assert lesson.metadata.tools == ["shell", "python"]
+
+    def test_tools_as_string_converted_to_list(self):
+        """Test that tools as a bare string is converted to a single-element list."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lesson_dir = Path(tmpdir) / "tools"
+            lesson_dir.mkdir()
+            lesson_file = lesson_dir / "test.md"
+
+            content = """---
+match:
+  keywords:
+    - test
+  tools: shell
+---
+
+# Test Lesson
+
+Description.
+"""
+            lesson_file.write_text(content)
+            lesson = parse_lesson(lesson_file)
+
+            # Should be ["shell"], not ['s', 'h', 'e', 'l', 'l']
+            assert lesson.metadata.tools == ["shell"]
+
+    def test_tools_as_none_becomes_empty_list(self):
+        """Test that tools: null or missing becomes empty list."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lesson_dir = Path(tmpdir) / "tools"
+            lesson_dir.mkdir()
+            lesson_file = lesson_dir / "test.md"
+
+            content = """---
+match:
+  keywords:
+    - test
+  tools:
+---
+
+# Test Lesson
+
+Description.
+"""
+            lesson_file.write_text(content)
+            lesson = parse_lesson(lesson_file)
+
+            assert lesson.metadata.tools == []
+
+    def test_tools_filters_non_string_elements(self):
+        """Test that non-string elements in tools list are filtered out."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lesson_dir = Path(tmpdir) / "tools"
+            lesson_dir.mkdir()
+            lesson_file = lesson_dir / "test.md"
+
+            content = """---
+match:
+  keywords:
+    - test
+  tools:
+    - shell
+    - 123
+    - true
+    - python
+---
+
+# Test Lesson
+
+Description.
+"""
+            lesson_file.write_text(content)
+            lesson = parse_lesson(lesson_file)
+
+            # Non-string elements should be filtered (YAML parses 123 as int, true as bool)
+            assert "shell" in lesson.metadata.tools
+            assert "python" in lesson.metadata.tools
+
+
 class TestLessonDataclasses:
     """Tests for Lesson and LessonMetadata dataclasses."""
 

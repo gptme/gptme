@@ -363,6 +363,16 @@ def parse_lesson(path: Path) -> Lesson:
                             d for d in raw_depends if isinstance(d, str) and d.strip()
                         ]
 
+                        # Validate and filter tools (must be non-empty strings)
+                        raw_tools = match_data.get("tools", [])
+                        if isinstance(raw_tools, str):
+                            raw_tools = [raw_tools]
+                        elif not isinstance(raw_tools, list):
+                            raw_tools = []
+                        tools = [
+                            t for t in raw_tools if isinstance(t, str) and t.strip()
+                        ]
+
                         metadata = LessonMetadata(
                             name=name,
                             description=description,
@@ -370,7 +380,7 @@ def parse_lesson(path: Path) -> Lesson:
                             depends=depends,
                             keywords=keywords,
                             patterns=patterns,
-                            tools=match_data.get("tools", []),
+                            tools=tools,
                             status=status,
                         )
             except yaml.YAMLError as e:
