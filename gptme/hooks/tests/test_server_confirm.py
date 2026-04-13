@@ -186,10 +186,17 @@ class TestServerConfirmHook:
             def resolve_after_delay():
                 import time
 
-                time.sleep(0.1)
-                # Find and resolve the pending confirmation
-                for tool_id, _pending in list(_pending_confirmations.items()):
-                    resolve_pending(tool_id, ConfirmationResult.confirm())
+                # Poll until a pending confirmation appears, then resolve it.
+                # A fixed sleep(0.1) races with slow imports on CI — the hook
+                # registers the pending entry only after its imports complete,
+                # so we must wait until the entry actually exists.
+                deadline = time.monotonic() + 5.0
+                while time.monotonic() < deadline:
+                    if _pending_confirmations:
+                        for tool_id in list(_pending_confirmations):
+                            resolve_pending(tool_id, ConfirmationResult.confirm())
+                        return
+                    time.sleep(0.01)
 
             t = threading.Thread(target=resolve_after_delay)
             t.start()

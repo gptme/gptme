@@ -244,6 +244,7 @@ def test_results_to_json_all_passing():
     assert data["models"][0]["total"] == 2
 
 
+@pytest.mark.slow
 def test_eval_module_loading(tmp_path):
     """Test that --eval-module loads and registers tests from an external module."""
     # Write a minimal eval module with a tests list

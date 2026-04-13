@@ -103,6 +103,7 @@ def test_command_context(args: list[str], runner: CliRunner):
     assert result.exit_code == 0
 
 
+@pytest.mark.slow
 def test_command_log(args: list[str], runner: CliRunner):
     args.append("/log")
     result = runner.invoke(cli.main, args)
