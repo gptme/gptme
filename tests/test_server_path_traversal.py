@@ -195,6 +195,60 @@ class TestBranchParameterValidation:
             assert data["error"] != "Invalid branch name"
 
 
+class TestUserAvatarPathSecurity:
+    """User avatar endpoint must not serve non-image files."""
+
+    def test_rejects_non_image_extension(
+        self, client: FlaskClient, tmp_path, monkeypatch
+    ):
+        """Avatar path pointing to a non-image file must be rejected."""
+        from unittest.mock import MagicMock
+
+        # Create a fake sensitive file
+        fake_key = tmp_path / "id_rsa"
+        fake_key.write_text("PRIVATE KEY")
+
+        mock_config = MagicMock()
+        mock_config.user.avatar = str(fake_key)
+
+        monkeypatch.setattr("gptme.server.api_v2.load_user_config", lambda: mock_config)
+        response = client.get("/api/v2/user/avatar")
+        assert response.status_code == 400
+        data = response.get_json()
+        assert "image" in data["error"].lower()
+
+    def test_accepts_image_extension(self, client: FlaskClient, tmp_path, monkeypatch):
+        """Avatar path pointing to a valid image file must be served."""
+        from unittest.mock import MagicMock
+
+        # Create a fake image file
+        fake_img = tmp_path / "avatar.png"
+        fake_img.write_bytes(b"\x89PNG\r\n\x1a\n")  # PNG magic bytes
+
+        mock_config = MagicMock()
+        mock_config.user.avatar = str(fake_img)
+
+        monkeypatch.setattr("gptme.server.api_v2.load_user_config", lambda: mock_config)
+        response = client.get("/api/v2/user/avatar")
+        assert response.status_code == 200
+
+    def test_rejects_dotfile_without_image_ext(
+        self, client: FlaskClient, tmp_path, monkeypatch
+    ):
+        """Files like .env or .bashrc must be rejected even if they exist."""
+        from unittest.mock import MagicMock
+
+        fake_env = tmp_path / ".env"
+        fake_env.write_text("SECRET=value")
+
+        mock_config = MagicMock()
+        mock_config.user.avatar = str(fake_env)
+
+        monkeypatch.setattr("gptme.server.api_v2.load_user_config", lambda: mock_config)
+        response = client.get("/api/v2/user/avatar")
+        assert response.status_code == 400
+
+
 class TestValidateBranchUnit:
     """Unit tests for _validate_branch function (requires Flask app context)."""
 
