@@ -189,7 +189,12 @@ def _translate_cursor_metadata(frontmatter: dict) -> LessonMetadata:
 
     # Translate globs to keywords
     # Note: YAML parses empty values (e.g., "globs:") as None, not missing
+    # Validate: bare string "globs: *.py" must become ["*.py"], not char iteration
     globs = frontmatter.get("globs") or []
+    if isinstance(globs, str):
+        globs = [globs]
+    elif not isinstance(globs, list):
+        globs = []
     keywords = []
     for glob in globs:
         keywords.extend(_glob_to_keywords(glob))
@@ -206,7 +211,12 @@ def _translate_cursor_metadata(frontmatter: dict) -> LessonMetadata:
 
     # Extract other Cursor-specific fields
     # Note: YAML parses empty values as None, not missing
+    # Validate: bare string "triggers: file_change" must become ["file_change"]
     triggers = frontmatter.get("triggers") or []
+    if isinstance(triggers, str):
+        triggers = [triggers]
+    elif not isinstance(triggers, list):
+        triggers = []
     version = frontmatter.get("version")
 
     return LessonMetadata(

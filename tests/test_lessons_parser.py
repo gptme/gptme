@@ -630,6 +630,31 @@ class TestTranslateCursorMetadata:
         assert "typescript" in metadata.keywords
         assert "javascript" in metadata.keywords
 
+    def test_cursor_globs_as_string_converted_to_list(self):
+        """Test that globs as a bare string is converted to a single-element list."""
+        frontmatter = {
+            "name": "Python Rule",
+            "description": "Test",
+            "globs": "**/*.py",
+        }
+        metadata = _translate_cursor_metadata(frontmatter)
+
+        # Should be ["**/*.py"], not ['*', '*', '/', '*', '.', 'p', 'y']
+        assert metadata.globs == ["**/*.py"]
+        assert "python" in metadata.keywords
+
+    def test_cursor_triggers_as_string_converted_to_list(self):
+        """Test that triggers as a bare string is converted to a single-element list."""
+        frontmatter = {
+            "name": "Trigger Rule",
+            "description": "Test",
+            "triggers": "file_change",
+        }
+        metadata = _translate_cursor_metadata(frontmatter)
+
+        # Should be ["file_change"], not ['f', 'i', 'l', 'e', '_', ...]
+        assert metadata.triggers == ["file_change"]
+
     def test_cursor_metadata_propagates_id(self):
         """Test that explicit id field is propagated through .mdc translation."""
         frontmatter = {
