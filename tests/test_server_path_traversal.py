@@ -428,6 +428,31 @@ class TestAgentCreationPathValidation:
         data = response.get_json()
         assert data["error"] == "Path must be within the server working directory"
 
+    def test_rejects_name_that_slugifies_to_empty(
+        self, client: FlaskClient, tmp_path, monkeypatch
+    ):
+        """Names that produce an empty slug must be rejected to prevent workspace-at-cwd."""
+        from gptme.server import api_v2_agents
+
+        monkeypatch.setattr(
+            api_v2_agents, "INITIAL_WORKING_DIRECTORY", tmp_path.resolve()
+        )
+        # "@#$%" slugifies to "" — INITIAL_WORKING_DIRECTORY / "" == INITIAL_WORKING_DIRECTORY
+        payload = {
+            "name": "@#$%",
+            "template_repo": "https://github.com/gptme/gptme-agent-template",
+            "template_branch": "master",
+            "fork_command": "echo ok",
+        }
+        response = client.put(
+            "/api/v2/agents",
+            json=payload,
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert "alphanumeric" in data["error"].lower()
+
 
 class TestValidateBranchUnit:
     """Unit tests for _validate_branch function (requires Flask app context)."""

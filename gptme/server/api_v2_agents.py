@@ -78,6 +78,15 @@ def api_agents_put():
     if not path:
         # Auto-generate path from initial directory + slugified agent name
         agent_slug = slugify_name(agent_name)
+        if not agent_slug:
+            return (
+                flask.jsonify(
+                    {
+                        "error": "agent name must contain at least one alphanumeric character"
+                    }
+                ),
+                400,
+            )
         path = INITIAL_WORKING_DIRECTORY / agent_slug
     else:
         path = Path(path).expanduser()
