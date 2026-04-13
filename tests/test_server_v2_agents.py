@@ -166,8 +166,12 @@ class TestAgentsPutEndpoint:
         mock_create_workspace: MagicMock,
         client: FlaskClient,
         tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ):
         """Successful agent creation with all required fields."""
+        import gptme.server.api_v2_agents as agents_module
+
+        monkeypatch.setattr(agents_module, "INITIAL_WORKING_DIRECTORY", tmp_path)
         mock_init_conv.return_value = "test-conversation-id"
         agent_path = str(tmp_path / "my-agent")
 
@@ -215,8 +219,12 @@ class TestAgentsPutEndpoint:
         mock_create_workspace: MagicMock,
         client: FlaskClient,
         tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ):
         """WorkspaceError with 'already exists' returns 400."""
+        import gptme.server.api_v2_agents as agents_module
+
+        monkeypatch.setattr(agents_module, "INITIAL_WORKING_DIRECTORY", tmp_path)
         from gptme.agent.workspace import WorkspaceError
 
         mock_create_workspace.side_effect = WorkspaceError(
@@ -239,8 +247,12 @@ class TestAgentsPutEndpoint:
         mock_create_workspace: MagicMock,
         client: FlaskClient,
         tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ):
         """WorkspaceError with 'timed out' returns 504."""
+        import gptme.server.api_v2_agents as agents_module
+
+        monkeypatch.setattr(agents_module, "INITIAL_WORKING_DIRECTORY", tmp_path)
         from gptme.agent.workspace import WorkspaceError
 
         mock_create_workspace.side_effect = WorkspaceError(
@@ -263,8 +275,12 @@ class TestAgentsPutEndpoint:
         mock_create_workspace: MagicMock,
         client: FlaskClient,
         tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ):
         """WorkspaceError with generic message returns 500."""
+        import gptme.server.api_v2_agents as agents_module
+
+        monkeypatch.setattr(agents_module, "INITIAL_WORKING_DIRECTORY", tmp_path)
         from gptme.agent.workspace import WorkspaceError
 
         mock_create_workspace.side_effect = WorkspaceError("Something went wrong")
@@ -287,8 +303,12 @@ class TestAgentsPutEndpoint:
         mock_create_workspace: MagicMock,
         client: FlaskClient,
         tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ):
         """Failure in init_conversation returns 500."""
+        import gptme.server.api_v2_agents as agents_module
+
+        monkeypatch.setattr(agents_module, "INITIAL_WORKING_DIRECTORY", tmp_path)
         mock_init_conv.side_effect = RuntimeError("Conversation init failed")
 
         response = client.put(
@@ -308,8 +328,12 @@ class TestAgentsPutEndpoint:
         mock_init_conv: MagicMock,
         mock_create_workspace: MagicMock,
         client: FlaskClient,
+        monkeypatch: pytest.MonkeyPatch,
     ):
         """Path with ~ gets expanded and resolved."""
+        import gptme.server.api_v2_agents as agents_module
+
+        monkeypatch.setattr(agents_module, "INITIAL_WORKING_DIRECTORY", Path.home())
         mock_init_conv.return_value = "conv-456"
 
         response = client.put(
