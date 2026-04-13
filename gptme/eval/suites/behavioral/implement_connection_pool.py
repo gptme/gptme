@@ -78,35 +78,38 @@ def check_reuses_connections(ctx):
 
 
 def check_has_acquire_release(ctx):
-    """Pool should have acquire/release or get/return methods."""
+    """Pool should have acquire/release or get/return methods on ConnectionPool class."""
     content = _get_source(ctx)
-    content_lower = content.lower()
-    has_acquire = (
-        "acquire" in content_lower
-        or "get_connection" in content_lower
-        or "get" in content_lower
-    )
-    has_release = (
-        "release" in content_lower
-        or "return_connection" in content_lower
-        or "put" in content_lower
+    module = parse_python_source(content)
+    if module is None:
+        return False
+    # Check for acquire/get method and a release/return method on ConnectionPool class
+    pool_methods: set[str] = set()
+    for node in ast.walk(module):
+        if isinstance(node, ast.ClassDef) and "pool" in node.name.lower():
+            for item in ast.walk(node):
+                if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef):
+                    pool_methods.add(item.name.lower())
+    has_acquire = bool(pool_methods & {"acquire", "get_connection", "get", "checkout"})
+    has_release = bool(
+        pool_methods & {"release", "return_connection", "put", "checkin"}
     )
     return has_acquire and has_release
 
 
 def check_blocks_when_exhausted(ctx):
-    """Pool should handle the case when all connections are in use."""
+    """Pool should explicitly handle exhaustion — raise, wait, or block."""
     content = _get_source(ctx)
     content_lower = content.lower()
-    # Could block/wait, raise an error, or return None — any explicit handling
+    # Must show explicit exhaustion handling, not just having the max_size parameter
     return (
-        "wait" in content_lower
+        "raise" in content_lower
+        or "wait" in content_lower
         or "block" in content_lower
         or "timeout" in content_lower
         or "exhausted" in content_lower
         or "PoolExhaustedError" in content
         or "full" in content_lower
-        or "max_size" in content_lower  # at minimum checks size before creating
     )
 
 

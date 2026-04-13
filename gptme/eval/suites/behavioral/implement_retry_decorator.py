@@ -173,7 +173,7 @@ def test_exponential_backoff():
             raise ConnectionError("timeout")
         return "connected"
 
-    with patch("time.sleep", side_effect=mock_sleep):
+    with patch("retry.time.sleep", side_effect=mock_sleep):
         result = flaky_connect()
 
     assert result == "connected"
