@@ -64,6 +64,10 @@ from .openapi_docs import (
 
 logger = logging.getLogger(__name__)
 
+# Raster image extensions allowed for user avatars.
+# SVG excluded: can embed <script> tags (XSS via crafted SVG).
+_ALLOWED_AVATAR_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".ico"}
+
 v2_api = flask.Blueprint("v2_api", __name__)
 
 # Register sub-blueprints
@@ -1198,10 +1202,11 @@ def api_user_avatar():
 
     full_path = Path(avatar_path).expanduser().resolve()
 
-    # Security: validate path points to an image file to prevent serving
-    # sensitive files (e.g. ~/.ssh/id_rsa) via a malicious config value
-    _ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".ico"}
-    if full_path.suffix.lower() not in _ALLOWED_IMAGE_EXTS:
+    # Security: validate path points to a raster image file to prevent serving
+    # sensitive files (e.g. ~/.ssh/id_rsa) via a malicious config value.
+    # SVG is excluded: it can embed <script> tags and execute JS in the
+    # server's origin when navigated to directly (XSS via crafted SVG).
+    if full_path.suffix.lower() not in _ALLOWED_AVATAR_EXTS:
         return flask.jsonify({"error": "Avatar must be an image file"}), 400
 
     if not full_path.exists():
