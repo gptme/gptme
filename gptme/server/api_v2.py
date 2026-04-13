@@ -68,6 +68,24 @@ logger = logging.getLogger(__name__)
 # SVG excluded: can embed <script> tags (XSS via crafted SVG).
 _ALLOWED_AVATAR_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".ico"}
 
+
+def _is_valid_image_content(path: "Path") -> bool:
+    """Validate file content is a recognised image format using Pillow.
+
+    Extension checks can be bypassed by renaming a file; this validates the
+    actual content via magic-byte / header parsing.  Pillow is already a hard
+    runtime dependency (needed for vision support), so no extra install cost.
+    """
+    try:
+        from PIL import Image
+
+        with Image.open(path) as img:
+            _ = img.format  # triggers format detection from file content
+        return True
+    except Exception:
+        return False
+
+
 v2_api = flask.Blueprint("v2_api", __name__)
 
 # Register sub-blueprints
@@ -1069,6 +1087,9 @@ def api_conversation_agent_avatar(conversation_id: str):
     if not full_path.exists():
         return flask.jsonify({"error": "Avatar file not found"}), 404
 
+    if not _is_valid_image_content(full_path):
+        return flask.jsonify({"error": "Avatar must be a valid image file"}), 400
+
     return flask.send_file(full_path)
 
 
@@ -1101,6 +1122,9 @@ def _serve_agent_avatar(agent_path_str: str):
 
     if not full_path.exists():
         return flask.jsonify({"error": "Avatar file not found"}), 404
+
+    if not _is_valid_image_content(full_path):
+        return flask.jsonify({"error": "Avatar must be a valid image file"}), 400
 
     return flask.send_file(full_path)
 
@@ -1217,5 +1241,8 @@ def api_user_avatar():
 
     if not full_path.exists():
         return flask.jsonify({"error": "Avatar file not found"}), 404
+
+    if not _is_valid_image_content(full_path):
+        return flask.jsonify({"error": "Avatar must be a valid image file"}), 400
 
     return flask.send_file(full_path)

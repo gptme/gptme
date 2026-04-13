@@ -4,7 +4,16 @@ Ensures all endpoints that accept conversation_id or branch parameters
 reject path traversal attempts (CWE-22) before any file system operations occur.
 """
 
+import base64
+
 import pytest
+
+# Minimal valid 1×1 white-pixel PNG, pre-computed so tests don't need PIL.
+# Verified: `PIL.Image.open(io.BytesIO(_VALID_PNG)).format == "PNG"`
+_VALID_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
+    "AAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+)
 
 # Skip if flask not installed
 pytest.importorskip(
@@ -223,7 +232,7 @@ class TestAvatarPathSecurity:
         from unittest.mock import MagicMock
 
         fake_img = tmp_path / "avatar.png"
-        fake_img.write_bytes(b"\x89PNG\r\n\x1a\n")
+        fake_img.write_bytes(_VALID_PNG)
 
         mock_config = MagicMock()
         mock_config.user.avatar = str(fake_img)
@@ -283,7 +292,7 @@ class TestAvatarPathSecurity:
         agent_dir = tmp_path / "agent"
         agent_dir.mkdir()
         fake_img = agent_dir / "avatar.png"
-        fake_img.write_bytes(b"\x89PNG\r\n\x1a\n")
+        fake_img.write_bytes(_VALID_PNG)
 
         mock_config = MagicMock()
         mock_config.agent.avatar = "avatar.png"
@@ -318,6 +327,29 @@ class TestAvatarPathSecurity:
             lambda logdir, default: mock_chat_config,
         )
         response = client.get("/api/v2/conversations/test-conv/agent/avatar")
+        assert response.status_code == 400
+        data = response.get_json()
+        assert "image" in data["error"].lower()
+
+    def test_user_avatar_rejects_disguised_non_image(
+        self, client: FlaskClient, tmp_path, monkeypatch
+    ):
+        """A file with an image extension but non-image content must be rejected.
+
+        Extension checks alone can be bypassed by renaming a file (e.g.
+        ``secrets.env`` → ``avatar.jpg``).  This test ensures content-based
+        validation (Pillow magic-byte detection) catches such files.
+        """
+        from unittest.mock import MagicMock
+
+        disguised = tmp_path / "avatar.jpg"
+        disguised.write_text("PRIVATE KEY MATERIAL\nnot a JPEG at all")
+
+        mock_config = MagicMock()
+        mock_config.user.avatar = str(disguised)
+
+        monkeypatch.setattr("gptme.server.api_v2.load_user_config", lambda: mock_config)
+        response = client.get("/api/v2/user/avatar")
         assert response.status_code == 400
         data = response.get_json()
         assert "image" in data["error"].lower()
