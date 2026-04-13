@@ -197,6 +197,9 @@ class TestServerConfirmHook:
                             resolve_pending(tool_id, ConfirmationResult.confirm())
                         return
                     time.sleep(0.01)
+                pytest.fail(
+                    "Timed out waiting for pending confirmation to be registered"
+                )
 
             t = threading.Thread(target=resolve_after_delay)
             t.start()
