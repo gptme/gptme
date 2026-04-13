@@ -1063,6 +1063,9 @@ def api_conversation_agent_avatar(conversation_id: str):
     except ValueError:
         return flask.jsonify({"error": "Invalid avatar path"}), 400
 
+    if full_path.suffix.lower() not in _ALLOWED_AVATAR_EXTS:
+        return flask.jsonify({"error": "Avatar must be an image file"}), 400
+
     if not full_path.exists():
         return flask.jsonify({"error": "Avatar file not found"}), 404
 
@@ -1092,6 +1095,9 @@ def _serve_agent_avatar(agent_path_str: str):
         full_path.resolve().relative_to(agent_path.resolve())
     except ValueError:
         return flask.jsonify({"error": "Invalid avatar path"}), 400
+
+    if full_path.suffix.lower() not in _ALLOWED_AVATAR_EXTS:
+        return flask.jsonify({"error": "Avatar must be an image file"}), 400
 
     if not full_path.exists():
         return flask.jsonify({"error": "Avatar file not found"}), 404
