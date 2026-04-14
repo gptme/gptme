@@ -154,6 +154,31 @@ class TestStepEndpoint:
 # --- Interrupt endpoint tests ---
 
 
+@pytest.mark.parametrize(
+    "endpoint", ["step", "tool/confirm", "rerun", "elicit/respond", "interrupt"]
+)
+@pytest.mark.parametrize(
+    "body",
+    [
+        [],
+        [1, 2, 3],
+        "string",
+        42,
+    ],
+)
+def test_session_endpoints_reject_non_object_json(
+    conv, client: FlaskClient, endpoint: str, body: object
+):
+    """Session endpoints should reject non-object JSON bodies with 400."""
+    response = client.post(
+        f"/api/v2/conversations/{conv['conversation_id']}/{endpoint}",
+        json=body,
+    )
+
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "JSON body must be an object"}
+
+
 class TestInterruptEndpoint:
     """Test POST /api/v2/conversations/<id>/interrupt validation."""
 

@@ -60,6 +60,20 @@ from .session_step import (  # noqa: F401
 logger = logging.getLogger(__name__)
 
 
+def _get_request_json_object() -> dict | tuple[flask.Response, int]:
+    """Return request JSON as an object or a 400 error response.
+
+    Session endpoints expect JSON objects. Arrays/strings/numbers would make
+    later `.get()` access crash with AttributeError and return 500s.
+    """
+    req_json = request.get_json(silent=True)
+    if req_json is None:
+        return {}
+    if not isinstance(req_json, dict):
+        return flask.jsonify({"error": "JSON body must be an object"}), 400
+    return req_json
+
+
 # Re-export step-level symbols that other modules may import from here.
 # This preserves backward compatibility after the split.
 __all__ = [
@@ -231,7 +245,9 @@ def api_conversation_step(conversation_id: str):
     """Take a step in the conversation - generate a response or continue after tool execution."""
     if error := _validate_conversation_id(conversation_id):
         return error
-    req_json = flask.request.json or {}
+    req_json = _get_request_json_object()
+    if not isinstance(req_json, dict):
+        return req_json
     session_id = req_json.get("session_id")
 
     if not session_id:
@@ -472,7 +488,9 @@ def api_conversation_tool_confirm(conversation_id: str):
     if error := _validate_conversation_id(conversation_id):
         return error
 
-    req_json = flask.request.json or {}
+    req_json = _get_request_json_object()
+    if not isinstance(req_json, dict):
+        return req_json
     session_id = req_json.get("session_id")
     tool_id = req_json.get("tool_id")
     action = req_json.get("action")
@@ -621,7 +639,9 @@ def api_conversation_rerun(conversation_id: str):
         return error
     from ..tools import ToolUse
 
-    req_json = request.json or {}
+    req_json = _get_request_json_object()
+    if not isinstance(req_json, dict):
+        return req_json
     session_id = req_json.get("session_id")
 
     if not session_id:
@@ -733,7 +753,9 @@ def api_conversation_elicit_respond(conversation_id: str):
     """
     if error := _validate_conversation_id(conversation_id):
         return error
-    req_json = flask.request.json or {}
+    req_json = _get_request_json_object()
+    if not isinstance(req_json, dict):
+        return req_json
     elicit_id = req_json.get("elicit_id")
     action = req_json.get("action")
 
@@ -776,7 +798,9 @@ def api_conversation_interrupt(conversation_id: str):
     """Interrupt the current generation or tool execution."""
     if error := _validate_conversation_id(conversation_id):
         return error
-    req_json = flask.request.json or {}
+    req_json = _get_request_json_object()
+    if not isinstance(req_json, dict):
+        return req_json
     session_id = req_json.get("session_id")
 
     if not session_id:
