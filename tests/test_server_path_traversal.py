@@ -124,6 +124,18 @@ class TestWorkspaceEndpointValidation:
         _assert_traversal_rejected(response)
 
 
+class TestConversationEndpointValidation:
+    """Conversation CRUD endpoints must reject path traversal in conversation_id."""
+
+    @pytest.mark.parametrize("payload", TRAVERSAL_PAYLOADS)
+    def test_post_message_rejects_traversal(self, client: FlaskClient, payload: str):
+        response = client.post(
+            f"/api/v2/conversations/{payload}",
+            json={"role": "user", "content": "test"},
+        )
+        _assert_traversal_rejected(response)
+
+
 class TestValidConversationIdAccepted:
     """Valid conversation_ids must not be rejected by path traversal checks."""
 

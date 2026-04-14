@@ -481,6 +481,9 @@ def api_conversation_put(conversation_id: str):
 )
 def api_conversation_post(conversation_id: str):
     """Append a message to a conversation."""
+    if error := _validate_conversation_id(conversation_id):
+        return error
+
     req_json = flask.request.json
     if not req_json:
         return flask.jsonify({"error": "No JSON data provided"}), 400
@@ -1026,6 +1029,18 @@ def api_conversation_config_patch(conversation_id: str):
             flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
             404,
         )
+
+    # Reject config changes while generation is in progress — config PATCH rewrites
+    # system messages and mutates global state, which races with streaming.
+    sessions = SessionManager.get_sessions_for_conversation(conversation_id)
+    for sess in sessions:
+        if sess.generating:
+            return (
+                flask.jsonify(
+                    {"error": "Cannot update config while generation is in progress"}
+                ),
+                409,
+            )
 
     # Create and set config
     req_json["_logdir"] = logdir  # Pass logdir for "@log" workspace resolution

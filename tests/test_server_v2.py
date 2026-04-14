@@ -1001,6 +1001,27 @@ def test_v2_conversation_agent_avatar_missing_conversation_returns_404(
     )
 
 
+def test_v2_chat_config_patch_rejected_during_generation(client: FlaskClient):
+    """Config PATCH should return 409 when a session is actively generating."""
+    conv = create_conversation(client)
+    conversation_id = conv["conversation_id"]
+
+    with unittest.mock.patch(
+        "gptme.server.api_v2.SessionManager.get_sessions_for_conversation"
+    ) as mock_get:
+        mock_session = unittest.mock.MagicMock()
+        mock_session.generating = True
+        mock_get.return_value = [mock_session]
+
+        response = client.patch(
+            f"/api/v2/conversations/{conversation_id}/config",
+            json={"model": "openai/gpt-4o"},
+        )
+
+    assert response.status_code == 409
+    assert "generation is in progress" in response.get_json()["error"]
+
+
 @pytest.mark.parametrize(
     "files_payload",
     [
