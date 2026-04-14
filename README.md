@@ -308,6 +308,12 @@ enabled = ["my_plugin"]
 | [gptme-ace](https://github.com/gptme/gptme-contrib/tree/master/plugins/gptme-ace) | ACE-inspired context optimization |
 | [gptme-gupp](https://github.com/gptme/gptme-contrib/tree/master/plugins/gptme-gupp) | Work state persistence across sessions |
 
+**Third-party skills** — install via `gptme-util skills install <git-url>#<path>`:
+
+| Skill | Description |
+|-------|-------------|
+| [mmx-cli](https://github.com/MiniMax-AI/cli) | Generate text, images, video, speech, and music via MiniMax AI |
+
 ### 🔗 Integrations: MCP & ACP
 
 **[MCP (Model Context Protocol)][docs-mcp]** — use any MCP server as a tool source:
