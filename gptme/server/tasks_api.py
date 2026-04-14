@@ -831,8 +831,8 @@ def api_tasks_update(task_id: str):
         return flask.jsonify({"error": f"Task not found: {task_id}"}), 404
 
     req_json = flask.request.json
-    if not req_json:
-        return flask.jsonify({"error": "No JSON data provided"}), 400
+    if not req_json or not isinstance(req_json, dict):
+        return flask.jsonify({"error": "Request body must be a JSON object"}), 400
 
     # Validate field types before applying
     if "content" in req_json and not isinstance(req_json["content"], str):
