@@ -1123,7 +1123,7 @@ def api_conversation_agent_avatar(conversation_id: str):
         )
 
     try:
-        LogManager.load(conversation_id, lock=False)
+        LogManager.load(logdir, lock=False)
     except FileNotFoundError:
         return (
             flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
