@@ -8,7 +8,6 @@ from typing import Any, cast
 import pytest
 
 from gptme.config import ChatConfig, MCPConfig
-from gptme.dirs import get_logs_dir
 from gptme.llm.models import ModelMeta, get_default_model
 from gptme.prompts import get_prompt
 from gptme.tools import get_toolchain
@@ -950,15 +949,17 @@ def test_v2_chat_config_update_works(client: FlaskClient):
 def test_v2_chat_config_update_missing_conversation_returns_404(client: FlaskClient):
     """Test that updating config for a missing conversation returns a 404.
 
-    Also verifies no orphaned directory or config file is created on disk
-    (regression: guard was firing after ChatConfig.save() and set_config()).
+    Also asserts that no orphaned directory or config file is created on disk,
+    and that the existence check fires before any side-effecting operations.
     """
-    conversation_id = "missing-conversation"
-    logdir = get_logs_dir() / conversation_id
+    from gptme.dirs import get_logs_dir  # fmt: skip
 
     input_config = ChatConfig(model="openai/gpt-4o")
     input_config.tools = [t.name for t in get_toolchain(None) if not t.is_mcp]
     input_config.mcp = MCPConfig()
+
+    conversation_id = "missing-conversation"
+    logdir = get_logs_dir() / conversation_id
 
     response = client.patch(
         f"/api/v2/conversations/{conversation_id}/config",
@@ -969,8 +970,10 @@ def test_v2_chat_config_update_missing_conversation_returns_404(client: FlaskCli
     assert response.get_json() == {
         "error": f"Conversation not found: {conversation_id}"
     }
-    # Verify no orphaned directory or config was created as a side effect
-    assert not logdir.exists(), f"Orphaned logdir created at {logdir}"
+    # Ensure no orphaned directory or config file was created on disk
+    assert not logdir.exists(), (
+        f"Orphaned logdir was created at {logdir} despite 404 response"
+    )
 
 
 @pytest.mark.parametrize(

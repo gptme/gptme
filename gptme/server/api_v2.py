@@ -1007,7 +1007,10 @@ def api_conversation_config_patch(conversation_id: str):
 
     logdir = get_logs_dir() / conversation_id
 
-    if not (logdir / "conversation.jsonl").exists():
+    # Guard: check conversation exists before any side-effecting operations.
+    # ChatConfig.save() creates the logdir on disk and set_config/init_tools mutate
+    # process-wide state, so the 404 check must come first.
+    if not logdir.exists():
         return (
             flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
             404,
