@@ -411,11 +411,19 @@ def api_conversation_put(conversation_id: str):
                 ),
                 400,
             )
-        timestamp: datetime = (
-            isoparse(msg["timestamp"])
-            if "timestamp" in msg
-            else datetime.now(tz=timezone.utc)
-        )
+        if "content" not in msg:
+            return flask.jsonify(
+                {"error": "Message missing required 'content' field"}
+            ), 400
+        if "timestamp" in msg:
+            try:
+                timestamp: datetime = isoparse(msg["timestamp"])
+            except (ValueError, OverflowError):
+                return flask.jsonify(
+                    {"error": f"Invalid timestamp format: {msg['timestamp']}"}
+                ), 400
+        else:
+            timestamp = datetime.now(tz=timezone.utc)
         msgs.append(Message(msg["role"], msg["content"], timestamp=timestamp))
 
     log = LogManager.load(logdir=logdir, initial_msgs=msgs, create=True)
