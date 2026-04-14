@@ -302,11 +302,16 @@ def api_conversation(conversation_id: str):
     if error := _validate_conversation_id(conversation_id):
         return error
 
+    try:
+        manager = LogManager.load(conversation_id, lock=False)
+    except FileNotFoundError:
+        return flask.jsonify(
+            {"error": f"Conversation not found: {conversation_id}"}
+        ), 404
+
     # Create and set config
     logdir = get_logs_dir() / conversation_id
     chat_config = ChatConfig.load_or_create(logdir, ChatConfig()).save()
-
-    manager = LogManager.load(conversation_id, lock=False)
     log_dict = manager.to_dict(branches=True)
 
     # make all paths relative to workspace or logdir (no "../" or absolute paths)

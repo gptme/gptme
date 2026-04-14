@@ -679,6 +679,20 @@ def test_v2_conversation_get(v2_conv, client: FlaskClient):
     assert "testing" in data["log"][0]["content"]
 
 
+def test_v2_conversation_get_returns_404_for_missing_conversation(
+    client: FlaskClient,
+):
+    """Missing conversations should return a structured 404 instead of a 500."""
+    conversation_id = f"missing-conversation-{random.randint(0, 1000000)}"
+
+    response = client.get(f"/api/v2/conversations/{conversation_id}")
+
+    assert response.status_code == 404
+    assert response.get_json() == {
+        "error": f"Conversation not found: {conversation_id}"
+    }
+
+
 def test_v2_create_conversation_default_system_prompt(
     client: FlaskClient, tmp_path, monkeypatch
 ):
