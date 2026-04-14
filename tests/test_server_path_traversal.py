@@ -322,6 +322,15 @@ class TestAvatarPathSecurity:
         mock_chat_config.agent_config.avatar = "id_rsa"
         mock_chat_config.agent = agent_dir
 
+        # Create the logdir so the conversation-exists guard passes
+        logs_dir = tmp_path / "logs"
+        conv_logdir = logs_dir / "test-conv"
+        conv_logdir.mkdir(parents=True)
+
+        monkeypatch.setattr(
+            "gptme.server.api_v2.get_logs_dir",
+            lambda: logs_dir,
+        )
         monkeypatch.setattr(
             "gptme.server.api_v2.ChatConfig.load_or_create",
             lambda logdir, default: mock_chat_config,

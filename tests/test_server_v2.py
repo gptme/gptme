@@ -976,6 +976,31 @@ def test_v2_chat_config_update_missing_conversation_returns_404(client: FlaskCli
     )
 
 
+def test_v2_conversation_agent_avatar_missing_conversation_returns_404(
+    client: FlaskClient,
+):
+    """Missing conversations should return 404 before creating config side effects."""
+    import shutil  # fmt: skip
+
+    from gptme.dirs import get_logs_dir  # fmt: skip
+
+    conversation_id = "missing-avatar-conversation"
+    logdir = get_logs_dir() / conversation_id
+    if logdir.exists():
+        shutil.rmtree(logdir)
+    assert not logdir.exists()
+
+    response = client.get(f"/api/v2/conversations/{conversation_id}/agent/avatar")
+
+    assert response.status_code == 404
+    assert response.get_json() == {
+        "error": f"Conversation not found: {conversation_id}"
+    }
+    assert not logdir.exists(), (
+        f"Orphaned logdir was created at {logdir} despite 404 response"
+    )
+
+
 @pytest.mark.parametrize(
     "files_payload",
     [
