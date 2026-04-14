@@ -146,7 +146,7 @@ def api_conversation_events(conversation_id: str):
                         },
                         "auto_confirm": te.auto_confirm,
                     }
-                    for tid, te in session.pending_tools.items()
+                    for tid, te in list(session.pending_tools.items())
                     if te.status == ToolStatus.PENDING
                 ],
             }
