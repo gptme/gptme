@@ -1007,6 +1007,12 @@ def api_conversation_config_patch(conversation_id: str):
 
     logdir = get_logs_dir() / conversation_id
 
+    if not (logdir / "conversation.jsonl").exists():
+        return (
+            flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
+            404,
+        )
+
     # Create and set config
     req_json["_logdir"] = logdir  # Pass logdir for "@log" workspace resolution
     request_config = ChatConfig.from_dict(req_json)
@@ -1021,13 +1027,7 @@ def api_conversation_config_patch(conversation_id: str):
     tools = get_tools()
 
     # Update system prompt with new tools
-    try:
-        manager = LogManager.load(conversation_id, lock=False)
-    except FileNotFoundError:
-        return (
-            flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
-            404,
-        )
+    manager = LogManager.load(conversation_id, lock=False)
 
     if len(manager.log.messages) >= 1 and manager.log.messages[0].role == "system":
         # Remove leading system messages and replace with new ones
