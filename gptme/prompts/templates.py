@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from xml.sax.saxutils import escape as xml_escape
 
-from ..__version__ import __version__
 from ..config import get_config, get_project_config
 from ..dirs import get_project_git_dir
 from ..llm.models import get_model
@@ -74,6 +73,8 @@ def prompt_gptme(
     if agent_name:
         agent_blurb = f"{agent_name}, an agent running in gptme, letting you act as a general-purpose AI assistant powered by LLMs"
     else:
+        from ..__version__ import __version__
+
         agent_name = f"gptme v{__version__}"
         agent_blurb = f"{agent_name}, a general-purpose AI assistant powered by LLMs"
 
