@@ -147,12 +147,12 @@ class TaskListResponse(BaseModel):
 
 
 # Task IDs must be alphanumeric with hyphens/underscores, no path separators
-_TASK_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
+_TASK_ID_PATTERN = re.compile(r"[a-zA-Z0-9_-]+")
 
 
 def _validate_task_id(task_id: str) -> bool:
     """Check that task_id doesn't contain path traversal characters."""
-    return bool(_TASK_ID_PATTERN.match(task_id))
+    return bool(_TASK_ID_PATTERN.fullmatch(task_id))
 
 
 def get_tasks_dir() -> Path:
