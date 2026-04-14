@@ -9,6 +9,7 @@ with workspace and git information derived from the active conversation.
 import json
 import logging
 import subprocess
+import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -716,8 +717,9 @@ def api_tasks_create():
         return flask.jsonify({"error": "metadata must be an object"}), 400
 
     try:
-        # Generate task ID
-        task_id = f"task-{datetime.now(tz=timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+        # Generate task ID with a short random suffix to prevent collisions
+        # when two tasks are created within the same second.
+        task_id = f"task-{datetime.now(tz=timezone.utc).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
 
         # Create task
         task = Task(

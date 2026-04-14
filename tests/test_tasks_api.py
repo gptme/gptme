@@ -752,6 +752,29 @@ class TestTasksCreateAPI:
         assert get_resp.status_code == 200
         assert get_resp.json["content"] == "Persist me"
 
+    def test_create_task_ids_are_unique(self, client):
+        """Two tasks created within the same second must have different IDs."""
+        ids: list[str] = []
+        with (
+            patch(
+                "gptme.server.tasks_api.create_task_conversation",
+                return_value="conv-mock-0",
+            ),
+            patch(
+                "gptme.server.tasks_api.get_task_info",
+                side_effect=lambda t: {**asdict(t)},
+            ),
+        ):
+            for _ in range(10):
+                resp = client.post(
+                    "/api/v2/tasks",
+                    json={"content": f"task-{len(ids)}"},
+                )
+                assert resp.status_code == 201
+                ids.append(resp.json["id"])
+        # All IDs must be unique
+        assert len(set(ids)) == len(ids), f"Duplicate task IDs: {ids}"
+
 
 class TestTasksInputValidation:
     """Tests for input validation on create and update endpoints."""
