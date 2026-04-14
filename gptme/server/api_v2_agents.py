@@ -55,7 +55,7 @@ agents_api = flask.Blueprint("agents_api", __name__)
 def api_agents_put():
     """Create a new agent."""
     req_json = flask.request.json
-    if not req_json or not isinstance(req_json, dict):
+    if req_json is None or not isinstance(req_json, dict):
         return flask.jsonify({"error": "Request body must be a JSON object"}), 400
 
     agent_name = req_json.get("name")
