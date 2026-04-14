@@ -14,7 +14,7 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import __version__
+from .__version__ import __version__
 from .dirs import get_logs_dir
 
 
