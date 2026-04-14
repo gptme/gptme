@@ -623,3 +623,102 @@ class TestSessionManagerCleanInactive:
         assert SessionManager.get_session(session.id) is None
         # generating flag is reset to False before removal (the key invariant this test verifies)
         assert session.generating is False
+
+
+class TestSessionManagerGetAllSessions:
+    """Tests for SessionManager.get_all_sessions()."""
+
+    def test_returns_empty_when_no_sessions(self):
+        """get_all_sessions returns empty list when no sessions exist."""
+        assert SessionManager.get_all_sessions() == []
+
+    def test_returns_snapshot(self):
+        """get_all_sessions returns a snapshot of all sessions."""
+        s1 = SessionManager.create_session("conv-1")
+        s2 = SessionManager.create_session("conv-2")
+        result = SessionManager.get_all_sessions()
+        ids = {sid for sid, _ in result}
+        assert s1.id in ids
+        assert s2.id in ids
+        assert len(result) == 2
+
+
+class TestSessionManagerThreadSafety:
+    """Tests for SessionManager thread safety."""
+
+    def test_concurrent_create_and_remove(self):
+        """Concurrent creates and removes don't raise or corrupt state."""
+        import time
+
+        errors: list[Exception] = []
+        barrier = threading.Barrier(4)
+
+        def creator():
+            barrier.wait()
+            for i in range(50):
+                try:
+                    SessionManager.create_session(f"concurrent-{i}")
+                except Exception as e:
+                    errors.append(e)
+
+        def remover():
+            barrier.wait()
+            for _ in range(50):
+                try:
+                    for sid, _ in SessionManager.get_all_sessions():
+                        SessionManager.remove_session(sid)
+                except Exception as e:
+                    errors.append(e)
+                time.sleep(0.001)
+
+        threads = [
+            threading.Thread(target=creator),
+            threading.Thread(target=creator),
+            threading.Thread(target=remover),
+            threading.Thread(target=remover),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+
+        assert not errors, f"Thread errors: {errors}"
+
+    def test_concurrent_add_event_and_remove(self):
+        """Concurrent add_event and remove don't raise."""
+        errors: list[Exception] = []
+        barrier = threading.Barrier(3)
+
+        for _i in range(10):
+            SessionManager.create_session("event-conv")
+
+        def event_adder():
+            barrier.wait()
+            for i in range(100):
+                try:
+                    SessionManager.add_event(
+                        "event-conv",
+                        {"type": "error", "error": f"e{i}"},  # type: ignore[arg-type]
+                    )
+                except Exception as e:
+                    errors.append(e)
+
+        def session_remover():
+            barrier.wait()
+            for sid, _ in SessionManager.get_all_sessions():
+                try:
+                    SessionManager.remove_session(sid)
+                except Exception as e:
+                    errors.append(e)
+
+        threads = [
+            threading.Thread(target=event_adder),
+            threading.Thread(target=event_adder),
+            threading.Thread(target=session_remover),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+
+        assert not errors, f"Thread errors: {errors}"

@@ -123,7 +123,7 @@ def _run_health_check() -> None:
     SessionManager.clean_inactive_sessions(max_age_minutes=_SESSION_MAX_AGE_MINUTES)
 
     # 2. Check ACP subprocess health
-    for session_id, session in list(SessionManager._sessions.items()):
+    for session_id, session in SessionManager.get_all_sessions():
         # Snapshot to a local variable: a concurrent _cleanup_all_acp_sessions()
         # can set session.acp_runtime = None between reads, causing AttributeError.
         acp_runtime = session.acp_runtime
@@ -159,7 +159,7 @@ def _cleanup_all_acp_sessions() -> None:
     """
     acp_sessions = [
         (sid, s)
-        for sid, s in list(SessionManager._sessions.items())
+        for sid, s in SessionManager.get_all_sessions()
         if s.acp_runtime is not None
     ]
     if not acp_sessions:
