@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -17,10 +17,22 @@ import { Monitor, Cloud, ArrowRight, Check, Terminal, ExternalLink } from 'lucid
 type SetupStep = 'welcome' | 'mode' | 'local' | 'cloud' | 'complete';
 
 // The gptme cloud service is hosted on fleet.gptme.ai (the cloud.gptme.ai domain
-// is a planned alias). Override with VITE_GPTME_CLOUD_BASE_URL for other deployments.
-const CLOUD_AUTH_URL = import.meta.env.VITE_GPTME_CLOUD_BASE_URL
-  ? `${import.meta.env.VITE_GPTME_CLOUD_BASE_URL}/authorize`
-  : 'https://fleet.gptme.ai/authorize';
+// is a planned alias). Use a small runtime helper so Jest doesn't choke on import.meta.
+function getCloudAuthUrl(): string {
+  let cloudBaseUrl: string | undefined;
+
+  try {
+    cloudBaseUrl = Function('return import.meta.env.VITE_GPTME_CLOUD_BASE_URL')() as
+      | string
+      | undefined;
+  } catch {
+    cloudBaseUrl = undefined;
+  }
+
+  return `${cloudBaseUrl || 'https://fleet.gptme.ai'}/authorize`;
+}
+
+const CLOUD_AUTH_URL = getCloudAuthUrl();
 
 export function SetupWizard() {
   const { settings, updateSettings } = useSettings();
@@ -37,11 +49,19 @@ export function SetupWizard() {
   const [isOpen, setIsOpen] = useState(!settings.hasCompletedSetup);
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
+  const [cloudLoginStarted, setCloudLoginStarted] = useState(false);
   const isTauri = isTauriEnvironment();
 
-  const completeSetup = () => {
+  const completeSetup = useCallback(() => {
     updateSettings({ hasCompletedSetup: true });
-  };
+  }, [updateSettings]);
+
+  useEffect(() => {
+    if (!isOpen || !isConnected) return;
+    completeSetup();
+    setCloudLoginStarted(false);
+    setStep('complete');
+  }, [completeSetup, isConnected, isOpen]);
 
   // Close the dialog. Also calls completeSetup() so that skipping or finishing always persists.
   const closeWizard = () => {
@@ -76,9 +96,8 @@ export function SetupWizard() {
     // Open the cloud auth URL — the deep-link flow (gptme://) or URL fragment
     // will handle the callback and connect automatically.
     window.open(CLOUD_AUTH_URL, '_blank');
-    // Persist immediately — isOpen stays true so the complete step renders.
-    completeSetup();
-    setStep('complete');
+    setConnectError(null);
+    setCloudLoginStarted(true);
   };
 
   return (
@@ -210,6 +229,7 @@ export function SetupWizard() {
                 onClick={() => {
                   setStep('mode');
                   setConnectError(null);
+                  setCloudLoginStarted(false);
                 }}
               >
                 Back
@@ -235,6 +255,17 @@ export function SetupWizard() {
                   You&apos;ll be redirected to gptme.ai to sign in. After authentication,
                   you&apos;ll be connected automatically.
                 </p>
+                {cloudLoginStarted && !isConnected && (
+                  <div className="rounded-lg border border-border/70 bg-muted px-3 py-2 text-sm text-muted-foreground">
+                    Waiting for sign-in to complete… This window will update automatically once the
+                    app connects.
+                  </div>
+                )}
+                {connectError && (
+                  <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                    {connectError}
+                  </div>
+                )}
                 {isTauri && (
                   <p className="text-xs text-muted-foreground">
                     The app will handle the login callback via the <code>gptme://</code> deep link.
@@ -243,7 +274,14 @@ export function SetupWizard() {
               </div>
             </div>
             <DialogFooter className="gap-2 sm:gap-0">
-              <Button variant="outline" onClick={() => setStep('mode')}>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setStep('mode');
+                  setCloudLoginStarted(false);
+                  setConnectError(null);
+                }}
+              >
                 Back
               </Button>
               <Button onClick={handleCloudLogin} className="gap-2">
