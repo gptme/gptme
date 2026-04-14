@@ -95,6 +95,7 @@ def __getattr__(name: str):
         global _cached_version
         if _cached_version is None:
             _cached_version = _compute_version()
+        globals()["__version__"] = _cached_version
         return _cached_version
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
