@@ -1004,9 +1004,11 @@ def api_conversation_config_patch(conversation_id: str):
     if error := _validate_conversation_id(conversation_id):
         return error
 
-    req_json = flask.request.json
-    if not req_json:
+    req_json = request.get_json(silent=True)
+    if req_json is None:
         return flask.jsonify({"error": "No JSON data provided"}), 400
+    if not isinstance(req_json, dict):
+        return flask.jsonify({"error": "JSON body must be an object"}), 400
 
     logdir = get_logs_dir() / conversation_id
 

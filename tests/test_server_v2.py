@@ -1001,6 +1001,20 @@ def test_v2_conversation_agent_avatar_missing_conversation_returns_404(
     )
 
 
+def test_v2_chat_config_patch_rejects_non_object_json(client: FlaskClient):
+    """Config PATCH should reject JSON arrays/strings before config parsing."""
+    conv = create_conversation(client)
+    conversation_id = conv["conversation_id"]
+
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config",
+        json=[],
+    )
+
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "JSON body must be an object"}
+
+
 def test_v2_chat_config_patch_rejected_during_generation(client: FlaskClient):
     """Config PATCH should return 409 when a session is actively generating."""
     conv = create_conversation(client)
