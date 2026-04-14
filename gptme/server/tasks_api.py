@@ -669,9 +669,8 @@ def api_tasks_list():
     Archived tasks are excluded by default; include ?archived=true to show them.
     """
     try:
-        include_archived = flask.request.args.get(
-            "archived", "", type=lambda v: v.lower() in ("true", "1")
-        )
+        archived_str = flask.request.args.get("archived", "false")
+        include_archived = archived_str.lower() in ("true", "1")
         tasks = list_tasks(include_archived=include_archived)
 
         # Return with stored status (no side effects in GET)
