@@ -1001,6 +1001,25 @@ def test_v2_conversation_agent_avatar_missing_conversation_returns_404(
     )
 
 
+def test_v2_conversation_agent_avatar_orphaned_logdir_returns_404(
+    client: FlaskClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Avatar endpoint should reject logdirs without a conversation log."""
+    logdir = tmp_path / "logs" / "orphaned-avatar-conversation"
+    logdir.mkdir(parents=True)
+
+    monkeypatch.setattr("gptme.server.api_v2.get_logs_dir", lambda: tmp_path / "logs")
+
+    response = client.get(
+        "/api/v2/conversations/orphaned-avatar-conversation/agent/avatar"
+    )
+
+    assert response.status_code == 404
+    assert response.get_json() == {
+        "error": "Conversation not found: orphaned-avatar-conversation"
+    }
+
+
 @pytest.mark.parametrize(
     "body",
     [

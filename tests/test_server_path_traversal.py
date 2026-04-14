@@ -334,10 +334,19 @@ class TestAvatarPathSecurity:
         mock_chat_config.agent_config.avatar = "id_rsa"
         mock_chat_config.agent = agent_dir
 
-        # Create the logdir so the conversation-exists guard passes
+        # Create the logdir and a valid conversation log so the
+        # conversation-exists guards pass and the test reaches avatar
+        # validation.
+        from gptme.logmanager import LogManager
+        from gptme.message import Message
+
         logs_dir = tmp_path / "logs"
         conv_logdir = logs_dir / "test-conv"
-        conv_logdir.mkdir(parents=True)
+        LogManager.load(
+            logdir=conv_logdir,
+            initial_msgs=[Message("user", "hi")],
+            create=True,
+        ).write()
 
         monkeypatch.setattr(
             "gptme.server.api_v2.get_logs_dir",

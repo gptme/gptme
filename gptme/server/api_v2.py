@@ -1122,6 +1122,14 @@ def api_conversation_agent_avatar(conversation_id: str):
             404,
         )
 
+    try:
+        LogManager.load(conversation_id, lock=False)
+    except FileNotFoundError:
+        return (
+            flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
+            404,
+        )
+
     chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
 
     agent_config = chat_config.agent_config
