@@ -185,13 +185,12 @@ def allocate_attachment_path(
     path = Path(filename)
     suffix = "".join(path.suffixes)
     stem = path.name[: -len(suffix)] if suffix else path.name
-    counter = 1
-    while True:
+    for counter in range(1, 10001):
         candidate = f"{stem}-{counter}{suffix}"
         candidate_path = attachments_dir / candidate
         if candidate not in reserved_names and not candidate_path.exists():
             return candidate_path
-        counter += 1
+    raise ValueError(f"Could not allocate unique name for {filename}")
 
 
 def list_directory(
@@ -216,7 +215,10 @@ def list_directory(
         wfile = WorkspaceFile(item, workspace)
         if not show_hidden and wfile.is_hidden:
             continue
-        files.append(wfile.to_dict())
+        try:
+            files.append(wfile.to_dict())
+        except FileNotFoundError:
+            continue
 
     return sorted(files, key=lambda f: (f["type"] == "file", f["name"].lower()))
 
@@ -264,7 +266,10 @@ def browse_workspace(conversation_id: str, subpath: str | None = None):
         return error
     try:
         # Load the conversation to get its workspace
-        manager = LogManager.load(conversation_id, lock=False)
+        try:
+            manager = LogManager.load(conversation_id, lock=False)
+        except FileNotFoundError:
+            return flask.jsonify({"error": "Conversation not found"}), 404
 
         root_param = request.args.get("root", "workspace")
         if root_param not in ("workspace", "attachments"):
@@ -293,7 +298,7 @@ def browse_workspace(conversation_id: str, subpath: str | None = None):
     except ValueError as e:
         return flask.jsonify({"error": str(e)}), 400
     except FileNotFoundError:
-        return flask.jsonify({"error": "Conversation not found"}), 404
+        return flask.jsonify({"error": "File not found"}), 404
     except Exception as e:
         logger.exception("Error browsing workspace")
         return flask.jsonify({"error": str(e)}), 500
@@ -429,7 +434,10 @@ def serve_conversation_file(conversation_id: str, filepath: str):
     if error := _validate_conversation_id(conversation_id):
         return error
     try:
-        manager = LogManager.load(conversation_id, lock=False)
+        try:
+            manager = LogManager.load(conversation_id, lock=False)
+        except FileNotFoundError:
+            return flask.jsonify({"error": "Conversation not found"}), 404
         logdir = manager.logdir
         workspace = manager.workspace
 
@@ -455,7 +463,7 @@ def serve_conversation_file(conversation_id: str, filepath: str):
         return flask.send_file(path, mimetype=mime_type)
 
     except FileNotFoundError:
-        return flask.jsonify({"error": "Conversation not found"}), 404
+        return flask.jsonify({"error": "File not found"}), 404
     except ValueError as e:
         return flask.jsonify({"error": str(e)}), 400
     except Exception as e:
@@ -490,7 +498,10 @@ def preview_file(conversation_id: str, filepath: str):
         return error
     try:
         # Load the conversation to get its workspace
-        manager = LogManager.load(conversation_id, lock=False)
+        try:
+            manager = LogManager.load(conversation_id, lock=False)
+        except FileNotFoundError:
+            return flask.jsonify({"error": "Conversation not found"}), 404
         root_param = flask.request.args.get("root", "workspace")
         if root_param not in ("workspace", "attachments"):
             return flask.jsonify(
@@ -536,7 +547,7 @@ def preview_file(conversation_id: str, filepath: str):
     except ValueError as e:
         return flask.jsonify({"error": str(e)}), 400
     except FileNotFoundError:
-        return flask.jsonify({"error": "Conversation not found"}), 404
+        return flask.jsonify({"error": "File not found"}), 404
     except Exception as e:
         logger.exception("Error previewing file")
         return flask.jsonify({"error": str(e)}), 500
@@ -565,7 +576,10 @@ def download_file(conversation_id: str, filepath: str):
     if error := _validate_conversation_id(conversation_id):
         return error
     try:
-        manager = LogManager.load(conversation_id, lock=False)
+        try:
+            manager = LogManager.load(conversation_id, lock=False)
+        except FileNotFoundError:
+            return flask.jsonify({"error": "Conversation not found"}), 404
         root_param = flask.request.args.get("root", "workspace")
         if root_param not in ("workspace", "attachments"):
             return flask.jsonify(
@@ -595,7 +609,7 @@ def download_file(conversation_id: str, filepath: str):
     except ValueError as e:
         return flask.jsonify({"error": str(e)}), 400
     except FileNotFoundError:
-        return flask.jsonify({"error": "Conversation not found"}), 404
+        return flask.jsonify({"error": "File not found"}), 404
     except Exception as e:
         logger.exception("Error downloading file")
         return flask.jsonify({"error": str(e)}), 500
