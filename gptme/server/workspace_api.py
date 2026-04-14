@@ -377,7 +377,7 @@ def upload_files(conversation_id: str):
                     attachments_dir, filename, reserved_names
                 )
             except ValueError as e:
-                return flask.jsonify({"error": str(e)}), 507
+                return flask.jsonify({"error": str(e)}), 500
             reserved_names.add(file_path.name)
             validated.append((file_path, content))
 
