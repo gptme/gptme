@@ -1,7 +1,11 @@
 """
 Sounddevice-based audio playback using Python audio libraries.
+
+Audio dependencies (numpy, scipy, sounddevice) are imported lazily on first
+use to avoid a ~1.5s startup penalty from scipy's import-time initialization.
 """
 
+import functools
 import logging
 import os
 import platform as platform_module
@@ -10,27 +14,33 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-# Check for audio dependencies
-has_audio_imports = False
-try:
-    import numpy as np  # fmt: skip
-    import scipy.io.wavfile as wavfile  # fmt: skip
-    import scipy.signal as signal  # fmt: skip
-    import sounddevice as sd  # fmt: skip
 
-    has_audio_imports = True
-except (ImportError, OSError):
-    # sounddevice may throw OSError("PortAudio library not found")
-    has_audio_imports = False
+@functools.cache
+def _load_audio_libs() -> dict[str, Any]:
+    """Lazily import audio libraries on first use.
+
+    Returns a dict with keys np/wavfile/signal/sd, or empty dict if unavailable.
+    """
+    try:
+        import numpy as _np  # fmt: skip
+        import scipy.io.wavfile as _wavfile  # fmt: skip
+        import scipy.signal as _signal  # fmt: skip
+        import sounddevice as _sd  # fmt: skip
+
+        return {"np": _np, "wavfile": _wavfile, "signal": _signal, "sd": _sd}
+    except (ImportError, OSError):
+        # sounddevice may throw OSError("PortAudio library not found")
+        return {}
 
 
 def is_sounddevice_available() -> bool:
     """Check if sounddevice audio playback is available."""
-    return has_audio_imports
+    return bool(_load_audio_libs())
 
 
 def _check_device_override(devices) -> tuple[int, int] | None:
     """Check for environment variable device override."""
+    sd = _load_audio_libs()["sd"]
     if device_override := os.getenv("GPTME_AUDIO_DEVICE"):
         try:
             device_index = int(device_override)
@@ -49,6 +59,7 @@ def _check_device_override(devices) -> tuple[int, int] | None:
 
 def _get_output_device_macos(devices) -> tuple[int, int]:
     """Get the best output device for macOS."""
+    sd = _load_audio_libs()["sd"]
     # Try system default first
     try:
         default_output = sd.default.device[1]
@@ -89,6 +100,7 @@ def _get_output_device_macos(devices) -> tuple[int, int]:
 
 def _get_output_device_linux(devices) -> tuple[int, int]:
     """Get the best output device for Linux."""
+    sd = _load_audio_libs()["sd"]
     # Try system default first
     try:
         default_output = sd.default.device[1]
@@ -144,9 +156,11 @@ def _get_output_device_linux(devices) -> tuple[int, int]:
 
 def get_output_device() -> tuple[int, int]:
     """Get the best available output device and its sample rate."""
-    if not has_audio_imports:
+    libs = _load_audio_libs()
+    if not libs:
         raise RuntimeError("Audio imports not available")
 
+    sd = libs["sd"]
     devices = sd.query_devices()
 
     # Check for environment variable override first
@@ -185,7 +199,8 @@ def get_output_device() -> tuple[int, int]:
 
 def resample_audio(data, orig_sr, target_sr):
     """Resample audio data to target sample rate."""
-    if not has_audio_imports:
+    libs = _load_audio_libs()
+    if not libs:
         raise RuntimeError("Audio libraries not available for resampling")
 
     if orig_sr == target_sr:
@@ -193,7 +208,7 @@ def resample_audio(data, orig_sr, target_sr):
 
     duration = len(data) / orig_sr
     num_samples = int(duration * target_sr)
-    return signal.resample(data, num_samples)
+    return libs["signal"].resample(data, num_samples)
 
 
 def convert_audio_to_float32(data: Any) -> Any:
@@ -205,8 +220,11 @@ def convert_audio_to_float32(data: Any) -> Any:
     Returns:
         Audio data converted to float32 format
     """
-    if not has_audio_imports:
+    libs = _load_audio_libs()
+    if not libs:
         return data
+
+    np = libs["np"]
 
     # Convert to float32 for consistent processing
     if data.dtype != np.float32:
@@ -229,8 +247,11 @@ def play_with_sounddevice(data: Any, sample_rate: int, volume: float = 1.0):
         sample_rate: Sample rate of the audio
         volume: Volume level (0.0 to 1.0)
     """
-    if not has_audio_imports:
+    libs = _load_audio_libs()
+    if not libs:
         raise RuntimeError("sounddevice not available")
+
+    sd = libs["sd"]
 
     try:
         # Convert to float32 and apply volume
@@ -278,9 +299,10 @@ def play_with_sounddevice(data: Any, sample_rate: int, volume: float = 1.0):
 
 def stop_sounddevice_audio():
     """Stop sounddevice audio playback."""
-    if has_audio_imports:
+    libs = _load_audio_libs()
+    if libs:
         try:
-            sd.stop()
+            libs["sd"].stop()
         except Exception:
             pass
 
@@ -291,11 +313,12 @@ def load_wav_file(file_path):
     Returns:
         tuple: (sample_rate, data) or None if loading failed
     """
-    if not has_audio_imports:
+    libs = _load_audio_libs()
+    if not libs:
         return None
 
     try:
-        sample_rate, data = wavfile.read(file_path)
+        sample_rate, data = libs["wavfile"].read(file_path)
         return sample_rate, data
     except Exception as e:
         log.error(f"Failed to load WAV file {file_path}: {e}")
