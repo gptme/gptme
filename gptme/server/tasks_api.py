@@ -182,8 +182,12 @@ def save_task(task: Task) -> None:
         raise
 
 
-def list_tasks() -> list[Task]:
-    """List all tasks from storage."""
+def list_tasks(include_archived: bool = False) -> list[Task]:
+    """List tasks from storage.
+
+    Args:
+        include_archived: If True, include archived tasks. Default False.
+    """
     tasks_dir = get_tasks_dir()
 
     if not tasks_dir.exists():
@@ -193,7 +197,7 @@ def list_tasks() -> list[Task]:
     for task_file in tasks_dir.glob("*.json"):
         task_id = task_file.stem
         task = load_task(task_id)
-        if task:
+        if task and (include_archived or not task.archived):
             tasks.append(task)
 
     return sorted(tasks, key=lambda t: t.created_at, reverse=True)
@@ -661,10 +665,14 @@ def setup_task_workspace(task_id: str, target_repo: str | None = None) -> Path:
 def api_tasks_list():
     """List all tasks.
 
-    List all tasks with their cached status information.
+    List tasks with their cached status information.
+    Archived tasks are excluded by default; include ?archived=true to show them.
     """
     try:
-        tasks = list_tasks()
+        include_archived = flask.request.args.get(
+            "archived", "", type=lambda v: v.lower() in ("true", "1")
+        )
+        tasks = list_tasks(include_archived=include_archived)
 
         # Return with stored status (no side effects in GET)
         tasks_info = [asdict(task) for task in tasks]
