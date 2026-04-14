@@ -458,6 +458,19 @@ class TestAgentCreationPathValidation:
         data = response.get_json()
         assert data["error"] == "Path must be within the server working directory"
 
+    @pytest.mark.parametrize("body", [[], [1, 2, 3], "string", 42])
+    def test_rejects_non_object_json_body(self, client: FlaskClient, body: object):
+        """Agent creation should reject non-object JSON bodies with 400."""
+        response = client.put(
+            "/api/v2/agents",
+            json=body,
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert data["error"] == "Request body must be a JSON object"
+
     def test_rejects_name_that_slugifies_to_empty(
         self, client: FlaskClient, tmp_path, monkeypatch
     ):
