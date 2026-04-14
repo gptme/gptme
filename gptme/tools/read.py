@@ -130,12 +130,20 @@ def execute_read(
             try:
                 start_line = int(kwargs["start_line"])
             except ValueError:
-                pass
+                yield Message(
+                    "system",
+                    f"Invalid start_line: {kwargs['start_line']!r} (expected integer)",
+                )
+                return
         if "end_line" in kwargs:
             try:
                 end_line = int(kwargs["end_line"])
             except ValueError:
-                pass
+                yield Message(
+                    "system",
+                    f"Invalid end_line: {kwargs['end_line']!r} (expected integer)",
+                )
+                return
 
     try:
         content = path.read_text(encoding="utf-8")

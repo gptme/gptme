@@ -823,7 +823,7 @@ def start_tool_execution(
             for tool_output in tool_outputs:
                 _append_and_notify(manager, session, tool_output)
         except Exception as e:
-            logger.exception(f"Error executing tool {tooluse.__class__.__name__}: {e}")
+            logger.exception(f"Error executing tool {tooluse.tool}: {e}")
             tool_exec.status = ToolStatus.FAILED
 
             msg = Message("system", f"Error: {e!s}")
