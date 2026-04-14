@@ -57,11 +57,11 @@ export function SetupWizard() {
   }, [updateSettings]);
 
   useEffect(() => {
-    if (!isOpen || !isConnected) return;
+    if (!isOpen || !isConnected || step === 'complete') return;
     completeSetup();
     setCloudLoginStarted(false);
     setStep('complete');
-  }, [completeSetup, isConnected, isOpen]);
+  }, [completeSetup, isConnected, isOpen, step]);
 
   // Close the dialog. Also calls completeSetup() so that skipping or finishing always persists.
   const closeWizard = () => {
