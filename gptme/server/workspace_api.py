@@ -331,7 +331,10 @@ def upload_files(conversation_id: str):
     if error := _validate_conversation_id(conversation_id):
         return error
     try:
-        manager = LogManager.load(conversation_id, lock=False)
+        try:
+            manager = LogManager.load(conversation_id, lock=False)
+        except FileNotFoundError:
+            return flask.jsonify({"error": "Conversation not found"}), 404
         attachments_dir = manager.logdir / "attachments"
 
         if not request.files:
@@ -369,9 +372,12 @@ def upload_files(conversation_id: str):
                     ),
                     413,
                 )
-            file_path = allocate_attachment_path(
-                attachments_dir, filename, reserved_names
-            )
+            try:
+                file_path = allocate_attachment_path(
+                    attachments_dir, filename, reserved_names
+                )
+            except ValueError as e:
+                return flask.jsonify({"error": str(e)}), 507
             reserved_names.add(file_path.name)
             validated.append((file_path, content))
 
@@ -402,7 +408,7 @@ def upload_files(conversation_id: str):
         return flask.jsonify({"files": uploaded})
 
     except FileNotFoundError:
-        return flask.jsonify({"error": "Conversation not found"}), 404
+        return flask.jsonify({"error": "File not found"}), 404
     except ValueError as e:
         return flask.jsonify({"error": str(e)}), 400
     except Exception as e:
