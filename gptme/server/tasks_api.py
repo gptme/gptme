@@ -466,8 +466,6 @@ def get_git_status(workspace_path: Path) -> dict[str, Any]:
                 if lines:
                     summary_line = lines[-1]
                     if "changed" in summary_line:
-                        import re
-
                         # Extract numbers from summary
                         files_match = re.search(r"(\d+) files? changed", summary_line)
                         added_match = re.search(
@@ -641,8 +639,6 @@ def setup_task_workspace(task_id: str, target_repo: str | None = None) -> Path:
 
     if target_repo and "/" in target_repo:
         # Validate target_repo format (owner/repo)
-        import re
-
         if not re.match(r"^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$", target_repo):
             logger.error(f"Invalid target_repo format: {target_repo}")
             return workspace
