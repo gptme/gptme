@@ -946,6 +946,23 @@ def test_v2_chat_config_update_works(client: FlaskClient):
     assert config.to_dict() == input_config.to_dict()
 
 
+def test_v2_chat_config_update_missing_conversation_returns_404(client: FlaskClient):
+    """Test that updating config for a missing conversation returns a 404."""
+    input_config = ChatConfig(model="openai/gpt-4o")
+    input_config.tools = [t.name for t in get_toolchain(None) if not t.is_mcp]
+    input_config.mcp = MCPConfig()
+
+    response = client.patch(
+        "/api/v2/conversations/missing-conversation/config",
+        json=input_config.to_dict(),
+    )
+
+    assert response.status_code == 404
+    assert response.get_json() == {
+        "error": "Conversation not found: missing-conversation"
+    }
+
+
 @pytest.mark.parametrize(
     "files_payload",
     [

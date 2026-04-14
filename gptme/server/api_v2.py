@@ -1021,7 +1021,14 @@ def api_conversation_config_patch(conversation_id: str):
     tools = get_tools()
 
     # Update system prompt with new tools
-    manager = LogManager.load(conversation_id, lock=False)
+    try:
+        manager = LogManager.load(conversation_id, lock=False)
+    except FileNotFoundError:
+        return (
+            flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
+            404,
+        )
+
     if len(manager.log.messages) >= 1 and manager.log.messages[0].role == "system":
         # Remove leading system messages and replace with new ones
         # Use immutable Log interface instead of mutating the frozen dataclass's list
