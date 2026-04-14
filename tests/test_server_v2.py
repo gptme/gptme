@@ -1368,11 +1368,11 @@ def test_v2_create_conversation_non_string_timestamp(client: FlaskClient):
 
 
 @pytest.mark.parametrize("body", [[], [1, 2, 3], "string", 42])
-def test_v2_tasks_patch_rejects_non_object_json(client: FlaskClient, body: object):
-    """Task PATCH should reject non-object JSON bodies with 400."""
+def test_v2_tasks_put_rejects_non_object_json(client: FlaskClient, body: object):
+    """Task PUT should reject non-object JSON bodies with 400."""
     create_resp = client.post(
         "/api/v2/tasks",
-        json={"content": "test task for patch validation"},
+        json={"content": "test task for put validation"},
     )
     assert create_resp.status_code == 201
     task_id = create_resp.get_json()["id"]
