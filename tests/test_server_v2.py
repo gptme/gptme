@@ -1201,8 +1201,11 @@ def test_v2_step_last_error_set_on_failure(v2_conv, client: FlaskClient):
 
 def test_v2_create_conversation_missing_content(client: FlaskClient):
     """Creating a conversation with a message missing 'content' returns 400."""
+    import uuid
+
+    conv_id = f"test-missing-content-{uuid.uuid4().hex[:8]}"
     response = client.put(
-        "/api/v2/conversations/test-missing-content",
+        f"/api/v2/conversations/{conv_id}",
         json={
             "messages": [{"role": "user"}],
         },
@@ -1215,8 +1218,11 @@ def test_v2_create_conversation_missing_content(client: FlaskClient):
 
 def test_v2_create_conversation_invalid_timestamp(client: FlaskClient):
     """Creating a conversation with an invalid timestamp returns 400."""
+    import uuid
+
+    conv_id = f"test-bad-timestamp-{uuid.uuid4().hex[:8]}"
     response = client.put(
-        "/api/v2/conversations/test-bad-timestamp",
+        f"/api/v2/conversations/{conv_id}",
         json={
             "messages": [
                 {"role": "user", "content": "hello", "timestamp": "not-a-date"}

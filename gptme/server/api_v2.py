@@ -11,7 +11,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from itertools import islice
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
 import flask
 from dateutil.parser import isoparse
@@ -374,6 +374,37 @@ def api_conversation_put(conversation_id: str):
             400,
         )
 
+    # Validate all messages before creating any side effects (directories).
+    # This prevents orphaned directories when validation fails: if logdir.mkdir()
+    # runs before a 400 is returned, the same conversation_id gets a 409 on retry.
+    _RoleType = Literal["system", "user", "assistant"]
+    valid_roles = ("system", "user", "assistant")
+    validated_msgs: list[tuple[_RoleType, str, datetime]] = []
+    for msg in req_json.get("messages", []):
+        if msg.get("role") not in valid_roles:
+            return (
+                flask.jsonify(
+                    {
+                        "error": f"Invalid role: {msg.get('role')}. Must be one of: {valid_roles}"
+                    }
+                ),
+                400,
+            )
+        if "content" not in msg:
+            return flask.jsonify(
+                {"error": "Message missing required 'content' field"}
+            ), 400
+        if "timestamp" in msg:
+            try:
+                ts: datetime = isoparse(msg["timestamp"])
+            except (ValueError, OverflowError, TypeError):
+                return flask.jsonify(
+                    {"error": f"Invalid timestamp format: {msg['timestamp']}"}
+                ), 400
+        else:
+            ts = datetime.now(tz=timezone.utc)
+        validated_msgs.append((cast(_RoleType, msg["role"]), msg["content"], ts))
+
     # Create the log directory atomically to avoid TOCTOU race
     try:
         logdir.mkdir(parents=True)
@@ -400,31 +431,8 @@ def api_conversation_put(conversation_id: str):
         agent_path=chat_config.agent,
     )
 
-    valid_roles = ("system", "user", "assistant")
-    for msg in req_json.get("messages", []):
-        if msg.get("role") not in valid_roles:
-            return (
-                flask.jsonify(
-                    {
-                        "error": f"Invalid role: {msg.get('role')}. Must be one of: {valid_roles}"
-                    }
-                ),
-                400,
-            )
-        if "content" not in msg:
-            return flask.jsonify(
-                {"error": "Message missing required 'content' field"}
-            ), 400
-        if "timestamp" in msg:
-            try:
-                timestamp: datetime = isoparse(msg["timestamp"])
-            except (ValueError, OverflowError):
-                return flask.jsonify(
-                    {"error": f"Invalid timestamp format: {msg['timestamp']}"}
-                ), 400
-        else:
-            timestamp = datetime.now(tz=timezone.utc)
-        msgs.append(Message(msg["role"], msg["content"], timestamp=timestamp))
+    for role, content, timestamp in validated_msgs:
+        msgs.append(Message(role, content, timestamp=timestamp))
 
     log = LogManager.load(logdir=logdir, initial_msgs=msgs, create=True)
     log.write()
