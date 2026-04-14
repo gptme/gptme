@@ -867,3 +867,61 @@ class TestTasksInputValidation:
                 json={"target_type": tt},
             )
             assert resp.status_code == 200, f"target_type '{tt}' should be valid"
+
+
+# ── Path traversal prevention ─────────────────────────────────────
+
+
+class TestTaskIdPathTraversal:
+    """Verify task_id values with path traversal characters are rejected."""
+
+    def test_load_rejects_parent_traversal(self):
+        assert load_task("../../etc/passwd") is None
+
+    def test_load_rejects_absolute_path(self):
+        assert load_task("/etc/passwd") is None
+
+    def test_load_rejects_dot_segments(self):
+        assert load_task("../secret") is None
+        assert load_task("foo/../bar") is None
+
+    def test_load_rejects_null_bytes(self):
+        assert load_task("task\x00.json") is None
+
+    def test_load_accepts_valid_id(self, tmp_path, monkeypatch):
+        """A valid task_id should still work normally."""
+        # Create a temp task file
+        task_file = tmp_path / "task-valid-123.json"
+        task_file.write_text(
+            json.dumps(
+                {
+                    "id": "task-valid-123",
+                    "content": "test",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "status": "pending",
+                    "target_type": "stdout",
+                }
+            )
+        )
+
+        monkeypatch.setattr("gptme.server.tasks_api.get_tasks_dir", lambda: tmp_path)
+        task = load_task("task-valid-123")
+        assert task is not None
+        assert task.id == "task-valid-123"
+
+    def test_save_rejects_traversal_id(self, tmp_path, monkeypatch):
+        """save_task should raise on path traversal task IDs."""
+        monkeypatch.setattr("gptme.server.tasks_api.get_tasks_dir", lambda: tmp_path)
+        task = Task(
+            id="../../evil",
+            content="test",
+            created_at="2026-01-01T00:00:00Z",
+            status="pending",
+            target_type="stdout",
+        )
+        with pytest.raises(ValueError, match="Invalid task_id"):
+            save_task(task)
+
+    def test_api_get_rejects_traversal(self, client):
+        resp = client.get("/api/v2/tasks/../../etc/passwd")
+        assert resp.status_code == 404

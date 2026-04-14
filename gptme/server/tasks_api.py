@@ -8,6 +8,7 @@ with workspace and git information derived from the active conversation.
 
 import json
 import logging
+import re
 import subprocess
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -145,6 +146,15 @@ class TaskListResponse(BaseModel):
     tasks: list[TaskResponse] = Field(..., description="List of tasks")
 
 
+# Task IDs must be alphanumeric with hyphens/underscores, no path separators
+_TASK_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+
+def _validate_task_id(task_id: str) -> bool:
+    """Check that task_id doesn't contain path traversal characters."""
+    return bool(_TASK_ID_PATTERN.match(task_id))
+
+
 def get_tasks_dir() -> Path:
     """Get the tasks storage directory."""
     return get_logs_dir().parent / "tasks"
@@ -152,6 +162,10 @@ def get_tasks_dir() -> Path:
 
 def load_task(task_id: str) -> Task | None:
     """Load a task from storage."""
+    if not _validate_task_id(task_id):
+        logger.warning(f"Rejected load_task with invalid task_id: {task_id!r}")
+        return None
+
     tasks_dir = get_tasks_dir()
     task_file = tasks_dir / f"{task_id}.json"
 
@@ -169,6 +183,9 @@ def load_task(task_id: str) -> Task | None:
 
 def save_task(task: Task) -> None:
     """Save a task to storage."""
+    if not _validate_task_id(task.id):
+        raise ValueError(f"Invalid task_id: {task.id!r}")
+
     tasks_dir = get_tasks_dir()
     tasks_dir.mkdir(parents=True, exist_ok=True)
 
@@ -564,6 +581,9 @@ def get_git_status(workspace_path: Path) -> dict[str, Any]:
 
 def create_task_conversation(task: Task) -> str:
     """Create a conversation for a task."""
+    if not _validate_task_id(task.id):
+        raise ValueError(f"Invalid task_id: {task.id!r}")
+
     # Use simple incremental suffix instead of timestamp
     suffix = len(task.conversation_ids)
     conversation_id = f"{task.id}-{suffix}"
@@ -611,6 +631,9 @@ def create_task_conversation(task: Task) -> str:
 
 def setup_task_workspace(task_id: str, target_repo: str | None = None) -> Path:
     """Setup workspace for task. All conversations for this task will share this workspace."""
+    if not _validate_task_id(task_id):
+        raise ValueError(f"Invalid task_id: {task_id!r}")
+
     # Use task-level workspace that all conversations for this task will share
     task_dir = get_tasks_dir() / task_id
     workspace = task_dir / "workspace"
