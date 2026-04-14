@@ -1233,3 +1233,20 @@ def test_v2_create_conversation_invalid_timestamp(client: FlaskClient):
     data = response.get_json()
     assert data is not None
     assert "timestamp" in data["error"].lower()
+
+
+def test_v2_create_conversation_non_string_timestamp(client: FlaskClient):
+    """Creating a conversation with a non-string timestamp returns 400 (not 500)."""
+    import uuid
+
+    conv_id = f"test-numeric-ts-{uuid.uuid4().hex[:8]}"
+    response = client.put(
+        f"/api/v2/conversations/{conv_id}",
+        json={
+            "messages": [{"role": "user", "content": "hello", "timestamp": 12345}],
+        },
+    )
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data is not None
+    assert "timestamp" in data["error"].lower()
