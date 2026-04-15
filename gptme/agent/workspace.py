@@ -136,7 +136,7 @@ def create_workspace_from_template(
                 capture_output=True,
                 check=False,
                 cwd=temp_dir,
-                timeout=120,
+                timeout=timeout,
                 env=env,
             )
             if result.returncode != 0:
