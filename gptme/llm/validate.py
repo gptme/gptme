@@ -125,8 +125,13 @@ def _validate_anthropic(api_key: str, timeout: int) -> tuple[bool, str]:
             error_data = response.json()
         except ValueError:
             return False, "Invalid API key. Please check your key and try again."
-        if "authentication" in error_data.get("error", {}).get("message", "").lower():
+        error_msg = error_data.get("error", {}).get("message", "").lower()
+        if "authentication" in error_msg:
             return False, "Invalid API key. Please check your key and try again."
+        if "usage limits" in error_msg or "api usage limits" in error_msg:
+            # Key is valid but account has hit its usage quota
+            raw_msg = error_data.get("error", {}).get("message", "")
+            return True, f"API quota exhausted — {raw_msg}"
         return True, ""  # Key is valid, request format was just wrong
     if response.status_code == 429:
         # Rate limited but key is valid

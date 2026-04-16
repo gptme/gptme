@@ -102,6 +102,22 @@ class TestValidateAnthropic:
         assert is_valid
         assert error == ""
 
+    @patch("gptme.llm.validate.requests.post")
+    def test_quota_exhausted_returns_warning(self, mock_post):
+        """Quota-exhausted 400 response should return (True, warning_msg) not (True, '')."""
+        quota_msg = "You have reached your specified API usage limits. You will regain access on 2026-05-01 at 00:00 UTC."
+        mock_post.return_value = Mock(
+            status_code=400,
+            json=Mock(
+                return_value={
+                    "error": {"type": "invalid_request_error", "message": quota_msg}
+                }
+            ),
+        )
+        is_valid, error = _validate_anthropic("sk-ant-valid-key", 10)
+        assert is_valid  # Key itself is valid (will work after reset)
+        assert "quota" in error.lower() or "usage limits" in error.lower()
+
 
 class TestValidateOpenRouter:
     """Tests for OpenRouter API key validation."""

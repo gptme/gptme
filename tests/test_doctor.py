@@ -433,6 +433,32 @@ class TestCheckApiKeys:
 
     @patch("gptme.cli.doctor.list_available_providers")
     @patch("gptme.cli.doctor.get_config")
+    @patch("gptme.cli.doctor.validate_api_key")
+    @patch.dict("os.environ", {}, clear=True)
+    def test_quota_exhausted_api_key(self, mock_validate, mock_config, mock_providers):
+        """Test that quota-exhausted API keys are reported as WARNING, not OK."""
+
+        mock_providers.return_value = [("anthropic", None)]
+        mock_config_obj = mock_config.return_value
+        mock_config_obj.get_env.return_value = "sk-ant-test1234567890"
+        quota_warning = (
+            "API quota exhausted — You have reached your specified API usage limits."
+        )
+        mock_validate.return_value = (True, quota_warning)
+
+        results = _check_api_keys()
+
+        anthropic_results = [r for r in results if "anthropic" in r.name.lower()]
+        assert len(anthropic_results) >= 1
+        result = anthropic_results[0]
+        assert result.status == CheckStatus.WARNING
+        assert (
+            "quota" in result.message.lower()
+            or "usage limits" in result.message.lower()
+        )
+
+    @patch("gptme.cli.doctor.list_available_providers")
+    @patch("gptme.cli.doctor.get_config")
     @patch.dict("os.environ", {}, clear=True)
     def test_provider_available_but_key_not_retrievable(
         self, mock_config, mock_providers

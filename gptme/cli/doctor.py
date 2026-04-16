@@ -111,12 +111,23 @@ def _check_api_keys(verbose: bool = False) -> list[CheckResult]:
             if api_key:
                 # Validate the key
                 is_valid, error_msg = validate_api_key(api_key, provider)
-                if is_valid:
+                if is_valid and not error_msg:
                     results.append(
                         CheckResult(
                             name=f"API Key: {provider}",
                             status=CheckStatus.OK,
                             message="Configured and valid",
+                            details=f"Key prefix: {api_key[:8]}..."
+                            if verbose
+                            else None,
+                        )
+                    )
+                elif is_valid and error_msg:
+                    results.append(
+                        CheckResult(
+                            name=f"API Key: {provider}",
+                            status=CheckStatus.WARNING,
+                            message=error_msg,
                             details=f"Key prefix: {api_key[:8]}..."
                             if verbose
                             else None,
