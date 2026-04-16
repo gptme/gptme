@@ -310,7 +310,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             # "supports_vision": True,
             "supports_reasoning": True,
         },
-        "anthropic/claude-sonnet-4-6": {
+        "anthropic/claude-sonnet-4.6": {
             "context": 1_000_000,
             "max_output": 64_000,
             # NOTE: at >200k context price is 2x for input and 1.5x for output
@@ -319,6 +319,13 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_vision": True,
             "supports_reasoning": True,
             "supports_parallel_tool_calls": True,
+        },
+        "anthropic/claude-haiku-4.5": {
+            "context": 200_000,
+            "max_output": 8_096,
+            "price_input": 0.8,
+            "price_output": 4,
+            "supports_vision": True,
         },
         "meta-llama/llama-3.3-70b-instruct": {
             "context": 128_000,

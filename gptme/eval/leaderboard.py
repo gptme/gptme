@@ -132,8 +132,13 @@ def normalize_model(model: str) -> str:
         "openrouter/x-ai/grok-4-fast:free": "Grok 4 Fast",
         "openrouter/x-ai/grok-code-fast-1": "Grok Code Fast",
         "openrouter/z-ai/glm-5": "GLM-5",
-        # OpenRouter-proxied versions of direct-API models
+        # OpenRouter-proxied versions of direct-API models (dot notation — current OpenRouter naming)
         "openrouter/openai/gpt-4o-mini": "GPT-4o Mini (OR)",
+        "openrouter/anthropic/claude-sonnet-4.6": "Claude Sonnet 4.6 (OR)",
+        "openrouter/anthropic/claude-sonnet-4.5": "Claude Sonnet 4.5 (OR)",
+        "openrouter/anthropic/claude-haiku-4.5": "Claude Haiku 4.5 (OR)",
+        "openrouter/anthropic/claude-opus-4.6": "Claude Opus 4.6 (OR)",
+        # Legacy hyphen notation — kept for eval history backward compatibility
         "openrouter/anthropic/claude-sonnet-4-6": "Claude Sonnet 4.6 (OR)",
         "openrouter/anthropic/claude-sonnet-4-5": "Claude Sonnet 4.5 (OR)",
         "openrouter/anthropic/claude-haiku-4-5": "Claude Haiku 4.5 (OR)",
