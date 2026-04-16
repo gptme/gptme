@@ -125,8 +125,9 @@ def search_chats(
             )
             for _, msg in matches
         ]
+        match_preview = f": {match_strs[0]}" if match_strs else ""
         print(
-            f"{i}. {conversation.name} ({len(result['matching_messages'])}): {match_strs[0]}"
+            f"{i}. {conversation.name} ({len(result['matching_messages'])}){match_preview}"
         )
 
 
@@ -224,13 +225,12 @@ def read_chat(
             messages = [
                 msg for msg in logmanager.log if msg.role != "system" or incl_system
             ]
+            start_idx = 0
             if start_message is not None:
                 start_idx = max(0, start_message - 1 - context_messages)
                 messages = messages[start_idx:]
             for i, msg in enumerate(messages[:max_results]):
-                print(
-                    f"{i + (start_message or 1) - 1 + (context_messages if start_message else 0)}. {msg.format(max_length=100)}"
-                )
+                print(f"{start_idx + i}. {msg.format(max_length=100)}")
             break
     else:
         print(f"Conversation '{id}' not found.")
