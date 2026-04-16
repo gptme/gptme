@@ -322,9 +322,9 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
         },
         "anthropic/claude-haiku-4.5": {
             "context": 200_000,
-            "max_output": 8_096,
-            "price_input": 0.8,
-            "price_output": 4,
+            "max_output": 64_000,
+            "price_input": 1,
+            "price_output": 5,
             "supports_vision": True,
         },
         "meta-llama/llama-3.3-70b-instruct": {
