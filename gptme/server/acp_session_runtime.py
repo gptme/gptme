@@ -145,7 +145,11 @@ class AcpSessionRuntime:
             await self.start()
 
         if self._client is None or self._session_id is None:
-            raise RuntimeError("ACP runtime failed to initialize")
+            raise RuntimeError(
+                "ACP runtime failed to initialize: "
+                f"client={'connected' if self._client else 'None'}, "
+                f"session_id={self._session_id!r}"
+            )
 
         resp = await self._client.prompt(self._session_id, message)
         text = extract_text_from_prompt_response(resp)

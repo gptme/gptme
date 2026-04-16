@@ -167,7 +167,9 @@ def safe_workspace_path(workspace: Path, path: str | None = None) -> Path:
 
     # Check if path is within workspace
     if not full_path.is_relative_to(workspace):
-        raise ValueError("Path escapes workspace")
+        raise ValueError(
+            f"Path escapes workspace: '{path}' resolves outside '{workspace}'"
+        )
 
     return full_path
 
@@ -208,7 +210,7 @@ def list_directory(
         List of file metadata
     """
     if not path.is_dir():
-        raise ValueError("Path is not a directory")
+        raise ValueError(f"Path is not a directory: {path}")
 
     files = []
     for item in path.iterdir():

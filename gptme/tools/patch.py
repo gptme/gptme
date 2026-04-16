@@ -100,11 +100,18 @@ class Patch:
     def apply(self, content: str) -> str:
         # Fast path: try exact match first (backward compatible)
         if self.original in content:
-            if content.count(self.original) > 1:
-                raise ValueError("original chunk not unique")
+            count = content.count(self.original)
+            if count > 1:
+                raise ValueError(
+                    f"original chunk is not unique ({count} matches found). "
+                    "Provide more surrounding context to make the match unique."
+                )
             new_content = content.replace(self.original, self.updated, 1)
             if new_content == content:
-                raise ValueError("patch did not change the file")
+                raise ValueError(
+                    "patch did not change the file "
+                    "(original and updated chunks are identical)"
+                )
             return new_content
 
         # Fallback: try relaxed matching (treat whitespace-only lines as equivalent)
@@ -121,7 +128,10 @@ class Patch:
         # Apply the replacement using the actual matched content
         new_content = content.replace(actual_original, self.updated, 1)
         if new_content == content:
-            raise ValueError("patch did not change the file")
+            raise ValueError(
+                "patch did not change the file "
+                "(original and updated chunks are identical)"
+            )
         return new_content
 
     def _find_relaxed_match(self, content: str) -> str | None:
@@ -146,7 +156,9 @@ class Patch:
             return None
         if len(matches) > 1:
             raise ValueError(
-                "original chunk not unique (multiple matches with relaxed whitespace matching)"
+                f"original chunk is not unique ({len(matches)} matches with "
+                "relaxed whitespace matching). "
+                "Provide more surrounding context to make the match unique."
             )
 
         return matches[0][1]
