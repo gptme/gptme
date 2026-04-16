@@ -212,7 +212,7 @@ def read_chat(
         id (str): The id of the conversation to read.
         max_results (int): Maximum number of messages to display.
         incl_system (bool): Whether to include system messages.
-        context_messages (int): Number of messages to show before/after start_message.
+        context_messages (int): Number of messages to show before start_message.
         start_message (int | None): Start from this message number (1-indexed), if specified.
     """
     from ..logmanager import LogManager, list_conversations  # fmt: skip
