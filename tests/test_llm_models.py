@@ -298,7 +298,7 @@ class TestClosestModelMatch:
         """An unknown claude-opus variant should inherit from the latest known opus."""
         model = get_model("anthropic/claude-opus-5-0")
         assert model.provider == "anthropic"
-        assert model.context == 1_000_000  # claude-opus-4-6 has 1M context (GA)
+        assert model.context == 1_000_000  # claude-opus-4-7 has 1M context (GA)
         assert model.supports_reasoning is True
         # Opus is more expensive than sonnet
         assert model.price_input >= 5
