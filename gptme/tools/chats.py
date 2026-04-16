@@ -73,6 +73,8 @@ def search_chats(
     max_results: int = 5,
     system=False,
     sort: Literal["date", "count"] = "date",
+    context_size: int = 50,
+    max_matches: int = 1,
 ) -> None:
     """
     Search past conversation logs for the given query and print a summary of the results.
@@ -81,6 +83,8 @@ def search_chats(
         query (str): The search query.
         max_results (int): Maximum number of conversations to display.
         system (bool): Whether to include system messages in the search.
+        context_size (int): Number of characters to show around each match.
+        max_matches (int): Maximum number of matches to show per conversation.
     """
     from ..logmanager import LogManager, list_conversations  # fmt: skip
 
@@ -114,9 +118,12 @@ def search_chats(
     )
     for i, result in enumerate(results[:max_results], 1):
         conversation = result["conversation"]
-        matches = result["matching_messages"][:1]
+        matches = result["matching_messages"][:max_matches]
         match_strs = [
-            _format_message_with_context(msg.content, query) for _, msg in matches
+            _format_message_with_context(
+                msg.content, query, context_size=context_size, max_matches=max_matches
+            )
+            for _, msg in matches
         ]
         print(
             f"{i}. {conversation.name} ({len(result['matching_messages'])}): {match_strs[0]}"
@@ -190,7 +197,13 @@ def _format_message_with_context(
     return result
 
 
-def read_chat(id: str, max_results: int = 5, incl_system=False) -> None:
+def read_chat(
+    id: str,
+    max_results: int = 5,
+    incl_system: bool = False,
+    context_messages: int = 0,
+    start_message: int | None = None,
+) -> None:
     """
     Read a specific conversation log.
 
@@ -198,6 +211,8 @@ def read_chat(id: str, max_results: int = 5, incl_system=False) -> None:
         id (str): The id of the conversation to read.
         max_results (int): Maximum number of messages to display.
         incl_system (bool): Whether to include system messages.
+        context_messages (int): Number of messages to show before/after start_message.
+        start_message (int | None): Start from this message number (1-indexed), if specified.
     """
     from ..logmanager import LogManager, list_conversations  # fmt: skip
 
@@ -206,13 +221,16 @@ def read_chat(id: str, max_results: int = 5, incl_system=False) -> None:
             log_path = Path(conv.path)
             logmanager = LogManager.load(log_path, lock=False)
             print(f"Reading conversation: {conv.name} ({conv.id})")
-            i = 0
-            for msg in logmanager.log:
-                if msg.role != "system" or incl_system:
-                    print(f"{i}. {msg.format(max_length=100)}")
-                    i += 1
-                if i >= max_results:
-                    break
+            messages = [
+                msg for msg in logmanager.log if msg.role != "system" or incl_system
+            ]
+            if start_message is not None:
+                start_idx = max(0, start_message - 1 - context_messages)
+                messages = messages[start_idx:]
+            for i, msg in enumerate(messages[:max_results]):
+                print(
+                    f"{i + (start_message or 1) - 1 + (context_messages if start_message else 0)}. {msg.format(max_length=100)}"
+                )
             break
     else:
         print(f"Conversation '{id}' not found.")

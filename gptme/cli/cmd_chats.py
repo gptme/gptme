@@ -10,7 +10,6 @@ import click
 from ..dirs import get_logs_dir
 from ..logmanager import LogManager
 from ..logmanager.conversations import ConversationMeta
-from ..message import Message
 from ..tools import get_tools, init_tools
 from ..tools.chats import find_empty_conversations, list_chats, search_chats
 
@@ -93,7 +92,20 @@ def chats_list(limit: int, summarize: bool, output_json: bool):
     "--summarize", is_flag=True, help="Generate LLM-based summaries for chats"
 )
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON.")
-def chats_search(query: str, limit: int, summarize: bool, output_json: bool):
+@click.option(
+    "-c", "--context", default=50, help="Characters of context around each match."
+)
+@click.option(
+    "-m", "--matches", default=1, help="Maximum matches to show per conversation."
+)
+def chats_search(
+    query: str,
+    limit: int,
+    summarize: bool,
+    output_json: bool,
+    context: int,
+    matches: int,
+):
     """Search conversation logs."""
     _ensure_tools()
 
@@ -134,24 +146,35 @@ def chats_search(query: str, limit: int, summarize: bool, output_json: bool):
             tool_allowlist=[],
             tool_format="markdown",
         )
-    search_chats(query, max_results=limit)
+    search_chats(query, max_results=limit, context_size=context, max_matches=matches)
 
 
 @chats.command("read")
 @click.argument("id")
-def chats_read(id: str):
+@click.option("-n", "--limit", default=20, help="Maximum number of messages to show.")
+@click.option("--system", is_flag=True, help="Include system messages.")
+@click.option(
+    "-c", "--context", default=0, help="Messages of context before start message."
+)
+@click.option(
+    "--start",
+    type=int,
+    default=None,
+    help="Start from this message number (1-indexed).",
+)
+def chats_read(id: str, limit: int, system: bool, context: int, start: int | None):
     """Read a specific chat log."""
     _ensure_tools()
 
-    logdir = get_logs_dir() / id
-    if not logdir.exists():
-        print(f"Chat '{id}' not found")
-        return
+    from ..tools.chats import read_chat  # fmt: skip
 
-    log = LogManager.load(logdir)
-    for msg in log.log:
-        if isinstance(msg, Message):
-            print(f"{msg.role}: {msg.content}")
+    read_chat(
+        id,
+        max_results=limit,
+        incl_system=system,
+        context_messages=context,
+        start_message=start,
+    )
 
 
 @chats.command("rename")
