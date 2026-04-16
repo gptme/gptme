@@ -230,7 +230,7 @@ def read_chat(
                 start_idx = max(0, start_message - 1 - context_messages)
                 messages = messages[start_idx:]
             for i, msg in enumerate(messages[:max_results]):
-                print(f"{start_idx + i}. {msg.format(max_length=100)}")
+                print(f"{start_idx + i + 1}. {msg.format(max_length=100)}")
             break
     else:
         print(f"Conversation '{id}' not found.")
