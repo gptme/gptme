@@ -731,7 +731,10 @@ def _prompt_api_key() -> tuple[str, str, str]:  # pragma: no cover
         console.print()
         return _prompt_api_key()
 
-    console.print(f"[green]✓ {provider} API key validated successfully![/green]")
+    if error_msg:
+        console.print(f"[yellow]⚠️  {error_msg}[/yellow]")
+    else:
+        console.print(f"[green]✓ {provider} API key validated successfully![/green]")
     return api_key, provider, env_var
 
 

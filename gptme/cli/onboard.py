@@ -280,7 +280,10 @@ def _run_wizard(check_only: bool = False) -> int:
     is_valid, error = _test_provider(selected)
 
     if is_valid:
-        console.print(f"[green]✅ Successfully connected to {selected}![/green]")
+        if error:
+            console.print(f"[yellow]⚠️ {error}[/yellow]")
+        else:
+            console.print(f"[green]✅ Successfully connected to {selected}![/green]")
     else:
         console.print(f"[yellow]⚠️ Connection test failed: {error}[/yellow]")
         if not Confirm.ask("Continue anyway?"):
