@@ -661,6 +661,134 @@ def models_info(model_name: str, as_json: bool):
         print("Status: DEPRECATED")
 
 
+@models.command("test")
+@click.argument("model_name", required=False)
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
+def models_test(model_name: str | None, as_json: bool):
+    """Test connectivity to a model by making a minimal API call.
+
+    Verifies that the API key is configured, the model is reachable, and
+    returns a response. Useful for troubleshooting provider setup.
+
+    MODEL_NAME can be a full model identifier like 'anthropic/claude-haiku-4-5'
+    or just a provider like 'anthropic' to use the provider's default model.
+    If omitted, uses the default model from config.
+    """
+    from ..llm import (  # fmt: skip
+        PROVIDER_API_KEYS,
+        get_provider_from_model,
+        init_llm,
+    )
+
+    # Resolve model name
+    if model_name is None:
+        config = get_config()
+        model_name = config.get_env("MODEL") or "anthropic/claude-haiku-4-5"
+        if not as_json:
+            click.echo(f"No model specified, using: {model_name}")
+
+    # Resolve bare provider name to a default model
+    if "/" not in model_name and model_name in PROVIDER_API_KEYS:
+        provider = model_name
+
+        # Use a known cheap/fast default model per provider
+        _provider_defaults: dict[str, str] = {
+            "anthropic": "anthropic/claude-haiku-4-5",
+            "openai": "openai/gpt-4o-mini",
+            "openrouter": "openrouter/anthropic/claude-haiku-4-5",
+            "gemini": "gemini/gemini-2.0-flash",
+            "groq": "groq/llama-3.1-8b-instant",
+            "xai": "xai/grok-3-mini",
+            "deepseek": "deepseek/deepseek-chat",
+        }
+        model_name = _provider_defaults.get(provider, f"{provider}/default")
+        if not as_json:
+            click.echo(f"Using default model for {provider}: {model_name}")
+
+    result: dict = {"model": model_name, "success": False}
+
+    # Check if API key is configured
+    try:
+        provider = get_provider_from_model(model_name)
+    except Exception as e:
+        result["error"] = f"Unknown model or provider: {e}"
+        if as_json:
+            click.echo(json.dumps(result, indent=2))
+        else:
+            click.echo(f"❌ {result['error']}")
+            click.echo()
+            click.echo("Try: gptme-util models list --available")
+        sys.exit(1)
+
+    result["provider"] = str(provider)
+
+    # Check API key availability
+    env_var = PROVIDER_API_KEYS.get(str(provider))
+    if env_var:
+        config = get_config()
+        if not config.get_env(env_var):
+            result["error"] = f"API key not configured: ${env_var} is not set"
+            if as_json:
+                click.echo(json.dumps(result, indent=2))
+            else:
+                click.echo(f"❌ {result['error']}")
+                click.echo()
+                click.echo(f"Set it with: export {env_var}=your-api-key")
+                click.echo("Or add to ~/.config/gptme/config.toml under [env]")
+            sys.exit(1)
+        result["api_key_env"] = env_var
+
+    if not as_json:
+        click.echo(f"🔌 Testing model: {model_name}")
+        if env_var:
+            click.echo(f"   API key: ${env_var} ✓")
+        click.echo("   Sending test message...")
+
+    # Make a minimal API call
+    try:
+        init_llm(provider)
+        from ..llm import _chat_complete  # fmt: skip
+
+        start = time.monotonic()
+        response, metadata = _chat_complete(
+            [
+                Message("system", "You are a test assistant."),
+                Message("user", "Reply with exactly: OK"),
+            ],
+            model_name,
+            tools=None,
+            max_tokens=5,
+        )
+        elapsed = time.monotonic() - start
+
+        result["success"] = True
+        result["response"] = response.strip()
+        result["latency_ms"] = round(elapsed * 1000)
+        if metadata:
+            result["metadata"] = {k: v for k, v in metadata.items() if v is not None}
+
+        if as_json:
+            click.echo(json.dumps(result, indent=2))
+        else:
+            click.echo(f"   ✅ Response: {response.strip()!r} ({elapsed:.1f}s)")
+            click.echo()
+            click.echo(f"✅ Model {model_name!r} is working correctly")
+
+    except Exception as e:
+        result["error"] = str(e)
+        if as_json:
+            click.echo(json.dumps(result, indent=2))
+        else:
+            click.echo(f"   ❌ Request failed: {e}")
+            click.echo()
+            click.echo("Common causes:")
+            click.echo("  • Invalid or expired API key")
+            click.echo("  • Model name not recognized by provider")
+            click.echo("  • Rate limit exceeded")
+            click.echo("  • Network connectivity issue")
+        sys.exit(1)
+
+
 @main.group("profile")
 def profile_group():
     """Commands for managing agent profiles.
