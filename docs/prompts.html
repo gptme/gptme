@@ -693,7 +693,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f98899ea3e0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fe2398ea3e0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -985,21 +985,25 @@ To read more pages, use: <span class="sb">`read_url(&#39;...&#39;, max_pages=N)`
 <span class="s">            If True, uses an LLM to generate a comprehensive summary.</span>
 <span class="s">            If False, uses a simple strategy showing snippets of the first and last messages.</span>
 
-<span class="s">search_chats(query: str, max_results: int, sort: Literal[&quot;date&quot;, &quot;count&quot;]):</span>
+<span class="s">search_chats(query: str, max_results: int, sort: Literal[&quot;date&quot;, &quot;count&quot;], context_size: int, max_matches: int):</span>
 <span class="s">    Search past conversation logs for the given query and print a summary of the results.</span>
 
 <span class="s">    Args:</span>
 <span class="s">        query (str): The search query.</span>
 <span class="s">        max_results (int): Maximum number of conversations to display.</span>
 <span class="s">        system (bool): Whether to include system messages in the search.</span>
+<span class="s">        context_size (int): Number of characters to show around each match.</span>
+<span class="s">        max_matches (int): Maximum number of matches to show per conversation.</span>
 
-<span class="s">read_chat(id: str, max_results: int):</span>
+<span class="s">read_chat(id: str, max_results: int, incl_system: bool, context_messages: int, start_message: Union[int, None]):</span>
 <span class="s">    Read a specific conversation log.</span>
 
 <span class="s">    Args:</span>
 <span class="s">        id (str): The id of the conversation to read.</span>
 <span class="s">        max_results (int): Maximum number of messages to display.</span>
 <span class="s">        incl_system (bool): Whether to include system messages.</span>
+<span class="s">        context_messages (int): Number of messages to show before start_message.</span>
+<span class="s">        start_message (int | None): Start from this message number (1-indexed), if specified.</span>
 
 <span class="sb">```</span>
 
@@ -2236,7 +2240,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 12356</p>
+<p>Tokens: 12449</p>
 </dd></dl>
 
 <dl class="py function">

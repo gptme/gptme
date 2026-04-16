@@ -476,6 +476,10 @@ window.addEventListener("load", () => mermaid.run());
       <ul>
         <li><a href="cli.html#cmdoption-gptme-context">gptme command line option</a>
 </li>
+        <li><a href="cli.html#cmdoption-gptme-util-chats-read-c">gptme-util-chats-read command line option</a>
+</li>
+        <li><a href="cli.html#cmdoption-gptme-util-chats-search-c">gptme-util-chats-search command line option</a>
+</li>
       </ul></li>
       <li>
     --cors-origin
@@ -626,6 +630,8 @@ window.addEventListener("load", () => mermaid.run());
       <ul>
         <li><a href="cli.html#cmdoption-gptme-util-chats-list-n">gptme-util-chats-list command line option</a>
 </li>
+        <li><a href="cli.html#cmdoption-gptme-util-chats-read-n">gptme-util-chats-read command line option</a>
+</li>
         <li><a href="cli.html#cmdoption-gptme-util-chats-search-n">gptme-util-chats-search command line option</a>
 </li>
         <li><a href="cli.html#cmdoption-gptme-util-mcp-search-n">gptme-util-mcp-search command line option</a>
@@ -638,6 +644,13 @@ window.addEventListener("load", () => mermaid.run());
 
       <ul>
         <li><a href="cli.html#cmdoption-gptme-eval-l">gptme-eval command line option</a>
+</li>
+      </ul></li>
+      <li>
+    --matches
+
+      <ul>
+        <li><a href="cli.html#cmdoption-gptme-util-chats-search-m">gptme-util-chats-search command line option</a>
 </li>
       </ul></li>
       <li>
@@ -754,8 +767,6 @@ window.addEventListener("load", () => mermaid.run());
         <li><a href="cli.html#cmdoption-gptme-util-models-list-pricing">gptme-util-models-list command line option</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     --profile
 
@@ -763,6 +774,8 @@ window.addEventListener("load", () => mermaid.run());
         <li><a href="cli.html#cmdoption-gptme-profile">gptme command line option</a>
 </li>
       </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     --provider
 
@@ -813,6 +826,13 @@ window.addEventListener("load", () => mermaid.run());
 </li>
       </ul></li>
       <li>
+    --start
+
+      <ul>
+        <li><a href="cli.html#cmdoption-gptme-util-chats-read-start">gptme-util-chats-read command line option</a>
+</li>
+      </ul></li>
+      <li>
     --stream
 
       <ul>
@@ -835,6 +855,8 @@ window.addEventListener("load", () => mermaid.run());
 
       <ul>
         <li><a href="cli.html#cmdoption-gptme-system">gptme command line option</a>
+</li>
+        <li><a href="cli.html#cmdoption-gptme-util-chats-read-system">gptme-util-chats-read command line option</a>
 </li>
       </ul></li>
       <li>
@@ -955,6 +977,15 @@ window.addEventListener("load", () => mermaid.run());
 </li>
       </ul></li>
       <li>
+    -c
+
+      <ul>
+        <li><a href="cli.html#cmdoption-gptme-util-chats-read-c">gptme-util-chats-read command line option</a>
+</li>
+        <li><a href="cli.html#cmdoption-gptme-util-chats-search-c">gptme-util-chats-search command line option</a>
+</li>
+      </ul></li>
+      <li>
     -d
 
       <ul>
@@ -994,6 +1025,8 @@ window.addEventListener("load", () => mermaid.run());
 </li>
         <li><a href="cli.html#cmdoption-gptme-eval-m">gptme-eval command line option</a>
 </li>
+        <li><a href="cli.html#cmdoption-gptme-util-chats-search-m">gptme-util-chats-search command line option</a>
+</li>
         <li><a href="cli.html#cmdoption-gptme-util-llm-generate-m">gptme-util-llm-generate command line option</a>
 </li>
         <li><a href="cli.html#cmdoption-gptme-util-tokens-count-m">gptme-util-tokens-count command line option</a>
@@ -1008,6 +1041,8 @@ window.addEventListener("load", () => mermaid.run());
         <li><a href="cli.html#cmdoption-gptme-util-chats-clean-n">gptme-util-chats-clean command line option</a>
 </li>
         <li><a href="cli.html#cmdoption-gptme-util-chats-list-n">gptme-util-chats-list command line option</a>
+</li>
+        <li><a href="cli.html#cmdoption-gptme-util-chats-read-n">gptme-util-chats-read command line option</a>
 </li>
         <li><a href="cli.html#cmdoption-gptme-util-chats-search-n">gptme-util-chats-search command line option</a>
 </li>
@@ -1514,6 +1549,18 @@ window.addEventListener("load", () => mermaid.run());
     gptme-util-chats-read command line option
 
       <ul>
+        <li><a href="cli.html#cmdoption-gptme-util-chats-read-c">--context</a>
+</li>
+        <li><a href="cli.html#cmdoption-gptme-util-chats-read-n">--limit</a>
+</li>
+        <li><a href="cli.html#cmdoption-gptme-util-chats-read-start">--start</a>
+</li>
+        <li><a href="cli.html#cmdoption-gptme-util-chats-read-system">--system</a>
+</li>
+        <li><a href="cli.html#cmdoption-gptme-util-chats-read-c">-c</a>
+</li>
+        <li><a href="cli.html#cmdoption-gptme-util-chats-read-n">-n</a>
+</li>
         <li><a href="cli.html#cmdoption-gptme-util-chats-read-arg-ID">ID</a>
 </li>
       </ul></li>
@@ -1530,11 +1577,19 @@ window.addEventListener("load", () => mermaid.run());
     gptme-util-chats-search command line option
 
       <ul>
+        <li><a href="cli.html#cmdoption-gptme-util-chats-search-c">--context</a>
+</li>
         <li><a href="cli.html#cmdoption-gptme-util-chats-search-json">--json</a>
 </li>
         <li><a href="cli.html#cmdoption-gptme-util-chats-search-n">--limit</a>
 </li>
+        <li><a href="cli.html#cmdoption-gptme-util-chats-search-m">--matches</a>
+</li>
         <li><a href="cli.html#cmdoption-gptme-util-chats-search-summarize">--summarize</a>
+</li>
+        <li><a href="cli.html#cmdoption-gptme-util-chats-search-c">-c</a>
+</li>
+        <li><a href="cli.html#cmdoption-gptme-util-chats-search-m">-m</a>
 </li>
         <li><a href="cli.html#cmdoption-gptme-util-chats-search-n">-n</a>
 </li>
@@ -1550,6 +1605,8 @@ window.addEventListener("load", () => mermaid.run());
         <li><a href="cli.html#cmdoption-gptme-util-chats-stats-since">--since</a>
 </li>
       </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     gptme-util-context-index command line option
 
@@ -1566,8 +1623,6 @@ window.addEventListener("load", () => mermaid.run());
         <li><a href="cli.html#cmdoption-gptme-util-context-retrieve-arg-QUERY">QUERY</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     gptme-util-hooks-install command line option
 

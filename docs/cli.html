@@ -1169,6 +1169,31 @@ Use –format to choose between HTML (self-contained) and markdown.</p>
 <div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>chats<span class="w"> </span><span class="nb">read</span><span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>ID
 </pre></div>
 </div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-chats-read-n">
+<span id="cmdoption-gptme-util-chats-read-limit"></span><span class="sig-name descname"><span class="pre">-n</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--limit</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;limit&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-util-chats-read-n" title="Link to this definition">#</a></dt>
+<dd><p>Maximum number of messages to show.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-chats-read-system">
+<span class="sig-name descname"><span class="pre">--system</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-chats-read-system" title="Link to this definition">#</a></dt>
+<dd><p>Include system messages.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-chats-read-c">
+<span id="cmdoption-gptme-util-chats-read-context"></span><span class="sig-name descname"><span class="pre">-c</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--context</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;context&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-util-chats-read-c" title="Link to this definition">#</a></dt>
+<dd><p>Messages of context before start message.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-chats-read-start">
+<span class="sig-name descname"><span class="pre">--start</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;start&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-util-chats-read-start" title="Link to this definition">#</a></dt>
+<dd><p>Start from this message number (1-indexed).</p>
+</dd></dl>
+
 <p class="rubric">Arguments</p>
 <dl class="std option">
 <dt class="sig sig-object std" id="cmdoption-gptme-util-chats-read-arg-ID">
@@ -1222,6 +1247,18 @@ The conversation ID remains unchanged.</p>
 <dt class="sig sig-object std" id="cmdoption-gptme-util-chats-search-json">
 <span class="sig-name descname"><span class="pre">--json</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-chats-search-json" title="Link to this definition">#</a></dt>
 <dd><p>Output as JSON.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-chats-search-c">
+<span id="cmdoption-gptme-util-chats-search-context"></span><span class="sig-name descname"><span class="pre">-c</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--context</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;context&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-util-chats-search-c" title="Link to this definition">#</a></dt>
+<dd><p>Characters of context around each match.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-chats-search-m">
+<span id="cmdoption-gptme-util-chats-search-matches"></span><span class="sig-name descname"><span class="pre">-m</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--matches</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;matches&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-util-chats-search-m" title="Link to this definition">#</a></dt>
+<dd><p>Maximum matches to show per conversation.</p>
 </dd></dl>
 
 <p class="rubric">Arguments</p>
