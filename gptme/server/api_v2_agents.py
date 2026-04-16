@@ -144,7 +144,7 @@ def api_agents_put():
         conversation_id = init_conversation(workspace=path)
     except Exception as e:
         logger.exception(f"Failed to initialize conversation: {e}")
-        return flask.jsonify({"error": "Failed to initialize conversation"}), 500
+        return flask.jsonify({"error": f"Failed to initialize conversation: {e}"}), 500
 
     return flask.jsonify(
         {
