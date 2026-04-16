@@ -91,8 +91,8 @@ def test_chats_list(tmp_path, mocker):
     assert result.exit_code == 0
     assert "chat-one" in result.output
     assert "chat-two" in result.output
-    assert "Messages: 1" in result.output  # First chat has 1 message
-    assert "Messages: 2" in result.output  # Second chat has 2 messages
+    assert "(1 msgs)" in result.output  # First chat has 1 message
+    assert "(2 msgs)" in result.output  # Second chat has 2 messages
 
 
 def test_context_generate(tmp_path, mocker):
