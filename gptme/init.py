@@ -105,9 +105,18 @@ def init_model(
     if not model and interactive:
         model, _ = ask_for_api_key()
 
-    # fail
+    # fail with actionable guidance
     if not model:
-        raise ValueError("No API key found, couldn't auto-detect provider")
+        raise ValueError(
+            "No API key found, couldn't auto-detect provider.\n\n"
+            "To get started, set an API key for one of these providers:\n"
+            "  export ANTHROPIC_API_KEY='sk-ant-...'\n"
+            "  export OPENAI_API_KEY='sk-...'\n"
+            "  export OPENROUTER_API_KEY='sk-or-...'\n\n"
+            "Or run interactively: gptme\n"
+            "Or run the setup wizard: gptme-onboard\n\n"
+            "Full guide: https://gptme.org/docs/getting-started.html"
+        )
 
     # Check if model has provider/model format
     if "/" in model:

@@ -40,13 +40,17 @@ PROVIDER_ENV_VARS = {
 
 def _detect_providers() -> dict[str, tuple[bool, str | None]]:
     """
-    Detect which providers have API keys configured.
+    Detect which providers have API keys configured (in env or config file).
+
+    Checks environment variables first, then falls back to the config file
+    for API keys stored in the ``[env]`` section or a model set in ``[chat]``.
 
     Returns:
         Dict mapping provider name to (has_key, key_preview)
     """
     results: dict[str, tuple[bool, str | None]] = {}
 
+    # Check environment variables (highest priority, shows key preview)
     for provider, env_var in PROVIDER_ENV_VARS.items():
         key = os.environ.get(env_var)
         if key:
@@ -56,16 +60,51 @@ def _detect_providers() -> dict[str, tuple[bool, str | None]]:
         else:
             results[provider] = (False, None)
 
+    # Also check config file for API keys and configured model
+    try:
+        from ..config import get_config
+
+        config = get_config()
+
+        # Check config [env] section for API keys not found in environment
+        for provider, env_var in PROVIDER_ENV_VARS.items():
+            if not results.get(provider, (False,))[0]:
+                config_key = config.get_env(env_var)
+                if config_key:
+                    preview = (
+                        f"{config_key[:4]}...{config_key[-4:]}"
+                        if len(config_key) > 10
+                        else "***"
+                    )
+                    results[provider] = (True, f"{preview} (config)")
+
+        # Check if a model is already configured (implies provider is available)
+        model = (config.chat.model if config.chat else None) or config.get_env("MODEL")
+        if model and "/" in model:
+            provider_name = model.split("/")[0]
+            if provider_name in results and not results[provider_name][0]:
+                results[provider_name] = (True, f"(model: {model})")
+    except Exception:
+        pass  # Config not available yet — env var detection is sufficient
+
     return results
 
 
 def _test_provider(provider: str) -> tuple[bool, str]:
-    """Test if a provider is working."""
+    """Test if a provider is working (checks env vars and config file)."""
     env_var = PROVIDER_ENV_VARS.get(provider)
     if not env_var:
         return False, f"Unknown provider: {provider}"
 
+    # Check env var first, then config file
     api_key = os.environ.get(env_var)
+    if not api_key:
+        try:
+            from ..config import get_config
+
+            api_key = get_config().get_env(env_var)
+        except Exception:
+            pass
     if not api_key:
         return False, f"No API key found (set {env_var})"
 
@@ -206,11 +245,18 @@ def _run_wizard(check_only: bool = False) -> int:
     if not available_providers:
         console.print("\n[red]❌ No API keys detected![/red]")
         console.print("\nTo use gptme, you need at least one API key.")
-        console.print("Set one of these environment variables:")
-        console.print("  • OPENAI_API_KEY for OpenAI (GPT-4)")
-        console.print("  • ANTHROPIC_API_KEY for Anthropic (Claude)")
-        console.print("  • OPENROUTER_API_KEY for OpenRouter (multiple providers)")
-        console.print("\nSee: https://gptme.org/docs/providers.html")
+        console.print(
+            "\n[bold]Quick start[/bold] — set one of these environment variables:"
+        )
+        console.print("  export ANTHROPIC_API_KEY='sk-ant-...'")
+        console.print("  export OPENAI_API_KEY='sk-...'")
+        console.print("  export OPENROUTER_API_KEY='sk-or-...'")
+        console.print(
+            "\nThen re-run [bold]gptme-onboard[/bold] or just start with [bold]gptme[/bold]."
+        )
+        console.print(
+            "\nFull guide: https://gptme.org/docs/getting-started.html#api-keys"
+        )
         return 1
 
     if check_only:
