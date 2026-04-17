@@ -815,7 +815,7 @@ def start_tool_execution(
                     f"Tool {current_tool_id} not found in pending tools "
                     "(may have been handled by another thread)"
                 )
-                break
+                return  # another thread claimed this tool; don't trigger auto-step
             tool_exec.status = ToolStatus.EXECUTING
 
             # use explicit tooluse if set (may be modified), else from pending

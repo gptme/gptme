@@ -682,6 +682,12 @@ def api_conversation_rerun(conversation_id: str):
         ), 400
 
     # Set them as pending (same flow as step() tool detection)
+    first_auto_id: str | None = None
+    logdir = get_logs_dir() / conversation_id
+    chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
+    default_model = get_default_model()
+    model = chat_config.model or (default_model.full if default_model else "anthropic")
+
     for tooluse in tooluses:
         tool_id = str(uuid.uuid4())
         tool_exec = ToolExecution(
@@ -708,15 +714,20 @@ def api_conversation_rerun(conversation_id: str):
         if tool_exec.auto_confirm:
             if session.auto_confirm_count > 0:
                 session.auto_confirm_count -= 1
-            logdir = get_logs_dir() / conversation_id
-            chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
-            default_model = get_default_model()
-            model = chat_config.model or (
-                default_model.full if default_model else "anthropic"
-            )
-            start_tool_execution(
-                conversation_id, session, tool_id, tooluse, model, chat_config
-            )
+            if first_auto_id is None:
+                first_auto_id = tool_id
+
+    # Start execution for only the first auto-confirm tool.
+    # execute_tool_thread will chain the remaining tools serially (same as step()).
+    if first_auto_id is not None:
+        start_tool_execution(
+            conversation_id,
+            session,
+            first_auto_id,
+            session.pending_tools[first_auto_id].tooluse,
+            model,
+            chat_config,
+        )
 
     return flask.jsonify(
         {
