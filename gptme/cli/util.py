@@ -691,11 +691,14 @@ def models_test(model_name: str | None, as_json: bool):
     """Test connectivity to a model by making a minimal API call.
 
     Verifies that the API key is configured, the model is reachable, and
-    returns a response. Useful for troubleshooting provider setup.
+    returns a response. Useful for troubleshooting provider setup and verifying
+    model availability.
 
-    MODEL_NAME can be a full model identifier like 'anthropic/claude-haiku-4-5'
-    or just a provider like 'anthropic' to use the provider's default model.
-    If omitted, uses the default model from config.
+    Examples:
+        gptme-util models test                    # test default model from config
+        gptme-util models test anthropic          # test provider default
+        gptme-util models test anthropic/claude-opus-4-7  # specific model
+        gptme-util models test --json anthropic   # machine-readable output
     """
     from ..llm import (  # fmt: skip
         PROVIDER_API_KEYS,
