@@ -151,3 +151,13 @@ class TestModelsTest:
         assert result.exit_code == 0, result.output
         assert "Using default model for anthropic" in result.output
         assert "claude-haiku-4-5" in result.output
+
+    def test_bare_provider_no_default(self):
+        """Test that providers without a default model (e.g. azure) give a clear error."""
+        runner = CliRunner()
+        result = runner.invoke(main, ["models", "test", "azure"])
+        assert result.exit_code == 1
+        assert "No default model for 'azure'" in result.output
+        assert (
+            "azure/my-deployment" in result.output or "full model name" in result.output
+        )

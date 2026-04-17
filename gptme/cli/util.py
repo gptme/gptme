@@ -44,6 +44,19 @@ main.add_command(hooks)
 main.add_command(mcp)
 main.add_command(skills)
 
+# Default cheap/fast model per provider (for bare provider name resolution).
+# Azure is intentionally absent: deployments are tenant-specific, so there is
+# no universal default — users must supply a full model name.
+_PROVIDER_DEFAULT_MODELS: dict[str, str] = {
+    "anthropic": "anthropic/claude-haiku-4-5",
+    "openai": "openai/gpt-4o-mini",
+    "openrouter": "openrouter/anthropic/claude-haiku-4-5",
+    "gemini": "gemini/gemini-2.0-flash",
+    "groq": "groq/llama-3.1-8b-instant",
+    "xai": "xai/grok-3-mini",
+    "deepseek": "deepseek/deepseek-chat",
+}
+
 
 @main.group()
 def providers():
@@ -690,18 +703,18 @@ def models_test(model_name: str | None, as_json: bool):
     # Resolve bare provider name to a default model
     if "/" not in model_name and model_name in PROVIDER_API_KEYS:
         provider = model_name
-
-        # Use a known cheap/fast default model per provider
-        _provider_defaults: dict[str, str] = {
-            "anthropic": "anthropic/claude-haiku-4-5",
-            "openai": "openai/gpt-4o-mini",
-            "openrouter": "openrouter/anthropic/claude-haiku-4-5",
-            "gemini": "gemini/gemini-2.0-flash",
-            "groq": "groq/llama-3.1-8b-instant",
-            "xai": "xai/grok-3-mini",
-            "deepseek": "deepseek/deepseek-chat",
-        }
-        model_name = _provider_defaults.get(provider, f"{provider}/default")
+        if provider not in _PROVIDER_DEFAULT_MODELS:
+            err = f"No default model for '{provider}': specify a full model name (e.g. azure/my-deployment)"
+            if as_json:
+                click.echo(
+                    json.dumps(
+                        {"model": model_name, "success": False, "error": err}, indent=2
+                    )
+                )
+            else:
+                click.echo(f"❌ {err}")
+            sys.exit(1)
+        model_name = _PROVIDER_DEFAULT_MODELS[provider]
         if not as_json:
             click.echo(f"Using default model for {provider}: {model_name}")
 
