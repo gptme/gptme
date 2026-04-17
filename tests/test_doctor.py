@@ -75,13 +75,10 @@ class TestCheckPythonVersion:
 
     def test_old_python_fails(self):
         """Test that Python < 3.10 produces an ERROR."""
-        from unittest.mock import MagicMock
+        from collections import namedtuple
 
-        old_version = MagicMock()
-        old_version.major = 3
-        old_version.minor = 9
-        old_version.micro = 0
-        old_version.__ge__ = lambda self, other: other <= (3, 9, 0)
+        VersionInfo = namedtuple("VersionInfo", ["major", "minor", "micro"])
+        old_version = VersionInfo(3, 9, 0)
         with patch("gptme.cli.doctor.sys.version_info", old_version):
             results = _check_python_version()
         assert len(results) == 1
@@ -91,13 +88,10 @@ class TestCheckPythonVersion:
 
     def test_minimum_python_passes(self):
         """Test that exactly Python 3.10 is accepted."""
-        from unittest.mock import MagicMock
+        from collections import namedtuple
 
-        min_version = MagicMock()
-        min_version.major = 3
-        min_version.minor = 10
-        min_version.micro = 0
-        min_version.__ge__ = lambda self, other: other <= (3, 10, 0)
+        VersionInfo = namedtuple("VersionInfo", ["major", "minor", "micro"])
+        min_version = VersionInfo(3, 10, 0)
         with patch("gptme.cli.doctor.sys.version_info", min_version):
             results = _check_python_version()
         assert len(results) == 1
