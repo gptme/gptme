@@ -1636,10 +1636,15 @@ to avoid duplicates.</p>
 <h4>test<a class="headerlink" href="#gptme-util-models-test" title="Link to this heading">#</a></h4>
 <p>Test connectivity to a model by making a minimal API call.</p>
 <p>Verifies that the API key is configured, the model is reachable, and
-returns a response. Useful for troubleshooting provider setup.</p>
-<p>MODEL_NAME can be a full model identifier like ‘anthropic/claude-haiku-4-5’
-or just a provider like ‘anthropic’ to use the provider’s default model.
-If omitted, uses the default model from config.</p>
+returns a response. Useful for troubleshooting provider setup and verifying
+model availability.</p>
+<dl class="simple">
+<dt>Examples:</dt><dd><p>gptme-util models test                    # test default model from config
+gptme-util models test anthropic          # test provider default
+gptme-util models test anthropic/claude-opus-4-7  # specific model
+gptme-util models test –json anthropic   # machine-readable output</p>
+</dd>
+</dl>
 <div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>models<span class="w"> </span><span class="nb">test</span><span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span><span class="o">[</span>MODEL_NAME<span class="o">]</span>
 </pre></div>
 </div>
