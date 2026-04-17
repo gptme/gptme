@@ -14,6 +14,7 @@ from gptme.cli.doctor import (
     _check_mcp,
     _check_permissions,
     _check_python_deps,
+    _check_python_version,
     _check_tools,
     _check_version,
     main,
@@ -60,6 +61,53 @@ class TestCheckResult:
         )
         assert result.details == "Detailed info"
         assert result.fix_hint == "Try this fix"
+
+
+class TestCheckPythonVersion:
+    """Test _check_python_version function."""
+
+    def test_current_python_passes(self):
+        """Test that the running Python version (must be >=3.10 to run gptme) is OK."""
+        results = _check_python_version()
+        assert len(results) == 1
+        assert results[0].status == CheckStatus.OK
+        assert "Python" in results[0].name
+
+    def test_old_python_fails(self):
+        """Test that Python < 3.10 produces an ERROR."""
+        from unittest.mock import MagicMock
+
+        old_version = MagicMock()
+        old_version.major = 3
+        old_version.minor = 9
+        old_version.micro = 0
+        old_version.__ge__ = lambda self, other: other <= (3, 9, 0)
+        with patch("gptme.cli.doctor.sys.version_info", old_version):
+            results = _check_python_version()
+        assert len(results) == 1
+        assert results[0].status == CheckStatus.ERROR
+        assert "3.9.0" in results[0].message
+        assert results[0].fix_hint is not None
+
+    def test_minimum_python_passes(self):
+        """Test that exactly Python 3.10 is accepted."""
+        from unittest.mock import MagicMock
+
+        min_version = MagicMock()
+        min_version.major = 3
+        min_version.minor = 10
+        min_version.micro = 0
+        min_version.__ge__ = lambda self, other: other <= (3, 10, 0)
+        with patch("gptme.cli.doctor.sys.version_info", min_version):
+            results = _check_python_version()
+        assert len(results) == 1
+        assert results[0].status == CheckStatus.OK
+
+    def test_verbose_shows_executable(self):
+        """Test that verbose mode shows the Python executable path."""
+        results = _check_python_version(verbose=True)
+        assert len(results) == 1
+        assert results[0].details is not None
 
 
 class TestCheckVersion:
