@@ -41,11 +41,14 @@ def main():
 @click.option(
     "--host",
     default="127.0.0.1",
+    envvar="GPTME_SERVER_HOST",
     help="Host to bind the server to.",
 )
 @click.option(
     "--port",
-    default="5700",
+    default=5700,
+    type=int,
+    envvar="GPTME_SERVER_PORT",
     help="Port to run the server on.",
 )
 @click.option("--tools", default=None, help="Tools to enable, comma separated.")
@@ -59,7 +62,7 @@ def serve(
     verbose: bool,
     model: str | None,
     host: str,
-    port: str,
+    port: int,
     tools: str | None,
     cors_origin: str | None,
 ):  # pragma: no cover
@@ -121,7 +124,7 @@ def serve(
     app = create_app(cors_origin=cors_origin, host=host)
 
     try:
-        app.run(debug=debug, host=host, port=int(port))
+        app.run(debug=debug, host=host, port=port)
     finally:
         shutdown_telemetry()
 
