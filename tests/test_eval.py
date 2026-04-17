@@ -17,6 +17,7 @@ from gptme.eval.main import main, resolve_eval_names, results_to_json
 from gptme.eval.run import ProcessError, SyncedDict, act_process
 from gptme.eval.suites import suites, tests_map
 from gptme.eval.types import CaseResult, EvalResult, ModelConfig
+from gptme.message import Message
 
 # importlib.import_module returns the actual module object from sys.modules,
 # not the 'main' Click-command attribute exposed via gptme/eval/__init__.py.
@@ -305,6 +306,64 @@ tests = [
     assert captured_evals[0]["name"] == "my-feature"
     # Key: should NOT fail with "module must define a 'tests' list"
     assert "must define a 'tests' list" not in (result.output or "")
+
+
+def test_eval_cli_user_context_flag_propagation():
+    """CLI should default to isolated evals and allow explicit opt-in."""
+    captured: list[bool] = []
+
+    def fake_run_evals(evals, *args, **kwargs):
+        captured.append(kwargs["include_user_context"])
+        return {}
+
+    runner = CliRunner()
+    with (
+        patch.object(_eval_main_module, "run_evals", side_effect=fake_run_evals),
+        patch.object(_eval_main_module, "print_model_results", return_value=None),
+        patch.object(_eval_main_module, "print_model_results_table", return_value=None),
+        patch.object(_eval_main_module, "write_results", return_value=None),
+    ):
+        result = runner.invoke(main, ["hello", "--model", "anthropic"])
+        assert result.exit_code == 0, result.output
+        assert captured == [False]
+
+        captured.clear()
+        result = runner.invoke(
+            main, ["hello", "--model", "anthropic", "--user-context"]
+        )
+        assert result.exit_code == 0, result.output
+        assert captured == [True]
+
+
+def test_eval_agent_passes_user_context_flag(monkeypatch, tmp_path):
+    """GPTMe eval agent should opt out by default and allow explicit opt-in."""
+    captured: list[bool] = []
+
+    monkeypatch.setattr("gptme.eval.agents.get_logs_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        "gptme.eval.agents.generate_conversation_id",
+        lambda prefix, _log_dir: prefix,
+    )
+    monkeypatch.setattr(
+        "gptme.eval.agents.prepare_execution_environment",
+        lambda workspace, tools: (None, []),
+    )
+
+    def fake_get_prompt(*args, **kwargs):
+        captured.append(kwargs["include_user_context"])
+        return [Message("system", "base prompt")]
+
+    monkeypatch.setattr("gptme.eval.agents.get_prompt", fake_get_prompt)
+    monkeypatch.setattr("gptme.eval.agents.gptme_chat", lambda *args, **kwargs: None)
+
+    GPTMe(model="test-model", tool_format="markdown").act(None, "hello")
+    GPTMe(
+        model="test-model",
+        tool_format="markdown",
+        include_user_context=True,
+    ).act(None, "hello")
+
+    assert captured == [False, True]
 
 
 def _detect_model():

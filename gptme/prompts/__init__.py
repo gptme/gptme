@@ -113,6 +113,7 @@ def get_prompt(
     agent_path: Path | None = None,
     context_mode: ContextMode | None = None,
     context_include: list[str] | None = None,
+    include_user_context: bool = True,
 ) -> list[Message]:
     """
     Get the initial system prompt.
@@ -157,6 +158,8 @@ def get_prompt(
         agent_path: Agent identity workspace (if different from project workspace)
         context_mode: Context mode (full or selective)
         context_include: Components to include in selective mode
+        include_user_context: Whether to include user-level prompt files and
+            agent instruction files from ~/.config/gptme
 
     Returns a list of messages: [core_system_prompt, workspace_prompt, ...].
     """
@@ -239,7 +242,13 @@ def get_prompt(
     # Always exclude context_cmd here — it's collected separately below
     # for better prompt caching (static/semi-static content first, dynamic last).
     workspace_msgs = (
-        list(prompt_workspace(workspace, include_context_cmd=False))
+        list(
+            prompt_workspace(
+                workspace,
+                include_context_cmd=False,
+                include_user_context=include_user_context,
+            )
+        )
         if include_workspace and workspace and workspace != agent_path
         else []
     )
@@ -252,6 +261,7 @@ def get_prompt(
                 title="Agent Config",
                 include_path=True,
                 include_context_cmd=False,
+                include_user_context=include_user_context,
             )
         )
         if include_agent_config

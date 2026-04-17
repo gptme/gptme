@@ -479,6 +479,12 @@ def aggregate_and_display_results(result_files: list[str]):
     help="Run evals in Docker container for isolation (prevents host environment pollution)",
 )
 @click.option(
+    "--user-context/--no-user-context",
+    default=False,
+    show_default=True,
+    help="Include user-level prompt files and agent instructions from ~/.config/gptme. Disabled by default for reproducible evals.",
+)
+@click.option(
     "--json",
     "json_output",
     is_flag=True,
@@ -529,6 +535,7 @@ def main(
     list_tests: bool = False,
     tool_format: ToolFormat | None = None,
     use_docker: bool = False,
+    user_context: bool = False,
     json_output: bool = False,
     eval_modules: tuple[Path, ...] = (),
     leaderboard: bool = False,
@@ -785,7 +792,12 @@ def main(
     if not json_output:
         print("=== Running evals ===")
     model_results = run_evals(
-        evals_to_run, model_configs, timeout, parallel, use_docker
+        evals_to_run,
+        model_configs,
+        timeout,
+        parallel,
+        use_docker,
+        include_user_context=user_context,
     )
     if not json_output:
         print("=== Finished ===")

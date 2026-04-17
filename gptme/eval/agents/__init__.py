@@ -22,6 +22,7 @@ class Agent:
     tool_format: ToolFormat
     tools: list[str] | None = None
     system_prompt: str | None = None
+    include_user_context: bool = False
     log_dir: Path
     workspace_dir: Path
     use_docker: bool = False
@@ -32,12 +33,14 @@ class Agent:
         tool_format: ToolFormat = "markdown",
         tools: list[str] | None = None,
         system_prompt: str | None = None,
+        include_user_context: bool = False,
         use_docker: bool = False,
     ):
         self.model = model
         self.tool_format = tool_format
         self.tools = tools
         self.system_prompt = system_prompt
+        self.include_user_context = include_user_context
         self.use_docker = use_docker
 
         _id = uuid.uuid4().hex[:8]
@@ -137,7 +140,8 @@ class GPTMe(Agent):
             workspace=self.workspace_dir,
             prompt=self.system_prompt or "full",  # this only replaces the base prompt
             interactive=False,  # eval agents run non-interactively
-            context_mode="selective",  # skip workspace files to prevent contamination from user's gptme config
+            context_mode="selective",  # skip workspace files/context_cmd in evals
+            include_user_context=self.include_user_context,
         )
 
         # Modify the first (core) system prompt to add eval-specific instructions

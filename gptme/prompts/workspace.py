@@ -134,6 +134,7 @@ def prompt_workspace(
     title="Project Workspace",
     include_path: bool = False,
     include_context_cmd: bool = True,
+    include_user_context: bool = True,
 ) -> Generator[Message, None, None]:
     """Generate the workspace context prompt."""
     # TODO: update this prompt if the files change
@@ -169,15 +170,16 @@ def prompt_workspace(
         _loaded_agent_files_var.set(loaded_agent_files)
 
     # 1. Load user-level agent files from ~/.config/gptme/ (global)
-    for filename in AGENT_FILES:
-        user_file = config_dir / filename
-        if user_file.exists():
-            resolved = str(user_file.resolve())
-            if resolved not in seen_paths:
-                agent_files.append(user_file)
-                seen_paths.add(resolved)
-                loaded_agent_files.add(resolved)
-                logger.debug(f"Loaded user-level agent file: {user_file}")
+    if include_user_context:
+        for filename in AGENT_FILES:
+            user_file = config_dir / filename
+            if user_file.exists():
+                resolved = str(user_file.resolve())
+                if resolved not in seen_paths:
+                    agent_files.append(user_file)
+                    seen_paths.add(resolved)
+                    loaded_agent_files.add(resolved)
+                    logger.debug(f"Loaded user-level agent file: {user_file}")
 
     # 2. Walk from home down to workspace, loading any AGENT_FILES found
     #    Uses find_agent_files_in_tree() -- shared with the agents_md_inject hook
@@ -237,31 +239,32 @@ def prompt_workspace(
     # - Absolute paths: used as-is
     # - ~ expansion supported
     # - Relative paths: resolved relative to the config directory (e.g. ~/.config/gptme)
-    try:
-        user_files = (
-            get_config().user.prompt.files
-            if get_config().user and get_config().user.prompt
-            else []
-        )
-    except (ImportError, OSError, ValueError, AttributeError):
-        user_files = []
-    if user_files:
-        for entry in user_files:
-            p = Path(entry).expanduser()
-            if not p.is_absolute():
-                p = config_dir / entry
-            try:
-                p = p.resolve()
-            except OSError:
-                # If resolve fails (e.g., path doesn't exist yet), keep as-is
-                pass
-            if p.exists():
-                rp = str(p)
-                if rp not in seen_paths:
-                    context_files.append(p)
-                    seen_paths.add(rp)
-            else:
-                logger.debug(f"User-configured file not found: {p}")
+    if include_user_context:
+        try:
+            user_files = (
+                get_config().user.prompt.files
+                if get_config().user and get_config().user.prompt
+                else []
+            )
+        except (ImportError, OSError, ValueError, AttributeError):
+            user_files = []
+        if user_files:
+            for entry in user_files:
+                p = Path(entry).expanduser()
+                if not p.is_absolute():
+                    p = config_dir / entry
+                try:
+                    p = p.resolve()
+                except OSError:
+                    # If resolve fails (e.g., path doesn't exist yet), keep as-is
+                    pass
+                if p.exists():
+                    rp = str(p)
+                    if rp not in seen_paths:
+                        context_files.append(p)
+                        seen_paths.add(rp)
+                else:
+                    logger.debug(f"User-configured file not found: {p}")
 
     # Get tree output if enabled
     if tree_output := get_tree_output(workspace):

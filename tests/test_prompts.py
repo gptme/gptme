@@ -1,4 +1,5 @@
 import os
+from types import SimpleNamespace
 
 import pytest
 
@@ -284,3 +285,43 @@ def test_workspace_git_status_in_prompt(tmp_path):
     content = "\n".join(msg.content for msg in msgs)
     assert "Git Status" in content
     assert "Branch" in content
+
+
+def test_prompt_workspace_can_skip_user_context(tmp_path, monkeypatch):
+    """User-level prompt files and AGENTS.md should be optional."""
+    from gptme.prompts import prompt_workspace
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "README.md").write_text("# Local README")
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    user_agent = config_dir / "AGENTS.md"
+    user_agent.write_text("# User Agent Rules")
+    user_notes = tmp_path / "user-notes.md"
+    user_notes.write_text("absolute path leak")
+
+    cfg = SimpleNamespace(
+        user=SimpleNamespace(
+            prompt=SimpleNamespace(files=[str(user_notes)]),
+        )
+    )
+    monkeypatch.setattr(
+        "gptme.prompts.workspace.config_path",
+        str(config_dir / "config.toml"),
+    )
+    monkeypatch.setattr("gptme.prompts.workspace.get_config", lambda: cfg)
+
+    msgs_with_user = list(prompt_workspace(workspace, include_user_context=True))
+    msgs_without_user = list(prompt_workspace(workspace, include_user_context=False))
+
+    files_with_user = [str(f) for msg in msgs_with_user for f in msg.files]
+    files_without_user = [str(f) for msg in msgs_without_user for f in msg.files]
+
+    assert str((workspace / "README.md").resolve()) in files_with_user
+    assert str((workspace / "README.md").resolve()) in files_without_user
+    assert str(user_agent.resolve()) in files_with_user
+    assert str(user_notes.resolve()) in files_with_user
+    assert str(user_agent.resolve()) not in files_without_user
+    assert str(user_notes.resolve()) not in files_without_user

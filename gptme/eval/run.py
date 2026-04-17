@@ -89,6 +89,7 @@ def run_evals(
     timeout: int,
     parallel: int,
     use_docker: bool = False,
+    include_user_context: bool = False,
 ) -> dict[ModelConfig, list[EvalResult]]:
     """
     Run evals for a list of tests.
@@ -99,6 +100,8 @@ def run_evals(
         timeout: Timeout in seconds for each eval
         parallel: Number of parallel evaluations to run
         use_docker: Run tests in Docker containers for isolation
+        include_user_context: Include user-level prompt files and agent
+            instructions from ~/.config/gptme in eval runs
     """
     # For coverage to work with multiprocessing
     # https://pytest-cov.readthedocs.io/en/latest/subprocess-support.html
@@ -136,6 +139,7 @@ def run_evals(
                         model=config.model,
                         tools=tools,
                         timeout=timeout,
+                        include_user_context=include_user_context,
                         use_docker=use_docker,
                     )
                 else:
@@ -143,6 +147,7 @@ def run_evals(
                         model=config.model,
                         tool_format=config.tool_format,
                         tools=tools,
+                        include_user_context=include_user_context,
                         use_docker=use_docker,
                     )
                 future = executor.submit(
