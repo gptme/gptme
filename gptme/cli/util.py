@@ -8,6 +8,16 @@ Command groups are split into separate modules for maintainability:
 - cmd_skills.py: Skills and lessons (list, show, search, install, validate, etc.)
 """
 
+# Filter requests' overly-strict version-compatibility warning before any
+# import path can pull in `requests`. Newer urllib3/chardet/charset_normalizer
+# work fine with requests; the warning just pollutes every CLI invocation.
+import warnings
+
+warnings.filterwarnings(
+    "ignore",
+    message=r".*urllib3.*chardet.*charset_normalizer.*",
+)
+
 import io
 import json
 import logging
