@@ -2,6 +2,7 @@
 
 import logging
 import os
+import time
 import unittest.mock
 
 import pytest
@@ -171,3 +172,122 @@ def test_generation_error_persists_system_message(
     ), "Lingering empty assistant placeholder found in log after error"
     assert messages[-1]["role"] == "system"
     assert messages[-1]["content"] == "Error: provider quota exceeded"
+
+
+@pytest.mark.timeout(30)
+def test_multi_tool_per_message(
+    init_, setup_conversation, event_listener, mock_generation, wait_for_event
+):
+    """Test multiple tool uses in a single assistant message.
+
+    Verifies:
+    - Both tools execute serially (second file writes after first)
+    - Auto-step fires only after all tools complete
+    """
+    port, conversation_id, session_id = setup_conversation
+
+    ts_file_a = f"/tmp/test_multi_tool_a_{int(time.time())}"
+    ts_file_b = f"/tmp/test_multi_tool_b_{int(time.time())}"
+
+    tool1 = ToolUse(
+        tool="shell",
+        args=[],
+        content=f"date +%s%N > {ts_file_a}",
+    )
+
+    tool2 = ToolUse(
+        tool="shell",
+        args=[],
+        content=f"date +%s%N > {ts_file_b}",
+    )
+
+    # Single assistant response containing BOTH tool uses
+    combined = (
+        "I'll run two commands.\n\n"
+        + tool1.to_output("markdown")
+        + "\n\n"
+        + tool2.to_output("markdown")
+    )
+
+    mock_stream = mock_generation(
+        [
+            combined,
+            "Both commands completed.",
+        ]
+    )
+
+    with unittest.mock.patch("gptme.server.session_step._stream", mock_stream):
+        requests.post(
+            f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+            json={
+                "role": "user",
+                "content": "Run two commands",
+            },
+        )
+
+        requests.post(
+            f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
+            json={
+                "session_id": session_id,
+                "model": "openai/mock-model",
+                "auto_confirm": 2,
+            },
+        )
+
+        # Generation produces a single message with two tools.
+        # Event order: generation_started → message_added (assistant) →
+        #   generation_complete → tool_pending × 2 → tool_executing →
+        #   message_added (output 1) → tool_executing → message_added (output 2)
+        #   → generation_started → message_added (final) → generation_complete
+        assert wait_for_event(event_listener, "generation_started")
+        assert wait_for_event(event_listener, "generation_complete")
+
+        # Both tools pending, then execute serially
+        assert wait_for_event(event_listener, "tool_pending")
+        assert wait_for_event(event_listener, "tool_pending")
+        assert wait_for_event(event_listener, "tool_executing")
+        assert wait_for_event(event_listener, "message_added")  # output of tool 1
+        assert wait_for_event(event_listener, "tool_executing")
+        assert wait_for_event(event_listener, "message_added")  # output of tool 2
+
+        # After both tools, auto-step triggers final generation.
+        # message_added fires before generation_complete, so wait in that order.
+        assert wait_for_event(event_listener, "message_added")  # final assistant
+
+    # Verify both files exist (tools actually ran)
+    assert os.path.exists(ts_file_a), f"First tool output {ts_file_a} missing"
+    assert os.path.exists(ts_file_b), f"Second tool output {ts_file_b} missing"
+
+    # Verify serial execution: file B timestamp >= file A
+    with open(ts_file_a) as f:
+        ts_a = int(f.read().strip())
+    with open(ts_file_b) as f:
+        ts_b = int(f.read().strip())
+    assert ts_b >= ts_a, f"Tools ran out of order: ts_a={ts_a}, ts_b={ts_b}"
+
+    # Verify conversation has the expected messages
+    resp = requests.get(
+        f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+    )
+    assert resp.status_code == 200
+    messages = resp.json()["log"]
+
+    # Should have: system prompt, [token_budget], [lessons], user, assistant (2 tools),
+    # system (tool 1 output), system (tool 2 output), assistant (final)
+    system_outputs = [
+        m
+        for m in messages
+        if m["role"] == "system" and "Ran command:" in m.get("content", "")
+    ]
+    assert len(system_outputs) == 2, (
+        f"Expected 2 tool output messages, got {len(system_outputs)}"
+    )
+
+    # Final message should be the concluding assistant response
+    assert messages[-1]["role"] == "assistant"
+    assert "completed" in messages[-1]["content"].lower()
+
+    # Clean up
+    for path in [ts_file_a, ts_file_b]:
+        if os.path.exists(path):
+            os.remove(path)

@@ -703,11 +703,12 @@ def step(
         )
 
         if len(tooluses) > 1:
-            logger.warning(
-                "Multiple tools per message not yet supported, expect issues"
-            )
+            logger.debug(f"Processing {len(tooluses)} tool uses from single message")
 
-        # Handle tool use
+        # Handle tool use — register all tools first, then start execution.
+        # With break_on_tooluse=False, a single assistant message may contain
+        # multiple tool uses that must execute serially.
+        first_auto_id: str | None = None
         for tooluse in tooluses:
             # Create a tool execution record
             tool_id = str(uuid.uuid4())
@@ -734,13 +735,24 @@ def step(
                 },
             )
 
-            # If auto-confirm is enabled, execute the tool
+            # Track the first auto-confirm tool; decrement counter for all
             if tool_exec.auto_confirm:
                 if session.auto_confirm_count > 0:
                     session.auto_confirm_count -= 1
-                start_tool_execution(
-                    conversation_id, session, tool_id, tooluse, model, chat_config
-                )
+                if first_auto_id is None:
+                    first_auto_id = tool_id
+
+        # Start execution for only the first auto-confirm tool.
+        # execute_tool_thread will chain remaining auto-confirm tools serially.
+        if first_auto_id is not None:
+            start_tool_execution(
+                conversation_id,
+                session,
+                first_auto_id,
+                None,  # no edit for auto-confirm
+                model,
+                chat_config,
+            )
 
     except Exception as e:
         logger.exception(f"Error during step execution: {e}")
@@ -785,57 +797,84 @@ def start_tool_execution(
             chat_config=chat_config,
         )
 
-        # Load the conversation
-        manager = LogManager.load(conversation_id, lock=False)
+        # Execute tools serially. When break_on_tooluse=False, a single
+        # assistant message may contain multiple tool uses. After completing
+        # each tool we chain to the next pending auto-confirm tool (if any)
+        # to guarantee serial execution order.
+        current_tool_id: str = tool_id
+        current_edited_tooluse: ToolUse | None = edited_tooluse
 
-        # Use .get() to atomically retrieve and handle concurrent removal — the API
-        # endpoint or another thread may have deleted this entry between the caller's
-        # check and our execution here.
-        tool_exec = session.pending_tools.get(tool_id)
-        if tool_exec is None:
-            logger.warning(
-                f"Tool {tool_id} not found in pending tools (may have been handled by another thread)"
+        while True:
+            # Reload the conversation to pick up outputs from prior tools
+            manager = LogManager.load(conversation_id, lock=False)
+
+            # Use .get() to atomically retrieve and handle concurrent removal
+            tool_exec = session.pending_tools.get(current_tool_id)
+            if tool_exec is None:
+                logger.warning(
+                    f"Tool {current_tool_id} not found in pending tools "
+                    "(may have been handled by another thread)"
+                )
+                break
+            tool_exec.status = ToolStatus.EXECUTING
+
+            # use explicit tooluse if set (may be modified), else from pending
+            tooluse: ToolUse = current_edited_tooluse or tool_exec.tooluse
+
+            # Remove the tool from pending
+            session.pending_tools.pop(current_tool_id, None)
+
+            # Notify about tool execution
+            SessionManager.add_event(
+                conversation_id,
+                {"type": "tool_executing", "tool_id": current_tool_id},
             )
-            return
-        tool_exec.status = ToolStatus.EXECUTING
+            logger.info(f"Tool {current_tool_id} executing")
 
-        # use explicit tooluse if set (may be modified), else use the one from the pending tool
-        tooluse: ToolUse = edited_tooluse or tool_exec.tooluse
+            # Execute the tool
+            try:
+                logger.info(f"Executing tool: {tooluse.tool}")
+                tool_outputs = list(
+                    tooluse.execute(log=manager.log, workspace=manager.workspace)
+                )
+                logger.info(f"Tool execution complete, outputs: {len(tool_outputs)}")
 
-        # Remove the tool from pending (use pop to avoid KeyError if concurrently removed)
-        session.pending_tools.pop(tool_id, None)
+                # Store the tool outputs, propagating call_id to pair results
+                # with the assistant's tool-use block (matches CLI behavior)
+                for tool_output in tool_outputs:
+                    _append_and_notify(
+                        manager,
+                        session,
+                        tool_output.replace(call_id=tooluse.call_id),
+                    )
+            except Exception as e:
+                logger.exception(f"Error executing tool {tooluse.tool}: {e}")
+                tool_exec.status = ToolStatus.FAILED
 
-        # Notify about tool execution
-        SessionManager.add_event(
-            conversation_id, {"type": "tool_executing", "tool_id": tool_id}
-        )
-        logger.info(f"Tool {tool_id} executing")
+                msg = Message("system", f"Error: {e!s}", call_id=tooluse.call_id)
+                _append_and_notify(manager, session, msg)
 
-        # Execute the tool
-        try:
-            logger.info(f"Executing tool: {tooluse.tool}")
-            tool_outputs = list(
-                tooluse.execute(log=manager.log, workspace=manager.workspace)
-            )
-            logger.info(f"Tool execution complete, outputs: {len(tool_outputs)}")
+            # Persist tool outputs to disk
+            manager.write()
 
-            # Store the tool outputs
-            for tool_output in tool_outputs:
-                _append_and_notify(manager, session, tool_output)
-        except Exception as e:
-            logger.exception(f"Error executing tool {tooluse.tool}: {e}")
-            tool_exec.status = ToolStatus.FAILED
+            # Chain to next pending auto-confirm tool (serial execution)
+            next_auto_id: str | None = None
+            for tid, texec in list(session.pending_tools.items()):
+                if texec.auto_confirm:
+                    next_auto_id = tid
+                    break
 
-            msg = Message("system", f"Error: {e!s}")
-            _append_and_notify(manager, session, msg)
+            if next_auto_id is not None:
+                current_tool_id = next_auto_id
+                current_edited_tooluse = None
+            else:
+                break
 
-        # Persist tool outputs to disk (every other _append_and_notify call
-        # site is followed by manager.write(); without this, tool outputs
-        # survive only in memory until the next step writes)
-        manager.write()
-
-        # This implements auto-stepping similar to the CLI behavior
-        _start_step_thread(conversation_id, session, model, chat_config.workspace)
+        # Only auto-step when all pending tools have been executed.
+        # With multiple tools per message, we must wait until every tool
+        # has run before asking the model for a continuation.
+        if not session.pending_tools:
+            _start_step_thread(conversation_id, session, model, chat_config.workspace)
 
     # Start execution in a thread
     thread = threading.Thread(target=execute_tool_thread)
