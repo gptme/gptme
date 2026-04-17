@@ -2,7 +2,6 @@
 
 import logging
 import os
-import time
 import unittest.mock
 
 import pytest
@@ -176,7 +175,7 @@ def test_generation_error_persists_system_message(
 
 @pytest.mark.timeout(30)
 def test_multi_tool_per_message(
-    init_, setup_conversation, event_listener, mock_generation, wait_for_event
+    init_, setup_conversation, event_listener, mock_generation, wait_for_event, tmp_path
 ):
     """Test multiple tool uses in a single assistant message.
 
@@ -186,19 +185,19 @@ def test_multi_tool_per_message(
     """
     port, conversation_id, session_id = setup_conversation
 
-    ts_file_a = f"/tmp/test_multi_tool_a_{int(time.time())}"
-    ts_file_b = f"/tmp/test_multi_tool_b_{int(time.time())}"
+    ts_file_a = str(tmp_path / "tool_a")
+    ts_file_b = str(tmp_path / "tool_b")
 
     tool1 = ToolUse(
         tool="shell",
         args=[],
-        content=f"date +%s%N > {ts_file_a}",
+        content=f'python3 -c \'import time; open("{ts_file_a}", "w").write(str(time.time_ns()))\'',
     )
 
     tool2 = ToolUse(
         tool="shell",
         args=[],
-        content=f"date +%s%N > {ts_file_b}",
+        content=f'python3 -c \'import time; open("{ts_file_b}", "w").write(str(time.time_ns()))\'',
     )
 
     # Single assistant response containing BOTH tool uses
@@ -286,8 +285,3 @@ def test_multi_tool_per_message(
     # Final message should be the concluding assistant response
     assert messages[-1]["role"] == "assistant"
     assert "completed" in messages[-1]["content"].lower()
-
-    # Clean up
-    for path in [ts_file_a, ts_file_b]:
-        if os.path.exists(path):
-            os.remove(path)
