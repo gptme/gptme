@@ -7,6 +7,16 @@ Usage:
     gptme-doctor --fix        # Attempt to fix issues (future)
 """
 
+# Suppress requests' overly-strict version-compatibility warning before any
+# import path can pull in `requests`. Newer urllib3/chardet/charset_normalizer
+# work fine with requests; the warning just pollutes gptme-doctor output.
+import warnings
+
+warnings.filterwarnings(
+    "ignore",
+    message=r".*urllib3.*chardet.*charset_normalizer.*",
+)
+
 import importlib.util
 import logging
 import os
