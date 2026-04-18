@@ -183,12 +183,17 @@ def prompt_workspace(
 
     # 2. Walk from home down to workspace, loading any AGENT_FILES found
     #    Uses find_agent_files_in_tree() -- shared with the agents_md_inject hook
-    for agent_file in find_agent_files_in_tree(workspace_resolved, exclude=seen_paths):
-        resolved = str(agent_file.resolve())
-        agent_files.append(agent_file)
-        seen_paths.add(resolved)
-        loaded_agent_files.add(resolved)
-        logger.debug(f"Loaded agent file from tree: {agent_file}")
+    #    Skipped when include_user_context=False: eval workspaces often live under
+    #    ~/.local/share/gptme/, so without this guard ~/AGENTS.md would still leak.
+    if include_user_context:
+        for agent_file in find_agent_files_in_tree(
+            workspace_resolved, exclude=seen_paths
+        ):
+            resolved = str(agent_file.resolve())
+            agent_files.append(agent_file)
+            seen_paths.add(resolved)
+            loaded_agent_files.add(resolved)
+            logger.debug(f"Loaded agent file from tree: {agent_file}")
 
     # Determine which additional file patterns to use (from config or defaults)
     if project is None or project.files is None:

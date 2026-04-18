@@ -87,6 +87,11 @@ class ClaudeCodeAgent(Agent):
 
     def _act_local(self, store: FileStore, prompt: str) -> Files:
         """Execute Claude Code directly on the host."""
+        if not self.include_user_context:
+            logger.warning(
+                "include_user_context=False has no effect for ClaudeCodeAgent — "
+                "the Claude Code CLI reads its own user config (e.g. ~/.claude/) unconditionally."
+            )
         claude_bin = shutil.which("claude")
         if claude_bin is None:
             raise FileNotFoundError(
