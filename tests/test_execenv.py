@@ -84,6 +84,37 @@ class TestDockerExecutionEnv:
             assert "output.txt" in files
             assert files["output.txt"] == "output content"
 
+    def test_cleanup_removes_auto_created_host_dir(self):
+        """Auto-created host_dir (default None) must be removed by cleanup()."""
+        env = DockerExecutionEnv()
+        assert env._owns_host_dir is True
+        host_dir = env.host_dir
+        assert host_dir.exists()
+        assert host_dir.name.startswith("gptme-docker-")
+
+        env.cleanup()
+        assert not host_dir.exists()
+
+    def test_cleanup_preserves_user_provided_host_dir(self):
+        """User-provided host_dir must NOT be removed by cleanup()."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            host_dir = Path(tmpdir) / "mine"
+            host_dir.mkdir()
+            (host_dir / "keep.txt").write_text("data")
+
+            env = DockerExecutionEnv(host_dir=host_dir)
+            assert env._owns_host_dir is False
+
+            env.cleanup()
+            assert host_dir.exists()
+            assert (host_dir / "keep.txt").read_text() == "data"
+
+    def test_cleanup_is_idempotent(self):
+        """cleanup() called twice should not raise even if host_dir is gone."""
+        env = DockerExecutionEnv()
+        env.cleanup()
+        env.cleanup()  # must not raise
+
 
 class TestDockerGPTMeEnv:
     """Tests for DockerGPTMeEnv - Docker-isolated gptme execution."""

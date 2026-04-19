@@ -126,6 +126,7 @@ class DockerExecutionEnv(ExecutionEnv):
     ):
         self.image = image
         self.working_dir = working_dir
+        self._owns_host_dir = host_dir is None
         self.host_dir = host_dir or Path(tempfile.mkdtemp(prefix="gptme-docker-"))
         self.host_dir.mkdir(parents=True, exist_ok=True)
         self.container_id: str | None = None
@@ -259,7 +260,7 @@ class DockerExecutionEnv(ExecutionEnv):
         return files
 
     def cleanup(self) -> None:
-        """Stop and remove Docker container."""
+        """Stop and remove Docker container, then clean up auto-created host_dir."""
         if self.container_id:
             try:
                 subprocess.run(
@@ -281,6 +282,9 @@ class DockerExecutionEnv(ExecutionEnv):
                 )
             except subprocess.TimeoutExpired:
                 pass  # best-effort cleanup
+            self.container_id = None
+        if self._owns_host_dir and self.host_dir.exists():
+            shutil.rmtree(self.host_dir, ignore_errors=True)
 
     def __del__(self) -> None:
         """Cleanup container on object destruction."""
