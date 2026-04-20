@@ -7,9 +7,9 @@ from ~/.config/gptme/config.toml and config.local.toml.
 import copy
 import logging
 import os
-from dataclasses import asdict
+from dataclasses import asdict, fields
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import tomlkit
 from tomlkit import TOMLDocument
@@ -32,6 +32,23 @@ logger = logging.getLogger(__name__)
 
 # Define the path to the config file
 config_path = os.path.expanduser("~/.config/gptme/config.toml")
+
+
+def _filter_known_fields(
+    cls: type, data: dict[str, Any], section: str
+) -> dict[str, Any]:
+    """Filter a dict down to fields known to a dataclass, warning about unknown keys.
+
+    This keeps older gptme versions forward-compatible with newer config schemas:
+    unknown keys are dropped with a warning instead of raising TypeError.
+    """
+    known = {f.name for f in fields(cls)}
+    unknown = set(data) - known
+    if unknown:
+        logger.warning(
+            f"Unknown keys in [{section}] config: {sorted(unknown)} (ignored)"
+        )
+    return {k: v for k, v in data.items() if k in known}
 
 
 ABOUT_ACTIVITYWATCH = """ActivityWatch is a free and open-source automated time-tracker that helps you track how you spend your time on your devices."""
@@ -93,14 +110,19 @@ def load_user_config(path: str | None = None) -> UserConfig:
 
     # Note: prompt and env are optional - defaults are used if missing
 
-    prompt = UserPromptConfig(**config.pop("prompt", {}))
+    prompt_data = config.pop("prompt", {})
+    prompt = UserPromptConfig(
+        **_filter_known_fields(UserPromptConfig, prompt_data, "prompt")
+    )
 
     # Parse [user] section (validate it's a dict in case of e.g. user = "Erik")
     user_data = config.pop("user", {})
     if not isinstance(user_data, dict):
         logger.warning(f"[user] should be a table, got {type(user_data).__name__}")
         user_data = {}
-    user_identity = UserIdentityConfig(**user_data)
+    user_identity = UserIdentityConfig(
+        **_filter_known_fields(UserIdentityConfig, user_data, "user")
+    )
 
     # Backward compat: if about/response_preference not set in [user],
     # fall back to [prompt].about_user / [prompt].response_preference

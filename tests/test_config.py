@@ -847,6 +847,35 @@ def test_user_identity_config_defaults():
     assert identity.response_preference is None
 
 
+def test_user_config_ignores_unknown_keys_in_prompt_and_user():
+    """Forward-compat: unknown keys in [prompt] or [user] should warn, not crash.
+
+    Reproduces gptme#2173: older gptme bundled in archived gptme-tauri v0.1.1
+    crashed with `TypeError: UserPromptConfig.__init__() got an unexpected keyword
+    argument 'files'` when reading a config written by a newer gptme.
+    """
+    config_toml = """
+[prompt]
+about_user = "Hi"
+future_field_added_by_newer_gptme = "should be ignored"
+
+[user]
+name = "Erik"
+some_future_user_key = 42
+
+[env]
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+        f.write(config_toml)
+        f.flush()
+        try:
+            config = load_user_config(f.name)
+            assert config.user.name == "Erik"
+            assert config.user.about == "Hi"
+        finally:
+            os.remove(f.name)
+
+
 def test_user_identity_config_partial_fallback():
     """Test that fallback works per-field."""
     config_toml = """
