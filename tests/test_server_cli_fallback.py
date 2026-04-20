@@ -2,8 +2,11 @@
 
 from unittest.mock import patch
 
-from gptme.server.cli import _pick_fallback_model
-from gptme.server.constants import DEFAULT_FALLBACK_MODEL, PROVIDER_FALLBACK_MODELS
+from gptme.server.constants import (
+    DEFAULT_FALLBACK_MODEL,
+    PROVIDER_FALLBACK_MODELS,
+    _pick_fallback_model,
+)
 
 
 def test_pick_fallback_prefers_available_provider():

@@ -11,24 +11,9 @@ from ..init import init, init_logging
 from ..telemetry import init_telemetry, shutdown_telemetry
 from .app import create_app
 from .auth import get_server_token, init_auth
-from .constants import DEFAULT_FALLBACK_MODEL, PROVIDER_FALLBACK_MODELS
+from .constants import _pick_fallback_model
 
 logger = logging.getLogger(__name__)
-
-
-def _pick_fallback_model() -> str:
-    """Pick a fallback model based on which providers are actually configured.
-
-    Returns a model string for the first available provider found in
-    PROVIDER_FALLBACK_MODELS, falling back to DEFAULT_FALLBACK_MODEL if nothing
-    is configured (so the caller still sees a helpful init() error).
-    """
-    from ..llm import list_available_providers
-
-    for provider, _auth in list_available_providers():
-        if provider in PROVIDER_FALLBACK_MODELS:
-            return PROVIDER_FALLBACK_MODELS[provider]
-    return DEFAULT_FALLBACK_MODEL
 
 
 @click.group(cls=DefaultGroup, default="serve", default_if_no_args=True)

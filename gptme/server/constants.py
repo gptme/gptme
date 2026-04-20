@@ -21,3 +21,18 @@ PROVIDER_FALLBACK_MODELS: dict[str, str] = {
     "deepseek": "deepseek/deepseek-chat",
     "openai-subscription": "openai-subscription/gpt-5.2",
 }
+
+
+def _pick_fallback_model() -> str:
+    """Pick a fallback model based on which providers are actually configured.
+
+    Returns a model string for the first available provider found in
+    PROVIDER_FALLBACK_MODELS, falling back to DEFAULT_FALLBACK_MODEL if nothing
+    is configured (so the caller still sees a helpful init() error).
+    """
+    from gptme.llm import list_available_providers
+
+    for provider, _auth in list_available_providers():
+        if provider in PROVIDER_FALLBACK_MODELS:
+            return PROVIDER_FALLBACK_MODELS[provider]
+    return DEFAULT_FALLBACK_MODEL
