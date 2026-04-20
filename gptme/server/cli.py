@@ -11,9 +11,24 @@ from ..init import init, init_logging
 from ..telemetry import init_telemetry, shutdown_telemetry
 from .app import create_app
 from .auth import get_server_token, init_auth
-from .constants import DEFAULT_FALLBACK_MODEL
+from .constants import DEFAULT_FALLBACK_MODEL, PROVIDER_FALLBACK_MODELS
 
 logger = logging.getLogger(__name__)
+
+
+def _pick_fallback_model() -> str:
+    """Pick a fallback model based on which providers are actually configured.
+
+    Returns a model string for the first available provider found in
+    PROVIDER_FALLBACK_MODELS, falling back to DEFAULT_FALLBACK_MODEL if nothing
+    is configured (so the caller still sees a helpful init() error).
+    """
+    from ..llm import list_available_providers
+
+    for provider, _auth in list_available_providers():
+        if provider in PROVIDER_FALLBACK_MODELS:
+            return PROVIDER_FALLBACK_MODELS[provider]
+    return DEFAULT_FALLBACK_MODEL
 
 
 @click.group(cls=DefaultGroup, default="serve", default_if_no_args=True)
@@ -95,8 +110,10 @@ def serve(
         if not is_config_error:
             raise
 
-        # Handle model configuration errors with fallback
-        fallback_model = DEFAULT_FALLBACK_MODEL
+        # Handle model configuration errors with fallback.
+        # Pick a fallback that matches an available provider so we don't try
+        # (and fail) to use Anthropic when the user only has e.g. OpenAI keys.
+        fallback_model = _pick_fallback_model()
         logger.warning(
             f"No default model configured. Using fallback: {fallback_model}. "
             "Set MODEL environment variable or use --model flag for explicit configuration."
