@@ -377,6 +377,22 @@ class TestPromptGptme:
         msgs = list(prompt_gptme(interactive=True, model=None))
         assert "call it immediately" not in msgs[0].content
 
+    def test_no_tool_use_enforcement_for_gptq_models(self):
+        """GPTQ-quantized models (e.g. Llama-2-7B-GPTQ) must NOT get enforcement."""
+        from gptme.prompts import prompt_gptme
+
+        mock_model = MagicMock()
+        mock_model.supports_reasoning = False
+        mock_model.full = "openrouter/Llama-2-7B-GPTQ"
+        mock_model.provider = "openrouter"
+        mock_model.model = "llama-2-7b-gptq"
+
+        with patch("gptme.prompts.templates.get_model", return_value=mock_model):
+            msgs = list(
+                prompt_gptme(interactive=True, model="openrouter/Llama-2-7B-GPTQ")
+            )
+        assert "call it immediately" not in msgs[0].content
+
 
 # ---------------------------------------------------------------------------
 # prompt_full / prompt_short composition

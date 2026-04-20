@@ -22,7 +22,7 @@ _TOOL_ENFORCEMENT_PROVIDERS = frozenset(
 )
 # Model name substrings that need enforcement when running under generic providers
 # (openrouter, groq, deepseek, nvidia, local).
-_TOOL_ENFORCEMENT_MODEL_FAMILIES = ("gpt", "codex", "gemini", "gemma", "grok")
+_TOOL_ENFORCEMENT_MODEL_FAMILIES = ("gpt-", "codex", "gemini", "gemma", "grok")
 
 _TOOL_USE_ENFORCEMENT_PROMPT = (
     "\n\nWhen a tool is available for a task, call it immediately — do not describe "
