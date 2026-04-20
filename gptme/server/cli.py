@@ -103,12 +103,16 @@ def serve(
             f"No default model configured. Using fallback: {fallback_model}. "
             "Set MODEL environment variable or use --model flag for explicit configuration."
         )
+        # require_llm=False: if the fallback provider also has no API key
+        # (e.g. first-run Tauri with no keys configured), start the server
+        # in degraded mode so the user can configure a provider via the UI.
         init(
             fallback_model,
             interactive=False,
             tool_allowlist=None if tools is None else tools.split(","),
             tool_format="markdown",
             server=True,
+            require_llm=False,
         )
 
     # Initialize telemetry (server is API/WebUI driven, not CLI interactive)

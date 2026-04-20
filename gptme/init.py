@@ -34,6 +34,7 @@ def init(
     tool_format: ToolFormat,
     no_confirm: bool = False,
     server: bool = False,
+    require_llm: bool = True,
 ):
     """Initialize gptme.
 
@@ -44,6 +45,9 @@ def init(
         tool_format: Format for tool output
         no_confirm: Whether to skip tool confirmations
         server: Whether running in server mode (API/WebUI)
+        require_llm: If True (default), raise when LLM initialization fails.
+            If False, log a warning and continue without a default model —
+            callers (e.g. the server) can still accept per-request models.
     """
     global _init_done
     if _init_done:
@@ -52,16 +56,30 @@ def init(
         # between conversations in the same process (e.g. test suite)
         set_tool_format(tool_format)
         return
-    _init_done = True
 
     load_dotenv()
     _init_plugins()
-    init_model(model, interactive)
+    try:
+        init_model(model, interactive)
+    except (ValueError, KeyError) as e:
+        if require_llm:
+            raise
+        # Server/degraded mode: keep starting up so the app is reachable
+        # and the user can configure a provider via env/config/UI.
+        first_line = str(e).split("\n", 1)[0]
+        logger.warning(
+            "Continuing without a default model (%s). "
+            "Clients must supply a model per-request, or set an API key and restart.",
+            first_line,
+        )
     init_tools(tool_allowlist)
     init_hooks(interactive=interactive, no_confirm=no_confirm, server=server)
     init_commands()
 
     set_tool_format(tool_format)
+    # Mark initialization done at the end so callers can retry init()
+    # after a failure earlier in this function.
+    _init_done = True
 
 
 def _init_plugins():

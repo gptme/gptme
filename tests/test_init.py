@@ -232,6 +232,153 @@ class TestInit:
 
         assert mock_set_fmt.call_args_list[-1] == call("tool")
 
+    @patch("gptme.init.init_commands")
+    @patch("gptme.init.init_hooks")
+    @patch("gptme.init.init_tools")
+    @patch("gptme.init.init_model", side_effect=ValueError("No API key found"))
+    @patch("gptme.init.set_tool_format")
+    @patch("gptme.init.load_dotenv")
+    def test_init_require_llm_true_propagates_error(
+        self,
+        mock_dotenv,
+        mock_set_fmt,
+        mock_init_model,
+        mock_init_tools,
+        mock_init_hooks,
+        mock_init_commands,
+    ):
+        """require_llm=True (default) should re-raise init_model failures."""
+        from gptme.init import init
+
+        with pytest.raises(ValueError, match="No API key found"):
+            init(
+                model=None,
+                interactive=False,
+                tool_allowlist=None,
+                tool_format="markdown",
+            )
+        # Subsystems that come after init_model must not have been called
+        mock_init_tools.assert_not_called()
+        mock_init_hooks.assert_not_called()
+        mock_init_commands.assert_not_called()
+
+    @patch("gptme.init.init_commands")
+    @patch("gptme.init.init_hooks")
+    @patch("gptme.init.init_tools")
+    @patch("gptme.init.init_model", side_effect=ValueError("No API key found"))
+    @patch("gptme.init.set_tool_format")
+    @patch("gptme.init.load_dotenv")
+    def test_init_require_llm_false_continues_on_error(
+        self,
+        mock_dotenv,
+        mock_set_fmt,
+        mock_init_model,
+        mock_init_tools,
+        mock_init_hooks,
+        mock_init_commands,
+        caplog,
+    ):
+        """require_llm=False should swallow config errors and init the rest."""
+        from gptme.init import init
+
+        with caplog.at_level(logging.WARNING, logger="gptme.init"):
+            init(
+                model=None,
+                interactive=False,
+                tool_allowlist=None,
+                tool_format="markdown",
+                server=True,
+                require_llm=False,
+            )
+
+        mock_init_tools.assert_called_once()
+        mock_init_hooks.assert_called_once()
+        mock_init_commands.assert_called_once()
+        mock_set_fmt.assert_called_once_with("markdown")
+        assert any(
+            "Continuing without a default model" in rec.message
+            for rec in caplog.records
+        )
+
+    @patch("gptme.init.init_commands")
+    @patch("gptme.init.init_hooks")
+    @patch("gptme.init.init_tools")
+    @patch(
+        "gptme.init.init_model",
+        side_effect=KeyError("ANTHROPIC_API_KEY not set in env or config"),
+    )
+    @patch("gptme.init.set_tool_format")
+    @patch("gptme.init.load_dotenv")
+    def test_init_require_llm_false_handles_keyerror(
+        self,
+        mock_dotenv,
+        mock_set_fmt,
+        mock_init_model,
+        mock_init_tools,
+        mock_init_hooks,
+        mock_init_commands,
+    ):
+        """require_llm=False should also swallow KeyError from missing API keys."""
+        from gptme.init import init
+
+        init(
+            model="anthropic/claude-sonnet-4-6",
+            interactive=False,
+            tool_allowlist=None,
+            tool_format="markdown",
+            server=True,
+            require_llm=False,
+        )
+        mock_init_tools.assert_called_once()
+        mock_init_hooks.assert_called_once()
+        mock_init_commands.assert_called_once()
+
+    @patch("gptme.init.init_commands")
+    @patch("gptme.init.init_hooks")
+    @patch("gptme.init.init_tools")
+    @patch("gptme.init.init_model")
+    @patch("gptme.init.set_tool_format")
+    @patch("gptme.init.load_dotenv")
+    def test_init_can_be_retried_after_failure(
+        self,
+        mock_dotenv,
+        mock_set_fmt,
+        mock_init_model,
+        mock_init_tools,
+        mock_init_hooks,
+        mock_init_commands,
+    ):
+        """If init_model fails, subsequent init() calls should actually run
+        (not be short-circuited by the _init_done guard)."""
+        from gptme.init import init
+
+        mock_init_model.side_effect = [ValueError("No API key found"), None]
+
+        # First call raises
+        with pytest.raises(ValueError, match="No API key found"):
+            init(
+                model=None,
+                interactive=False,
+                tool_allowlist=None,
+                tool_format="markdown",
+            )
+
+        # Second call succeeds — tools/hooks/commands must run this time
+        mock_init_tools.reset_mock()
+        mock_init_hooks.reset_mock()
+        mock_init_commands.reset_mock()
+
+        init(
+            model="anthropic/claude-sonnet-4-6",
+            interactive=False,
+            tool_allowlist=None,
+            tool_format="markdown",
+        )
+
+        mock_init_tools.assert_called_once()
+        mock_init_hooks.assert_called_once()
+        mock_init_commands.assert_called_once()
+
 
 # ===========================================================================
 # init_model() — provider/model parsing
