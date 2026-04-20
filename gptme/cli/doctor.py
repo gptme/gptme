@@ -199,7 +199,7 @@ def _check_tools(verbose: bool = False) -> list[CheckResult]:
         (
             "npx",
             "npm package runner - runs MCP servers without install",
-            "Included with Node.js — install Node.js first",
+            "Usually bundled with Node.js; on Debian/Ubuntu install `npm` separately",
         ),
         (
             "docker",
@@ -792,7 +792,7 @@ def print_results(results: list[CheckResult], summary: dict, verbose: bool = Fal
                 CheckStatus.ERROR,
                 CheckStatus.WARNING,
             ):
-                if verbose or result.status == CheckStatus.ERROR:
+                if verbose or result.status in (CheckStatus.ERROR, CheckStatus.WARNING):
                     table.add_row("", "", f"  [dim]→ {result.fix_hint}[/dim]")
 
         console.print(table)
