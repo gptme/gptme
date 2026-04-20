@@ -30,6 +30,7 @@ from pathlib import Path
 import click
 
 from ..config import get_config
+from ..llm import PROVIDER_DEFAULT_MODELS as _PROVIDER_DEFAULT_MODELS
 from ..llm.models import get_model_list, list_models, model_to_dict
 from ..message import Message
 from ..util.context import include_paths
@@ -53,19 +54,6 @@ main.add_command(chats)
 main.add_command(hooks)
 main.add_command(mcp)
 main.add_command(skills)
-
-# Default cheap/fast model per provider (for bare provider name resolution).
-# Azure is intentionally absent: deployments are tenant-specific, so there is
-# no universal default — users must supply a full model name.
-_PROVIDER_DEFAULT_MODELS: dict[str, str] = {
-    "anthropic": "anthropic/claude-haiku-4-5",
-    "openai": "openai/gpt-4o-mini",
-    "openrouter": "openrouter/anthropic/claude-haiku-4-5",
-    "gemini": "gemini/gemini-2.0-flash",
-    "groq": "groq/llama-3.1-8b-instant",
-    "xai": "xai/grok-3-mini",
-    "deepseek": "deepseek/deepseek-chat",
-}
 
 
 @main.group()

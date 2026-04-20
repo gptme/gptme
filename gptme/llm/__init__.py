@@ -46,6 +46,20 @@ from .provider_plugins import (
 logger = logging.getLogger(__name__)
 
 
+# Cheap/fast default model per provider for first-run / fallback scenarios.
+# Azure is intentionally absent: deployments are tenant-specific, so there is
+# no universal default — users must supply a full model name.
+# Imported by gptme.cli.util and gptme.server.constants to avoid duplication.
+PROVIDER_DEFAULT_MODELS: dict[str, str] = {
+    "anthropic": "anthropic/claude-haiku-4-5",
+    "openai": "openai/gpt-4o-mini",
+    "openrouter": "openrouter/anthropic/claude-haiku-4-5",
+    "gemini": "gemini/gemini-2.0-flash",
+    "groq": "groq/llama-3.1-8b-instant",
+    "xai": "xai/grok-3-mini",
+    "deepseek": "deepseek/deepseek-chat",
+}
+
 # Mapping from provider name to the environment variable that holds its API key.
 # This is the single source of truth for provider authentication env vars.
 PROVIDER_API_KEYS: dict[str, str] = {
