@@ -2,6 +2,12 @@
 
 from unittest.mock import patch
 
+import pytest
+
+pytest.importorskip(
+    "flask", reason="flask not installed, install server extras (-E server)"
+)
+
 from gptme.server.constants import (
     DEFAULT_FALLBACK_MODEL,
     PROVIDER_FALLBACK_MODELS,
