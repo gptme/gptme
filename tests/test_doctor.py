@@ -4,6 +4,7 @@ import json
 from unittest.mock import patch
 
 from click.testing import CliRunner
+from rich.console import Console
 
 from gptme.cli.doctor import (
     CheckResult,
@@ -18,6 +19,7 @@ from gptme.cli.doctor import (
     _check_tools,
     _check_version,
     main,
+    print_results,
     run_diagnostics,
 )
 from gptme.config import MCPConfig, MCPServerConfig
@@ -423,6 +425,75 @@ class TestCLI:
             assert "name" in first_result
             assert "status" in first_result
             assert "message" in first_result
+
+
+class TestPrintResults:
+    """Test print_results fix-hint visibility rules."""
+
+    def _run(self, results, verbose):
+        buf = Console(record=True, width=120)
+        with patch("gptme.cli.doctor.console", buf):
+            summary = {
+                "total": len(results),
+                "ok": sum(1 for r in results if r.status == CheckStatus.OK),
+                "warning": sum(1 for r in results if r.status == CheckStatus.WARNING),
+                "error": sum(1 for r in results if r.status == CheckStatus.ERROR),
+                "skipped": sum(1 for r in results if r.status == CheckStatus.SKIPPED),
+            }
+            print_results(results, summary, verbose=verbose)
+        return buf.export_text()
+
+    def test_error_hint_always_shown(self):
+        """Fix hints for ERROR results must appear regardless of --verbose."""
+        results = [
+            CheckResult(
+                name="Tool: foo",
+                status=CheckStatus.ERROR,
+                message="missing",
+                fix_hint="install foo",
+            )
+        ]
+        assert "install foo" in self._run(results, verbose=False)
+        assert "install foo" in self._run(results, verbose=True)
+
+    def test_warning_hint_always_shown(self):
+        """Fix hints for WARNING results must appear regardless of --verbose."""
+        results = [
+            CheckResult(
+                name="Tool: bar",
+                status=CheckStatus.WARNING,
+                message="optional",
+                fix_hint="install bar",
+            )
+        ]
+        assert "install bar" in self._run(results, verbose=False)
+        assert "install bar" in self._run(results, verbose=True)
+
+    def test_skipped_hint_only_in_verbose(self):
+        """Fix hints for SKIPPED results appear only with --verbose."""
+        results = [
+            CheckResult(
+                name="API Key: openai",
+                status=CheckStatus.SKIPPED,
+                message="Not configured",
+                fix_hint="Get a key at: https://platform.openai.com",
+            )
+        ]
+        assert "platform.openai.com" not in self._run(results, verbose=False)
+        assert "platform.openai.com" in self._run(results, verbose=True)
+
+    def test_ok_hint_not_shown(self):
+        """Fix hints are never shown for OK results."""
+        results = [
+            CheckResult(
+                name="Tool: ok-tool",
+                status=CheckStatus.OK,
+                message="works",
+                fix_hint="should-not-appear",
+            )
+        ]
+        assert "should-not-appear" not in self._run(results, verbose=False)
+        assert "should-not-appear" not in self._run(results, verbose=True)
 
 
 class TestCheckApiKeys:

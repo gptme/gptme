@@ -787,13 +787,13 @@ def print_results(results: list[CheckResult], summary: dict, verbose: bool = Fal
 
             table.add_row(emoji, name, msg)
 
-            # Show fix hints for errors/warnings
-            if result.fix_hint and result.status in (
-                CheckStatus.ERROR,
-                CheckStatus.WARNING,
+            # Show fix hints: always for errors/warnings; also for skipped
+            # checks when --verbose (e.g. unconfigured API keys).
+            if result.fix_hint and (
+                result.status in (CheckStatus.ERROR, CheckStatus.WARNING)
+                or (verbose and result.status == CheckStatus.SKIPPED)
             ):
-                if verbose or result.status in (CheckStatus.ERROR, CheckStatus.WARNING):
-                    table.add_row("", "", f"  [dim]→ {result.fix_hint}[/dim]")
+                table.add_row("", "", f"  [dim]→ {result.fix_hint}[/dim]")
 
         console.print(table)
         console.print()
