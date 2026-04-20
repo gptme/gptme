@@ -264,9 +264,12 @@ class ProjectConfig:
             if isinstance(plugin_data, dict):
                 plugin_config = plugin_data
 
-        # Check for unknown keys
+        # Warn about unknown keys and drop them instead of passing them through
+        # as kwargs (which would crash with "unexpected keyword argument").
         if config_data:
-            logger.warning(f"Unknown keys in project config: {config_data.keys()}")
+            logger.warning(
+                f"Unknown keys in project config: {list(config_data.keys())} (ignored)"
+            )
 
         return cls(
             _workspace=workspace,
@@ -282,7 +285,6 @@ class ProjectConfig:
             plugin=plugin_config,
             env=env,
             mcp=mcp,
-            **config_data,
         )
 
     def merge(self, other: Self) -> Self:

@@ -637,6 +637,28 @@ def test_project_config_to_toml():
     assert config_new == config
 
 
+def test_project_config_ignores_unknown_top_level_keys():
+    """Forward-compat: unknown top-level keys should warn, not crash.
+
+    Before this fix, any unrecognized top-level section in gptme.toml
+    (e.g. [user] placed in a project config, or a future section) would
+    be passed via **config_data to the dataclass constructor and raise
+    TypeError: unexpected keyword argument.
+    """
+    config_toml = """
+[prompt]
+files = ["README.md"]
+
+[user]
+name = "placed-in-project-config-by-mistake"
+
+[future_section_added_later]
+key = "value"
+"""
+    config = ProjectConfig.from_dict(tomlkit.loads(config_toml).unwrap())
+    assert config.files == ["README.md"]
+
+
 def test_resume_config_precedence():
     """Test that resume configuration respects saved config unless CLI overrides provided."""
     with tempfile.TemporaryDirectory() as tmpdir:
