@@ -225,7 +225,13 @@ def get_prompt(
     elif prompt == "short":
         if include_tools:
             core_msgs = list(
-                prompt_short(interactive, tools, tool_format, agent_name=agent_name)
+                prompt_short(
+                    interactive,
+                    tools,
+                    tool_format,
+                    model=model,
+                    agent_name=agent_name,
+                )
             )
         else:
             core_msgs = list(

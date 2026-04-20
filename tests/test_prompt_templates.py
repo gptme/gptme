@@ -527,6 +527,50 @@ class TestPromptComposition:
         assert "### Examples" not in combined
         assert "example usage" not in combined
 
+    def test_prompt_short_passes_model_for_tool_enforcement(self):
+        """prompt_short propagates `model` so GPT/Gemini/Grok get enforcement guidance."""
+        from gptme.prompts.templates import prompt_short
+
+        mock_model = MagicMock()
+        mock_model.supports_reasoning = False
+        mock_model.full = "openai/gpt-5"
+        mock_model.provider = "openai"
+        mock_model.model = "gpt-5"
+
+        with patch("gptme.prompts.templates.get_model", return_value=mock_model):
+            msgs = list(
+                prompt_short(
+                    interactive=True,
+                    tools=[self._make_tool()],
+                    tool_format="markdown",
+                    model="openai/gpt-5",
+                )
+            )
+        combined = "\n".join(m.content for m in msgs)
+        assert "call it immediately" in combined
+
+    def test_prompt_short_no_enforcement_for_anthropic(self):
+        """prompt_short with Claude model must NOT include enforcement guidance."""
+        from gptme.prompts.templates import prompt_short
+
+        mock_model = MagicMock()
+        mock_model.supports_reasoning = False
+        mock_model.full = "anthropic/claude-sonnet-4-6"
+        mock_model.provider = "anthropic"
+        mock_model.model = "claude-sonnet-4-6"
+
+        with patch("gptme.prompts.templates.get_model", return_value=mock_model):
+            msgs = list(
+                prompt_short(
+                    interactive=True,
+                    tools=[self._make_tool()],
+                    tool_format="markdown",
+                    model="anthropic/claude-sonnet-4-6",
+                )
+            )
+        combined = "\n".join(m.content for m in msgs)
+        assert "call it immediately" not in combined
+
 
 # ---------------------------------------------------------------------------
 # prompt_user

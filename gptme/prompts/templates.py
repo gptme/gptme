@@ -66,11 +66,16 @@ def prompt_short(
     interactive: bool,
     tools: list[ToolSpec],
     tool_format: ToolFormat,
+    model: str | None = None,
     agent_name: str | None = None,
 ) -> Generator[Message, None, None]:
     """Short prompt to start the conversation."""
-    yield from prompt_gptme(interactive, agent_name=agent_name, tool_format=tool_format)
-    yield from prompt_tools(examples=False, tools=tools, tool_format=tool_format)
+    yield from prompt_gptme(
+        interactive, model, agent_name=agent_name, tool_format=tool_format
+    )
+    yield from prompt_tools(
+        examples=False, tools=tools, tool_format=tool_format, model=model
+    )
     if interactive:
         yield from prompt_user(tool_format=tool_format)
     yield from prompt_project(tool_format=tool_format)
