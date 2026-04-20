@@ -208,8 +208,28 @@ def _check_tools(verbose: bool = False) -> list[CheckResult]:
         ),
         ("lynx", "Text browser - fallback for web browsing", None),
         ("pdftotext", "PDF extraction - enables PDF reading", None),
+        (
+            "pdftoppm",
+            "PDF page rasterizer - enables PDF preview in browser tool",
+            "Usually provided by the poppler-utils package",
+        ),
+        (
+            "pandoc",
+            "Document converter - enables HTML→Markdown for browser tool",
+            "Install from https://pandoc.org/installing.html or your package manager",
+        ),
+        (
+            "convert",
+            "ImageMagick - image conversion for browser tool",
+            "Install ImageMagick from https://imagemagick.org",
+        ),
         ("rg", "ripgrep - fast file searching", None),
         ("ast-grep", "AST-based code search", None),
+        (
+            "shellcheck",
+            "Shell script linter - enables shell command validation",
+            "Install from https://www.shellcheck.net",
+        ),
     ]
 
     # Check required tools
