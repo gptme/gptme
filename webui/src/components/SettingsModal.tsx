@@ -290,7 +290,7 @@ export const SettingsModal = forwardRef<HTMLButtonElement, SettingsModalProps>(
                       gptme - AI agent framework
                     </a>
                     <a
-                      href="https://github.com/gptme/gptme-webui"
+                      href="https://github.com/gptme/gptme/tree/master/webui"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex items-center text-sm text-muted-foreground transition-colors hover:text-foreground"

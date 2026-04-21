@@ -605,7 +605,7 @@ Contributions welcome! See the [contributing guide](https://gptme.org/docs/contr
 [discord]: https://discord.gg/NMaCmmkxWv
 [github]: https://github.com/gptme/gptme
 [gptme.vim]: https://github.com/gptme/gptme.vim
-[gptme-webui]: https://github.com/gptme/gptme-webui
+[gptme-webui]: https://github.com/gptme/gptme/tree/master/webui
 [gptme-rag]: https://github.com/gptme/gptme-rag
 [gptme-contrib]: https://github.com/gptme/gptme-contrib
 [gptme-tauri]: https://github.com/gptme/gptme-tauri

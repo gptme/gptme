@@ -26,7 +26,7 @@ For more CLI options, see the :ref:`CLI reference <cli:gptme-server>`.
 gptme-webui: Modern Web Interface
 ---------------------------------
 
-The primary web interface is `gptme-webui <https://github.com/gptme/gptme-webui>`_: a modern, feature-rich application that provides a complete gptme experience in your browser.
+The primary web interface is `gptme-webui <https://github.com/gptme/gptme/tree/master/webui>`_: a modern, feature-rich application that provides a complete gptme experience in your browser. (Originally a `standalone repo <https://github.com/gptme/gptme-webui>`_, now merged into the main gptme repository.)
 
 **Try it now:**
 
@@ -44,7 +44,7 @@ The primary web interface is `gptme-webui <https://github.com/gptme/gptme-webui>
 - Create your own persistent `agents`
 
 **Local Installation:**
-For self-hosting and local development, see the `gptme-webui README <https://github.com/gptme/gptme-webui>`_.
+For self-hosting and local development, see the `gptme-webui README <https://github.com/gptme/gptme/tree/master/webui>`_.
 
 To use the server with a locally hosted gptme-webui, configure the CORS origin when starting the server:
 

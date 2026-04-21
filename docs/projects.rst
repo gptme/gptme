@@ -18,8 +18,8 @@ Official Projects
 * `gptme-rag <https://github.com/gptme/gptme-rag>`_
     RAG (Retrieval-Augmented Generation) implementation for gptme context management.
 
-* `gptme-webui <https://github.com/gptme/gptme-webui>`_
-    Fancy web-based user interface for gptme, built with the help of `Lovable <https://lovable.dev/>`_.
+* `gptme-webui <https://github.com/gptme/gptme/tree/master/webui>`_
+    Modern React-based web interface for gptme, available at `chat.gptme.org <https://chat.gptme.org>`_. Originally a `standalone repo <https://github.com/gptme/gptme-webui>`_, now merged into the main gptme repository.
 
 * `gptme.vim <https://github.com/gptme/gptme.vim>`_
     Vim plugin for gptme integration.
