@@ -1,28 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
+  "description": "Capability for the main window (all platforms)",
   "windows": ["main"],
   "permissions": [
     "core:default",
     "opener:default",
-    "shell:default",
-    {
-      "identifier": "shell:allow-execute",
-      "allow": [
-        {
-          "name": "../bins/gptme-server",
-          "sidecar": true,
-          "args": [
-            "--cors-origin",
-            {
-              "validator": "\\S+"
-            }
-          ]
-        }
-      ]
-    },
-    "shell:allow-open",
     "log:default",
     "deep-link:default"
   ]

@@ -1,24 +1,35 @@
-use std::net::TcpListener;
-use std::sync::{Arc, Mutex};
 use tauri::Manager;
 use tauri_plugin_deep_link::DeepLinkExt;
+use tauri_plugin_log::{Target, TargetKind};
+
+// Desktop-only: sidecar server management
+#[cfg(desktop)]
+use std::net::TcpListener;
+#[cfg(desktop)]
+use std::sync::{Arc, Mutex};
+#[cfg(desktop)]
 use tauri_plugin_dialog::{
     DialogExt, MessageDialogBuilder, MessageDialogButtons, MessageDialogKind,
 };
-use tauri_plugin_log::{Target, TargetKind};
+#[cfg(desktop)]
 use tauri_plugin_shell::process::CommandChild;
+#[cfg(desktop)]
 use tauri_plugin_shell::ShellExt;
 
+#[cfg(desktop)]
 const GPTME_SERVER_PORT: u16 = 5700;
 
 /// Check if a port is available
+#[cfg(desktop)]
 fn is_port_available(port: u16) -> bool {
     TcpListener::bind(format!("127.0.0.1:{}", port)).is_ok()
 }
 
 /// Managed state holding the gptme-server child process for cleanup on exit.
+#[cfg(desktop)]
 struct ServerProcess(Arc<Mutex<Option<CommandChild>>>);
 
+#[cfg(desktop)]
 #[derive(serde::Serialize)]
 struct ServerStatus {
     running: bool,
@@ -27,6 +38,7 @@ struct ServerStatus {
 }
 
 /// Get the current status of the local gptme-server.
+#[cfg(desktop)]
 #[tauri::command]
 fn get_server_status(state: tauri::State<'_, ServerProcess>) -> ServerStatus {
     let running = state.0.lock().map(|guard| guard.is_some()).unwrap_or(false);
@@ -38,6 +50,7 @@ fn get_server_status(state: tauri::State<'_, ServerProcess>) -> ServerStatus {
 }
 
 /// Stop the local gptme-server process.
+#[cfg(desktop)]
 #[tauri::command]
 fn stop_server(state: tauri::State<'_, ServerProcess>) -> Result<(), String> {
     let mut guard = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
@@ -52,6 +65,7 @@ fn stop_server(state: tauri::State<'_, ServerProcess>) -> Result<(), String> {
 }
 
 /// Start the local gptme-server process (if not already running).
+#[cfg(desktop)]
 #[tauri::command]
 async fn start_server(
     app: tauri::AppHandle,
@@ -224,6 +238,8 @@ pub fn run() {
                 let _ = window.set_focus();
             }
         }));
+
+        builder = builder.plugin(tauri_plugin_shell::init());
     }
 
     builder
@@ -238,15 +254,19 @@ pub fn run() {
                 .level(log::LevelFilter::Info)
                 .build(),
         )
-        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_deep_link::init())
-        .invoke_handler(tauri::generate_handler![
-            get_server_status,
-            start_server,
-            stop_server,
-        ])
+        .invoke_handler({
+            #[cfg(desktop)]
+            {
+                tauri::generate_handler![get_server_status, start_server, stop_server]
+            }
+            #[cfg(not(desktop))]
+            {
+                tauri::generate_handler![]
+            }
+        })
         .setup(|app| {
             log::info!("Starting gptme-tauri application");
 
@@ -274,161 +294,180 @@ pub fn run() {
                 handle_deep_link_urls(&handle, urls);
             });
 
-            let app_handle = app.handle().clone();
+            // Desktop only: spawn the bundled gptme-server sidecar
+            #[cfg(desktop)]
+            {
+                let app_handle = app.handle().clone();
 
-            // Shared handle to the child process — written by the spawn task,
-            // read by the window-close handler for cleanup.
-            let child_handle: Arc<Mutex<Option<CommandChild>>> = Arc::new(Mutex::new(None));
-            let child_for_spawn = child_handle.clone();
+                // Shared handle to the child process — written by the spawn task,
+                // read by the window-close handler for cleanup.
+                let child_handle: Arc<Mutex<Option<CommandChild>>> = Arc::new(Mutex::new(None));
+                let child_for_spawn = child_handle.clone();
 
-            // Register state so the window-close handler can access it.
-            app.manage(ServerProcess(child_handle));
+                // Register state so the window-close handler can access it.
+                app.manage(ServerProcess(child_handle));
 
-            // Spawn gptme-server with output capture
-            tauri::async_runtime::spawn(async move {
-                // Check if port is available before starting
-                if !is_port_available(GPTME_SERVER_PORT) {
-                    log::error!(
-                        "Port {} is already in use. Another gptme-server instance may be running.",
-                        GPTME_SERVER_PORT
-                    );
-
-                    let message = format!(
-                        "Cannot start gptme-server because port {} is already in use.\n\n\
-                        This usually means another gptme-server instance is already running.\n\n\
-                        Please stop the existing gptme-server process and restart this application.",
-                        GPTME_SERVER_PORT
-                    );
-
-                    MessageDialogBuilder::new(
-                        app_handle.dialog().clone(),
-                        "Port Conflict",
-                        message,
-                    )
-                    .kind(MessageDialogKind::Error)
-                    .buttons(MessageDialogButtons::Ok)
-                    .show(|_result| {});
-
-                    return;
-                }
-
-                // Determine CORS origin based on build mode and platform.
-                // Tauri v2 uses different URL schemes per platform:
-                // - macOS: tauri://localhost (custom Tauri protocol)
-                // - Linux/Windows: http://tauri.localhost
-                let cors_origin = if cfg!(debug_assertions) {
-                    "http://localhost:5701" // Dev mode
-                } else if cfg!(target_os = "macos") {
-                    "tauri://localhost" // macOS production
-                } else {
-                    "http://tauri.localhost" // Linux/Windows production
-                };
-
-                log::info!(
-                    "Port {} is available, starting gptme-server with CORS origin: {}",
-                    GPTME_SERVER_PORT,
-                    cors_origin
-                );
-
-                let sidecar_command = match app_handle
-                    .shell()
-                    .sidecar("gptme-server")
-                {
-                    Ok(s) => s.args(["--cors-origin", cors_origin]),
-                    Err(e) => {
-                        log::error!("Failed to find gptme-server sidecar: {}", e);
-                        return;
-                    }
-                };
-
-                match sidecar_command.spawn() {
-                    Ok((mut rx, child)) => {
-                        log::info!(
-                            "gptme-server started successfully with PID: {}",
-                            child.pid()
+                // Spawn gptme-server with output capture
+                tauri::async_runtime::spawn(async move {
+                    // Check if port is available before starting
+                    if !is_port_available(GPTME_SERVER_PORT) {
+                        log::error!(
+                            "Port {} is already in use. Another gptme-server instance may be running.",
+                            GPTME_SERVER_PORT
                         );
 
-                        // Store child process for later cleanup
-                        if let Ok(mut guard) = child_for_spawn.lock() {
-                            *guard = Some(child);
+                        let message = format!(
+                            "Cannot start gptme-server because port {} is already in use.\n\n\
+                            This usually means another gptme-server instance is already running.\n\n\
+                            Please stop the existing gptme-server process and restart this application.",
+                            GPTME_SERVER_PORT
+                        );
+
+                        MessageDialogBuilder::new(
+                            app_handle.dialog().clone(),
+                            "Port Conflict",
+                            message,
+                        )
+                        .kind(MessageDialogKind::Error)
+                        .buttons(MessageDialogButtons::Ok)
+                        .show(|_result| {});
+
+                        return;
+                    }
+
+                    // Determine CORS origin based on build mode and platform.
+                    // Tauri v2 uses different URL schemes per platform:
+                    // - macOS: tauri://localhost (custom Tauri protocol)
+                    // - Linux/Windows: http://tauri.localhost
+                    let cors_origin = if cfg!(debug_assertions) {
+                        "http://localhost:5701" // Dev mode
+                    } else if cfg!(target_os = "macos") {
+                        "tauri://localhost" // macOS production
+                    } else {
+                        "http://tauri.localhost" // Linux/Windows production
+                    };
+
+                    log::info!(
+                        "Port {} is available, starting gptme-server with CORS origin: {}",
+                        GPTME_SERVER_PORT,
+                        cors_origin
+                    );
+
+                    let sidecar_command = match app_handle.shell().sidecar("gptme-server") {
+                        Ok(s) => s.args(["--cors-origin", cors_origin]),
+                        Err(e) => {
+                            log::error!("Failed to find gptme-server sidecar: {}", e);
+                            return;
                         }
+                    };
 
-                        // Clone the Arc so the async task can clear state when server terminates
-                        let child_for_output = child_for_spawn.clone();
+                    match sidecar_command.spawn() {
+                        Ok((mut rx, child)) => {
+                            log::info!(
+                                "gptme-server started successfully with PID: {}",
+                                child.pid()
+                            );
 
-                        // Handle server output
-                        tauri::async_runtime::spawn(async move {
-                            while let Some(event) = rx.recv().await {
-                                match event {
-                                    tauri_plugin_shell::process::CommandEvent::Stdout(data) => {
-                                        let output = String::from_utf8_lossy(&data);
-                                        for line in output.lines() {
-                                            if !line.trim().is_empty() {
-                                                log::info!("[gptme-server] {}", line.trim());
-                                            }
-                                        }
-                                    }
-                                    tauri_plugin_shell::process::CommandEvent::Stderr(data) => {
-                                        let output = String::from_utf8_lossy(&data);
-                                        for line in output.lines() {
-                                            if !line.trim().is_empty() {
-                                                log::warn!("[gptme-server] {}", line.trim());
-                                            }
-                                        }
-                                    }
-                                    tauri_plugin_shell::process::CommandEvent::Error(error) => {
-                                        log::error!("[gptme-server] Process error: {}", error);
-                                    }
-                                    tauri_plugin_shell::process::CommandEvent::Terminated(
-                                        payload,
-                                    ) => {
-                                        log::warn!(
-                                            "[gptme-server] Process terminated with code: {:?}",
-                                            payload.code
-                                        );
-                                        // Clear state so get_server_status correctly reports not running
-                                        if let Ok(mut guard) = child_for_output.lock() {
-                                            *guard = None;
-                                        }
-                                        break;
-                                    }
-                                    _ => {}
-                                }
+                            // Store child process for later cleanup
+                            if let Ok(mut guard) = child_for_spawn.lock() {
+                                *guard = Some(child);
                             }
-                        });
+
+                            // Clone the Arc so the async task can clear state when server terminates
+                            let child_for_output = child_for_spawn.clone();
+
+                            // Handle server output
+                            tauri::async_runtime::spawn(async move {
+                                while let Some(event) = rx.recv().await {
+                                    match event {
+                                        tauri_plugin_shell::process::CommandEvent::Stdout(
+                                            data,
+                                        ) => {
+                                            let output = String::from_utf8_lossy(&data);
+                                            for line in output.lines() {
+                                                if !line.trim().is_empty() {
+                                                    log::info!(
+                                                        "[gptme-server] {}",
+                                                        line.trim()
+                                                    );
+                                                }
+                                            }
+                                        }
+                                        tauri_plugin_shell::process::CommandEvent::Stderr(
+                                            data,
+                                        ) => {
+                                            let output = String::from_utf8_lossy(&data);
+                                            for line in output.lines() {
+                                                if !line.trim().is_empty() {
+                                                    log::warn!(
+                                                        "[gptme-server] {}",
+                                                        line.trim()
+                                                    );
+                                                }
+                                            }
+                                        }
+                                        tauri_plugin_shell::process::CommandEvent::Error(
+                                            error,
+                                        ) => {
+                                            log::error!(
+                                                "[gptme-server] Process error: {}",
+                                                error
+                                            );
+                                        }
+                                        tauri_plugin_shell::process::CommandEvent::Terminated(
+                                            payload,
+                                        ) => {
+                                            log::warn!(
+                                                "[gptme-server] Process terminated with code: {:?}",
+                                                payload.code
+                                            );
+                                            // Clear state so get_server_status correctly reports not running
+                                            if let Ok(mut guard) = child_for_output.lock() {
+                                                *guard = None;
+                                            }
+                                            break;
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            });
+                        }
+                        Err(e) => {
+                            log::error!("Failed to start gptme-server: {}", e);
+                        }
                     }
-                    Err(e) => {
-                        log::error!("Failed to start gptme-server: {}", e);
-                    }
-                }
-            });
+                });
+            }
 
             Ok(())
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
-                log::info!("Window close requested, cleaning up gptme-server...");
+                log::info!("Window close requested, cleaning up...");
 
-                let arc = window.state::<ServerProcess>().0.clone();
-                let mut guard = match arc.lock() {
-                    Ok(g) => g,
-                    Err(_) => {
-                        log::error!("Failed to acquire lock on server process");
-                        return;
-                    }
-                };
-                if let Some(child) = guard.take() {
-                    log::info!("Terminating gptme-server process...");
-                    match child.kill() {
-                        Ok(_) => {
-                            log::info!("gptme-server process terminated successfully");
+                #[cfg(desktop)]
+                {
+                    let arc = window.state::<ServerProcess>().0.clone();
+                    let mut guard = match arc.lock() {
+                        Ok(g) => g,
+                        Err(_) => {
+                            log::error!("Failed to acquire lock on server process");
+                            return;
                         }
-                        Err(e) => {
-                            log::error!("Failed to terminate gptme-server: {}", e);
+                    };
+                    if let Some(child) = guard.take() {
+                        log::info!("Terminating gptme-server process...");
+                        match child.kill() {
+                            Ok(_) => {
+                                log::info!("gptme-server process terminated successfully");
+                            }
+                            Err(e) => {
+                                log::error!("Failed to terminate gptme-server: {}", e);
+                            }
                         }
+                    } else {
+                        log::warn!("No gptme-server process found to terminate");
                     }
-                } else {
-                    log::warn!("No gptme-server process found to terminate");
                 }
             }
         })
@@ -442,6 +481,7 @@ mod tests {
 
     // ── Port availability ──────────────────────────────────────────
 
+    #[cfg(desktop)]
     #[test]
     fn test_is_port_available_on_unused_port() {
         // Bind to port 0 to get an OS-assigned free port, then release it
@@ -452,6 +492,7 @@ mod tests {
         assert!(is_port_available(port));
     }
 
+    #[cfg(desktop)]
     #[test]
     fn test_is_port_available_on_occupied_port() {
         // Bind a port so it's occupied, then verify is_port_available returns false.
@@ -506,6 +547,7 @@ mod tests {
 
     // ── ServerStatus serialization ─────────────────────────────────
 
+    #[cfg(desktop)]
     #[test]
     fn test_server_status_serialization() {
         let status = ServerStatus {
@@ -521,6 +563,7 @@ mod tests {
 
     // ── ServerProcess state logic ─────────────────────────────────
 
+    #[cfg(desktop)]
     #[test]
     fn test_server_process_initial_state() {
         // With no server process, the guard should be None.
@@ -530,6 +573,7 @@ mod tests {
         assert!(!running);
     }
 
+    #[cfg(desktop)]
     #[test]
     fn test_server_process_state_is_send_sync() {
         // ServerProcess must be Send + Sync for Tauri's managed state.
@@ -537,6 +581,7 @@ mod tests {
         assert_send_sync::<ServerProcess>();
     }
 
+    #[cfg(desktop)]
     #[test]
     fn test_gptme_server_port_constant() {
         assert_eq!(GPTME_SERVER_PORT, 5700);

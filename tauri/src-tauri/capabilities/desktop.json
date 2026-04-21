@@ -1,0 +1,26 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop",
+  "description": "Desktop-only capability: shell plugin and gptme-server sidecar execution",
+  "platforms": ["linux", "macos", "windows"],
+  "windows": ["main"],
+  "permissions": [
+    "shell:default",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "../bins/gptme-server",
+          "sidecar": true,
+          "args": [
+            "--cors-origin",
+            {
+              "validator": "\\S+"
+            }
+          ]
+        }
+      ]
+    },
+    "shell:allow-open"
+  ]
+}
