@@ -156,6 +156,25 @@ class ApiRootResponse(BaseModel):
     )
 
 
+class UserApiKeySaveRequest(BaseModel):
+    """Request to save a provider API key into user config."""
+
+    provider: str = Field(..., description="Provider slug, e.g. anthropic or openai")
+    api_key: str = Field(..., description="Provider API key to persist in [env]")
+
+
+class UserApiKeySaveResponse(BaseModel):
+    """Response after persisting a provider API key."""
+
+    status: str = Field(..., description="Operation status")
+    provider: str = Field(..., description="Provider slug that was saved")
+    env_var: str = Field(..., description="Env var written into user config")
+    restart_required: bool = Field(
+        True,
+        description="Whether the running server must be restarted before the new key is guaranteed to take effect",
+    )
+
+
 class ExternalSessionListItem(BaseModel):
     """A read-only external session catalog item."""
 

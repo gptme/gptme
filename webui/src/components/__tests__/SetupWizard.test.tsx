@@ -220,15 +220,20 @@ describe('SetupWizard', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  it('saves an API key via Tauri and advances to complete', async () => {
+  it('saves an API key via the server API and advances to complete', async () => {
     isTauriMock = true;
-    // First /api/v2 call: no provider. After save + restart: server needs one retry,
-    // then returns provider_configured=true.
+    // First /api/v2 call: no provider. Then the save POST succeeds. After save +
+    // restart: server needs one retry, then returns provider_configured=true.
     mockFetch
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
         json: async () => ({ provider_configured: false }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ status: 'ok', env_var: 'ANTHROPIC_API_KEY' }),
       })
       .mockRejectedValueOnce(new Error('connection refused'))
       .mockResolvedValueOnce({
@@ -266,9 +271,15 @@ describe('SetupWizard', () => {
     fireEvent.click(screen.getByRole('button', { name: /save and restart server/i }));
 
     await waitFor(() => {
-      expect(mockInvokeTauri).toHaveBeenCalledWith('save_api_key', {
-        provider: 'anthropic',
-        apiKey: 'sk-ant-test-key',
+      expect(mockFetch).toHaveBeenCalledWith('http://localhost:5700/api/v2/user/api-key', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          provider: 'anthropic',
+          api_key: 'sk-ant-test-key',
+        }),
       });
     });
     // Server restart and provider recheck should follow.
@@ -287,6 +298,11 @@ describe('SetupWizard', () => {
         ok: true,
         status: 200,
         json: async () => ({ provider_configured: false }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ status: 'ok', env_var: 'ANTHROPIC_API_KEY' }),
       })
       .mockRejectedValue(new Error('connection refused'));
     mockConnect.mockImplementation(async () => {
@@ -321,18 +337,21 @@ describe('SetupWizard', () => {
     expect(screen.getByRole('heading', { name: /configure a provider/i })).toBeInTheDocument();
   });
 
-  it('surfaces save_api_key errors without advancing', async () => {
+  it('surfaces API key save errors without advancing', async () => {
     isTauriMock = true;
-    mockFetch.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ provider_configured: false }),
-    });
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ provider_configured: false }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        json: async () => ({ error: 'Failed to write config: permission denied' }),
+      });
     mockConnect.mockImplementation(async () => {
       isConnected$.set(true);
-    });
-    mockInvokeTauri.mockImplementation(async (cmd: string) => {
-      if (cmd === 'save_api_key') throw new Error('Failed to write config: permission denied');
     });
 
     render(

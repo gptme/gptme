@@ -100,6 +100,37 @@ export function SetupWizard() {
     return data.provider_configured !== false;
   }, [connectionConfig.baseUrl]);
 
+  const saveApiKeyToServer = useCallback(
+    async (provider: SetupProvider, apiKey: string) => {
+      const resp = await fetch(`${connectionConfig.baseUrl}/api/v2/user/api-key`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          provider,
+          api_key: apiKey,
+        }),
+      });
+
+      if (resp.ok) {
+        return;
+      }
+
+      let message = `Failed to save API key (${resp.status})`;
+      try {
+        const data = (await resp.json()) as { error?: string };
+        if (data.error) {
+          message = data.error;
+        }
+      } catch {
+        // Fall back to the generic status-based message.
+      }
+      throw new Error(message);
+    },
+    [connectionConfig.baseUrl]
+  );
+
   // Fetch /api/v2, check provider_configured, then advance to 'provider' or 'complete'.
   const checkProviderAndAdvance = useCallback(
     async ({ assumeConfiguredOnError = true }: { assumeConfiguredOnError?: boolean } = {}) => {
@@ -206,8 +237,8 @@ export function SetupWizard() {
     }
   };
 
-  // Save the user's API key via a Tauri IPC command, restart the managed
-  // server so it picks up the new env var, then re-check provider status.
+  // Save the user's API key through the server surface, then use the Tauri
+  // shell only for the desktop-specific restart of the managed sidecar.
   const handleSaveApiKey = async () => {
     const trimmed = apiKey.trim();
     if (!trimmed) {
@@ -217,7 +248,7 @@ export function SetupWizard() {
     setApiKeySaving(true);
     setApiKeyError(null);
     try {
-      await invokeTauri('save_api_key', { provider: apiKeyProvider, apiKey: trimmed });
+      await saveApiKeyToServer(apiKeyProvider, trimmed);
       // Restart the managed server so the new key is picked up. Both calls are
       // best-effort — if the server isn't actually running, stop_server returns
       // an error we can safely swallow before starting.
