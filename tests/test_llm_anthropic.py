@@ -1,6 +1,12 @@
+import logging
 import os
 
-from gptme.llm.llm_anthropic import _prepare_messages_for_api
+import pytest
+
+from gptme.llm.llm_anthropic import (
+    _prepare_messages_for_api,
+    _resolve_thinking_budget,
+)
 from gptme.message import Message
 from gptme.tools import get_tool, init_tools
 
@@ -442,3 +448,66 @@ def test_web_search_tool_with_other_tools():
         assert web_search_tool["max_uses"] == 5  # type: ignore[typeddict-item]  # Default value
     finally:
         os.environ.pop("GPTME_ANTHROPIC_WEB_SEARCH", None)
+
+
+class TestResolveThinkingBudget:
+    """_resolve_thinking_budget handles GPTME_THINKING_EFFORT and GPTME_REASONING_BUDGET."""
+
+    def setup_method(self):
+        # Isolate tests from ambient env
+        self._saved = {}
+        for key in ("GPTME_THINKING_EFFORT", "GPTME_REASONING_BUDGET"):
+            self._saved[key] = os.environ.pop(key, None)
+
+    def teardown_method(self):
+        for key, val in self._saved.items():
+            if val is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = val
+
+    def test_default_is_high(self):
+        assert _resolve_thinking_budget() == 16000
+
+    def test_reasoning_budget_integer(self):
+        os.environ["GPTME_REASONING_BUDGET"] = "12345"
+        assert _resolve_thinking_budget() == 12345
+
+    def test_reasoning_budget_invalid_raises(self):
+        os.environ["GPTME_REASONING_BUDGET"] = "not-a-number"
+        with pytest.raises(ValueError, match="GPTME_REASONING_BUDGET"):
+            _resolve_thinking_budget()
+
+    @pytest.mark.parametrize(
+        ("effort", "expected"),
+        [
+            ("low", 2000),
+            ("medium", 8000),
+            ("high", 16000),
+            ("xhigh", 24000),
+            ("max", 32000),
+        ],
+    )
+    def test_effort_levels(self, effort, expected):
+        os.environ["GPTME_THINKING_EFFORT"] = effort
+        assert _resolve_thinking_budget() == expected
+
+    def test_effort_case_insensitive(self):
+        os.environ["GPTME_THINKING_EFFORT"] = "XHIGH"
+        assert _resolve_thinking_budget() == 24000
+
+    def test_effort_invalid_raises(self):
+        os.environ["GPTME_THINKING_EFFORT"] = "extreme"
+        with pytest.raises(ValueError, match="GPTME_THINKING_EFFORT"):
+            _resolve_thinking_budget()
+
+    def test_effort_wins_when_both_set(self, caplog):
+        os.environ["GPTME_THINKING_EFFORT"] = "low"
+        os.environ["GPTME_REASONING_BUDGET"] = "99999"
+        with caplog.at_level(logging.WARNING, logger="gptme.llm.llm_anthropic"):
+            assert _resolve_thinking_budget() == 2000
+        assert any(
+            "GPTME_THINKING_EFFORT" in rec.message
+            and "GPTME_REASONING_BUDGET" in rec.message
+            for rec in caplog.records
+        )

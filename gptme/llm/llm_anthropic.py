@@ -30,6 +30,20 @@ from .utils import (
 
 ENV_REASONING = "GPTME_REASONING"
 ENV_REASONING_BUDGET = "GPTME_REASONING_BUDGET"
+ENV_THINKING_EFFORT = "GPTME_THINKING_EFFORT"
+
+# Ergonomic named levels that map to budget_tokens values, mirroring the
+# ``low``/``medium``/``high``/``xhigh``/``max`` levels Anthropic exposes via
+# ``output_config.effort`` (Opus 4.7+). True ``xhigh``/``max`` semantics
+# (adaptive thinking) require a newer ``anthropic`` SDK than gptme currently
+# pins; these values are approximations until that bump lands. See #2183.
+_THINKING_EFFORT_BUDGETS: dict[str, int] = {
+    "low": 2000,
+    "medium": 8000,
+    "high": 16000,
+    "xhigh": 24000,
+    "max": 32000,
+}
 
 if TYPE_CHECKING:
     # noreorder
@@ -157,6 +171,47 @@ def _record_usage(
     if cost > 0:
         metadata["cost"] = cost
     return metadata
+
+
+def _resolve_thinking_budget() -> int:
+    """Resolve thinking budget from ``GPTME_THINKING_EFFORT`` or ``GPTME_REASONING_BUDGET``.
+
+    Precedence: if ``GPTME_THINKING_EFFORT`` is set, its level maps to a
+    budget via ``_THINKING_EFFORT_BUDGETS``. Otherwise,
+    ``GPTME_REASONING_BUDGET`` is parsed as an integer (default 16000).
+
+    If both are set, ``GPTME_THINKING_EFFORT`` wins and a warning is logged.
+    """
+    effort = os.environ.get(ENV_THINKING_EFFORT)
+    budget_raw = os.environ.get(ENV_REASONING_BUDGET)
+
+    if effort is not None:
+        level = effort.strip().lower()
+        if level not in _THINKING_EFFORT_BUDGETS:
+            valid = ", ".join(_THINKING_EFFORT_BUDGETS)
+            raise ValueError(
+                f"Invalid {ENV_THINKING_EFFORT} value: {effort!r}. "
+                f"Must be one of: {valid}."
+            )
+        if budget_raw is not None:
+            logger.warning(
+                "Both %s and %s set; using %s=%s",
+                ENV_THINKING_EFFORT,
+                ENV_REASONING_BUDGET,
+                ENV_THINKING_EFFORT,
+                level,
+            )
+        return _THINKING_EFFORT_BUDGETS[level]
+
+    if budget_raw is None:
+        return _THINKING_EFFORT_BUDGETS["high"]
+    try:
+        return int(budget_raw)
+    except ValueError as parse_err:
+        raise ValueError(
+            f"Invalid {ENV_REASONING_BUDGET} value: {budget_raw!r}. "
+            "Must be a valid integer."
+        ) from parse_err
 
 
 def _adjust_thinking_budget(
@@ -447,14 +502,7 @@ def chat(
 
     model_meta = get_model(f"anthropic/{model}")
     use_thinking = _should_use_thinking(model_meta, tools)
-    thinking_budget_str = os.environ.get(ENV_REASONING_BUDGET, "16000")
-    try:
-        thinking_budget = int(thinking_budget_str)
-    except ValueError as parse_err:
-        raise ValueError(
-            f"Invalid {ENV_REASONING_BUDGET} value: {thinking_budget_str!r}. "
-            "Must be a valid integer."
-        ) from parse_err
+    thinking_budget = _resolve_thinking_budget()
     max_tokens = (
         max_tokens if max_tokens is not None else (model_meta.max_output or 4096)
     )
@@ -550,15 +598,7 @@ def stream(
 
     model_meta = get_model(f"anthropic/{model}")
     use_thinking = _should_use_thinking(model_meta, tools)
-    # Use the same configurable thinking budget as chat()
-    thinking_budget_str = os.environ.get(ENV_REASONING_BUDGET, "16000")
-    try:
-        thinking_budget = int(thinking_budget_str)
-    except ValueError as parse_err:
-        raise ValueError(
-            f"Invalid {ENV_REASONING_BUDGET} value: {thinking_budget_str!r}. "
-            "Must be a valid integer."
-        ) from parse_err
+    thinking_budget = _resolve_thinking_budget()
     max_tokens = (
         max_tokens if max_tokens is not None else (model_meta.max_output or 4096)
     )
