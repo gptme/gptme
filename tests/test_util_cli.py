@@ -470,3 +470,106 @@ def test_profile_show_shows_empty_tools_as_empty_not_all_tools(monkeypatch):
     assert "no-tools" in result.output
     assert "Tools:" in result.output
     assert "all tools" not in result.output.lower()
+
+
+# ---------------------------------------------------------------------------
+# agents scan tests
+# ---------------------------------------------------------------------------
+
+
+def _make_agent(
+    pid=1234,
+    runtime="claude-code",
+    cwd="/home/user/project",
+    model="opus",
+    mode="autonomous",
+    branch="master",
+    uptime_seconds=300,
+    stale=False,
+    stale_reason=None,
+):
+    from gptme.hooks.workspace_agents import AgentInfo
+
+    return AgentInfo(
+        pid=pid,
+        runtime=runtime,
+        cwd=cwd,
+        model=model,
+        mode=mode,
+        branch=branch,
+        uptime_seconds=uptime_seconds,
+        stale=stale,
+        stale_reason=stale_reason,
+    )
+
+
+def test_agents_scan_empty(mocker):
+    """agents scan returns exit 1 and a clear message when no agents run."""
+    mocker.patch("gptme.hooks.workspace_agents.scan_agents", return_value=[])
+    runner = CliRunner()
+    result = runner.invoke(main, ["agents", "scan"])
+    assert result.exit_code == 1
+    assert "No active agents" in result.output
+
+
+def test_agents_scan_active(mocker):
+    """agents scan shows active agents and exits 0."""
+    agent = _make_agent()
+    mocker.patch("gptme.hooks.workspace_agents.scan_agents", return_value=[agent])
+    runner = CliRunner()
+    result = runner.invoke(main, ["agents", "scan"])
+    assert result.exit_code == 0
+    assert "claude-code" in result.output
+    assert "1234" in result.output  # PID shown
+
+
+def test_agents_scan_json(mocker):
+    """agents scan --json returns valid JSON with expected fields."""
+    import json
+
+    agent = _make_agent()
+    mocker.patch("gptme.hooks.workspace_agents.scan_agents", return_value=[agent])
+    runner = CliRunner()
+    result = runner.invoke(main, ["agents", "scan", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert isinstance(data, list)
+    assert len(data) == 1
+    assert data[0]["runtime"] == "claude-code"
+    assert data[0]["pid"] == 1234
+    assert data[0]["mode"] == "autonomous"
+
+
+def test_agents_scan_hides_stale_by_default(mocker):
+    """Stale agents are hidden unless --all is passed."""
+    active = _make_agent(pid=100, stale=False)
+    stale = _make_agent(
+        pid=200, stale=True, stale_reason="too old", uptime_seconds=10000
+    )
+    mocker.patch(
+        "gptme.hooks.workspace_agents.scan_agents", return_value=[active, stale]
+    )
+    runner = CliRunner()
+
+    # Default: stale hidden
+    result = runner.invoke(main, ["agents", "scan"])
+    assert result.exit_code == 0
+    assert "100" in result.output
+    assert "200" not in result.output
+    assert "stale" in result.output  # hint shown
+
+    # --all: both shown
+    result = runner.invoke(main, ["agents", "scan", "--all"])
+    assert result.exit_code == 0
+    assert "100" in result.output
+    assert "200" in result.output
+
+
+def test_agents_scan_workspace_passes_through(mocker, tmp_path):
+    """--workspace argument is forwarded to scan_agents."""
+    mock_scan = mocker.patch(
+        "gptme.hooks.workspace_agents.scan_agents", return_value=[]
+    )
+    runner = CliRunner()
+    runner.invoke(main, ["agents", "scan", "--workspace", str(tmp_path)])
+    mock_scan.assert_called_once_with(workspace=str(tmp_path))

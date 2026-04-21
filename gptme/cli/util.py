@@ -2,6 +2,7 @@
 CLI for gptme utility commands.
 
 Command groups are split into separate modules for maintainability:
+- cmd_agents.py: Live agent scanning (scan for gptme/claude/codex/… processes)
 - cmd_chats.py: Chat/conversation management (list, search, export, clean, stats)
 - cmd_hooks.py: Claude Code hook installation and execution
 - cmd_mcp.py: MCP server management (list, test, info, search)
@@ -34,6 +35,7 @@ from ..llm import PROVIDER_DEFAULT_MODELS as _PROVIDER_DEFAULT_MODELS
 from ..llm.models import get_model_list, list_models, model_to_dict
 from ..message import Message
 from ..util.context import include_paths
+from .cmd_agents import agents
 from .cmd_chats import chats
 from .cmd_hooks import hooks
 from .cmd_mcp import mcp
@@ -50,6 +52,7 @@ def main(verbose: bool = False):
 
 
 # Register command groups from submodules
+main.add_command(agents)
 main.add_command(chats)
 main.add_command(hooks)
 main.add_command(mcp)
