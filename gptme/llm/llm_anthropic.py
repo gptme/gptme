@@ -305,7 +305,7 @@ def _build_thinking_param(
 
 
 def _adjust_thinking_budget(
-    max_tokens: int, thinking_budget: int, use_thinking: bool
+    max_tokens: int, thinking_budget: int, use_thinking: bool, model: str = ""
 ) -> tuple[int, bool]:
     """Clamp thinking_budget to fit within max_tokens for Anthropic's extended thinking.
 
@@ -315,8 +315,13 @@ def _adjust_thinking_budget(
 
     Always reserves at least _MIN_RESPONSE_TOKENS for the actual response;
     disables thinking entirely when max_tokens is too small to be useful.
+
+    Adaptive-thinking models (Opus 4.7+) have no ``budget_tokens`` constraint —
+    the API allocates tokens internally — so the clamping logic is skipped for them.
     """
-    if not use_thinking or max_tokens >= thinking_budget + _MIN_RESPONSE_TOKENS:
+    if not use_thinking or _requires_adaptive_thinking(model):
+        return thinking_budget, use_thinking
+    if max_tokens >= thinking_budget + _MIN_RESPONSE_TOKENS:
         return thinking_budget, use_thinking
     new_budget = max_tokens - _MIN_RESPONSE_TOKENS
     if new_budget <= 0:
@@ -597,7 +602,7 @@ def chat(
         max_tokens if max_tokens is not None else (model_meta.max_output or 4096)
     )
     thinking_budget, use_thinking = _adjust_thinking_budget(
-        max_tokens, thinking_budget, use_thinking
+        max_tokens, thinking_budget, use_thinking, model=model
     )
 
     # Pass output_config.effort when the SDK supports it (>= 0.77) and
@@ -696,7 +701,7 @@ def stream(
         max_tokens if max_tokens is not None else (model_meta.max_output or 4096)
     )
     thinking_budget, use_thinking = _adjust_thinking_budget(
-        max_tokens, thinking_budget, use_thinking
+        max_tokens, thinking_budget, use_thinking, model=model
     )
 
     output_config_kwargs = _output_config_kwargs(use_thinking=use_thinking)

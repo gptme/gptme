@@ -5,6 +5,7 @@ import pytest
 
 from gptme.llm.llm_anthropic import (
     _HAS_OUTPUT_CONFIG,
+    _adjust_thinking_budget,
     _build_thinking_param,
     _output_config_kwargs,
     _prepare_messages_for_api,
@@ -691,3 +692,59 @@ class TestBuildThinkingParam:
             use_thinking=True,
             thinking_budget=8000,
         ) == {"type": "adaptive"}
+
+
+class TestAdjustThinkingBudgetAdaptive:
+    """_adjust_thinking_budget must not disable thinking for adaptive models."""
+
+    def test_adaptive_model_small_max_tokens_keeps_thinking(self):
+        # Legacy logic would disable thinking here (budget=8000 > max_tokens=100).
+        # For Opus 4.7 (adaptive), budget_tokens is irrelevant — thinking stays on.
+        budget, use_thinking = _adjust_thinking_budget(
+            max_tokens=100,
+            thinking_budget=8000,
+            use_thinking=True,
+            model="claude-opus-4-7",
+        )
+        assert use_thinking is True
+        assert budget == 8000  # unchanged; adaptive doesn't use this field
+
+    def test_adaptive_model_tiny_max_tokens_keeps_thinking(self):
+        # Even max_tokens=1 must not suppress adaptive thinking.
+        budget, use_thinking = _adjust_thinking_budget(
+            max_tokens=1,
+            thinking_budget=8000,
+            use_thinking=True,
+            model="claude-opus-4-7",
+        )
+        assert use_thinking is True
+
+    def test_adaptive_model_prefixed_keeps_thinking(self):
+        budget, use_thinking = _adjust_thinking_budget(
+            max_tokens=50,
+            thinking_budget=16000,
+            use_thinking=True,
+            model="anthropic/claude-opus-4-7",
+        )
+        assert use_thinking is True
+
+    def test_legacy_model_small_max_tokens_disables_thinking(self):
+        # Legacy path unchanged: Opus 4.6 with tiny max_tokens still disables.
+        _, use_thinking = _adjust_thinking_budget(
+            max_tokens=50,
+            thinking_budget=8000,
+            use_thinking=True,
+            model="claude-opus-4-6",
+        )
+        assert use_thinking is False
+
+    def test_adaptive_thinking_disabled_returns_unchanged(self):
+        # use_thinking=False stays False regardless of model.
+        budget, use_thinking = _adjust_thinking_budget(
+            max_tokens=100,
+            thinking_budget=8000,
+            use_thinking=False,
+            model="claude-opus-4-7",
+        )
+        assert use_thinking is False
+        assert budget == 8000
