@@ -17,7 +17,15 @@ import flask
 from dateutil.parser import isoparse
 from flask import request
 
-from gptme.config import ChatConfig, Config, get_config, load_user_config, set_config
+from gptme.config import (
+    ChatConfig,
+    Config,
+    get_config,
+    load_user_config,
+    set_config,
+    set_config_value,
+)
+from gptme.llm import PROVIDER_API_KEYS
 from gptme.llm.models import (
     PROVIDERS,
     Provider,
@@ -58,6 +66,8 @@ from .openapi_docs import (
     MessageCreateRequest,
     SessionResponse,
     StatusResponse,
+    UserApiKeySaveRequest,
+    UserApiKeySaveResponse,
     api_doc,
     api_doc_simple,
 )
@@ -87,6 +97,18 @@ def _is_valid_image_content(path: "Path") -> bool:
     except Exception:
         logger.warning("Unexpected error validating image %s", path, exc_info=True)
         return False
+
+
+def _validate_api_key_input(api_key: str) -> str:
+    """Apply lightweight sanity checks before persisting a user-supplied API key."""
+    trimmed = api_key.strip()
+    if not trimmed:
+        raise ValueError("API key is empty")
+    if len(trimmed) > 4096:
+        raise ValueError("API key is too long")
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in trimmed):
+        raise ValueError("API key contains control characters")
+    return trimmed
 
 
 v2_api = flask.Blueprint("v2_api", __name__)
@@ -1280,6 +1302,53 @@ def api_user():
         {
             "name": user_config.user.name,
             "avatar": user_config.user.avatar,
+        }
+    )
+
+
+@v2_api.route("/api/v2/user/api-key", methods=["POST"])
+@require_auth
+@api_doc(
+    summary="Save provider API key",
+    description=(
+        "Persist a provider API key into the user's global gptme config. "
+        "Intended for first-run onboarding flows; callers should restart the "
+        "server after a successful write if they need the running process to "
+        "pick the key up immediately."
+    ),
+    request_body=UserApiKeySaveRequest,
+    responses={200: UserApiKeySaveResponse, 400: ErrorResponse},
+    tags=["user"],
+)
+def api_user_api_key():
+    """Persist a provider API key into user config."""
+    req_json = flask.request.json
+    if not req_json:
+        return flask.jsonify({"error": "No JSON data provided"}), 400
+
+    provider = req_json.get("provider")
+    api_key = req_json.get("api_key")
+    if not isinstance(provider, str):
+        return flask.jsonify({"error": "provider must be a string"}), 400
+    if not isinstance(api_key, str):
+        return flask.jsonify({"error": "api_key must be a string"}), 400
+    if provider not in PROVIDER_API_KEYS:
+        return flask.jsonify({"error": f"Unknown provider: {provider}"}), 400
+
+    try:
+        trimmed_api_key = _validate_api_key_input(api_key)
+    except ValueError as exc:
+        return flask.jsonify({"error": str(exc)}), 400
+
+    env_var = PROVIDER_API_KEYS[provider]
+    set_config_value(f"env.{env_var}", trimmed_api_key, reload=False)
+    logger.info("Saved %s to user config via /api/v2/user/api-key", env_var)
+    return flask.jsonify(
+        {
+            "status": "ok",
+            "provider": provider,
+            "env_var": env_var,
+            "restart_required": True,
         }
     )
 

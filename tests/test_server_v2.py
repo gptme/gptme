@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+import tomlkit
 
 from gptme.config import ChatConfig, MCPConfig
 from gptme.llm.models import ModelMeta, get_default_model
@@ -104,6 +105,43 @@ def test_v2_api_root_provider_configured(client: FlaskClient, monkeypatch):
     response = client.get("/api/v2")
     data = response.get_json()
     assert data["provider_configured"] is True
+
+
+def test_v2_user_api_key_persists_env_entry(client: FlaskClient, tmp_path, monkeypatch):
+    """Saving an API key should write the provider env var into user config."""
+    import gptme.config.user as user_mod
+
+    config_file = tmp_path / "config.toml"
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+    monkeypatch.setattr("gptme.config.core.reload_config", lambda: None)
+
+    response = client.post(
+        "/api/v2/user/api-key",
+        json={"provider": "anthropic", "api_key": "  sk-ant-test-key  "},
+    )
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data == {
+        "status": "ok",
+        "provider": "anthropic",
+        "env_var": "ANTHROPIC_API_KEY",
+        "restart_required": True,
+    }
+
+    saved = tomlkit.loads(config_file.read_text()).unwrap()
+    assert saved["env"]["ANTHROPIC_API_KEY"] == "sk-ant-test-key"
+
+
+def test_v2_user_api_key_rejects_unknown_provider(client: FlaskClient):
+    response = client.post(
+        "/api/v2/user/api-key",
+        json={"provider": "bogus", "api_key": "sk-test"},
+    )
+
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data == {"error": "Unknown provider: bogus"}
 
 
 class _FakeExternalSessionItem:
