@@ -73,6 +73,7 @@ One of the first agent CLIs created (Spring 2023) — and still in very active d
   - [🔌 Extensibility: Plugins, Skills & Lessons](#-extensibility-plugins-skills--lessons)
   - [🔗 Integrations: MCP & ACP](#-integrations-mcp--acp)
   - [🤖 Autonomous Agents](#-autonomous-agents)
+  - [🛡 Guardrails](#-guardrails)
   - [🛠 Use Cases](#-use-cases)
   - [🛠 Developer Perks](#-developer-perks)
   - [🚧 In Progress](#-in-progress)
@@ -349,6 +350,16 @@ gptme-agent status    # check on it
 Multiple specialized agents can run in parallel — e.g. Bob (engineering) and [Alice](https://github.com/TimeToLearnAlice) (personal assistant & orchestration) — coordinating through shared infrastructure.
 
 See the [Autonomous Agents docs](https://gptme.org/docs/agents.html) for the full guide.
+
+### 🛡 Guardrails
+
+Persistent agents need guardrails around the full loop, not just tool permissions:
+
+- **Input guardrails** — structured task selectors in the agent workspace keep work focused and reduce thrashing on notifications or ambiguous work. Bob uses a CASCADE-style selector for this layer.
+- **Pre-action guardrails** — [lessons][docs-lessons] inject situational guidance before the agent acts.
+- **Output guardrails** — [hooks][docs-hooks] and [pre-commit checks](https://gptme.org/docs/usage.html#pre-commit-integration) validate file changes before control returns to the user.
+
+This stack is simple and composable: selectors improve work choice, lessons steer behavior, and checks verify the result. You can add evals on top later, but the baseline guardrail loop already exists.
 
 ### 🛠 Use Cases
 
