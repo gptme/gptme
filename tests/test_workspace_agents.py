@@ -395,6 +395,47 @@ class TestFormatAgentLine:
 class TestNewRuntimeParsers:
     """Tests for the new runtime metadata parsers."""
 
+    def test_codex_parser_interactive_default(self):
+        from gptme.hooks.workspace_agents import _parse_codex
+
+        info = _parse_codex(
+            100,
+            ["codex", "--model", "gpt-5", "Investigate flaky tests"],
+            "/workspace",
+        )
+        assert info.runtime == "codex"
+        assert info.mode == "interactive"
+        assert info.model == "gpt-5"
+        assert info.cmdline_summary == "Investigate flaky tests"
+
+    def test_codex_parser_exec_is_autonomous(self):
+        from gptme.hooks.workspace_agents import _parse_codex
+
+        info = _parse_codex(
+            100,
+            ["codex", "exec", "--model", "gpt-5", "Fix flaky tests"],
+            "/workspace",
+        )
+        assert info.mode == "autonomous"
+        assert info.cmdline_summary == "Fix flaky tests"
+
+    def test_codex_parser_wrapped_exec_is_autonomous(self):
+        from gptme.hooks.workspace_agents import _parse_codex
+
+        info = _parse_codex(
+            100,
+            ["node", "/usr/bin/codex", "exec", "--model", "gpt-5", "Run tests"],
+            "/workspace",
+        )
+        assert info.mode == "autonomous"
+        assert info.cmdline_summary == "Run tests"
+
+    def test_codex_parser_server_modes(self):
+        from gptme.hooks.workspace_agents import _parse_codex
+
+        info = _parse_codex(100, ["codex", "mcp-server"], "/workspace")
+        assert info.mode == "server"
+
     def test_goose_parser_basic(self):
         from gptme.hooks.workspace_agents import _parse_goose
 

@@ -371,6 +371,37 @@ def _has_flag(cmdline: list[str], *flags: str) -> bool:
     return any(arg in flags for arg in cmdline)
 
 
+def _positionals_after_flags(cmdline: list[str], *, value_flags: set[str]) -> list[str]:
+    """Return positional args, skipping values consumed by known flags."""
+    positionals: list[str] = []
+    skip_next = False
+
+    for arg in cmdline[1:]:
+        if skip_next:
+            skip_next = False
+            continue
+        if arg == "--":
+            break
+        if arg.startswith("-"):
+            if "=" in arg:
+                continue
+            if arg in value_flags:
+                skip_next = True
+            continue
+        positionals.append(arg)
+
+    return positionals
+
+
+def _runtime_cmdline(cmdline: list[str], *runtime_binaries: str) -> list[str]:
+    """Trim interpreter prefixes so parsers start at the actual runtime binary."""
+    for idx, arg in enumerate(cmdline[:3]):
+        basename = re.sub(r"\.exe$", "", os.path.basename(arg))
+        if basename in runtime_binaries:
+            return cmdline[idx:]
+    return cmdline
+
+
 # ---------------------------------------------------------------------------
 #  Per-runtime metadata parsers
 # ---------------------------------------------------------------------------
@@ -496,14 +527,78 @@ def _parse_gptme(pid: int, cmdline: list[str], cwd: str) -> AgentInfo:
 
 def _parse_codex(pid: int, cmdline: list[str], cwd: str) -> AgentInfo:
     """Extract metadata from a Codex process."""
-    model = _extract_flag(cmdline, "--model", "-m")
+    runtime_cmdline = _runtime_cmdline(cmdline, "codex")
+    model = _extract_flag(runtime_cmdline, "--model", "-m")
+    autonomous_commands = {"exec", "e", "review"}
+    server_commands = {"mcp-server", "app-server"}
+    interactive_commands = {"resume", "fork", "cloud"}
+    known_commands = (
+        autonomous_commands
+        | server_commands
+        | interactive_commands
+        | {
+            "login",
+            "logout",
+            "mcp",
+            "completion",
+            "sandbox",
+            "debug",
+            "apply",
+            "a",
+            "features",
+            "help",
+        }
+    )
+    positionals = _positionals_after_flags(
+        runtime_cmdline,
+        value_flags={
+            "-a",
+            "-c",
+            "-C",
+            "-i",
+            "-m",
+            "-p",
+            "-s",
+            "--add-dir",
+            "--ask-for-approval",
+            "--cd",
+            "--config",
+            "--disable",
+            "--enable",
+            "--image",
+            "--local-provider",
+            "--model",
+            "--profile",
+            "--sandbox",
+        },
+    )
+    subcommand = positionals[0] if positionals else None
+
+    if subcommand in autonomous_commands:
+        mode = "autonomous"
+        summary_parts = positionals[1:]
+    elif subcommand in server_commands:
+        mode = "server"
+        summary_parts = positionals[1:]
+    elif subcommand is None or subcommand not in known_commands:
+        mode = "interactive"
+        summary_parts = positionals
+    elif subcommand in interactive_commands:
+        mode = "interactive"
+        summary_parts = positionals[1:]
+    else:
+        mode = "unknown"
+        summary_parts = positionals[1:]
+
+    summary = " ".join(summary_parts[:6]).strip()
+
     return AgentInfo(
         pid=pid,
         runtime="codex",
         cwd=cwd,
         model=model,
-        mode="unknown",
-        cmdline_summary=" ".join(cmdline[:5]),
+        mode=mode,
+        cmdline_summary=summary or " ".join(runtime_cmdline[:5]),
     )
 
 
