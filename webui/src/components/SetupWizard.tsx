@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Dialog,
   DialogContent,
@@ -10,7 +11,11 @@ import {
 } from '@/components/ui/dialog';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useApi } from '@/contexts/ApiContext';
-import { isTauriEnvironment } from '@/utils/tauri';
+import {
+  isTauriEnvironment,
+  isTauriMobileEnvironment,
+  tauriManagesLocalServer,
+} from '@/utils/tauri';
 import { use$ } from '@legendapp/state/react';
 import { Monitor, Cloud, ArrowRight, Check, Terminal, ExternalLink } from 'lucide-react';
 
@@ -52,6 +57,12 @@ export function SetupWizard() {
   const [cloudLoginStarted, setCloudLoginStarted] = useState(false);
   const lastAutoAdvanceBaseUrlRef = useRef<string | null>(null);
   const isTauri = isTauriEnvironment();
+  const isTauriMobile = isTauriMobileEnvironment();
+  const managesLocalServer = tauriManagesLocalServer();
+  const [remoteBaseUrl, setRemoteBaseUrl] = useState(
+    connectionConfig.baseUrl === 'http://127.0.0.1:5700' ? '' : connectionConfig.baseUrl
+  );
+  const [remoteAuthToken, setRemoteAuthToken] = useState(connectionConfig.authToken || '');
 
   const completeSetup = useCallback(() => {
     updateSettings({ hasCompletedSetup: true });
@@ -121,6 +132,46 @@ export function SetupWizard() {
     setCloudLoginStarted(true);
   };
 
+  const handleRemoteSetup = async () => {
+    const trimmedBaseUrl = remoteBaseUrl.trim();
+    const trimmedAuthToken = remoteAuthToken.trim();
+
+    if (!trimmedBaseUrl) {
+      setConnectError('Enter the URL of the gptme server you want to use.');
+      return;
+    }
+
+    let normalizedBaseUrl: string;
+    try {
+      const parsedUrl = new URL(trimmedBaseUrl);
+      if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+        throw new Error('Remote server URLs must use http:// or https://');
+      }
+      normalizedBaseUrl = parsedUrl.toString().replace(/\/+$/, '');
+    } catch (error) {
+      setConnectError(error instanceof Error ? error.message : 'Enter a valid server URL.');
+      return;
+    }
+
+    setIsConnecting(true);
+    setConnectError(null);
+    try {
+      await connect({
+        baseUrl: normalizedBaseUrl,
+        authToken: trimmedAuthToken || null,
+        useAuthToken: Boolean(trimmedAuthToken),
+      });
+      completeSetup();
+      setStep('complete');
+    } catch (err) {
+      setConnectError(
+        err instanceof Error ? err.message : 'Could not connect to the remote gptme server.'
+      );
+    } finally {
+      setIsConnecting(false);
+    }
+  };
+
   return (
     <Dialog open={isOpen} onOpenChange={() => {}}>
       <DialogContent
@@ -168,11 +219,13 @@ export function SetupWizard() {
               >
                 <Monitor className="mt-0.5 h-6 w-6 shrink-0" />
                 <div>
-                  <div className="font-medium">Local</div>
+                  <div className="font-medium">{isTauriMobile ? 'Remote server' : 'Local'}</div>
                   <div className="text-sm text-muted-foreground">
-                    {isTauri
-                      ? 'Run gptme on your machine. The server starts automatically.'
-                      : 'Run gptme-server on your machine. Bring your own API keys.'}
+                    {isTauriMobile
+                      ? 'Connect to Bob or another self-hosted gptme instance by URL. No on-device server.'
+                      : managesLocalServer
+                        ? 'Run gptme on your machine. The server starts automatically.'
+                        : 'Run gptme-server on your machine. Bring your own API keys.'}
                   </div>
                 </div>
               </button>
@@ -200,15 +253,40 @@ export function SetupWizard() {
         {step === 'local' && (
           <>
             <DialogHeader>
-              <DialogTitle>Local setup</DialogTitle>
+              <DialogTitle>{isTauriMobile ? 'Remote server setup' : 'Local setup'}</DialogTitle>
               <DialogDescription>
-                {isTauri
-                  ? 'The gptme server is managed automatically by the desktop app.'
-                  : 'Start the gptme server to get going.'}
+                {isTauriMobile
+                  ? 'Connect this app to Bob, gptme.ai, or another remote gptme server.'
+                  : managesLocalServer
+                    ? 'The gptme server is managed automatically by the desktop app.'
+                    : 'Start the gptme server to get going.'}
               </DialogDescription>
             </DialogHeader>
             <div className="flex flex-col gap-4 py-4">
-              {isTauri ? (
+              {isTauriMobile ? (
+                <div className="flex flex-col gap-3">
+                  <p className="text-sm text-muted-foreground">
+                    Enter the URL for a remote gptme server. Use Cloud instead if you want the
+                    managed <code>gptme.ai</code> sign-in flow.
+                  </p>
+                  <Input
+                    autoComplete="url"
+                    placeholder="https://bob.example.com"
+                    value={remoteBaseUrl}
+                    onChange={(event) => setRemoteBaseUrl(event.target.value)}
+                  />
+                  <Input
+                    autoComplete="off"
+                    placeholder="Optional API token"
+                    type="password"
+                    value={remoteAuthToken}
+                    onChange={(event) => setRemoteAuthToken(event.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    For Bob or other self-hosted servers, paste the base URL and token here.
+                  </p>
+                </div>
+              ) : managesLocalServer ? (
                 <div className="flex items-start gap-3 rounded-lg bg-muted p-4">
                   <Check className="mt-0.5 h-5 w-5 shrink-0 text-green-500" />
                   <div className="text-sm">
@@ -255,7 +333,10 @@ export function SetupWizard() {
               >
                 Back
               </Button>
-              <Button onClick={handleLocalSetup} disabled={isConnecting}>
+              <Button
+                onClick={isTauriMobile ? handleRemoteSetup : handleLocalSetup}
+                disabled={isConnecting}
+              >
                 {isConnecting ? 'Connecting...' : isConnected ? 'Continue' : 'Connect'}
               </Button>
             </DialogFooter>

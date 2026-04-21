@@ -13,6 +13,7 @@ import {
 } from '@/stores/servers';
 import { getClientForServer, getPrimaryClient } from '@/stores/serverClients';
 import type { ServerConfig } from '@/types/servers';
+import { isTauriMobileEnvironment } from '@/utils/tauri';
 import { type Observable, observable } from '@legendapp/state';
 import { use$ } from '@legendapp/state/react';
 import type { QueryClient } from '@tanstack/react-query';
@@ -302,6 +303,7 @@ export function ApiProvider({
   useEffect(() => {
     const currentHash = window.location.hash.substring(1);
     if (hasAuthCodeInHash(currentHash)) return;
+    if (isTauriMobileEnvironment()) return;
 
     void (async () => {
       console.log('[ApiContext] Attempting initial connection');
