@@ -14,7 +14,7 @@ import { isTauriEnvironment } from '@/utils/tauri';
 import { use$ } from '@legendapp/state/react';
 import { Monitor, Cloud, ArrowRight, Check, Terminal, ExternalLink } from 'lucide-react';
 
-type SetupStep = 'welcome' | 'mode' | 'local' | 'cloud' | 'api-key' | 'complete';
+type SetupStep = 'welcome' | 'mode' | 'local' | 'cloud' | 'provider' | 'complete';
 
 // The gptme cloud service is hosted on fleet.gptme.ai (the cloud.gptme.ai domain
 // is a planned alias). Use a small runtime helper so Jest doesn't choke on import.meta.
@@ -62,7 +62,7 @@ export function SetupWizard() {
       const resp = await fetch(`${connectionConfig.baseUrl}/api/v2`);
       const data = (await resp.json()) as { provider_configured?: boolean };
       if (data.provider_configured === false) {
-        setStep('api-key');
+        setStep('provider');
         return;
       }
     } catch {
@@ -73,7 +73,7 @@ export function SetupWizard() {
   }, [connectionConfig.baseUrl, completeSetup]);
 
   useEffect(() => {
-    if (!isOpen || !isConnected || step === 'complete' || step === 'api-key') return;
+    if (!isOpen || !isConnected || step === 'complete' || step === 'provider') return;
     setCloudLoginStarted(false);
     void checkProviderAndAdvance();
   }, [checkProviderAndAdvance, isConnected, isOpen, step]);
@@ -304,24 +304,38 @@ export function SetupWizard() {
           </>
         )}
 
-        {step === 'api-key' && (
+        {step === 'provider' && (
           <>
             <DialogHeader>
               <DialogTitle>Configure a provider</DialogTitle>
               <DialogDescription>
-                No LLM provider is configured. Set an API key so gptme can process your requests.
+                The server is running, but it does not have an LLM provider yet.
               </DialogDescription>
             </DialogHeader>
             <div className="flex flex-col gap-4 py-4">
               <p className="text-sm text-muted-foreground">
-                Set one of these environment variables before launching gptme-server:
+                Choose one of these paths to finish setup:
               </p>
-              <code className="rounded bg-muted px-3 py-2 font-mono text-sm">
-                ANTHROPIC_API_KEY=sk-ant-...
-              </code>
-              <code className="rounded bg-muted px-3 py-2 font-mono text-sm">
-                OPENAI_API_KEY=sk-...
-              </code>
+              <div className="rounded-lg border bg-muted/40 p-4 text-sm">
+                <p className="font-medium">Use gptme.ai</p>
+                <p className="mt-1 text-muted-foreground">
+                  Sign in with a cloud account for a managed setup with no local API keys.
+                </p>
+              </div>
+              <div className="rounded-lg border bg-muted/40 p-4 text-sm">
+                <p className="font-medium">Bring your own API key</p>
+                <p className="mt-1 text-muted-foreground">
+                  Set one of these environment variables before launching gptme-server:
+                </p>
+                <div className="mt-3 flex flex-col gap-2">
+                  <code className="rounded bg-muted px-3 py-2 font-mono text-sm">
+                    ANTHROPIC_API_KEY=sk-ant-...
+                  </code>
+                  <code className="rounded bg-muted px-3 py-2 font-mono text-sm">
+                    OPENAI_API_KEY=sk-...
+                  </code>
+                </div>
+              </div>
               <p className="text-xs text-muted-foreground">
                 Get a key from{' '}
                 <a
@@ -341,10 +355,16 @@ export function SetupWizard() {
                 >
                   OpenAI Platform
                 </a>
-                . Then restart the server.
+                . Then {isTauri ? 'restart the app' : 'restart the server'} and check again.
               </p>
             </div>
-            <DialogFooter>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" onClick={() => setStep('cloud')}>
+                Use gptme.ai instead
+              </Button>
+              <Button variant="outline" onClick={() => void checkProviderAndAdvance()}>
+                I configured a provider
+              </Button>
               <Button variant="ghost" onClick={closeWizard}>
                 Skip for now
               </Button>

@@ -6,12 +6,14 @@ import { SettingsProvider } from '@/contexts/SettingsContext';
 
 const mockConnect = jest.fn();
 const mockOpen = jest.fn();
+const mockFetch = jest.fn();
 const isConnected$ = observable(false);
 
 jest.mock('@/contexts/ApiContext', () => ({
   useApi: () => ({
     isConnected$,
     connect: mockConnect,
+    connectionConfig: { baseUrl: 'http://localhost:5700' },
   }),
 }));
 
@@ -54,6 +56,14 @@ describe('SetupWizard', () => {
     isConnected$.set(false);
     mockConnect.mockReset();
     mockOpen.mockReset();
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue({
+      json: async () => ({ provider_configured: true }),
+    });
+    Object.defineProperty(window, 'fetch', {
+      writable: true,
+      value: mockFetch,
+    });
     Object.defineProperty(window, 'open', {
       writable: true,
       value: mockOpen,
@@ -88,7 +98,9 @@ describe('SetupWizard', () => {
   });
 
   it('marks setup complete after local connect succeeds', async () => {
-    mockConnect.mockResolvedValue(undefined);
+    mockConnect.mockImplementation(async () => {
+      isConnected$.set(true);
+    });
 
     render(
       <SettingsProvider>
@@ -104,9 +116,44 @@ describe('SetupWizard', () => {
       expect(mockConnect).toHaveBeenCalled();
     });
 
-    expect(JSON.parse(localStorage.getItem('gptme-settings') || '{}')).toMatchObject({
-      hasCompletedSetup: true,
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith('http://localhost:5700/api/v2');
+    });
+
+    await waitFor(() => {
+      expect(JSON.parse(localStorage.getItem('gptme-settings') || '{}')).toMatchObject({
+        hasCompletedSetup: true,
+      });
     });
     expect(screen.getByRole('heading', { name: /you're all set/i })).toBeInTheDocument();
+  });
+
+  it('shows provider setup guidance when connected server is in degraded mode', async () => {
+    mockFetch.mockResolvedValue({
+      json: async () => ({ provider_configured: false }),
+    });
+    mockConnect.mockImplementation(async () => {
+      isConnected$.set(true);
+    });
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /monitor local/i }));
+    fireEvent.click(screen.getByRole('button', { name: /connect/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /configure a provider/i })).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole('button', { name: /use gptme.ai instead/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /i configured a provider/i })).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem('gptme-settings') || '{}')).not.toMatchObject({
+      hasCompletedSetup: true,
+    });
   });
 });
