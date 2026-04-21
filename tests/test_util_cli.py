@@ -563,6 +563,7 @@ def test_agents_scan_hides_stale_by_default(mocker):
     assert result.exit_code == 0
     assert "100" in result.output
     assert "200" in result.output
+    assert result.output.count("[STALE]") == 1
 
 
 def test_agents_scan_workspace_passes_through(mocker, tmp_path):

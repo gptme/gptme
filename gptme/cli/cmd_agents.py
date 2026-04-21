@@ -87,9 +87,7 @@ def scan(
             scope = f" in {workspace}" if workspace else " on this host"
             click.echo(f"Live agents{scope}:")
             for a in shown:
-                line = _format_agent_line(a)
-                stale_tag = "  [STALE]" if a.stale else ""
-                click.echo(f"  {line}{stale_tag}")
+                click.echo(f"  {_format_agent_line(a)}")
 
         if not show_all and stale:
             n = len(stale)
