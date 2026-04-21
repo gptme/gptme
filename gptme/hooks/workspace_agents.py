@@ -111,6 +111,7 @@ class AgentInfo:
     uptime_seconds: int | None = None
     cpu_seconds: float | None = None
     process_state: str | None = None  # S=sleeping, R=running, T=stopped, Z=zombie
+    memory_mb: float | None = None  # resident set size in MB
     stale: bool = False
     stale_reason: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
@@ -261,6 +262,47 @@ def _get_process_timing(pid: int) -> tuple[int | None, float | None, str | None]
         ):
             return None, None, None
     return None, None, None
+
+
+def _get_process_memory_mb(pid: int) -> float | None:
+    """Get process resident memory in MB, cross-platform.
+
+    Linux reads ``/proc/<pid>/status`` (``VmRSS``); macOS falls back to
+    ``ps -o rss=``. Returns ``None`` if the value can't be determined (e.g.
+    the process exited, or the kernel doesn't expose VmRSS for it).
+    """
+    system = platform.system()
+    if system == "Linux":
+        try:
+            for line in Path(f"/proc/{pid}/status").read_text().splitlines():
+                if line.startswith("VmRSS:"):
+                    parts = line.split()
+                    # Format: "VmRSS:\t  12345 kB"
+                    if len(parts) >= 2:
+                        return int(parts[1]) / 1024.0
+            return None
+        except (OSError, ValueError):
+            return None
+    elif system == "Darwin":
+        try:
+            out = subprocess.check_output(
+                ["ps", "-p", str(pid), "-o", "rss="],
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=10,
+            ).strip()
+            if not out:
+                return None
+            return int(out) / 1024.0
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            FileNotFoundError,
+            ValueError,
+        ):
+            return None
+    # TODO: Windows
+    return None
 
 
 def _parse_etime(s: str) -> int | None:
@@ -772,6 +814,7 @@ def scan_agents(workspace: str | None = None) -> list[AgentInfo]:
         info.uptime_seconds = timing_uptime
         info.cpu_seconds = timing_cpu
         info.process_state = timing_state
+        info.memory_mb = _get_process_memory_mb(pid)
 
         assess_staleness(info)
         agents.append(info)
@@ -816,6 +859,9 @@ def _format_agent_line(agent: AgentInfo) -> str:
         parts.append("[STALE]")
     elif agent.uptime_seconds is not None:
         parts.append(f"up {_format_duration(agent.uptime_seconds)}")
+
+    if agent.memory_mb is not None:
+        parts.append(f"mem={agent.memory_mb:.0f}MB")
 
     return " ".join(parts)
 

@@ -13,7 +13,9 @@ from gptme.hooks.workspace_agents import (
     AGENT_BINARIES,
     AgentInfo,
     _extract_flag,
+    _format_agent_line,
     _format_duration,
+    _get_process_memory_mb,
     _has_flag,
     _init_tracking,
     _parse_etime,
@@ -182,6 +184,48 @@ class TestParseEtime:
 
     def test_invalid(self) -> None:
         assert _parse_etime("abc") is None
+
+
+class TestGetProcessMemoryMb:
+    """Tests for _get_process_memory_mb — resident memory lookup."""
+
+    def test_current_process(self) -> None:
+        # Our own process has a real VmRSS; value should be a positive float.
+        mem = _get_process_memory_mb(os.getpid())
+        assert mem is not None
+        assert mem > 0.0
+
+    def test_missing_pid_returns_none(self) -> None:
+        # PID 2**31 - 1 is effectively guaranteed not to exist.
+        assert _get_process_memory_mb(2**31 - 1) is None
+
+
+class TestFormatAgentLineMemory:
+    """Tests for memory formatting in _format_agent_line."""
+
+    def test_memory_rendered_when_present(self) -> None:
+        agent = AgentInfo(
+            pid=123,
+            runtime="gptme",
+            cwd="/tmp",
+            mode="interactive",
+            uptime_seconds=60,
+            memory_mb=42.0,
+        )
+        line = _format_agent_line(agent)
+        assert "mem=42MB" in line
+
+    def test_memory_omitted_when_missing(self) -> None:
+        agent = AgentInfo(
+            pid=123,
+            runtime="gptme",
+            cwd="/tmp",
+            mode="interactive",
+            uptime_seconds=60,
+            memory_mb=None,
+        )
+        line = _format_agent_line(agent)
+        assert "mem=" not in line
 
 
 class TestFormatDuration:
