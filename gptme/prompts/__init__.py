@@ -362,6 +362,7 @@ __all__ = [
     "AGENT_FILES",
     "ALWAYS_LOAD_FILES",
     "CONTEXT_CMD_MAX_CHARS",
+    "SYSTEM_PROMPT_CACHE_BOUNDARY",
     "ContextMode",
     "DEFAULT_CONTEXT_FILES",
     "PromptType",

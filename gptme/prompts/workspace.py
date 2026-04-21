@@ -43,6 +43,9 @@ def _context_file_sort_key(path: Path) -> tuple[int, str]:
     order. Known high-signal files get fixed priority, then we fall back to the
     path for lexical stability.
     """
+    # tail is "parent/filename" — reserved for future path-qualified keys in
+    # CONTEXT_FILE_ORDER (e.g. ".cursor/rules.md"). With current bare-filename
+    # keys this lookup is always a miss; the fallback to `name` is what fires.
     tail = "/".join(path.parts[-2:])
     name = path.name
     priority = CONTEXT_FILE_ORDER.get(tail, CONTEXT_FILE_ORDER.get(name, 1000))
