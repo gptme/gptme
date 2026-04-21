@@ -61,6 +61,11 @@ let autoConnectTimer: ReturnType<typeof setTimeout> | null = null;
 let autoConnectAttempts = 0;
 const MAX_AUTO_CONNECT_ATTEMPTS = 10;
 const INITIAL_RETRY_DELAY = 1000;
+const DEFAULT_LOCAL_SERVER_URL = 'http://127.0.0.1:5700';
+
+function isInitialMobileLocalTarget(baseUrl: string): boolean {
+  return ['http://127.0.0.1:5700', 'http://localhost:5700'].includes(baseUrl.replace(/\/+$/, ''));
+}
 
 const stopAutoConnect = () => {
   if (autoConnectTimer) {
@@ -302,19 +307,6 @@ export function ApiProvider({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Attempt initial connection (skip if auth code exchange is happening)
-  useEffect(() => {
-    const currentHash = window.location.hash.substring(1);
-    if (hasAuthCodeInHash(currentHash)) return;
-    if (isTauri && isLoadingTauriStatus) return;
-    if (isTauri && managesLocalServer === false) return;
-
-    void (async () => {
-      console.log('[ApiContext] Attempting initial connection');
-      await autoConnect(true);
-    })();
-  }, [autoConnect, isLoadingTauriStatus, isTauri, managesLocalServer]);
-
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -331,10 +323,32 @@ export function ApiProvider({
         authToken: activeServer.authToken,
         useAuthToken: activeServer.useAuthToken,
       }
-    : { baseUrl: 'http://127.0.0.1:5700', authToken: null, useAuthToken: false };
+    : { baseUrl: DEFAULT_LOCAL_SERVER_URL, authToken: null, useAuthToken: false };
+
+  const shouldSkipInitialMobileAutoConnect =
+    isTauri && managesLocalServer === false && isInitialMobileLocalTarget(connectionConfig.baseUrl);
 
   // Primary client from pool (re-resolved each render to pick up changes)
   const api = getPrimaryClient();
+
+  // Attempt initial connection (skip if auth code exchange is happening)
+  useEffect(() => {
+    const currentHash = window.location.hash.substring(1);
+    if (hasAuthCodeInHash(currentHash)) return;
+    if (isTauri && isLoadingTauriStatus) return;
+    if (shouldSkipInitialMobileAutoConnect) return;
+
+    void (async () => {
+      console.log('[ApiContext] Attempting initial connection');
+      await autoConnect(true);
+    })();
+  }, [
+    autoConnect,
+    connectionConfig.baseUrl,
+    isLoadingTauriStatus,
+    isTauri,
+    shouldSkipInitialMobileAutoConnect,
+  ]);
 
   return (
     <ApiContext.Provider
