@@ -17,6 +17,7 @@ import { use$ } from '@legendapp/state/react';
 import { Monitor, Cloud, ArrowRight, Check, Terminal, ExternalLink } from 'lucide-react';
 
 type SetupStep = 'welcome' | 'mode' | 'local' | 'cloud' | 'provider' | 'complete';
+type SetupProvider = 'anthropic' | 'openai' | 'openrouter' | 'gemini' | 'groq' | 'xai' | 'deepseek';
 
 // The gptme cloud service is hosted on fleet.gptme.ai (the cloud.gptme.ai domain
 // is a planned alias). Use a small runtime helper so Jest doesn't choke on import.meta.
@@ -35,6 +36,32 @@ function getCloudAuthUrl(): string {
 }
 
 const CLOUD_AUTH_URL = getCloudAuthUrl();
+const PROVIDER_OPTIONS: Array<{
+  value: SetupProvider;
+  label: string;
+  placeholder: string;
+}> = [
+  { value: 'anthropic', label: 'Anthropic', placeholder: 'sk-ant-...' },
+  { value: 'openai', label: 'OpenAI', placeholder: 'sk-...' },
+  { value: 'openrouter', label: 'OpenRouter', placeholder: 'sk-or-...' },
+  { value: 'gemini', label: 'Gemini', placeholder: 'AIza...' },
+  { value: 'groq', label: 'Groq', placeholder: 'gsk_...' },
+  { value: 'xai', label: 'xAI', placeholder: 'xai-...' },
+  { value: 'deepseek', label: 'DeepSeek', placeholder: 'sk-...' },
+];
+const PROVIDER_METADATA = Object.fromEntries(
+  PROVIDER_OPTIONS.map((provider) => [provider.value, provider])
+) as Record<SetupProvider, (typeof PROVIDER_OPTIONS)[number]>;
+const SERVER_START_RETRY_COUNT = 6;
+const SERVER_START_RETRY_DELAY_MS = 250;
+const SERVER_READY_RETRY_COUNT = 10;
+const SERVER_READY_RETRY_DELAY_MS = 250;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
 
 export function SetupWizard() {
   const { settings, updateSettings } = useSettings();
@@ -55,7 +82,7 @@ export function SetupWizard() {
   const lastAutoAdvanceBaseUrlRef = useRef<string | null>(null);
   const isTauri = isTauriEnvironment();
   // Tauri-only in-app API key entry state.
-  const [apiKeyProvider, setApiKeyProvider] = useState<'anthropic' | 'openai'>('anthropic');
+  const [apiKeyProvider, setApiKeyProvider] = useState<SetupProvider>('anthropic');
   const [apiKey, setApiKey] = useState('');
   const [apiKeySaving, setApiKeySaving] = useState(false);
   const [apiKeyError, setApiKeyError] = useState<string | null>(null);
@@ -64,21 +91,80 @@ export function SetupWizard() {
     updateSettings({ hasCompletedSetup: true });
   }, [updateSettings]);
 
+  const fetchProviderConfigured = useCallback(async () => {
+    const resp = await fetch(`${connectionConfig.baseUrl}/api/v2`);
+    if (!resp.ok) {
+      throw new Error(`Failed to verify provider status (${resp.status})`);
+    }
+    const data = (await resp.json()) as { provider_configured?: boolean };
+    return data.provider_configured !== false;
+  }, [connectionConfig.baseUrl]);
+
   // Fetch /api/v2, check provider_configured, then advance to 'provider' or 'complete'.
-  const checkProviderAndAdvance = useCallback(async () => {
-    try {
-      const resp = await fetch(`${connectionConfig.baseUrl}/api/v2`);
-      const data = (await resp.json()) as { provider_configured?: boolean };
-      if (data.provider_configured === false) {
+  const checkProviderAndAdvance = useCallback(
+    async ({ assumeConfiguredOnError = true }: { assumeConfiguredOnError?: boolean } = {}) => {
+      try {
+        if (!(await fetchProviderConfigured())) {
+          setStep('provider');
+          return;
+        }
+      } catch (error) {
+        if (!assumeConfiguredOnError) {
+          throw error;
+        }
+        // On error, don't block the user — assume provider is configured.
+      }
+      completeSetup();
+      setStep('complete');
+    },
+    [completeSetup, fetchProviderConfigured]
+  );
+
+  const startServerWithRetry = useCallback(async () => {
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt < SERVER_START_RETRY_COUNT; attempt += 1) {
+      try {
+        await invokeTauri('start_server');
+        return;
+      } catch (error) {
+        lastError = error;
+        const message = error instanceof Error ? error.message : String(error);
+        const shouldRetry =
+          /port\s+\d+\s+is already in use/i.test(message) || /already in use/i.test(message);
+
+        if (!shouldRetry || attempt === SERVER_START_RETRY_COUNT - 1) {
+          throw error;
+        }
+
+        await sleep(SERVER_START_RETRY_DELAY_MS);
+      }
+    }
+
+    throw lastError instanceof Error ? lastError : new Error('Failed to start gptme-server');
+  }, []);
+
+  const waitForRestartedServer = useCallback(async () => {
+    for (let attempt = 0; attempt < SERVER_READY_RETRY_COUNT; attempt += 1) {
+      try {
+        if (await fetchProviderConfigured()) {
+          completeSetup();
+          setStep('complete');
+          return;
+        }
+
         setStep('provider');
         return;
+      } catch {
+        if (attempt === SERVER_READY_RETRY_COUNT - 1) {
+          throw new Error(
+            'Saved the API key, but the server did not come back in time. Retry in a few seconds.'
+          );
+        }
+        await sleep(SERVER_READY_RETRY_DELAY_MS);
       }
-    } catch {
-      // On error, don't block the user — assume provider is configured.
     }
-    completeSetup();
-    setStep('complete');
-  }, [connectionConfig.baseUrl, completeSetup]);
+  }, [completeSetup, fetchProviderConfigured]);
 
   useEffect(() => {
     if (!isConnected) {
@@ -140,17 +226,27 @@ export function SetupWizard() {
       } catch {
         // No running server is fine; start_server will still launch one.
       }
-      await invokeTauri('start_server');
+      await startServerWithRetry();
       setApiKey('');
-      // Give the server a moment to come up before hitting /api/v2 — on a warm
-      // start it's typically <1s, but we retry inside checkProviderAndAdvance
-      // via lastAutoAdvanceBaseUrlRef reset.
       lastAutoAdvanceBaseUrlRef.current = null;
-      await checkProviderAndAdvance();
+      await waitForRestartedServer();
     } catch (err) {
       setApiKeyError(err instanceof Error ? err.message : String(err));
     } finally {
       setApiKeySaving(false);
+    }
+  };
+
+  const handleManualProviderCheck = async () => {
+    setApiKeyError(null);
+    try {
+      await checkProviderAndAdvance({ assumeConfiguredOnError: false });
+    } catch (err) {
+      setApiKeyError(
+        err instanceof Error
+          ? err.message
+          : 'Could not verify provider configuration. Try again in a few seconds.'
+      );
     }
   };
 
@@ -385,13 +481,14 @@ export function SetupWizard() {
                         id="setup-api-key-provider"
                         className="h-9 rounded-md border bg-background px-3 text-sm"
                         value={apiKeyProvider}
-                        onChange={(e) =>
-                          setApiKeyProvider(e.target.value as 'anthropic' | 'openai')
-                        }
+                        onChange={(e) => setApiKeyProvider(e.target.value as SetupProvider)}
                         disabled={apiKeySaving}
                       >
-                        <option value="anthropic">Anthropic</option>
-                        <option value="openai">OpenAI</option>
+                        {PROVIDER_OPTIONS.map((provider) => (
+                          <option key={provider.value} value={provider.value}>
+                            {provider.label}
+                          </option>
+                        ))}
                       </select>
                     </div>
                     <div className="flex flex-col gap-2">
@@ -401,12 +498,17 @@ export function SetupWizard() {
                         type="password"
                         autoComplete="off"
                         spellCheck={false}
-                        placeholder={apiKeyProvider === 'anthropic' ? 'sk-ant-...' : 'sk-...'}
+                        placeholder={PROVIDER_METADATA[apiKeyProvider].placeholder}
                         value={apiKey}
                         onChange={(e) => setApiKey(e.target.value)}
                         disabled={apiKeySaving}
                       />
                     </div>
+                    <p className="text-xs text-muted-foreground">
+                      Supports {PROVIDER_OPTIONS.map((provider) => provider.label).join(', ')}.
+                      Azure OpenAI still needs manual configuration because it also requires
+                      deployment settings.
+                    </p>
                     {apiKeyError && (
                       <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                         {apiKeyError}
@@ -464,7 +566,7 @@ export function SetupWizard() {
               <Button variant="outline" onClick={() => setStep('cloud')}>
                 Use gptme.ai instead
               </Button>
-              <Button variant="outline" onClick={() => void checkProviderAndAdvance()}>
+              <Button variant="outline" onClick={() => void handleManualProviderCheck()}>
                 I configured a provider
               </Button>
               <Button variant="ghost" onClick={closeWizard}>

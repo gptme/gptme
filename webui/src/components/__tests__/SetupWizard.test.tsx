@@ -76,6 +76,8 @@ describe('SetupWizard', () => {
     mockFetch.mockReset();
     mockInvokeTauri.mockReset();
     mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
       json: async () => ({ provider_configured: true }),
     });
     Object.defineProperty(window, 'fetch', {
@@ -147,7 +149,10 @@ describe('SetupWizard', () => {
   });
 
   it('shows provider setup guidance when connected server is in degraded mode', async () => {
+    isTauriMock = true;
     mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
       json: async () => ({ provider_configured: false }),
     });
     mockConnect.mockImplementation(async () => {
@@ -170,6 +175,9 @@ describe('SetupWizard', () => {
 
     expect(screen.getByRole('button', { name: /use gptme.ai instead/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /i configured a provider/i })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /openrouter/i })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /gemini/i })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /deepseek/i })).toBeInTheDocument();
     expect(JSON.parse(localStorage.getItem('gptme-settings') || '{}')).not.toMatchObject({
       hasCompletedSetup: true,
     });
@@ -177,6 +185,8 @@ describe('SetupWizard', () => {
 
   it('keeps the cloud step visible when switching from provider fallback', async () => {
     mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
       json: async () => ({ provider_configured: false }),
     });
     mockConnect.mockImplementation(async () => {
@@ -212,14 +222,29 @@ describe('SetupWizard', () => {
 
   it('saves an API key via Tauri and advances to complete', async () => {
     isTauriMock = true;
-    // First /api/v2 call: no provider. After save + restart: provider configured.
+    // First /api/v2 call: no provider. After save + restart: server needs one retry,
+    // then returns provider_configured=true.
     mockFetch
-      .mockResolvedValueOnce({ json: async () => ({ provider_configured: false }) })
-      .mockResolvedValueOnce({ json: async () => ({ provider_configured: true }) });
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ provider_configured: false }),
+      })
+      .mockRejectedValueOnce(new Error('connection refused'))
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ provider_configured: true }),
+      });
     mockConnect.mockImplementation(async () => {
       isConnected$.set(true);
     });
-    mockInvokeTauri.mockResolvedValue(undefined);
+    let startAttempts = 0;
+    mockInvokeTauri.mockImplementation(async (cmd: string) => {
+      if (cmd === 'start_server' && startAttempts++ === 0) {
+        throw new Error('Port 5700 is already in use');
+      }
+    });
 
     render(
       <SettingsProvider>
@@ -255,9 +280,54 @@ describe('SetupWizard', () => {
     });
   });
 
+  it('shows an error instead of falsely completing when the restarted server never comes back', async () => {
+    isTauriMock = true;
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ provider_configured: false }),
+      })
+      .mockRejectedValue(new Error('connection refused'));
+    mockConnect.mockImplementation(async () => {
+      isConnected$.set(true);
+    });
+    mockInvokeTauri.mockResolvedValue(undefined);
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /monitor local/i }));
+    fireEvent.click(screen.getByRole('button', { name: /connect/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /configure a provider/i })).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText(/api key/i), { target: { value: 'sk-ant-test-key' } });
+    fireEvent.click(screen.getByRole('button', { name: /save and restart server/i }));
+
+    await waitFor(
+      () => {
+        expect(screen.getByText(/server did not come back in time/i)).toBeInTheDocument();
+      },
+      { timeout: 4000 }
+    );
+    expect(screen.queryByRole('heading', { name: /you're all set/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /configure a provider/i })).toBeInTheDocument();
+  });
+
   it('surfaces save_api_key errors without advancing', async () => {
     isTauriMock = true;
-    mockFetch.mockResolvedValue({ json: async () => ({ provider_configured: false }) });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ provider_configured: false }),
+    });
     mockConnect.mockImplementation(async () => {
       isConnected$.set(true);
     });
