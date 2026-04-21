@@ -384,6 +384,10 @@ class TestScanAgents:
                 "gptme.hooks.workspace_agents._get_process_timing",
                 return_value=(120, 5.0, "S"),
             ),
+            patch(
+                "gptme.hooks.workspace_agents._get_process_memory_mb",
+                return_value=None,
+            ),
             patch("os.path.realpath", side_effect=lambda p: p),
         ):
             agents = scan_agents(workspace=workspace)
@@ -435,6 +439,10 @@ class TestScanAgents:
             patch(
                 "gptme.hooks.workspace_agents._get_process_timing",
                 return_value=(120, 5.0, "S"),
+            ),
+            patch(
+                "gptme.hooks.workspace_agents._get_process_memory_mb",
+                return_value=None,
             ),
             patch("os.path.realpath", side_effect=lambda p: p),
         ):
