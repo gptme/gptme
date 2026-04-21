@@ -4,6 +4,10 @@ declare global {
       app: unknown;
       event: unknown;
       invoke: unknown;
+      core?: {
+        invoke: unknown;
+        [key: string]: unknown;
+      };
       [key: string]: unknown;
     };
   }

@@ -189,7 +189,6 @@ fn spawn_server_sidecar(
 
     Ok(())
 }
-
 fn extract_auth_code(url: &url::Url) -> Option<String> {
     let code = url
         .query_pairs()
@@ -290,6 +289,7 @@ pub fn run() {
             get_server_status,
             start_server,
             stop_server,
+            save_api_key,
         ])
         .setup(|app| {
             log::info!("Starting gptme-tauri application");
@@ -463,5 +463,67 @@ mod tests {
     #[test]
     fn test_gptme_server_port_constant() {
         assert_eq!(GPTME_SERVER_PORT, 5700);
+    }
+
+    // --- save_api_key helpers ---
+
+    #[test]
+    fn test_provider_env_var_standard() {
+        assert_eq!(provider_env_var("openai"), "OPENAI_API_KEY");
+        assert_eq!(provider_env_var("anthropic"), "ANTHROPIC_API_KEY");
+        assert_eq!(provider_env_var("openrouter"), "OPENROUTER_API_KEY");
+        assert_eq!(provider_env_var("groq"), "GROQ_API_KEY");
+    }
+
+    #[test]
+    fn test_provider_env_var_azure() {
+        // Azure uses a non-uniform env var name in gptme's PROVIDER_API_KEYS.
+        assert_eq!(provider_env_var("azure"), "AZURE_OPENAI_API_KEY");
+    }
+
+    #[test]
+    fn test_validate_api_key_accepts_normal_key() {
+        assert!(validate_api_key("sk-ant-api03-abc123").is_ok());
+        assert!(validate_api_key("  sk-xyz  ").is_ok()); // whitespace trimmed
+    }
+
+    #[test]
+    fn test_validate_api_key_rejects_empty() {
+        assert!(validate_api_key("").is_err());
+        assert!(validate_api_key("   ").is_err());
+    }
+
+    #[test]
+    fn test_validate_api_key_rejects_control_chars() {
+        assert!(validate_api_key("sk-ant\nbad").is_err());
+        assert!(validate_api_key("sk-ant\x00bad").is_err());
+    }
+
+    #[test]
+    fn test_validate_api_key_rejects_too_long() {
+        let long_key = "a".repeat(5000);
+        assert!(validate_api_key(&long_key).is_err());
+    }
+
+    #[test]
+    fn test_known_providers_covers_llm_provider_api_keys() {
+        // Sanity check that the whitelist matches the Python source of truth.
+        // If this drifts, save_api_key will reject providers gptme supports.
+        for provider in [
+            "openai",
+            "anthropic",
+            "openrouter",
+            "gemini",
+            "groq",
+            "xai",
+            "deepseek",
+            "azure",
+        ] {
+            assert!(
+                KNOWN_PROVIDERS.contains(&provider),
+                "expected {} in KNOWN_PROVIDERS",
+                provider
+            );
+        }
     }
 }
