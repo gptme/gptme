@@ -2679,6 +2679,17 @@ The `gptme-agent-template <https://github.com/gptme/gptme-agent-template>`_ prov
 
 Bob is not a demo — he's a production agent that runs on a schedule, handles real work, and has been iterating on his own architecture for over a year. He serves as a living example of the agent pattern.
 
+🛡 Guardrails
+^^^^^^^^^^^^
+
+Persistent agents need guardrails around the full loop, not just tool permissions:
+
+- **Input guardrails** — structured task selectors in the agent workspace keep work focused and reduce thrashing on notifications or ambiguous work. Bob uses a CASCADE-style selector for this layer.
+- **Pre-action guardrails** — :doc:`lessons` inject situational guidance before the agent acts.
+- **Output guardrails** — :doc:`hooks` and :ref:`pre-commit` checks validate file changes before control returns to the user.
+
+This stack is simple and composable: selectors improve work choice, lessons steer behavior, and checks verify the result. You can add evals on top later, but the baseline guardrail loop already exists.
+
 🌐 Multi-Agent Ecosystem
 ^^^^^^^^^^^^^^^^^^^^^^^^
 

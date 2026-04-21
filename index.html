@@ -175,6 +175,7 @@ Plugins, Skills &amp; Lessons</a></li>
 <li><a href="#-integrations-mcp--acp">🔗 Integrations: MCP &amp;
 ACP</a></li>
 <li><a href="#-autonomous-agents">🤖 Autonomous Agents</a></li>
+<li><a href="#-guardrails">🛡 Guardrails</a></li>
 <li><a href="#-use-cases">🛠 Use Cases</a></li>
 <li><a href="#-developer-perks">🛠 Developer Perks</a></li>
 <li><a href="#-in-progress">🚧 In Progress</a></li>
@@ -642,6 +643,26 @@ href="https://github.com/TimeToLearnAlice">Alice</a> (personal assistant
 &amp; orchestration) — coordinating through shared infrastructure.</p>
 <p>See the <a href="https://gptme.org/docs/agents.html">Autonomous
 Agents docs</a> for the full guide.</p>
+<h3 id="-guardrails">🛡 Guardrails</h3>
+<p>Persistent agents need guardrails around the full loop, not just tool
+permissions:</p>
+<ul>
+<li><strong>Input guardrails</strong> — structured task selectors in the
+agent workspace keep work focused and reduce thrashing on notifications
+or ambiguous work. Bob uses a CASCADE-style selector for this
+layer.</li>
+<li><strong>Pre-action guardrails</strong> — <a
+href="https://gptme.org/docs/lessons.html">lessons</a> inject
+situational guidance before the agent acts.</li>
+<li><strong>Output guardrails</strong> — <a
+href="https://gptme.org/docs/hooks.html">hooks</a> and <a
+href="https://gptme.org/docs/usage.html#pre-commit-integration">pre-commit
+checks</a> validate file changes before control returns to the
+user.</li>
+</ul>
+<p>This stack is simple and composable: selectors improve work choice,
+lessons steer behavior, and checks verify the result. You can add evals
+on top later, but the baseline guardrail loop already exists.</p>
 <h3 id="-use-cases">🛠 Use Cases</h3>
 <ul>
 <li>🖥 <strong>Development:</strong> Write and run code faster with AI

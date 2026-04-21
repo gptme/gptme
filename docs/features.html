@@ -486,6 +486,7 @@
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#autonomous-agents">Autonomous Agents</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-it-works">🧠 How It Works</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#bob-the-reference-agent">🤖 Bob — The Reference Agent</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#guardrails">🛡 Guardrails</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#multi-agent-ecosystem">🌐 Multi-Agent Ecosystem</a></li>
 </ul>
 </li>
@@ -541,11 +542,12 @@
 <ul>
 <li><p><a class="reference internal" href="#how-it-works" id="id21">🧠 How It Works</a></p></li>
 <li><p><a class="reference internal" href="#bob-the-reference-agent" id="id22">🤖 Bob — The Reference Agent</a></p></li>
-<li><p><a class="reference internal" href="#multi-agent-ecosystem" id="id23">🌐 Multi-Agent Ecosystem</a></p></li>
+<li><p><a class="reference internal" href="#guardrails" id="id23">🛡 Guardrails</a></p></li>
+<li><p><a class="reference internal" href="#multi-agent-ecosystem" id="id24">🌐 Multi-Agent Ecosystem</a></p></li>
 </ul>
 </li>
-<li><p><a class="reference internal" href="#automation-ci" id="id24">Automation &amp; CI</a></p></li>
-<li><p><a class="reference internal" href="#quality-of-life" id="id25">Quality of Life</a></p></li>
+<li><p><a class="reference internal" href="#automation-ci" id="id25">Automation &amp; CI</a></p></li>
+<li><p><a class="reference internal" href="#quality-of-life" id="id26">Quality of Life</a></p></li>
 </ul>
 </nav>
 <section id="core-capabilities">
@@ -736,6 +738,16 @@ gptme-agent<span class="w"> </span>logs<span class="w"> </span>--follow
 </ul>
 <p>Bob is not a demo — he’s a production agent that runs on a schedule, handles real work, and has been iterating on his own architecture for over a year. He serves as a living example of the agent pattern.</p>
 </section>
+<section id="guardrails">
+<h3>🛡 Guardrails<a class="headerlink" href="#guardrails" title="Link to this heading">#</a></h3>
+<p>Persistent agents need guardrails around the full loop, not just tool permissions:</p>
+<ul class="simple">
+<li><p><strong>Input guardrails</strong> — structured task selectors in the agent workspace keep work focused and reduce thrashing on notifications or ambiguous work. Bob uses a CASCADE-style selector for this layer.</p></li>
+<li><p><strong>Pre-action guardrails</strong> — <a class="reference internal" href="lessons.html"><span class="doc">Lessons</span></a> inject situational guidance before the agent acts.</p></li>
+<li><p><strong>Output guardrails</strong> — <a class="reference internal" href="hooks.html"><span class="doc">Hooks</span></a> and <a class="reference internal" href="usage.html#pre-commit"><span class="std std-ref">Pre-commit Integration</span></a> checks validate file changes before control returns to the user.</p></li>
+</ul>
+<p>This stack is simple and composable: selectors improve work choice, lessons steer behavior, and checks verify the result. You can add evals on top later, but the baseline guardrail loop already exists.</p>
+</section>
 <section id="multi-agent-ecosystem">
 <h3>🌐 Multi-Agent Ecosystem<a class="headerlink" href="#multi-agent-ecosystem" title="Link to this heading">#</a></h3>
 <p>gptme supports running <strong>multiple specialized agents</strong> that coordinate through shared infrastructure. For example:</p>
@@ -849,6 +861,7 @@ gptme-agent<span class="w"> </span>logs<span class="w"> </span>--follow
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#autonomous-agents">Autonomous Agents</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-it-works">🧠 How It Works</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#bob-the-reference-agent">🤖 Bob — The Reference Agent</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#guardrails">🛡 Guardrails</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#multi-agent-ecosystem">🌐 Multi-Agent Ecosystem</a></li>
 </ul>
 </li>
