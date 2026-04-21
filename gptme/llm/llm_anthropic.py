@@ -44,6 +44,7 @@ _THINKING_EFFORT_BUDGETS: dict[str, int] = {
     "xhigh": 24000,
     "max": 32000,
 }
+_EffortLevel = Literal["low", "medium", "high", "xhigh", "max"]
 
 if TYPE_CHECKING:
     # noreorder
@@ -55,13 +56,11 @@ if TYPE_CHECKING:
 # approximations until the user upgrades.  No SDK constraint bump required —
 # the code degrades gracefully.
 try:
-    from anthropic.types import (
-        OutputConfigParam as _OutputConfigParam,  # noqa: F401  # type: ignore[attr-defined]
-    )
-
-    _HAS_OUTPUT_CONFIG = True
+    import anthropic.types as _anthropic_types
 except ImportError:
     _HAS_OUTPUT_CONFIG = False
+else:
+    _HAS_OUTPUT_CONFIG = hasattr(_anthropic_types, "OutputConfigParam")
 
 logger = logging.getLogger(__name__)
 
@@ -199,13 +198,7 @@ def _resolve_thinking_budget() -> int:
     budget_raw = os.environ.get(ENV_REASONING_BUDGET)
 
     if effort is not None:
-        level = effort.strip().lower()
-        if level not in _THINKING_EFFORT_BUDGETS:
-            valid = ", ".join(_THINKING_EFFORT_BUDGETS)
-            raise ValueError(
-                f"Invalid {ENV_THINKING_EFFORT} value: {effort!r}. "
-                f"Must be one of: {valid}."
-            )
+        level = _normalize_effort_level(effort)
         if budget_raw is not None:
             logger.warning(
                 "Both %s and %s set; using %s=%s",
@@ -227,17 +220,45 @@ def _resolve_thinking_budget() -> int:
         ) from parse_err
 
 
-def _resolve_effort_level() -> str | None:
+def _normalize_effort_level(effort: str) -> _EffortLevel:
+    level = effort.strip().lower()
+    if level not in _THINKING_EFFORT_BUDGETS:
+        valid = ", ".join(_THINKING_EFFORT_BUDGETS)
+        raise ValueError(
+            f"Invalid {ENV_THINKING_EFFORT} value: {effort!r}. Must be one of: {valid}."
+        )
+    return cast(_EffortLevel, level)
+
+
+def _resolve_effort_level() -> _EffortLevel | None:
     """Return the raw effort level from ``GPTME_THINKING_EFFORT``, or ``None``.
 
     Returns ``None`` when the env var is not set (i.e. the budget is driven
-    by ``GPTME_REASONING_BUDGET`` instead).  The level has already been
-    validated by ``_resolve_thinking_budget``; callers can use it directly.
+    by ``GPTME_REASONING_BUDGET`` instead).
     """
     effort = os.environ.get(ENV_THINKING_EFFORT)
     if effort is None:
         return None
-    return effort.strip().lower()
+    return _normalize_effort_level(effort)
+
+
+class _OutputConfig(TypedDict):
+    effort: _EffortLevel
+
+
+class _OutputConfigKwargs(TypedDict, total=False):
+    output_config: _OutputConfig
+
+
+def _output_config_kwargs(*, use_thinking: bool) -> _OutputConfigKwargs:
+    if not (use_thinking and _HAS_OUTPUT_CONFIG):
+        return {}
+
+    effort_level = _resolve_effort_level()
+    if effort_level is None:
+        return {}
+
+    return {"output_config": {"effort": effort_level}}
 
 
 def _adjust_thinking_budget(
@@ -539,10 +560,7 @@ def chat(
     # Pass output_config.effort when the SDK supports it (>= 0.77) and
     # GPTME_THINKING_EFFORT is set.  This enables true xhigh/max semantics
     # (adaptive thinking) that budget_tokens cannot express.
-    effort_level = (
-        _resolve_effort_level() if use_thinking and _HAS_OUTPUT_CONFIG else None
-    )
-    output_config = {"effort": effort_level} if effort_level else NOT_GIVEN
+    output_config_kwargs = _output_config_kwargs(use_thinking=use_thinking)
 
     response = _anthropic.messages.create(  # type: ignore[call-overload, misc]
         model=api_model,
@@ -557,7 +575,7 @@ def chat(
             if use_thinking
             else NOT_GIVEN
         ),
-        output_config=output_config,
+        **output_config_kwargs,
         # We set a timeout for non-streaming requests to prevent Anthropic's
         # "Streaming is strongly recommended" warning/error.
         timeout=60,
@@ -641,12 +659,9 @@ def stream(
         max_tokens, thinking_budget, use_thinking
     )
 
-    effort_level = (
-        _resolve_effort_level() if use_thinking and _HAS_OUTPUT_CONFIG else None
-    )
-    output_config = {"effort": effort_level} if effort_level else NOT_GIVEN
+    output_config_kwargs = _output_config_kwargs(use_thinking=use_thinking)
 
-    with _anthropic.messages.stream(  # type: ignore[call-arg]
+    with _anthropic.messages.stream(  # type: ignore[call-arg, misc]
         model=api_model,
         messages=messages_dicts,
         system=system_messages,
@@ -659,7 +674,7 @@ def stream(
             if use_thinking
             else NOT_GIVEN
         ),
-        output_config=output_config,
+        **output_config_kwargs,
     ) as stream:
         for chunk in stream:
             match chunk.type:
