@@ -11,11 +11,8 @@ import {
 } from '@/components/ui/dialog';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useApi } from '@/contexts/ApiContext';
-import {
-  isTauriEnvironment,
-  isTauriMobileEnvironment,
-  tauriManagesLocalServer,
-} from '@/utils/tauri';
+import { isTauriEnvironment } from '@/utils/tauri';
+import { useTauriServerStatus } from '@/hooks/useTauriServerStatus';
 import { use$ } from '@legendapp/state/react';
 import { Monitor, Cloud, ArrowRight, Check, Terminal, ExternalLink } from 'lucide-react';
 
@@ -57,8 +54,9 @@ export function SetupWizard() {
   const [cloudLoginStarted, setCloudLoginStarted] = useState(false);
   const lastAutoAdvanceBaseUrlRef = useRef<string | null>(null);
   const isTauri = isTauriEnvironment();
-  const isTauriMobile = isTauriMobileEnvironment();
-  const managesLocalServer = tauriManagesLocalServer();
+  const { isLoading: isLoadingTauriStatus, managesLocalServer } = useTauriServerStatus();
+  const isRemoteOnlyTauri = isTauri && managesLocalServer === false;
+  const isDeterminingTauriMode = isTauri && isLoadingTauriStatus;
   const [remoteBaseUrl, setRemoteBaseUrl] = useState(
     connectionConfig.baseUrl === 'http://127.0.0.1:5700' ? '' : connectionConfig.baseUrl
   );
@@ -215,17 +213,26 @@ export function SetupWizard() {
             <div className="flex flex-col gap-3 py-4">
               <button
                 onClick={() => setStep('local')}
+                disabled={isDeterminingTauriMode}
                 className="flex items-start gap-4 rounded-lg border p-4 text-left transition-colors hover:bg-accent"
               >
                 <Monitor className="mt-0.5 h-6 w-6 shrink-0" />
                 <div>
-                  <div className="font-medium">{isTauriMobile ? 'Remote server' : 'Local'}</div>
+                  <div className="font-medium">
+                    {isDeterminingTauriMode
+                      ? 'Checking environment'
+                      : isRemoteOnlyTauri
+                        ? 'Remote server'
+                        : 'Local'}
+                  </div>
                   <div className="text-sm text-muted-foreground">
-                    {isTauriMobile
-                      ? 'Connect to Bob or another self-hosted gptme instance by URL. No on-device server.'
-                      : managesLocalServer
-                        ? 'Run gptme on your machine. The server starts automatically.'
-                        : 'Run gptme-server on your machine. Bring your own API keys.'}
+                    {isDeterminingTauriMode
+                      ? 'Checking whether this build manages a local gptme server.'
+                      : isRemoteOnlyTauri
+                        ? 'Connect to Bob or another self-hosted gptme instance by URL. No on-device server.'
+                        : managesLocalServer
+                          ? 'Run gptme on your machine. The server starts automatically.'
+                          : 'Run gptme-server on your machine. Bring your own API keys.'}
                   </div>
                 </div>
               </button>
@@ -253,17 +260,23 @@ export function SetupWizard() {
         {step === 'local' && (
           <>
             <DialogHeader>
-              <DialogTitle>{isTauriMobile ? 'Remote server setup' : 'Local setup'}</DialogTitle>
+              <DialogTitle>{isRemoteOnlyTauri ? 'Remote server setup' : 'Local setup'}</DialogTitle>
               <DialogDescription>
-                {isTauriMobile
-                  ? 'Connect this app to Bob, gptme.ai, or another remote gptme server.'
-                  : managesLocalServer
-                    ? 'The gptme server is managed automatically by the desktop app.'
-                    : 'Start the gptme server to get going.'}
+                {isDeterminingTauriMode
+                  ? 'Checking whether this build manages a local gptme server.'
+                  : isRemoteOnlyTauri
+                    ? 'Connect this app to Bob, gptme.ai, or another remote gptme server.'
+                    : managesLocalServer
+                      ? 'The gptme server is managed automatically by the desktop app.'
+                      : 'Start the gptme server to get going.'}
               </DialogDescription>
             </DialogHeader>
             <div className="flex flex-col gap-4 py-4">
-              {isTauriMobile ? (
+              {isDeterminingTauriMode ? (
+                <p className="text-sm text-muted-foreground">
+                  Checking whether this build manages a local gptme server...
+                </p>
+              ) : isRemoteOnlyTauri ? (
                 <div className="flex flex-col gap-3">
                   <p className="text-sm text-muted-foreground">
                     Enter the URL for a remote gptme server. Use Cloud instead if you want the
@@ -334,10 +347,16 @@ export function SetupWizard() {
                 Back
               </Button>
               <Button
-                onClick={isTauriMobile ? handleRemoteSetup : handleLocalSetup}
-                disabled={isConnecting}
+                onClick={isRemoteOnlyTauri ? handleRemoteSetup : handleLocalSetup}
+                disabled={isConnecting || isDeterminingTauriMode}
               >
-                {isConnecting ? 'Connecting...' : isConnected ? 'Continue' : 'Connect'}
+                {isDeterminingTauriMode
+                  ? 'Checking...'
+                  : isConnecting
+                    ? 'Connecting...'
+                    : isConnected
+                      ? 'Continue'
+                      : 'Connect'}
               </Button>
             </DialogFooter>
           </>

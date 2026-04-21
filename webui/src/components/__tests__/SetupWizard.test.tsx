@@ -9,7 +9,27 @@ const mockOpen = jest.fn();
 const mockFetch = jest.fn();
 const isConnected$ = observable(false);
 const mockIsTauriEnvironment = jest.fn(() => false);
-const mockIsTauriMobileEnvironment = jest.fn(() => false);
+
+type MockTauriServerStatus = {
+  running: boolean;
+  port: number;
+  port_available: boolean;
+  manages_local_server: boolean;
+};
+
+type MockUseTauriServerStatusResult = {
+  isLoading: boolean;
+  managesLocalServer: boolean | null;
+  serverStatus: MockTauriServerStatus | null;
+};
+
+const mockUseTauriServerStatus = jest.fn(
+  (): MockUseTauriServerStatusResult => ({
+    isLoading: false,
+    managesLocalServer: false,
+    serverStatus: null,
+  })
+);
 
 jest.mock('@/contexts/ApiContext', () => ({
   useApi: () => ({
@@ -25,8 +45,10 @@ jest.mock('@/contexts/ApiContext', () => ({
 
 jest.mock('@/utils/tauri', () => ({
   isTauriEnvironment: () => mockIsTauriEnvironment(),
-  isTauriMobileEnvironment: () => mockIsTauriMobileEnvironment(),
-  tauriManagesLocalServer: () => mockIsTauriEnvironment() && !mockIsTauriMobileEnvironment(),
+}));
+
+jest.mock('@/hooks/useTauriServerStatus', () => ({
+  useTauriServerStatus: () => mockUseTauriServerStatus(),
 }));
 
 jest.mock('@legendapp/state/react', () => ({
@@ -77,7 +99,11 @@ describe('SetupWizard', () => {
       value: mockFetch,
     });
     mockIsTauriEnvironment.mockReturnValue(false);
-    mockIsTauriMobileEnvironment.mockReturnValue(false);
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: false,
+      managesLocalServer: false,
+      serverStatus: null,
+    });
     Object.defineProperty(window, 'open', {
       writable: true,
       value: mockOpen,
@@ -208,7 +234,16 @@ describe('SetupWizard', () => {
 
   it('connects to a remote server during tauri mobile setup', async () => {
     mockIsTauriEnvironment.mockReturnValue(true);
-    mockIsTauriMobileEnvironment.mockReturnValue(true);
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: false,
+      managesLocalServer: false,
+      serverStatus: {
+        running: false,
+        port: 5700,
+        port_available: false,
+        manages_local_server: false,
+      },
+    });
     mockConnect.mockResolvedValue(undefined);
 
     render(
@@ -234,5 +269,24 @@ describe('SetupWizard', () => {
         useAuthToken: true,
       });
     });
+  });
+
+  it('waits for tauri status before enabling the server mode choice', () => {
+    mockIsTauriEnvironment.mockReturnValue(true);
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: true,
+      managesLocalServer: null,
+      serverStatus: null,
+    });
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+
+    expect(screen.getByRole('button', { name: /monitor checking environment/i })).toBeDisabled();
   });
 });

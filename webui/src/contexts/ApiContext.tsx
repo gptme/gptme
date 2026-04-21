@@ -13,7 +13,8 @@ import {
 } from '@/stores/servers';
 import { getClientForServer, getPrimaryClient } from '@/stores/serverClients';
 import type { ServerConfig } from '@/types/servers';
-import { isTauriMobileEnvironment } from '@/utils/tauri';
+import { useTauriServerStatus } from '@/hooks/useTauriServerStatus';
+import { isTauriEnvironment } from '@/utils/tauri';
 import { type Observable, observable } from '@legendapp/state';
 import { use$ } from '@legendapp/state/react';
 import type { QueryClient } from '@tanstack/react-query';
@@ -93,6 +94,8 @@ export function ApiProvider({
   queryClient: QueryClient;
 }) {
   const [isExchangingAuthCode, setIsExchangingAuthCode] = useState(needsAuthCodeExchange);
+  const isTauri = isTauriEnvironment();
+  const { isLoading: isLoadingTauriStatus, managesLocalServer } = useTauriServerStatus();
 
   // Get client for any server from the shared pool
   const getClient = useCallback((serverId?: string): ApiClient => {
@@ -303,13 +306,14 @@ export function ApiProvider({
   useEffect(() => {
     const currentHash = window.location.hash.substring(1);
     if (hasAuthCodeInHash(currentHash)) return;
-    if (isTauriMobileEnvironment()) return;
+    if (isTauri && isLoadingTauriStatus) return;
+    if (isTauri && managesLocalServer === false) return;
 
     void (async () => {
       console.log('[ApiContext] Attempting initial connection');
       await autoConnect(true);
     })();
-  }, [autoConnect]);
+  }, [autoConnect, isLoadingTauriStatus, isTauri, managesLocalServer]);
 
   // Cleanup on unmount
   useEffect(() => {
