@@ -220,8 +220,13 @@ def _check_tools(verbose: bool = False) -> list[CheckResult]:
         ),
         (
             "convert",
-            "ImageMagick - image conversion for browser tool",
+            "ImageMagick - image conversion for browser and computer tools",
             "Install ImageMagick from https://imagemagick.org",
+        ),
+        (
+            "vips",
+            "libvips - fast image processing, PDF rasterization fallback for browser tool",
+            "Install with: sudo apt install libvips-tools  or  brew install vips",
         ),
         ("rg", "ripgrep - fast file searching", None),
         ("ast-grep", "AST-based code search", None),
