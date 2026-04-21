@@ -474,6 +474,10 @@
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util">gptme-util</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-agents">agents</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-agents-scan">scan</a></li>
+</ul>
+</li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats">chats</a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats-clean">clean</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats-export">export</a></li>
@@ -1078,6 +1082,43 @@ After successful login, tokens are stored locally for future use.</p>
 <dd><p>Enable verbose output.</p>
 </dd></dl>
 
+<section id="gptme-util-agents">
+<h3>agents<a class="headerlink" href="#gptme-util-agents" title="Link to this heading">#</a></h3>
+<p>Inspect live agent processes on this host.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>agents<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>COMMAND<span class="w"> </span><span class="o">[</span>ARGS<span class="o">]</span>...
+</pre></div>
+</div>
+<section id="gptme-util-agents-scan">
+<h4>scan<a class="headerlink" href="#gptme-util-agents-scan" title="Link to this heading">#</a></h4>
+<p>List live agent processes (gptme, claude-code, codex, aider, …).</p>
+<p>By default shows all active (non-stale) agents on the host.
+Use –workspace to filter by repo root.
+Use –all to also include stale/stuck processes.</p>
+<p>Exit code: 0 if at least one active agent found, 1 if none.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>agents<span class="w"> </span>scan<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-agents-scan-w">
+<span id="cmdoption-gptme-util-agents-scan-workspace"></span><span class="sig-name descname"><span class="pre">-w</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--workspace</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;workspace&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-util-agents-scan-w" title="Link to this definition">#</a></dt>
+<dd><p>Only show agents whose CWD is under this path. By default all agents on the host are shown.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-agents-scan-all">
+<span class="sig-name descname"><span class="pre">--all</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-agents-scan-all" title="Link to this definition">#</a></dt>
+<dd><p>Include stale/stuck agents (excluded by default).</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-agents-scan-json">
+<span class="sig-name descname"><span class="pre">--json</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-agents-scan-json" title="Link to this definition">#</a></dt>
+<dd><p>Output as JSON.</p>
+</dd></dl>
+
+</section>
+</section>
 <section id="gptme-util-chats">
 <h3>chats<a class="headerlink" href="#gptme-util-chats" title="Link to this heading">#</a></h3>
 <p>Commands for managing chat logs.</p>
@@ -2223,6 +2264,10 @@ Use –all to include unavailable tools as well.</p>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util">gptme-util</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-agents">agents</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-agents-scan">scan</a></li>
+</ul>
+</li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats">chats</a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats-clean">clean</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-chats-export">export</a></li>
