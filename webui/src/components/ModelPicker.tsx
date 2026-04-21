@@ -163,6 +163,56 @@ export const ModelPicker: FC<{
   onSelect: (modelId: string) => void;
 }> = ({ value, onSelect }) => <ModelCommandList value={value} onSelect={onSelect} />;
 
+/** Model picker as a popover button without form bindings. */
+export function ModelPickerButton({
+  value,
+  onSelect,
+  disabled = false,
+  placeholder = 'Select model',
+}: {
+  value?: string;
+  onSelect: (modelId: string) => void;
+  disabled?: boolean;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const { models } = useModels();
+  const modelInfo = models.find((m) => m.id === value);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          disabled={disabled}
+          className="w-full justify-between font-normal"
+        >
+          {value ? (
+            <span className="flex items-center gap-2 truncate">
+              {modelInfo?.provider && <ProviderIcon provider={modelInfo.provider} />}
+              {modelInfo?.model || value}
+            </span>
+          ) : (
+            <span className="text-muted-foreground">{placeholder}</span>
+          )}
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <ModelCommandList
+          value={value}
+          onSelect={(id) => {
+            onSelect(id);
+            setOpen(false);
+          }}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 /** Model picker as a form field with popover trigger (for use in settings forms) */
 export function ModelPickerField<T extends FieldValues = FieldValues>({
   control,

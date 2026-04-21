@@ -32,7 +32,9 @@ from gptme.llm.models import (
     _apply_model_filters,
     _get_models_for_provider,
     get_default_model,
+    get_model,
     get_recommended_model,
+    set_default_model,
 )
 from gptme.prompts import get_prompt
 
@@ -68,6 +70,8 @@ from .openapi_docs import (
     StatusResponse,
     UserApiKeySaveRequest,
     UserApiKeySaveResponse,
+    UserDefaultModelSaveRequest,
+    UserDefaultModelSaveResponse,
     api_doc,
     api_doc_simple,
 )
@@ -97,6 +101,50 @@ def _is_valid_image_content(path: "Path") -> bool:
     except Exception:
         logger.warning("Unexpected error validating image %s", path, exc_info=True)
         return False
+
+
+def _validate_model_input(model: str, expected_provider: str | None = None) -> str:
+    """Validate a fully qualified provider/model identifier."""
+    trimmed_model = model.strip()
+    if not trimmed_model:
+        raise ValueError("model must not be empty")
+    if "/" not in trimmed_model:
+        raise ValueError("model must be fully qualified as provider/model")
+
+    provider, model_name = trimmed_model.split("/", 1)
+    if provider not in PROVIDERS:
+        raise ValueError(f"Unknown provider: {provider}")
+    if not model_name.strip():
+        raise ValueError("model must include a model name after the provider prefix")
+    if expected_provider and provider != expected_provider:
+        raise ValueError(
+            f"Model {trimmed_model} does not match provider {expected_provider}"
+        )
+    return trimmed_model
+
+
+def _persist_default_model(model: str) -> bool:
+    """Persist env.MODEL and try to apply it in-process.
+
+    Returns True if a restart is still required to guarantee the change takes effect.
+    """
+    set_config_value("env.MODEL", model, reload=False)
+
+    model_meta = get_model(model)
+    try:
+        from gptme.llm import init_llm
+
+        init_llm(cast(Provider, model_meta.provider))
+        set_default_model(model_meta)
+        flask.current_app.config["SERVER_DEFAULT_MODEL"] = model_meta
+        return False
+    except Exception:
+        logger.warning(
+            "Persisted default model %s but could not apply it in-process; restart required",
+            model,
+            exc_info=True,
+        )
+        return True
 
 
 def _validate_api_key_input(api_key: str) -> str:
@@ -1328,20 +1376,30 @@ def api_user_api_key():
 
     provider = req_json.get("provider")
     api_key = req_json.get("api_key")
+    model = req_json.get("model")
     if not isinstance(provider, str):
         return flask.jsonify({"error": "provider must be a string"}), 400
     if not isinstance(api_key, str):
         return flask.jsonify({"error": "api_key must be a string"}), 400
+    if model is not None and not isinstance(model, str):
+        return flask.jsonify({"error": "model must be a string"}), 400
     if provider not in PROVIDER_API_KEYS:
         return flask.jsonify({"error": f"Unknown provider: {provider}"}), 400
 
     try:
         trimmed_api_key = _validate_api_key_input(api_key)
+        trimmed_model = (
+            _validate_model_input(model, expected_provider=provider)
+            if model is not None
+            else None
+        )
     except ValueError as exc:
         return flask.jsonify({"error": str(exc)}), 400
 
     env_var = PROVIDER_API_KEYS[provider]
     set_config_value(f"env.{env_var}", trimmed_api_key, reload=False)
+    if trimmed_model is not None:
+        set_config_value("env.MODEL", trimmed_model, reload=False)
     logger.info("Saved %s to user config via /api/v2/user/api-key", env_var)
     return flask.jsonify(
         {
@@ -1349,6 +1407,44 @@ def api_user_api_key():
             "provider": provider,
             "env_var": env_var,
             "restart_required": True,
+        }
+    )
+
+
+@v2_api.route("/api/v2/user/default-model", methods=["POST"])
+@require_auth
+@api_doc(
+    summary="Save default model",
+    description=(
+        "Persist the default model into the user's global gptme config and apply "
+        "it to the running server when possible."
+    ),
+    request_body=UserDefaultModelSaveRequest,
+    responses={200: UserDefaultModelSaveResponse, 400: ErrorResponse},
+    tags=["user"],
+)
+def api_user_default_model():
+    """Persist the default model into user config."""
+    req_json = flask.request.json
+    if not req_json:
+        return flask.jsonify({"error": "No JSON data provided"}), 400
+
+    model = req_json.get("model")
+    if not isinstance(model, str):
+        return flask.jsonify({"error": "model must be a string"}), 400
+
+    try:
+        trimmed_model = _validate_model_input(model)
+    except ValueError as exc:
+        return flask.jsonify({"error": str(exc)}), 400
+
+    restart_required = _persist_default_model(trimmed_model)
+    logger.info("Saved MODEL=%s via /api/v2/user/default-model", trimmed_model)
+    return flask.jsonify(
+        {
+            "status": "ok",
+            "model": trimmed_model,
+            "restart_required": restart_required,
         }
     )
 

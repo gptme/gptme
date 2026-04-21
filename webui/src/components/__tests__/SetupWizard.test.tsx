@@ -34,6 +34,10 @@ const mockUseTauriServerStatus = jest.fn(
 
 jest.mock('@/contexts/ApiContext', () => ({
   useApi: () => ({
+    api: {
+      baseUrl: 'http://127.0.0.1:5700',
+      authHeader: null,
+    },
     isConnected$,
     connect: mockConnect,
     connectionConfig: {
@@ -171,7 +175,9 @@ describe('SetupWizard', () => {
     });
 
     await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledWith('http://127.0.0.1:5700/api/v2');
+      expect(mockFetch).toHaveBeenCalledWith('http://127.0.0.1:5700/api/v2', {
+        headers: {},
+      });
     });
 
     await waitFor(() => {
@@ -343,6 +349,20 @@ describe('SetupWizard', () => {
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
+        json: async () => ({
+          models: [
+            {
+              id: 'anthropic/claude-sonnet-4-7',
+              provider: 'anthropic',
+              model: 'claude-sonnet-4-7',
+            },
+          ],
+          recommended: ['anthropic/claude-sonnet-4-7'],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
         json: async () => ({ status: 'ok', env_var: 'ANTHROPIC_API_KEY' }),
       })
       .mockRejectedValueOnce(new Error('connection refused'))
@@ -387,6 +407,7 @@ describe('SetupWizard', () => {
         body: JSON.stringify({
           provider: 'anthropic',
           api_key: 'sk-ant-test-key',
+          model: 'anthropic/claude-sonnet-4-7',
         }),
       });
     });
@@ -415,6 +436,20 @@ describe('SetupWizard', () => {
         ok: true,
         status: 200,
         json: async () => ({ provider_configured: false }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          models: [
+            {
+              id: 'anthropic/claude-sonnet-4-7',
+              provider: 'anthropic',
+              model: 'claude-sonnet-4-7',
+            },
+          ],
+          recommended: ['anthropic/claude-sonnet-4-7'],
+        }),
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -471,6 +506,20 @@ describe('SetupWizard', () => {
         ok: true,
         status: 200,
         json: async () => ({ provider_configured: false }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          models: [
+            {
+              id: 'anthropic/claude-sonnet-4-7',
+              provider: 'anthropic',
+              model: 'claude-sonnet-4-7',
+            },
+          ],
+          recommended: ['anthropic/claude-sonnet-4-7'],
+        }),
       })
       .mockResolvedValueOnce({
         ok: false,

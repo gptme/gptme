@@ -19,6 +19,15 @@ import { Monitor, Cloud, ArrowRight, Check, Terminal, ExternalLink } from 'lucid
 
 type SetupStep = 'welcome' | 'mode' | 'local' | 'cloud' | 'provider' | 'complete';
 type SetupProvider = 'anthropic' | 'openai' | 'openrouter' | 'gemini' | 'groq' | 'xai' | 'deepseek';
+type SetupModelInfo = {
+  id: string;
+  provider: string;
+  model: string;
+};
+type SetupModelsResponse = {
+  models: SetupModelInfo[];
+  recommended: string[];
+};
 
 // The gptme cloud service is hosted on fleet.gptme.ai (the cloud.gptme.ai domain
 // is a planned alias). Use a small runtime helper so Jest doesn't choke on import.meta.
@@ -64,9 +73,16 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
+function withAuthHeaders(
+  authHeader: string | null,
+  headers: Record<string, string> = {}
+): Record<string, string> {
+  return authHeader ? { ...headers, Authorization: authHeader } : headers;
+}
+
 export function SetupWizard() {
   const { settings, updateSettings } = useSettings();
-  const { isConnected$, connect, connectionConfig } = useApi();
+  const { api, isConnected$, connect, connectionConfig } = useApi();
   const isConnected = use$(isConnected$);
   const [step, setStep] = useState<SetupStep>('welcome');
   // isOpen is a one-time snapshot of hasCompletedSetup taken at mount. It is intentionally
@@ -92,32 +108,40 @@ export function SetupWizard() {
   const [remoteAuthToken, setRemoteAuthToken] = useState(connectionConfig.authToken || '');
   const [apiKeyProvider, setApiKeyProvider] = useState<SetupProvider>('anthropic');
   const [apiKey, setApiKey] = useState('');
+  const [apiKeyModel, setApiKeyModel] = useState('');
   const [apiKeySaving, setApiKeySaving] = useState(false);
   const [apiKeyError, setApiKeyError] = useState<string | null>(null);
+  const [availableModels, setAvailableModels] = useState<SetupModelInfo[]>([]);
+  const [recommendedModels, setRecommendedModels] = useState<string[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsError, setModelsError] = useState<string | null>(null);
 
   const completeSetup = useCallback(() => {
     updateSettings({ hasCompletedSetup: true });
   }, [updateSettings]);
 
   const fetchProviderConfigured = useCallback(async () => {
-    const resp = await fetch(`${connectionConfig.baseUrl}/api/v2`);
+    const resp = await fetch(`${connectionConfig.baseUrl}/api/v2`, {
+      headers: withAuthHeaders(api.authHeader),
+    });
     if (!resp.ok) {
       throw new Error(`Failed to verify provider status (${resp.status})`);
     }
     const data = (await resp.json()) as { provider_configured?: boolean };
     return data.provider_configured !== false;
-  }, [connectionConfig.baseUrl]);
+  }, [api.authHeader, connectionConfig.baseUrl]);
 
   const saveApiKeyToServer = useCallback(
-    async (provider: SetupProvider, apiKeyValue: string) => {
+    async (provider: SetupProvider, apiKeyValue: string, model?: string) => {
       const resp = await fetch(`${connectionConfig.baseUrl}/api/v2/user/api-key`, {
         method: 'POST',
-        headers: {
+        headers: withAuthHeaders(api.authHeader, {
           'Content-Type': 'application/json',
-        },
+        }),
         body: JSON.stringify({
           provider,
           api_key: apiKeyValue,
+          ...(model ? { model } : {}),
         }),
       });
 
@@ -136,8 +160,56 @@ export function SetupWizard() {
       }
       throw new Error(message);
     },
-    [connectionConfig.baseUrl]
+    [api.authHeader, connectionConfig.baseUrl]
   );
+
+  const fetchAvailableModels = useCallback(async () => {
+    setModelsLoading(true);
+    setModelsError(null);
+    try {
+      const resp = await fetch(`${connectionConfig.baseUrl}/api/v2/models`, {
+        headers: withAuthHeaders(api.authHeader),
+      });
+      if (!resp.ok) {
+        throw new Error(`Failed to load models (${resp.status})`);
+      }
+
+      const data = (await resp.json()) as SetupModelsResponse;
+      setAvailableModels(data.models || []);
+      setRecommendedModels(data.recommended || []);
+    } catch (error) {
+      setAvailableModels([]);
+      setRecommendedModels([]);
+      setModelsError(error instanceof Error ? error.message : 'Failed to load available models.');
+    } finally {
+      setModelsLoading(false);
+    }
+  }, [api.authHeader, connectionConfig.baseUrl]);
+
+  const providerModels = availableModels.filter((model) => model.provider === apiKeyProvider);
+
+  useEffect(() => {
+    if (step !== 'provider' || !canManageApiKeyInApp) {
+      return;
+    }
+    void fetchAvailableModels();
+  }, [canManageApiKeyInApp, fetchAvailableModels, step]);
+
+  useEffect(() => {
+    if (step !== 'provider' || !canManageApiKeyInApp) {
+      return;
+    }
+    if (providerModels.length === 0) {
+      setApiKeyModel('');
+      return;
+    }
+    if (providerModels.some((model) => model.id === apiKeyModel)) {
+      return;
+    }
+    const preferredModel =
+      providerModels.find((model) => recommendedModels.includes(model.id)) || providerModels[0];
+    setApiKeyModel(preferredModel.id);
+  }, [apiKeyModel, canManageApiKeyInApp, providerModels, recommendedModels, step]);
 
   // Fetch /api/v2, check provider_configured, then advance to 'provider' or 'complete'.
   const checkProviderAndAdvance = useCallback(
@@ -253,10 +325,14 @@ export function SetupWizard() {
       setApiKeyError('Enter an API key before saving.');
       return;
     }
+    if (!modelsLoading && providerModels.length > 0 && !apiKeyModel) {
+      setApiKeyError('Choose a default model before saving.');
+      return;
+    }
     setApiKeySaving(true);
     setApiKeyError(null);
     try {
-      await saveApiKeyToServer(apiKeyProvider, trimmed);
+      await saveApiKeyToServer(apiKeyProvider, trimmed, apiKeyModel || undefined);
       try {
         await invokeTauri('stop_server');
       } catch {
@@ -617,6 +693,37 @@ export function SetupWizard() {
                           </option>
                         ))}
                       </select>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="setup-api-key-model">Default model</Label>
+                      <select
+                        id="setup-api-key-model"
+                        className="h-9 rounded-md border bg-background px-3 text-sm"
+                        value={apiKeyModel}
+                        onChange={(e) => setApiKeyModel(e.target.value)}
+                        disabled={apiKeySaving || modelsLoading || providerModels.length === 0}
+                      >
+                        {providerModels.length === 0 ? (
+                          <option value="">
+                            {modelsLoading ? 'Loading models…' : 'No models available'}
+                          </option>
+                        ) : (
+                          providerModels.map((model) => (
+                            <option key={model.id} value={model.id}>
+                              {model.model}
+                            </option>
+                          ))
+                        )}
+                      </select>
+                      <p className="text-xs text-muted-foreground">
+                        Pick the model gptme should use after restart.
+                      </p>
+                      {modelsError && (
+                        <p className="text-xs text-destructive">
+                          {modelsError} If this keeps failing, save without a model and gptme will
+                          fall back to the provider default.
+                        </p>
+                      )}
                     </div>
                     <div className="flex flex-col gap-2">
                       <Label htmlFor="setup-api-key-input">API key</Label>

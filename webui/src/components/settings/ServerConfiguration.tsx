@@ -27,6 +27,7 @@ import { getClientForServer } from '@/stores/serverClients';
 import type { ServerConfig } from '@/types/servers';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { ServerDefaultModelSettings } from './ServerDefaultModelSettings';
 
 interface ServerFormState {
   name: string;
@@ -345,6 +346,8 @@ export const ServerConfiguration: FC = () => {
           );
         })}
       </div>
+
+      <ServerDefaultModelSettings />
 
       <Button variant="outline" onClick={handleOpenAdd}>
         <Plus className="mr-2 h-4 w-4" />
