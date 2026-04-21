@@ -3,4 +3,14 @@ export const isTauriEnvironment = () => {
   return typeof window !== 'undefined' && window.__TAURI__ !== undefined;
 };
 
-// Other Tauri-related utilities can be added here in the future
+export const isTauriMobileEnvironment = () => {
+  return (
+    isTauriEnvironment() &&
+    typeof navigator !== 'undefined' &&
+    /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+  );
+};
+
+export const tauriManagesLocalServer = () => {
+  return isTauriEnvironment() && !isTauriMobileEnvironment();
+};

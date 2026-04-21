@@ -3,6 +3,7 @@
   "identifier": "default",
   "description": "Capability for the main window",
   "windows": ["main"],
+  "platforms": ["linux", "macOS", "windows"],
   "permissions": [
     "core:default",
     "opener:default",

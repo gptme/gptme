@@ -7,16 +7,25 @@ import { SettingsProvider } from '@/contexts/SettingsContext';
 const mockConnect = jest.fn();
 const mockOpen = jest.fn();
 const isConnected$ = observable(false);
+const mockIsTauriEnvironment = jest.fn(() => false);
+const mockIsTauriMobileEnvironment = jest.fn(() => false);
 
 jest.mock('@/contexts/ApiContext', () => ({
   useApi: () => ({
     isConnected$,
     connect: mockConnect,
+    connectionConfig: {
+      baseUrl: 'http://127.0.0.1:5700',
+      authToken: null,
+      useAuthToken: false,
+    },
   }),
 }));
 
 jest.mock('@/utils/tauri', () => ({
-  isTauriEnvironment: () => false,
+  isTauriEnvironment: () => mockIsTauriEnvironment(),
+  isTauriMobileEnvironment: () => mockIsTauriMobileEnvironment(),
+  tauriManagesLocalServer: () => mockIsTauriEnvironment() && !mockIsTauriMobileEnvironment(),
 }));
 
 jest.mock('@legendapp/state/react', () => ({
@@ -39,6 +48,10 @@ jest.mock('@/components/ui/button', () => ({
   ),
 }));
 
+jest.mock('@/components/ui/input', () => ({
+  Input: (props: React.InputHTMLAttributes<HTMLInputElement>) => <input {...props} />,
+}));
+
 jest.mock('lucide-react', () => ({
   Monitor: () => <span>Monitor</span>,
   Cloud: () => <span>Cloud</span>,
@@ -54,6 +67,8 @@ describe('SetupWizard', () => {
     isConnected$.set(false);
     mockConnect.mockReset();
     mockOpen.mockReset();
+    mockIsTauriEnvironment.mockReturnValue(false);
+    mockIsTauriMobileEnvironment.mockReturnValue(false);
     Object.defineProperty(window, 'open', {
       writable: true,
       value: mockOpen,
@@ -108,5 +123,35 @@ describe('SetupWizard', () => {
       hasCompletedSetup: true,
     });
     expect(screen.getByRole('heading', { name: /you're all set/i })).toBeInTheDocument();
+  });
+
+  it('connects to a remote server during tauri mobile setup', async () => {
+    mockIsTauriEnvironment.mockReturnValue(true);
+    mockIsTauriMobileEnvironment.mockReturnValue(true);
+    mockConnect.mockResolvedValue(undefined);
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /remote server/i }));
+    fireEvent.change(screen.getByPlaceholderText('https://bob.example.com'), {
+      target: { value: 'https://bob.example.com/' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('Optional API token'), {
+      target: { value: 'secret-token' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /connect/i }));
+
+    await waitFor(() => {
+      expect(mockConnect).toHaveBeenCalledWith({
+        baseUrl: 'https://bob.example.com',
+        authToken: 'secret-token',
+        useAuthToken: true,
+      });
+    });
   });
 });

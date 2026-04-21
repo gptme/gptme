@@ -1,22 +1,30 @@
+#[cfg(desktop)]
 use std::net::TcpListener;
+#[cfg(desktop)]
 use std::sync::{Arc, Mutex};
+
 use tauri::Manager;
 use tauri_plugin_deep_link::DeepLinkExt;
+#[cfg(desktop)]
 use tauri_plugin_dialog::{
     DialogExt, MessageDialogBuilder, MessageDialogButtons, MessageDialogKind,
 };
 use tauri_plugin_log::{Target, TargetKind};
+#[cfg(desktop)]
 use tauri_plugin_shell::process::CommandChild;
+#[cfg(desktop)]
 use tauri_plugin_shell::ShellExt;
 
 const GPTME_SERVER_PORT: u16 = 5700;
+const LOCAL_SERVER_UNSUPPORTED: &str =
+    "Local gptme-server management is desktop-only. Connect to a remote gptme instance instead.";
 
-/// Check if a port is available
+#[cfg(desktop)]
 fn is_port_available(port: u16) -> bool {
     TcpListener::bind(format!("127.0.0.1:{}", port)).is_ok()
 }
 
-/// Managed state holding the gptme-server child process for cleanup on exit.
+#[cfg(desktop)]
 struct ServerProcess(Arc<Mutex<Option<CommandChild>>>);
 
 #[derive(serde::Serialize)]
@@ -24,9 +32,10 @@ struct ServerStatus {
     running: bool,
     port: u16,
     port_available: bool,
+    manages_local_server: bool,
 }
 
-/// Get the current status of the local gptme-server.
+#[cfg(desktop)]
 #[tauri::command]
 fn get_server_status(state: tauri::State<'_, ServerProcess>) -> ServerStatus {
     let running = state.0.lock().map(|guard| guard.is_some()).unwrap_or(false);
@@ -34,10 +43,22 @@ fn get_server_status(state: tauri::State<'_, ServerProcess>) -> ServerStatus {
         running,
         port: GPTME_SERVER_PORT,
         port_available: is_port_available(GPTME_SERVER_PORT),
+        manages_local_server: true,
     }
 }
 
-/// Stop the local gptme-server process.
+#[cfg(not(desktop))]
+#[tauri::command]
+fn get_server_status() -> ServerStatus {
+    ServerStatus {
+        running: false,
+        port: GPTME_SERVER_PORT,
+        port_available: false,
+        manages_local_server: false,
+    }
+}
+
+#[cfg(desktop)]
 #[tauri::command]
 fn stop_server(state: tauri::State<'_, ServerProcess>) -> Result<(), String> {
     let mut guard = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
@@ -51,13 +72,18 @@ fn stop_server(state: tauri::State<'_, ServerProcess>) -> Result<(), String> {
     }
 }
 
-/// Start the local gptme-server process (if not already running).
+#[cfg(not(desktop))]
+#[tauri::command]
+fn stop_server() -> Result<(), String> {
+    Err(LOCAL_SERVER_UNSUPPORTED.to_string())
+}
+
+#[cfg(desktop)]
 #[tauri::command]
 async fn start_server(
     app: tauri::AppHandle,
     state: tauri::State<'_, ServerProcess>,
 ) -> Result<u16, String> {
-    // Check if already running
     {
         let guard = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
         if guard.is_some() {
@@ -65,19 +91,37 @@ async fn start_server(
         }
     }
 
-    if !is_port_available(GPTME_SERVER_PORT) {
-        return Err(format!("Port {} is already in use", GPTME_SERVER_PORT));
-    }
+    spawn_server_sidecar(&app, state.0.clone())?;
+    Ok(GPTME_SERVER_PORT)
+}
 
-    let cors_origin = if cfg!(debug_assertions) {
+#[cfg(not(desktop))]
+#[tauri::command]
+async fn start_server() -> Result<u16, String> {
+    Err(LOCAL_SERVER_UNSUPPORTED.to_string())
+}
+
+#[cfg(desktop)]
+fn desktop_cors_origin() -> &'static str {
+    if cfg!(debug_assertions) {
         "http://localhost:5701"
     } else if cfg!(target_os = "macos") {
         "tauri://localhost"
     } else {
-        // Linux and Windows use http://tauri.localhost in Tauri v2
         "http://tauri.localhost"
-    };
+    }
+}
 
+#[cfg(desktop)]
+fn spawn_server_sidecar(
+    app: &tauri::AppHandle,
+    state_arc: Arc<Mutex<Option<CommandChild>>>,
+) -> Result<(), String> {
+    if !is_port_available(GPTME_SERVER_PORT) {
+        return Err(format!("Port {} is already in use", GPTME_SERVER_PORT));
+    }
+
+    let cors_origin = desktop_cors_origin();
     log::info!(
         "Starting gptme-server on port {} with CORS origin: {}",
         GPTME_SERVER_PORT,
@@ -99,16 +143,12 @@ async fn start_server(
         child.pid()
     );
 
-    // Store child process
     {
-        let mut guard = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+        let mut guard = state_arc.lock().map_err(|e| format!("Lock error: {}", e))?;
         *guard = Some(child);
     }
 
-    // Clone the Arc so the async task can clear state when server terminates
-    let state_arc = state.0.clone();
-
-    // Handle server output in background
+    let state_for_output = state_arc.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(event) = rx.recv().await {
             match event {
@@ -136,8 +176,7 @@ async fn start_server(
                         "[gptme-server] Process terminated with code: {:?}",
                         payload.code
                     );
-                    // Clear state so get_server_status correctly reports not running
-                    if let Ok(mut guard) = state_arc.lock() {
+                    if let Ok(mut guard) = state_for_output.lock() {
                         *guard = None;
                     }
                     break;
@@ -147,20 +186,15 @@ async fn start_server(
         }
     });
 
-    Ok(GPTME_SERVER_PORT)
+    Ok(())
 }
 
-/// Extract and sanitize an auth code from a deep-link URL.
-///
-/// Parses `gptme://pairing-complete?code=<hex>` or `gptme://callback?code=<hex>`
-/// and returns the sanitized (alphanumeric-only) code, or `None`.
 fn extract_auth_code(url: &url::Url) -> Option<String> {
     let code = url
         .query_pairs()
         .find(|(key, _)| key == "code")
         .map(|(_, value)| value.to_string())?;
 
-    // Sanitize: only allow alphanumeric characters (codes should be hex)
     let safe_code: String = code.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
     if safe_code.is_empty() {
         log::warn!("Auth code was empty after sanitization");
@@ -169,10 +203,6 @@ fn extract_auth_code(url: &url::Url) -> Option<String> {
     Some(safe_code)
 }
 
-/// Extract auth code from a gptme:// deep-link URL and inject it into the webview.
-///
-/// Sets the URL hash to `#code=<hex>` and reloads the page, which triggers
-/// the webui's existing auth code exchange flow in ApiContext.
 fn handle_deep_link_urls(app: &tauri::AppHandle, urls: Vec<url::Url>) {
     for url in &urls {
         log::info!("Deep link received: {}", url);
@@ -181,9 +211,6 @@ fn handle_deep_link_urls(app: &tauri::AppHandle, urls: Vec<url::Url>) {
             log::info!("Auth code extracted from deep link, injecting into webview");
 
             if let Some(window) = app.get_webview_window("main") {
-                // Set URL hash with the auth code and reload the page.
-                // The webui's ApiContext checks window.location.hash on mount
-                // and automatically exchanges the code for a token via fleet.gptme.ai.
                 let js = format!(
                     "window.location.hash = '#code={}'; window.location.reload();",
                     safe_code
@@ -196,19 +223,30 @@ fn handle_deep_link_urls(app: &tauri::AppHandle, urls: Vec<url::Url>) {
     }
 }
 
+#[cfg(desktop)]
+fn show_port_conflict_dialog(app: &tauri::AppHandle) {
+    let message = format!(
+        "Cannot start gptme-server because port {} is already in use.\n\n\
+         This usually means another gptme-server instance is already running.\n\n\
+         Please stop the existing gptme-server process and restart this application.",
+        GPTME_SERVER_PORT
+    );
+
+    MessageDialogBuilder::new(app.dialog().clone(), "Port Conflict", message)
+        .kind(MessageDialogKind::Error)
+        .buttons(MessageDialogButtons::Ok)
+        .show(|_result| {});
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default();
 
-    // On desktop (Linux/Windows), deep links spawn a new process instance.
-    // The single-instance plugin with deep-link feature catches these and
-    // forwards the URL to the already-running instance instead.
     #[cfg(desktop)]
     {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             log::info!("Single-instance callback: argv={:?}", argv);
 
-            // On Linux/Windows, deep-link URLs arrive as CLI arguments
             let urls: Vec<url::Url> = argv
                 .iter()
                 .filter_map(|arg| url::Url::parse(arg).ok())
@@ -219,14 +257,13 @@ pub fn run() {
                 handle_deep_link_urls(app, urls);
             }
 
-            // Focus the main window when another instance tries to open
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_focus();
             }
         }));
     }
 
-    builder
+    builder = builder
         .plugin(
             tauri_plugin_log::Builder::new()
                 .targets([
@@ -238,10 +275,16 @@ pub fn run() {
                 .level(log::LevelFilter::Info)
                 .build(),
         )
-        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_deep_link::init());
+
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_shell::init());
+    }
+
+    builder
         .invoke_handler(tauri::generate_handler![
             get_server_status,
             start_server,
@@ -250,7 +293,6 @@ pub fn run() {
         .setup(|app| {
             log::info!("Starting gptme-tauri application");
 
-            // Register deep-link schemes at runtime (needed for dev on Linux/Windows)
             #[cfg(desktop)]
             if cfg!(debug_assertions) {
                 if let Err(e) = app.deep_link().register_all() {
@@ -260,13 +302,11 @@ pub fn run() {
                 }
             }
 
-            // Check if the app was launched via a deep link
             if let Ok(Some(urls)) = app.deep_link().get_current() {
                 log::info!("App launched with deep link URLs: {:?}", urls);
                 handle_deep_link_urls(app.handle(), urls);
             }
 
-            // Listen for deep-link events (macOS sends these to the running app)
             let handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
                 let urls = event.urls();
@@ -274,138 +314,26 @@ pub fn run() {
                 handle_deep_link_urls(&handle, urls);
             });
 
-            let app_handle = app.handle().clone();
+            #[cfg(desktop)]
+            {
+                let child_handle: Arc<Mutex<Option<CommandChild>>> = Arc::new(Mutex::new(None));
+                app.manage(ServerProcess(child_handle.clone()));
 
-            // Shared handle to the child process — written by the spawn task,
-            // read by the window-close handler for cleanup.
-            let child_handle: Arc<Mutex<Option<CommandChild>>> = Arc::new(Mutex::new(None));
-            let child_for_spawn = child_handle.clone();
-
-            // Register state so the window-close handler can access it.
-            app.manage(ServerProcess(child_handle));
-
-            // Spawn gptme-server with output capture
-            tauri::async_runtime::spawn(async move {
-                // Check if port is available before starting
-                if !is_port_available(GPTME_SERVER_PORT) {
-                    log::error!(
-                        "Port {} is already in use. Another gptme-server instance may be running.",
-                        GPTME_SERVER_PORT
-                    );
-
-                    let message = format!(
-                        "Cannot start gptme-server because port {} is already in use.\n\n\
-                        This usually means another gptme-server instance is already running.\n\n\
-                        Please stop the existing gptme-server process and restart this application.",
-                        GPTME_SERVER_PORT
-                    );
-
-                    MessageDialogBuilder::new(
-                        app_handle.dialog().clone(),
-                        "Port Conflict",
-                        message,
-                    )
-                    .kind(MessageDialogKind::Error)
-                    .buttons(MessageDialogButtons::Ok)
-                    .show(|_result| {});
-
-                    return;
-                }
-
-                // Determine CORS origin based on build mode and platform.
-                // Tauri v2 uses different URL schemes per platform:
-                // - macOS: tauri://localhost (custom Tauri protocol)
-                // - Linux/Windows: http://tauri.localhost
-                let cors_origin = if cfg!(debug_assertions) {
-                    "http://localhost:5701" // Dev mode
-                } else if cfg!(target_os = "macos") {
-                    "tauri://localhost" // macOS production
-                } else {
-                    "http://tauri.localhost" // Linux/Windows production
-                };
-
-                log::info!(
-                    "Port {} is available, starting gptme-server with CORS origin: {}",
-                    GPTME_SERVER_PORT,
-                    cors_origin
-                );
-
-                let sidecar_command = match app_handle
-                    .shell()
-                    .sidecar("gptme-server")
-                {
-                    Ok(s) => s.args(["--cors-origin", cors_origin]),
-                    Err(e) => {
-                        log::error!("Failed to find gptme-server sidecar: {}", e);
-                        return;
-                    }
-                };
-
-                match sidecar_command.spawn() {
-                    Ok((mut rx, child)) => {
-                        log::info!(
-                            "gptme-server started successfully with PID: {}",
-                            child.pid()
-                        );
-
-                        // Store child process for later cleanup
-                        if let Ok(mut guard) = child_for_spawn.lock() {
-                            *guard = Some(child);
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(err) = spawn_server_sidecar(&app_handle, child_handle) {
+                        log::error!("Failed to start gptme-server: {}", err);
+                        if err.contains("already in use") {
+                            show_port_conflict_dialog(&app_handle);
                         }
-
-                        // Clone the Arc so the async task can clear state when server terminates
-                        let child_for_output = child_for_spawn.clone();
-
-                        // Handle server output
-                        tauri::async_runtime::spawn(async move {
-                            while let Some(event) = rx.recv().await {
-                                match event {
-                                    tauri_plugin_shell::process::CommandEvent::Stdout(data) => {
-                                        let output = String::from_utf8_lossy(&data);
-                                        for line in output.lines() {
-                                            if !line.trim().is_empty() {
-                                                log::info!("[gptme-server] {}", line.trim());
-                                            }
-                                        }
-                                    }
-                                    tauri_plugin_shell::process::CommandEvent::Stderr(data) => {
-                                        let output = String::from_utf8_lossy(&data);
-                                        for line in output.lines() {
-                                            if !line.trim().is_empty() {
-                                                log::warn!("[gptme-server] {}", line.trim());
-                                            }
-                                        }
-                                    }
-                                    tauri_plugin_shell::process::CommandEvent::Error(error) => {
-                                        log::error!("[gptme-server] Process error: {}", error);
-                                    }
-                                    tauri_plugin_shell::process::CommandEvent::Terminated(
-                                        payload,
-                                    ) => {
-                                        log::warn!(
-                                            "[gptme-server] Process terminated with code: {:?}",
-                                            payload.code
-                                        );
-                                        // Clear state so get_server_status correctly reports not running
-                                        if let Ok(mut guard) = child_for_output.lock() {
-                                            *guard = None;
-                                        }
-                                        break;
-                                    }
-                                    _ => {}
-                                }
-                            }
-                        });
                     }
-                    Err(e) => {
-                        log::error!("Failed to start gptme-server: {}", e);
-                    }
-                }
-            });
+                });
+            }
 
             Ok(())
         })
         .on_window_event(|window, event| {
+            #[cfg(desktop)]
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 log::info!("Window close requested, cleaning up gptme-server...");
 
@@ -431,6 +359,9 @@ pub fn run() {
                     log::warn!("No gptme-server process found to terminate");
                 }
             }
+
+            #[cfg(not(desktop))]
+            let _ = (window, event);
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -440,12 +371,8 @@ pub fn run() {
 mod tests {
     use super::*;
 
-    // ── Port availability ──────────────────────────────────────────
-
     #[test]
     fn test_is_port_available_on_unused_port() {
-        // Bind to port 0 to get an OS-assigned free port, then release it
-        // and verify is_port_available returns true for that port.
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         drop(listener);
@@ -454,16 +381,12 @@ mod tests {
 
     #[test]
     fn test_is_port_available_on_occupied_port() {
-        // Bind a port so it's occupied, then verify is_port_available returns false.
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         assert!(!is_port_available(port));
         drop(listener);
-        // After dropping the listener, the port should be available again.
         assert!(is_port_available(port));
     }
-
-    // ── Deep-link auth code extraction ─────────────────────────────
 
     #[test]
     fn test_extract_auth_code_valid() {
@@ -479,7 +402,6 @@ mod tests {
 
     #[test]
     fn test_extract_auth_code_strips_special_chars() {
-        // XSS attempt: special characters should be stripped
         let url =
             url::Url::parse("gptme://callback?code=abc%3Cscript%3Ealert(1)%3C/script%3E").unwrap();
         let code = extract_auth_code(&url).unwrap();
@@ -504,26 +426,23 @@ mod tests {
         assert_eq!(extract_auth_code(&url), None);
     }
 
-    // ── ServerStatus serialization ─────────────────────────────────
-
     #[test]
     fn test_server_status_serialization() {
         let status = ServerStatus {
             running: false,
             port: 5700,
             port_available: true,
+            manages_local_server: true,
         };
         let json = serde_json::to_string(&status).unwrap();
         assert!(json.contains("\"running\":false"));
         assert!(json.contains("\"port\":5700"));
         assert!(json.contains("\"port_available\":true"));
+        assert!(json.contains("\"manages_local_server\":true"));
     }
-
-    // ── ServerProcess state logic ─────────────────────────────────
 
     #[test]
     fn test_server_process_initial_state() {
-        // With no server process, the guard should be None.
         let handle: Arc<Mutex<Option<tauri_plugin_shell::process::CommandChild>>> =
             Arc::new(Mutex::new(None));
         let running = handle.lock().map(|guard| guard.is_some()).unwrap_or(false);
@@ -532,7 +451,6 @@ mod tests {
 
     #[test]
     fn test_server_process_state_is_send_sync() {
-        // ServerProcess must be Send + Sync for Tauri's managed state.
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<ServerProcess>();
     }
