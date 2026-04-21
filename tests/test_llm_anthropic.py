@@ -11,6 +11,7 @@ from gptme.llm.llm_anthropic import (
     _resolve_thinking_budget,
 )
 from gptme.message import Message
+from gptme.prompts import SYSTEM_PROMPT_CACHE_BOUNDARY
 from gptme.tools import get_tool, init_tools
 
 
@@ -28,7 +29,7 @@ def test_message_conversion():
     assert system_messages == [
         {
             "type": "text",
-            "text": "Initial Message",
+            "text": "Initial Message\n\nProject prompt",
             "cache_control": {"type": "ephemeral"},
         }
     ]
@@ -39,7 +40,7 @@ def test_message_conversion():
             "content": [
                 {
                     "type": "text",
-                    "text": "<system>Project prompt</system>\n\nFirst user prompt",
+                    "text": "First user prompt",
                     "cache_control": {"type": "ephemeral"},
                 }
             ],
@@ -69,7 +70,7 @@ def test_message_conversion_without_tools():
             "content": [
                 {
                     "type": "text",
-                    "text": "<system>Project prompt</system>\n\nFirst user prompt",
+                    "text": "First user prompt",
                     "cache_control": {"type": "ephemeral"},
                 }
             ],
@@ -146,7 +147,7 @@ def test_message_conversion_with_tools():
             "content": [
                 {
                     "type": "text",
-                    "text": "<system>Project prompt</system>\n\nFirst user prompt",
+                    "text": "First user prompt",
                     "cache_control": {"type": "ephemeral"},
                 }
             ],
@@ -219,10 +220,6 @@ def test_message_conversion_with_tool_and_non_tool():
 
     assert messages_dicts == [
         {
-            "role": "user",
-            "content": [{"type": "text", "text": "<system>Project prompt</system>"}],
-        },
-        {
             "role": "assistant",
             "content": [
                 {
@@ -263,6 +260,41 @@ def test_message_conversion_with_tool_and_non_tool():
                 }
             ],
         },
+    ]
+
+
+def test_boundary_keeps_dynamic_context_out_of_static_system_prompt():
+    messages = [
+        Message(role="system", content="Core prompt"),
+        Message(role="system", content="Static workspace prompt"),
+        Message(role="system", content=SYSTEM_PROMPT_CACHE_BOUNDARY),
+        Message(role="system", content="Dynamic context"),
+        Message(role="user", content="Actual user prompt"),
+    ]
+
+    messages_dicts, system_messages, _ = _prepare_messages_for_api(messages, None)
+
+    assert system_messages == [
+        {
+            "type": "text",
+            "text": "Core prompt\n\nStatic workspace prompt",
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
+
+    assert messages_dicts == [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "<system>"
+                    + SYSTEM_PROMPT_CACHE_BOUNDARY
+                    + "</system>\n\n<system>Dynamic context</system>\n\nActual user prompt",
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+        }
     ]
 
 

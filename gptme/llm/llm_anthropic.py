@@ -952,26 +952,42 @@ def _transform_system_messages(
     """Transform system messages into Anthropic's expected format.
 
     This function:
-    1. Extracts the first system message as the main system prompt
+    1. Extracts the leading static system prompt messages as the main system prompt
     2. Transforms subsequent system messages into <system> tags in user messages
     3. Merges consecutive user messages
     4. Applies cache control to optimize performance
 
     Note: Anthropic allows up to 4 cache breakpoints in a conversation.
     We use this to cache:
-    1. The system prompt (if long enough)
+    1. The static bootstrap prompt (if long enough)
     2. Earlier messages in multi-turn conversations
 
     Returns:
         tuple[list[Message], list[TextBlockParam]]: Transformed messages and system messages
     """
+    from ..prompts import SYSTEM_PROMPT_CACHE_BOUNDARY
+
     if not messages or messages[0].role != "system":
         raise ValueError(
             f"First message must be a system message, got {messages[0].role if messages else 'empty list'}"
         )
-    system_prompt = messages[0].content
+
     messages = messages.copy()
-    messages.pop(0)
+    system_prompt_parts = [messages.pop(0).content]
+
+    # Anthropic only allows a single top-level system prompt. Fold the static
+    # bootstrap prefix into that block so project/agent prompt files remain in
+    # the cacheable prefix instead of being downgraded into a synthetic user
+    # message that changes whenever context_cmd output changes.
+    while (
+        messages
+        and messages[0].role == "system"
+        and messages[0].call_id is None
+        and messages[0].content != SYSTEM_PROMPT_CACHE_BOUNDARY
+    ):
+        system_prompt_parts.append(messages.pop(0).content)
+
+    system_prompt = "\n\n".join(system_prompt_parts)
 
     # Convert subsequent system messages into <system> messages,
     # unless a `call_id` is present, indicating the tool_format is 'tool'.
