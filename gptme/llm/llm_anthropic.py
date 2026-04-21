@@ -715,7 +715,7 @@ def stream(
         top_p=TOP_P if not model_meta.supports_reasoning else NOT_GIVEN,
         max_tokens=max_tokens,
         tools=tools_dict or NOT_GIVEN,
-        thinking=thinking_param if thinking_param is not None else NOT_GIVEN,
+        thinking=thinking_param if thinking_param is not None else NOT_GIVEN,  # type: ignore[arg-type]
         **output_config_kwargs,
     ) as stream:
         for chunk in stream:
