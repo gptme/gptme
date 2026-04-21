@@ -55,7 +55,9 @@ if TYPE_CHECKING:
 # approximations until the user upgrades.  No SDK constraint bump required —
 # the code degrades gracefully.
 try:
-    from anthropic.types import OutputConfigParam as _OutputConfigParam  # noqa: F401
+    from anthropic.types import (
+        OutputConfigParam as _OutputConfigParam,  # noqa: F401  # type: ignore[attr-defined]
+    )
 
     _HAS_OUTPUT_CONFIG = True
 except ImportError:
@@ -542,7 +544,7 @@ def chat(
     )
     output_config = {"effort": effort_level} if effort_level else NOT_GIVEN
 
-    response = _anthropic.messages.create(
+    response = _anthropic.messages.create(  # type: ignore[call-overload, misc]
         model=api_model,
         messages=messages_dicts,
         system=system_messages,
@@ -644,7 +646,7 @@ def stream(
     )
     output_config = {"effort": effort_level} if effort_level else NOT_GIVEN
 
-    with _anthropic.messages.stream(
+    with _anthropic.messages.stream(  # type: ignore[call-arg]
         model=api_model,
         messages=messages_dicts,
         system=system_messages,
