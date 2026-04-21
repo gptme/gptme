@@ -18,11 +18,11 @@ The idea is to later make this into a timeline similar to the one for `ActivityW
     - `gptme-agent-template <https://github.com/gptme/gptme-agent-template>`_
     - `gptme-rag <https://github.com/gptme/gptme-rag>`_
     - `gptme.vim <https://github.com/gptme/gptme.vim>`_
-    - `gptme-webui <https://github.com/gptme/gptme-webui>`_
+    - `gptme-webui <https://github.com/gptme/gptme-webui>`_ (archived; merged into main gptme repo)
 
     For repositories with formal releases, we track significant version releases.
-    For repositories without formal releases (like gptme.vim and gptme-webui),
-    we track initial releases and major feature additions based on commit history.
+    For repositories without formal releases (like gptme.vim), we track initial
+    releases and major feature additions based on commit history.
 
     This file can be automatically updated by gptme with the help of `gh release list` and `gh release view` commands.
 

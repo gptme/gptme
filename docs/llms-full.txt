@@ -962,8 +962,8 @@ Official Projects
 * `gptme-rag <https://github.com/gptme/gptme-rag>`_
     RAG (Retrieval-Augmented Generation) implementation for gptme context management.
 
-* `gptme-webui <https://github.com/gptme/gptme-webui>`_
-    Fancy web-based user interface for gptme, built with the help of `Lovable <https://lovable.dev/>`_.
+* `gptme-webui <https://github.com/gptme/gptme/tree/master/webui>`_
+    Modern React-based web interface for gptme, available at `chat.gptme.org <https://chat.gptme.org>`_. Originally a `standalone repo <https://github.com/gptme/gptme-webui>`_, now merged into the main gptme repository.
 
 * `gptme.vim <https://github.com/gptme/gptme.vim>`_
     Vim plugin for gptme integration.
@@ -3654,7 +3654,7 @@ For more CLI options, see the :ref:`CLI reference <cli:gptme-server>`.
 gptme-webui: Modern Web Interface
 ---------------------------------
 
-The primary web interface is `gptme-webui <https://github.com/gptme/gptme-webui>`_: a modern, feature-rich application that provides a complete gptme experience in your browser.
+The primary web interface is `gptme-webui <https://github.com/gptme/gptme/tree/master/webui>`_: a modern, feature-rich application that provides a complete gptme experience in your browser. (Originally a `standalone repo <https://github.com/gptme/gptme-webui>`_, now merged into the main gptme repository.)
 
 **Try it now:**
 
@@ -3672,7 +3672,7 @@ The primary web interface is `gptme-webui <https://github.com/gptme/gptme-webui>
 - Create your own persistent `agents`
 
 **Local Installation:**
-For self-hosting and local development, see the `gptme-webui README <https://github.com/gptme/gptme-webui>`_.
+For self-hosting and local development, see the `gptme-webui README <https://github.com/gptme/gptme/tree/master/webui>`_.
 
 To use the server with a locally hosted gptme-webui, configure the CORS origin when starting the server:
 
@@ -8700,11 +8700,11 @@ The idea is to later make this into a timeline similar to the one for `ActivityW
     - `gptme-agent-template <https://github.com/gptme/gptme-agent-template>`_
     - `gptme-rag <https://github.com/gptme/gptme-rag>`_
     - `gptme.vim <https://github.com/gptme/gptme.vim>`_
-    - `gptme-webui <https://github.com/gptme/gptme-webui>`_
+    - `gptme-webui <https://github.com/gptme/gptme-webui>`_ (archived; merged into main gptme repo)
 
     For repositories with formal releases, we track significant version releases.
-    For repositories without formal releases (like gptme.vim and gptme-webui),
-    we track initial releases and major feature additions based on commit history.
+    For repositories without formal releases (like gptme.vim), we track initial
+    releases and major feature additions based on commit history.
 
     This file can be automatically updated by gptme with the help of `gh release list` and `gh release view` commands.
 
