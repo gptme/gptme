@@ -10,7 +10,9 @@ import {
 } from '@/components/ui/dialog';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useApi } from '@/contexts/ApiContext';
-import { isTauriEnvironment } from '@/utils/tauri';
+import { isTauriEnvironment, invokeTauri } from '@/utils/tauri';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { use$ } from '@legendapp/state/react';
 import { Monitor, Cloud, ArrowRight, Check, Terminal, ExternalLink } from 'lucide-react';
 
@@ -52,6 +54,11 @@ export function SetupWizard() {
   const [cloudLoginStarted, setCloudLoginStarted] = useState(false);
   const lastAutoAdvanceBaseUrlRef = useRef<string | null>(null);
   const isTauri = isTauriEnvironment();
+  // Tauri-only in-app API key entry state.
+  const [apiKeyProvider, setApiKeyProvider] = useState<'anthropic' | 'openai'>('anthropic');
+  const [apiKey, setApiKey] = useState('');
+  const [apiKeySaving, setApiKeySaving] = useState(false);
+  const [apiKeyError, setApiKeyError] = useState<string | null>(null);
 
   const completeSetup = useCallback(() => {
     updateSettings({ hasCompletedSetup: true });
@@ -110,6 +117,40 @@ export function SetupWizard() {
       );
     } finally {
       setIsConnecting(false);
+    }
+  };
+
+  // Save the user's API key via a Tauri IPC command, restart the managed
+  // server so it picks up the new env var, then re-check provider status.
+  const handleSaveApiKey = async () => {
+    const trimmed = apiKey.trim();
+    if (!trimmed) {
+      setApiKeyError('Enter an API key before saving.');
+      return;
+    }
+    setApiKeySaving(true);
+    setApiKeyError(null);
+    try {
+      await invokeTauri('save_api_key', { provider: apiKeyProvider, apiKey: trimmed });
+      // Restart the managed server so the new key is picked up. Both calls are
+      // best-effort — if the server isn't actually running, stop_server returns
+      // an error we can safely swallow before starting.
+      try {
+        await invokeTauri('stop_server');
+      } catch {
+        // No running server is fine; start_server will still launch one.
+      }
+      await invokeTauri('start_server');
+      setApiKey('');
+      // Give the server a moment to come up before hitting /api/v2 — on a warm
+      // start it's typically <1s, but we retry inside checkProviderAndAdvance
+      // via lastAutoAdvanceBaseUrlRef reset.
+      lastAutoAdvanceBaseUrlRef.current = null;
+      await checkProviderAndAdvance();
+    } catch (err) {
+      setApiKeyError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setApiKeySaving(false);
     }
   };
 
@@ -333,17 +374,66 @@ export function SetupWizard() {
               </div>
               <div className="rounded-lg border bg-muted/40 p-4 text-sm">
                 <p className="font-medium">Bring your own API key</p>
-                <p className="mt-1 text-muted-foreground">
-                  Set one of these environment variables before launching gptme-server:
-                </p>
-                <div className="mt-3 flex flex-col gap-2">
-                  <code className="rounded bg-muted px-3 py-2 font-mono text-sm">
-                    ANTHROPIC_API_KEY=sk-ant-...
-                  </code>
-                  <code className="rounded bg-muted px-3 py-2 font-mono text-sm">
-                    OPENAI_API_KEY=sk-...
-                  </code>
-                </div>
+                {isTauri ? (
+                  <div className="mt-3 flex flex-col gap-3">
+                    <p className="text-muted-foreground">
+                      Paste an API key and we&apos;ll save it and restart the server.
+                    </p>
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="setup-api-key-provider">Provider</Label>
+                      <select
+                        id="setup-api-key-provider"
+                        className="h-9 rounded-md border bg-background px-3 text-sm"
+                        value={apiKeyProvider}
+                        onChange={(e) =>
+                          setApiKeyProvider(e.target.value as 'anthropic' | 'openai')
+                        }
+                        disabled={apiKeySaving}
+                      >
+                        <option value="anthropic">Anthropic</option>
+                        <option value="openai">OpenAI</option>
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="setup-api-key-input">API key</Label>
+                      <Input
+                        id="setup-api-key-input"
+                        type="password"
+                        autoComplete="off"
+                        spellCheck={false}
+                        placeholder={apiKeyProvider === 'anthropic' ? 'sk-ant-...' : 'sk-...'}
+                        value={apiKey}
+                        onChange={(e) => setApiKey(e.target.value)}
+                        disabled={apiKeySaving}
+                      />
+                    </div>
+                    {apiKeyError && (
+                      <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                        {apiKeyError}
+                      </div>
+                    )}
+                    <Button
+                      onClick={() => void handleSaveApiKey()}
+                      disabled={apiKeySaving || apiKey.trim().length === 0}
+                    >
+                      {apiKeySaving ? 'Saving…' : 'Save and restart server'}
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <p className="mt-1 text-muted-foreground">
+                      Set one of these environment variables before launching gptme-server:
+                    </p>
+                    <div className="mt-3 flex flex-col gap-2">
+                      <code className="rounded bg-muted px-3 py-2 font-mono text-sm">
+                        ANTHROPIC_API_KEY=sk-ant-...
+                      </code>
+                      <code className="rounded bg-muted px-3 py-2 font-mono text-sm">
+                        OPENAI_API_KEY=sk-...
+                      </code>
+                    </div>
+                  </>
+                )}
               </div>
               <p className="text-xs text-muted-foreground">
                 Get a key from{' '}
@@ -364,7 +454,10 @@ export function SetupWizard() {
                 >
                   OpenAI Platform
                 </a>
-                . Then {isTauri ? 'restart the app' : 'restart the server'} and check again.
+                .{' '}
+                {isTauri
+                  ? 'Saving a key restarts the server automatically.'
+                  : 'Then restart the server and check again.'}
               </p>
             </div>
             <DialogFooter className="gap-2 sm:gap-0">

@@ -7,7 +7,9 @@ import { SettingsProvider } from '@/contexts/SettingsContext';
 const mockConnect = jest.fn();
 const mockOpen = jest.fn();
 const mockFetch = jest.fn();
+const mockInvokeTauri = jest.fn();
 const isConnected$ = observable(false);
+let isTauriMock = false;
 
 jest.mock('@/contexts/ApiContext', () => ({
   useApi: () => ({
@@ -18,7 +20,21 @@ jest.mock('@/contexts/ApiContext', () => ({
 }));
 
 jest.mock('@/utils/tauri', () => ({
-  isTauriEnvironment: () => false,
+  isTauriEnvironment: () => isTauriMock,
+  invokeTauri: (...args: unknown[]) => mockInvokeTauri(...args),
+}));
+
+jest.mock('@/components/ui/input', () => ({
+  Input: (props: React.InputHTMLAttributes<HTMLInputElement>) => <input {...props} />,
+}));
+
+jest.mock('@/components/ui/label', () => ({
+  Label: ({
+    children,
+    ...props
+  }: React.LabelHTMLAttributes<HTMLLabelElement> & { children: React.ReactNode }) => (
+    <label {...props}>{children}</label>
+  ),
 }));
 
 jest.mock('@legendapp/state/react', () => ({
@@ -54,9 +70,11 @@ describe('SetupWizard', () => {
   beforeEach(() => {
     localStorage.clear();
     isConnected$.set(false);
+    isTauriMock = false;
     mockConnect.mockReset();
     mockOpen.mockReset();
     mockFetch.mockReset();
+    mockInvokeTauri.mockReset();
     mockFetch.mockResolvedValue({
       json: async () => ({ provider_configured: true }),
     });
@@ -190,5 +208,87 @@ describe('SetupWizard', () => {
       screen.queryByRole('heading', { name: /configure a provider/i })
     ).not.toBeInTheDocument();
     expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('saves an API key via Tauri and advances to complete', async () => {
+    isTauriMock = true;
+    // First /api/v2 call: no provider. After save + restart: provider configured.
+    mockFetch
+      .mockResolvedValueOnce({ json: async () => ({ provider_configured: false }) })
+      .mockResolvedValueOnce({ json: async () => ({ provider_configured: true }) });
+    mockConnect.mockImplementation(async () => {
+      isConnected$.set(true);
+    });
+    mockInvokeTauri.mockResolvedValue(undefined);
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /monitor local/i }));
+    fireEvent.click(screen.getByRole('button', { name: /connect/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /configure a provider/i })).toBeInTheDocument();
+    });
+
+    const input = screen.getByLabelText(/api key/i);
+    fireEvent.change(input, { target: { value: 'sk-ant-test-key' } });
+
+    fireEvent.click(screen.getByRole('button', { name: /save and restart server/i }));
+
+    await waitFor(() => {
+      expect(mockInvokeTauri).toHaveBeenCalledWith('save_api_key', {
+        provider: 'anthropic',
+        apiKey: 'sk-ant-test-key',
+      });
+    });
+    // Server restart and provider recheck should follow.
+    expect(mockInvokeTauri).toHaveBeenCalledWith('stop_server');
+    expect(mockInvokeTauri).toHaveBeenCalledWith('start_server');
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /you're all set/i })).toBeInTheDocument();
+    });
+  });
+
+  it('surfaces save_api_key errors without advancing', async () => {
+    isTauriMock = true;
+    mockFetch.mockResolvedValue({ json: async () => ({ provider_configured: false }) });
+    mockConnect.mockImplementation(async () => {
+      isConnected$.set(true);
+    });
+    mockInvokeTauri.mockImplementation(async (cmd: string) => {
+      if (cmd === 'save_api_key') throw new Error('Failed to write config: permission denied');
+    });
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /monitor local/i }));
+    fireEvent.click(screen.getByRole('button', { name: /connect/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /configure a provider/i })).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText(/api key/i), { target: { value: 'sk-bad' } });
+    fireEvent.click(screen.getByRole('button', { name: /save and restart server/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/permission denied/i)).toBeInTheDocument();
+    });
+    // Still on provider step.
+    expect(screen.getByRole('heading', { name: /configure a provider/i })).toBeInTheDocument();
+    // Should not have tried to restart the server.
+    expect(mockInvokeTauri).not.toHaveBeenCalledWith('stop_server');
+    expect(mockInvokeTauri).not.toHaveBeenCalledWith('start_server');
   });
 });

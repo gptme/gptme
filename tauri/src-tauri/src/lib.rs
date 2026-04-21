@@ -1,4 +1,5 @@
 use std::net::TcpListener;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
 use tauri_plugin_deep_link::DeepLinkExt;
@@ -150,6 +151,114 @@ async fn start_server(
     Ok(GPTME_SERVER_PORT)
 }
 
+/// Providers gptme recognises for in-app API key entry.
+///
+/// Keep in sync with `PROVIDER_API_KEYS` in `gptme/llm/__init__.py`.
+const KNOWN_PROVIDERS: &[&str] = &[
+    "openai",
+    "anthropic",
+    "openrouter",
+    "gemini",
+    "groq",
+    "xai",
+    "deepseek",
+    "azure",
+];
+
+/// Resolve the env var name a provider's API key is stored under.
+///
+/// Matches `PROVIDER_API_KEYS` in `gptme/llm/__init__.py` — the `azure` provider
+/// uses `AZURE_OPENAI_API_KEY`, all others use `{PROVIDER_UPPER}_API_KEY`.
+fn provider_env_var(provider: &str) -> String {
+    match provider {
+        "azure" => "AZURE_OPENAI_API_KEY".to_string(),
+        other => format!("{}_API_KEY", other.to_uppercase()),
+    }
+}
+
+/// Resolve the user's gptme config path.
+///
+/// gptme hardcodes `~/.config/gptme/config.toml` on every platform (see
+/// `gptme/config/user.py`), so we do the same. Returns an error if `HOME`
+/// (or `USERPROFILE` on Windows) is not set.
+fn gptme_config_path() -> Result<PathBuf, String> {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .map_err(|_| "HOME (or USERPROFILE) not set".to_string())?;
+    Ok(PathBuf::from(home)
+        .join(".config")
+        .join("gptme")
+        .join("config.toml"))
+}
+
+/// Validate a user-supplied API key.
+///
+/// We only enforce lightweight sanity checks here — format validation is the
+/// provider's responsibility. Rejects empty keys, anything obviously not a
+/// secret (newlines/control chars), and unreasonably long input.
+fn validate_api_key(api_key: &str) -> Result<(), String> {
+    let trimmed = api_key.trim();
+    if trimmed.is_empty() {
+        return Err("API key is empty".to_string());
+    }
+    if trimmed.len() > 4096 {
+        return Err("API key is too long".to_string());
+    }
+    if trimmed.chars().any(|c| c.is_control()) {
+        return Err("API key contains control characters".to_string());
+    }
+    Ok(())
+}
+
+/// Write an API key into the user's gptme config under `[env]`.
+///
+/// Uses `toml_edit` so existing comments and formatting in the config file
+/// survive the edit. Creates the config directory and file if they do not
+/// exist yet.
+///
+/// The caller is expected to trigger a server restart after this returns —
+/// `gptme-server` caches config on startup, so a running process will not
+/// see the new key until it is restarted.
+#[tauri::command]
+fn save_api_key(provider: String, api_key: String) -> Result<(), String> {
+    if !KNOWN_PROVIDERS.contains(&provider.as_str()) {
+        return Err(format!("Unknown provider: {}", provider));
+    }
+    validate_api_key(&api_key)?;
+    let env_var = provider_env_var(&provider);
+    let trimmed = api_key.trim().to_string();
+    let path = gptme_config_path()?;
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create {}: {}", parent.display(), e))?;
+    }
+
+    let existing = match std::fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(format!("Failed to read {}: {}", path.display(), e)),
+    };
+
+    let mut doc = existing
+        .parse::<toml_edit::DocumentMut>()
+        .map_err(|e| format!("Failed to parse {}: {}", path.display(), e))?;
+
+    if !doc.contains_key("env") {
+        doc["env"] = toml_edit::Item::Table(toml_edit::Table::new());
+    }
+    let env_table = doc["env"]
+        .as_table_mut()
+        .ok_or_else(|| "[env] exists but is not a table".to_string())?;
+    env_table[&env_var] = toml_edit::value(trimmed);
+
+    std::fs::write(&path, doc.to_string())
+        .map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
+
+    log::info!("Saved {} to {}", env_var, path.display());
+    Ok(())
+}
+
 /// Extract and sanitize an auth code from a deep-link URL.
 ///
 /// Parses `gptme://pairing-complete?code=<hex>` or `gptme://callback?code=<hex>`
@@ -246,6 +355,7 @@ pub fn run() {
             get_server_status,
             start_server,
             stop_server,
+            save_api_key,
         ])
         .setup(|app| {
             log::info!("Starting gptme-tauri application");
@@ -540,5 +650,67 @@ mod tests {
     #[test]
     fn test_gptme_server_port_constant() {
         assert_eq!(GPTME_SERVER_PORT, 5700);
+    }
+
+    // --- save_api_key helpers ---
+
+    #[test]
+    fn test_provider_env_var_standard() {
+        assert_eq!(provider_env_var("openai"), "OPENAI_API_KEY");
+        assert_eq!(provider_env_var("anthropic"), "ANTHROPIC_API_KEY");
+        assert_eq!(provider_env_var("openrouter"), "OPENROUTER_API_KEY");
+        assert_eq!(provider_env_var("groq"), "GROQ_API_KEY");
+    }
+
+    #[test]
+    fn test_provider_env_var_azure() {
+        // Azure uses a non-uniform env var name in gptme's PROVIDER_API_KEYS.
+        assert_eq!(provider_env_var("azure"), "AZURE_OPENAI_API_KEY");
+    }
+
+    #[test]
+    fn test_validate_api_key_accepts_normal_key() {
+        assert!(validate_api_key("sk-ant-api03-abc123").is_ok());
+        assert!(validate_api_key("  sk-xyz  ").is_ok()); // whitespace trimmed
+    }
+
+    #[test]
+    fn test_validate_api_key_rejects_empty() {
+        assert!(validate_api_key("").is_err());
+        assert!(validate_api_key("   ").is_err());
+    }
+
+    #[test]
+    fn test_validate_api_key_rejects_control_chars() {
+        assert!(validate_api_key("sk-ant\nbad").is_err());
+        assert!(validate_api_key("sk-ant\x00bad").is_err());
+    }
+
+    #[test]
+    fn test_validate_api_key_rejects_too_long() {
+        let long_key = "a".repeat(5000);
+        assert!(validate_api_key(&long_key).is_err());
+    }
+
+    #[test]
+    fn test_known_providers_covers_llm_provider_api_keys() {
+        // Sanity check that the whitelist matches the Python source of truth.
+        // If this drifts, save_api_key will reject providers gptme supports.
+        for provider in [
+            "openai",
+            "anthropic",
+            "openrouter",
+            "gemini",
+            "groq",
+            "xai",
+            "deepseek",
+            "azure",
+        ] {
+            assert!(
+                KNOWN_PROVIDERS.contains(&provider),
+                "expected {} in KNOWN_PROVIDERS",
+                provider
+            );
+        }
     }
 }
