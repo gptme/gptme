@@ -16,6 +16,7 @@ use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
 
 const GPTME_SERVER_PORT: u16 = 5700;
+#[cfg(not(desktop))]
 const LOCAL_SERVER_UNSUPPORTED: &str =
     "Local gptme-server management is desktop-only. Connect to a remote gptme instance instead.";
 
@@ -372,6 +373,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(desktop)]
     fn test_is_port_available_on_unused_port() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -380,6 +382,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(desktop)]
     fn test_is_port_available_on_occupied_port() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -442,6 +445,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(desktop)]
     fn test_server_process_initial_state() {
         let handle: Arc<Mutex<Option<tauri_plugin_shell::process::CommandChild>>> =
             Arc::new(Mutex::new(None));
@@ -450,6 +454,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(desktop)]
     fn test_server_process_state_is_send_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<ServerProcess>();
