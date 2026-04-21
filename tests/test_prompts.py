@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -132,7 +133,7 @@ files = ["../outside/secret.txt", "README.md"]
     )
 
     # Get workspace content
-    msgs = list(prompt_workspace(workspace))
+    msgs = list(prompt_workspace(workspace, include_user_context=False))
     content = "\n".join(msg.content for msg in msgs)
 
     # Collect attached files from all messages
@@ -241,6 +242,73 @@ def test_dynamic_context_after_static(tmp_path):
         f"Dynamic context (msg {dynamic_idx}) should come after "
         f"static workspace files (msg {file_idx})"
     )
+
+
+def test_dynamic_context_has_explicit_cache_boundary(tmp_path):
+    """Dynamic context should be separated by a stable cache-boundary marker."""
+    from gptme.prompts import SYSTEM_PROMPT_CACHE_BOUNDARY, get_prompt
+
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    (workspace / "README.md").write_text("# Test Project")
+    (workspace / "gptme.toml").write_text(
+        '[prompt]\nfiles = ["README.md"]\ncontext_cmd = "echo DYNAMIC_MARKER_456"\n'
+    )
+
+    msgs = get_prompt(
+        get_tools(),
+        prompt="full",
+        workspace=workspace,
+    )
+
+    file_idx = None
+    boundary_idx = None
+    dynamic_idx = None
+    for i, msg in enumerate(msgs):
+        if "README.md" in msg.content:
+            file_idx = i
+        if SYSTEM_PROMPT_CACHE_BOUNDARY in msg.content:
+            boundary_idx = i
+        if "DYNAMIC_MARKER_456" in msg.content:
+            dynamic_idx = i
+
+    assert file_idx is not None, "Should include workspace files"
+    assert boundary_idx is not None, "Should include cache-boundary marker"
+    assert dynamic_idx is not None, "Should include context_cmd output"
+    assert file_idx < boundary_idx < dynamic_idx
+
+
+def test_prompt_workspace_sorts_glob_matches_deterministically(tmp_path, monkeypatch):
+    """Glob matches should not depend on filesystem traversal order."""
+    from gptme.prompts import prompt_workspace
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "z-last.md").write_text("z")
+    (workspace / "README.md").write_text("# Readme")
+    (workspace / "a-first.md").write_text("a")
+    (workspace / "gptme.toml").write_text('[prompt]\nfiles = ["*.md"]\n')
+
+    real_glob = Path.glob
+
+    def fake_glob(self, pattern):
+        if self == workspace and pattern == "*.md":
+            return iter(
+                [
+                    workspace / "z-last.md",
+                    workspace / "a-first.md",
+                    workspace / "README.md",
+                ]
+            )
+        return real_glob(self, pattern)
+
+    monkeypatch.setattr(Path, "glob", fake_glob)
+
+    msgs = list(prompt_workspace(workspace, include_user_context=False))
+    selected_files = [str(f) for msg in msgs for f in msg.files]
+    selected_names = [Path(f).name for f in selected_files]
+
+    assert selected_names == ["README.md", "a-first.md", "z-last.md"]
 
 
 def test_workspace_git_status_not_git_repo(tmp_path):

@@ -55,6 +55,12 @@ PromptType = Literal["full", "short"]
 
 logger = logging.getLogger(__name__)
 
+SYSTEM_PROMPT_CACHE_BOUNDARY = """# System Prompt Cache Boundary
+
+Static bootstrap content ends above. Session-volatile context starts below.
+
+---"""
+
 
 ContextMode = Literal["full", "selective"]
 
@@ -316,6 +322,12 @@ def get_prompt(
     # Add workspace messages separately (if included)
     if include_workspace:
         result.extend(workspace_msgs)
+
+    # Insert an explicit static/dynamic boundary before context_cmd output.
+    # This keeps the prompt structure stable and makes the cacheable prefix
+    # visible to both humans and providers with block-level prompt caching.
+    if dynamic_context_msgs and result:
+        result.append(Message("system", SYSTEM_PROMPT_CACHE_BOUNDARY))
 
     # Dynamic context last (changes every session, least cacheable)
     result.extend(dynamic_context_msgs)

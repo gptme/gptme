@@ -16,6 +16,43 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+CONTEXT_FILE_ORDER: dict[str, int] = {
+    "README.md": 10,
+    "README.rst": 11,
+    "README.txt": 12,
+    "README": 13,
+    "gptme.toml": 20,
+    "AGENTS.md": 30,
+    "CLAUDE.md": 31,
+    "COPILOT.md": 32,
+    "GEMINI.md": 33,
+    "pyproject.toml": 40,
+    "package.json": 50,
+    "Cargo.toml": 60,
+    "Makefile": 70,
+    "docker-compose.yml": 80,
+    "docker-compose.yaml": 81,
+}
+
+
+def _context_file_sort_key(path: Path) -> tuple[int, str]:
+    """Sort key for stable prompt-file ordering.
+
+    We keep pattern order from gptme.toml/defaults, but sort each glob's matches
+    deterministically so prompt assembly does not depend on filesystem traversal
+    order. Known high-signal files get fixed priority, then we fall back to the
+    path for lexical stability.
+    """
+    tail = "/".join(path.parts[-2:])
+    name = path.name
+    priority = CONTEXT_FILE_ORDER.get(tail, CONTEXT_FILE_ORDER.get(name, 1000))
+    return priority, path.as_posix()
+
+
+def _sorted_workspace_matches(workspace: Path, fileglob: str) -> list[Path]:
+    """Return glob matches in a deterministic order."""
+    return sorted(workspace.glob(fileglob), key=_context_file_sort_key)
+
 
 def _get_git_status(workspace: Path) -> str | None:
     """Get git branch and working tree status for the workspace.
@@ -218,7 +255,8 @@ def prompt_workspace(
         # expand user
         fileglob = str(Path(fileglob).expanduser())
         # expand with glob
-        if new_files := workspace.glob(fileglob):
+        new_files = _sorted_workspace_matches(workspace, fileglob)
+        if new_files:
             for f in new_files:
                 # Validate file is within workspace (prevent path traversal)
                 try:
