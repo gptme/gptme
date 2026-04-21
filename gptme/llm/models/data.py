@@ -391,6 +391,10 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
     # Empty dict = models fetched dynamically or specified by user
     "gptme": {},
     "local": {},
+    # LiteLLM AI gateway — routes to 100+ providers via model prefix
+    # (e.g. "litellm/anthropic/claude-3-5-sonnet-20241022"). Kept empty because
+    # the model metadata is owned by LiteLLM and resolved dynamically at call time.
+    "litellm": {},
 }
 
 # check that all providers have a MODELS entry

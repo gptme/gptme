@@ -339,6 +339,11 @@ def get_recommended_model(provider: Provider) -> str:  # pragma: no cover
         return "deepseek-chat"
     if provider == "groq":
         return "llama-3.3-70b-versatile"
+    if provider == "litellm":
+        raise ValueError(
+            "LiteLLM requires an explicit model name, "
+            "e.g. gptme -m litellm/anthropic/claude-3-5-sonnet-20241022"
+        )
     raise ValueError(
         f"Provider '{provider}' requires specifying a model, "
         f"e.g. gptme -m {provider}/your-model-name"

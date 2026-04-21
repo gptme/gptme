@@ -296,6 +296,11 @@ def init(provider: Provider, config: Config):
             raise KeyError("Missing environment variable OPENAI_BASE_URL")
         api_key = config.get_env("OPENAI_API_KEY") or "ollama"
         clients[provider] = OpenAI(api_key=api_key, base_url=api_base, timeout=timeout)
+    elif provider == "litellm":
+        # LiteLLM is an in-process router; API keys resolve from per-provider env vars.
+        from .litellm import LiteLLMClient  # fmt: skip
+
+        clients[provider] = LiteLLMClient()  # type: ignore[assignment]
     else:
         # Check if this is a custom provider (config-file based)
         custom_provider = next(

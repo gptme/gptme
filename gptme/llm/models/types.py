@@ -51,6 +51,7 @@ BuiltinProvider = Literal[
     "deepseek",
     "nvidia",
     "local",
+    "litellm",
 ]
 PROVIDERS: list[BuiltinProvider] = cast(
     list[BuiltinProvider], get_args(BuiltinProvider)
@@ -88,6 +89,7 @@ PROVIDERS_OPENAI = [
     "deepseek",
     "nvidia",
     "local",
+    "litellm",
 ]
 
 
