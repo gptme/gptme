@@ -5,8 +5,10 @@ import pytest
 
 from gptme.llm.llm_anthropic import (
     _HAS_OUTPUT_CONFIG,
+    _build_thinking_param,
     _output_config_kwargs,
     _prepare_messages_for_api,
+    _requires_adaptive_thinking,
     _resolve_effort_level,
     _resolve_thinking_budget,
 )
@@ -617,3 +619,75 @@ class TestOutputConfigKwargs:
 def test_has_output_config_is_bool():
     """_HAS_OUTPUT_CONFIG must be a bool (True when SDK >= 0.77)."""
     assert isinstance(_HAS_OUTPUT_CONFIG, bool)
+
+
+class TestRequiresAdaptiveThinking:
+    """Opus 4.7+ rejects ``thinking.type=enabled`` with HTTP 400."""
+
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "claude-opus-4-7",
+            "anthropic/claude-opus-4-7",
+            "openrouter/anthropic/claude-opus-4-7",
+            "claude-opus-4-7-20260401",
+            "anthropic/claude-opus-4-7-20260401",
+        ],
+    )
+    def test_adaptive_required(self, model):
+        assert _requires_adaptive_thinking(model) is True
+
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "claude-opus-4-6",
+            "claude-sonnet-4-6",
+            "claude-opus-4-5-20251101",
+            "anthropic/claude-opus-4-6",
+            "openrouter/anthropic/claude-sonnet-4-5",
+            "claude-haiku-4-5",
+        ],
+    )
+    def test_legacy_still_used(self, model):
+        assert _requires_adaptive_thinking(model) is False
+
+
+class TestBuildThinkingParam:
+    """_build_thinking_param dispatches on model and thinking flag."""
+
+    def test_disabled_returns_none(self):
+        assert (
+            _build_thinking_param(
+                "claude-opus-4-7", use_thinking=False, thinking_budget=8000
+            )
+            is None
+        )
+
+    def test_opus_47_returns_adaptive(self):
+        # Opus 4.7 gets ``{"type": "adaptive"}`` — never legacy, regardless of budget.
+        assert _build_thinking_param(
+            "claude-opus-4-7", use_thinking=True, thinking_budget=8000
+        ) == {"type": "adaptive"}
+
+    def test_opus_47_adaptive_ignores_budget(self):
+        # Budget is irrelevant once adaptive: effort flows via output_config.
+        assert _build_thinking_param(
+            "claude-opus-4-7", use_thinking=True, thinking_budget=32000
+        ) == {"type": "adaptive"}
+
+    def test_opus_46_returns_legacy_enabled(self):
+        assert _build_thinking_param(
+            "claude-opus-4-6", use_thinking=True, thinking_budget=12345
+        ) == {"type": "enabled", "budget_tokens": 12345}
+
+    def test_sonnet_returns_legacy_enabled(self):
+        assert _build_thinking_param(
+            "claude-sonnet-4-6", use_thinking=True, thinking_budget=4000
+        ) == {"type": "enabled", "budget_tokens": 4000}
+
+    def test_openrouter_prefix_opus_47(self):
+        assert _build_thinking_param(
+            "openrouter/anthropic/claude-opus-4-7",
+            use_thinking=True,
+            thinking_budget=8000,
+        ) == {"type": "adaptive"}
