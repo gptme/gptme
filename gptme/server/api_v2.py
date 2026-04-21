@@ -111,11 +111,14 @@ def api_root():
     if provider is not None:
         capabilities.update(provider.capabilities)
 
+    provider_configured = get_default_model() is not None
+
     return flask.jsonify(
         {
             "message": "gptme v2 API",
             "documentation": "https://gptme.org/docs/server.html",
             "capabilities": capabilities,
+            "provider_configured": provider_configured,
         }
     )
 

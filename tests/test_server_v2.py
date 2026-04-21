@@ -76,6 +76,34 @@ def test_v2_api_root(client: FlaskClient, monkeypatch):
         "external_session_catalog": False,
         "external_session_transcript": False,
     }
+    assert "provider_configured" in data
+
+
+def test_v2_api_root_provider_configured(client: FlaskClient, monkeypatch):
+    """provider_configured reflects whether get_default_model() returns a model."""
+    from gptme.llm.models.types import ModelMeta
+
+    monkeypatch.setattr(
+        "gptme.server.api_v2.get_external_session_provider", lambda: None
+    )
+
+    # No model configured → provider_configured should be False
+    monkeypatch.setattr("gptme.server.api_v2.get_default_model", lambda: None)
+    response = client.get("/api/v2")
+    data = response.get_json()
+    assert data["provider_configured"] is False
+
+    # Model configured → provider_configured should be True
+    fake_model = ModelMeta(
+        model="test-model",
+        provider="anthropic",
+        context=10000,
+        max_output=1000,
+    )
+    monkeypatch.setattr("gptme.server.api_v2.get_default_model", lambda: fake_model)
+    response = client.get("/api/v2")
+    data = response.get_json()
+    assert data["provider_configured"] is True
 
 
 class _FakeExternalSessionItem:

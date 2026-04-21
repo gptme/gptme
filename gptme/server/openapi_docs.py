@@ -150,6 +150,10 @@ class ApiRootResponse(BaseModel):
     capabilities: ApiCapabilities = Field(
         ..., description="Advertised optional server capabilities"
     )
+    provider_configured: bool = Field(
+        True,
+        description="Whether an LLM provider is configured. False means the server started in degraded mode with no API keys or cloud auth. Clients should surface onboarding UI when false.",
+    )
 
 
 class ExternalSessionListItem(BaseModel):

@@ -14,7 +14,7 @@ import { isTauriEnvironment } from '@/utils/tauri';
 import { use$ } from '@legendapp/state/react';
 import { Monitor, Cloud, ArrowRight, Check, Terminal, ExternalLink } from 'lucide-react';
 
-type SetupStep = 'welcome' | 'mode' | 'local' | 'cloud' | 'complete';
+type SetupStep = 'welcome' | 'mode' | 'local' | 'cloud' | 'api-key' | 'complete';
 
 // The gptme cloud service is hosted on fleet.gptme.ai (the cloud.gptme.ai domain
 // is a planned alias). Use a small runtime helper so Jest doesn't choke on import.meta.
@@ -36,7 +36,7 @@ const CLOUD_AUTH_URL = getCloudAuthUrl();
 
 export function SetupWizard() {
   const { settings, updateSettings } = useSettings();
-  const { isConnected$, connect } = useApi();
+  const { isConnected$, connect, connectionConfig } = useApi();
   const isConnected = use$(isConnected$);
   const [step, setStep] = useState<SetupStep>('welcome');
   // isOpen is a one-time snapshot of hasCompletedSetup taken at mount. It is intentionally
@@ -56,12 +56,27 @@ export function SetupWizard() {
     updateSettings({ hasCompletedSetup: true });
   }, [updateSettings]);
 
-  useEffect(() => {
-    if (!isOpen || !isConnected || step === 'complete') return;
+  // Fetch /api/v2, check provider_configured, then advance to 'api-key' or 'complete'.
+  const checkProviderAndAdvance = useCallback(async () => {
+    try {
+      const resp = await fetch(`${connectionConfig.baseUrl}/api/v2`);
+      const data = (await resp.json()) as { provider_configured?: boolean };
+      if (data.provider_configured === false) {
+        setStep('api-key');
+        return;
+      }
+    } catch {
+      // On error, don't block the user — assume provider is configured.
+    }
     completeSetup();
-    setCloudLoginStarted(false);
     setStep('complete');
-  }, [completeSetup, isConnected, isOpen, step]);
+  }, [connectionConfig.baseUrl, completeSetup]);
+
+  useEffect(() => {
+    if (!isOpen || !isConnected || step === 'complete' || step === 'api-key') return;
+    setCloudLoginStarted(false);
+    void checkProviderAndAdvance();
+  }, [checkProviderAndAdvance, isConnected, isOpen, step]);
 
   // Close the dialog. Also calls completeSetup() so that skipping or finishing always persists.
   const closeWizard = () => {
@@ -71,18 +86,15 @@ export function SetupWizard() {
 
   const handleLocalSetup = async () => {
     if (isConnected) {
-      // Persist immediately so a refresh before clicking "Start using gptme" won't re-show wizard.
-      completeSetup();
-      setStep('complete');
+      // Already connected — check provider config and advance.
+      void checkProviderAndAdvance();
       return;
     }
     setIsConnecting(true);
     setConnectError(null);
     try {
       await connect();
-      // Persist immediately — isOpen remains true so the complete step renders.
-      completeSetup();
-      setStep('complete');
+      // The isConnected useEffect will fire and call checkProviderAndAdvance.
     } catch (err) {
       setConnectError(
         err instanceof Error ? err.message : 'Could not connect to server. Is it running?'
@@ -287,6 +299,54 @@ export function SetupWizard() {
               <Button onClick={handleCloudLogin} className="gap-2">
                 Sign in to gptme.ai
                 <ExternalLink className="h-4 w-4" />
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+
+        {step === 'api-key' && (
+          <>
+            <DialogHeader>
+              <DialogTitle>Configure a provider</DialogTitle>
+              <DialogDescription>
+                No LLM provider is configured. Set an API key so gptme can process your requests.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-col gap-4 py-4">
+              <p className="text-sm text-muted-foreground">
+                Set one of these environment variables before launching gptme-server:
+              </p>
+              <code className="rounded bg-muted px-3 py-2 font-mono text-sm">
+                ANTHROPIC_API_KEY=sk-ant-...
+              </code>
+              <code className="rounded bg-muted px-3 py-2 font-mono text-sm">
+                OPENAI_API_KEY=sk-...
+              </code>
+              <p className="text-xs text-muted-foreground">
+                Get a key from{' '}
+                <a
+                  href="https://console.anthropic.com"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline underline-offset-2"
+                >
+                  Anthropic Console
+                </a>{' '}
+                or{' '}
+                <a
+                  href="https://platform.openai.com"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline underline-offset-2"
+                >
+                  OpenAI Platform
+                </a>
+                . Then restart the server.
+              </p>
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={closeWizard}>
+                Skip for now
               </Button>
             </DialogFooter>
           </>
