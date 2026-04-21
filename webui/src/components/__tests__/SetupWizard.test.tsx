@@ -156,4 +156,39 @@ describe('SetupWizard', () => {
       hasCompletedSetup: true,
     });
   });
+
+  it('keeps the cloud step visible when switching from provider fallback', async () => {
+    mockFetch.mockResolvedValue({
+      json: async () => ({ provider_configured: false }),
+    });
+    mockConnect.mockImplementation(async () => {
+      isConnected$.set(true);
+    });
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /monitor local/i }));
+    fireEvent.click(screen.getByRole('button', { name: /connect/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /configure a provider/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /use gptme.ai instead/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /cloud setup/i })).toBeInTheDocument();
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(
+      screen.queryByRole('heading', { name: /configure a provider/i })
+    ).not.toBeInTheDocument();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
 });

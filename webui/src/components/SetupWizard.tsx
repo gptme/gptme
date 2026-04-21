@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -50,13 +50,14 @@ export function SetupWizard() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [cloudLoginStarted, setCloudLoginStarted] = useState(false);
+  const lastAutoAdvanceBaseUrlRef = useRef<string | null>(null);
   const isTauri = isTauriEnvironment();
 
   const completeSetup = useCallback(() => {
     updateSettings({ hasCompletedSetup: true });
   }, [updateSettings]);
 
-  // Fetch /api/v2, check provider_configured, then advance to 'api-key' or 'complete'.
+  // Fetch /api/v2, check provider_configured, then advance to 'provider' or 'complete'.
   const checkProviderAndAdvance = useCallback(async () => {
     try {
       const resp = await fetch(`${connectionConfig.baseUrl}/api/v2`);
@@ -73,10 +74,18 @@ export function SetupWizard() {
   }, [connectionConfig.baseUrl, completeSetup]);
 
   useEffect(() => {
-    if (!isOpen || !isConnected || step === 'complete' || step === 'provider') return;
+    if (!isConnected) {
+      lastAutoAdvanceBaseUrlRef.current = null;
+      return;
+    }
+    if (!isOpen || step === 'complete' || step === 'provider') return;
+
+    if (lastAutoAdvanceBaseUrlRef.current === connectionConfig.baseUrl) return;
+    lastAutoAdvanceBaseUrlRef.current = connectionConfig.baseUrl;
+
     setCloudLoginStarted(false);
     void checkProviderAndAdvance();
-  }, [checkProviderAndAdvance, isConnected, isOpen, step]);
+  }, [checkProviderAndAdvance, connectionConfig.baseUrl, isConnected, isOpen, step]);
 
   // Close the dialog. Also calls completeSetup() so that skipping or finishing always persists.
   const closeWizard = () => {
