@@ -116,13 +116,23 @@ def _record_usage(usage, model: str) -> MessageMetadata | None:
     output_tokens = getattr(usage, "completion_tokens", None)
     details = getattr(usage, "prompt_tokens_details", None)
     cache_read_tokens = getattr(details, "cached_tokens", None)
+    # OpenRouter passes through Anthropic's cache_creation_input_tokens as an
+    # extra field on the usage object (preserved by OpenAI SDK's pydantic extras).
+    # OpenAI itself doesn't create cache entries (its caching is automatic and
+    # read-only), so this will be None for direct OpenAI calls.
+    cache_creation_tokens = getattr(usage, "cache_creation_input_tokens", None)
     total_tokens = getattr(usage, "total_tokens", None)
 
-    # subtract cache_read_tokens from prompt_tokens to avoid double counting
+    # subtract cache_read_tokens AND cache_creation_tokens from prompt_tokens
+    # to avoid double counting — OpenRouter/Anthropic reports prompt_tokens as
+    # the inclusive total.
     # Ensure we have actual integers, not Mock objects from tests
     if isinstance(prompt_tokens, int):
-        cache_tokens = cache_read_tokens if isinstance(cache_read_tokens, int) else 0
-        input_tokens = prompt_tokens - cache_tokens
+        cache_read = cache_read_tokens if isinstance(cache_read_tokens, int) else 0
+        cache_create = (
+            cache_creation_tokens if isinstance(cache_creation_tokens, int) else 0
+        )
+        input_tokens = prompt_tokens - cache_read - cache_create
     else:
         input_tokens = None
 
@@ -143,6 +153,7 @@ def _record_usage(usage, model: str) -> MessageMetadata | None:
         success=True,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
+        cache_creation_tokens=cache_creation_tokens,
         cache_read_tokens=cache_read_tokens,
         total_tokens=total_tokens,
     )
@@ -154,6 +165,7 @@ def _record_usage(usage, model: str) -> MessageMetadata | None:
         model=model,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
+        cache_creation_tokens=cache_creation_tokens,
         cache_read_tokens=cache_read_tokens,
     )
 
@@ -165,6 +177,8 @@ def _record_usage(usage, model: str) -> MessageMetadata | None:
         usage_data["output_tokens"] = output_tokens
     if cache_read_tokens is not None:
         usage_data["cache_read_tokens"] = cache_read_tokens
+    if cache_creation_tokens is not None:
+        usage_data["cache_creation_tokens"] = cache_creation_tokens
 
     # Return MessageMetadata for attachment to Message
     metadata: MessageMetadata = {"model": model}

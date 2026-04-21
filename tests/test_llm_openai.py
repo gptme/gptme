@@ -1630,3 +1630,131 @@ class TestExtraBody:
         meta = self._make_model("anthropic/claude-sonnet-4-20250514")
         result = extra_body("openrouter", meta)
         assert result["provider"]["quantizations"] == ["int4"]
+
+
+class TestRecordUsageCacheTokens:
+    """Tests for _record_usage cache token extraction.
+
+    Regression guard for a bug where OpenRouter-proxied Anthropic calls were
+    dropping cache_creation_input_tokens on the floor, causing telemetry and
+    cost calculations to under-report cache-write activity.
+    """
+
+    @staticmethod
+    def _make_usage(
+        *,
+        prompt_tokens,
+        completion_tokens,
+        cached_tokens=None,
+        cache_creation_input_tokens=None,
+    ):
+        """Build an OpenAI-SDK CompletionUsage mirroring provider responses.
+
+        OpenAI SDK's pydantic models allow extras, so OpenRouter's Anthropic
+        passthrough field `cache_creation_input_tokens` is preserved as a raw
+        attribute on the validated object.
+        """
+        from openai.types.completion_usage import CompletionUsage
+
+        raw: dict = {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens,
+        }
+        if cached_tokens is not None:
+            raw["prompt_tokens_details"] = {
+                "cached_tokens": cached_tokens,
+                "audio_tokens": 0,
+            }
+        if cache_creation_input_tokens is not None:
+            raw["cache_creation_input_tokens"] = cache_creation_input_tokens
+        return CompletionUsage.model_validate(raw)
+
+    def test_openai_direct_no_cache_fields(self):
+        """Direct OpenAI calls without caching — no cache tokens recorded."""
+        from gptme.llm.llm_openai import _record_usage
+
+        usage = self._make_usage(prompt_tokens=1000, completion_tokens=200)
+        metadata = _record_usage(usage, "openai/gpt-4o")
+
+        assert metadata is not None
+        assert metadata["usage"]["input_tokens"] == 1000
+        assert metadata["usage"]["output_tokens"] == 200
+        assert "cache_read_tokens" not in metadata["usage"]
+        assert "cache_creation_tokens" not in metadata["usage"]
+
+    def test_openai_cached_tokens_only(self):
+        """OpenAI-style caching: cached_tokens populated, no cache_creation."""
+        from gptme.llm.llm_openai import _record_usage
+
+        usage = self._make_usage(
+            prompt_tokens=1500, completion_tokens=100, cached_tokens=500
+        )
+        metadata = _record_usage(usage, "openai/gpt-4o")
+
+        assert metadata is not None
+        # input_tokens should exclude cache_read to avoid double counting
+        assert metadata["usage"]["input_tokens"] == 1000
+        assert metadata["usage"]["cache_read_tokens"] == 500
+        assert "cache_creation_tokens" not in metadata["usage"]
+
+    def test_openrouter_anthropic_cache_creation_extracted(self):
+        """OpenRouter-proxied Anthropic: cache_creation_input_tokens extracted.
+
+        Regression test: prior to this fix, cache_creation_input_tokens was
+        silently dropped for any model routed through llm_openai.py.
+        """
+        from gptme.llm.llm_openai import _record_usage
+
+        usage = self._make_usage(
+            prompt_tokens=3000,
+            completion_tokens=200,
+            cached_tokens=500,
+            cache_creation_input_tokens=2000,
+        )
+        metadata = _record_usage(usage, "openrouter/anthropic/claude-sonnet-4.5")
+
+        assert metadata is not None
+        # input_tokens = prompt_tokens - cache_read - cache_creation
+        # = 3000 - 500 - 2000 = 500
+        assert metadata["usage"]["input_tokens"] == 500
+        assert metadata["usage"]["cache_read_tokens"] == 500
+        assert metadata["usage"]["cache_creation_tokens"] == 2000
+
+    def test_openrouter_anthropic_cache_creation_only(self):
+        """First cache-write call: creation tokens but no reads yet."""
+        from gptme.llm.llm_openai import _record_usage
+
+        usage = self._make_usage(
+            prompt_tokens=2500,
+            completion_tokens=150,
+            cache_creation_input_tokens=2000,
+        )
+        metadata = _record_usage(usage, "openrouter/anthropic/claude-haiku-4.5")
+
+        assert metadata is not None
+        # No cached_tokens field at all — just cache_creation
+        assert metadata["usage"]["input_tokens"] == 500
+        assert metadata["usage"]["cache_creation_tokens"] == 2000
+        assert "cache_read_tokens" not in metadata["usage"]
+
+    def test_openrouter_anthropic_cache_creation_zero_still_recorded(self):
+        """Explicit 0 for cache_creation should still be recorded.
+
+        This distinguishes 'provider returned 0' (cache disabled/miss) from
+        'field not present' (legacy/non-supporting provider).
+        """
+        from gptme.llm.llm_openai import _record_usage
+
+        usage = self._make_usage(
+            prompt_tokens=1000,
+            completion_tokens=100,
+            cached_tokens=0,
+            cache_creation_input_tokens=0,
+        )
+        metadata = _record_usage(usage, "openrouter/anthropic/claude-sonnet-4.5")
+
+        assert metadata is not None
+        # Both explicit zeros preserved in metadata (truthy-check would drop them)
+        assert metadata["usage"]["cache_read_tokens"] == 0
+        assert metadata["usage"]["cache_creation_tokens"] == 0
