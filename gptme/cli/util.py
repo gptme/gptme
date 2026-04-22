@@ -109,8 +109,6 @@ def providers():
 @providers.command("list")
 def providers_list():
     """List configured custom OpenAI-compatible providers."""
-    from ..config import get_config  # fmt: skip
-
     config = get_config()
 
     if not config.user.providers:
@@ -155,8 +153,6 @@ def providers_test(provider_name: str):
 
     Connects to the provider's API and lists available models.
     """
-    from ..config import get_config  # fmt: skip
-
     config = get_config()
 
     # Find the provider config
