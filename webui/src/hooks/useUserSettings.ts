@@ -14,6 +14,8 @@ export function useUserSettings() {
   const [refetchKey, setRefetchKey] = useState(0);
 
   useEffect(() => {
+    const controller = new AbortController();
+
     const fetchSettings = async () => {
       setIsLoading(true);
       setError(null);
@@ -22,13 +24,17 @@ export function useUserSettings() {
         if (api.authHeader) {
           headers.Authorization = api.authHeader;
         }
-        const response = await fetch(`${api.baseUrl}/api/v2/user/settings`, { headers });
+        const response = await fetch(`${api.baseUrl}/api/v2/user/settings`, {
+          headers,
+          signal: controller.signal,
+        });
         if (!response.ok) {
           throw new Error(`Failed to fetch user settings: ${response.statusText}`);
         }
         const data = (await response.json()) as UserSettings;
         setSettings(data);
       } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') return;
         setError(err instanceof Error ? err.message : 'Failed to fetch user settings');
         setSettings(null);
       } finally {
@@ -37,6 +43,7 @@ export function useUserSettings() {
     };
 
     void fetchSettings();
+    return () => controller.abort();
   }, [api.baseUrl, api.authHeader, refetchKey]);
 
   const refetch = useCallback(() => setRefetchKey((k) => k + 1), []);

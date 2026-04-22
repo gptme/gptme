@@ -22,6 +22,7 @@ export function ServerDefaultModelSettings() {
     refetch: refetchSettings,
   } = useUserSettings();
   const [selectedModel, setSelectedModel] = useState<string>('');
+  const [userSelected, setUserSelected] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   const isLoading = modelsLoading || settingsLoading;
@@ -40,15 +41,20 @@ export function ServerDefaultModelSettings() {
     );
   }, [models, recommendedModels]);
 
+  // Server default wins over the fallback as long as the user hasn't explicitly picked.
+  // Without this, useModels resolves first → sets fallback → useUserSettings resolves later
+  // → the (current => current || serverDefault) guard is a no-op, silently diverging picker
+  // from the "Current default" label.
   useEffect(() => {
+    if (userSelected) return;
     if (serverDefaultModel) {
-      setSelectedModel((current) => current || serverDefaultModel);
+      setSelectedModel(serverDefaultModel);
       return;
     }
-    if (!selectedModel && fallbackModel) {
+    if (fallbackModel) {
       setSelectedModel(fallbackModel);
     }
-  }, [serverDefaultModel, fallbackModel, selectedModel]);
+  }, [serverDefaultModel, fallbackModel, userSelected]);
 
   const handleSave = async () => {
     if (!selectedModel) {
@@ -77,7 +83,9 @@ export function ServerDefaultModelSettings() {
       }
 
       const result = data as SaveDefaultModelResponse;
-      // Refetch from server to reflect the saved state authoritatively
+      // Refetch from server to reflect the saved state authoritatively.
+      // Reset userSelected so the refetch can update the picker to the confirmed model.
+      setUserSelected(false);
       refetchSettings();
       toast.success(
         result.restart_required
@@ -126,7 +134,10 @@ export function ServerDefaultModelSettings() {
       ) : (
         <ModelPickerButton
           value={selectedModel}
-          onSelect={setSelectedModel}
+          onSelect={(model) => {
+            setSelectedModel(model);
+            setUserSelected(true);
+          }}
           disabled={isLoading || isSaving || models.length === 0}
           placeholder={isLoading ? 'Loading models…' : 'Select model'}
         />
