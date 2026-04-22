@@ -22,6 +22,57 @@ def agents() -> None:
     """Inspect live agent processes on this host."""
 
 
+def run_scan(
+    workspace: Path | None,
+    show_all: bool,
+    as_json: bool,
+) -> int:
+    """Render live agent scan results and return the command exit code."""
+    from ..hooks.workspace_agents import (
+        _format_agent_line,
+        _format_duration,
+        scan_agents,
+    )
+
+    results = scan_agents(workspace=str(workspace) if workspace else None)
+
+    active = [a for a in results if not a.stale]
+    stale = [a for a in results if a.stale]
+
+    shown = results if show_all else active
+
+    if as_json:
+        output = [asdict(a) for a in shown]
+        json.dump(output, sys.stdout, indent=2)
+        print()
+    else:
+        if not shown:
+            label = "agents" if show_all else "active agents"
+            scope = f" in {workspace}" if workspace else ""
+            click.echo(f"No {label} found{scope}.")
+        else:
+            scope = f" in {workspace}" if workspace else " on this host"
+            click.echo(f"Live agents{scope}:")
+            for a in shown:
+                click.echo(f"  {_format_agent_line(a)}")
+
+        if not show_all and stale:
+            n = len(stale)
+            ages = ", ".join(
+                _format_duration(a.uptime_seconds)
+                for a in stale
+                if a.uptime_seconds is not None
+            )
+            click.echo(
+                f"  ({n} stale process{'es' if n != 1 else ''} hidden"
+                + (f"; ages: {ages}" if ages else "")
+                + "; use --all to show)",
+                err=False,
+            )
+
+    return 0 if active else 1
+
+
 @agents.command("scan")
 @click.option(
     "--workspace",
@@ -58,49 +109,4 @@ def scan(
 
     Exit code: 0 if at least one active agent found, 1 if none.
     """
-    from ..hooks.workspace_agents import (
-        _format_agent_line,
-        _format_duration,
-        scan_agents,
-    )
-
-    results = scan_agents(workspace=str(workspace) if workspace else None)
-
-    active = [a for a in results if not a.stale]
-    stale = [a for a in results if a.stale]
-
-    shown = results if show_all else active
-
-    if as_json:
-        output = []
-        for a in shown:
-            d = asdict(a)
-            output.append(d)
-        json.dump(output, sys.stdout, indent=2)
-        print()
-    else:
-        if not shown:
-            label = "agents" if show_all else "active agents"
-            scope = f" in {workspace}" if workspace else ""
-            click.echo(f"No {label} found{scope}.")
-        else:
-            scope = f" in {workspace}" if workspace else " on this host"
-            click.echo(f"Live agents{scope}:")
-            for a in shown:
-                click.echo(f"  {_format_agent_line(a)}")
-
-        if not show_all and stale:
-            n = len(stale)
-            ages = ", ".join(
-                _format_duration(a.uptime_seconds)
-                for a in stale
-                if a.uptime_seconds is not None
-            )
-            click.echo(
-                f"  ({n} stale process{'es' if n != 1 else ''} hidden"
-                + (f"; ages: {ages}" if ages else "")
-                + "; use --all to show)",
-                err=False,
-            )
-
-    sys.exit(0 if active else 1)
+    sys.exit(run_scan(workspace=workspace, show_all=show_all, as_json=as_json))

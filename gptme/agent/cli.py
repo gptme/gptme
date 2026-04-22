@@ -2,6 +2,7 @@
 CLI commands for gptme agent management.
 
 Usage:
+    gptme-agent scan                # Show live agent processes across runtimes
     gptme-agent status              # Show all agent statuses
     gptme-agent create <path>       # Create a new agent workspace
     gptme-agent install [--timer]   # Install systemd/launchd services
@@ -19,6 +20,7 @@ from pathlib import Path
 
 import click
 
+from ..cli.cmd_agents import run_scan
 from .doctor import run_doctor
 from .service import ServiceStatus, detect_service_manager, get_service_manager
 from .workspace import (
@@ -83,12 +85,41 @@ def main(verbose: bool = False):
 
     \b
     Common workflows:
+      gptme-agent scan                # See active local agents across runtimes
       gptme-agent logs --follow       # Monitor agent activity
       gptme-agent run                 # Trigger an immediate run
       gptme-agent stop                # Pause scheduled runs
     """
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
+
+
+@main.command("scan")
+@click.option(
+    "--workspace",
+    "-w",
+    default=None,
+    type=click.Path(file_okay=False, path_type=Path),
+    help="Only show agents whose CWD is under this path. "
+    "By default all agents on the host are shown.",
+)
+@click.option(
+    "--all",
+    "show_all",
+    is_flag=True,
+    default=False,
+    help="Include stale/stuck agents (excluded by default).",
+)
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Output as JSON.",
+)
+def scan_cmd(workspace: Path | None, show_all: bool, as_json: bool):
+    """List live agent processes (gptme, claude-code, codex, aider, …)."""
+    sys.exit(run_scan(workspace=workspace, show_all=show_all, as_json=as_json))
 
 
 @main.command("status")

@@ -23,6 +23,31 @@ from gptme.agent.workspace import (
     get_workspace_name,
     is_agent_workspace,
 )
+from gptme.hooks.workspace_agents import AgentInfo
+
+
+def _make_scanned_agent(
+    pid: int = 1234,
+    runtime: str = "claude-code",
+    cwd: str = "/home/user/project",
+    model: str = "opus",
+    mode: str = "autonomous",
+    branch: str = "master",
+    uptime_seconds: int = 300,
+    stale: bool = False,
+    stale_reason: str | None = None,
+) -> AgentInfo:
+    return AgentInfo(
+        pid=pid,
+        runtime=runtime,
+        cwd=cwd,
+        model=model,
+        mode=mode,
+        branch=branch,
+        uptime_seconds=uptime_seconds,
+        stale=stale,
+        stale_reason=stale_reason,
+    )
 
 
 class TestDetectServiceManager:
@@ -593,6 +618,12 @@ class TestCLI:
         assert result.exit_code == 0
         assert "Show status of agent(s)" in result.output
 
+    def test_scan_help(self, runner):
+        """Test scan command help."""
+        result = runner.invoke(main, ["scan", "--help"])
+        assert result.exit_code == 0
+        assert "List live agent processes" in result.output
+
     def test_create_help(self, runner):
         """Test create command help."""
         result = runner.invoke(main, ["create", "--help"])
@@ -708,6 +739,17 @@ class TestCLI:
             result = runner.invoke(main, ["list"])
             assert result.exit_code == 0
             assert "No agents installed" in result.output
+
+    def test_scan_shows_active_agents(self, runner, mocker):
+        """Test scan command exposes the shared live-agent scanner."""
+        agent = _make_scanned_agent()
+        mocker.patch("gptme.hooks.workspace_agents.scan_agents", return_value=[agent])
+
+        result = runner.invoke(main, ["scan"])
+
+        assert result.exit_code == 0
+        assert "claude-code" in result.output
+        assert "1234" in result.output
 
     def test_uninstall_help(self, runner):
         """Test uninstall command help."""
