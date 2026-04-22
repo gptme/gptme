@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { ModelPickerButton } from '@/components/ModelPicker';
 import { useApi } from '@/contexts/ApiContext';
 import { useModels } from '@/hooks/useModels';
+import { useUserSettings } from '@/hooks/useUserSettings';
 import { toast } from 'sonner';
 
 type SaveDefaultModelResponse = {
@@ -13,12 +14,22 @@ type SaveDefaultModelResponse = {
 
 export function ServerDefaultModelSettings() {
   const { api } = useApi();
-  const { models, defaultModel, recommendedModels, isLoading, error } = useModels();
+  const { models, recommendedModels, isLoading: modelsLoading, error: modelsError } = useModels();
+  const {
+    settings,
+    isLoading: settingsLoading,
+    error: settingsError,
+    refetch: refetchSettings,
+  } = useUserSettings();
   const [selectedModel, setSelectedModel] = useState<string>('');
-  const [savedModel, setSavedModel] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  const effectiveDefaultModel = savedModel || defaultModel;
+  const isLoading = modelsLoading || settingsLoading;
+  const error = modelsError || settingsError;
+
+  // Server-authoritative default model from /api/v2/user/settings
+  const serverDefaultModel = settings?.default_model ?? null;
+
   const fallbackModel = useMemo(() => {
     if (models.length === 0) {
       return '';
@@ -30,18 +41,14 @@ export function ServerDefaultModelSettings() {
   }, [models, recommendedModels]);
 
   useEffect(() => {
-    if (savedModel) {
-      setSelectedModel(savedModel);
-      return;
-    }
-    if (defaultModel) {
-      setSelectedModel((current) => current || defaultModel);
+    if (serverDefaultModel) {
+      setSelectedModel((current) => current || serverDefaultModel);
       return;
     }
     if (!selectedModel && fallbackModel) {
       setSelectedModel(fallbackModel);
     }
-  }, [defaultModel, fallbackModel, savedModel, selectedModel]);
+  }, [serverDefaultModel, fallbackModel, selectedModel]);
 
   const handleSave = async () => {
     if (!selectedModel) {
@@ -70,7 +77,8 @@ export function ServerDefaultModelSettings() {
       }
 
       const result = data as SaveDefaultModelResponse;
-      setSavedModel(result.model);
+      // Refetch from server to reflect the saved state authoritatively
+      refetchSettings();
       toast.success(
         result.restart_required
           ? 'Default model saved. Restart the server to apply it.'
@@ -83,6 +91,8 @@ export function ServerDefaultModelSettings() {
     }
   };
 
+  const configuredProviders = settings?.providers_configured ?? [];
+
   return (
     <div className="space-y-3 rounded-lg border p-4">
       <div>
@@ -92,9 +102,22 @@ export function ServerDefaultModelSettings() {
         </p>
       </div>
 
-      {effectiveDefaultModel && (
+      {configuredProviders.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {configuredProviders.map((provider) => (
+            <span
+              key={provider}
+              className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+            >
+              {provider}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {serverDefaultModel && (
         <p className="text-xs text-muted-foreground">
-          Current default: <code>{effectiveDefaultModel}</code>
+          Current default: <code>{serverDefaultModel}</code>
         </p>
       )}
 

@@ -6,6 +6,7 @@ const mockSuccess = jest.fn();
 const mockError = jest.fn();
 const mockFetch = jest.fn();
 const mockOnSelect = jest.fn();
+const mockRefetch = jest.fn();
 
 jest.mock('@/contexts/ApiContext', () => ({
   useApi: () => ({
@@ -34,6 +35,18 @@ jest.mock('@/hooks/useModels', () => ({
     recommendedModels: ['anthropic/claude-sonnet-4-7'],
     isLoading: false,
     error: null,
+  }),
+}));
+
+jest.mock('@/hooks/useUserSettings', () => ({
+  useUserSettings: () => ({
+    settings: {
+      providers_configured: ['anthropic', 'openai'],
+      default_model: 'anthropic/claude-sonnet-4-7',
+    },
+    isLoading: false,
+    error: null,
+    refetch: mockRefetch,
   }),
 }));
 
@@ -79,6 +92,7 @@ describe('ServerDefaultModelSettings', () => {
     mockSuccess.mockReset();
     mockError.mockReset();
     mockOnSelect.mockReset();
+    mockRefetch.mockReset();
     Object.defineProperty(window, 'fetch', {
       writable: true,
       value: mockFetch,
@@ -113,5 +127,21 @@ describe('ServerDefaultModelSettings', () => {
 
     expect(mockOnSelect).toHaveBeenCalled();
     expect(mockSuccess).toHaveBeenCalledWith('Default model updated.');
+    expect(mockRefetch).toHaveBeenCalled();
+  });
+
+  it('shows configured providers from user settings', () => {
+    render(<ServerDefaultModelSettings />);
+
+    expect(screen.getByText('anthropic')).toBeInTheDocument();
+    expect(screen.getByText('openai')).toBeInTheDocument();
+  });
+
+  it('shows server-authoritative default model', () => {
+    render(<ServerDefaultModelSettings />);
+
+    expect(screen.getByText(/current default:/i).closest('p')).toHaveTextContent(
+      'anthropic/claude-sonnet-4-7'
+    );
   });
 });
