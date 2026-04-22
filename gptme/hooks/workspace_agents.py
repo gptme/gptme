@@ -97,6 +97,7 @@ _CLAUDE_SESSION_INDEX: dict[
 ] = {}
 _CLAUDE_SESSION_MAX_DELTA_SECONDS = 15 * 60
 _CLAUDE_SESSION_MIN_UNIQUENESS_SECONDS = 15
+_CLAUDE_SESSION_SCAN_LIMIT = 256
 
 
 # ---------------------------------------------------------------------------
@@ -521,18 +522,41 @@ def _read_claude_session_metadata(
     return session_start, initial_prompt
 
 
+def _claude_session_mtime_ns(session_file: Path) -> int:
+    """Best-effort mtime lookup for transcript ordering."""
+    try:
+        return session_file.stat().st_mtime_ns
+    except OSError:
+        return -1
+
+
 def _get_claude_project_sessions(
     project_dir: Path,
 ) -> list[tuple[float, str, str | None]]:
-    """Index Claude sessions for a workspace project dir, caching by dir mtime."""
+    """Index recent Claude sessions for a workspace project dir.
+
+    Large workspaces can accumulate tens of thousands of Claude transcripts.
+    Scanning every file on every agent scan makes ``gptme-util agents scan``
+    unusably slow, so only the most recently touched transcripts are indexed.
+    Older sessions simply resolve to ``None`` when they fall outside the
+    bounded recent window.
+    """
     try:
         session_files = list(project_dir.glob("*.jsonl"))
         dir_mtime_ns = project_dir.stat().st_mtime_ns
     except OSError:
         return []
 
+    total_sessions = len(session_files)
+    if total_sessions > _CLAUDE_SESSION_SCAN_LIMIT:
+        session_files = sorted(
+            session_files,
+            key=_claude_session_mtime_ns,
+            reverse=True,
+        )[:_CLAUDE_SESSION_SCAN_LIMIT]
+
     cache_key = str(project_dir)
-    cache_signature = (dir_mtime_ns, len(session_files))
+    cache_signature = (dir_mtime_ns, total_sessions)
     cached = _CLAUDE_SESSION_INDEX.get(cache_key)
     if cached and cached[:2] == cache_signature:
         return cached[2]
@@ -954,14 +978,13 @@ def scan_agents(workspace: str | None = None) -> list[AgentInfo]:
         info.cpu_seconds = timing_cpu
         info.process_state = timing_state
         info.memory_mb = _get_process_memory_mb(pid)
-        if info.runtime == "claude-code" and info.log_dir:
+        assess_staleness(info)
+        if info.runtime == "claude-code" and info.log_dir and not info.stale:
             info.conversation_id = _resolve_claude_conversation_id(
                 Path(info.log_dir),
                 info.cmdline_summary,
                 timing_uptime,
             )
-
-        assess_staleness(info)
         agents.append(info)
 
     # Deduplicate: for same runtime+cwd, keep distinct modes; within same mode keep highest PID

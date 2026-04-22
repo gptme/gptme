@@ -597,6 +597,96 @@ class TestScanAgents:
 
         assert resolved == "ls"
 
+    def test_claude_session_lookup_caps_recent_file_scan(self, tmp_path: Path) -> None:
+        import gptme.hooks.workspace_agents as mod
+
+        fixed_now = 1_760_000_000.0
+        project_dir = tmp_path / ".claude" / "projects" / "-workspace"
+        project_dir.mkdir(parents=True)
+
+        for i in range(6):
+            session_id = f"session-{i}"
+            prompt = f"recent prompt {i} for bounded scan"
+            timestamp = fixed_now - (300 - i)
+            self._write_claude_session(project_dir, session_id, timestamp, prompt)
+            session_path = project_dir / f"{session_id}.jsonl"
+            os.utime(session_path, (timestamp, timestamp))
+
+        read_count = 0
+        original = mod._read_claude_session_metadata
+
+        def counting_reader(session_file: Path) -> tuple[float | None, str | None]:
+            nonlocal read_count
+            read_count += 1
+            return original(session_file)
+
+        mod._CLAUDE_SESSION_INDEX.clear()
+        with (
+            patch("gptme.hooks.workspace_agents._CLAUDE_SESSION_SCAN_LIMIT", 3),
+            patch(
+                "gptme.hooks.workspace_agents._read_claude_session_metadata",
+                side_effect=counting_reader,
+            ),
+            patch("gptme.hooks.workspace_agents.time.time", return_value=fixed_now),
+        ):
+            resolved = mod._resolve_claude_conversation_id(
+                project_dir,
+                "recent prompt 5 for bounded scan",
+                295,
+            )
+
+        assert resolved == "session-5"
+        assert read_count == 3
+
+    def test_skips_claude_session_lookup_for_stale_process(
+        self, tmp_path: Path
+    ) -> None:
+        fake_pid = 99993
+        workspace = "/workspace"
+        project_dir = tmp_path / ".claude" / "projects" / "-workspace"
+        project_dir.mkdir(parents=True)
+
+        self._write_claude_session(
+            project_dir,
+            "stale-session",
+            1_760_000_000.0 - 600,
+            "stale session should not trigger lookup",
+        )
+
+        with (
+            patch(
+                "gptme.hooks.workspace_agents._get_all_pids", return_value=[fake_pid]
+            ),
+            patch(
+                "gptme.hooks.workspace_agents._get_process_cmdline",
+                return_value=["claude", "-p", "hello"],
+            ),
+            patch(
+                "gptme.hooks.workspace_agents._get_process_cwd",
+                return_value=workspace,
+            ),
+            patch("gptme.hooks.workspace_agents._get_git_branch", return_value="main"),
+            patch(
+                "gptme.hooks.workspace_agents._get_process_timing",
+                return_value=(400_000, 700.0, "S"),
+            ),
+            patch(
+                "gptme.hooks.workspace_agents._get_process_memory_mb",
+                return_value=None,
+            ),
+            patch("gptme.hooks.workspace_agents.Path.home", return_value=tmp_path),
+            patch(
+                "gptme.hooks.workspace_agents._resolve_claude_conversation_id"
+            ) as mock_resolve,
+            patch("os.path.realpath", side_effect=lambda p: p),
+        ):
+            agents = scan_agents(workspace=workspace)
+
+        assert len(agents) == 1
+        assert agents[0].stale is True
+        assert agents[0].conversation_id is None
+        mock_resolve.assert_not_called()
+
     def test_keeps_codex_interactive_and_autonomous_rows_separate(self) -> None:
         pids = [99991, 99992]
 

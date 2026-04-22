@@ -19,6 +19,7 @@ warnings.filterwarnings(
     message=r".*urllib3.*chardet.*charset_normalizer.*",
 )
 
+import importlib
 import io
 import json
 import logging
@@ -30,33 +31,67 @@ from pathlib import Path
 
 import click
 
-from ..config import get_config
-from ..llm import PROVIDER_DEFAULT_MODELS as _PROVIDER_DEFAULT_MODELS
-from ..llm.models import get_model_list, list_models, model_to_dict
-from ..message import Message
-from ..util.context import include_paths
-from .cmd_agents import agents
-from .cmd_chats import chats
-from .cmd_hooks import hooks
-from .cmd_mcp import mcp
-from .cmd_skills import skills
+_LAZY_COMMANDS: dict[str, tuple[str, str]] = {
+    "agents": (".cmd_agents", "agents"),
+    "chats": (".cmd_chats", "chats"),
+    "hooks": (".cmd_hooks", "hooks"),
+    "mcp": (".cmd_mcp", "mcp"),
+    "skills": (".cmd_skills", "skills"),
+}
 
 
-@click.group()
+def get_model_list(*args, **kwargs):
+    """Lazy proxy so tests can still patch ``gptme.cli.util.get_model_list``."""
+    from ..llm.models import get_model_list as _get_model_list  # fmt: skip
+
+    return _get_model_list(*args, **kwargs)
+
+
+def list_models(*args, **kwargs):
+    """Lazy proxy so util commands don't import model code at module import time."""
+    from ..llm.models import list_models as _list_models  # fmt: skip
+
+    return _list_models(*args, **kwargs)
+
+
+def model_to_dict(model):
+    """Lazy proxy used by JSON model output."""
+    from ..llm.models import model_to_dict as _model_to_dict  # fmt: skip
+
+    return _model_to_dict(model)
+
+
+class LazyGroup(click.Group):
+    """Click group that imports heavyweight subcommands on demand."""
+
+    def list_commands(self, ctx: click.Context) -> list[str]:
+        commands = set(super().list_commands(ctx))
+        commands.update(_LAZY_COMMANDS)
+        return sorted(commands)
+
+    def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
+        command = super().get_command(ctx, cmd_name)
+        if command is not None:
+            return command
+
+        target = _LAZY_COMMANDS.get(cmd_name)
+        if target is None:
+            return None
+
+        module_name, attr_name = target
+        module = importlib.import_module(module_name, package=__package__)
+        command = getattr(module, attr_name)
+        self.add_command(command, cmd_name)
+        return command
+
+
+@click.group(cls=LazyGroup)
 @click.option("-v", "--verbose", is_flag=True, help="Enable verbose output.")
 def main(verbose: bool = False):
     """Utility commands for gptme."""
 
     if verbose:
         logging.getLogger().setLevel(logging.DEBUG)
-
-
-# Register command groups from submodules
-main.add_command(agents)
-main.add_command(chats)
-main.add_command(hooks)
-main.add_command(mcp)
-main.add_command(skills)
 
 
 @main.group()
@@ -67,6 +102,7 @@ def providers():
 @providers.command("list")
 def providers_list():
     """List configured custom OpenAI-compatible providers."""
+    from ..config import get_config  # fmt: skip
 
     config = get_config()
 
@@ -112,6 +148,8 @@ def providers_test(provider_name: str):
 
     Connects to the provider's API and lists available models.
     """
+    from ..config import get_config  # fmt: skip
+
     config = get_config()
 
     # Find the provider config
@@ -553,6 +591,9 @@ def prompts_expand(prompt: tuple[str, ...]):
     full_prompt = "\n\n".join(prompt)
 
     # Use the existing include_paths function to expand the prompt
+    from ..message import Message  # fmt: skip
+    from ..util.context import include_paths  # fmt: skip
+
     original_msg = Message("user", full_prompt)
     expanded_msg = include_paths(original_msg, workspace=Path.cwd())
 
@@ -691,11 +732,16 @@ def models_test(model_name: str | None, as_json: bool):
         gptme-util models test anthropic/claude-opus-4-7  # specific model
         gptme-util models test --json anthropic   # machine-readable output
     """
-    from ..llm import (  # fmt: skip
+    from ..config import get_config
+    from ..llm import (
         PROVIDER_API_KEYS,
         get_provider_from_model,
         init_llm,
     )
+    from ..llm import (
+        PROVIDER_DEFAULT_MODELS as _PROVIDER_DEFAULT_MODELS,
+    )
+    from ..message import Message
 
     # Resolve model name
     if model_name is None:
