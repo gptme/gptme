@@ -559,6 +559,44 @@ class TestScanAgents:
 
         assert resolved is None
 
+    def test_claude_reads_list_format_content_blocks(self, tmp_path: Path) -> None:
+        """_read_claude_session_metadata handles list-of-content-blocks format."""
+        import gptme.hooks.workspace_agents as mod
+
+        fixed_now = 1_760_000_000.0
+        project_dir = tmp_path / ".claude" / "projects" / "-workspace"
+        project_dir.mkdir(parents=True)
+
+        prompt = "investigate list content block format handling in session reader"
+        ts = datetime.fromtimestamp(fixed_now - 500, tz=timezone.utc).isoformat(
+            timespec="milliseconds"
+        )
+        records = [
+            {"type": "permission-mode", "permissionMode": "default", "sessionId": "ls"},
+            {
+                "type": "user",
+                "timestamp": ts.replace("+00:00", "Z"),
+                "sessionId": "ls",
+                "message": {
+                    "role": "user",
+                    "content": [{"type": "text", "text": prompt}],
+                },
+            },
+        ]
+        session_path = project_dir / "ls.jsonl"
+        session_path.write_text(
+            "\n".join(json.dumps(r) for r in records) + "\n", encoding="utf-8"
+        )
+
+        mod._CLAUDE_SESSION_INDEX.clear()
+        with (
+            patch("gptme.hooks.workspace_agents.time.time", return_value=fixed_now),
+            patch("gptme.hooks.workspace_agents.Path.home", return_value=tmp_path),
+        ):
+            resolved = mod._resolve_claude_conversation_id(project_dir, prompt, 500)
+
+        assert resolved == "ls"
+
     def test_keeps_codex_interactive_and_autonomous_rows_separate(self) -> None:
         pids = [99991, 99992]
 

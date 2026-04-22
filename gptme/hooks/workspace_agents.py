@@ -503,6 +503,14 @@ def _read_claude_session_metadata(
                             content = message.get("content")
                             if isinstance(content, str):
                                 prompt_text = content
+                            elif isinstance(content, list):
+                                for block in content:
+                                    if (
+                                        isinstance(block, dict)
+                                        and block.get("type") == "text"
+                                    ):
+                                        prompt_text = block.get("text")
+                                        break
                     initial_prompt = _normalize_prompt_excerpt(prompt_text)
 
                 if session_start is not None and initial_prompt is not None:
