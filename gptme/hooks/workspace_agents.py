@@ -16,6 +16,7 @@ See: https://github.com/gptme/gptme/issues/554
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import platform
@@ -24,6 +25,7 @@ import shlex
 import subprocess
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -88,6 +90,13 @@ STALE_THRESHOLDS: dict[str | None, int | None] = {
 
 # Minimum CPU ratio (cpu_time / uptime) to consider a process "active".
 MIN_CPU_RATIO = 0.001  # 0.1%
+
+_CLAUDE_SESSION_INDEX: dict[
+    str,
+    tuple[int, int, list[tuple[float, str, str | None]]],
+] = {}
+_CLAUDE_SESSION_MAX_DELTA_SECONDS = 15 * 60
+_CLAUDE_SESSION_MIN_UNIQUENESS_SECONDS = 15
 
 
 # ---------------------------------------------------------------------------
@@ -444,6 +453,146 @@ def _runtime_cmdline(cmdline: list[str], *runtime_binaries: str) -> list[str]:
     return cmdline
 
 
+def _normalize_prompt_excerpt(text: str | None) -> str | None:
+    """Normalize prompt text for loose matching."""
+    if not text:
+        return None
+    normalized = re.sub(r"\s+", " ", text).strip()
+    if len(normalized) < 12:
+        return None
+    return normalized
+
+
+def _read_claude_session_metadata(
+    session_file: Path,
+) -> tuple[float | None, str | None]:
+    """Read a Claude session file's start timestamp and initial prompt excerpt."""
+    session_start: float | None = None
+    initial_prompt: str | None = None
+
+    try:
+        with session_file.open(encoding="utf-8", errors="replace") as handle:
+            for _ in range(16):
+                line = handle.readline()
+                if not line:
+                    break
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                if session_start is None:
+                    raw_timestamp = record.get("timestamp")
+                    if isinstance(raw_timestamp, str):
+                        try:
+                            session_start = datetime.fromisoformat(
+                                raw_timestamp.replace("Z", "+00:00")
+                            ).timestamp()
+                        except ValueError:
+                            pass
+
+                if initial_prompt is None:
+                    prompt_text: str | None = None
+                    if record.get("type") == "queue-operation":
+                        content = record.get("content")
+                        if isinstance(content, str):
+                            prompt_text = content
+                    elif record.get("type") == "user":
+                        message = record.get("message")
+                        if isinstance(message, dict):
+                            content = message.get("content")
+                            if isinstance(content, str):
+                                prompt_text = content
+                    initial_prompt = _normalize_prompt_excerpt(prompt_text)
+
+                if session_start is not None and initial_prompt is not None:
+                    break
+    except OSError:
+        return None, None
+
+    return session_start, initial_prompt
+
+
+def _get_claude_project_sessions(
+    project_dir: Path,
+) -> list[tuple[float, str, str | None]]:
+    """Index Claude sessions for a workspace project dir, caching by dir mtime."""
+    try:
+        session_files = list(project_dir.glob("*.jsonl"))
+        dir_mtime_ns = project_dir.stat().st_mtime_ns
+    except OSError:
+        return []
+
+    cache_key = str(project_dir)
+    cache_signature = (dir_mtime_ns, len(session_files))
+    cached = _CLAUDE_SESSION_INDEX.get(cache_key)
+    if cached and cached[:2] == cache_signature:
+        return cached[2]
+
+    sessions: list[tuple[float, str, str | None]] = []
+    for session_file in session_files:
+        session_start, initial_prompt = _read_claude_session_metadata(session_file)
+        if session_start is None:
+            continue
+        sessions.append((session_start, session_file.stem, initial_prompt))
+
+    sessions.sort(key=lambda item: item[0])
+    _CLAUDE_SESSION_INDEX[cache_key] = (
+        cache_signature[0],
+        cache_signature[1],
+        sessions,
+    )
+    return sessions
+
+
+def _resolve_claude_conversation_id(
+    project_dir: Path,
+    prompt_summary: str,
+    uptime_seconds: int | None,
+) -> str | None:
+    """Resolve a Claude session ID from prompt text and process start time.
+
+    Returns ``None`` when the match is not credible. That's better than assigning
+    the newest workspace session to every concurrent Claude process.
+    """
+    if uptime_seconds is None:
+        return None
+
+    sessions = _get_claude_project_sessions(project_dir)
+    if not sessions:
+        return None
+
+    process_start = time.time() - uptime_seconds
+    normalized_prompt = _normalize_prompt_excerpt(prompt_summary)
+
+    prompt_matches: list[tuple[float, str]] = []
+    for session_start, session_id, initial_prompt in sessions:
+        if not normalized_prompt or not initial_prompt:
+            continue
+        if normalized_prompt in initial_prompt or initial_prompt in normalized_prompt:
+            prompt_matches.append((abs(session_start - process_start), session_id))
+
+    if prompt_matches:
+        best_delta, best_session = min(prompt_matches, key=lambda item: item[0])
+        if best_delta <= _CLAUDE_SESSION_MAX_DELTA_SECONDS:
+            return best_session
+        return None
+
+    nearest = sorted(
+        (abs(session_start - process_start), session_id)
+        for session_start, session_id, _ in sessions
+    )
+    best_delta, best_session = nearest[0]
+    if best_delta > _CLAUDE_SESSION_MAX_DELTA_SECONDS:
+        return None
+    if (
+        len(nearest) > 1
+        and nearest[1][0] - best_delta <= _CLAUDE_SESSION_MIN_UNIQUENESS_SECONDS
+    ):
+        return None
+    return best_session
+
+
 # ---------------------------------------------------------------------------
 #  Per-runtime metadata parsers
 # ---------------------------------------------------------------------------
@@ -451,45 +600,28 @@ def _runtime_cmdline(cmdline: list[str], *runtime_binaries: str) -> list[str]:
 
 def _parse_claude_code(pid: int, cmdline: list[str], cwd: str) -> AgentInfo:
     """Extract metadata from a Claude Code process."""
-    model = _extract_flag(cmdline, "--model", "-m")
-    is_pipe = _has_flag(cmdline, "-p", "--print")
+    runtime_cmdline = _runtime_cmdline(cmdline, "claude")
+    model = _extract_flag(runtime_cmdline, "--model", "-m")
+    is_pipe = _has_flag(runtime_cmdline, "-p", "--print")
     mode = "autonomous" if is_pipe else "interactive"
 
-    conversation_id = None
     log_dir = None
     project_hash = cwd.replace("/", "-")
     project_dir = Path.home() / ".claude" / "projects" / project_hash
     if project_dir.is_dir():
         log_dir = str(project_dir)
-        jsonl_files = sorted(
-            project_dir.glob("*.jsonl"),
-            key=lambda f: f.stat().st_mtime,
-            reverse=True,
-        )
-        if jsonl_files:
-            conversation_id = jsonl_files[0].stem
 
-    prompt_summary = ""
-    if is_pipe:
-        non_flag_args = []
-        skip_next = False
-        for i, arg in enumerate(cmdline):
-            if skip_next:
-                skip_next = False
-                continue
-            if arg.startswith("-"):
-                if arg in (
-                    "--model",
-                    "-m",
-                    "--output-format",
-                    "--append-system-prompt-file",
-                ):
-                    skip_next = True
-                continue
-            if i > 0:
-                non_flag_args.append(arg)
-        if non_flag_args:
-            prompt_summary = non_flag_args[-1][:120]
+    positionals = _positionals_after_flags(
+        runtime_cmdline,
+        value_flags={
+            "--append-system-prompt-file",
+            "--model",
+            "--output-format",
+            "--resume",
+            "-m",
+        },
+    )
+    prompt_summary = " ".join(positionals[:12]).strip()[:120]
 
     return AgentInfo(
         pid=pid,
@@ -497,7 +629,6 @@ def _parse_claude_code(pid: int, cmdline: list[str], cwd: str) -> AgentInfo:
         cwd=cwd,
         model=model,
         mode=mode,
-        conversation_id=conversation_id,
         log_dir=log_dir,
         cmdline_summary=prompt_summary or " ".join(cmdline[:5]),
     )
@@ -815,6 +946,12 @@ def scan_agents(workspace: str | None = None) -> list[AgentInfo]:
         info.cpu_seconds = timing_cpu
         info.process_state = timing_state
         info.memory_mb = _get_process_memory_mb(pid)
+        if info.runtime == "claude-code" and info.log_dir:
+            info.conversation_id = _resolve_claude_conversation_id(
+                Path(info.log_dir),
+                info.cmdline_summary,
+                timing_uptime,
+            )
 
         assess_staleness(info)
         agents.append(info)

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -119,6 +121,25 @@ class TestHasFlag:
 
 
 class TestRuntimeParsers:
+    def test_claude_parser_extracts_interactive_prompt_summary(self) -> None:
+        from gptme.hooks.workspace_agents import _parse_claude_code
+
+        info = _parse_claude_code(
+            100,
+            [
+                "claude",
+                "--dangerously-skip-permissions",
+                "hello",
+                "bob,",
+                "bootstrap",
+                "please",
+            ],
+            "/workspace",
+        )
+        assert info.runtime == "claude-code"
+        assert info.mode == "interactive"
+        assert info.cmdline_summary == "hello bob, bootstrap please"
+
     def test_codex_exec_is_autonomous(self) -> None:
         from gptme.hooks.workspace_agents import _parse_codex
 
@@ -349,6 +370,35 @@ class TestStaleness:
 
 
 class TestScanAgents:
+    @staticmethod
+    def _write_claude_session(
+        project_dir: Path,
+        session_id: str,
+        timestamp: float,
+        prompt: str,
+    ) -> None:
+        ts = datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat(
+            timespec="milliseconds"
+        )
+        records = [
+            {
+                "type": "permission-mode",
+                "permissionMode": "default",
+                "sessionId": session_id,
+            },
+            {
+                "type": "user",
+                "timestamp": ts.replace("+00:00", "Z"),
+                "sessionId": session_id,
+                "message": {"role": "user", "content": prompt},
+            },
+        ]
+        session_path = project_dir / f"{session_id}.jsonl"
+        session_path.write_text(
+            "\n".join(json.dumps(record) for record in records) + "\n",
+            encoding="utf-8",
+        )
+
     def test_empty_when_no_agents(self) -> None:
         with patch("gptme.hooks.workspace_agents._get_all_pids", return_value=[]):
             assert scan_agents() == []
@@ -416,6 +466,98 @@ class TestScanAgents:
         ):
             agents = scan_agents(workspace="/home/bob/project")
             assert len(agents) == 0
+
+    def test_claude_uses_matched_session_not_newest_workspace_jsonl(
+        self, tmp_path: Path
+    ) -> None:
+        import gptme.hooks.workspace_agents as mod
+
+        fake_pid = 99992
+        fixed_now = 1_760_000_000.0
+        workspace = "/workspace"
+        project_dir = tmp_path / ".claude" / "projects" / "-workspace"
+        project_dir.mkdir(parents=True)
+
+        prompt = "hello bob bootstrap investigate session mapping"
+        self._write_claude_session(
+            project_dir,
+            "matched-session",
+            fixed_now - 1005,
+            prompt,
+        )
+        self._write_claude_session(
+            project_dir,
+            "closer-but-wrong",
+            fixed_now - 1002,
+            "some unrelated command",
+        )
+        self._write_claude_session(
+            project_dir,
+            "newest-but-wrong",
+            fixed_now - 15,
+            "fresh session that should not be reused",
+        )
+
+        mod._CLAUDE_SESSION_INDEX.clear()
+        with (
+            patch(
+                "gptme.hooks.workspace_agents._get_all_pids", return_value=[fake_pid]
+            ),
+            patch(
+                "gptme.hooks.workspace_agents._get_process_cmdline",
+                return_value=[
+                    "claude",
+                    "--dangerously-skip-permissions",
+                    "hello",
+                    "bob",
+                    "bootstrap",
+                    "investigate",
+                    "session",
+                    "mapping",
+                ],
+            ),
+            patch(
+                "gptme.hooks.workspace_agents._get_process_cwd",
+                return_value=workspace,
+            ),
+            patch("gptme.hooks.workspace_agents._get_git_branch", return_value="main"),
+            patch(
+                "gptme.hooks.workspace_agents._get_process_timing",
+                return_value=(1000, 5.0, "S"),
+            ),
+            patch(
+                "gptme.hooks.workspace_agents._get_process_memory_mb",
+                return_value=None,
+            ),
+            patch("gptme.hooks.workspace_agents.time.time", return_value=fixed_now),
+            patch("gptme.hooks.workspace_agents.Path.home", return_value=tmp_path),
+            patch("os.path.realpath", side_effect=lambda p: p),
+        ):
+            agents = scan_agents(workspace=workspace)
+
+        assert len(agents) == 1
+        assert agents[0].conversation_id == "matched-session"
+
+    def test_claude_returns_none_when_time_only_match_is_ambiguous(
+        self, tmp_path: Path
+    ) -> None:
+        import gptme.hooks.workspace_agents as mod
+
+        fixed_now = 1_760_000_000.0
+        project_dir = tmp_path / ".claude" / "projects" / "-workspace"
+        project_dir.mkdir(parents=True)
+
+        self._write_claude_session(project_dir, "session-a", fixed_now - 604, "tiny")
+        self._write_claude_session(project_dir, "session-b", fixed_now - 596, "tiny")
+
+        mod._CLAUDE_SESSION_INDEX.clear()
+        with (
+            patch("gptme.hooks.workspace_agents.time.time", return_value=fixed_now),
+            patch("gptme.hooks.workspace_agents.Path.home", return_value=tmp_path),
+        ):
+            resolved = mod._resolve_claude_conversation_id(project_dir, "", 600)
+
+        assert resolved is None
 
     def test_keeps_codex_interactive_and_autonomous_rows_separate(self) -> None:
         pids = [99991, 99992]
