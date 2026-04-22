@@ -33,11 +33,11 @@ export function useUserSettings() {
         }
         const data = (await response.json()) as UserSettings;
         setSettings(data);
+        setIsLoading(false);
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') return;
         setError(err instanceof Error ? err.message : 'Failed to fetch user settings');
         setSettings(null);
-      } finally {
         setIsLoading(false);
       }
     };
