@@ -61,6 +61,13 @@ def model_to_dict(model):
     return _model_to_dict(model)
 
 
+def get_config(*args, **kwargs):
+    """Lazy proxy so tests can still patch ``gptme.cli.util.get_config``."""
+    from ..config import get_config as _get_config  # fmt: skip
+
+    return _get_config(*args, **kwargs)
+
+
 class LazyGroup(click.Group):
     """Click group that imports heavyweight subcommands on demand."""
 
@@ -732,7 +739,6 @@ def models_test(model_name: str | None, as_json: bool):
         gptme-util models test anthropic/claude-opus-4-7  # specific model
         gptme-util models test --json anthropic   # machine-readable output
     """
-    from ..config import get_config
     from ..llm import (
         PROVIDER_API_KEYS,
         get_provider_from_model,
