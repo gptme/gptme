@@ -25,7 +25,7 @@ from gptme.config import (
     set_config,
     set_config_value,
 )
-from gptme.llm import PROVIDER_API_KEYS
+from gptme.llm import PROVIDER_API_KEYS, list_available_providers
 from gptme.llm.models import (
     PROVIDERS,
     Provider,
@@ -72,6 +72,7 @@ from .openapi_docs import (
     UserApiKeySaveResponse,
     UserDefaultModelSaveRequest,
     UserDefaultModelSaveResponse,
+    UserSettingsResponse,
     api_doc,
     api_doc_simple,
 )
@@ -1487,3 +1488,29 @@ def api_user_avatar():
         return flask.jsonify({"error": "Avatar must be a valid image file"}), 400
 
     return flask.send_file(full_path)
+
+
+@v2_api.route("/api/v2/user/settings", methods=["GET"])
+@require_auth
+@api_doc(
+    summary="Get current user settings",
+    description=(
+        "Return a read-only snapshot of the current user settings: which providers "
+        "have API keys or OAuth tokens configured, and the active default model. "
+        "Useful for settings UI and onboarding flows that need to reflect server-side "
+        "state without keeping a local copy."
+    ),
+    responses={200: UserSettingsResponse},
+    tags=["user"],
+)
+def api_user_settings():
+    """Return the current user settings state."""
+    available = list_available_providers()
+    providers = [str(provider) for provider, _ in available]
+    default_model = get_default_model()
+    return flask.jsonify(
+        {
+            "providers_configured": providers,
+            "default_model": default_model.full if default_model else None,
+        }
+    )

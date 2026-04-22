@@ -1553,3 +1553,41 @@ def test_v2_tasks_put_rejects_non_object_json(client: FlaskClient, body: object)
     )
     assert response.status_code == 400
     assert "object" in response.get_json()["error"].lower()
+
+
+def test_v2_user_settings_returns_providers_and_model(client: FlaskClient, monkeypatch):
+    """GET /api/v2/user/settings should reflect configured providers and default model."""
+    from gptme.llm.models import ModelMeta
+
+    fake_model = ModelMeta(
+        model="claude-sonnet-4-5",
+        provider="anthropic",
+        context=10000,
+        max_output=1000,
+    )
+    monkeypatch.setattr("gptme.server.api_v2.get_default_model", lambda: fake_model)
+    monkeypatch.setattr(
+        "gptme.server.api_v2.list_available_providers",
+        lambda: [("anthropic", "ANTHROPIC_API_KEY")],
+    )
+
+    response = client.get("/api/v2/user/settings")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["providers_configured"] == ["anthropic"]
+    assert data["default_model"] == "anthropic/claude-sonnet-4-5"
+
+
+def test_v2_user_settings_no_providers_no_model(client: FlaskClient, monkeypatch):
+    """GET /api/v2/user/settings with no config returns empty lists and null model."""
+    monkeypatch.setattr(
+        "gptme.server.api_v2.list_available_providers",
+        lambda: [],
+    )
+    monkeypatch.setattr("gptme.server.api_v2.get_default_model", lambda: None)
+
+    response = client.get("/api/v2/user/settings")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["providers_configured"] == []
+    assert data["default_model"] is None

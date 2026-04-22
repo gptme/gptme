@@ -199,6 +199,19 @@ class UserDefaultModelSaveResponse(BaseModel):
     )
 
 
+class UserSettingsResponse(BaseModel):
+    """Current user settings state (read-only snapshot)."""
+
+    providers_configured: list[str] = Field(
+        ...,
+        description="Provider slugs that have an API key or OAuth token configured",
+    )
+    default_model: str | None = Field(
+        None,
+        description="Fully qualified default model from config, or null if unset",
+    )
+
+
 class ExternalSessionListItem(BaseModel):
     """A read-only external session catalog item."""
 
