@@ -397,6 +397,7 @@ def test_semantic_score_zero_norm_returns_zero():
     assert not np.isinf(score)
 
 
+@pytest.mark.timeout(30)
 def test_hybrid_matcher_does_not_eagerly_import_sentence_transformers():
     """Importing hybrid_matcher must not trigger a sentence_transformers import.
 
@@ -404,6 +405,9 @@ def test_hybrid_matcher_does_not_eagerly_import_sentence_transformers():
     The module-level import was moved inside HybridLessonMatcher.__init__ so the
     CLI doesn't pay that cost unless hybrid matching is actually used.
     Regression guard for the perf/lazy-sentence-transformers fix.
+
+    Timeout override: the default 10s can be too tight on cold CI runners
+    that need to import the gptme package tree in a fresh subprocess.
     """
     import subprocess
     import sys
