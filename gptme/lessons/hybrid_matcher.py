@@ -1,5 +1,6 @@
 """Hybrid lesson matching using semantic similarity + effectiveness."""
 
+import importlib.util
 import json
 import logging
 import os
@@ -12,16 +13,14 @@ from .parser import Lesson
 
 logger = logging.getLogger(__name__)
 
-# Optional embedding support
-try:
-    import numpy as np
-    from sentence_transformers import (
-        SentenceTransformer,
-    )
-
-    EMBEDDINGS_AVAILABLE = True
-except ImportError:
-    EMBEDDINGS_AVAILABLE = False
+# Optional embedding support — availability checked lazily to avoid a 10+ second
+# cumulative import of sentence_transformers/transformers/sklearn at CLI startup.
+# The heavy modules are imported on first use inside HybridLessonMatcher.
+EMBEDDINGS_AVAILABLE = (
+    importlib.util.find_spec("sentence_transformers") is not None
+    and importlib.util.find_spec("numpy") is not None
+)
+if not EMBEDDINGS_AVAILABLE:
     logger.info("Embeddings not available, falling back to keyword-only matching")
 
 
@@ -197,10 +196,14 @@ class HybridLessonMatcher(LessonMatcher):
         super().__init__()
         self.config = config or HybridConfig()
 
-        # Initialize embedder if available and enabled
+        # Initialize embedder if available and enabled.
+        # sentence_transformers is imported lazily here (rather than at module top)
+        # because it pulls in transformers + sklearn (~10s cumulative import time).
         self.embedder = None
         if EMBEDDINGS_AVAILABLE and self.config.enable_semantic:
             try:
+                from sentence_transformers import SentenceTransformer
+
                 self.embedder = SentenceTransformer("all-MiniLM-L6-v2")
                 logger.info("Initialized sentence embedder for semantic matching")
             except Exception as e:
@@ -353,6 +356,8 @@ class HybridLessonMatcher(LessonMatcher):
         """Cosine similarity between query and lesson (0.0-1.0)."""
         if not self.embedder:
             return 0.0
+
+        import numpy as np
 
         # Generate lesson embedding from title and body
         lesson_text = f"{lesson.title}\n{lesson.body[:500]}"  # Limit to first 500 chars

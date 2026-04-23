@@ -395,3 +395,37 @@ def test_semantic_score_zero_norm_returns_zero():
     assert score == 0.0
     assert not np.isnan(score)
     assert not np.isinf(score)
+
+
+def test_hybrid_matcher_does_not_eagerly_import_sentence_transformers():
+    """Importing hybrid_matcher must not trigger a sentence_transformers import.
+
+    sentence_transformers pulls in transformers + sklearn (~10s cumulative).
+    The module-level import was moved inside HybridLessonMatcher.__init__ so the
+    CLI doesn't pay that cost unless hybrid matching is actually used.
+    Regression guard for the perf/lazy-sentence-transformers fix.
+    """
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; import gptme.lessons.hybrid_matcher as hm;"
+                " blocked = {'sentence_transformers', 'transformers', 'sklearn'};"
+                " loaded = blocked & set(sys.modules);"
+                " print('LOADED:' + ','.join(sorted(loaded)) if loaded else 'OK');"
+                " sys.exit(1 if loaded else 0)"
+            ),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, (
+        f"Heavy deps eagerly imported from gptme.lessons.hybrid_matcher: "
+        f"stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
