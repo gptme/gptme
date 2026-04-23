@@ -6,6 +6,10 @@ import gptme.context
 
 def test_gptme_package_root_lazy_exports() -> None:
     module = importlib.reload(gptme)
+    # reload() re-executes module code but doesn't clear __dict__; prior
+    # test runs may have cached lazy attrs — remove them before asserting.
+    for key in module._lazy:
+        module.__dict__.pop(key, None)
 
     assert "chat" not in module.__dict__
     assert "Codeblock" not in module.__dict__
@@ -28,6 +32,9 @@ def test_gptme_package_root_lazy_exports() -> None:
 
 def test_gptme_context_lazy_strip_reasoning_export() -> None:
     module = importlib.reload(gptme.context)
+    # reload() doesn't clear __dict__; remove any cached lazy attrs.
+    for key in module._lazy:
+        module.__dict__.pop(key, None)
 
     assert "strip_reasoning" not in module.__dict__
 
