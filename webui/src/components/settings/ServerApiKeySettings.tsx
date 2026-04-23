@@ -61,13 +61,12 @@ export function ServerApiKeySettings() {
       setSelectedModel('');
       return;
     }
-    if (providerModels.some((model) => model.id === selectedModel)) {
-      return;
-    }
     const preferredModel =
       providerModels.find((model) => recommendedModels.includes(model.id)) || providerModels[0];
-    setSelectedModel(preferredModel.id);
-  }, [providerModels, recommendedModels, selectedModel]);
+    setSelectedModel((current) =>
+      providerModels.some((model) => model.id === current) ? current : preferredModel.id
+    );
+  }, [providerModels, recommendedModels]);
 
   const handleSave = async () => {
     const trimmedApiKey = apiKey.trim();
@@ -95,14 +94,26 @@ export function ServerApiKeySettings() {
         }),
       });
 
-      const data = (await response.json()) as SaveApiKeyResponse | { error?: string };
+      let data: SaveApiKeyResponse | { error?: string } | null = null;
+      try {
+        data = (await response.json()) as SaveApiKeyResponse | { error?: string };
+      } catch {
+        data = null;
+      }
       if (!response.ok) {
-        throw new Error('error' in data && data.error ? data.error : 'Failed to save API key');
+        throw new Error(
+          data && 'error' in data && data.error ? data.error : 'Failed to save API key'
+        );
       }
 
+      const result = data as SaveApiKeyResponse | null;
       setApiKey('');
       refetchSettings();
-      toast.success('API key saved. Restart the server to apply it.');
+      toast.success(
+        result?.restart_required === false
+          ? 'API key saved.'
+          : 'API key saved. Restart the server to apply it.'
+      );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to save API key');
     } finally {
