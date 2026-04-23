@@ -5,16 +5,12 @@ import { Label } from '@/components/ui/label';
 import { useApi } from '@/contexts/ApiContext';
 import { useModels } from '@/hooks/useModels';
 import { useUserSettings } from '@/hooks/useUserSettings';
+import {
+  API_KEY_PROVIDER_METADATA,
+  API_KEY_PROVIDER_OPTIONS,
+  type ApiKeyProvider,
+} from '@/utils/apiKeyProviders';
 import { toast } from 'sonner';
-
-type ApiKeyProvider =
-  | 'anthropic'
-  | 'openai'
-  | 'openrouter'
-  | 'gemini'
-  | 'groq'
-  | 'xai'
-  | 'deepseek';
 
 type SaveApiKeyResponse = {
   status: string;
@@ -22,24 +18,6 @@ type SaveApiKeyResponse = {
   env_var: string;
   restart_required: boolean;
 };
-
-const PROVIDER_OPTIONS: Array<{
-  value: ApiKeyProvider;
-  label: string;
-  placeholder: string;
-}> = [
-  { value: 'anthropic', label: 'Anthropic', placeholder: 'sk-ant-...' },
-  { value: 'openai', label: 'OpenAI', placeholder: 'sk-...' },
-  { value: 'openrouter', label: 'OpenRouter', placeholder: 'sk-or-...' },
-  { value: 'gemini', label: 'Gemini', placeholder: 'AIza...' },
-  { value: 'groq', label: 'Groq', placeholder: 'gsk_...' },
-  { value: 'xai', label: 'xAI', placeholder: 'xai-...' },
-  { value: 'deepseek', label: 'DeepSeek', placeholder: 'sk-...' },
-];
-
-const PROVIDER_METADATA = Object.fromEntries(
-  PROVIDER_OPTIONS.map((provider) => [provider.value, provider])
-) as Record<ApiKeyProvider, (typeof PROVIDER_OPTIONS)[number]>;
 
 export function ServerApiKeySettings() {
   const { api } = useApi();
@@ -152,7 +130,7 @@ export function ServerApiKeySettings() {
           onChange={(event) => setProvider(event.target.value as ApiKeyProvider)}
           disabled={isSaving}
         >
-          {PROVIDER_OPTIONS.map((providerOption) => (
+          {API_KEY_PROVIDER_OPTIONS.map((providerOption) => (
             <option key={providerOption.value} value={providerOption.value}>
               {providerOption.label}
             </option>
@@ -192,7 +170,7 @@ export function ServerApiKeySettings() {
           type="password"
           autoComplete="off"
           spellCheck={false}
-          placeholder={PROVIDER_METADATA[provider].placeholder}
+          placeholder={API_KEY_PROVIDER_METADATA[provider].placeholder}
           value={apiKey}
           onChange={(event) => setApiKey(event.target.value)}
           disabled={isSaving}

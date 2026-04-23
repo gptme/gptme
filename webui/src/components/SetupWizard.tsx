@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,12 +13,16 @@ import {
 import { useSettings } from '@/contexts/SettingsContext';
 import { useApi } from '@/contexts/ApiContext';
 import { useTauriServerStatus } from '@/hooks/useTauriServerStatus';
+import {
+  API_KEY_PROVIDER_METADATA,
+  API_KEY_PROVIDER_OPTIONS,
+  type ApiKeyProvider,
+} from '@/utils/apiKeyProviders';
 import { isTauriEnvironment, invokeTauri } from '@/utils/tauri';
 import { use$ } from '@legendapp/state/react';
 import { Monitor, Cloud, ArrowRight, Check, Terminal, ExternalLink } from 'lucide-react';
 
 type SetupStep = 'welcome' | 'mode' | 'local' | 'cloud' | 'provider' | 'complete';
-type SetupProvider = 'anthropic' | 'openai' | 'openrouter' | 'gemini' | 'groq' | 'xai' | 'deepseek';
 type SetupModelInfo = {
   id: string;
   provider: string;
@@ -46,22 +50,6 @@ function getCloudAuthUrl(): string {
 }
 
 const CLOUD_AUTH_URL = getCloudAuthUrl();
-const PROVIDER_OPTIONS: Array<{
-  value: SetupProvider;
-  label: string;
-  placeholder: string;
-}> = [
-  { value: 'anthropic', label: 'Anthropic', placeholder: 'sk-ant-...' },
-  { value: 'openai', label: 'OpenAI', placeholder: 'sk-...' },
-  { value: 'openrouter', label: 'OpenRouter', placeholder: 'sk-or-...' },
-  { value: 'gemini', label: 'Gemini', placeholder: 'AIza...' },
-  { value: 'groq', label: 'Groq', placeholder: 'gsk_...' },
-  { value: 'xai', label: 'xAI', placeholder: 'xai-...' },
-  { value: 'deepseek', label: 'DeepSeek', placeholder: 'sk-...' },
-];
-const PROVIDER_METADATA = Object.fromEntries(
-  PROVIDER_OPTIONS.map((provider) => [provider.value, provider])
-) as Record<SetupProvider, (typeof PROVIDER_OPTIONS)[number]>;
 const SERVER_START_RETRY_COUNT = 6;
 const SERVER_START_RETRY_DELAY_MS = 250;
 const SERVER_READY_RETRY_COUNT = 10;
@@ -106,7 +94,7 @@ export function SetupWizard() {
     connectionConfig.baseUrl === 'http://127.0.0.1:5700' ? '' : connectionConfig.baseUrl
   );
   const [remoteAuthToken, setRemoteAuthToken] = useState(connectionConfig.authToken || '');
-  const [apiKeyProvider, setApiKeyProvider] = useState<SetupProvider>('anthropic');
+  const [apiKeyProvider, setApiKeyProvider] = useState<ApiKeyProvider>('anthropic');
   const [apiKey, setApiKey] = useState('');
   const [apiKeyModel, setApiKeyModel] = useState('');
   const [apiKeySaving, setApiKeySaving] = useState(false);
@@ -132,7 +120,7 @@ export function SetupWizard() {
   }, [api.authHeader, connectionConfig.baseUrl]);
 
   const saveApiKeyToServer = useCallback(
-    async (provider: SetupProvider, apiKeyValue: string, model?: string) => {
+    async (provider: ApiKeyProvider, apiKeyValue: string, model?: string) => {
       const resp = await fetch(`${connectionConfig.baseUrl}/api/v2/user/api-key`, {
         method: 'POST',
         headers: withAuthHeaders(api.authHeader, {
@@ -186,7 +174,10 @@ export function SetupWizard() {
     }
   }, [api.authHeader, connectionConfig.baseUrl]);
 
-  const providerModels = availableModels.filter((model) => model.provider === apiKeyProvider);
+  const providerModels = useMemo(
+    () => availableModels.filter((model) => model.provider === apiKeyProvider),
+    [apiKeyProvider, availableModels]
+  );
 
   useEffect(() => {
     if (step !== 'provider' || !canManageApiKeyInApp) {
@@ -203,13 +194,12 @@ export function SetupWizard() {
       setApiKeyModel('');
       return;
     }
-    if (providerModels.some((model) => model.id === apiKeyModel)) {
-      return;
-    }
     const preferredModel =
       providerModels.find((model) => recommendedModels.includes(model.id)) || providerModels[0];
-    setApiKeyModel(preferredModel.id);
-  }, [apiKeyModel, canManageApiKeyInApp, providerModels, recommendedModels, step]);
+    setApiKeyModel((current) =>
+      providerModels.some((model) => model.id === current) ? current : preferredModel.id
+    );
+  }, [canManageApiKeyInApp, providerModels, recommendedModels, step]);
 
   // Fetch /api/v2, check provider_configured, then advance to 'provider' or 'complete'.
   const checkProviderAndAdvance = useCallback(
@@ -684,10 +674,10 @@ export function SetupWizard() {
                         id="setup-api-key-provider"
                         className="h-9 rounded-md border bg-background px-3 text-sm"
                         value={apiKeyProvider}
-                        onChange={(e) => setApiKeyProvider(e.target.value as SetupProvider)}
+                        onChange={(e) => setApiKeyProvider(e.target.value as ApiKeyProvider)}
                         disabled={apiKeySaving}
                       >
-                        {PROVIDER_OPTIONS.map((provider) => (
+                        {API_KEY_PROVIDER_OPTIONS.map((provider) => (
                           <option key={provider.value} value={provider.value}>
                             {provider.label}
                           </option>
@@ -732,16 +722,17 @@ export function SetupWizard() {
                         type="password"
                         autoComplete="off"
                         spellCheck={false}
-                        placeholder={PROVIDER_METADATA[apiKeyProvider].placeholder}
+                        placeholder={API_KEY_PROVIDER_METADATA[apiKeyProvider].placeholder}
                         value={apiKey}
                         onChange={(e) => setApiKey(e.target.value)}
                         disabled={apiKeySaving}
                       />
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Supports {PROVIDER_OPTIONS.map((provider) => provider.label).join(', ')}.
-                      Azure OpenAI still needs manual configuration because it also requires
-                      deployment settings.
+                      Supports{' '}
+                      {API_KEY_PROVIDER_OPTIONS.map((provider) => provider.label).join(', ')}. Azure
+                      OpenAI still needs manual configuration because it also requires deployment
+                      settings.
                     </p>
                     {apiKeyError && (
                       <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
