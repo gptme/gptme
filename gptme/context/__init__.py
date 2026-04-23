@@ -10,8 +10,6 @@ This module provides:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from .adaptive_compressor import AdaptiveCompressor, CompressionResult
 from .config import ContextConfig
 from .selector import ContextSelectorConfig
@@ -21,9 +19,6 @@ from .task_analyzer import (
     classify_task,
     extract_features,
 )
-
-if TYPE_CHECKING:
-    pass
 
 __all__ = [
     "ContextConfig",

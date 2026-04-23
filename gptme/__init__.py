@@ -1,14 +1,5 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from .chat import chat
-    from .codeblock import Codeblock
-    from .logmanager import LogManager
-    from .message import Message
-    from .prompts import get_prompt
-
 __all__ = ["Codeblock", "LogManager", "Message", "__version__", "chat", "get_prompt"]
 
 _lazy: dict[str, tuple[str, str]] = {
