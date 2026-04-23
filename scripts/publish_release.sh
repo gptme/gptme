@@ -42,8 +42,10 @@ if ! git tag --points-at HEAD | grep -q "^${TAG}$"; then
     exit 1
 fi
 
-# Find previous tag of any kind (excluding the one we just created)
-PREV_TAG=$(git tag --sort=-version:refname | grep -v "^${TAG}$" | head -1 || true)
+# Find previous tag of any kind (excluding the one we just created).
+# Use creatordate sort instead of version:refname because collision-suffixed
+# dev tags (e.g. v0.31.1.dev202603103) sort higher than later dates.
+PREV_TAG=$(git tag --sort=-creatordate | grep -v "^${TAG}$" | head -1 || true)
 
 # Find previous stable tag (excluding the one we just created)
 PREV_STABLE=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | grep -v "^${TAG}$" | head -1 || true)
