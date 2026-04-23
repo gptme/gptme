@@ -28,6 +28,7 @@ import type { ServerConfig } from '@/types/servers';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { ServerDefaultModelSettings } from './ServerDefaultModelSettings';
+import { ServerApiKeySettings } from './ServerApiKeySettings';
 
 interface ServerFormState {
   name: string;
@@ -347,6 +348,7 @@ export const ServerConfiguration: FC = () => {
         })}
       </div>
 
+      <ServerApiKeySettings />
       <ServerDefaultModelSettings />
 
       <Button variant="outline" onClick={handleOpenAdd}>
