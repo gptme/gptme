@@ -17,8 +17,6 @@ from rich.syntax import Syntax
 from tomlkit._utils import escape_string
 from typing_extensions import Self
 
-from gptme.llm.models import get_default_model
-
 from .codeblock import Codeblock
 from .constants import ROLE_COLOR
 from .util import console
@@ -382,7 +380,7 @@ timestamp = "{self.timestamp.isoformat()}"
 
     def cost(self, model: str | None = None, output=False) -> float:
         """Get the input cost of the message in USD."""
-        from .llm.models import get_model  # noreorder
+        from .llm.models import get_default_model, get_model  # noreorder
 
         m = get_model(model) if model else get_default_model()
         assert m, "No model specified or loaded"

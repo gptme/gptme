@@ -8,8 +8,11 @@ This module provides:
 - Task complexity analysis (context.task_analyzer)
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from .adaptive_compressor import AdaptiveCompressor, CompressionResult
-from .compress import strip_reasoning
 from .config import ContextConfig
 from .selector import ContextSelectorConfig
 from .task_analyzer import (
@@ -18,6 +21,9 @@ from .task_analyzer import (
     classify_task,
     extract_features,
 )
+
+if TYPE_CHECKING:
+    pass
 
 __all__ = [
     "ContextConfig",
@@ -30,3 +36,19 @@ __all__ = [
     "classify_task",
     "extract_features",
 ]
+
+_lazy = {
+    "strip_reasoning": (".compress", "strip_reasoning"),
+}
+
+
+def __getattr__(name: str):
+    if name in _lazy:
+        import importlib
+
+        module_name, attr_name = _lazy[name]
+        module = importlib.import_module(module_name, package=__package__)
+        obj = getattr(module, attr_name)
+        globals()[name] = obj
+        return obj
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

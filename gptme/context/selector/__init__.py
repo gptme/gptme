@@ -16,14 +16,15 @@ Example:
     )
 """
 
+from __future__ import annotations
+
 from .base import ContextItem, ContextSelector
 from .config import ContextSelectorConfig
 from .file_config import FileSelectorConfig
-from .file_integration import FileItem
-from .file_selector import select_relevant_files
-from .hybrid import HybridSelector
-from .llm_based import LLMSelector
-from .rule_based import RuleBasedSelector
+
+# Heavy imports that pull in gptme.message and other heavy deps are lazy to
+# break the gptme.config → gptme.context.selector → gptme.message circular
+# dependency that surfaces when gptme.__init__ is itself lazily imported.
 
 __all__ = [
     "ContextItem",
@@ -36,3 +37,23 @@ __all__ = [
     "HybridSelector",
     "select_relevant_files",
 ]
+
+_lazy = {
+    "FileItem": (".file_integration", "FileItem"),
+    "select_relevant_files": (".file_selector", "select_relevant_files"),
+    "HybridSelector": (".hybrid", "HybridSelector"),
+    "LLMSelector": (".llm_based", "LLMSelector"),
+    "RuleBasedSelector": (".rule_based", "RuleBasedSelector"),
+}
+
+
+def __getattr__(name: str):
+    if name in _lazy:
+        import importlib
+
+        module_name, attr_name = _lazy[name]
+        module = importlib.import_module(module_name, package=__package__)
+        obj = getattr(module, attr_name)
+        globals()[name] = obj
+        return obj
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

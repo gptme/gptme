@@ -25,8 +25,6 @@ from pygments.lexer import RegexLexer
 from pygments.token import Name, Text
 from rich.console import Console
 
-from gptme.llm.models import get_default_model
-
 from ..dirs import get_pt_history_file
 
 # Make cache management functions available at module level
@@ -391,6 +389,7 @@ def llm_suggest(text: str) -> list[str]:
     from gptme.config import get_config
 
     from ..llm import _chat_complete  # fmt: skip
+    from ..llm.models import get_default_model  # fmt: skip
     from ..message import Message  # fmt: skip
 
     model = get_default_model()

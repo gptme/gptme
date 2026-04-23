@@ -16,7 +16,6 @@ import time
 from collections.abc import Callable
 from typing import Any, TypeVar, cast
 
-from .llm.models import get_model
 from .util._telemetry import (
     clear_conversation_context,
     enrich_span_with_context,
@@ -257,6 +256,8 @@ def _calculate_llm_cost(
     cache_read_tokens: int | None = None,
 ) -> float:
     """Calculate the cost of an LLM request."""
+    from .llm.models import get_model  # lazy — breaks telemetry → llm circular dep
+
     meta = get_model(f"{model}")
     if not (meta and input_tokens and output_tokens):
         return 0.0
