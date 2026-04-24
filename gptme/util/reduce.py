@@ -79,9 +79,19 @@ def truncate_msg(msg: Message, lines_pre=10, lines_post=10) -> Message | None:
 
     # Truncate long codeblocks
     for codeblock in msg.get_codeblocks():
-        # check that the reformatted codeblock is in the content
+        # Reformatted codeblock must be present in content for .replace() to work.
+        # Round-trip parsing may produce a slightly different rendering than the
+        # original (e.g. mixed fence styles, nested fences). Skip rather than crash
+        # the whole reduction pass — other codeblocks may still be truncatable.
         full_block = codeblock.to_markdown()
-        assert full_block in content_staged, f"{full_block} not in {content_staged}"
+        if full_block not in content_staged:
+            logger.warning(
+                "truncate_msg: reformatted codeblock not found in content; "
+                "skipping. lang=%s lines=%d",
+                codeblock.lang,
+                codeblock.content.count("\n") + 1,
+            )
+            continue
 
         # truncate the middle part of the codeblock, keeping the first and last n lines
         lines = codeblock.content.split("\n")

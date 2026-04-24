@@ -145,6 +145,51 @@ def test_reduce_log_all_pinned():
     assert reduced == msgs
 
 
+def test_truncate_msg_skips_unfindable_codeblock(monkeypatch):
+    """If a codeblock's reformatted markdown is not in the content, skip it.
+
+    Regression: before this fix, truncate_msg asserted
+    ``full_block in content_staged`` and crashed the entire reduction pass
+    when the round-trip reconstruction diverged from the original. The
+    session-level symptom was an unhandled AssertionError and exit code 1
+    in long-context autonomous runs (Bob 2026-04-24, minimax-m2.7 session).
+    """
+    real_block_lines = "\n".join(f"real_{i}" for i in range(50))
+    truncatable_lines = "\n".join(f"trunc_{i}" for i in range(50))
+    # Original content has a codeblock with content `real_*`, and a fully
+    # well-formed codeblock with content `trunc_*` that should still be
+    # truncated even if the first one cannot be round-tripped.
+    content = (
+        f"```python\n{real_block_lines}\n```\n\n```python\n{truncatable_lines}\n```"
+    )
+    msg = Message("assistant", content=content)
+
+    # Fake extra codeblock whose to_markdown() output is not present in content.
+    class FakeCodeblock:
+        lang = "python"
+        content = "x = 1"
+        fence = "```"
+
+        def to_markdown(self) -> str:
+            return "```python\ndoes-not-appear-in-content\n```"
+
+    real_get_codeblocks = Message.get_codeblocks
+
+    def patched_get_codeblocks(self):
+        blocks = real_get_codeblocks(self)
+        # Prepend the fake one so the skip path runs before a real truncation.
+        return [FakeCodeblock(), *blocks]
+
+    monkeypatch.setattr(Message, "get_codeblocks", patched_get_codeblocks)
+
+    truncated = truncate_msg(msg)
+    # Truncation still succeeds via the real codeblock.
+    assert truncated is not None
+    assert "[...]" in truncated.content
+    assert "trunc_0" in truncated.content
+    assert "trunc_49" in truncated.content
+
+
 def test_truncate_msg_quad_fence():
     """Quadruple-backtick codeblocks (e.g. from md_codeblock) must survive truncation.
 
