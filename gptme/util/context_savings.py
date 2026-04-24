@@ -17,8 +17,11 @@ logger = logging.getLogger(__name__)
 CONTEXT_SAVINGS_FILENAME = "context-savings.jsonl"
 
 
-@dataclass(frozen=True)
+@dataclass
 class ContextSavingsSummary:
+    # Not frozen: the dict fields would still be mutable under frozen=True,
+    # which makes the annotation misleading. Callers should treat instances as
+    # read-only by convention.
     entries: int = 0
     total_saved_tokens: int = 0
     max_saved_tokens: int = 0

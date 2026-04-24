@@ -1365,11 +1365,14 @@ def _shorten_stdout(
     will_truncate_by_tokens = False
     tokenizer = None
     tokens: list[int] = []
+    # Resolved lazily on first use, reused by tokenizer + savings-recording paths.
+    model_name: str | None = None
     if pre_tokens is not None and post_tokens is not None:
         from ..llm.models import get_default_model  # fmt: skip
 
         model = get_default_model()
-        tokenizer = get_tokenizer(model.model if model else "gpt-4")
+        model_name = model.model if model else "gpt-4"
+        tokenizer = get_tokenizer(model_name)
         if tokenizer is not None:
             tokens = tokenizer.encode(stdout)
             will_truncate_by_tokens = len(tokens) > pre_tokens + post_tokens
@@ -1459,10 +1462,11 @@ def _shorten_stdout(
     result = "\n".join(lines)
 
     if saved_path and logdir:
-        from ..llm.models import get_default_model  # fmt: skip
+        if model_name is None:
+            from ..llm.models import get_default_model  # fmt: skip
 
-        model = get_default_model()
-        model_name = model.model if model else "gpt-4"
+            model = get_default_model()
+            model_name = model.model if model else "gpt-4"
         record_context_savings(
             logdir=logdir,
             source="shell",

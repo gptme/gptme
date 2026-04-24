@@ -279,7 +279,9 @@ def cmd_context(ctx: CommandContext) -> None:
             f"{savings.entries} truncated tool output(s)"
         )
         for source, saved_tokens in sorted(
-            savings.saved_tokens_by_source.items(), key=lambda item: item[0]
+            savings.saved_tokens_by_source.items(),
+            key=lambda item: item[1],
+            reverse=True,
         ):
             calls = savings.calls_by_source[source]
             console.log(
