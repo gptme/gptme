@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 from collections.abc import Generator
@@ -462,6 +463,27 @@ def test_shorten_stdout_blanklines():
 
 l2"""
     assert _shorten_stdout(s) == s
+
+
+def test_shorten_stdout_records_context_savings(tmp_path):
+    stdout = "\n".join(f"line {i}" for i in range(200))
+
+    shortened = _shorten_stdout(
+        stdout,
+        pre_lines=5,
+        post_lines=5,
+        logdir=tmp_path,
+        cmd="git log --oneline",
+    )
+
+    ledger = tmp_path / "context-savings.jsonl"
+    rows = [json.loads(line) for line in ledger.read_text().splitlines()]
+
+    assert "full output saved to" in shortened
+    assert len(rows) == 1
+    assert rows[0]["source"] == "shell"
+    assert rows[0]["command_info"] == "git log --oneline"
+    assert rows[0]["saved_tokens"] > 0
 
 
 def test_is_denylisted_pattern_matches():

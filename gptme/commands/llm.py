@@ -214,6 +214,7 @@ def cmd_context(ctx: CommandContext) -> None:
     from ..llm.models import get_default_model  # fmt: skip
     from ..tools import ToolUse  # fmt: skip
     from ..util import console  # fmt: skip
+    from ..util.context_savings import summarize_context_savings  # fmt: skip
     from ..util.tokens import len_tokens  # fmt: skip
 
     # Try to use the current model's tokenizer, fallback to gpt-4
@@ -268,6 +269,25 @@ def cmd_context(ctx: CommandContext) -> None:
         console.log(f"  {type_name:10s}: {tokens:6,} ({pct:5.1f}%)")
 
     console.log(f"\n[bold]Total Context:[/bold] {total_tokens:,} tokens")
+
+    savings = summarize_context_savings(ctx.manager.logdir)
+    if savings.entries:
+        console.log("\n[bold]Context Savings:[/bold]")
+        console.log(
+            "  "
+            f"{savings.total_saved_tokens:,} tokens saved across "
+            f"{savings.entries} truncated tool output(s)"
+        )
+        for source, saved_tokens in sorted(
+            savings.saved_tokens_by_source.items(), key=lambda item: item[0]
+        ):
+            calls = savings.calls_by_source[source]
+            console.log(
+                f"  {source:10s}: {saved_tokens:6,} tokens across {calls} call(s)"
+            )
+        console.log(
+            f"[dim]  largest single save: {savings.max_saved_tokens:,} tokens[/dim]"
+        )
 
     # Show context window utilization if model info is available
     if current_model and current_model.context > 0:
