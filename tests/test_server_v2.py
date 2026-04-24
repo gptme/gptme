@@ -114,6 +114,7 @@ def test_v2_user_api_key_persists_env_entry(client: FlaskClient, tmp_path, monke
     config_file = tmp_path / "config.toml"
     monkeypatch.setattr(user_mod, "config_path", str(config_file))
     monkeypatch.setattr("gptme.config.core.reload_config", lambda: None)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
 
     response = client.post(
         "/api/v2/user/api-key",
@@ -165,6 +166,8 @@ def test_v2_user_api_key_persists_default_model(
     config_file = tmp_path / "config.toml"
     monkeypatch.setattr(user_mod, "config_path", str(config_file))
     monkeypatch.setattr("gptme.config.core.reload_config", lambda: None)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("MODEL", raising=False)
 
     response = client.post(
         "/api/v2/user/api-key",
