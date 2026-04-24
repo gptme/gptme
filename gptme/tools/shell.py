@@ -1432,7 +1432,9 @@ def _shorten_stdout(
     # check that if pre_tokens is set, so is post_tokens, and vice versa
     assert (pre_tokens is None) == (post_tokens is None)
     if pre_tokens is not None and post_tokens is not None:
-        if not will_truncate_by_tokens:
+        if not will_truncate_by_tokens and tokenizer is None:
+            # tokenizer may still be unavailable (char-based estimate used above);
+            # try once more for a precise check before deciding not to truncate.
             from ..llm.models import get_default_model  # fmt: skip
 
             model = get_default_model()
