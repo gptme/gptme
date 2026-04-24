@@ -126,11 +126,34 @@ def test_v2_user_api_key_persists_env_entry(client: FlaskClient, tmp_path, monke
         "status": "ok",
         "provider": "anthropic",
         "env_var": "ANTHROPIC_API_KEY",
-        "restart_required": True,
+        "restart_required": False,
     }
 
     saved = tomlkit.loads(config_file.read_text()).unwrap()
     assert saved["env"]["ANTHROPIC_API_KEY"] == "sk-ant-test-key"
+
+
+def test_v2_user_api_key_applies_to_env_immediately(
+    client: FlaskClient, tmp_path, monkeypatch
+):
+    """Saving an API key should apply it to os.environ immediately (no restart needed)."""
+    import os
+
+    import gptme.config.user as user_mod
+
+    config_file = tmp_path / "config.toml"
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+    monkeypatch.setattr("gptme.config.core.reload_config", lambda: None)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    response = client.post(
+        "/api/v2/user/api-key",
+        json={"provider": "anthropic", "api_key": "sk-ant-live-key"},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["restart_required"] is False
+    assert os.environ.get("ANTHROPIC_API_KEY") == "sk-ant-live-key"
 
 
 def test_v2_user_api_key_persists_default_model(

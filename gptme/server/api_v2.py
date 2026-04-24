@@ -6,6 +6,7 @@ Session management, tool execution, and agent creation are handled by separate m
 """
 
 import logging
+import os
 import shutil
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -1401,13 +1402,23 @@ def api_user_api_key():
     set_config_value(f"env.{env_var}", trimmed_api_key, reload=False)
     if trimmed_model is not None:
         set_config_value("env.MODEL", trimmed_model, reload=False)
-    logger.info("Saved %s to user config via /api/v2/user/api-key", env_var)
+
+    # Apply the new key immediately so the running server picks it up without restart.
+    # os.environ takes priority over the config file in Config.get_env(), so the next
+    # LLM call will use the new key.
+    os.environ[env_var] = trimmed_api_key
+    if trimmed_model is not None:
+        os.environ["MODEL"] = trimmed_model
+
+    logger.info(
+        "Saved %s to user config via /api/v2/user/api-key (applied live)", env_var
+    )
     return flask.jsonify(
         {
             "status": "ok",
             "provider": provider,
             "env_var": env_var,
-            "restart_required": True,
+            "restart_required": False,
         }
     )
 
