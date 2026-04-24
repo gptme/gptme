@@ -45,6 +45,14 @@ jobs:
     - name: Build
       run: npm run build
 
+    - name: Upload dist artifact
+      if: github.ref == 'refs/heads/master'
+      uses: actions/upload-artifact@v6
+      with:
+        name: webui-dist
+        path: webui/dist
+        retention-days: 30
+
   e2e:
     runs-on: ubuntu-latest
     needs: build
