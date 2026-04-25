@@ -592,6 +592,93 @@ Contributions welcome! See the [contributing guide](https://gptme.org/docs/contr
 [pepy]: https://pepy.tech/project/gptme
 [pypistats]: https://pypistats.org/packages/gptme
 
+## ❓ FAQ
+
+### What models are supported?
+
+gptme supports any model provider compatible with OpenAI API format, including:
+- **OpenAI**: GPT-4o, GPT-4.1, o3, o4-mini
+- **Anthropic**: Claude 4 Sonnet, Claude 4 Opus, Claude 3.5 Sonnet
+- **Local models**: Via LiteLLM proxy (Ollama, vLLM, etc.)
+- **Other providers**: Azure, Groq, Bedrock, Vertex AI
+
+Set your model via `MODEL` environment variable or in `gptme.toml`.
+
+### How do I configure API keys?
+
+Set the appropriate environment variable for your provider:
+```bash
+# OpenAI
+export OPENAI_API_KEY="sk-..."
+
+# Anthropic
+export ANTHROPIC_API_KEY="sk-ant-..."
+
+# Custom endpoint (via LiteLLM)
+export OPENAI_API_BASE="http://localhost:4000"
+```
+
+### Why is gptme asking for tool confirmations?
+
+By default, gptme asks for confirmation before executing tools (shell commands, file writes, etc.) for safety. You can:
+- Press `y` to approve individual actions
+- Use `--non-interactive` flag for fully autonomous mode (no confirmations, use with caution)
+- Configure auto-approve for specific tools in `gptme.toml`
+
+### How do I use gptme with local models?
+
+Use LiteLLM as a proxy to connect local models:
+```bash
+# Install LiteLLM proxy
+pip install "litellm[proxy]"
+
+# Start proxy with Ollama
+litellm --model ollama/llama3
+
+# Point gptme to the proxy
+export OPENAI_API_BASE="http://localhost:4000"
+export OPENAI_API_KEY="dummy"
+```
+
+### What is the difference between Skills and Plugins?
+
+- **Skills**: Lightweight workflow bundles (Anthropic format) that auto-load when mentioned. Great for reusable instructions without writing Python.
+- **Plugins**: Python modules that extend gptme with new tools and capabilities. More powerful but require Python knowledge.
+- **Lessons**: Contextual guidance that auto-injects based on keywords, tools, and patterns.
+
+### How do I run gptme in autonomous mode?
+
+Use the `--non-interactive` flag for fully autonomous operation:
+```bash
+gptme --non-interactive "Research the latest developments in AI agents and write a summary"
+```
+
+⚠️ **Warning**: In autonomous mode, gptme can execute commands without confirmation. Use only in safe, isolated environments.
+
+### Can I use gptme as a server/API?
+
+Yes! gptme includes a built-in server mode:
+```bash
+gptme-server
+```
+
+This exposes a REST API for integrating gptme into other applications. See the [Server documentation][docs-server] for details.
+
+### How do I contribute to gptme?
+
+Contributions are welcome! See the [contributing guide](https://gptme.org/docs/contributing.html). Key areas:
+- Bug fixes and feature improvements
+- New tools and plugins
+- Documentation improvements
+- Testing and evaluation
+
+### Where can I get help?
+
+- **Documentation**: [gptme.org/docs](https://gptme.org/docs/)
+- **Discord**: [Join our community][discord]
+- **Issues**: [GitHub Issues](https://github.com/gptme/gptme/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/gptme/gptme/discussions)
+
 ## 🔗 Links
 
 - [Website][website]
