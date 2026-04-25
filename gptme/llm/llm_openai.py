@@ -552,6 +552,7 @@ def retry_generator_on_openai_error(max_retries: int = 5, base_delay: float = 1.
 
 
 _VALID_VERBOSITY = {"low", "medium", "high"}
+_verbosity_warned = False  # warn at most once per process lifetime
 
 
 def _maybe_apply_verbosity(
@@ -563,16 +564,19 @@ def _maybe_apply_verbosity(
     Unset or invalid values result in the parameter being omitted (OpenAI default
     of "medium" applies).
     """
+    global _verbosity_warned
     if not OPENAI_VERBOSITY:
         return
     if not model_meta.model.startswith("gpt-5"):
         return
     if OPENAI_VERBOSITY not in _VALID_VERBOSITY:
-        logger.warning(
-            "OPENAI_VERBOSITY=%r is not one of %s; ignoring.",
-            OPENAI_VERBOSITY,
-            sorted(_VALID_VERBOSITY),
-        )
+        if not _verbosity_warned:
+            logger.warning(
+                "OPENAI_VERBOSITY=%r is not one of %s; ignoring.",
+                OPENAI_VERBOSITY,
+                sorted(_VALID_VERBOSITY),
+            )
+            _verbosity_warned = True
         return
     optional_kwargs["verbosity"] = OPENAI_VERBOSITY
 

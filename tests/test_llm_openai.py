@@ -1795,7 +1795,24 @@ class TestMaybeApplyVerbosity:
 
     def test_invalid_level_ignored(self, monkeypatch, caplog):
         monkeypatch.setattr(llm_openai, "OPENAI_VERBOSITY", "verbose")
+        monkeypatch.setattr(llm_openai, "_verbosity_warned", False)
         kwargs: dict = {}
         model = get_model("openai/gpt-5")
-        _maybe_apply_verbosity(kwargs, model)
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="gptme.llm.llm_openai"):
+            _maybe_apply_verbosity(kwargs, model)
         assert "verbosity" not in kwargs
+        assert "OPENAI_VERBOSITY" in caplog.text
+        assert "verbose" in caplog.text
+
+    def test_invalid_level_warns_only_once(self, monkeypatch, caplog):
+        monkeypatch.setattr(llm_openai, "OPENAI_VERBOSITY", "verbose")
+        monkeypatch.setattr(llm_openai, "_verbosity_warned", False)
+        model = get_model("openai/gpt-5")
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="gptme.llm.llm_openai"):
+            _maybe_apply_verbosity({}, model)
+            _maybe_apply_verbosity({}, model)
+        assert caplog.text.count("OPENAI_VERBOSITY") == 1
