@@ -546,7 +546,7 @@
 </ul>
 </div>
 <p>To select a provider and model, run <code class="docutils literal notranslate"><span class="pre">gptme</span></code> with the <code class="docutils literal notranslate"><span class="pre">-m</span></code>/<code class="docutils literal notranslate"><span class="pre">--model</span></code> flag set to <code class="docutils literal notranslate"><span class="pre">&lt;provider&gt;/&lt;model&gt;</span></code>, for example:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-5
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-5.5
 gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>anthropic<span class="w">  </span><span class="c1"># will use provider default</span>
 gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/x-ai/grok-4
 gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>deepseek/deepseek-reasoner
@@ -601,17 +601,18 @@ gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span clas
 <p>This stores credentials locally at <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/oauth/openai_subscription.json</span></code>.
 Access tokens are automatically refreshed before expiry, so you only need to authenticate once.</p>
 <p><strong>Usage:</strong></p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-5.4
-gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-5.2
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-5.5-pro
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-5.4
 </pre></div>
 </div>
 <p>You can also append reasoning levels: <code class="docutils literal notranslate"><span class="pre">:low</span></code>, <code class="docutils literal notranslate"><span class="pre">:medium</span></code>, <code class="docutils literal notranslate"><span class="pre">:high</span></code>, or <code class="docutils literal notranslate"><span class="pre">:xhigh</span></code>:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;solve this problem&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-5.4:high
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;solve this problem&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai-subscription/gpt-5.5-pro:high
 </pre></div>
 </div>
 <p><strong>Available Models:</strong></p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.4</span></code> - Latest GPT model with reasoning capabilities (recommended)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.5-pro</span></code> - Latest flagship with maximum reasoning compute (Responses API only)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.4</span></code> - Previous flagship with reasoning capabilities</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.3-codex</span></code> - Previous code-optimized variant</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.3-codex-spark</span></code> - Faster variant of gpt-5.3-codex</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">gpt-5.2</span></code> - Previous generation GPT model</p></li>
