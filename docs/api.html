@@ -1673,7 +1673,10 @@ This allows committing preferences to dotfiles while keeping secrets separate.</
 <dd><p>Create the Flask app.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>cors_origin</strong> – CORS origin to allow. Use ‘*’ to allow all origins.</p>
+<dd class="field-odd"><p><strong>cors_origin</strong> – CORS origin(s) to allow. Use ‘*’ to allow all origins.
+A comma-separated string allows multiple origins, e.g.
+“tauri://localhost,http://tauri.localhost”. Whitespace around
+entries is ignored.</p>
 </dd>
 </dl>
 </dd></dl>
