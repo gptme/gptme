@@ -14,7 +14,6 @@ declare global {
       invoke?: unknown;
       [key: string]: unknown;
     };
-    isTauri?: boolean;
   }
 }
 

@@ -1,17 +1,13 @@
 // Detect if we're running in Tauri environment.
 //
 // Tauri v2 only exposes `window.__TAURI__` when `app.withGlobalTauri` is enabled
-// in tauri.conf.json (default: false). However, `window.__TAURI_INTERNALS__` and
-// `window.isTauri` are always set by the Tauri runtime, so check those too —
-// otherwise the webui silently takes the non-Tauri/manual onboarding path inside
-// the packaged desktop app. See gptme/gptme#2226.
+// in tauri.conf.json (default: false). However, `window.__TAURI_INTERNALS__` is
+// always injected by the Tauri runtime, so check it too — otherwise the webui
+// silently takes the non-Tauri/manual onboarding path inside the packaged desktop
+// app. See gptme/gptme#2226.
 export const isTauriEnvironment = () => {
   if (typeof window === 'undefined') return false;
-  return (
-    window.__TAURI__ !== undefined ||
-    window.__TAURI_INTERNALS__ !== undefined ||
-    window.isTauri === true
-  );
+  return window.__TAURI__ !== undefined || window.__TAURI_INTERNALS__ !== undefined;
 };
 
 // Invoke a Tauri IPC command. Tauri v2 exposes `invoke` on `window.__TAURI__.core`
