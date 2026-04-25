@@ -7,17 +7,21 @@ import { toast } from 'sonner';
 import { use$ } from '@legendapp/state/react';
 import { observable } from '@legendapp/state';
 import { ChatInput, type ChatOptions } from '@/components/ChatInput';
-import { History, Server } from 'lucide-react';
+import { History, Server, Copy, RotateCcw } from 'lucide-react';
 import { useSettings } from '@/contexts/SettingsContext';
 import { ExamplesSection } from '@/components/ExamplesSection';
 import { serverRegistry$, getConnectedServers } from '@/stores/servers';
 import { getExamples } from '@/utils/examples';
+import { settingsModal$ } from '@/stores/settingsModal';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+
+const DEFAULT_LOCAL_SERVER_URLS = new Set(['http://127.0.0.1:5700', 'http://localhost:5700']);
 
 export const WelcomeView = () => {
   const [inputValue, setInputValue] = useState(
@@ -34,8 +38,9 @@ export const WelcomeView = () => {
   }, [inputValue]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isRetryingConnection, setIsRetryingConnection] = useState(false);
   const navigate = useNavigate();
-  const { api, isConnected$, connectionConfig, switchServer } = useApi();
+  const { api, isConnected$, connectionConfig, switchServer, connect } = useApi();
   const queryClient = useQueryClient();
   const isConnected = use$(isConnected$);
   const registry = use$(serverRegistry$);
@@ -43,6 +48,12 @@ export const WelcomeView = () => {
   const activeServer = registry.servers.find((s) => s.id === registry.activeServerId);
   const showServerPicker = connectedServers.length > 1;
   const quickSuggestions = getExamples('welcome-suggestions', 'mixed', 4);
+  const activeServerBaseUrl = (activeServer?.baseUrl || connectionConfig.baseUrl).replace(
+    /\/+$/,
+    ''
+  );
+  const isDefaultLocalServer = DEFAULT_LOCAL_SERVER_URLS.has(activeServerBaseUrl);
+  const serverCommand = `gptme-server --cors-origin='${window.location.origin}'`;
 
   // Create observables that ChatInput expects
   const autoFocus$ = observable(true);
@@ -88,6 +99,27 @@ export const WelcomeView = () => {
     }
   };
 
+  const handleRetryConnection = async () => {
+    setIsRetryingConnection(true);
+    try {
+      await connect();
+      toast.success('Connected to gptme server');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not connect to gptme server.');
+    } finally {
+      setIsRetryingConnection(false);
+    }
+  };
+
+  const handleCopyServerCommand = async () => {
+    try {
+      await navigator.clipboard.writeText(serverCommand);
+      toast.success('Start command copied to clipboard');
+    } catch {
+      toast.error('Failed to copy start command');
+    }
+  };
+
   const { settings } = useSettings();
   const bg = settings.welcomeBackground;
   // Determine if the background is an image URL or a CSS gradient/color
@@ -121,6 +153,60 @@ export const WelcomeView = () => {
                 </p>
               </div>
             </div>
+
+            {!isConnected && (
+              <Alert className="mx-auto w-full max-w-2xl border-amber-500/30 bg-amber-500/10 text-left">
+                <Server className="h-4 w-4 text-amber-700 dark:text-amber-300" />
+                <AlertTitle>
+                  {isDefaultLocalServer
+                    ? 'No gptme server connected'
+                    : `Cannot reach ${activeServer?.name || 'the configured server'}`}
+                </AlertTitle>
+                <AlertDescription className="space-y-3">
+                  <p>
+                    {isDefaultLocalServer
+                      ? 'Start a local gptme server or point the app at another server before starting a chat.'
+                      : 'Check the server URL and auth token, then retry the connection.'}
+                  </p>
+                  {isDefaultLocalServer && (
+                    <code className="block rounded-md border border-amber-500/20 bg-background/80 px-3 py-2 font-mono text-xs">
+                      {serverCommand}
+                    </code>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => void handleRetryConnection()}
+                      disabled={isRetryingConnection}
+                    >
+                      <RotateCcw className="mr-2 h-4 w-4" />
+                      {isRetryingConnection ? 'Retrying...' : 'Retry connection'}
+                    </Button>
+                    {isDefaultLocalServer && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void handleCopyServerCommand()}
+                      >
+                        <Copy className="mr-2 h-4 w-4" />
+                        Copy start command
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => settingsModal$.set({ open: true, category: 'servers' })}
+                    >
+                      Server settings
+                    </Button>
+                  </div>
+                </AlertDescription>
+              </Alert>
+            )}
 
             <div className="mx-auto w-full max-w-2xl [&_textarea]:min-h-[80px] [&_textarea]:text-base">
               <ChatInput
