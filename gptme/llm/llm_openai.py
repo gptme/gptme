@@ -555,10 +555,8 @@ _VALID_VERBOSITY = {"low", "medium", "high"}
 _verbosity_warned = False  # warn at most once per process lifetime
 
 
-def _maybe_apply_verbosity(
-    optional_kwargs: dict[str, Any], model_meta: ModelMeta
-) -> None:
-    """Add verbosity kwarg for GPT-5+ models when OPENAI_VERBOSITY is set.
+def _maybe_apply_verbosity(body: dict[str, Any], model_meta: ModelMeta) -> None:
+    """Add verbosity request-body field for GPT-5+ models when set.
 
     GPT-5 family models support a `verbosity` parameter to control output length.
     Unset or invalid values result in the parameter being omitted (OpenAI default
@@ -578,7 +576,7 @@ def _maybe_apply_verbosity(
             )
             _verbosity_warned = True
         return
-    optional_kwargs["verbosity"] = OPENAI_VERBOSITY
+    body["verbosity"] = OPENAI_VERBOSITY
 
 
 @retry_on_openai_error()
@@ -622,7 +620,6 @@ def chat(
         optional_kwargs["response_format"] = response_format
     if max_tokens is not None:
         optional_kwargs["max_tokens"] = max_tokens
-    _maybe_apply_verbosity(optional_kwargs, model_meta)
 
     response = client.chat.completions.create(
         model=api_model.split("@")[0],
@@ -676,6 +673,7 @@ def extra_body(
 ) -> dict[str, Any]:
     """Return extra body for the OpenAI API based on the model."""
     body: dict[str, Any] = {}
+    _maybe_apply_verbosity(body, model_meta)
     if provider == "openrouter":
         # Enable detailed usage info including cached tokens
         # See: https://openrouter.ai/docs/guides/usage-accounting
@@ -798,7 +796,6 @@ def stream(
         optional_kwargs["response_format"] = response_format
     if max_tokens is not None:
         optional_kwargs["max_tokens"] = max_tokens
-    _maybe_apply_verbosity(optional_kwargs, model_meta)
 
     for chunk_raw in client.chat.completions.create(
         model=api_model.split("@")[0],
