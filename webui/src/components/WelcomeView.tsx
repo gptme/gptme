@@ -103,9 +103,9 @@ export const WelcomeView = () => {
     setIsRetryingConnection(true);
     try {
       await connect();
-      toast.success('Connected to gptme server');
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Could not connect to gptme server.');
+      // connect() shows toast.success on real connection and returns silently on no-op
+    } catch {
+      // connect() already shows toast.error on failure; swallow to avoid double-toast
     } finally {
       setIsRetryingConnection(false);
     }
