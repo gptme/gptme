@@ -163,6 +163,11 @@ _llm_request_counter = None
 # when telemetry is installed but not enabled). Probing the top-level package
 # only — find_spec on submodules triggers parent package init, defeating the
 # point of lazy loading. The full import happens inside init_telemetry().
+#
+# NOTE: TELEMETRY_AVAILABLE only reflects whether the top-level `opentelemetry`
+# package is on sys.path, not whether all required extras (exporter.otlp,
+# instrumentation.flask, etc.) are present. Use is_telemetry_enabled() to gate
+# on both availability and the GPTME_TELEMETRY_ENABLED env var.
 TELEMETRY_AVAILABLE = _importlib_util.find_spec("opentelemetry") is not None
 TELEMETRY_IMPORT_ERROR: str | None = None
 if not TELEMETRY_AVAILABLE:
