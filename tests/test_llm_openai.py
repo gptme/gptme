@@ -1,7 +1,8 @@
 import pytest
 
 from gptme.config import get_config
-from gptme.llm.llm_openai import _prepare_messages_for_api
+from gptme.llm import llm_openai
+from gptme.llm.llm_openai import _maybe_apply_verbosity, _prepare_messages_for_api
 from gptme.llm.models import get_default_model, get_model, set_default_model
 from gptme.message import Message
 from gptme.tools import get_tool, init_tools
@@ -1758,3 +1759,43 @@ class TestRecordUsageCacheTokens:
         # Both explicit zeros preserved in metadata (truthy-check would drop them)
         assert metadata["usage"]["cache_read_tokens"] == 0
         assert metadata["usage"]["cache_creation_tokens"] == 0
+
+
+class TestMaybeApplyVerbosity:
+    """Tests for OPENAI_VERBOSITY env var handling on GPT-5+ models."""
+
+    def test_unset_skips(self, monkeypatch):
+        monkeypatch.setattr(llm_openai, "OPENAI_VERBOSITY", None)
+        kwargs: dict = {}
+        model = get_model("openai/gpt-5")
+        _maybe_apply_verbosity(kwargs, model)
+        assert "verbosity" not in kwargs
+
+    def test_non_gpt5_model_skipped(self, monkeypatch):
+        monkeypatch.setattr(llm_openai, "OPENAI_VERBOSITY", "high")
+        kwargs: dict = {}
+        model = get_model("openai/gpt-4o")
+        _maybe_apply_verbosity(kwargs, model)
+        assert "verbosity" not in kwargs
+
+    @pytest.mark.parametrize("level", ["low", "medium", "high"])
+    def test_valid_level_applied_to_gpt5(self, monkeypatch, level):
+        monkeypatch.setattr(llm_openai, "OPENAI_VERBOSITY", level)
+        kwargs: dict = {}
+        model = get_model("openai/gpt-5")
+        _maybe_apply_verbosity(kwargs, model)
+        assert kwargs["verbosity"] == level
+
+    def test_valid_level_applied_to_gpt5_5(self, monkeypatch):
+        monkeypatch.setattr(llm_openai, "OPENAI_VERBOSITY", "low")
+        kwargs: dict = {}
+        model = get_model("openai/gpt-5.5")
+        _maybe_apply_verbosity(kwargs, model)
+        assert kwargs["verbosity"] == "low"
+
+    def test_invalid_level_ignored(self, monkeypatch, caplog):
+        monkeypatch.setattr(llm_openai, "OPENAI_VERBOSITY", "verbose")
+        kwargs: dict = {}
+        model = get_model("openai/gpt-5")
+        _maybe_apply_verbosity(kwargs, model)
+        assert "verbosity" not in kwargs

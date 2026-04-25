@@ -10,6 +10,11 @@ import os
 TEMPERATURE = float(os.getenv("TEMPERATURE", "0"))
 TOP_P = float(os.getenv("TOP_P", "0.1"))
 
+# Verbosity level for GPT-5+ OpenAI models. One of "low", "medium", "high".
+# Unset (default) means the parameter is not sent and OpenAI's default applies.
+# See: https://platform.openai.com/docs/guides/latest-model
+OPENAI_VERBOSITY = os.getenv("OPENAI_VERBOSITY")
+
 # separator for multiple rounds of prompts on the command line
 # demarcates the end of the user's prompt, and start of the assistant's response
 # e.g. /gptme "generate a poem" "-" "save it to poem.txt"
