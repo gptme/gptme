@@ -150,12 +150,7 @@ export function ApiProvider({
           // Build an informative error from the structured probe result
           const probe = client.lastConnectionResult$.get();
           if (probe && !probe.ok) {
-            const err = new Error(probe.message);
-            (err as Error & { probeUrl?: string; probeStatus?: number }).probeUrl = probe.url;
-            if (probe.status !== undefined) {
-              (err as Error & { probeStatus?: number }).probeStatus = probe.status;
-            }
-            throw err;
+            throw new Error(probe.message);
           }
           throw new Error('Failed to connect to API');
         }
@@ -191,7 +186,7 @@ export function ApiProvider({
           } else if (probe.reason === 'parse_error') {
             errorMessage += ` ${probe.message} — is this URL really a gptme server?`;
           } else if (probe.reason === 'timeout') {
-            errorMessage += ' Request timed out after 3s — server may be slow or unreachable.';
+            errorMessage += ` ${probe.message}.`;
           } else {
             errorMessage += ` ${probe.message}.`;
           }
