@@ -29,6 +29,7 @@ gptme-doctor = "gptme.cli.doctor:main"
 gptme-auth = "gptme.cli.auth:main"
 gptme-onboard = "gptme.cli.onboard:main"
 gptme-wut = "gptme.cli.wut:main"
+gptme-checkpoint = "gptme.cli.checkpoint:main"
 gptme-dspy = "gptme.eval.dspy:main"
 gptme-eval-trends = "gptme.eval.trends:main"
 

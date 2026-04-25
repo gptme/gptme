@@ -4,7 +4,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from platformdirs import user_config_dir, user_data_dir
+from platformdirs import user_config_dir, user_data_dir, user_state_dir
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,17 @@ def get_data_dir() -> Path:
         return old
 
     return Path(user_data_dir("gptme"))
+
+
+def get_state_dir() -> Path:
+    """Get the path for **transient state** (XDG_STATE_HOME).
+
+    Used for recovery artifacts and other state that should persist between
+    invocations but is not important enough to back up — checkpoints, etc.
+    """
+    if "XDG_STATE_HOME" in os.environ:
+        return Path(os.environ["XDG_STATE_HOME"]) / "gptme"
+    return Path(user_state_dir("gptme"))
 
 
 def get_logs_dir() -> Path:
