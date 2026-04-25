@@ -517,6 +517,12 @@ export function SetupWizard() {
                     placeholder="https://bob.example.com"
                     value={remoteBaseUrl}
                     onChange={(event) => setRemoteBaseUrl(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && !isConnecting) {
+                        event.preventDefault();
+                        void handleRemoteSetup();
+                      }
+                    }}
                   />
                   <Input
                     autoComplete="off"
@@ -524,6 +530,12 @@ export function SetupWizard() {
                     type="password"
                     value={remoteAuthToken}
                     onChange={(event) => setRemoteAuthToken(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && !isConnecting) {
+                        event.preventDefault();
+                        void handleRemoteSetup();
+                      }
+                    }}
                   />
                   <p className="text-xs text-muted-foreground">
                     For Bob or other self-hosted servers, paste the base URL and token here.
@@ -725,6 +737,12 @@ export function SetupWizard() {
                         placeholder={API_KEY_PROVIDER_METADATA[apiKeyProvider].placeholder}
                         value={apiKey}
                         onChange={(e) => setApiKey(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !apiKeySaving && apiKey.trim().length > 0) {
+                            e.preventDefault();
+                            void handleSaveApiKey();
+                          }
+                        }}
                         disabled={apiKeySaving}
                       />
                     </div>

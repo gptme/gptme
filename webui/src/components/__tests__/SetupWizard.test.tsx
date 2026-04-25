@@ -309,6 +309,41 @@ describe('SetupWizard', () => {
     });
   });
 
+  it('submits remote server form when pressing Enter in the URL field', async () => {
+    mockIsTauriEnvironment.mockReturnValue(true);
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: false,
+      managesLocalServer: false,
+      serverStatus: {
+        running: false,
+        port: 5700,
+        port_available: false,
+        manages_local_server: false,
+      },
+    });
+    mockConnect.mockResolvedValue(undefined);
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /remote server/i }));
+    const urlInput = screen.getByPlaceholderText('https://bob.example.com');
+    fireEvent.change(urlInput, { target: { value: 'https://bob.example.com/' } });
+    fireEvent.keyDown(urlInput, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(mockConnect).toHaveBeenCalledWith({
+        baseUrl: 'https://bob.example.com',
+        authToken: null,
+        useAuthToken: false,
+      });
+    });
+  });
+
   it('waits for tauri status before enabling the server mode choice', () => {
     mockIsTauriEnvironment.mockReturnValue(true);
     mockUseTauriServerStatus.mockReturnValue({
@@ -417,6 +452,135 @@ describe('SetupWizard', () => {
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /you're all set/i })).toBeInTheDocument();
     });
+  });
+
+  it('saves an API key when pressing Enter in the API key field', async () => {
+    mockIsTauriEnvironment.mockReturnValue(true);
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: false,
+      managesLocalServer: true,
+      serverStatus: {
+        running: true,
+        port: 5700,
+        port_available: false,
+        manages_local_server: true,
+      },
+    });
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ provider_configured: false }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          models: [
+            {
+              id: 'anthropic/claude-sonnet-4-7',
+              provider: 'anthropic',
+              model: 'claude-sonnet-4-7',
+            },
+          ],
+          recommended: ['anthropic/claude-sonnet-4-7'],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ status: 'ok', env_var: 'ANTHROPIC_API_KEY' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ provider_configured: true }),
+      });
+    mockConnect.mockImplementation(async () => {
+      isConnected$.set(true);
+    });
+    mockInvokeTauri.mockResolvedValue(undefined);
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /monitor local/i }));
+    fireEvent.click(screen.getByRole('button', { name: /connect/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /configure a provider/i })).toBeInTheDocument();
+    });
+
+    const apiKeyInput = screen.getByLabelText(/api key/i);
+    fireEvent.change(apiKeyInput, { target: { value: 'sk-ant-test-key' } });
+    fireEvent.keyDown(apiKeyInput, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith('http://127.0.0.1:5700/api/v2/user/api-key', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          provider: 'anthropic',
+          api_key: 'sk-ant-test-key',
+          model: 'anthropic/claude-sonnet-4-7',
+        }),
+      });
+    });
+  });
+
+  it('does not submit API key on Enter when the field is empty', async () => {
+    mockIsTauriEnvironment.mockReturnValue(true);
+    mockUseTauriServerStatus.mockReturnValue({
+      isLoading: false,
+      managesLocalServer: true,
+      serverStatus: {
+        running: true,
+        port: 5700,
+        port_available: false,
+        manages_local_server: true,
+      },
+    });
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ provider_configured: false }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ models: [], recommended: [] }),
+      });
+    mockConnect.mockImplementation(async () => {
+      isConnected$.set(true);
+    });
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /monitor local/i }));
+    fireEvent.click(screen.getByRole('button', { name: /connect/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /configure a provider/i })).toBeInTheDocument();
+    });
+
+    const apiKeyInput = screen.getByLabelText(/api key/i);
+    fireEvent.keyDown(apiKeyInput, { key: 'Enter' });
+
+    // No POST to /api/v2/user/api-key should have been made.
+    const calls = mockFetch.mock.calls.map((c) => c[0]);
+    expect(calls).not.toContain('http://127.0.0.1:5700/api/v2/user/api-key');
   });
 
   it('shows an error instead of falsely completing when the restarted server never comes back', async () => {
