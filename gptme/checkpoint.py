@@ -330,17 +330,12 @@ def _resolve_checkpoint(repo_root: Path, identifier: str) -> CheckpointRecord:
     if not records:
         raise CheckpointError("no checkpoints found for this repo")
 
-    # Treat short integer-looking strings as 1-based indices.
-    try:
+    # Pure decimal integers are unambiguously 1-based indices (SHA prefixes are hex).
+    if identifier.isdigit():
         idx = int(identifier)
-        if len(identifier) <= 3:
-            if 1 <= idx <= len(records):
-                return records[idx - 1]
-            raise CheckpointError(
-                f"checkpoint index {idx} out of range (1-{len(records)})"
-            )
-    except ValueError:
-        pass
+        if 1 <= idx <= len(records):
+            return records[idx - 1]
+        raise CheckpointError(f"checkpoint index {idx} out of range (1-{len(records)})")
 
     matches = [r for r in records if r.head_sha.startswith(identifier)]
     if len(matches) == 1:
@@ -405,6 +400,21 @@ def restore_checkpoint(
         raise CheckpointError(
             f"git reset --hard failed: {result.stderr.strip() or 'unknown error'}"
         )
+
+    if include_dirty:
+        # git reset --hard does not remove untracked files; clean them up so the
+        # workspace is truly restored to the checkpointed state.
+        clean = subprocess.run(
+            ["git", "clean", "-fd"],
+            check=False,
+            cwd=decision.repo_root,
+            capture_output=True,
+            text=True,
+        )
+        if clean.returncode != 0:
+            raise CheckpointError(
+                f"git clean -fd failed: {clean.stderr.strip() or 'unknown error'}"
+            )
 
     return (
         f"Restored to checkpoint {record.head_sha[:12]} "

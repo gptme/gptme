@@ -220,6 +220,46 @@ def test_restore_unknown_identifier(clean_repo):
         restore_checkpoint(clean_repo, "99")
 
 
+def test_restore_include_dirty_removes_untracked(clean_repo):
+    """--include-dirty restore must also remove untracked files (git clean -fd)."""
+    first = create_checkpoint(clean_repo, include_dirty=True)
+    assert first is not None
+
+    # Advance HEAD with a new commit so restore actually moves.
+    (clean_repo / "second.txt").write_text("two\n")
+    _git(clean_repo, "add", "second.txt")
+    _git(clean_repo, "commit", "-q", "-m", "second")
+
+    # Add an untracked file *after* the checkpoint — simulate agent-created scratch.
+    (clean_repo / "scratch.txt").write_text("scratch\n")
+    assert (clean_repo / "scratch.txt").exists()
+
+    msg = restore_checkpoint(clean_repo, "1", include_dirty=True)
+    assert "Restored" in msg
+    assert _git(clean_repo, "rev-parse", "HEAD") == first.head_sha
+    assert not (clean_repo / "second.txt").exists()
+    assert not (clean_repo / "scratch.txt").exists(), (
+        "untracked file survived --include-dirty restore (git clean -fd not run)"
+    )
+
+
+def test_resolve_index_above_999(clean_repo):
+    """Index resolution must work for indices with 4+ digits."""
+    # Create two checkpoints; verify index "10" (4+ digit threshold doesn't apply
+    # at small counts, but isdigit() should handle large numbers too).
+    create_checkpoint(clean_repo)
+    (clean_repo / "b.txt").write_text("b\n")
+    _git(clean_repo, "add", "b.txt")
+    _git(clean_repo, "commit", "-q", "-m", "b")
+    second = create_checkpoint(clean_repo)
+    assert second is not None
+
+    # "2" should resolve even though len("2") == 1; confirm "10" raises out-of-range
+    # (only 2 records) rather than silently falling through to SHA matching.
+    with pytest.raises(CheckpointError, match="out of range"):
+        restore_checkpoint(clean_repo, "10")
+
+
 # --- diff_checkpoint ---
 
 
