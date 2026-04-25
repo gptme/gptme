@@ -20,9 +20,11 @@ const mockToastSuccess = jest.fn();
 const mockToastError = jest.fn();
 
 const isConnected$ = observable(false);
+const lastConnectionResult$ = observable<{ ok: boolean } | null>(null);
 
 const mockClient = {
   isConnected$,
+  lastConnectionResult$,
   checkConnection: (...args: unknown[]) => mockCheckConnection(...args),
   setConnected: (...args: [boolean]) => mockSetConnected(...args),
 };
@@ -123,6 +125,7 @@ describe('ApiProvider mobile auto-connect', () => {
     window.history.replaceState(null, '', '/');
     jest.clearAllMocks();
     isConnected$.set(false);
+    lastConnectionResult$.set(null);
     setActiveServerBaseUrl('http://127.0.0.1:5700');
 
     mockSetConnected.mockImplementation((connected: boolean) => {

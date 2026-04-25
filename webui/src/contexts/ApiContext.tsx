@@ -147,6 +147,16 @@ export function ApiProvider({
         const connected = await client.checkConnection();
         console.log('[ApiContext] Connected:', connected);
         if (!connected) {
+          // Build an informative error from the structured probe result
+          const probe = client.lastConnectionResult$.get();
+          if (probe && !probe.ok) {
+            const err = new Error(probe.message);
+            (err as Error & { probeUrl?: string; probeStatus?: number }).probeUrl = probe.url;
+            if (probe.status !== undefined) {
+              (err as Error & { probeStatus?: number }).probeStatus = probe.status;
+            }
+            throw err;
+          }
           throw new Error('Failed to connect to API');
         }
 
@@ -163,8 +173,29 @@ export function ApiProvider({
         console.error('Failed to connect to API:', error);
         client.setConnected(false);
 
+        const probe = client.lastConnectionResult$.get();
         let errorMessage = 'Could not connect to gptme instance.';
-        if (error instanceof Error) {
+        if (probe && !probe.ok) {
+          // Show the URL we tried, distinguish 401 from "server not running",
+          // and explain CORS issues so users know what to fix.
+          errorMessage += ` Tried ${probe.url}.`;
+          if (probe.reason === 'http_error' && probe.status === 401) {
+            errorMessage +=
+              ' Server is running but rejected the request (401). Check the API key / auth token in settings.';
+          } else if (probe.reason === 'http_error' && probe.status === 403) {
+            errorMessage += ' Server returned 403 Forbidden — check auth token / permissions.';
+          } else if (probe.reason === 'http_error') {
+            errorMessage += ` ${probe.message}.`;
+          } else if (probe.reason === 'cors') {
+            errorMessage += ` ${probe.message}.`;
+          } else if (probe.reason === 'parse_error') {
+            errorMessage += ` ${probe.message} — is this URL really a gptme server?`;
+          } else if (probe.reason === 'timeout') {
+            errorMessage += ' Request timed out after 3s — server may be slow or unreachable.';
+          } else {
+            errorMessage += ` ${probe.message}.`;
+          }
+        } else if (error instanceof Error) {
           if (error.message.includes('NetworkError') || error.message.includes('CORS')) {
             errorMessage +=
               ' CORS issue detected - ensure the server has CORS enabled and is accepting requests from ' +

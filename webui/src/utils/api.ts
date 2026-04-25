@@ -40,6 +40,17 @@ function isApiErrorResponse(response: unknown): response is ApiError {
   return typeof response === 'object' && response !== null && 'error' in response;
 }
 
+// Result of a connection probe — captures enough context for a useful user-facing message.
+export type ConnectionProbeResult =
+  | { ok: true; url: string }
+  | {
+      ok: false;
+      url: string;
+      reason: 'network' | 'http_error' | 'parse_error' | 'timeout' | 'cors';
+      status?: number;
+      message: string;
+    };
+
 export interface ToolPendingEvent {
   type: 'tool_pending';
   tool_id: string;
@@ -59,6 +70,8 @@ export class ApiClient {
   public baseUrl: string;
   public authHeader: string | null = null;
   public readonly isConnected$: Observable<boolean> = observable(false);
+  public readonly lastConnectionResult$: Observable<ConnectionProbeResult | null> =
+    observable<ConnectionProbeResult | null>(null);
   private identifier: string;
   private controller: AbortController | null = null;
   public sessions$: Observable<Map<string, string>> = observable(new Map()); // Map conversation IDs to session IDs
@@ -280,14 +293,21 @@ export class ApiClient {
   }
 
   async checkConnection(): Promise<boolean> {
+    const url = `${this.baseUrl}/api/v2`;
+    console.log('[ApiClient] Checking connection to', this.baseUrl);
     try {
-      // Check the API
-      console.log('[ApiClient] Checking connection to', this.baseUrl);
-      const url = `${this.baseUrl}/api/v2`;
       const response = await this.fetchWithTimeout(url, {}, 3000);
       if (!response.ok) {
         console.error('API endpoint returned non-OK status:', response.status);
         this.isConnected$.set(false);
+        this.lastConnectionResult$.set({
+          ok: false,
+          url,
+          reason: 'http_error',
+          status: response.status,
+          message:
+            `Server responded with HTTP ${response.status} ${response.statusText || ''}`.trim(),
+        });
         return false;
       }
 
@@ -297,18 +317,58 @@ export class ApiClient {
       } catch (parseError) {
         console.error(`[ApiClient] Failed to parse API response from ${url}:`, parseError);
         this.isConnected$.set(false);
+        this.lastConnectionResult$.set({
+          ok: false,
+          url,
+          reason: 'parse_error',
+          message:
+            parseError instanceof Error
+              ? `Server response was not valid JSON: ${parseError.message}`
+              : 'Server response was not valid JSON',
+        });
         return false;
       }
 
       this.isConnected$.set(true);
+      this.lastConnectionResult$.set({ ok: true, url });
       return true;
     } catch (error) {
-      if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
-        console.error('[ApiClient] Network error - server may be down or CORS not configured');
+      const isAbort =
+        (error instanceof DOMException && error.name === 'AbortError') ||
+        (error instanceof Error && error.name === 'AbortError');
+      const isNetwork =
+        error instanceof TypeError &&
+        (error.message.includes('Failed to fetch') ||
+          error.message.includes('NetworkError') ||
+          error.message.includes('CORS'));
+      let reason: 'network' | 'cors' | 'timeout';
+      let message: string;
+      if (isAbort) {
+        reason = 'timeout';
+        message = 'Request timed out after 3s — server may be slow or unreachable';
+      } else if (
+        error instanceof TypeError &&
+        (error.message.includes('CORS') || error.message.includes('NetworkError'))
+      ) {
+        reason = 'cors';
+        message =
+          'Network or CORS error — server may not allow requests from this origin: ' +
+          (typeof window !== 'undefined' ? window.location.origin : 'unknown');
+      } else if (isNetwork) {
+        reason = 'network';
+        message = 'Could not reach server (connection refused or no DNS)';
+      } else {
+        reason = 'network';
+        message = error instanceof Error ? error.message : String(error);
+      }
+
+      if (isNetwork || isAbort) {
+        console.error('[ApiClient] Connection check failed:', message);
       } else {
         console.error('[ApiClient] Connection check failed:', error);
       }
       this.isConnected$.set(false);
+      this.lastConnectionResult$.set({ ok: false, url, reason, message });
       return false;
     }
   }
