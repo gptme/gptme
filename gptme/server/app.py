@@ -68,20 +68,21 @@ def create_app(cors_origin: str | None = None, host: str = "127.0.0.1") -> flask
         # multiple known webview origins (tauri://localhost on macOS/Linux,
         # http://tauri.localhost on Windows, etc.) in a single flag.
         origins_list = [o.strip() for o in cors_origin.split(",") if o.strip()]
-        origins: str | list[str] = (
-            origins_list[0] if len(origins_list) == 1 else origins_list
-        )
-        # Browsers reject credentials with a wildcard origin.
-        allow_credentials = "*" not in origins_list
-        CORS(
-            app,
-            resources={
-                r"/api/*": {
-                    "origins": origins,
-                    "supports_credentials": allow_credentials,
-                }
-            },
-        )
+        if origins_list:
+            origins: str | list[str] = (
+                origins_list[0] if len(origins_list) == 1 else origins_list
+            )
+            # Browsers reject credentials with a wildcard origin.
+            allow_credentials = "*" not in origins_list
+            CORS(
+                app,
+                resources={
+                    r"/api/*": {
+                        "origins": origins,
+                        "supports_credentials": allow_credentials,
+                    }
+                },
+            )
 
     # Initialize auth (defaults to local-only, no auth required)
     from .auth import init_auth  # fmt: skip

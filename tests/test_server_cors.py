@@ -77,6 +77,17 @@ def test_cors_comma_separated_tolerates_whitespace():
     assert resp.headers.get("Access-Control-Allow-Origin") == "http://tauri.localhost"
 
 
+def test_cors_degenerate_input_ignored():
+    """Degenerate cors_origin values that produce no valid entries are ignored (no crash)."""
+    from gptme.server.app import create_app
+
+    for bad_input in (",", " , ", "  "):
+        app = create_app(cors_origin=bad_input)
+        resp = _api_response_with_origin(app, "tauri://localhost")
+        assert resp.status_code == 200
+        assert "Access-Control-Allow-Origin" not in resp.headers
+
+
 def test_cors_wildcard_disables_credentials():
     """Browsers reject credentials with Access-Control-Allow-Origin: *,
     so create_app must not advertise credentials when '*' is in the list."""
