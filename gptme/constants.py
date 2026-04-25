@@ -12,6 +12,7 @@ TOP_P = float(os.getenv("TOP_P", "0.1"))
 
 # Verbosity level for GPT-5+ OpenAI models. One of "low", "medium", "high".
 # Unset (default) means the parameter is not sent and OpenAI's default applies.
+# NOTE: getting the environment variable like this ignores if it is set in the gptme config
 # See: https://platform.openai.com/docs/guides/latest-model
 OPENAI_VERBOSITY = os.getenv("OPENAI_VERBOSITY")
 
