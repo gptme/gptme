@@ -10,6 +10,7 @@
     "frontendDist": "../../webui/dist"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "gptme-tauri",

@@ -10,6 +10,11 @@ declare global {
       };
       [key: string]: unknown;
     };
+    __TAURI_INTERNALS__?: {
+      invoke?: unknown;
+      [key: string]: unknown;
+    };
+    isTauri?: boolean;
   }
 }
 

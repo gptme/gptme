@@ -1,21 +1,32 @@
-// Detect if we're running in Tauri environment
+// Detect if we're running in Tauri environment.
+//
+// Tauri v2 only exposes `window.__TAURI__` when `app.withGlobalTauri` is enabled
+// in tauri.conf.json (default: false). However, `window.__TAURI_INTERNALS__` and
+// `window.isTauri` are always set by the Tauri runtime, so check those too —
+// otherwise the webui silently takes the non-Tauri/manual onboarding path inside
+// the packaged desktop app. See gptme/gptme#2226.
 export const isTauriEnvironment = () => {
-  return typeof window !== 'undefined' && window.__TAURI__ !== undefined;
+  if (typeof window === 'undefined') return false;
+  return (
+    window.__TAURI__ !== undefined ||
+    window.__TAURI_INTERNALS__ !== undefined ||
+    window.isTauri === true
+  );
 };
 
 // Invoke a Tauri IPC command. Tauri v2 exposes `invoke` on `window.__TAURI__.core`
-// (see https://v2.tauri.app/reference/javascript/api/namespacecore/). Keeping this
-// as a thin wrapper avoids adding `@tauri-apps/api` as a webui dependency just to
-// call a handful of commands from the desktop shell.
+// when `withGlobalTauri` is true, and on `window.__TAURI_INTERNALS__` regardless.
+// Keeping this as a thin wrapper avoids adding `@tauri-apps/api` as a webui
+// dependency just to call a handful of commands from the desktop shell.
 export async function invokeTauri<T = unknown>(
   command: string,
   args?: Record<string, unknown>
 ): Promise<T> {
-  if (typeof window === 'undefined' || window.__TAURI__ === undefined) {
+  if (typeof window === 'undefined') {
     throw new Error('Tauri API is not available in this environment');
   }
-  const core = (window.__TAURI__ as { core?: { invoke?: unknown } }).core;
-  const invoke = core?.invoke;
+  const globalCore = (window.__TAURI__ as { core?: { invoke?: unknown } } | undefined)?.core;
+  const invoke = globalCore?.invoke ?? window.__TAURI_INTERNALS__?.invoke;
   if (typeof invoke !== 'function') {
     throw new Error('Tauri invoke API is not available');
   }
