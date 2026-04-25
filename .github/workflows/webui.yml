@@ -72,7 +72,7 @@ jobs:
       with:
         apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        command: pages deploy dist --project-name=chat-gptme-org
+        command: pages deploy dist --project-name=gptme-webui
 
   e2e:
     runs-on: ubuntu-latest
