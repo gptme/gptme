@@ -241,11 +241,13 @@ def create_checkpoint(
     *,
     session_id: str | None = None,
     include_dirty: bool = False,
-) -> CheckpointRecord | None:
+) -> tuple[CheckpointRecord | None, str | None]:
     """Create a checkpoint and append it to the XDG ledger.
 
-    Returns the new :class:`CheckpointRecord`, or ``None`` if the workspace
-    is already at the same HEAD as the most recent checkpoint (idempotent).
+    Returns a 2-tuple ``(record, existing_sha)``:
+
+    - ``(CheckpointRecord, None)`` — new checkpoint written to the ledger.
+    - ``(None, sha)`` — already at the same HEAD; ``sha`` is the HEAD for display.
 
     Raises:
         CheckpointError: workspace kind is not checkpointable
@@ -287,14 +289,14 @@ def create_checkpoint(
             if last_line:
                 last = json.loads(last_line)
                 if last.get("head_sha") == record.head_sha:
-                    return None
+                    return None, record.head_sha
         except (json.JSONDecodeError, OSError):
             pass
 
     with open(ledger_path, "a", encoding="utf-8") as f:
         f.write(record.to_json() + "\n")
 
-    return record
+    return record, None
 
 
 def list_checkpoints(repo_root: str | Path) -> list[CheckpointRecord]:

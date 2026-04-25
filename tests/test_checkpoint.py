@@ -135,8 +135,9 @@ def test_ledger_path_does_not_dirty_user_repo(clean_repo):
 
 
 def test_create_checkpoint_clean(clean_repo):
-    rec = create_checkpoint(clean_repo)
+    rec, sha = create_checkpoint(clean_repo)
     assert rec is not None
+    assert sha is None
     assert rec.head_sha == _git(clean_repo, "rev-parse", "HEAD")
     assert rec.workspace == str(clean_repo.resolve())
 
@@ -148,10 +149,11 @@ def test_create_checkpoint_clean(clean_repo):
 
 
 def test_create_checkpoint_idempotent_at_same_head(clean_repo):
-    first = create_checkpoint(clean_repo)
-    second = create_checkpoint(clean_repo)
+    first, _ = create_checkpoint(clean_repo)
+    second, existing_sha = create_checkpoint(clean_repo)
     assert first is not None
     assert second is None  # idempotent — no duplicate adjacent records
+    assert existing_sha == first.head_sha  # SHA returned instead of re-running classify
     assert len(list_checkpoints(clean_repo)) == 1
 
 
@@ -161,7 +163,7 @@ def test_create_checkpoint_dirty_refused_without_flag(dirty_repo):
 
 
 def test_create_checkpoint_dirty_with_include_dirty(dirty_repo):
-    rec = create_checkpoint(dirty_repo, include_dirty=True)
+    rec, _ = create_checkpoint(dirty_repo, include_dirty=True)
     assert rec is not None
 
 
@@ -175,7 +177,7 @@ def test_create_checkpoint_after_new_commit_appends(clean_repo):
     (clean_repo / "second.txt").write_text("two\n")
     _git(clean_repo, "add", "second.txt")
     _git(clean_repo, "commit", "-q", "-m", "two")
-    second = create_checkpoint(clean_repo)
+    second, _ = create_checkpoint(clean_repo)
     assert second is not None
     assert len(list_checkpoints(clean_repo)) == 2
 
@@ -184,7 +186,7 @@ def test_create_checkpoint_after_new_commit_appends(clean_repo):
 
 
 def test_restore_clean_repo_returns_to_checkpoint(clean_repo):
-    first = create_checkpoint(clean_repo)
+    first, _ = create_checkpoint(clean_repo)
     assert first is not None
 
     (clean_repo / "added.txt").write_text("added\n")
@@ -222,7 +224,7 @@ def test_restore_unknown_identifier(clean_repo):
 
 def test_restore_include_dirty_removes_untracked(clean_repo):
     """--include-dirty restore must also remove untracked files (git clean -fd)."""
-    first = create_checkpoint(clean_repo, include_dirty=True)
+    first, _ = create_checkpoint(clean_repo, include_dirty=True)
     assert first is not None
 
     # Advance HEAD with a new commit so restore actually moves.
@@ -251,7 +253,7 @@ def test_resolve_index_above_999(clean_repo):
     (clean_repo / "b.txt").write_text("b\n")
     _git(clean_repo, "add", "b.txt")
     _git(clean_repo, "commit", "-q", "-m", "b")
-    second = create_checkpoint(clean_repo)
+    second, _ = create_checkpoint(clean_repo)
     assert second is not None
 
     # "2" should resolve even though len("2") == 1; confirm "10" raises out-of-range

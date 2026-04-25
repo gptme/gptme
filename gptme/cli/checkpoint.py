@@ -50,7 +50,7 @@ def cmd_create(
     """Record a checkpoint at the current HEAD."""
     target = path or Path.cwd()
     try:
-        record = create_checkpoint(
+        record, existing_sha = create_checkpoint(
             target,
             session_id=session_id,
             include_dirty=include_dirty,
@@ -60,8 +60,7 @@ def cmd_create(
         sys.exit(1)
 
     if record is None:
-        decision = classify(target)
-        head = decision.head_sha[:12] if decision.head_sha else "?"
+        head = existing_sha[:12] if existing_sha else "?"
         click.echo(f"Already checkpointed at {head} — nothing to do.")
     else:
         click.echo(
