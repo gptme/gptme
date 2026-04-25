@@ -69,7 +69,7 @@ To select a provider and model, run ``gptme`` with the ``-m``/``--model`` flag s
 
 .. code-block:: sh
 
-    gptme "hello" -m openai/gpt-5
+    gptme "hello" -m openai/gpt-5.5
     gptme "hello" -m anthropic  # will use provider default
     gptme "hello" -m openrouter/x-ai/grok-4
     gptme "hello" -m deepseek/deepseek-reasoner
@@ -137,18 +137,19 @@ Access tokens are automatically refreshed before expiry, so you only need to aut
 
 .. code-block:: sh
 
+    gptme "hello" -m openai-subscription/gpt-5.5-pro
     gptme "hello" -m openai-subscription/gpt-5.4
-    gptme "hello" -m openai-subscription/gpt-5.2
 
 You can also append reasoning levels: ``:low``, ``:medium``, ``:high``, or ``:xhigh``:
 
 .. code-block:: sh
 
-    gptme "solve this problem" -m openai-subscription/gpt-5.4:high
+    gptme "solve this problem" -m openai-subscription/gpt-5.5-pro:high
 
 **Available Models:**
 
-- ``gpt-5.4`` - Latest GPT model with reasoning capabilities (recommended)
+- ``gpt-5.5-pro`` - Latest flagship with maximum reasoning compute (Responses API only)
+- ``gpt-5.4`` - Previous flagship with reasoning capabilities
 - ``gpt-5.3-codex`` - Previous code-optimized variant
 - ``gpt-5.3-codex-spark`` - Faster variant of gpt-5.3-codex
 - ``gpt-5.2`` - Previous generation GPT model
