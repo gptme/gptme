@@ -6,6 +6,7 @@ separated from the main telemetry module to avoid importing large dependencies
 unless explicitly needed.
 """
 
+import importlib.util as _importlib_util
 import logging
 import os
 import socket
@@ -162,8 +163,6 @@ _llm_request_counter = None
 # when telemetry is installed but not enabled). Probing the top-level package
 # only — find_spec on submodules triggers parent package init, defeating the
 # point of lazy loading. The full import happens inside init_telemetry().
-import importlib.util as _importlib_util
-
 TELEMETRY_AVAILABLE = _importlib_util.find_spec("opentelemetry") is not None
 TELEMETRY_IMPORT_ERROR: str | None = None
 if not TELEMETRY_AVAILABLE:
