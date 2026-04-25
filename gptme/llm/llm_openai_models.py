@@ -10,6 +10,27 @@ if TYPE_CHECKING:
 # and merged in below. They still work when explicitly requested via --model.
 
 _OPENAI_MODELS_ACTIVE: dict[str, "_ModelDictMeta"] = {
+    # GPT-5.5 — flagship released April 2026, 1M context
+    # https://developers.openai.com/api/docs/changelog
+    "gpt-5.5": {
+        "context": 1_000_000,
+        "max_output": 128_000,
+        "price_input": 5,
+        "price_output": 30,
+        "supports_vision": True,
+        "supports_reasoning": True,
+        "supports_parallel_tool_calls": True,
+    },
+    # GPT-5.5 Pro — Responses API only, "more compute to think harder"
+    "gpt-5.5-pro": {
+        "context": 1_000_000,
+        "max_output": 128_000,
+        "price_input": 30,
+        "price_output": 180,
+        "supports_vision": True,
+        "supports_reasoning": True,
+        "supports_parallel_tool_calls": True,
+    },
     # GPT-5
     "gpt-5": {
         "context": 400_000,
