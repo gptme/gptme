@@ -23,7 +23,10 @@ def create_app(cors_origin: str | None = None, host: str = "127.0.0.1") -> flask
     """Create the Flask app.
 
     Args:
-        cors_origin: CORS origin to allow. Use '*' to allow all origins.
+        cors_origin: CORS origin(s) to allow. Use '*' to allow all origins.
+            A comma-separated string allows multiple origins, e.g.
+            "tauri://localhost,http://tauri.localhost". Whitespace around
+            entries is ignored.
     """
     app = flask.Flask(__name__, static_folder=static_path)
 
@@ -61,13 +64,20 @@ def create_app(cors_origin: str | None = None, host: str = "127.0.0.1") -> flask
     logger.info("OpenAPI documentation available at /api/docs/")
 
     if cors_origin:
-        # Only allow credentials if a specific origin is set (not '*')
-        allow_credentials = cors_origin != "*" if cors_origin else False
+        # Support comma-separated origins so the desktop sidecar can allow
+        # multiple known webview origins (tauri://localhost on macOS/Linux,
+        # http://tauri.localhost on Windows, etc.) in a single flag.
+        origins_list = [o.strip() for o in cors_origin.split(",") if o.strip()]
+        origins: str | list[str] = (
+            origins_list[0] if len(origins_list) == 1 else origins_list
+        )
+        # Browsers reject credentials with a wildcard origin.
+        allow_credentials = "*" not in origins_list
         CORS(
             app,
             resources={
                 r"/api/*": {
-                    "origins": cors_origin,
+                    "origins": origins,
                     "supports_credentials": allow_credentials,
                 }
             },

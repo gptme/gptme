@@ -55,7 +55,11 @@ def main():
 @click.option(
     "--cors-origin",
     default=None,
-    help="CORS origin to allow. Use '*' to allow all origins.",
+    help=(
+        "CORS origin(s) to allow. Use '*' to allow all origins. Pass a "
+        "comma-separated list to allow multiple origins, e.g. "
+        "'tauri://localhost,http://tauri.localhost'."
+    ),
 )
 def serve(
     debug: bool,

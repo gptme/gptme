@@ -106,10 +106,15 @@ async fn start_server() -> Result<u16, String> {
 fn desktop_cors_origin() -> &'static str {
     if cfg!(debug_assertions) {
         "http://localhost:5701"
-    } else if cfg!(target_os = "macos") {
-        "tauri://localhost"
     } else {
-        "http://tauri.localhost"
+        // Webview origin differs per platform and Tauri version:
+        //   - WKWebView (macOS) / WebKitGTK (Linux) send tauri://localhost
+        //   - WebView2 (Windows) sends http://tauri.localhost
+        //     (and historically https://tauri.localhost)
+        // gptme-server accepts a comma-separated list, so allow all known
+        // origins and let the running webview match whichever it sends.
+        // See: gptme/gptme#2226
+        "tauri://localhost,http://tauri.localhost,https://tauri.localhost"
     }
 }
 
