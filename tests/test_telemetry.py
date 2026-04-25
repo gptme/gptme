@@ -1,8 +1,26 @@
 """Tests for telemetry functionality."""
 
+import subprocess
+import sys
 from unittest.mock import patch
 
 import pytest
+
+
+def test_telemetry_imports_lazy():
+    """Importing gptme.telemetry must not eagerly import opentelemetry.
+
+    Locks in the lazy-load contract: heavy opentelemetry packages should only
+    load when init_telemetry() actually runs (i.e. when GPTME_TELEMETRY_ENABLED).
+    Regression guard for the import-guard-vs-lazy-load fix.
+    """
+    code = (
+        "import gptme.telemetry, gptme.util._telemetry, sys; "
+        "leaked = [m for m in sys.modules if m == 'opentelemetry' or "
+        "m.startswith('opentelemetry.')]; "
+        "assert not leaked, f'opentelemetry eagerly imported: {leaked[:5]}'"
+    )
+    subprocess.check_call([sys.executable, "-c", code])
 
 
 @pytest.mark.skipif(

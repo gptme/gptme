@@ -158,42 +158,16 @@ _tool_duration_histogram = None
 _active_conversations_gauge = None
 _llm_request_counter = None
 
-TELEMETRY_AVAILABLE = False
-TELEMETRY_IMPORT_ERROR = None
+# Probe for opentelemetry availability without importing it (saves ~1.4s startup
+# when telemetry is installed but not enabled). Probing the top-level package
+# only — find_spec on submodules triggers parent package init, defeating the
+# point of lazy loading. The full import happens inside init_telemetry().
+import importlib.util as _importlib_util
 
-try:
-    from opentelemetry import metrics, trace  # fmt: skip
-    from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
-        OTLPMetricExporter,  # fmt: skip
-    )
-    from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
-        OTLPSpanExporter,  # fmt: skip
-    )
-    from opentelemetry.instrumentation.anthropic import (
-        AnthropicInstrumentor,  # fmt: skip
-    )
-    from opentelemetry.instrumentation.flask import FlaskInstrumentor  # fmt: skip
-    from opentelemetry.instrumentation.openai import OpenAIInstrumentor  # fmt: skip
-    from opentelemetry.instrumentation.requests import RequestsInstrumentor  # fmt: skip
-    from opentelemetry.instrumentation.threading import (
-        ThreadingInstrumentor,  # fmt: skip
-    )
-    from opentelemetry.sdk.metrics import MeterProvider  # fmt: skip
-    from opentelemetry.sdk.metrics.export import (
-        PeriodicExportingMetricReader,  # fmt: skip
-    )
-    from opentelemetry.sdk.metrics.view import (  # fmt: skip
-        ExplicitBucketHistogramAggregation,
-        View,
-    )
-    from opentelemetry.sdk.resources import Resource  # fmt: skip
-    from opentelemetry.sdk.trace import TracerProvider  # fmt: skip
-    from opentelemetry.sdk.trace.export import BatchSpanProcessor  # fmt: skip
-
-    TELEMETRY_AVAILABLE = True
-except ImportError as e:
-    TELEMETRY_AVAILABLE = False
-    TELEMETRY_IMPORT_ERROR = str(e)
+TELEMETRY_AVAILABLE = _importlib_util.find_spec("opentelemetry") is not None
+TELEMETRY_IMPORT_ERROR: str | None = None
+if not TELEMETRY_AVAILABLE:
+    TELEMETRY_IMPORT_ERROR = "opentelemetry packages not installed"
 
 
 def is_telemetry_enabled() -> bool:
@@ -342,6 +316,46 @@ def init_telemetry(
         if TELEMETRY_IMPORT_ERROR:
             error_msg += f" (Import error: {TELEMETRY_IMPORT_ERROR})"
         logger.warning(error_msg)
+        return
+
+    # Real opentelemetry imports happen here, after the env-var gate, so users
+    # who have telemetry installed but disabled don't pay the ~1.4s import cost.
+    try:
+        from opentelemetry import metrics, trace  # fmt: skip
+        from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
+            OTLPMetricExporter,  # fmt: skip
+        )
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+            OTLPSpanExporter,  # fmt: skip
+        )
+        from opentelemetry.instrumentation.anthropic import (
+            AnthropicInstrumentor,  # fmt: skip
+        )
+        from opentelemetry.instrumentation.flask import FlaskInstrumentor  # fmt: skip
+        from opentelemetry.instrumentation.openai import OpenAIInstrumentor  # fmt: skip
+        from opentelemetry.instrumentation.requests import (
+            RequestsInstrumentor,  # fmt: skip
+        )
+        from opentelemetry.instrumentation.threading import (
+            ThreadingInstrumentor,  # fmt: skip
+        )
+        from opentelemetry.sdk.metrics import MeterProvider  # fmt: skip
+        from opentelemetry.sdk.metrics.export import (
+            PeriodicExportingMetricReader,  # fmt: skip
+        )
+        from opentelemetry.sdk.metrics.view import (  # fmt: skip
+            ExplicitBucketHistogramAggregation,
+            View,
+        )
+        from opentelemetry.sdk.resources import Resource  # fmt: skip
+        from opentelemetry.sdk.trace import TracerProvider  # fmt: skip
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor  # fmt: skip
+    except ImportError as e:
+        logger.warning(
+            "OpenTelemetry dependencies not fully available (install with: "
+            "pip install gptme[telemetry]). Import error: %s",
+            e,
+        )
         return
 
     try:
@@ -557,6 +571,14 @@ def shutdown_telemetry() -> None:
     global _telemetry_enabled
 
     if not _telemetry_enabled:
+        return
+
+    # Lazy import — telemetry was enabled, so opentelemetry was already imported
+    # by init_telemetry(); this is a near-free re-import from sys.modules.
+    try:
+        from opentelemetry import metrics, trace  # fmt: skip
+    except ImportError as e:
+        logger.warning("Cannot shut down telemetry: %s", e)
         return
 
     try:
