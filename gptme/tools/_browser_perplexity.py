@@ -4,7 +4,7 @@ Perplexity search backend for the browser tool.
 
 import logging
 
-from ..llm.llm_openai import OPENROUTER_APP_HEADERS
+from ..llm.constants import OPENROUTER_APP_HEADERS
 
 logger = logging.getLogger(__name__)
 

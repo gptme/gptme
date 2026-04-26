@@ -16,17 +16,6 @@ from ..message import Message, MessageMetadata, format_msgs, len_tokens
 from ..telemetry import trace_function
 from ..tools import ToolSpec, ToolUse
 from ..util import console
-from .llm_anthropic import chat as chat_anthropic
-from .llm_anthropic import get_client as get_anthropic_client
-from .llm_anthropic import init as init_anthropic
-from .llm_anthropic import stream as stream_anthropic
-from .llm_openai import chat as chat_openai
-from .llm_openai import has_client as has_openai_client
-from .llm_openai import init as init_openai
-from .llm_openai import stream as stream_openai
-from .llm_openai_subscription import chat as chat_subscription
-from .llm_openai_subscription import init as init_subscription
-from .llm_openai_subscription import stream as stream_subscription
 from .models import (
     MODELS,
     PROVIDERS_OPENAI,
@@ -78,12 +67,48 @@ PROVIDER_API_KEYS: dict[str, str] = {
 _subscription_initialized = False
 
 
+# PEP 562 lazy attribute resolution for provider-specific functions.
+# Preserves `from gptme.llm import init_anthropic` (and similar) for external
+# callers without eagerly importing openai/anthropic at module load time.
+_LAZY_PROVIDER_ATTRS = {
+    "chat_anthropic": (".llm_anthropic", "chat"),
+    "stream_anthropic": (".llm_anthropic", "stream"),
+    "init_anthropic": (".llm_anthropic", "init"),
+    "get_anthropic_client": (".llm_anthropic", "get_client"),
+    "chat_openai": (".llm_openai", "chat"),
+    "stream_openai": (".llm_openai", "stream"),
+    "init_openai": (".llm_openai", "init"),
+    "has_openai_client": (".llm_openai", "has_client"),
+    "chat_subscription": (".llm_openai_subscription", "chat"),
+    "stream_subscription": (".llm_openai_subscription", "stream"),
+    "init_subscription": (".llm_openai_subscription", "init"),
+}
+
+
+def __getattr__(name: str):
+    if name in _LAZY_PROVIDER_ATTRS:
+        from importlib import import_module
+
+        module_name, attr_name = _LAZY_PROVIDER_ATTRS[name]
+        module = import_module(module_name, package=__name__)
+        attr = getattr(module, attr_name)
+        globals()[name] = attr
+        return attr
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 def init_llm(provider: Provider):
     """Initialize LLM client for a given provider if not already initialized.
 
     Args:
         provider: Provider name (built-in or custom)
     """
+    from .llm_anthropic import get_client as get_anthropic_client
+    from .llm_anthropic import init as init_anthropic
+    from .llm_openai import has_client as has_openai_client
+    from .llm_openai import init as init_openai
+    from .llm_openai_subscription import init as init_subscription
+
     global _subscription_initialized
     config = get_config()
 
@@ -235,10 +260,14 @@ def _chat_complete(
         or is_custom_provider(provider)
         or is_plugin_provider(str(provider))
     ):
+        from .llm_openai import chat as chat_openai
+
         return chat_openai(
             messages, model, tools, output_schema=output_schema, max_tokens=max_tokens
         )
     if provider == "anthropic":
+        from .llm_anthropic import chat as chat_anthropic
+
         return chat_anthropic(
             messages,
             _get_base_model(model),
@@ -247,6 +276,8 @@ def _chat_complete(
             max_tokens=max_tokens,
         )
     if provider == "openai-subscription":
+        from .llm_openai_subscription import chat as chat_subscription
+
         content = chat_subscription(
             messages, _get_base_model(model), tools, max_tokens=max_tokens
         )
@@ -300,11 +331,15 @@ def _stream(
         or is_custom_provider(provider)
         or is_plugin_provider(str(provider))
     ):
+        from .llm_openai import stream as stream_openai
+
         gen = stream_openai(
             messages, model, tools, output_schema=output_schema, max_tokens=max_tokens
         )
         return _StreamWithMetadata(gen, model)
     if provider == "anthropic":
+        from .llm_anthropic import stream as stream_anthropic
+
         gen = stream_anthropic(
             messages,
             _get_base_model(model),
@@ -314,6 +349,8 @@ def _stream(
         )
         return _StreamWithMetadata(gen, model)
     if provider == "openai-subscription":
+        from .llm_openai_subscription import stream as stream_subscription
+
         gen = stream_subscription(
             messages, _get_base_model(model), tools, max_tokens=max_tokens
         )

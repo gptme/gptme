@@ -17,7 +17,7 @@ from ..constants import OPENAI_VERBOSITY, TEMPERATURE, TOP_P
 from ..message import Message, MessageMetadata, UsageData, msgs2dicts
 from ..telemetry import _calculate_llm_cost, record_llm_request
 from ..tools import ToolSpec
-from .constants import _MIN_RESPONSE_TOKENS
+from .constants import _MIN_RESPONSE_TOKENS, OPENROUTER_APP_HEADERS
 from .models import (
     CustomProvider,
     ModelMeta,
@@ -99,11 +99,9 @@ class MessageDict(TypedDict):
     ]  # Image/file attachments as file paths (processed before API call)
 
 
-# Shows in rankings on openrouter.ai
-OPENROUTER_APP_HEADERS = {
-    "HTTP-Referer": "https://github.com/gptme/gptme",
-    "X-Title": "gptme",
-}
+# OPENROUTER_APP_HEADERS canonical definition is in gptme.llm.constants;
+# re-exported above (line 20) for backward compatibility with existing
+# `from gptme.llm.llm_openai import OPENROUTER_APP_HEADERS` imports.
 
 
 def _record_usage(usage, model: str) -> MessageMetadata | None:
