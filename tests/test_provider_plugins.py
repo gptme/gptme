@@ -317,10 +317,10 @@ class TestPluginRouting:
                 return_value=[_make_entry_point(plugin)],
             ),
             patch(
-                "gptme.llm.has_openai_client",
+                "gptme.llm.llm_openai.has_client",
                 side_effect=lambda _provider: client_registered,
             ),
-            patch("gptme.llm.init_openai") as mock_init_openai,
+            patch("gptme.llm.llm_openai.init") as mock_init_openai,
         ):
             init_llm(CustomProvider("myprovider"))
 
@@ -339,8 +339,8 @@ class TestPluginRouting:
                 "importlib.metadata.entry_points",
                 return_value=[_make_entry_point(plugin)],
             ),
-            patch("gptme.llm.has_openai_client", return_value=False),
-            patch("gptme.llm.init_openai") as mock_init_openai,
+            patch("gptme.llm.llm_openai.has_client", return_value=False),
+            patch("gptme.llm.llm_openai.init") as mock_init_openai,
             pytest.raises(
                 RuntimeError,
                 match="did not register an OpenAI-compatible client",
@@ -363,7 +363,9 @@ class TestPluginRouting:
                 "importlib.metadata.entry_points",
                 return_value=[_make_entry_point(plugin)],
             ),
-            patch("gptme.llm.chat_openai", return_value=expected) as mock_chat_openai,
+            patch(
+                "gptme.llm.llm_openai.chat", return_value=expected
+            ) as mock_chat_openai,
         ):
             result = _chat_complete(messages, "myprovider/test-model-v1", None)
 
@@ -392,7 +394,7 @@ class TestPluginRouting:
                 return_value=[_make_entry_point(plugin)],
             ),
             patch(
-                "gptme.llm.stream_openai", side_effect=fake_stream
+                "gptme.llm.llm_openai.stream", side_effect=fake_stream
             ) as mock_stream_openai,
         ):
             stream = _stream(messages, "myprovider/test-model-v1", None)
