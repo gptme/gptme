@@ -342,35 +342,52 @@ pub fn run() {
             #[cfg(desktop)]
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 log::info!("Window close requested, cleaning up gptme-server...");
-
-                let arc = window.state::<ServerProcess>().0.clone();
-                let mut guard = match arc.lock() {
-                    Ok(g) => g,
-                    Err(_) => {
-                        log::error!("Failed to acquire lock on server process");
-                        return;
-                    }
-                };
-                if let Some(child) = guard.take() {
-                    log::info!("Terminating gptme-server process...");
-                    match child.kill() {
-                        Ok(_) => {
-                            log::info!("gptme-server process terminated successfully");
-                        }
-                        Err(e) => {
-                            log::error!("Failed to terminate gptme-server: {}", e);
-                        }
-                    }
-                } else {
-                    log::warn!("No gptme-server process found to terminate");
-                }
+                cleanup_server_process(window.app_handle());
             }
 
             #[cfg(not(desktop))]
             let _ = (window, event);
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app_handle, _event| {
+            // ExitRequested fires on app-level exit paths that don't emit a
+            // per-window CloseRequested first (macOS Cmd+Q, dock-quit, system
+            // shutdown). Without this, the sidecar gptme-server outlives the
+            // app and squats on port 5700 (gptme/gptme#2237).
+            //
+            // cleanup_server_process is idempotent — if CloseRequested already
+            // killed and cleared the child, this is a no-op.
+            #[cfg(desktop)]
+            if let tauri::RunEvent::ExitRequested { .. } = _event {
+                log::info!("App exit requested, cleaning up gptme-server...");
+                cleanup_server_process(_app_handle);
+            }
+        });
+}
+
+#[cfg(desktop)]
+fn cleanup_server_process(app: &tauri::AppHandle) {
+    // Pre-setup state may not be registered yet (e.g. very early exit).
+    let state = match app.try_state::<ServerProcess>() {
+        Some(s) => s,
+        None => return,
+    };
+    let arc = state.0.clone();
+    let mut guard = match arc.lock() {
+        Ok(g) => g,
+        Err(_) => {
+            log::error!("Failed to acquire lock on server process");
+            return;
+        }
+    };
+    if let Some(child) = guard.take() {
+        log::info!("Terminating gptme-server process...");
+        match child.kill() {
+            Ok(_) => log::info!("gptme-server process terminated successfully"),
+            Err(e) => log::error!("Failed to terminate gptme-server: {}", e),
+        }
+    }
 }
 
 #[cfg(test)]
