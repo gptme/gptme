@@ -285,13 +285,16 @@ export function findOrCreateServerByUrl(
   });
 }
 
-function deriveServerName(url: string): string {
+export function deriveServerName(url: string): string {
   try {
     const parsed = new URL(url);
-    if (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') {
-      return 'Local';
-    }
-    return parsed.hostname;
+    const isDefaultPort =
+      !parsed.port ||
+      (parsed.protocol === 'http:' && parsed.port === '80') ||
+      (parsed.protocol === 'https:' && parsed.port === '443');
+    const isLocal = parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost';
+    const base = isLocal ? 'Local' : parsed.hostname;
+    return isDefaultPort ? base : `${base}:${parsed.port}`;
   } catch {
     return 'Server';
   }
