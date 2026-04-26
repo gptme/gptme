@@ -6,7 +6,7 @@ import time
 from collections.abc import Callable, Generator, Iterator
 from functools import lru_cache
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from rich import print as rprint
 
@@ -85,7 +85,7 @@ _LAZY_PROVIDER_ATTRS = {
 }
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     if name in _LAZY_PROVIDER_ATTRS:
         from importlib import import_module
 

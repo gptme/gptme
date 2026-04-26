@@ -100,7 +100,7 @@ class MessageDict(TypedDict):
 
 
 # OPENROUTER_APP_HEADERS canonical definition is in gptme.llm.constants;
-# re-exported above (line 20) for backward compatibility with existing
+# re-exported here for backward compatibility with existing
 # `from gptme.llm.llm_openai import OPENROUTER_APP_HEADERS` imports.
 
 
