@@ -7,6 +7,7 @@ interface TauriServerStatus {
   port: number;
   port_available: boolean;
   manages_local_server: boolean;
+  existing_server_detected: boolean;
 }
 
 let cachedServerStatus: TauriServerStatus | null = null;
@@ -67,6 +68,7 @@ export function useTauriServerStatus() {
           port: 5700,
           port_available: false,
           manages_local_server: false,
+          existing_server_detected: false,
         });
       })
       .finally(() => {

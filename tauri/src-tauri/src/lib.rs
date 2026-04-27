@@ -26,6 +26,16 @@ fn is_port_available(port: u16) -> bool {
 }
 
 #[cfg(desktop)]
+fn is_server_responsive(port: u16) -> bool {
+    use std::net::TcpStream;
+    use std::time::Duration;
+    let addr: std::net::SocketAddr = format!("127.0.0.1:{}", port)
+        .parse()
+        .expect("valid socket addr");
+    TcpStream::connect_timeout(&addr, Duration::from_millis(500)).is_ok()
+}
+
+#[cfg(desktop)]
 struct ServerProcess(Arc<Mutex<Option<CommandChild>>>);
 
 #[derive(serde::Serialize)]
@@ -34,17 +44,20 @@ struct ServerStatus {
     port: u16,
     port_available: bool,
     manages_local_server: bool,
+    existing_server_detected: bool,
 }
 
 #[cfg(desktop)]
 #[tauri::command]
 fn get_server_status(state: tauri::State<'_, ServerProcess>) -> ServerStatus {
     let running = state.0.lock().map(|guard| guard.is_some()).unwrap_or(false);
+    let port_available = is_port_available(GPTME_SERVER_PORT);
     ServerStatus {
         running,
         port: GPTME_SERVER_PORT,
-        port_available: is_port_available(GPTME_SERVER_PORT),
+        port_available,
         manages_local_server: true,
+        existing_server_detected: !running && !port_available,
     }
 }
 
@@ -56,6 +69,7 @@ fn get_server_status() -> ServerStatus {
         port: GPTME_SERVER_PORT,
         port_available: false,
         manages_local_server: false,
+        existing_server_detected: false,
     }
 }
 
@@ -124,6 +138,18 @@ fn spawn_server_sidecar(
     state_arc: Arc<Mutex<Option<CommandChild>>>,
 ) -> Result<(), String> {
     if !is_port_available(GPTME_SERVER_PORT) {
+        // Port is occupied — check if a server is already responding there.
+        // This is the common crash-recovery case: the gptme-server sidecar
+        // outlived the Tauri process and is still listening on the port.
+        // Reuse it silently rather than showing a blocking error dialog.
+        if is_server_responsive(GPTME_SERVER_PORT) {
+            log::info!(
+                "Port {} is occupied and a server is already responding — \
+                 reusing existing gptme-server (likely a leftover from a previous session)",
+                GPTME_SERVER_PORT
+            );
+            return Ok(());
+        }
         return Err(format!("Port {} is already in use", GPTME_SERVER_PORT));
     }
 
@@ -414,6 +440,16 @@ mod tests {
     }
 
     #[test]
+    #[cfg(desktop)]
+    fn test_is_server_responsive_on_listening_port() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert!(is_server_responsive(port));
+        drop(listener);
+        assert!(!is_server_responsive(port));
+    }
+
+    #[test]
     fn test_extract_auth_code_valid() {
         let url = url::Url::parse("gptme://pairing-complete?code=abc123def").unwrap();
         assert_eq!(extract_auth_code(&url), Some("abc123def".to_string()));
@@ -458,12 +494,14 @@ mod tests {
             port: 5700,
             port_available: true,
             manages_local_server: true,
+            existing_server_detected: false,
         };
         let json = serde_json::to_string(&status).unwrap();
         assert!(json.contains("\"running\":false"));
         assert!(json.contains("\"port\":5700"));
         assert!(json.contains("\"port_available\":true"));
         assert!(json.contains("\"manages_local_server\":true"));
+        assert!(json.contains("\"existing_server_detected\":false"));
     }
 
     #[test]
