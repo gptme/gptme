@@ -102,11 +102,11 @@ def prompt_gptme(
     # use <thinking> tags as a fallback if the model doesn't natively support reasoning
     use_thinking_tags = not model_meta or not model_meta.supports_reasoning
 
-    if agent_name:
-        agent_blurb = f"{agent_name}, an agent running in gptme, letting you act as a general-purpose AI assistant powered by LLMs"
-    else:
-        from ..__version__ import __version__
+    from ..__version__ import __version__
 
+    if agent_name:
+        agent_blurb = f"{agent_name}, an agent running in gptme v{__version__}, letting you act as a general-purpose AI assistant powered by LLMs"
+    else:
         agent_name = f"gptme v{__version__}"
         agent_blurb = f"{agent_name}, a general-purpose AI assistant powered by LLMs"
 
