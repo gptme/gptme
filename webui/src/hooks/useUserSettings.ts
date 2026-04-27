@@ -18,10 +18,10 @@ export interface UserSettingsConfigFiles {
 
 export interface UserSettings {
   providers_configured: string[];
-  provider_sources: Record<string, UserSettingsProviderSource>;
+  provider_sources?: Record<string, UserSettingsProviderSource>;
   default_model: string | null;
-  default_model_source: UserSettingSource | null;
-  config_files: UserSettingsConfigFiles;
+  default_model_source?: UserSettingSource | null;
+  config_files?: UserSettingsConfigFiles;
 }
 
 export function useUserSettings() {
