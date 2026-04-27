@@ -34,6 +34,11 @@ from ..hooks import HookType, StopPropagation, register_hook
 from ..logmanager import Log
 from ..message import Message
 from ..prompts import _loaded_agent_files_var, find_agent_files_in_tree
+from ..util.context_dedup import _content_hash
+
+# Prefix used to store content hashes (vs file paths) in _loaded_agent_files_var.
+# Prevents path-identical-content re-injection when cwd changes to a git worktree.
+_HASH_PREFIX = "ch:"
 
 logger = logging.getLogger(__name__)
 
@@ -45,19 +50,31 @@ def _derive_loaded_files_from_log(log: Log) -> set[str]:
     contexts, causing _loaded_agent_files_var to start as None each request.
     Parses <agent-instructions source="..."> tags in system messages to rebuild
     the loaded-files set from the persistent conversation state.
+
+    Also records content hashes (prefixed with ``ch:``) so that worktree copies
+    with the same content but a different path are not re-injected.
     """
     loaded: set[str] = set()
     for msg in log.messages:
         if msg.role == "system":
-            for match in re.finditer(
+            # Extract source paths from opening tags (works even if closing tag missing).
+            for path_match in re.finditer(
                 r'<agent-instructions source="([^"]+)">', msg.content
             ):
-                path_str = match.group(1)
+                path_str = path_match.group(1)
                 try:
                     resolved = str(Path(path_str).expanduser().resolve())
                     loaded.add(resolved)
                 except (OSError, ValueError):
                     loaded.add(path_str)
+            # Extract content hashes from complete blocks so worktree copies with
+            # identical content are also skipped.
+            for block_match in re.finditer(
+                r'<agent-instructions source="[^"]*">(.*?)</agent-instructions>',
+                msg.content,
+                re.DOTALL,
+            ):
+                loaded.add(f"{_HASH_PREFIX}{_content_hash(block_match.group(1))}")
     return loaded
 
 
@@ -118,7 +135,18 @@ def on_cwd_changed(
                 logger.warning(f"Could not read agent file {agent_file}: {e}")
                 continue
 
+            # Skip if identical content was already injected from a different path
+            # (e.g. switching cwd to a git worktree that shares the same AGENTS.md).
+            content_key = f"{_HASH_PREFIX}{_content_hash(content)}"
+            if content_key in loaded:
+                logger.debug(
+                    f"Skipping {agent_file}: identical content already injected"
+                )
+                loaded.add(resolved)
+                continue
+
             loaded.add(resolved)
+            loaded.add(content_key)
 
             # Make the path relative to home for cleaner display
             try:

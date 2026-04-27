@@ -7,9 +7,12 @@ from typing import TYPE_CHECKING
 from ..config import config_path, get_config, get_project_config
 from ..message import Message
 from ..util.context import md_codeblock
+from ..util.context_dedup import _content_hash
 from ..util.tree import get_tree_output
 from . import AGENT_FILES, DEFAULT_CONTEXT_FILES, _loaded_agent_files_var
 from .context_cmd import get_project_context_cmd_output
+
+_HASH_PREFIX = "ch:"
 
 if TYPE_CHECKING:
     from ..util.uri import FilePath
@@ -219,6 +222,12 @@ def prompt_workspace(
                     agent_files.append(user_file)
                     seen_paths.add(resolved)
                     loaded_agent_files.add(resolved)
+                    try:
+                        loaded_agent_files.add(
+                            f"{_HASH_PREFIX}{_content_hash(user_file.read_text())}"
+                        )
+                    except OSError:
+                        pass
                     logger.debug(f"Loaded user-level agent file: {user_file}")
 
     # 2. Walk from home down to workspace, loading any AGENT_FILES found
@@ -233,6 +242,12 @@ def prompt_workspace(
             agent_files.append(agent_file)
             seen_paths.add(resolved)
             loaded_agent_files.add(resolved)
+            try:
+                loaded_agent_files.add(
+                    f"{_HASH_PREFIX}{_content_hash(agent_file.read_text())}"
+                )
+            except OSError:
+                pass
             logger.debug(f"Loaded agent file from tree: {agent_file}")
 
     # Determine which additional file patterns to use (from config or defaults)

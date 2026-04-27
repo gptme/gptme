@@ -11,12 +11,14 @@ from pathlib import Path
 import pytest
 
 from gptme.hooks.agents_md_inject import (
+    _HASH_PREFIX,
     _derive_loaded_files_from_log,
     _get_loaded_files,
     on_cwd_changed,
 )
 from gptme.message import Message
 from gptme.prompts import _loaded_agent_files_var
+from gptme.util.context_dedup import _content_hash
 
 
 @pytest.fixture
@@ -298,6 +300,89 @@ class TestOnCwdChanged:
             agent_msgs = [m for m in msgs if isinstance(m, Message)]
             assert len(agent_msgs) >= 1
             assert "source=" in agent_msgs[0].content
+        finally:
+            os.chdir(original)
+
+    def test_skips_injection_when_content_already_loaded(
+        self, tmp_path: Path, empty_log
+    ):
+        """Content-hash dedup: same content in different path must not be re-injected.
+
+        This is the worktree scenario described in gptme/gptme#2254: cwd changes from
+        ~/Programming/gptme/ to /tmp/worktrees/gptme-version-fix/ — both have the same
+        AGENTS.md but different absolute paths, so path-based dedup misses the duplicate.
+        """
+        # Simulate original repo directory
+        orig_dir = tmp_path / "original"
+        orig_dir.mkdir()
+        orig_file = orig_dir / "AGENTS.md"
+        shared_content = "# Shared Instructions\nDo great things."
+        orig_file.write_text(shared_content)
+
+        # Simulate worktree directory with IDENTICAL content at a different path
+        worktree_dir = tmp_path / "worktree"
+        worktree_dir.mkdir()
+        worktree_file = worktree_dir / "AGENTS.md"
+        worktree_file.write_text(shared_content)
+
+        # Simulate prompt_workspace() having loaded the original file at session start:
+        # it adds both the resolved path AND the content hash to the tracking set.
+        loaded = _get_loaded_files()
+        loaded.add(str(orig_file.resolve()))
+        loaded.add(f"{_HASH_PREFIX}{_content_hash(shared_content)}")
+
+        original = os.getcwd()
+        os.chdir(worktree_dir)
+        try:
+            msgs = list(
+                on_cwd_changed(
+                    log=empty_log,
+                    workspace=worktree_dir,
+                    old_cwd=str(orig_dir),
+                    new_cwd=str(worktree_dir),
+                    tool_use=None,
+                )
+            )
+            agent_msgs = [m for m in msgs if isinstance(m, Message)]
+            assert len(agent_msgs) == 0, (
+                "Identical content from a different path should not be re-injected"
+            )
+        finally:
+            os.chdir(original)
+
+    def test_different_content_in_different_path_is_injected(
+        self, tmp_path: Path, empty_log
+    ):
+        """Sanity check: different content at a new path must still be injected."""
+        orig_dir = tmp_path / "original"
+        orig_dir.mkdir()
+        orig_file = orig_dir / "AGENTS.md"
+        orig_file.write_text("# Original instructions.")
+
+        worktree_dir = tmp_path / "worktree"
+        worktree_dir.mkdir()
+        worktree_file = worktree_dir / "AGENTS.md"
+        worktree_file.write_text("# Different instructions — unique to worktree.")
+
+        # Mark the original as already loaded
+        loaded = _get_loaded_files()
+        loaded.add(str(orig_file.resolve()))
+
+        original = os.getcwd()
+        os.chdir(worktree_dir)
+        try:
+            msgs = list(
+                on_cwd_changed(
+                    log=empty_log,
+                    workspace=worktree_dir,
+                    old_cwd=str(orig_dir),
+                    new_cwd=str(worktree_dir),
+                    tool_use=None,
+                )
+            )
+            agent_msgs = [m for m in msgs if isinstance(m, Message)]
+            assert len(agent_msgs) >= 1, "Different content should be injected"
+            assert "unique to worktree" in agent_msgs[0].content
         finally:
             os.chdir(original)
 
