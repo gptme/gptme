@@ -1,8 +1,11 @@
 """
-Read the contents of a file or list the contents of a directory.
+Read the contents of one or more files, or list the contents of a directory.
 
 Provides a sandboxed file reading capability that works without shell access.
 Useful for restricted tool sets (e.g., ``--tools read,patch,save``).
+
+Multiple paths can be passed in the code block (one per line) to read several
+files in a single tool call, reducing roundtrips when exploring a codebase.
 """
 
 from collections.abc import Generator
@@ -17,18 +20,25 @@ from .base import (
 )
 
 instructions = """
-Read the content of a file or list the contents of a directory.
-The path can be relative or absolute.
+Read the content of one or more files, or list the contents of a directory.
+Paths can be relative or absolute.
 For files, output includes line numbers for easy reference.
 For directories, output shows a flat listing of immediate files and subdirectories.
+
+To read multiple files in a single call, put one path per line in the code block.
+The line-range parameters (start_line, end_line) only apply when reading a single file.
 """.strip()
 
 instructions_format = {
-    "markdown": "Use a code block with the language tag: `read <path>` to read a file.",
+    "markdown": (
+        "Use a code block with the language tag: `read <path>` to read a file. "
+        "For multiple files, place one path per line inside the code block."
+    ),
 }
 
 
 def examples(tool_format):
+    batch_paths = "hello.py\ngoodbye.py"
     return f"""
 > User: read hello.py
 > Assistant:
@@ -37,20 +47,40 @@ def examples(tool_format):
 >    1\tprint("Hello world")
 >    2\tprint("Goodbye world")
 > ```
+
+> User: read both source files
+> Assistant:
+{ToolUse("read", [], batch_paths).to_output(tool_format)}
+> System: ```hello.py
+>    1\tprint("Hello world")
+> ```
+> ```goodbye.py
+>    1\tprint("Goodbye world")
+> ```
 """.strip()
 
 
-def _get_read_path(
+def _get_read_paths(
     code: str | None, args: list[str] | None, kwargs: dict[str, str] | None
-) -> Path | None:
-    """Extract the file path from args or kwargs."""
+) -> list[Path]:
+    """Extract one or more file paths from args or kwargs.
+
+    The kwargs and args entry points always carry a single path (tool-format
+    callers and CLI invocations). The markdown code-block entry point may
+    contain multiple newline-separated paths for batch reading.
+    """
     if kwargs and "path" in kwargs:
-        return Path(kwargs["path"]).expanduser()
+        return [Path(kwargs["path"]).expanduser()]
     if args:
-        return Path(" ".join(args)).expanduser()
+        return [Path(" ".join(args)).expanduser()]
     if code and code.strip():
-        return Path(code.strip()).expanduser()
-    return None
+        paths = [
+            Path(line.strip()).expanduser()
+            for line in code.splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+        return paths
+    return []
 
 
 _MAX_DIR_ENTRIES = 100
@@ -84,17 +114,12 @@ def _list_directory(path: Path) -> Generator[Message, None, None]:
     )
 
 
-def execute_read(
-    code: str | None,
-    args: list[str] | None,
-    kwargs: dict[str, str] | None,
+def _read_one(
+    path: Path,
+    start_line: int = 1,
+    end_line: int | None = None,
 ) -> Generator[Message, None, None]:
-    """Read a file and return its contents with line numbers."""
-    path = _get_read_path(code, args, kwargs)
-    if not path:
-        yield Message("system", "No path provided")
-        return
-
+    """Read a single file or directory and yield messages with the result."""
     # Path traversal protection: validate relative paths stay within cwd
     path_display = path
     path = path.expanduser().resolve()
@@ -121,29 +146,6 @@ def execute_read(
     if not path.is_file():
         yield Message("system", f"Not a file: {path}")
         return
-
-    # Parse optional line range from kwargs
-    start_line = 1
-    end_line = None
-    if kwargs:
-        if "start_line" in kwargs:
-            try:
-                start_line = int(kwargs["start_line"])
-            except ValueError:
-                yield Message(
-                    "system",
-                    f"Invalid start_line: {kwargs['start_line']!r} (expected integer)",
-                )
-                return
-        if "end_line" in kwargs:
-            try:
-                end_line = int(kwargs["end_line"])
-            except ValueError:
-                yield Message(
-                    "system",
-                    f"Invalid end_line: {kwargs['end_line']!r} (expected integer)",
-                )
-                return
 
     try:
         content = path.read_text(encoding="utf-8")
@@ -176,9 +178,55 @@ def execute_read(
     yield Message("system", md_codeblock(f"{path}{range_info}", numbered))
 
 
+def execute_read(
+    code: str | None,
+    args: list[str] | None,
+    kwargs: dict[str, str] | None,
+) -> Generator[Message, None, None]:
+    """Read one or more files (or a directory) and return their contents."""
+    paths = _get_read_paths(code, args, kwargs)
+    if not paths:
+        yield Message("system", "No path provided")
+        return
+
+    # Parse optional line range from kwargs (single-path only)
+    start_line = 1
+    end_line = None
+    if kwargs:
+        if "start_line" in kwargs:
+            try:
+                start_line = int(kwargs["start_line"])
+            except ValueError:
+                yield Message(
+                    "system",
+                    f"Invalid start_line: {kwargs['start_line']!r} (expected integer)",
+                )
+                return
+        if "end_line" in kwargs:
+            try:
+                end_line = int(kwargs["end_line"])
+            except ValueError:
+                yield Message(
+                    "system",
+                    f"Invalid end_line: {kwargs['end_line']!r} (expected integer)",
+                )
+                return
+
+    # Line ranges only meaningful for single-file reads.
+    if len(paths) > 1 and (start_line != 1 or end_line is not None):
+        yield Message(
+            "system",
+            "start_line/end_line ignored when reading multiple paths",
+        )
+        start_line, end_line = 1, None
+
+    for path in paths:
+        yield from _read_one(path, start_line=start_line, end_line=end_line)
+
+
 tool = ToolSpec(
     name="read",
-    desc="Read the content of a file or list directory contents",
+    desc="Read the content of one or more files, or list directory contents",
     instructions=instructions,
     instructions_format=instructions_format,
     examples=examples,
@@ -194,13 +242,15 @@ tool = ToolSpec(
         Parameter(
             name="start_line",
             type="integer",
-            description="Line number to start reading from (1-indexed)",
+            description="Line number to start reading from (1-indexed). "
+            "Ignored when reading multiple files.",
             required=False,
         ),
         Parameter(
             name="end_line",
             type="integer",
-            description="Line number to stop reading at (inclusive)",
+            description="Line number to stop reading at (inclusive). "
+            "Ignored when reading multiple files.",
             required=False,
         ),
     ],
