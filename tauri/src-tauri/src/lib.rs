@@ -496,6 +496,10 @@ fn kill_subprocesses(pid: u32) {
 // (the spawn_server_sidecar reuse path).
 #[cfg(unix)]
 fn kill_server_on_port(port: u16) {
+    // lsof returns all PIDs with any socket on the port, including established
+    // client connections (e.g. the Tauri WebView itself).  Skip our own PID to
+    // avoid self-killing the Tauri process during cleanup.
+    let my_pid = std::process::id();
     let output = match std::process::Command::new("lsof")
         .args(["-ti", &format!(":{}", port)])
         .output()
@@ -512,6 +516,10 @@ fn kill_server_on_port(port: u16) {
     };
     for pid_str in String::from_utf8_lossy(&output.stdout).split_whitespace() {
         if let Ok(pid) = pid_str.parse::<u32>() {
+            if pid == my_pid {
+                log::debug!("Skipping self (PID {}) in port {} cleanup", pid, port);
+                continue;
+            }
             log::info!("Killing orphan gptme-server PID {} on port {}", pid, port);
             kill_subprocesses(pid);
             let _ = std::process::Command::new("kill")
@@ -523,7 +531,9 @@ fn kill_server_on_port(port: u16) {
 
 #[cfg(windows)]
 fn kill_server_on_port(port: u16) {
-    // netstat -ano lists all connections with PIDs; find the LISTENING entry.
+    // netstat -ano columns: Proto  LocalAddress  ForeignAddress  State  PID
+    // Match the local-address field (col[1]) exactly so ":5700" does not
+    // accidentally match ":57001" via substring search.
     let output = match std::process::Command::new("netstat")
         .args(["-ano"])
         .output()
@@ -533,17 +543,24 @@ fn kill_server_on_port(port: u16) {
     };
     let port_suffix = format!(":{}", port);
     for line in String::from_utf8_lossy(&output.stdout).lines() {
-        if line.contains(&port_suffix) && line.contains("LISTENING") {
-            if let Some(pid_str) = line.split_whitespace().last() {
-                log::info!(
-                    "Killing orphan gptme-server PID {} on port {}",
-                    pid_str,
-                    port
-                );
-                let _ = std::process::Command::new("taskkill")
-                    .args(["/F", "/T", "/PID", pid_str])
-                    .status();
-            }
+        if !line.contains("LISTENING") {
+            continue;
+        }
+        let cols: Vec<&str> = line.split_whitespace().collect();
+        // col[1] is the local address, e.g. "0.0.0.0:5700" or "[::]:5700"
+        let local_addr = cols.get(1).copied().unwrap_or("");
+        if !local_addr.ends_with(&port_suffix) {
+            continue;
+        }
+        if let Some(pid_str) = cols.last() {
+            log::info!(
+                "Killing orphan gptme-server PID {} on port {}",
+                pid_str,
+                port
+            );
+            let _ = std::process::Command::new("taskkill")
+                .args(["/F", "/T", "/PID", pid_str])
+                .status();
         }
     }
 }
