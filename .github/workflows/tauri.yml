@@ -342,6 +342,10 @@ jobs:
           merge-multiple: true
           path: tauri/bins
 
+      - name: Fix sidecar permissions
+        shell: bash
+        run: chmod +x tauri/bins/gptme-server-* || true
+
       - name: Create placeholder icons for tauri::generate_context!
         shell: bash
         run: |
