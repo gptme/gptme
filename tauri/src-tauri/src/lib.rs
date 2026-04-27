@@ -51,20 +51,20 @@ struct ServerStatus {
 
 #[cfg(desktop)]
 #[tauri::command]
-async fn get_server_status(state: tauri::State<'_, ServerProcess>) -> ServerStatus {
+async fn get_server_status(state: tauri::State<'_, ServerProcess>) -> Result<ServerStatus, String> {
     let running = state.0.lock().map(|guard| guard.is_some()).unwrap_or(false);
     let port_available = is_port_available(GPTME_SERVER_PORT);
     // Only probe TCP when the port is occupied but we're not managing it —
     // avoids false-positive existing_server_detected during TIME_WAIT after stop_server.
     let existing_server_detected =
         !running && !port_available && is_server_responsive(GPTME_SERVER_PORT).await;
-    ServerStatus {
+    Ok(ServerStatus {
         running,
         port: GPTME_SERVER_PORT,
         port_available,
         manages_local_server: true,
         existing_server_detected,
-    }
+    })
 }
 
 #[cfg(not(desktop))]
