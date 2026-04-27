@@ -342,6 +342,29 @@ jobs:
           merge-multiple: true
           path: tauri/bins
 
+      - name: Codesign sidecar binary (macOS)
+        if: matrix.platform == 'macos-latest' && env.HAS_APPLE_SIGNING == 'true'
+        shell: bash
+        run: |
+          # Tauri only signs the .app bundle, not sidecar binaries.
+          # macOS Gatekeeper rejects unsigned binaries inside signed apps,
+          # so we must codesign the PyInstaller-built sidecar before bundling.
+          # Entitlements allow JIT and unsigned memory access (required by PyInstaller).
+          # See: https://github.com/tauri-apps/tauri/discussions/2269
+          TRIPLE=$(rustc -Vv | grep host | cut -f2 -d' ')
+          SIDECAR="tauri/bins/gptme-server-${TRIPLE}"
+          if [ -f "$SIDECAR" ]; then
+            echo "Signing sidecar: $SIDECAR"
+            codesign --force --options runtime --timestamp \
+              --entitlements tauri/entitlements.plist \
+              --sign "$APPLE_SIGNING_IDENTITY" \
+              "$SIDECAR"
+            codesign --verify --verbose "$SIDECAR"
+          else
+            echo "Warning: Sidecar not found at $SIDECAR, skipping codesign"
+            ls -la tauri/bins/ || true
+          fi
+
       - name: Create placeholder icons for tauri::generate_context!
         shell: bash
         run: |
