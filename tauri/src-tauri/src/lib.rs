@@ -26,13 +26,15 @@ fn is_port_available(port: u16) -> bool {
 }
 
 #[cfg(desktop)]
-fn is_server_responsive(port: u16) -> bool {
-    use std::net::TcpStream;
+async fn is_server_responsive(port: u16) -> bool {
     use std::time::Duration;
-    let addr: std::net::SocketAddr = format!("127.0.0.1:{}", port)
-        .parse()
-        .expect("valid socket addr");
-    TcpStream::connect_timeout(&addr, Duration::from_millis(500)).is_ok()
+    use tokio::net::TcpStream;
+    use tokio::time::timeout;
+    let addr = format!("127.0.0.1:{}", port);
+    timeout(Duration::from_millis(500), TcpStream::connect(&addr))
+        .await
+        .map(|r| r.is_ok())
+        .unwrap_or(false)
 }
 
 #[cfg(desktop)]
@@ -49,15 +51,19 @@ struct ServerStatus {
 
 #[cfg(desktop)]
 #[tauri::command]
-fn get_server_status(state: tauri::State<'_, ServerProcess>) -> ServerStatus {
+async fn get_server_status(state: tauri::State<'_, ServerProcess>) -> ServerStatus {
     let running = state.0.lock().map(|guard| guard.is_some()).unwrap_or(false);
     let port_available = is_port_available(GPTME_SERVER_PORT);
+    // Only probe TCP when the port is occupied but we're not managing it —
+    // avoids false-positive existing_server_detected during TIME_WAIT after stop_server.
+    let existing_server_detected =
+        !running && !port_available && is_server_responsive(GPTME_SERVER_PORT).await;
     ServerStatus {
         running,
         port: GPTME_SERVER_PORT,
         port_available,
         manages_local_server: true,
-        existing_server_detected: !running && !port_available,
+        existing_server_detected,
     }
 }
 
@@ -106,7 +112,7 @@ async fn start_server(
         }
     }
 
-    spawn_server_sidecar(&app, state.0.clone())?;
+    spawn_server_sidecar(&app, state.0.clone()).await?;
     Ok(GPTME_SERVER_PORT)
 }
 
@@ -133,7 +139,7 @@ fn desktop_cors_origin() -> &'static str {
 }
 
 #[cfg(desktop)]
-fn spawn_server_sidecar(
+async fn spawn_server_sidecar(
     app: &tauri::AppHandle,
     state_arc: Arc<Mutex<Option<CommandChild>>>,
 ) -> Result<(), String> {
@@ -142,7 +148,7 @@ fn spawn_server_sidecar(
         // This is the common crash-recovery case: the gptme-server sidecar
         // outlived the Tauri process and is still listening on the port.
         // Reuse it silently rather than showing a blocking error dialog.
-        if is_server_responsive(GPTME_SERVER_PORT) {
+        if is_server_responsive(GPTME_SERVER_PORT).await {
             log::info!(
                 "Port {} is occupied and a server is already responding — \
                  reusing existing gptme-server (likely a leftover from a previous session)",
@@ -353,7 +359,7 @@ pub fn run() {
 
                 let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    if let Err(err) = spawn_server_sidecar(&app_handle, child_handle) {
+                    if let Err(err) = spawn_server_sidecar(&app_handle, child_handle).await {
                         log::error!("Failed to start gptme-server: {}", err);
                         if err.contains("already in use") {
                             show_port_conflict_dialog(&app_handle);
@@ -439,14 +445,14 @@ mod tests {
         assert!(is_port_available(port));
     }
 
-    #[test]
+    #[tokio::test]
     #[cfg(desktop)]
-    fn test_is_server_responsive_on_listening_port() {
+    async fn test_is_server_responsive_on_listening_port() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
-        assert!(is_server_responsive(port));
+        assert!(is_server_responsive(port).await);
         drop(listener);
-        assert!(!is_server_responsive(port));
+        assert!(!is_server_responsive(port).await);
     }
 
     #[test]
