@@ -583,18 +583,14 @@ def main(
     logger.debug(f"Using tools: {config.chat.tools}")
     tools = init_tools(config.chat.tools)
 
-    # Check if we're resuming an existing conversation
+    # Check if we're opening an existing conversation (via --resume, --name, or pick)
     # If so, skip generating initial messages (including expensive context_cmd)
     # as they're already in the loaded log
     log_file = logdir / "conversation.jsonl"
-    is_existing_conversation = (
-        resume and log_file.exists() and log_file.stat().st_size > 0
-    )
+    is_existing_conversation = log_file.exists() and log_file.stat().st_size > 0
 
     if is_existing_conversation:
-        logger.debug(
-            "Resuming existing conversation, skipping initial prompt generation"
-        )
+        logger.debug("Existing conversation found, skipping initial prompt generation")
         initial_msgs = []
     else:
         # Infer context mode: --context-include implies selective mode
