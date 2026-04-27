@@ -184,7 +184,7 @@ jobs:
 
       - name: Generate Tauri icons
         shell: bash
-        run: cd tauri && npm run tauri icon ../webui/public/logo.png || true
+        run: cd tauri && npm run tauri icon app-icon.png || true
 
       - name: Fix ICO for Windows Resource Compiler
         if: runner.os == 'Windows'
@@ -354,7 +354,7 @@ jobs:
 
       - name: Generate Tauri icons
         shell: bash
-        run: cd tauri && npm run tauri icon ../webui/public/logo.png || true
+        run: cd tauri && npm run tauri icon app-icon.png || true
 
       - name: Fix ICO for Windows Resource Compiler
         if: runner.os == 'Windows'
@@ -463,7 +463,7 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: tauri

@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "gptme-tauri",
+  "productName": "gptme-desktop",
   "version": "0.1.0",
   "identifier": "org.gptme.tauri",
   "build": {
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "gptme-tauri",
+        "title": "gptme",
         "width": 800,
         "height": 600
       }
