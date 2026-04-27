@@ -227,7 +227,13 @@ function assetMeta(name) {
   if (name.endsWith('.AppImage')) return { label: '.AppImage', recommended: true };
   if (name.endsWith('-setup.exe')) return { label: 'Installer (.exe)', recommended: true };
   if (name.includes('server-bin') && name.endsWith('.tar.gz')) return { label: 'Server binary (.tar.gz)', recommended: false };
-  return { label: name.split('.').pop(), recommended: false };
+  return { label: name, recommended: false };
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
 }
 
 function formatSize(bytes) {
@@ -268,8 +274,8 @@ function renderRelease(release, isStable) {
   let html = `<div class="release-section">`;
   html += `<div class="release-header">`;
   html += `<h2>${isStable ? 'Latest Stable' : 'Latest Dev Build'}</h2>`;
-  html += `<span class="release-tag">${tag}</span>`;
-  html += `<span class="release-date">${formatDate(release.published_at)}</span>`;
+  html += `<span class="release-tag">${esc(tag)}</span>`;
+  html += `<span class="release-date">${esc(formatDate(release.published_at))}</span>`;
   html += `</div>`;
   html += `<div class="platform-grid">`;
 
@@ -281,7 +287,7 @@ function renderRelease(release, isStable) {
     html += `<ul class="download-list">`;
     for (const a of p.assets) {
       html += `<li>`;
-      html += `<a href="${a.url}">${a.label}</a>`;
+      html += `<a href="${esc(a.url)}">${esc(a.label)}</a>`;
       if (a.recommended) html += ` <span class="badge-rec">recommended</span>`;
       html += ` <span class="size">${formatSize(a.size)}</span>`;
       html += `</li>`;
