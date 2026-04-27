@@ -32,13 +32,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": ["../bins/gptme-server"],
-    "macOS": {
-      "infoPlist": {
-        "CFBundleDisplayName": "gptme",
-        "CFBundleName": "gptme"
-      }
-    }
+    "externalBin": ["../bins/gptme-server"]
   },
   "plugins": {
     "deep-link": {
