@@ -19,10 +19,11 @@ import {
   type ApiKeyProvider,
 } from '@/utils/apiKeyProviders';
 import { isTauriEnvironment, invokeTauri } from '@/utils/tauri';
+import { setupWizard$, type SetupWizardStep } from '@/stores/setupWizard';
 import { use$ } from '@legendapp/state/react';
 import { Monitor, Cloud, ArrowRight, Check, Terminal, ExternalLink } from 'lucide-react';
 
-type SetupStep = 'welcome' | 'mode' | 'local' | 'cloud' | 'provider' | 'complete';
+type SetupStep = SetupWizardStep;
 type SetupModelInfo = {
   id: string;
   provider: string;
@@ -87,6 +88,8 @@ export function SetupWizard() {
   const lastAutoAdvanceBaseUrlRef = useRef<string | null>(null);
   const isTauri = isTauriEnvironment();
   const { isLoading: isLoadingTauriStatus, managesLocalServer } = useTauriServerStatus();
+  const externalOpen = use$(setupWizard$.open);
+  const externalStep = use$(setupWizard$.step);
   const isRemoteOnlyTauri = isTauri && managesLocalServer === false;
   const isDeterminingTauriMode = isTauri && isLoadingTauriStatus;
   const canManageApiKeyInApp = isTauri && managesLocalServer === true;
@@ -280,6 +283,20 @@ export function SetupWizard() {
     setCloudLoginStarted(false);
     void checkProviderAndAdvance();
   }, [checkProviderAndAdvance, connectionConfig.baseUrl, isConnected, isOpen, step]);
+
+  useEffect(() => {
+    if (!externalOpen) {
+      return;
+    }
+
+    setConnectError(null);
+    setCloudLoginStarted(false);
+    setApiKeyError(null);
+    lastAutoAdvanceBaseUrlRef.current = null;
+    setStep(externalStep);
+    setIsOpen(true);
+    setupWizard$.open.set(false);
+  }, [externalOpen, externalStep]);
 
   // Close the dialog. Also calls completeSetup() so that skipping or finishing always persists.
   const closeWizard = () => {

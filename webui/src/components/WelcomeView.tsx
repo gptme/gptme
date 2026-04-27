@@ -13,6 +13,7 @@ import { ExamplesSection } from '@/components/ExamplesSection';
 import { serverRegistry$, getConnectedServers } from '@/stores/servers';
 import { getExamples } from '@/utils/examples';
 import { settingsModal$ } from '@/stores/settingsModal';
+import { setupWizard$ } from '@/stores/setupWizard';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   DropdownMenu,
@@ -39,6 +40,7 @@ export const WelcomeView = () => {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRetryingConnection, setIsRetryingConnection] = useState(false);
+  const [providerConfigured, setProviderConfigured] = useState<boolean | null>(null);
   const navigate = useNavigate();
   const { api, isConnected$, connectionConfig, switchServer, connect } = useApi();
   const queryClient = useQueryClient();
@@ -120,6 +122,44 @@ export const WelcomeView = () => {
     }
   };
 
+  useEffect(() => {
+    if (!isConnected) {
+      setProviderConfigured(null);
+      return;
+    }
+
+    const controller = new AbortController();
+
+    const fetchProviderStatus = async () => {
+      try {
+        const headers: Record<string, string> = {};
+        if (api.authHeader) {
+          headers.Authorization = api.authHeader;
+        }
+
+        const response = await fetch(`${connectionConfig.baseUrl}/api/v2`, {
+          headers,
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          throw new Error(`Failed to fetch provider status (${response.status})`);
+        }
+
+        const data = (await response.json()) as { provider_configured?: boolean };
+        setProviderConfigured(data.provider_configured !== false);
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          return;
+        }
+        setProviderConfigured(null);
+      }
+    };
+
+    void fetchProviderStatus();
+
+    return () => controller.abort();
+  }, [api.authHeader, connectionConfig.baseUrl, isConnected]);
+
   const { settings } = useSettings();
   const bg = settings.welcomeBackground;
   // Determine if the background is an image URL or a CSS gradient/color
@@ -195,6 +235,40 @@ export const WelcomeView = () => {
                         Copy start command
                       </Button>
                     )}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => settingsModal$.set({ open: true, category: 'servers' })}
+                    >
+                      Server settings
+                    </Button>
+                  </div>
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {isConnected && providerConfigured === false && (
+              <Alert className="mx-auto w-full max-w-2xl border-sky-500/30 bg-sky-500/10 text-left">
+                <Server className="h-4 w-4 text-sky-700 dark:text-sky-300" />
+                <AlertTitle>Provider setup required</AlertTitle>
+                <AlertDescription className="space-y-3">
+                  <p>
+                    This server is reachable, but it does not have an LLM provider configured yet.
+                    Finish setup to add an API key or switch to gptme.ai before starting a chat.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => {
+                        setupWizard$.step.set('provider');
+                        setupWizard$.open.set(true);
+                      }}
+                    >
+                      Finish setup
+                    </Button>
                     <Button
                       type="button"
                       size="sm"
