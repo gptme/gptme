@@ -14,6 +14,8 @@
 <p align="center">
   <a href="https://gptme.org/docs/getting-started.html">Getting Started</a>
   •
+  <a href="https://gptme.org/downloads/">Downloads</a>
+  •
   <a href="https://gptme.org/">Website</a>
   •
   <a href="https://gptme.org/docs/">Documentation</a>

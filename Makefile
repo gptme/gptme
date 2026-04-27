@@ -113,7 +113,7 @@ docs-auto:
 	make -C docs livehtml
 
 .PHONY: site
-site: site/dist/index.html site/dist/docs
+site: site/dist/index.html site/dist/docs site/dist/downloads/index.html
 	echo "gptme.org" > site/dist/CNAME
 
 .PHONY: site/dist/index.html
@@ -132,6 +132,10 @@ site/dist/style.css: site/style.css
 
 site/dist/docs: docs
 	cp -r docs/_build/html site/dist/docs
+
+site/dist/downloads/index.html: site/downloads.html
+	mkdir -p site/dist/downloads
+	cp site/downloads.html site/dist/downloads/index.html
 
 version:  ## Bump version using ./scripts/bump_version.sh (interactive)
 	@./scripts/bump_version.sh
