@@ -196,11 +196,24 @@ async fn spawn_server_sidecar(
         cors_origin
     );
 
+    // --watch-pid: belt-and-suspenders backup for cleanup_server_process.
+    // On macOS, Cmd+Q can terminate the Tauri process before our pkill/child.kill()
+    // syscalls finish (gptme/gptme#2260). The PyInstaller bootloader (the direct
+    // parent of the Python gptme-server process) survives reparenting to launchd,
+    // so watching getppid() from inside the Python child is insufficient — it
+    // still sees the bootloader. Pass the Tauri PID explicitly so the server
+    // self-terminates when Tauri itself disappears.
+    let tauri_pid = std::process::id().to_string();
     let sidecar_command = app
         .shell()
         .sidecar("gptme-server")
         .map_err(|e| format!("Sidecar error: {}", e))?
-        .args(["--cors-origin", cors_origin]);
+        .args([
+            "--cors-origin",
+            cors_origin,
+            "--watch-pid",
+            tauri_pid.as_str(),
+        ]);
 
     let (mut rx, child) = sidecar_command
         .spawn()

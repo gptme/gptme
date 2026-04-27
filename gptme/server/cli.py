@@ -1,5 +1,9 @@
 import json
 import logging
+import os
+import signal
+import threading
+import time
 from pathlib import Path
 
 import click
@@ -14,6 +18,65 @@ from .auth import get_server_token, init_auth
 from .constants import _pick_fallback_model
 
 logger = logging.getLogger(__name__)
+
+
+def _pid_alive(pid: int) -> bool:
+    """Check if a PID is still alive on this host.
+
+    Uses kill(pid, 0) which sends no signal but checks for the existence and
+    permission to signal the target. Returns False if the process is gone or
+    if EPERM means the PID was recycled by a different user.
+    """
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # PID exists but we can't signal it — likely recycled to a different
+        # user. Treat as dead so we don't keep watching a stale PID.
+        return False
+
+
+def _start_parent_death_watcher(
+    watch_pid: int | None = None, poll_interval: float = 0.5
+) -> None:
+    """Spawn a daemon thread that exits the process when a watched PID dies.
+
+    Tauri's macOS Cmd+Q can terminate the parent before its cleanup handlers
+    dispatch SIGKILL to sidecars (gptme/gptme#2260). When that happens, the
+    kernel reparents the orphan to PID 1 (launchd). We detect parent death and
+    self-terminate via SIGTERM so server shutdown still runs.
+
+    If `watch_pid` is given, we watch that specific PID (e.g. the Tauri grand-
+    parent PID, which is needed for PyInstaller-bundled servers because the
+    PyInstaller bootloader survives parent death and stays our `getppid()`).
+    Otherwise we watch our direct parent.
+    """
+    if watch_pid is None:
+        watch_pid = os.getppid()
+    if watch_pid <= 1:
+        # PID 0/1 means we're already orphaned or run directly under init —
+        # there's nothing meaningful to watch.
+        return
+
+    initial_pid = watch_pid
+
+    def _watcher() -> None:
+        while True:
+            time.sleep(poll_interval)
+            if not _pid_alive(initial_pid):
+                logger.warning(
+                    "Watched PID %d is gone, shutting down gptme-server",
+                    initial_pid,
+                )
+                # Send SIGTERM to ourselves so Flask's signal handlers run and
+                # the `finally: shutdown_telemetry()` block fires.
+                os.kill(os.getpid(), signal.SIGTERM)
+                return
+
+    thread = threading.Thread(target=_watcher, name="parent-death-watcher", daemon=True)
+    thread.start()
 
 
 @click.group(cls=DefaultGroup, default="serve", default_if_no_args=True)
@@ -61,6 +124,26 @@ def main():
         "'tauri://localhost,http://tauri.localhost'."
     ),
 )
+@click.option(
+    "--exit-on-parent-death",
+    is_flag=True,
+    default=False,
+    help=(
+        "Exit when the parent process dies. Useful when run as a sidecar "
+        "(e.g. by gptme-tauri) to avoid orphaned servers when the parent "
+        "exits without cleaning up children (gptme/gptme#2260)."
+    ),
+)
+@click.option(
+    "--watch-pid",
+    type=int,
+    default=None,
+    help=(
+        "PID to watch for liveness. If the PID disappears the server exits. "
+        "Used by gptme-tauri to pass its own PID so PyInstaller-bundled servers "
+        "can detect Tauri exit even when the bootloader survives reparenting."
+    ),
+)
 def serve(
     debug: bool,
     verbose: bool,
@@ -69,6 +152,8 @@ def serve(
     port: int,
     tools: str | None,
     cors_origin: str | None,
+    exit_on_parent_death: bool,
+    watch_pid: int | None,
 ):  # pragma: no cover
     """
     Starts a server and web UI for gptme.
@@ -77,6 +162,9 @@ def serve(
     """
     init_logging(verbose)
     set_config_from_workspace(Path.cwd())
+
+    if exit_on_parent_death or watch_pid is not None:
+        _start_parent_death_watcher(watch_pid=watch_pid)
 
     # Try to initialize with provided/configured model
     # If init fails due to missing model/API keys, use fallback
