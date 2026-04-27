@@ -249,7 +249,23 @@ async fn spawn_server_sidecar(
                     if let Ok(mut guard) = state_for_output.lock() {
                         *guard = None;
                     }
-                    owns_port_for_output.store(false, Ordering::Relaxed);
+                    // PyInstaller onefile bundles use a launcher process that
+                    // spawns the actual Python interpreter as a child. When the
+                    // launcher dies (cleanly or via SIGKILL), the Python child
+                    // can survive — reparented to init — and keep port 5700
+                    // bound until something explicitly kills it.  Verify the
+                    // port is actually free before declaring the server gone;
+                    // otherwise leave owns_port=true so cleanup_server_process
+                    // catches the orphan on app exit (#2260).
+                    if is_port_available(GPTME_SERVER_PORT) {
+                        owns_port_for_output.store(false, Ordering::Relaxed);
+                    } else {
+                        log::warn!(
+                            "[gptme-server] Sidecar exited but port {} still in use — \
+                             likely an orphaned subprocess; deferring port cleanup to app exit",
+                            GPTME_SERVER_PORT
+                        );
+                    }
                     break;
                 }
                 _ => {}
@@ -444,6 +460,12 @@ fn cleanup_server_process(app: &tauri::AppHandle) {
         Some(s) => s,
         None => return,
     };
+
+    // Snapshot ownership before we start mutating state — kill_server_on_port
+    // must run unconditionally below if we own the port, regardless of whether
+    // we have a tracked child handle.
+    let owns_port_at_entry = state.owns_port.load(Ordering::Relaxed);
+
     let arc = state.child.clone();
     let mut guard = match arc.lock() {
         Ok(g) => g,
@@ -455,25 +477,35 @@ fn cleanup_server_process(app: &tauri::AppHandle) {
     if let Some(child) = guard.take() {
         let pid = child.pid();
         log::info!("Terminating gptme-server process (PID {})...", pid);
-        // Kill child processes first (e.g. uvicorn workers spawned by gptme-server).
-        // child.kill() only sends SIGKILL to the direct child; without this step,
-        // subprocesses become orphans that keep port 5700 occupied (#2260).
+        // Kill child processes first (e.g. uvicorn workers spawned by gptme-server,
+        // or the Python child of a PyInstaller onefile launcher).  child.kill()
+        // only sends SIGKILL to the direct child; without this step, subprocesses
+        // become orphans that keep port 5700 occupied (#2260).
         kill_subprocesses(pid);
         match child.kill() {
             Ok(_) => log::info!("gptme-server process terminated successfully"),
             Err(e) => log::error!("Failed to terminate gptme-server: {}", e),
         }
-    } else if state.owns_port.load(Ordering::Relaxed) {
-        // No tracked child handle, but we reused an existing responsive server on
-        // startup (spawn_server_sidecar returned Ok(()) without storing a child).
-        // We still own port 5700, so kill whatever is listening there on exit.
-        // owns_port is false when startup failed with a non-responsive port conflict,
-        // so this branch is skipped in that case — avoiding killing an unrelated process.
+    }
+
+    // Always run port cleanup when we own the port.  This catches:
+    //   1. PyInstaller onefile orphans — the launcher's Python child survives
+    //      child.kill() and gets reparented to init, still holding port 5700.
+    //      pkill -P only kills processes whose PARENT matches at the moment
+    //      it runs; the orphan reparented to init slips past that check.
+    //   2. The reuse path (#2258) where no CommandChild handle was tracked,
+    //      so the `if let Some(child)` branch above didn't fire.
+    //   3. Any leftover server process holding the port for any other reason.
+    // Skipped only when we never owned the port (e.g. startup failed against
+    // a non-responsive foreign process — owns_port stays false in that case),
+    // so this branch will not kill unrelated foreign processes.
+    if owns_port_at_entry {
         log::info!(
-            "No tracked server process; killing reused server on port {}...",
+            "Cleaning up any remaining process on port {}...",
             GPTME_SERVER_PORT
         );
         kill_server_on_port(GPTME_SERVER_PORT);
+        state.owns_port.store(false, Ordering::Relaxed);
     }
 }
 
@@ -496,8 +528,11 @@ fn kill_subprocesses(pid: u32) {
         .status();
 }
 
-// Kill whatever is listening on `port` — used when no child handle was tracked
-// (the spawn_server_sidecar reuse path).
+// Kill whatever is listening on `port` — defensive cleanup that runs on every
+// app exit when we own the port.  Catches three cases:
+//   - PyInstaller onefile orphan: launcher dies, Python child reparented to init
+//   - Reuse path (#2258): no CommandChild was tracked
+//   - Subprocess survival: pkill -P missed children for any reason
 #[cfg(unix)]
 fn kill_server_on_port(port: u16) {
     // -sTCP:LISTEN restricts output to the process actually listening on the
