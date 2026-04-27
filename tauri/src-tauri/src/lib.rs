@@ -438,26 +438,34 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
-            // ExitRequested fires on app-level exit paths that don't emit a
-            // per-window CloseRequested first (macOS Cmd+Q, dock-quit, system
-            // shutdown). Without this, the sidecar gptme-server outlives the
-            // app and squats on port 5700 (gptme/gptme#2237).
+            // cleanup_server_process is idempotent (owns_port flag gates all
+            // work), so calling it from multiple paths is safe.
             //
-            // We call api.prevent_exit() so macOS cannot kill the process
-            // before our pkill/kill commands finish — the race that caused #2260
-            // to persist even after #2261.  After cleanup we call exit(0) to
-            // trigger a clean exit; that fires RunEvent::Exit (not another
-            // ExitRequested), so there is no infinite loop.
+            // Two paths need coverage:
             //
-            // cleanup_server_process is idempotent — if CloseRequested already
-            // killed and cleared the child, the owns_port flag is false and
-            // this becomes a pure no-op before exit(0) is called.
+            // 1. ExitRequested — fires when all windows are destroyed through
+            //    the normal tao event loop (e.g. last window closed via Cmd+W).
+            //    Run cleanup synchronously and let the exit proceed; do NOT
+            //    call prevent_exit() + exit(0), which creates an infinite loop
+            //    (exit(0) → RequestExit → ExitRequested → exit(0) → …).
+            //
+            // 2. RunEvent::Exit (LoopDestroyed) — fires on macOS Cmd+Q /
+            //    dock-quit.  tao does NOT implement applicationShouldTerminate:,
+            //    so macOS calls applicationWillTerminate: → AppState::exit() →
+            //    Event::LoopDestroyed → RunEvent::Exit directly, bypassing
+            //    ExitRequested entirely.  This was the root cause of #2260
+            //    surviving every previous fix: the cleanup code never ran.
             #[cfg(desktop)]
-            if let tauri::RunEvent::ExitRequested { api, .. } = event {
-                log::info!("App exit requested, cleaning up gptme-server...");
-                api.prevent_exit();
-                cleanup_server_process(app_handle);
-                app_handle.exit(0);
+            match event {
+                tauri::RunEvent::ExitRequested { .. } => {
+                    log::info!("Exit requested, cleaning up gptme-server...");
+                    cleanup_server_process(app_handle);
+                }
+                tauri::RunEvent::Exit => {
+                    log::info!("App exiting (LoopDestroyed / Cmd+Q), cleaning up gptme-server...");
+                    cleanup_server_process(app_handle);
+                }
+                _ => {}
             }
             #[cfg(not(desktop))]
             let _ = (app_handle, event);
