@@ -18,6 +18,7 @@ dist-ssr
 # preview build. Ignore the lockfile so a stray local `bun install`
 # can't silently re-break CF Pages.
 bun.lockb
+bun.lock
 
 # Editor directories and files
 .vscode/*
