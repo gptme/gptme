@@ -797,6 +797,18 @@ PROMPTS can be chained with the ‘-’ separator.</p>
 <dd><p>CORS origin(s) to allow. Use ‘*’ to allow all origins. Pass a comma-separated list to allow multiple origins, e.g. ‘tauri://localhost,http://tauri.localhost’.</p>
 </dd></dl>
 
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-server-serve-exit-on-parent-death">
+<span class="sig-name descname"><span class="pre">--exit-on-parent-death</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-server-serve-exit-on-parent-death" title="Link to this definition">#</a></dt>
+<dd><p>Exit when the parent process dies. Useful when run as a sidecar (e.g. by gptme-tauri) to avoid orphaned servers when the parent exits without cleaning up children (gptme/gptme#2260).</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-server-serve-watch-pid">
+<span class="sig-name descname"><span class="pre">--watch-pid</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;watch_pid&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-server-serve-watch-pid" title="Link to this definition">#</a></dt>
+<dd><p>PID to watch for liveness. If the PID disappears the server exits. Used by gptme-tauri to pass its own PID so PyInstaller-bundled servers can detect Tauri exit even when the bootloader survives reparenting.</p>
+</dd></dl>
+
 <p class="rubric">Environment variables</p>
 <dl class="std envvar" id="gptme-server-serve-host-gptme-server-host">
 <dt class="sig sig-object std">
