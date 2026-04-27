@@ -104,7 +104,7 @@ opentelemetry-instrumentation-threading = {version="^0.55b1", optional=true}
 sentence-transformers = {version = "^5.1.2", optional=true}
 
 # build
-pyinstaller = {version="^6.15", python=">=3.10,<3.15", optional=true}  # not yet compatible with Python 3.15+
+pyinstaller = {version="^6.20", python=">=3.10,<3.15", optional=true}  # not yet compatible with Python 3.15+
 
 # acp (Agent Client Protocol)
 agent-client-protocol = {version = ">=0.7", optional=true, python=">=3.10,<3.15"}
@@ -131,7 +131,7 @@ pytest-mock = "*"
 greenlet = "*"  # dependency of playwright, but needed for coverage
 
 # build
-pyinstaller = {version="^6.15", python=">=3.10,<3.15"}  # not yet compatible with Python 3.15+
+pyinstaller = {version="^6.20", python=">=3.10,<3.15"}  # not yet compatible with Python 3.15+
 
 # docs
 sphinx = "^8.0"
