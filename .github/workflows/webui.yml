@@ -62,7 +62,7 @@ jobs:
       url: https://chat.gptme.org
     steps:
     - name: Download dist artifact
-      uses: actions/download-artifact@v6
+      uses: actions/download-artifact@v8
       with:
         name: webui-dist
         path: dist
