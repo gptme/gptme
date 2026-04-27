@@ -421,19 +421,30 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|_app_handle, _event| {
+        .run(|app_handle, event| {
             // ExitRequested fires on app-level exit paths that don't emit a
             // per-window CloseRequested first (macOS Cmd+Q, dock-quit, system
             // shutdown). Without this, the sidecar gptme-server outlives the
             // app and squats on port 5700 (gptme/gptme#2237).
             //
+            // We call api.prevent_exit() so macOS cannot kill the process
+            // before our pkill/kill commands finish — the race that caused #2260
+            // to persist even after #2261.  After cleanup we call exit(0) to
+            // trigger a clean exit; that fires RunEvent::Exit (not another
+            // ExitRequested), so there is no infinite loop.
+            //
             // cleanup_server_process is idempotent — if CloseRequested already
-            // killed and cleared the child, this is a no-op.
+            // killed and cleared the child, the owns_port flag is false and
+            // this becomes a pure no-op before exit(0) is called.
             #[cfg(desktop)]
-            if let tauri::RunEvent::ExitRequested { .. } = _event {
+            if let tauri::RunEvent::ExitRequested { api, .. } = event {
                 log::info!("App exit requested, cleaning up gptme-server...");
-                cleanup_server_process(_app_handle);
+                api.prevent_exit();
+                cleanup_server_process(app_handle);
+                app_handle.exit(0);
             }
+            #[cfg(not(desktop))]
+            let _ = (app_handle, event);
         });
 }
 
@@ -460,9 +471,15 @@ fn cleanup_server_process(app: &tauri::AppHandle) {
         // subprocesses become orphans that keep port 5700 occupied (#2260).
         kill_subprocesses(pid);
         match child.kill() {
-            Ok(_) => log::info!("gptme-server process terminated successfully"),
-            Err(e) => log::error!("Failed to terminate gptme-server: {}", e),
+            Ok(_) => log::info!("gptme-server process (PID {}) terminated", pid),
+            Err(e) => log::error!("Failed to terminate gptme-server (PID {}): {}", pid, e),
         }
+        // Belt-and-suspenders: kill anything still on the port in case child.kill()
+        // failed or a detached subprocess survived pkill (e.g. double-forked workers).
+        kill_server_on_port(GPTME_SERVER_PORT);
+        // Synchronously clear owns_port so a second cleanup call (e.g. the
+        // ExitRequested that fires after CloseRequested) is a true no-op.
+        state.owns_port.store(false, Ordering::Relaxed);
     } else if state.owns_port.load(Ordering::Relaxed) {
         // No tracked child handle, but we reused an existing responsive server on
         // startup (spawn_server_sidecar returned Ok(()) without storing a child).
@@ -474,6 +491,7 @@ fn cleanup_server_process(app: &tauri::AppHandle) {
             GPTME_SERVER_PORT
         );
         kill_server_on_port(GPTME_SERVER_PORT);
+        state.owns_port.store(false, Ordering::Relaxed);
     }
 }
 
