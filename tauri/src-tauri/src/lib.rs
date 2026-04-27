@@ -1,6 +1,8 @@
 #[cfg(desktop)]
 use std::net::TcpListener;
 #[cfg(desktop)]
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(desktop)]
 use std::sync::{Arc, Mutex};
 
 use tauri::Manager;
@@ -38,7 +40,13 @@ async fn is_server_responsive(port: u16) -> bool {
 }
 
 #[cfg(desktop)]
-struct ServerProcess(Arc<Mutex<Option<CommandChild>>>);
+struct ServerProcess {
+    child: Arc<Mutex<Option<CommandChild>>>,
+    // True if we started or reused a gptme-server; false if startup failed
+    // (port occupied by an unresponsive foreign process).  Used in cleanup to
+    // avoid killing a process that we never owned.
+    owns_port: Arc<AtomicBool>,
+}
 
 #[derive(serde::Serialize)]
 struct ServerStatus {
@@ -52,7 +60,11 @@ struct ServerStatus {
 #[cfg(desktop)]
 #[tauri::command]
 async fn get_server_status(state: tauri::State<'_, ServerProcess>) -> Result<ServerStatus, String> {
-    let running = state.0.lock().map(|guard| guard.is_some()).unwrap_or(false);
+    let running = state
+        .child
+        .lock()
+        .map(|guard| guard.is_some())
+        .unwrap_or(false);
     let port_available = is_port_available(GPTME_SERVER_PORT);
     // Only probe TCP when the port is occupied but we're not managing it —
     // avoids false-positive existing_server_detected during TIME_WAIT after stop_server.
@@ -82,9 +94,14 @@ fn get_server_status() -> ServerStatus {
 #[cfg(desktop)]
 #[tauri::command]
 fn stop_server(state: tauri::State<'_, ServerProcess>) -> Result<(), String> {
-    let mut guard = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let mut guard = state
+        .child
+        .lock()
+        .map_err(|e| format!("Lock error: {}", e))?;
     if let Some(child) = guard.take() {
         log::info!("Stopping gptme-server via IPC command");
+        // Kill uvicorn workers before the parent; mirrors cleanup_server_process.
+        kill_subprocesses(child.pid());
         child.kill().map_err(|e| format!("Kill error: {}", e))?;
         log::info!("gptme-server stopped successfully");
         Ok(())
@@ -106,13 +123,16 @@ async fn start_server(
     state: tauri::State<'_, ServerProcess>,
 ) -> Result<u16, String> {
     {
-        let guard = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+        let guard = state
+            .child
+            .lock()
+            .map_err(|e| format!("Lock error: {}", e))?;
         if guard.is_some() {
             return Err("Server is already running".to_string());
         }
     }
 
-    spawn_server_sidecar(&app, state.0.clone()).await?;
+    spawn_server_sidecar(&app, state.child.clone(), state.owns_port.clone()).await?;
     Ok(GPTME_SERVER_PORT)
 }
 
@@ -142,6 +162,7 @@ fn desktop_cors_origin() -> &'static str {
 async fn spawn_server_sidecar(
     app: &tauri::AppHandle,
     state_arc: Arc<Mutex<Option<CommandChild>>>,
+    owns_port: Arc<AtomicBool>,
 ) -> Result<(), String> {
     if !is_port_available(GPTME_SERVER_PORT) {
         // Port is occupied — check if a server is already responding there.
@@ -154,8 +175,13 @@ async fn spawn_server_sidecar(
                  reusing existing gptme-server (likely a leftover from a previous session)",
                 GPTME_SERVER_PORT
             );
+            // Mark that we own (reuse) this port so cleanup_server_process
+            // knows it should kill it on exit.
+            owns_port.store(true, Ordering::Relaxed);
             return Ok(());
         }
+        // Port is occupied by a non-responsive foreign process — do NOT set
+        // owns_port; cleanup must not kill a process we never started.
         return Err(format!("Port {} is already in use", GPTME_SERVER_PORT));
     }
 
@@ -185,8 +211,10 @@ async fn spawn_server_sidecar(
         let mut guard = state_arc.lock().map_err(|e| format!("Lock error: {}", e))?;
         *guard = Some(child);
     }
+    owns_port.store(true, Ordering::Relaxed);
 
     let state_for_output = state_arc.clone();
+    let owns_port_for_output = owns_port.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(event) = rx.recv().await {
             match event {
@@ -217,6 +245,7 @@ async fn spawn_server_sidecar(
                     if let Ok(mut guard) = state_for_output.lock() {
                         *guard = None;
                     }
+                    owns_port_for_output.store(false, Ordering::Relaxed);
                     break;
                 }
                 _ => {}
@@ -355,11 +384,17 @@ pub fn run() {
             #[cfg(desktop)]
             {
                 let child_handle: Arc<Mutex<Option<CommandChild>>> = Arc::new(Mutex::new(None));
-                app.manage(ServerProcess(child_handle.clone()));
+                let owns_port: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+                app.manage(ServerProcess {
+                    child: child_handle.clone(),
+                    owns_port: owns_port.clone(),
+                });
 
                 let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    if let Err(err) = spawn_server_sidecar(&app_handle, child_handle).await {
+                    if let Err(err) =
+                        spawn_server_sidecar(&app_handle, child_handle, owns_port).await
+                    {
                         log::error!("Failed to start gptme-server: {}", err);
                         if err.contains("already in use") {
                             show_port_conflict_dialog(&app_handle);
@@ -405,7 +440,7 @@ fn cleanup_server_process(app: &tauri::AppHandle) {
         Some(s) => s,
         None => return,
     };
-    let arc = state.0.clone();
+    let arc = state.child.clone();
     let mut guard = match arc.lock() {
         Ok(g) => g,
         Err(_) => {
@@ -424,12 +459,14 @@ fn cleanup_server_process(app: &tauri::AppHandle) {
             Ok(_) => log::info!("gptme-server process terminated successfully"),
             Err(e) => log::error!("Failed to terminate gptme-server: {}", e),
         }
-    } else {
-        // No tracked child — the startup path reused an existing responsive server
-        // (spawn_server_sidecar returned Ok(()) without storing a child handle).
+    } else if state.owns_port.load(Ordering::Relaxed) {
+        // No tracked child handle, but we reused an existing responsive server on
+        // startup (spawn_server_sidecar returned Ok(()) without storing a child).
         // We still own port 5700, so kill whatever is listening there on exit.
+        // owns_port is false when startup failed with a non-responsive port conflict,
+        // so this branch is skipped in that case — avoiding killing an unrelated process.
         log::info!(
-            "No tracked server process; killing any process on port {}...",
+            "No tracked server process; killing reused server on port {}...",
             GPTME_SERVER_PORT
         );
         kill_server_on_port(GPTME_SERVER_PORT);
