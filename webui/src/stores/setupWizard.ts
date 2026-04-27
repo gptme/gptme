@@ -6,4 +6,9 @@ export type SetupWizardStep = 'welcome' | 'mode' | 'local' | 'cloud' | 'provider
 export const setupWizard$ = observable({
   open: false,
   step: 'welcome' as SetupWizardStep,
+  providerStatusVersion: 0,
 });
+
+export function bumpProviderStatusVersion() {
+  setupWizard$.providerStatusVersion.set((version) => version + 1);
+}

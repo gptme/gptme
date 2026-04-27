@@ -106,6 +106,7 @@ describe('SetupWizard', () => {
     isConnected$.set(false);
     setupWizard$.step.set('welcome');
     setupWizard$.open.set(false);
+    setupWizard$.providerStatusVersion.set(0);
     mockConnect.mockReset();
     mockOpen.mockReset();
     mockFetch.mockReset();
@@ -188,6 +189,7 @@ describe('SetupWizard', () => {
         hasCompletedSetup: true,
       });
     });
+    expect(setupWizard$.providerStatusVersion.get()).toBe(1);
     expect(screen.getByRole('heading', { name: /you're all set/i })).toBeInTheDocument();
   });
 

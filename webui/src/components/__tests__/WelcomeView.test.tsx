@@ -64,6 +64,7 @@ describe('WelcomeView', () => {
     isConnected$.set(true);
     setupWizard$.step.set('welcome');
     setupWizard$.open.set(false);
+    setupWizard$.providerStatusVersion.set(0);
     mockConnect.mockReset();
     mockNavigate.mockClear();
     mockInvalidateQueries.mockClear();
@@ -144,6 +145,34 @@ describe('WelcomeView', () => {
 
     await waitFor(() => {
       expect(setupWizard$.get()).toMatchObject({ open: true, step: 'provider' });
+    });
+  });
+
+  it('rechecks provider status after setup completion', async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ provider_configured: false }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ provider_configured: true }),
+      });
+
+    render(
+      <SettingsProvider>
+        <WelcomeView />
+      </SettingsProvider>
+    );
+
+    expect(await screen.findByText('Provider setup required')).toBeInTheDocument();
+
+    act(() => {
+      setupWizard$.providerStatusVersion.set(1);
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText('Provider setup required')).not.toBeInTheDocument();
     });
   });
 });

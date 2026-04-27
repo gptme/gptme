@@ -13,6 +13,7 @@ import { ExamplesSection } from '@/components/ExamplesSection';
 import { serverRegistry$, getConnectedServers } from '@/stores/servers';
 import { getExamples } from '@/utils/examples';
 import { settingsModal$ } from '@/stores/settingsModal';
+import { fetchProviderConfigured } from '@/utils/providerStatus';
 import { setupWizard$ } from '@/stores/setupWizard';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
@@ -45,6 +46,7 @@ export const WelcomeView = () => {
   const { api, isConnected$, connectionConfig, switchServer, connect } = useApi();
   const queryClient = useQueryClient();
   const isConnected = use$(isConnected$);
+  const providerStatusVersion = use$(setupWizard$.providerStatusVersion);
   const registry = use$(serverRegistry$);
   const connectedServers = getConnectedServers();
   const activeServer = registry.servers.find((s) => s.id === registry.activeServerId);
@@ -132,21 +134,9 @@ export const WelcomeView = () => {
 
     const fetchProviderStatus = async () => {
       try {
-        const headers: Record<string, string> = {};
-        if (api.authHeader) {
-          headers.Authorization = api.authHeader;
-        }
-
-        const response = await fetch(`${connectionConfig.baseUrl}/api/v2`, {
-          headers,
-          signal: controller.signal,
-        });
-        if (!response.ok) {
-          throw new Error(`Failed to fetch provider status (${response.status})`);
-        }
-
-        const data = (await response.json()) as { provider_configured?: boolean };
-        setProviderConfigured(data.provider_configured !== false);
+        setProviderConfigured(
+          await fetchProviderConfigured(connectionConfig.baseUrl, api.authHeader, controller.signal)
+        );
       } catch (error) {
         if (error instanceof Error && error.name === 'AbortError') {
           return;
@@ -158,7 +148,7 @@ export const WelcomeView = () => {
     void fetchProviderStatus();
 
     return () => controller.abort();
-  }, [api.authHeader, connectionConfig.baseUrl, isConnected]);
+  }, [api.authHeader, connectionConfig.baseUrl, isConnected, providerStatusVersion]);
 
   const { settings } = useSettings();
   const bg = settings.welcomeBackground;

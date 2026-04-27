@@ -18,8 +18,13 @@ import {
   API_KEY_PROVIDER_OPTIONS,
   type ApiKeyProvider,
 } from '@/utils/apiKeyProviders';
+import { fetchProviderConfigured } from '@/utils/providerStatus';
 import { isTauriEnvironment, invokeTauri } from '@/utils/tauri';
-import { setupWizard$, type SetupWizardStep } from '@/stores/setupWizard';
+import {
+  bumpProviderStatusVersion,
+  setupWizard$,
+  type SetupWizardStep,
+} from '@/stores/setupWizard';
 import { use$ } from '@legendapp/state/react';
 import { Monitor, Cloud, ArrowRight, Check, Terminal, ExternalLink } from 'lucide-react';
 
@@ -109,18 +114,14 @@ export function SetupWizard() {
 
   const completeSetup = useCallback(() => {
     updateSettings({ hasCompletedSetup: true });
+    bumpProviderStatusVersion();
   }, [updateSettings]);
 
-  const fetchProviderConfigured = useCallback(async () => {
-    const resp = await fetch(`${connectionConfig.baseUrl}/api/v2`, {
-      headers: withAuthHeaders(api.authHeader),
-    });
-    if (!resp.ok) {
-      throw new Error(`Failed to verify provider status (${resp.status})`);
-    }
-    const data = (await resp.json()) as { provider_configured?: boolean };
-    return data.provider_configured !== false;
-  }, [api.authHeader, connectionConfig.baseUrl]);
+  const checkProviderConfigured = useCallback(
+    (signal?: AbortSignal) =>
+      fetchProviderConfigured(connectionConfig.baseUrl, api.authHeader, signal),
+    [api.authHeader, connectionConfig.baseUrl]
+  );
 
   const saveApiKeyToServer = useCallback(
     async (provider: ApiKeyProvider, apiKeyValue: string, model?: string) => {
@@ -208,7 +209,7 @@ export function SetupWizard() {
   const checkProviderAndAdvance = useCallback(
     async ({ assumeConfiguredOnError = true }: { assumeConfiguredOnError?: boolean } = {}) => {
       try {
-        if (!(await fetchProviderConfigured())) {
+        if (!(await checkProviderConfigured())) {
           setStep('provider');
           return;
         }
@@ -221,7 +222,7 @@ export function SetupWizard() {
       completeSetup();
       setStep('complete');
     },
-    [completeSetup, fetchProviderConfigured]
+    [checkProviderConfigured, completeSetup]
   );
 
   const startServerWithRetry = useCallback(async () => {
@@ -251,7 +252,7 @@ export function SetupWizard() {
   const waitForRestartedServer = useCallback(async () => {
     for (let attempt = 0; attempt < SERVER_READY_RETRY_COUNT; attempt += 1) {
       try {
-        if (await fetchProviderConfigured()) {
+        if (await checkProviderConfigured()) {
           completeSetup();
           setStep('complete');
           return;
@@ -268,7 +269,7 @@ export function SetupWizard() {
         await sleep(SERVER_READY_RETRY_DELAY_MS);
       }
     }
-  }, [completeSetup, fetchProviderConfigured]);
+  }, [checkProviderConfigured, completeSetup]);
 
   useEffect(() => {
     if (!isConnected) {
