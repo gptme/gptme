@@ -53,10 +53,11 @@ export function useVoiceSession(voiceServerUrl: string): UseVoiceSessionReturn {
     setState('connecting');
 
     void (async () => {
-      // Declared outside try so catch can release them if addModule fails
+      // Declared outside try so catch can release them if setup fails
       // before sessionRef is assigned (cleanup() would be a no-op otherwise).
       let stream: MediaStream | null = null;
       let ctx: AudioContext | null = null;
+      let player: PCMPlayer | null = null;
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         ctx = new AudioContext();
@@ -80,12 +81,12 @@ export function useVoiceSession(voiceServerUrl: string): UseVoiceSessionReturn {
         workletNode.connect(silentGain);
         silentGain.connect(ctx.destination);
 
-        const player = new PCMPlayer(24000);
+        player = new PCMPlayer(24000);
         const ws = new WebSocket(voiceServerUrl);
         ws.binaryType = 'arraybuffer';
 
         // Stash session before async events can fire
-        const session: Session = { ws, player, audioCtx: ctx!, stream: stream!, rafId: 0 };
+        const session: Session = { ws, player: player!, audioCtx: ctx!, stream: stream!, rafId: 0 };
         sessionRef.current = session;
 
         ws.onmessage = (evt) => {
@@ -93,7 +94,7 @@ export function useVoiceSession(voiceServerUrl: string): UseVoiceSessionReturn {
             try {
               const msg = JSON.parse(evt.data) as { type: string };
               if (msg.type === 'ready') {
-                void player.resume();
+                void session.player.resume();
                 setState('recording');
 
                 // Wire worklet output → WebSocket
@@ -112,14 +113,14 @@ export function useVoiceSession(voiceServerUrl: string): UseVoiceSessionReturn {
                 };
                 session.rafId = requestAnimationFrame(tick);
               } else if (msg.type === 'audio_end') {
-                player.reset();
+                session.player.reset();
               }
             } catch {
               // non-JSON control frame — ignore
             }
           } else {
             // Binary: raw PCM from the model
-            player.feed(evt.data as ArrayBuffer);
+            session.player.feed(evt.data as ArrayBuffer);
           }
         };
 
@@ -135,9 +136,10 @@ export function useVoiceSession(voiceServerUrl: string): UseVoiceSessionReturn {
         };
       } catch (err) {
         // If setup failed before sessionRef was assigned, cleanup() is a no-op;
-        // release mic and recording context explicitly to prevent leaks.
+        // release mic, recording context, and player explicitly to prevent leaks.
         if (!sessionRef.current) {
           stream?.getTracks().forEach((t) => t.stop());
+          player?.close();
           void ctx?.close();
         }
         setError(err instanceof Error ? err.message : 'Voice setup failed');
