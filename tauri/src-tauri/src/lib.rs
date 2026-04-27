@@ -414,13 +414,109 @@ fn cleanup_server_process(app: &tauri::AppHandle) {
         }
     };
     if let Some(child) = guard.take() {
-        log::info!("Terminating gptme-server process...");
+        let pid = child.pid();
+        log::info!("Terminating gptme-server process (PID {})...", pid);
+        // Kill child processes first (e.g. uvicorn workers spawned by gptme-server).
+        // child.kill() only sends SIGKILL to the direct child; without this step,
+        // subprocesses become orphans that keep port 5700 occupied (#2260).
+        kill_subprocesses(pid);
         match child.kill() {
             Ok(_) => log::info!("gptme-server process terminated successfully"),
             Err(e) => log::error!("Failed to terminate gptme-server: {}", e),
         }
+    } else {
+        // No tracked child — the startup path reused an existing responsive server
+        // (spawn_server_sidecar returned Ok(()) without storing a child handle).
+        // We still own port 5700, so kill whatever is listening there on exit.
+        log::info!(
+            "No tracked server process; killing any process on port {}...",
+            GPTME_SERVER_PORT
+        );
+        kill_server_on_port(GPTME_SERVER_PORT);
     }
 }
+
+// Kill all direct children of `pid` (e.g. uvicorn workers).  The parent is
+// killed separately via CommandChild::kill() so we don't need /T here.
+#[cfg(unix)]
+fn kill_subprocesses(pid: u32) {
+    let _ = std::process::Command::new("pkill")
+        .args(["-9", "-P", &pid.to_string()])
+        .status();
+}
+
+#[cfg(windows)]
+fn kill_subprocesses(pid: u32) {
+    // taskkill /T kills the whole process tree including the root; that's fine
+    // here because we call this before child.kill(), so the parent gets a
+    // second kill attempt which is harmless.
+    let _ = std::process::Command::new("taskkill")
+        .args(["/F", "/T", "/PID", &pid.to_string()])
+        .status();
+}
+
+// Kill whatever is listening on `port` — used when no child handle was tracked
+// (the spawn_server_sidecar reuse path).
+#[cfg(unix)]
+fn kill_server_on_port(port: u16) {
+    let output = match std::process::Command::new("lsof")
+        .args(["-ti", &format!(":{}", port)])
+        .output()
+    {
+        Ok(o) => o,
+        Err(e) => {
+            log::warn!(
+                "lsof unavailable, cannot kill orphan server on port {}: {}",
+                port,
+                e
+            );
+            return;
+        }
+    };
+    for pid_str in String::from_utf8_lossy(&output.stdout).split_whitespace() {
+        if let Ok(pid) = pid_str.parse::<u32>() {
+            log::info!("Killing orphan gptme-server PID {} on port {}", pid, port);
+            kill_subprocesses(pid);
+            let _ = std::process::Command::new("kill")
+                .args(["-9", &pid.to_string()])
+                .status();
+        }
+    }
+}
+
+#[cfg(windows)]
+fn kill_server_on_port(port: u16) {
+    // netstat -ano lists all connections with PIDs; find the LISTENING entry.
+    let output = match std::process::Command::new("netstat")
+        .args(["-ano"])
+        .output()
+    {
+        Ok(o) => o,
+        Err(_) => return,
+    };
+    let port_suffix = format!(":{}", port);
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        if line.contains(&port_suffix) && line.contains("LISTENING") {
+            if let Some(pid_str) = line.split_whitespace().last() {
+                log::info!(
+                    "Killing orphan gptme-server PID {} on port {}",
+                    pid_str,
+                    port
+                );
+                let _ = std::process::Command::new("taskkill")
+                    .args(["/F", "/T", "/PID", pid_str])
+                    .status();
+            }
+        }
+    }
+}
+
+// Stub for platforms that are neither unix nor windows (shouldn't happen for desktop targets).
+#[cfg(not(any(unix, windows)))]
+fn kill_subprocesses(_pid: u32) {}
+
+#[cfg(not(any(unix, windows)))]
+fn kill_server_on_port(_port: u16) {}
 
 #[cfg(test)]
 mod tests {
