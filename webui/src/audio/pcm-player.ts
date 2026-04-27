@@ -15,6 +15,7 @@ export class PCMPlayer {
   private ctx: AudioContext;
   private sampleRate: number;
   private nextStart: number;
+  private scheduledSources: AudioBufferSourceNode[] = [];
 
   constructor(sampleRate = 24000) {
     const win = window as WindowWithWebkit;
@@ -41,6 +42,11 @@ export class PCMPlayer {
     const source = this.ctx.createBufferSource();
     source.buffer = audioBuffer;
     source.connect(this.ctx.destination);
+    this.scheduledSources.push(source);
+    source.onended = () => {
+      const idx = this.scheduledSources.indexOf(source);
+      if (idx >= 0) this.scheduledSources.splice(idx, 1);
+    };
 
     const now = this.ctx.currentTime;
     const when = Math.max(now + 0.01, this.nextStart); // 10 ms lookahead
@@ -55,8 +61,16 @@ export class PCMPlayer {
     }
   }
 
-  /** Reset scheduling cursor (call between utterances if needed). */
+  /** Stop in-flight audio and reset the scheduling cursor between utterances. */
   reset(): void {
+    for (const src of this.scheduledSources) {
+      try {
+        src.stop();
+      } catch {
+        // already ended — ignore
+      }
+    }
+    this.scheduledSources = [];
     this.nextStart = 0;
   }
 

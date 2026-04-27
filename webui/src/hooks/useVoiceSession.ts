@@ -53,9 +53,16 @@ export function useVoiceSession(voiceServerUrl: string): UseVoiceSessionReturn {
     setState('connecting');
 
     void (async () => {
+      // Declared outside try so catch can release them if addModule fails
+      // before sessionRef is assigned (cleanup() would be a no-op otherwise).
+      let stream: MediaStream | null = null;
+      let ctx: AudioContext | null = null;
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const ctx = new AudioContext();
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        ctx = new AudioContext();
+        // Resume immediately — browsers may auto-suspend an AudioContext created
+        // after an async getUserMedia() call (outside the user-gesture stack).
+        if (ctx.state === 'suspended') await ctx.resume();
 
         await ctx.audioWorklet.addModule('/pcm-recorder-worklet.js');
         const workletNode = new AudioWorkletNode(ctx, 'pcm-recorder-processor');
@@ -78,7 +85,7 @@ export function useVoiceSession(voiceServerUrl: string): UseVoiceSessionReturn {
         ws.binaryType = 'arraybuffer';
 
         // Stash session before async events can fire
-        const session: Session = { ws, player, audioCtx: ctx, stream, rafId: 0 };
+        const session: Session = { ws, player, audioCtx: ctx!, stream: stream!, rafId: 0 };
         sessionRef.current = session;
 
         ws.onmessage = (evt) => {
@@ -127,6 +134,12 @@ export function useVoiceSession(voiceServerUrl: string): UseVoiceSessionReturn {
           cleanup();
         };
       } catch (err) {
+        // If setup failed before sessionRef was assigned, cleanup() is a no-op;
+        // release mic and recording context explicitly to prevent leaks.
+        if (!sessionRef.current) {
+          stream?.getTracks().forEach((t) => t.stop());
+          void ctx?.close();
+        }
         setError(err instanceof Error ? err.message : 'Voice setup failed');
         setState('ended');
         cleanup();
