@@ -103,6 +103,10 @@ fn stop_server(state: tauri::State<'_, ServerProcess>) -> Result<(), String> {
         // Kill uvicorn workers before the parent; mirrors cleanup_server_process.
         kill_subprocesses(child.pid());
         child.kill().map_err(|e| format!("Kill error: {}", e))?;
+        // Synchronously clear owns_port so cleanup_server_process doesn't
+        // call kill_server_on_port(5700) after a user-initiated stop, which
+        // could kill an unrelated process that bound to the port afterward.
+        state.owns_port.store(false, Ordering::Relaxed);
         log::info!("gptme-server stopped successfully");
         Ok(())
     } else {
@@ -496,12 +500,12 @@ fn kill_subprocesses(pid: u32) {
 // (the spawn_server_sidecar reuse path).
 #[cfg(unix)]
 fn kill_server_on_port(port: u16) {
-    // lsof returns all PIDs with any socket on the port, including established
-    // client connections (e.g. the Tauri WebView itself).  Skip our own PID to
-    // avoid self-killing the Tauri process during cleanup.
+    // -sTCP:LISTEN restricts output to the process actually listening on the
+    // port, excluding established client connections (e.g. the Tauri WebView).
+    // my_pid guard is belt-and-suspenders in case lsof returns our own PID.
     let my_pid = std::process::id();
     let output = match std::process::Command::new("lsof")
-        .args(["-ti", &format!(":{}", port)])
+        .args(["-ti", &format!(":{}", port), "-sTCP:LISTEN"])
         .output()
     {
         Ok(o) => o,
