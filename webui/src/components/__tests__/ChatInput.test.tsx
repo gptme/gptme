@@ -5,6 +5,22 @@ import { ChatInput } from '../ChatInput';
 
 const mockUploadFiles = jest.fn();
 
+jest.mock('@/contexts/SettingsContext', () => ({
+  useSettings: () => ({
+    settings: {
+      chimeEnabled: true,
+      blocksDefaultOpen: true,
+      showHiddenMessages: false,
+      showInitialSystem: false,
+      hasCompletedSetup: true,
+      welcomeBackground: '',
+      voiceServerUrl: '',
+    },
+    updateSettings: jest.fn(),
+    resetSettings: jest.fn(),
+  }),
+}));
+
 jest.mock('@/contexts/ApiContext', () => {
   const { observable } = jest.requireActual('@legendapp/state');
   return {
