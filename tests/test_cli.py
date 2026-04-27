@@ -492,6 +492,39 @@ def test_comma_separated_choice_minus_prefix():
         csc.convert("-nonexistent", None, None)
 
 
+def test_resume_skips_context_cmd(name: str, runner: CliRunner, tmp_path):
+    """Resuming an existing conversation must NOT re-run context_cmd.
+
+    Regression: gptme/gptme#2252 — context_cmd ran on `--name <existing>`
+    even though the conversation log already had content. The side effect
+    (running a shell command) was happening despite LogManager.load
+    discarding the resulting initial_msgs.
+    """
+    from gptme.cli.main import get_logdir
+
+    # Workspace with a context_cmd that writes a marker file when executed.
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    marker = tmp_path / "context_cmd_was_run"
+    (workspace / "gptme.toml").write_text(f'[prompt]\ncontext_cmd = "touch {marker}"\n')
+
+    # Pre-create a conversation log with one system message so the resume
+    # guard treats this as an existing conversation.
+    logdir = get_logdir(name)
+    (logdir / "conversation.jsonl").write_text(
+        '{"role": "system", "content": "previous session", "timestamp": "2026-04-27T00:00:00"}\n'
+    )
+
+    args = ["--name", name, "--workspace", str(workspace), "/exit"]
+    result = runner.invoke(cli.main, args)
+
+    assert result.exit_code == 0
+    assert not marker.exists(), (
+        "context_cmd ran on resume — it should be skipped when the conversation "
+        "log already has content"
+    )
+
+
 def test_tool_exclusion_mixed_bare_and_minus_raises():
     """Test that mixing bare tool names with '-' exclusion syntax raises UsageError."""
     from click.testing import CliRunner

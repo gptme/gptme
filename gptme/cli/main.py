@@ -585,11 +585,14 @@ def main(
 
     # Check if we're resuming an existing conversation
     # If so, skip generating initial messages (including expensive context_cmd)
-    # as they're already in the loaded log
+    # as they're already in the loaded log.
+    # The check is independent of `--resume` because users can also resume via
+    # `--name <existing>`. Either way, if the log already has content, we
+    # should not re-run context_cmd (whose result LogManager.load would
+    # discard anyway, but whose side effect — running a shell command — is
+    # what we want to avoid).
     log_file = logdir / "conversation.jsonl"
-    is_existing_conversation = (
-        resume and log_file.exists() and log_file.stat().st_size > 0
-    )
+    is_existing_conversation = log_file.exists() and log_file.stat().st_size > 0
 
     if is_existing_conversation:
         logger.debug(
