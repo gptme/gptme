@@ -12,6 +12,13 @@ dist
 dist-ssr
 *.local
 
+# bun is not a supported install path for webui (see #2277).
+# Cloudflare Pages prefers bun when bun.lockb exists, which resolves
+# different package versions than package-lock.json and breaks the
+# preview build. Ignore the lockfile so a stray local `bun install`
+# can't silently re-break CF Pages.
+bun.lockb
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
