@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "gptme-tauri",
+  "productName": "gptme",
   "version": "0.1.0",
   "identifier": "org.gptme.tauri",
   "build": {
@@ -32,13 +32,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": ["../bins/gptme-server"],
-    "macOS": {
-      "infoPlist": {
-        "CFBundleDisplayName": "gptme",
-        "CFBundleName": "gptme"
-      }
-    }
+    "externalBin": ["../bins/gptme-server"]
   },
   "plugins": {
     "deep-link": {
