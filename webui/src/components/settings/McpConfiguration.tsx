@@ -40,6 +40,7 @@ export const McpConfiguration = ({ form, serverFields, isSubmitting }: McpConfig
       const fieldArrayName = `mcp.servers.${serverIndex}.env` as const;
       const currentServerEnv = form.getValues(fieldArrayName) || [];
       update(serverIndex, {
+        ...defaultMcpServer,
         ...form.getValues(`mcp.servers.${serverIndex}`),
         env: [...currentServerEnv, { key: inputState.key.trim(), value: inputState.value }],
       });
@@ -70,6 +71,7 @@ export const McpConfiguration = ({ form, serverFields, isSubmitting }: McpConfig
     const currentEnvVars = form.getValues(fieldName) || [];
     const newEnvVars = currentEnvVars.filter((_, idx) => idx !== envIndex);
     update(serverIndex, {
+      ...defaultMcpServer,
       ...form.getValues(`mcp.servers.${serverIndex}`),
       env: newEnvVars,
     });
