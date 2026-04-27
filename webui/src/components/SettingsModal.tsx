@@ -210,7 +210,7 @@ export const SettingsModal = forwardRef<HTMLButtonElement, SettingsModalProps>(
                 </p>
                 <Input
                   id="voice-server-url"
-                  type="url"
+                  type="text"
                   placeholder="ws://localhost:5700/voice"
                   value={settings.voiceServerUrl}
                   onChange={(e) => updateSettings({ voiceServerUrl: e.target.value.trim() })}
