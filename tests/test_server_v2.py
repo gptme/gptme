@@ -1596,12 +1596,40 @@ def test_v2_user_settings_returns_providers_and_model(client: FlaskClient, monke
         "gptme.server.api_v2.list_available_providers",
         lambda: [("anthropic", "ANTHROPIC_API_KEY")],
     )
+    monkeypatch.setattr(
+        "gptme.server.api_v2.get_user_config_env_source",
+        lambda key: (
+            "config.local.toml"
+            if key == "ANTHROPIC_API_KEY"
+            else "config.toml"
+            if key == "MODEL"
+            else None
+        ),
+    )
+    monkeypatch.setattr(
+        "gptme.server.api_v2.get_user_config_runtime_info",
+        lambda: {
+            "config_path": "~/.config/gptme/config.toml",
+            "local_config_path": "~/.config/gptme/config.local.toml",
+            "local_config_exists": True,
+            "write_target": "~/.config/gptme/config.toml",
+            "local_overrides_main": True,
+        },
+    )
 
     response = client.get("/api/v2/user/settings")
     assert response.status_code == 200
     data = response.get_json()
     assert data["providers_configured"] == ["anthropic"]
+    assert data["provider_sources"] == {
+        "anthropic": {
+            "auth_source": "ANTHROPIC_API_KEY",
+            "effective_source": "config.local.toml",
+        }
+    }
     assert data["default_model"] == "anthropic/claude-sonnet-4-5"
+    assert data["default_model_source"] == "config.toml"
+    assert data["config_files"]["write_target"] == "~/.config/gptme/config.toml"
 
 
 def test_v2_user_settings_no_providers_no_model(client: FlaskClient, monkeypatch):
@@ -1611,9 +1639,25 @@ def test_v2_user_settings_no_providers_no_model(client: FlaskClient, monkeypatch
         lambda: [],
     )
     monkeypatch.setattr("gptme.server.api_v2.get_default_model", lambda: None)
+    monkeypatch.setattr(
+        "gptme.server.api_v2.get_user_config_env_source", lambda _key: None
+    )
+    monkeypatch.setattr(
+        "gptme.server.api_v2.get_user_config_runtime_info",
+        lambda: {
+            "config_path": "~/.config/gptme/config.toml",
+            "local_config_path": "~/.config/gptme/config.local.toml",
+            "local_config_exists": False,
+            "write_target": "~/.config/gptme/config.toml",
+            "local_overrides_main": True,
+        },
+    )
 
     response = client.get("/api/v2/user/settings")
     assert response.status_code == 200
     data = response.get_json()
     assert data["providers_configured"] == []
+    assert data["provider_sources"] == {}
     assert data["default_model"] is None
+    assert data["default_model_source"] is None
+    assert data["config_files"]["local_config_exists"] is False

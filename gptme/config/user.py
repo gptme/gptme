@@ -78,6 +78,64 @@ default_config = UserConfig(
 # Track whether we've already logged the user config message
 _user_config_logged: set[Path] = set()
 
+USER_CONFIG_SOURCE_ENV = "env"
+USER_CONFIG_SOURCE_LOCAL = "config.local.toml"
+USER_CONFIG_SOURCE_MAIN = "config.toml"
+
+
+def get_user_config_paths(path: str | None = None) -> tuple[Path, Path]:
+    """Return the main and local user config paths."""
+    config_file = Path(path or config_path)
+    return config_file, config_file.parent / "config.local.toml"
+
+
+def _get_nested_config_value(doc: TOMLDocument, *keys: str) -> Any | None:
+    """Look up a nested TOML value by key path."""
+    current: Any = doc.unwrap()
+    for key in keys:
+        if not isinstance(current, dict) or key not in current:
+            return None
+        current = current[key]
+    return current
+
+
+def get_user_config_env_source(key: str, path: str | None = None) -> str | None:
+    """Return where an env-backed user setting currently comes from.
+
+    Precedence matches ``Config.get_env`` for the user-config/global portion:
+    process environment first, then ``config.local.toml``, then ``config.toml``.
+    """
+    prefixed = f"GPTME_{key}" if not key.startswith("GPTME_") else key
+    bare = key.removeprefix("GPTME_") if key.startswith("GPTME_") else key
+
+    if prefixed in os.environ or bare in os.environ:
+        return USER_CONFIG_SOURCE_ENV
+
+    config_file, local_path = get_user_config_paths(path)
+    if local_path.exists():
+        with open(local_path) as f:
+            local_doc = tomlkit.load(f)
+        if _get_nested_config_value(local_doc, "env", bare) is not None:
+            return USER_CONFIG_SOURCE_LOCAL
+
+    main_doc = _load_config_doc(str(config_file))
+    if _get_nested_config_value(main_doc, "env", bare) is not None:
+        return USER_CONFIG_SOURCE_MAIN
+
+    return None
+
+
+def get_user_config_runtime_info(path: str | None = None) -> dict[str, str | bool]:
+    """Return read/write path details for the user config UI."""
+    config_file, local_path = get_user_config_paths(path)
+    return {
+        "config_path": str(path_with_tilde(config_file)),
+        "local_config_path": str(path_with_tilde(local_path)),
+        "local_config_exists": local_path.exists(),
+        "write_target": str(path_with_tilde(config_file)),
+        "local_overrides_main": True,
+    }
+
 
 def load_user_config(path: str | None = None) -> UserConfig:
     """Load the user configuration from the config file.
@@ -87,11 +145,10 @@ def load_user_config(path: str | None = None) -> UserConfig:
     This allows committing preferences to dotfiles while keeping secrets separate.
     """
     config_file_path = path or config_path
-    config_file = Path(config_file_path)
+    config_file, local_path = get_user_config_paths(config_file_path)
     config = _load_config_doc(path).unwrap()
 
     # Look for local config file in the same directory
-    local_path = config_file.parent / "config.local.toml"
     has_local = local_path.exists()
     if has_local:
         with open(local_path) as f:

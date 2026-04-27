@@ -42,7 +42,25 @@ jest.mock('@/hooks/useUserSettings', () => ({
   useUserSettings: () => ({
     settings: {
       providers_configured: ['anthropic', 'openai'],
+      provider_sources: {
+        anthropic: {
+          auth_source: 'ANTHROPIC_API_KEY',
+          effective_source: 'config.local.toml',
+        },
+        openai: {
+          auth_source: 'OPENAI_API_KEY',
+          effective_source: 'config.toml',
+        },
+      },
       default_model: 'anthropic/claude-sonnet-4-7',
+      default_model_source: 'config.toml',
+      config_files: {
+        config_path: '~/.config/gptme/config.toml',
+        local_config_path: '~/.config/gptme/config.local.toml',
+        local_config_exists: true,
+        write_target: '~/.config/gptme/config.toml',
+        local_overrides_main: true,
+      },
     },
     isLoading: false,
     error: null,
@@ -141,7 +159,7 @@ describe('ServerDefaultModelSettings', () => {
     render(<ServerDefaultModelSettings />);
 
     expect(screen.getByText(/current default:/i).closest('p')).toHaveTextContent(
-      'anthropic/claude-sonnet-4-7'
+      'anthropic/claude-sonnet-4-7 from config.toml'
     );
   });
 });

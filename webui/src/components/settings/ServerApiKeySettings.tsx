@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useApi } from '@/contexts/ApiContext';
 import { useModels } from '@/hooks/useModels';
-import { useUserSettings } from '@/hooks/useUserSettings';
+import { useUserSettings, type UserSettingsProviderSource } from '@/hooks/useUserSettings';
 import {
   API_KEY_PROVIDER_METADATA,
   API_KEY_PROVIDER_OPTIONS,
@@ -18,6 +18,16 @@ type SaveApiKeyResponse = {
   env_var: string;
   restart_required: boolean;
 };
+
+function describeProviderSource(providerSource?: UserSettingsProviderSource): string {
+  if (!providerSource?.effective_source) {
+    return 'Configured';
+  }
+  if (providerSource.effective_source === 'oauth') {
+    return 'Configured via OAuth token';
+  }
+  return `Configured via ${providerSource.effective_source} (${providerSource.auth_source})`;
+}
 
 export function ServerApiKeySettings() {
   const { api } = useApi();
@@ -33,6 +43,7 @@ export function ServerApiKeySettings() {
     [models, provider]
   );
   const configuredProviders = settings?.providers_configured ?? [];
+  const providerSources = settings?.provider_sources ?? {};
 
   useEffect(() => {
     if (providerModels.length === 0) {
@@ -109,15 +120,23 @@ export function ServerApiKeySettings() {
       </div>
 
       {configuredProviders.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {configuredProviders.map((configuredProvider) => (
-            <span
-              key={configuredProvider}
-              className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground"
-            >
-              {configuredProvider}
-            </span>
-          ))}
+        <div className="space-y-2 rounded-md bg-muted/40 p-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Already configured
+          </p>
+          <div className="space-y-2">
+            {configuredProviders.map((configuredProvider) => (
+              <div
+                key={configuredProvider}
+                className="flex flex-wrap items-center justify-between gap-2 text-sm"
+              >
+                <span className="font-medium">{configuredProvider}</span>
+                <span className="text-xs text-muted-foreground">
+                  {describeProviderSource(providerSources[configuredProvider])}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

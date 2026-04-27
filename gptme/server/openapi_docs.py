@@ -206,9 +206,31 @@ class UserSettingsResponse(BaseModel):
         ...,
         description="Provider slugs that have an API key or OAuth token configured",
     )
+    provider_sources: dict[str, dict[str, str | None]] = Field(
+        default_factory=dict,
+        description=(
+            "Per-provider configuration metadata. Each entry includes "
+            "`auth_source` (env var or `oauth`) and `effective_source` "
+            "(`env`, `config.local.toml`, `config.toml`, or `oauth`)."
+        ),
+    )
     default_model: str | None = Field(
         None,
         description="Fully qualified default model from config, or null if unset",
+    )
+    default_model_source: str | None = Field(
+        None,
+        description=(
+            "Where the current MODEL value comes from: `env`, `config.local.toml`, "
+            "`config.toml`, or null if unset."
+        ),
+    )
+    config_files: dict[str, str | bool] = Field(
+        default_factory=dict,
+        description=(
+            "Paths and merge behavior for user config files, including the main "
+            "config path, local override path, and the write target used by the UI."
+        ),
     )
 
 

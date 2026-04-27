@@ -17,6 +17,13 @@ from gptme.config import (
     load_user_config,
     setup_config_from_cli,
 )
+from gptme.config.user import (
+    USER_CONFIG_SOURCE_ENV,
+    USER_CONFIG_SOURCE_LOCAL,
+    USER_CONFIG_SOURCE_MAIN,
+    get_user_config_env_source,
+    get_user_config_runtime_info,
+)
 
 default_user_config = """[prompt]
 about_user = "I am a curious human programmer."
@@ -982,6 +989,64 @@ def test_user_config_no_local_toml(tmp_path):
     # Should work fine without config.local.toml
     config = Config(user=load_user_config(str(main_config)))
     assert config.user.prompt.about_user == "I am a developer."
+
+
+def test_user_config_env_source_reports_main_local_and_env(tmp_path, monkeypatch):
+    """Effective env-backed setting source should follow env > local > main precedence."""
+    main_config = tmp_path / "config.toml"
+    main_config.write_text('[env]\nMODEL = "anthropic/claude-sonnet-4-7"\n')
+
+    local_config = tmp_path / "config.local.toml"
+    local_config.write_text(
+        '[env]\nOPENAI_API_KEY = "sk-local"\nMODEL = "openai/gpt-5"\n'
+    )
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("MODEL", raising=False)
+    monkeypatch.delenv("GPTME_MODEL", raising=False)
+
+    assert (
+        get_user_config_env_source("OPENAI_API_KEY", str(main_config))
+        == USER_CONFIG_SOURCE_LOCAL
+    )
+    assert (
+        get_user_config_env_source("MODEL", str(main_config))
+        == USER_CONFIG_SOURCE_LOCAL
+    )
+
+    monkeypatch.setenv("MODEL", "xai/grok-4")
+    assert (
+        get_user_config_env_source("MODEL", str(main_config)) == USER_CONFIG_SOURCE_ENV
+    )
+
+    monkeypatch.delenv("MODEL", raising=False)
+    local_config.write_text('[env]\nOPENAI_API_KEY = "sk-local"\n')
+    assert (
+        get_user_config_env_source("MODEL", str(main_config)) == USER_CONFIG_SOURCE_MAIN
+    )
+
+
+def test_user_config_runtime_info_reports_paths_and_write_target(tmp_path):
+    """Runtime info should describe config merge and write behavior for the UI."""
+    main_config = tmp_path / "config.toml"
+    main_config.write_text("[env]\n")
+    (tmp_path / "config.local.toml").write_text("[env]\n")
+
+    info = get_user_config_runtime_info(str(main_config))
+
+    config_path = info["config_path"]
+    local_config_path = info["local_config_path"]
+    write_target = info["write_target"]
+
+    assert isinstance(config_path, str)
+    assert isinstance(local_config_path, str)
+    assert isinstance(write_target, str)
+
+    assert config_path.endswith("config.toml")
+    assert local_config_path.endswith("config.local.toml")
+    assert info["local_config_exists"] is True
+    assert write_target.endswith("config.toml")
+    assert info["local_overrides_main"] is True
 
 
 def test_cli_auto_envvar_prefix():

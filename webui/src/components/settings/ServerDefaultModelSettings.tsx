@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { ModelPickerButton } from '@/components/ModelPicker';
 import { useApi } from '@/contexts/ApiContext';
 import { useModels } from '@/hooks/useModels';
-import { useUserSettings } from '@/hooks/useUserSettings';
+import { useUserSettings, type UserSettingSource } from '@/hooks/useUserSettings';
 import { toast } from 'sonner';
 
 type SaveDefaultModelResponse = {
@@ -11,6 +11,19 @@ type SaveDefaultModelResponse = {
   model: string;
   restart_required: boolean;
 };
+
+function describeModelSource(source: UserSettingSource | null): string {
+  if (!source) {
+    return 'unknown source';
+  }
+  if (source === 'env') {
+    return 'environment';
+  }
+  if (source === 'oauth') {
+    return 'OAuth-backed setup';
+  }
+  return source;
+}
 
 export function ServerDefaultModelSettings() {
   const { api } = useApi();
@@ -100,6 +113,7 @@ export function ServerDefaultModelSettings() {
   };
 
   const configuredProviders = settings?.providers_configured ?? [];
+  const defaultModelSource = settings?.default_model_source ?? null;
 
   return (
     <div className="space-y-3 rounded-lg border p-4">
@@ -125,7 +139,12 @@ export function ServerDefaultModelSettings() {
 
       {serverDefaultModel && (
         <p className="text-xs text-muted-foreground">
-          Current default: <code>{serverDefaultModel}</code>
+          Current default: <code>{serverDefaultModel}</code>{' '}
+          {defaultModelSource && (
+            <>
+              from <code>{describeModelSource(defaultModelSource)}</code>
+            </>
+          )}
         </p>
       )}
 

@@ -40,7 +40,21 @@ jest.mock('@/hooks/useUserSettings', () => ({
   useUserSettings: () => ({
     settings: {
       providers_configured: ['anthropic'],
+      provider_sources: {
+        anthropic: {
+          auth_source: 'ANTHROPIC_API_KEY',
+          effective_source: 'config.local.toml',
+        },
+      },
       default_model: 'anthropic/claude-sonnet-4-7',
+      default_model_source: 'config.toml',
+      config_files: {
+        config_path: '~/.config/gptme/config.toml',
+        local_config_path: '~/.config/gptme/config.local.toml',
+        local_config_exists: true,
+        write_target: '~/.config/gptme/config.toml',
+        local_overrides_main: true,
+      },
     },
     isLoading: false,
     error: null,
@@ -121,5 +135,14 @@ describe('ServerApiKeySettings', () => {
 
     expect(mockSuccess).toHaveBeenCalledWith('API key saved. Restart the server to apply it.');
     expect(mockRefetch).toHaveBeenCalled();
+  });
+
+  it('shows configured provider source details', () => {
+    render(<ServerApiKeySettings />);
+
+    expect(screen.getByText(/already configured/i)).toBeInTheDocument();
+    expect(
+      screen.getByText('Configured via config.local.toml (ANTHROPIC_API_KEY)')
+    ).toBeInTheDocument();
   });
 });

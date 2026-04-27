@@ -41,6 +41,7 @@ from gptme.prompts import get_prompt
 
 from ..commands import handle_cmd
 from ..config import get_project_config
+from ..config.user import get_user_config_env_source, get_user_config_runtime_info
 from ..dirs import get_logs_dir
 from ..logmanager import Log, LogManager, get_user_conversations
 from ..message import Message
@@ -1518,10 +1519,24 @@ def api_user_settings():
     """Return the current user settings state."""
     available = list_available_providers()
     providers = [str(provider) for provider, _ in available]
+    provider_sources = {
+        str(provider): {
+            "auth_source": auth_source,
+            "effective_source": (
+                "oauth"
+                if auth_source == "oauth"
+                else get_user_config_env_source(auth_source)
+            ),
+        }
+        for provider, auth_source in available
+    }
     default_model = get_default_model()
     return flask.jsonify(
         {
             "providers_configured": providers,
+            "provider_sources": provider_sources,
             "default_model": default_model.full if default_model else None,
+            "default_model_source": get_user_config_env_source("MODEL"),
+            "config_files": get_user_config_runtime_info(),
         }
     )

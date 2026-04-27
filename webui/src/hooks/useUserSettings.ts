@@ -1,9 +1,27 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useApi } from '@/contexts/ApiContext';
 
+export type UserSettingSource = 'env' | 'config.local.toml' | 'config.toml' | 'oauth';
+
+export interface UserSettingsProviderSource {
+  auth_source: string;
+  effective_source: UserSettingSource | null;
+}
+
+export interface UserSettingsConfigFiles {
+  config_path: string;
+  local_config_path: string;
+  local_config_exists: boolean;
+  write_target: string;
+  local_overrides_main: boolean;
+}
+
 export interface UserSettings {
   providers_configured: string[];
+  provider_sources: Record<string, UserSettingsProviderSource>;
   default_model: string | null;
+  default_model_source: UserSettingSource | null;
+  config_files: UserSettingsConfigFiles;
 }
 
 export function useUserSettings() {

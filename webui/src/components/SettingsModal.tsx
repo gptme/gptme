@@ -340,7 +340,7 @@ export const SettingsModal = forwardRef<HTMLButtonElement, SettingsModalProps>(
             </Button>
           )}
         </DialogTrigger>
-        <DialogContent className="max-h-[80vh] max-w-4xl p-0">
+        <DialogContent className="flex max-h-[80vh] max-w-4xl flex-col overflow-hidden p-0">
           <DialogHeader className="border-b px-6 py-3">
             <DialogTitle className="flex items-center gap-2">
               <Settings className="h-5 w-5" />
@@ -349,9 +349,9 @@ export const SettingsModal = forwardRef<HTMLButtonElement, SettingsModalProps>(
             <DialogDescription>Customize your gptme experience</DialogDescription>
           </DialogHeader>
 
-          <div className="flex min-h-[500px]">
+          <div className="flex min-h-0 min-w-0 flex-1">
             {/* Sidebar */}
-            <div className="w-64 border-r bg-muted/20 p-4">
+            <div className="w-64 overflow-y-auto border-r bg-muted/20 p-4">
               <nav className="space-y-1">
                 {categories.map((category) => {
                   const Icon = category.icon;
@@ -378,7 +378,9 @@ export const SettingsModal = forwardRef<HTMLButtonElement, SettingsModalProps>(
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto p-6">{renderCategoryContent()}</div>
+            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-6">
+              {renderCategoryContent()}
+            </div>
           </div>
         </DialogContent>
       </Dialog>

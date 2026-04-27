@@ -14,6 +14,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Pencil, Trash2, Plus, Plug, Unplug, Copy } from 'lucide-react';
 import { useApi } from '@/contexts/ApiContext';
+import { useUserSettings } from '@/hooks/useUserSettings';
 import { use$ } from '@legendapp/state/react';
 import {
   serverRegistry$,
@@ -70,6 +71,7 @@ const ServerDot: FC<{ serverId: string; className?: string }> = ({ serverId, cla
 
 export const ServerConfiguration: FC = () => {
   const { connect, switchServer } = useApi();
+  const { settings } = useUserSettings();
   const registry = use$(serverRegistry$);
 
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -347,6 +349,34 @@ export const ServerConfiguration: FC = () => {
           );
         })}
       </div>
+
+      {settings?.config_files && (
+        <div className="space-y-2 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+          <div>
+            <h4 className="font-medium text-foreground">Config file behavior</h4>
+            <p className="mt-1">
+              gptme always loads <code>{settings.config_files.config_path}</code>.
+            </p>
+            <p className="mt-1">
+              {settings.config_files.local_config_exists ? (
+                <>
+                  <code>{settings.config_files.local_config_path}</code> is present and overrides
+                  overlapping values.
+                </>
+              ) : (
+                <>
+                  If present, <code>{settings.config_files.local_config_path}</code> would override
+                  overlapping values.
+                </>
+              )}
+            </p>
+            <p className="mt-1">
+              Changes from this settings UI are written to{' '}
+              <code>{settings.config_files.write_target}</code>.
+            </p>
+          </div>
+        </div>
+      )}
 
       <ServerApiKeySettings />
       <ServerDefaultModelSettings />
