@@ -114,11 +114,13 @@ def _record_usage(usage, model: str) -> MessageMetadata | None:
     output_tokens = getattr(usage, "completion_tokens", None)
     details = getattr(usage, "prompt_tokens_details", None)
     cache_read_tokens = getattr(details, "cached_tokens", None)
-    # OpenRouter passes through Anthropic's cache_creation_input_tokens as an
-    # extra field on the usage object (preserved by OpenAI SDK's pydantic extras).
-    # OpenAI itself doesn't create cache entries (its caching is automatic and
-    # read-only), so this will be None for direct OpenAI calls.
+    # OpenRouter currently exposes cache writes in two response shapes:
+    # 1) legacy passthrough: usage.cache_creation_input_tokens
+    # 2) current nested usage: usage.prompt_tokens_details.cache_write_tokens
+    # Keep both so telemetry survives provider/schema drift.
     cache_creation_tokens = getattr(usage, "cache_creation_input_tokens", None)
+    if cache_creation_tokens is None:
+        cache_creation_tokens = getattr(details, "cache_write_tokens", None)
     total_tokens = getattr(usage, "total_tokens", None)
 
     # subtract cache_read_tokens AND cache_creation_tokens from prompt_tokens

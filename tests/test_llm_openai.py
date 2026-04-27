@@ -1648,12 +1648,14 @@ class TestRecordUsageCacheTokens:
         completion_tokens,
         cached_tokens=None,
         cache_creation_input_tokens=None,
+        cache_write_tokens=None,
     ):
         """Build an OpenAI-SDK CompletionUsage mirroring provider responses.
 
         OpenAI SDK's pydantic models allow extras, so OpenRouter's Anthropic
-        passthrough field `cache_creation_input_tokens` is preserved as a raw
-        attribute on the validated object.
+        cache-write fields survive either as a top-level passthrough
+        (`cache_creation_input_tokens`) or nested under
+        `prompt_tokens_details.cache_write_tokens`.
         """
         from openai.types.completion_usage import CompletionUsage
 
@@ -1662,11 +1664,15 @@ class TestRecordUsageCacheTokens:
             "completion_tokens": completion_tokens,
             "total_tokens": prompt_tokens + completion_tokens,
         }
-        if cached_tokens is not None:
-            raw["prompt_tokens_details"] = {
-                "cached_tokens": cached_tokens,
-                "audio_tokens": 0,
-            }
+        prompt_tokens_details: dict | None = None
+        if cached_tokens is not None or cache_write_tokens is not None:
+            prompt_tokens_details = {"audio_tokens": 0}
+            if cached_tokens is not None:
+                prompt_tokens_details["cached_tokens"] = cached_tokens
+            if cache_write_tokens is not None:
+                prompt_tokens_details["cache_write_tokens"] = cache_write_tokens
+        if prompt_tokens_details is not None:
+            raw["prompt_tokens_details"] = prompt_tokens_details
         if cache_creation_input_tokens is not None:
             raw["cache_creation_input_tokens"] = cache_creation_input_tokens
         return CompletionUsage.model_validate(raw)
@@ -1759,6 +1765,45 @@ class TestRecordUsageCacheTokens:
         # Both explicit zeros preserved in metadata (truthy-check would drop them)
         assert metadata["usage"]["cache_read_tokens"] == 0
         assert metadata["usage"]["cache_creation_tokens"] == 0
+
+    def test_openrouter_nested_cache_write_tokens_extracted(self):
+        """OpenRouter nested usage shape: cache_write_tokens extracted.
+
+        Live OpenRouter responses now expose cache writes under
+        prompt_tokens_details.cache_write_tokens instead of the older top-level
+        cache_creation_input_tokens passthrough field.
+        """
+        from gptme.llm.llm_openai import _record_usage
+
+        usage = self._make_usage(
+            prompt_tokens=3000,
+            completion_tokens=200,
+            cached_tokens=500,
+            cache_write_tokens=1800,
+        )
+        metadata = _record_usage(usage, "openrouter/anthropic/claude-haiku-4.5")
+
+        assert metadata is not None
+        assert metadata["usage"]["input_tokens"] == 700
+        assert metadata["usage"]["cache_read_tokens"] == 500
+        assert metadata["usage"]["cache_creation_tokens"] == 1800
+
+    def test_openrouter_prefers_top_level_cache_creation_when_both_present(self):
+        """Prefer explicit top-level passthrough when both shapes are present."""
+        from gptme.llm.llm_openai import _record_usage
+
+        usage = self._make_usage(
+            prompt_tokens=3000,
+            completion_tokens=200,
+            cached_tokens=500,
+            cache_creation_input_tokens=1600,
+            cache_write_tokens=1800,
+        )
+        metadata = _record_usage(usage, "openrouter/anthropic/claude-haiku-4.5")
+
+        assert metadata is not None
+        assert metadata["usage"]["input_tokens"] == 900
+        assert metadata["usage"]["cache_creation_tokens"] == 1600
 
 
 class TestMaybeApplyVerbosity:
