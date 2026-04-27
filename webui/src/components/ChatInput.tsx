@@ -47,6 +47,8 @@ import { useModels } from '@/hooks/useModels';
 import { useAgents } from '@/hooks/useAgents';
 import { useFileAutocomplete } from '@/hooks/useFileAutocomplete';
 import { FileAutocomplete } from '@/components/FileAutocomplete';
+import { VoiceButton } from '@/components/VoiceButton';
+import { useSettings } from '@/contexts/SettingsContext';
 import {
   Select,
   SelectContent,
@@ -461,6 +463,7 @@ export const ChatInput: FC<Props> = ({
   onEditCancel,
 }) => {
   const { isConnected$, connectionConfig } = useApi();
+  const { settings } = useSettings();
   const sidebarSelectedWorkspace = use$(selectedWorkspace$);
   const sidebarSelectedAgent = use$(selectedAgent$);
 
@@ -1118,6 +1121,9 @@ export const ChatInput: FC<Props> = ({
                         )}
                     </div>
 
+                    {settings.voiceServerUrl && (
+                      <VoiceButton voiceServerUrl={settings.voiceServerUrl} />
+                    )}
                     <SubmitButton
                       isGenerating={isGenerating}
                       isDisabled={isDisabled}

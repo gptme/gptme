@@ -8,6 +8,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
@@ -195,6 +196,24 @@ export const SettingsModal = forwardRef<HTMLButtonElement, SettingsModalProps>(
                   id="chime-toggle"
                   checked={settings.chimeEnabled}
                   onCheckedChange={(checked) => updateSettings({ chimeEnabled: checked })}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="voice-server-url" className="text-sm">
+                  Voice server URL
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  WebSocket URL of a running gptme-voice-server instance, e.g.{' '}
+                  <code className="rounded bg-muted px-1">ws://localhost:5700/voice</code>. Leave
+                  empty to hide the voice button.
+                </p>
+                <Input
+                  id="voice-server-url"
+                  type="url"
+                  placeholder="ws://localhost:5700/voice"
+                  value={settings.voiceServerUrl}
+                  onChange={(e) => updateSettings({ voiceServerUrl: e.target.value.trim() })}
                 />
               </div>
             </div>

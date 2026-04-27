@@ -8,6 +8,11 @@ export interface Settings {
   hasCompletedSetup: boolean;
   /** CSS background for the welcome/new-chat view (image URL or gradient) */
   welcomeBackground: string;
+  /**
+   * WebSocket URL for the gptme-voice-server /voice endpoint, e.g. ws://localhost:5700/voice.
+   * Leave empty to hide the VoiceButton.
+   */
+  voiceServerUrl: string;
 }
 
 interface SettingsContextType {
@@ -23,6 +28,7 @@ const defaultSettings: Settings = {
   showInitialSystem: false,
   hasCompletedSetup: false,
   welcomeBackground: '',
+  voiceServerUrl: '',
 };
 
 function loadSettingsFromStorage(): Settings {
