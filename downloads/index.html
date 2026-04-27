@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Downloads — gptme</title>
+  <link rel="icon" type="image/png" href="https://gptme.org/media/logo.png" />
+  <meta name="darkreader-lock">
+  <style>
+    :root {
+      --text-color: #333;
+      --text-muted: #666;
+      --background-color: #fff;
+      --link-color: #0366d6;
+      --link-hover-color: #0056b3;
+      --code-background: #f6f8fa;
+      --border-color: #ddd;
+      --card-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      --badge-bg: #e8f4fd;
+      --badge-color: #0366d6;
+      --badge-rec-bg: #e6f9e6;
+      --badge-rec-color: #22863a;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --text-color: #e0e0e0;
+        --text-muted: #999;
+        --background-color: #1a1a1a;
+        --link-color: #4da3ff;
+        --link-hover-color: #80bdff;
+        --code-background: #2a2a2a;
+        --border-color: #444;
+        --card-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        --badge-bg: #1a3a5c;
+        --badge-color: #4da3ff;
+        --badge-rec-bg: #1a3a1a;
+        --badge-rec-color: #6abf6a;
+      }
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      font-size: 16px;
+      line-height: 1.6;
+      color: var(--text-color);
+      background-color: var(--background-color);
+      display: flex;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    .content-wrapper {
+      max-width: 900px;
+      width: 100%;
+      padding: 20px;
+    }
+    a { color: var(--link-color); text-decoration: none; }
+    a:hover { color: var(--link-hover-color); text-decoration: underline; }
+
+    /* Header */
+    .page-header {
+      text-align: center;
+      margin-bottom: 2em;
+      padding-bottom: 1em;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .page-header img { height: 64px; margin: 0 auto 0.5em; display: block; }
+    .page-header h1 { font-size: 2em; margin-bottom: 0.2em; }
+    .page-header p { color: var(--text-muted); }
+    .nav-links { margin-top: 0.5em; font-size: 0.95em; }
+    .nav-links a { margin: 0 0.5em; }
+
+    /* CLI install */
+    .cli-install {
+      background: var(--code-background);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 1.2em 1.5em;
+      margin-bottom: 2em;
+    }
+    .cli-install h2 { font-size: 1.1em; margin-bottom: 0.5em; }
+    .cli-install code {
+      font-family: SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
+      font-size: 0.95em;
+    }
+    .cli-install .cmd { display: block; margin: 0.3em 0; }
+
+    /* Release section */
+    .release-section { margin-bottom: 2.5em; }
+    .release-header {
+      display: flex;
+      align-items: baseline;
+      gap: 0.7em;
+      margin-bottom: 0.3em;
+      flex-wrap: wrap;
+    }
+    .release-header h2 { font-size: 1.4em; margin: 0; }
+    .release-tag {
+      font-size: 0.85em;
+      padding: 0.15em 0.5em;
+      border-radius: 12px;
+      background: var(--badge-bg);
+      color: var(--badge-color);
+    }
+    .release-date { font-size: 0.85em; color: var(--text-muted); }
+
+    /* Platform grid */
+    .platform-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1em;
+      margin-top: 1em;
+    }
+    .platform-card {
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 1em 1.2em;
+      box-shadow: var(--card-shadow);
+    }
+    .platform-card h3 {
+      font-size: 1.1em;
+      margin-bottom: 0.6em;
+      display: flex;
+      align-items: center;
+      gap: 0.4em;
+    }
+    .platform-icon { font-size: 1.2em; }
+    .download-list { list-style: none; }
+    .download-list li {
+      margin: 0.4em 0;
+      display: flex;
+      align-items: center;
+      gap: 0.5em;
+      flex-wrap: wrap;
+    }
+    .download-list .size {
+      font-size: 0.8em;
+      color: var(--text-muted);
+    }
+    .badge-rec {
+      font-size: 0.7em;
+      padding: 0.1em 0.4em;
+      border-radius: 8px;
+      background: var(--badge-rec-bg);
+      color: var(--badge-rec-color);
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    /* Loading / error */
+    .loading, .error {
+      text-align: center;
+      padding: 2em;
+      color: var(--text-muted);
+    }
+    .error { color: #d73a49; }
+
+    /* Footer */
+    .page-footer {
+      margin-top: 2em;
+      padding-top: 1em;
+      border-top: 1px solid var(--border-color);
+      text-align: center;
+      font-size: 0.85em;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+<div class="content-wrapper">
+  <div class="page-header">
+    <a href="/"><img src="https://gptme.org/media/logo.png" alt="gptme logo"></a>
+    <h1>Downloads</h1>
+    <p>Desktop app, CLI, and server binaries</p>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="/docs/">Docs</a>
+      <a href="/docs/getting-started.html">Getting Started</a>
+      <a href="https://github.com/gptme/gptme/releases">All Releases</a>
+    </div>
+  </div>
+
+  <div class="cli-install">
+    <h2>CLI (recommended)</h2>
+    <p>Install the command-line tool with pip, pipx, or uv:</p>
+    <code class="cmd">$ pipx install gptme</code>
+    <code class="cmd">$ uv tool install gptme</code>
+  </div>
+
+  <div id="releases">
+    <div class="loading">Loading releases...</div>
+  </div>
+
+  <div class="page-footer">
+    <p>
+      All releases are available on <a href="https://github.com/gptme/gptme/releases">GitHub Releases</a>
+      and <a href="https://pypi.org/project/gptme/">PyPI</a>.
+    </p>
+  </div>
+</div>
+
+<script>
+const REPO = 'gptme/gptme';
+const API = `https://api.github.com/repos/${REPO}/releases`;
+
+// Classify assets into platforms
+function classifyAsset(name) {
+  // Skip updater artifacts and source tarballs
+  if (name.endsWith('.app.tar.gz') || name.endsWith('.app.tar.gz.sig')) return null;
+  if (name.match(/^gptme-\d.*\.tar\.gz$/) && !name.includes('server-bin')) return null;
+  if (name.endsWith('.whl')) return null;
+
+  const lower = name.toLowerCase();
+  if (lower.includes('macos') || lower.includes('aarch64.dmg') || lower.includes('.dmg'))
+    return { platform: 'macOS', icon: '\u{1F34E}' };
+  if (lower.includes('linux') || lower.endsWith('.deb') || lower.endsWith('.rpm') || lower.endsWith('.appimage'))
+    return { platform: 'Linux', icon: '\u{1F427}' };
+  if (lower.includes('windows') || lower.includes('x64-setup.exe') || lower.endsWith('.exe') || lower.endsWith('.msi'))
+    return { platform: 'Windows', icon: '\u{1FA9F}' };
+  return null;
+}
+
+// Determine recommended and format label
+function assetMeta(name) {
+  if (name.endsWith('.dmg')) return { label: '.dmg', recommended: true };
+  if (name.endsWith('.deb')) return { label: '.deb', recommended: false };
+  if (name.endsWith('.rpm')) return { label: '.rpm', recommended: false };
+  if (name.endsWith('.AppImage')) return { label: '.AppImage', recommended: true };
+  if (name.endsWith('-setup.exe')) return { label: 'Installer (.exe)', recommended: true };
+  if (name.includes('server-bin') && name.endsWith('.tar.gz')) return { label: 'Server binary (.tar.gz)', recommended: false };
+  return { label: name, recommended: false };
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function formatSize(bytes) {
+  if (bytes > 1e9) return (bytes / 1e9).toFixed(1) + ' GB';
+  if (bytes > 1e6) return (bytes / 1e6).toFixed(1) + ' MB';
+  if (bytes > 1e3) return (bytes / 1e3).toFixed(0) + ' KB';
+  return bytes + ' B';
+}
+
+function formatDate(dateStr) {
+  return new Date(dateStr).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function renderRelease(release, isStable) {
+  const platforms = {};
+  for (const asset of release.assets) {
+    const cls = classifyAsset(asset.name);
+    if (!cls) continue;
+    if (!platforms[cls.platform]) platforms[cls.platform] = { icon: cls.icon, assets: [] };
+    const meta = assetMeta(asset.name);
+    platforms[cls.platform].assets.push({
+      name: asset.name,
+      url: asset.browser_download_url,
+      size: asset.size,
+      ...meta,
+    });
+  }
+
+  // Sort: recommended first within each platform
+  for (const p of Object.values(platforms)) {
+    p.assets.sort((a, b) => (b.recommended ? 1 : 0) - (a.recommended ? 1 : 0));
+  }
+
+  const platformOrder = ['macOS', 'Linux', 'Windows'];
+  const tag = release.tag_name;
+  const label = isStable ? 'Stable' : 'Pre-release';
+
+  let html = `<div class="release-section">`;
+  html += `<div class="release-header">`;
+  html += `<h2>${isStable ? 'Latest Stable' : 'Latest Dev Build'}</h2>`;
+  html += `<span class="release-tag">${esc(tag)}</span>`;
+  html += `<span class="release-date">${esc(formatDate(release.published_at))}</span>`;
+  html += `</div>`;
+  html += `<div class="platform-grid">`;
+
+  for (const pName of platformOrder) {
+    const p = platforms[pName];
+    if (!p) continue;
+    html += `<div class="platform-card">`;
+    html += `<h3><span class="platform-icon">${p.icon}</span> ${pName}</h3>`;
+    html += `<ul class="download-list">`;
+    for (const a of p.assets) {
+      html += `<li>`;
+      html += `<a href="${esc(a.url)}">${esc(a.label)}</a>`;
+      if (a.recommended) html += ` <span class="badge-rec">recommended</span>`;
+      html += ` <span class="size">${formatSize(a.size)}</span>`;
+      html += `</li>`;
+    }
+    html += `</ul></div>`;
+  }
+
+  html += `</div></div>`;
+  return html;
+}
+
+async function loadReleases() {
+  const container = document.getElementById('releases');
+  try {
+    const res = await fetch(`${API}?per_page=30`);
+    if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
+    const releases = await res.json();
+
+    // Find latest stable (not prerelease, not draft)
+    const stable = releases.find(r => !r.prerelease && !r.draft);
+    // Find latest pre-release with tauri assets
+    const dev = releases.find(r => r.prerelease && !r.draft && r.assets.some(a => a.name.includes('tauri') || a.name.includes('.dmg') || a.name.includes('.AppImage')));
+
+    let html = '';
+    if (stable) html += renderRelease(stable, true);
+    if (dev) html += renderRelease(dev, false);
+
+    if (!html) {
+      html = '<div class="loading">No releases with desktop app artifacts found. Check <a href="https://github.com/gptme/gptme/releases">GitHub Releases</a>.</div>';
+    }
+
+    container.innerHTML = html;
+  } catch (err) {
+    container.innerHTML = `<div class="error">Failed to load releases: ${err.message}<br>Visit <a href="https://github.com/${REPO}/releases">GitHub Releases</a> directly.</div>`;
+  }
+}
+
+loadReleases();
+</script>
+</body>
+</html>
