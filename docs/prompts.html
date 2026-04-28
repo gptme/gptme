@@ -695,7 +695,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f92e39feb60&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f6f1594f2e0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1557,14 +1557,18 @@ The following Python functions are available using the <span class="sb">`ipython
 
 <span class="gu">## read</span>
 
-<span class="gs">**Description:**</span> Read the content of a file or list directory contents
+<span class="gs">**Description:**</span> Read the content of one or more files, or list directory contents
 
-<span class="gs">**Instructions:**</span> Read the content of a file or list the contents of a directory.
-The path can be relative or absolute.
+<span class="gs">**Instructions:**</span> Read the content of one or more files, or list the contents of a directory.
+Paths can be relative or absolute.
 For files, output includes line numbers for easy reference.
 For directories, output shows a flat listing of immediate files and subdirectories.
 
-Use a code block with the language tag: <span class="sb">`read &lt;path&gt;`</span> to read a file.
+To read multiple files in a single call, put one path per line in the code block.
+Lines beginning with &#39;#&#39; are treated as comments and skipped.
+The line-range parameters (start_line, end_line) only apply when reading a single file.
+
+Use a code block with the language tag: <span class="sb">`read &lt;path&gt;`</span> to read a file. For multiple files, place one path per line inside the code block.
 
 <span class="gu">### Examples</span>
 
@@ -1572,6 +1576,12 @@ Use a code block with the language tag: <span class="sb">`read &lt;path&gt;`</sp
 <span class="k">&gt; </span><span class="ge">Assistant:</span>
 <span class="sb">```read</span><span class="w"> </span>hello.py
 
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">User: read both source files</span>
+<span class="k">&gt; </span><span class="ge">Assistant:</span>
+<span class="sb">```read</span>
+<span class="s">hello.py</span>
+<span class="s">goodbye.py</span>
 <span class="sb">```</span>
 
 <span class="gu">## restart</span>
@@ -2242,7 +2252,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 12449</p>
+<p>Tokens: 12547</p>
 </dd></dl>
 
 <dl class="py function">

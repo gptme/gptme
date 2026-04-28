@@ -1897,14 +1897,20 @@ is_complete() to check status, and get_completed() for partial results.</p>
 </section>
 <section id="read">
 <h2>Read<a class="headerlink" href="#read" title="Link to this heading">#</a></h2>
-<p>Read the contents of a file or list the contents of a directory.</p>
+<p>Read the contents of one or more files, or list the contents of a directory.</p>
 <p>Provides a sandboxed file reading capability that works without shell access.
 Useful for restricted tool sets (e.g., <code class="docutils literal notranslate"><span class="pre">--tools</span> <span class="pre">read,patch,save</span></code>).</p>
+<p>Multiple paths can be passed in the code block (one per line) to read several
+files in a single tool call, reducing roundtrips when exploring a codebase.</p>
 <p class="rubric">Instructions</p>
-<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>Read the content of a file or list the contents of a directory.
-The path can be relative or absolute.
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>Read the content of one or more files, or list the contents of a directory.
+Paths can be relative or absolute.
 For files, output includes line numbers for easy reference.
 For directories, output shows a flat listing of immediate files and subdirectories.
+
+To read multiple files in a single call, put one path per line in the code block.
+Lines beginning with &#39;#&#39; are treated as comments and skipped.
+The line-range parameters (start_line, end_line) only apply when reading a single file.
 </pre></div>
 </div>
 <p class="rubric">Examples</p>
@@ -1933,10 +1939,38 @@ For directories, output shows a flat listing of immediate files and subdirectori
 > ```</pre>
   </td>
 </tr>
+</table><table style="width: 100%; margin-bottom: 1em">
+  
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">read both source files</pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;"><div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">read</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">hello.py
+goodbye.py
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">```hello.py
+>    1       print("Hello world")
+> ```
+> ```goodbye.py
+>    1       print("Goodbye world")
+> ```</pre>
+  </td>
+</tr>
 </table><dl class="py function">
 <dt class="sig sig-object py">
 <span class="sig-prename descclassname"><span class="pre">gptme.tools.read.</span></span><span class="sig-name descname"><span class="pre">execute_read</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">code</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">args</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.14)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span></dt>
-<dd><p>Read a file and return its contents with line numbers.</p>
+<dd><p>Read one or more files (or a directory) and return their contents.</p>
 </dd></dl>
 
 </section>
