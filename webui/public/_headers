@@ -1,0 +1,16 @@
+# Cloudflare Pages cache headers
+# Audit: knowledge/research/2026-04-28-chat-gptme-org-perf-audit.md
+# Issue: https://github.com/gptme/gptme/issues/2280
+
+# SPA shell — short cache, long stale-while-revalidate so deploys roll
+# the cache forward while visitors still see fresh content quickly.
+/
+  Cache-Control: public, max-age=300, stale-while-revalidate=86400
+
+/index.html
+  Cache-Control: public, max-age=300, stale-while-revalidate=86400
+
+# Hashed assets are immutable by construction (filename includes content hash),
+# so we can drop revalidation entirely and let the browser keep the cached copy.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
