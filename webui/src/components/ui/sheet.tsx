@@ -55,39 +55,59 @@ interface SheetContentProps
 const SheetContent = React.forwardRef<
   React.ElementRef<typeof SheetPrimitive.Content>,
   SheetContentProps
->(({ side = 'right', className, children, ...props }, ref) => (
-  <SheetPortal>
-    <SheetOverlay />
-    <SheetPrimitive.Content ref={ref} className={cn(sheetVariants({ side }), className)} {...props}>
-      {children}
-      <SheetPrimitive.Close
-        className="absolute rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary"
-        style={{
-          top: 'calc(1rem + env(safe-area-inset-top, 0px))',
-          right: 'calc(1rem + env(safe-area-inset-right, 0px))',
-        }}
+>(({ side = 'right', className, children, style, ...props }, ref) => {
+  // Inline style wins over className (including p-0 overrides), so safe-area
+  // padding is applied reliably even when consumers zero out all padding.
+  // This mirrors the MenuBar fix (paddingTop on the element itself) rather than
+  // the SheetHeader marginTop approach which was overrideable by className.
+  const safeStyle: React.CSSProperties = {
+    ...(side === 'left' || side === 'right'
+      ? {
+          paddingTop: 'env(safe-area-inset-top, 0px)',
+          paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+        }
+      : side === 'top'
+        ? { paddingTop: 'env(safe-area-inset-top, 0px)' }
+        : side === 'bottom'
+          ? { paddingBottom: 'env(safe-area-inset-bottom, 0px)' }
+          : {}),
+    ...style,
+  };
+
+  return (
+    <SheetPortal>
+      <SheetOverlay />
+      <SheetPrimitive.Content
+        ref={ref}
+        className={cn(sheetVariants({ side }), className)}
+        style={safeStyle}
+        {...props}
       >
-        <X className="h-4 w-4" />
-        <span className="sr-only">Close</span>
-      </SheetPrimitive.Close>
-    </SheetPrimitive.Content>
-  </SheetPortal>
-));
+        {children}
+        <SheetPrimitive.Close
+          className="absolute rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary"
+          style={{
+            top: 'calc(1rem + env(safe-area-inset-top, 0px))',
+            right: 'calc(1rem + env(safe-area-inset-right, 0px))',
+          }}
+        >
+          <X className="h-4 w-4" />
+          <span className="sr-only">Close</span>
+        </SheetPrimitive.Close>
+      </SheetPrimitive.Content>
+    </SheetPortal>
+  );
+});
 SheetContent.displayName = SheetPrimitive.Content.displayName;
 
-const SheetHeader = ({ className, style, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
-  <div
-    className={cn('flex flex-col space-y-2 text-center sm:text-left', className)}
-    style={{ marginTop: 'env(safe-area-inset-top, 0px)', ...style }}
-    {...props}
-  />
+const SheetHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+  <div className={cn('flex flex-col space-y-2 text-center sm:text-left', className)} {...props} />
 );
 SheetHeader.displayName = 'SheetHeader';
 
-const SheetFooter = ({ className, style, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+const SheetFooter = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
     className={cn('flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2', className)}
-    style={{ marginBottom: 'env(safe-area-inset-bottom, 0px)', ...style }}
     {...props}
   />
 );
