@@ -2,12 +2,12 @@
 # Audit: knowledge/research/2026-04-28-chat-gptme-org-perf-audit.md
 # Issue: https://github.com/gptme/gptme/issues/2280
 
-# SPA shell — short cache, long stale-while-revalidate so deploys roll
-# the cache forward while visitors still see fresh content quickly.
-/
-  Cache-Control: public, max-age=300, stale-while-revalidate=86400
-
-/index.html
+# SPA shell + deep links — `/*` covers `/`, `/index.html`, and SPA routes
+# (`/chat/...`, `/settings`, etc.) that CF Pages serves via the index.html
+# fallback. Short cache + long stale-while-revalidate lets deploys roll the
+# cache forward while visitors still see fresh content quickly. The more
+# specific `/assets/*` rule below takes precedence for hashed assets.
+/*
   Cache-Control: public, max-age=300, stale-while-revalidate=86400
 
 # Hashed assets are immutable by construction (filename includes content hash),
