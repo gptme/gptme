@@ -1030,6 +1030,14 @@ def preview_shell(cmd: str, _: Path | None) -> str:
     return cmd
 
 
+# Default token budgets for shell output truncation.
+# Override at runtime via env vars (see module docstring).
+_TRUNC_PRE_TOKENS_DEFAULT = 2000
+_TRUNC_POST_TOKENS_DEFAULT = 8000
+_TRUNC_STDERR_PRE_TOKENS_DEFAULT = 2000
+_TRUNC_STDERR_POST_TOKENS_DEFAULT = 2000
+
+
 def _get_truncation_budget(
     pre_env: str,
     post_env: str,
@@ -1041,6 +1049,9 @@ def _get_truncation_budget(
     Reads ``pre_env`` and ``post_env`` env vars, falling back to defaults on
     missing or invalid values. Negative or zero values fall back too — the
     truncation path requires both to be positive.
+
+    Env vars are re-read on every call so that users can adjust thresholds at
+    runtime (e.g. via a shell alias) without restarting gptme.
     """
 
     def _resolve(name: str, default: int) -> int:
