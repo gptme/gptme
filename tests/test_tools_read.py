@@ -1,6 +1,10 @@
 """Tests for the read tool."""
 
+import os
+import stat
 from pathlib import Path
+
+import pytest
 
 from gptme.tools.read import execute_read
 
@@ -217,3 +221,89 @@ def test_read_single_path_via_code_unchanged(tmp_path: Path):
     messages = list(execute_read(str(p), None, None))
     assert len(messages) == 1
     assert "only line" in messages[0].content
+
+
+def test_read_invalid_start_line(tmp_path: Path):
+    """Test that a non-integer start_line returns an error message."""
+    path = tmp_path / "test.txt"
+    path.write_text("line 1\n")
+
+    messages = list(execute_read(None, None, {"path": str(path), "start_line": "abc"}))
+    assert len(messages) == 1
+    assert "Invalid start_line" in messages[0].content
+
+
+def test_read_invalid_end_line(tmp_path: Path):
+    """Test that a non-integer end_line returns an error message."""
+    path = tmp_path / "test.txt"
+    path.write_text("line 1\n")
+
+    messages = list(execute_read(None, None, {"path": str(path), "end_line": "xyz"}))
+    assert len(messages) == 1
+    assert "Invalid end_line" in messages[0].content
+
+
+def test_read_path_traversal(tmp_path: Path, monkeypatch):
+    """Test that relative paths traversing outside cwd are blocked."""
+    external = tmp_path / "external.txt"
+    external.write_text("secret\n")
+    subdir = tmp_path / "workdir"
+    subdir.mkdir()
+
+    monkeypatch.chdir(subdir)
+
+    # "../external.txt" resolves outside cwd → path traversal
+    messages = list(execute_read(None, ["../external.txt"], None))
+    assert len(messages) == 1
+    assert "Path traversal detected" in messages[0].content
+
+
+@pytest.mark.skipif(os.getuid() == 0, reason="root bypasses permissions")
+def test_read_permission_denied_file(tmp_path: Path):
+    """Test that a file with no read permission returns Permission denied."""
+    path = tmp_path / "secret.txt"
+    path.write_text("top secret\n")
+    path.chmod(0o000)
+
+    try:
+        messages = list(execute_read(None, [str(path)], None))
+        assert len(messages) == 1
+        assert "Permission denied" in messages[0].content
+    finally:
+        path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+
+@pytest.mark.skipif(os.getuid() == 0, reason="root bypasses permissions")
+def test_read_permission_denied_directory(tmp_path: Path):
+    """Test that a directory with no read permission returns Permission denied."""
+    subdir = tmp_path / "locked"
+    subdir.mkdir()
+    (subdir / "file.txt").write_text("content")
+    subdir.chmod(0o000)
+
+    try:
+        messages = list(execute_read(None, [str(subdir)], None))
+        assert len(messages) == 1
+        assert "Permission denied" in messages[0].content
+    finally:
+        subdir.chmod(stat.S_IRWXU)
+
+
+def test_read_directory_truncated(tmp_path: Path):
+    """Test that directories with >100 entries show a truncation notice."""
+    for i in range(101):
+        (tmp_path / f"file_{i:03d}.txt").write_text("")
+
+    messages = list(execute_read(None, [str(tmp_path)], None))
+    assert len(messages) == 1
+    assert "more entries" in messages[0].content
+
+
+def test_read_not_a_file(tmp_path: Path):
+    """Test that a named pipe (non-file, non-dir) returns 'Not a file'."""
+    fifo = tmp_path / "myfifo"
+    os.mkfifo(str(fifo))
+
+    messages = list(execute_read(None, [str(fifo)], None))
+    assert len(messages) == 1
+    assert "Not a file" in messages[0].content
