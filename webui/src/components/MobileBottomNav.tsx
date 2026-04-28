@@ -17,7 +17,13 @@ export const MobileBottomNav: FC = () => {
   const location = useLocation();
 
   return (
-    <nav className="flex h-12 items-center justify-around border-t bg-background md:hidden">
+    <nav
+      className="flex items-center justify-around border-t bg-background md:hidden"
+      style={{
+        minHeight: '3rem',
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+      }}
+    >
       {navItems.map((item) => {
         const Icon = item.icon;
 

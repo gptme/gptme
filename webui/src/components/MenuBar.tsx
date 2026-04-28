@@ -13,7 +13,13 @@ export const MenuBar: FC = () => {
   const leftSidebarOpen = use$(leftSidebarVisible$);
 
   return (
-    <div className="flex h-9 items-center justify-between border-b px-2 sm:px-4">
+    <div
+      className="flex items-center justify-between border-b px-2 sm:px-4"
+      style={{
+        minHeight: '2.25rem',
+        paddingTop: 'env(safe-area-inset-top, 0px)',
+      }}
+    >
       <div className="flex items-center gap-1 sm:gap-4">
         <Button
           variant="ghost"
