@@ -88,6 +88,12 @@ def strip_ansi_codes(text: str) -> str:
 
 logger = logging.getLogger(__name__)
 
+# Default token budgets for shell output truncation (overridable via env vars).
+_TRUNC_PRE_TOKENS_DEFAULT = 2000
+_TRUNC_POST_TOKENS_DEFAULT = 8000
+_TRUNC_STDERR_PRE_TOKENS_DEFAULT = 2000
+_TRUNC_STDERR_POST_TOKENS_DEFAULT = 2000
+
 
 candidates = (
     # platform-specific
@@ -1076,14 +1082,14 @@ def _format_shell_output(
     pre_tokens, post_tokens = _get_truncation_budget(
         "GPTME_SHELL_TRUNC_PRE_TOKENS",
         "GPTME_SHELL_TRUNC_POST_TOKENS",
-        default_pre=2000,
-        default_post=8000,
+        default_pre=_TRUNC_PRE_TOKENS_DEFAULT,
+        default_post=_TRUNC_POST_TOKENS_DEFAULT,
     )
     stderr_pre_tokens, stderr_post_tokens = _get_truncation_budget(
         "GPTME_SHELL_TRUNC_STDERR_PRE_TOKENS",
         "GPTME_SHELL_TRUNC_STDERR_POST_TOKENS",
-        default_pre=2000,
-        default_post=2000,
+        default_pre=_TRUNC_STDERR_PRE_TOKENS_DEFAULT,
+        default_post=_TRUNC_STDERR_POST_TOKENS_DEFAULT,
     )
     stdout = _shorten_stdout(
         stdout,
