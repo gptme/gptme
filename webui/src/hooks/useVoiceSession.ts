@@ -28,6 +28,8 @@ export function useVoiceSession(voiceServerUrl: string): UseVoiceSessionReturn {
   const [level, setLevel] = useState(0);
 
   const sessionRef = useRef<Session | null>(null);
+  // Incremented on each start/stop call to cancel in-flight async setup.
+  const setupGenRef = useRef(0);
 
   const cleanup = useCallback(() => {
     const s = sessionRef.current;
@@ -51,6 +53,7 @@ export function useVoiceSession(voiceServerUrl: string): UseVoiceSessionReturn {
 
     setError(null);
     setState('connecting');
+    const gen = ++setupGenRef.current;
 
     void (async () => {
       // Declared outside try so catch can release them if setup fails
@@ -60,12 +63,28 @@ export function useVoiceSession(voiceServerUrl: string): UseVoiceSessionReturn {
       let player: PCMPlayer | null = null;
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // stop() may have been called while we were awaiting getUserMedia.
+        if (setupGenRef.current !== gen) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+
         ctx = new AudioContext();
         // Resume immediately — browsers may auto-suspend an AudioContext created
         // after an async getUserMedia() call (outside the user-gesture stack).
         if (ctx.state === 'suspended') await ctx.resume();
+        if (setupGenRef.current !== gen) {
+          stream.getTracks().forEach((t) => t.stop());
+          void ctx.close();
+          return;
+        }
 
         await ctx.audioWorklet.addModule('/pcm-recorder-worklet.js');
+        if (setupGenRef.current !== gen) {
+          stream.getTracks().forEach((t) => t.stop());
+          void ctx.close();
+          return;
+        }
         const workletNode = new AudioWorkletNode(ctx, 'pcm-recorder-processor');
 
         // Level meter
@@ -131,8 +150,12 @@ export function useVoiceSession(voiceServerUrl: string): UseVoiceSessionReturn {
         };
 
         ws.onclose = () => {
-          setState('ended');
-          cleanup();
+          // Guard against double-setState: onerror fires before onclose on errors,
+          // and cleanup() already cleared sessionRef. Only act if session is still active.
+          if (sessionRef.current === session) {
+            setState('ended');
+            cleanup();
+          }
         };
       } catch (err) {
         // If setup failed before sessionRef was assigned, cleanup() is a no-op;
@@ -142,14 +165,18 @@ export function useVoiceSession(voiceServerUrl: string): UseVoiceSessionReturn {
           player?.close();
           void ctx?.close();
         }
-        setError(err instanceof Error ? err.message : 'Voice setup failed');
-        setState('ended');
+        // Don't update UI state if this setup was already cancelled by stop().
+        if (setupGenRef.current === gen) {
+          setError(err instanceof Error ? err.message : 'Voice setup failed');
+          setState('ended');
+        }
         cleanup();
       }
     })();
   }, [voiceServerUrl, cleanup]);
 
   const stop = useCallback(() => {
+    setupGenRef.current++; // cancel any in-flight async setup IIFE
     setState('ended');
     cleanup();
   }, [cleanup]);
