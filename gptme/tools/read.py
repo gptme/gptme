@@ -69,7 +69,7 @@ def _get_read_paths(
     callers and CLI invocations). The markdown code-block entry point may
     contain multiple newline-separated paths for batch reading.
     """
-    if kwargs and "path" in kwargs:
+    if kwargs and kwargs.get("path"):
         return [Path(kwargs["path"]).expanduser()]
     if args:
         return [Path(" ".join(args)).expanduser()]
@@ -236,8 +236,9 @@ tool = ToolSpec(
         Parameter(
             name="path",
             type="string",
-            description="The path of the file or directory to read",
-            required=True,
+            description="The path of the file or directory to read. "
+            "Optional when multiple paths are supplied in the code block (one per line).",
+            required=False,
         ),
         Parameter(
             name="start_line",
