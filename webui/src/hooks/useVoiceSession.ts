@@ -195,8 +195,9 @@ export function useVoiceSession(voiceServerUrl: string): UseVoiceSessionReturn {
     return () => clearTimeout(t);
   }, [state]);
 
-  // Cleanup on unmount
-  useEffect(() => () => cleanup(), [cleanup]);
+  // Cleanup on unmount — call stop() not cleanup() so setupGenRef is incremented,
+  // which cancels any in-flight async setup that is still awaiting getUserMedia/addModule.
+  useEffect(() => () => stop(), [stop]);
 
   return { state, error, level, start, stop, commit };
 }
