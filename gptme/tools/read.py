@@ -26,6 +26,7 @@ For files, output includes line numbers for easy reference.
 For directories, output shows a flat listing of immediate files and subdirectories.
 
 To read multiple files in a single call, put one path per line in the code block.
+Lines beginning with '#' are treated as comments and skipped.
 The line-range parameters (start_line, end_line) only apply when reading a single file.
 """.strip()
 
