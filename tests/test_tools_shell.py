@@ -7,6 +7,8 @@ import pytest
 
 from gptme.tools.shell import (
     ShellSession,
+    _format_shell_output,
+    _get_truncation_budget,
     _shorten_stdout,
     is_denylisted,
     split_commands,
@@ -484,6 +486,68 @@ def test_shorten_stdout_records_context_savings(tmp_path):
     assert rows[0]["source"] == "shell"
     assert rows[0]["command_info"] == "git log --oneline"
     assert rows[0]["saved_tokens"] > 0
+
+
+def test_truncation_budget_default(monkeypatch):
+    monkeypatch.delenv("GPTME_SHELL_TRUNC_PRE_TOKENS", raising=False)
+    monkeypatch.delenv("GPTME_SHELL_TRUNC_POST_TOKENS", raising=False)
+    pre, post = _get_truncation_budget(
+        "GPTME_SHELL_TRUNC_PRE_TOKENS",
+        "GPTME_SHELL_TRUNC_POST_TOKENS",
+        default_pre=2000,
+        default_post=8000,
+    )
+    assert (pre, post) == (2000, 8000)
+
+
+def test_truncation_budget_env_override(monkeypatch):
+    monkeypatch.setenv("GPTME_SHELL_TRUNC_PRE_TOKENS", "300")
+    monkeypatch.setenv("GPTME_SHELL_TRUNC_POST_TOKENS", "1500")
+    pre, post = _get_truncation_budget(
+        "GPTME_SHELL_TRUNC_PRE_TOKENS",
+        "GPTME_SHELL_TRUNC_POST_TOKENS",
+        default_pre=2000,
+        default_post=8000,
+    )
+    assert (pre, post) == (300, 1500)
+
+
+def test_truncation_budget_invalid_falls_back(monkeypatch):
+    monkeypatch.setenv("GPTME_SHELL_TRUNC_PRE_TOKENS", "not-a-number")
+    monkeypatch.setenv("GPTME_SHELL_TRUNC_POST_TOKENS", "0")
+    pre, post = _get_truncation_budget(
+        "GPTME_SHELL_TRUNC_PRE_TOKENS",
+        "GPTME_SHELL_TRUNC_POST_TOKENS",
+        default_pre=2000,
+        default_post=8000,
+    )
+    assert (pre, post) == (2000, 8000)
+
+
+def test_format_shell_output_lower_threshold_records_savings(monkeypatch, tmp_path):
+    """Lowered env-var threshold should make truncation fire on smaller outputs."""
+    monkeypatch.setenv("GPTME_SHELL_TRUNC_PRE_TOKENS", "20")
+    monkeypatch.setenv("GPTME_SHELL_TRUNC_POST_TOKENS", "20")
+
+    stdout = "\n".join(f"line {i} with some content to bulk it up" for i in range(200))
+
+    output = _format_shell_output(
+        cmd="echo loop",
+        stdout=stdout,
+        stderr="",
+        returncode=0,
+        interrupted=False,
+        allowlisted=False,
+        logdir=tmp_path,
+    )
+
+    assert "output truncated" in output or "lines truncated" in output
+    ledger = tmp_path / "context-savings.jsonl"
+    assert ledger.exists()
+    rows = [
+        json.loads(line) for line in ledger.read_text().splitlines() if line.strip()
+    ]
+    assert any(row["source"] == "shell" and row["saved_tokens"] > 0 for row in rows)
 
 
 def test_is_denylisted_pattern_matches():

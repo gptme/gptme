@@ -7,6 +7,14 @@ Configuration:
         - Set to 0 to disable timeout
         - Invalid values default to 1200 seconds (20 minutes)
         - If not set, defaults to 1200 seconds (20 minutes)
+
+    GPTME_SHELL_TRUNC_PRE_TOKENS / GPTME_SHELL_TRUNC_POST_TOKENS: Override the
+    head/tail token budget for stdout truncation. Defaults: 2000 / 8000.
+    GPTME_SHELL_TRUNC_STDERR_PRE_TOKENS / GPTME_SHELL_TRUNC_STDERR_POST_TOKENS:
+    Same overrides for stderr. Defaults: 2000 / 2000. Lowering these makes the
+    truncation path fire on smaller outputs, which surfaces savings telemetry
+    in `context-savings.jsonl` and the `/context` command. Invalid values fall
+    back to defaults.
 """
 
 import atexit
@@ -1016,6 +1024,38 @@ def preview_shell(cmd: str, _: Path | None) -> str:
     return cmd
 
 
+def _get_truncation_budget(
+    pre_env: str,
+    post_env: str,
+    default_pre: int,
+    default_post: int,
+) -> tuple[int, int]:
+    """Resolve head/tail token budgets for output truncation.
+
+    Reads ``pre_env`` and ``post_env`` env vars, falling back to defaults on
+    missing or invalid values. Negative or zero values fall back too — the
+    truncation path requires both to be positive.
+    """
+
+    def _resolve(name: str, default: int) -> int:
+        raw = os.environ.get(name)
+        if raw is None:
+            return default
+        try:
+            value = int(raw)
+        except ValueError:
+            logger.warning("Invalid %s value: %r, using default %d", name, raw, default)
+            return default
+        if value <= 0:
+            logger.warning(
+                "Non-positive %s value: %d, using default %d", name, value, default
+            )
+            return default
+        return value
+
+    return _resolve(pre_env, default_pre), _resolve(post_env, default_post)
+
+
 def _format_shell_output(
     cmd: str,
     stdout: str,
@@ -1033,11 +1073,31 @@ def _format_shell_output(
     stderr = strip_ansi_codes(stderr)
 
     # Apply shortening logic with output storage
+    pre_tokens, post_tokens = _get_truncation_budget(
+        "GPTME_SHELL_TRUNC_PRE_TOKENS",
+        "GPTME_SHELL_TRUNC_POST_TOKENS",
+        default_pre=2000,
+        default_post=8000,
+    )
+    stderr_pre_tokens, stderr_post_tokens = _get_truncation_budget(
+        "GPTME_SHELL_TRUNC_STDERR_PRE_TOKENS",
+        "GPTME_SHELL_TRUNC_STDERR_POST_TOKENS",
+        default_pre=2000,
+        default_post=2000,
+    )
     stdout = _shorten_stdout(
-        stdout, pre_tokens=2000, post_tokens=8000, logdir=logdir, cmd=cmd
+        stdout,
+        pre_tokens=pre_tokens,
+        post_tokens=post_tokens,
+        logdir=logdir,
+        cmd=cmd,
     )
     stderr = _shorten_stdout(
-        stderr, pre_tokens=2000, post_tokens=2000, logdir=logdir, cmd=f"{cmd} (stderr)"
+        stderr,
+        pre_tokens=stderr_pre_tokens,
+        post_tokens=stderr_post_tokens,
+        logdir=logdir,
+        cmd=f"{cmd} (stderr)",
     )
 
     # Format header
