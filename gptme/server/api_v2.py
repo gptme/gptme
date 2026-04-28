@@ -18,6 +18,7 @@ import flask
 from dateutil.parser import isoparse
 from flask import request
 
+from gptme.__version__ import __version__
 from gptme.config import (
     ChatConfig,
     Config,
@@ -185,8 +186,6 @@ def api_root():
         capabilities.update(provider.capabilities)
 
     provider_configured = get_default_model() is not None
-
-    from gptme.__version__ import __version__
 
     return flask.jsonify(
         {

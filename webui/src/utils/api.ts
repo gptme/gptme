@@ -656,6 +656,9 @@ export class ApiClient {
   }
 
   async getServerInfo(): Promise<{ version?: string }> {
+    if (!this.isConnected) {
+      throw new ApiClientError('Not connected to API');
+    }
     const data = await this.fetchJson<{ version?: string }>(`${this.baseUrl}/api/v2`);
     return data;
   }
