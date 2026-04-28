@@ -147,6 +147,7 @@ class ApiRootResponse(BaseModel):
 
     message: str = Field(..., description="API description")
     documentation: str = Field(..., description="Documentation URL")
+    version: str = Field(..., description="gptme server version")
     capabilities: ApiCapabilities = Field(
         ..., description="Advertised optional server capabilities"
     )

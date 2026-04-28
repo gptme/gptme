@@ -1,6 +1,6 @@
 [package]
 name = "gptme-tauri"
-version = "0.1.0"
+version = "0.31.0"
 description = "Desktop application for gptme"
 authors = ["Brayo", "Erik Bjäreholt"]
 edition = "2021"

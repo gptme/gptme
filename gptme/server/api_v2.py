@@ -186,10 +186,13 @@ def api_root():
 
     provider_configured = get_default_model() is not None
 
+    from gptme.__version__ import __version__
+
     return flask.jsonify(
         {
             "message": "gptme v2 API",
             "documentation": "https://gptme.org/docs/server.html",
+            "version": __version__,
             "capabilities": capabilities,
             "provider_configured": provider_configured,
         }

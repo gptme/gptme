@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils';
 import { ServerConfiguration } from '@/components/settings/ServerConfiguration';
 import { use$ } from '@legendapp/state/react';
 import { settingsModal$, type SettingsCategory } from '@/stores/settingsModal';
+import { getPrimaryClient } from '@/stores/serverClients';
 export type { SettingsCategory } from '@/stores/settingsModal';
 export { settingsModal$ } from '@/stores/settingsModal';
 
@@ -65,6 +66,17 @@ export const SettingsModal = forwardRef<HTMLButtonElement, SettingsModalProps>(
     const { theme, setTheme } = useTheme();
     const [open, setOpen] = useState(false);
     const [activeCategory, setActiveCategory] = useState<SettingsCategory>('appearance');
+    const [serverVersion, setServerVersion] = useState<string | null>(null);
+
+    useEffect(() => {
+      if (activeCategory !== 'about') return;
+      const client = getPrimaryClient();
+      if (!client) return;
+      client
+        .getServerInfo()
+        .then((info) => setServerVersion(info.version ?? null))
+        .catch(() => setServerVersion(null));
+    }, [activeCategory]);
 
     // Allow external code to open the modal to a specific category
     const externalRequest = use$(settingsModal$);
@@ -296,6 +308,13 @@ export const SettingsModal = forwardRef<HTMLButtonElement, SettingsModalProps>(
               </div>
 
               <div className="space-y-4">
+                {serverVersion && (
+                  <div className="space-y-1">
+                    <h4 className="text-sm font-medium">Version</h4>
+                    <p className="font-mono text-sm text-muted-foreground">gptme {serverVersion}</p>
+                  </div>
+                )}
+
                 <div className="space-y-3">
                   <h4 className="text-sm font-medium">Related Projects</h4>
                   <div className="flex flex-col space-y-2">
