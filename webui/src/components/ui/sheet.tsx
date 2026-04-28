@@ -55,24 +55,24 @@ const SheetContent = React.forwardRef<
   React.ElementRef<typeof SheetPrimitive.Content>,
   SheetContentProps
 >(({ side = 'right', className, children, style, ...props }, ref) => {
-  // Inline style wins over className (including p-0 overrides), so safe-area
-  // padding is applied reliably even when consumers zero out all padding.
-  // This mirrors the MenuBar fix (paddingTop on the element itself) rather than
-  // the SheetHeader marginTop approach which was overrideable by className.
-  // Use max() to preserve the base p-6 (1.5rem) padding on non-notched/desktop
-  // devices where env(safe-area-inset-*) evaluates to 0px. Without max(), the
-  // inline 0px would silently override the p-6 CSS class padding.
+  // Inline style wins over className, so safe-area padding is applied reliably
+  // even when consumers use p-0. This mirrors the MenuBar fix (paddingTop on
+  // the container itself) vs the SheetHeader marginTop approach which failed.
+  // All current consumers use p-0 and manage their own layout, so we apply
+  // env() directly — 0px on non-notched/desktop (correct for p-0), actual
+  // inset on notched mobile. Consumers adding default p-6 padding should
+  // explicitly manage top/bottom padding alongside their className.
   const safeStyle: React.CSSProperties = {
     ...style,
     ...(side === 'left' || side === 'right'
       ? {
-          paddingTop: 'max(1.5rem, env(safe-area-inset-top, 0px))',
-          paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom, 0px))',
+          paddingTop: 'env(safe-area-inset-top, 0px)',
+          paddingBottom: 'env(safe-area-inset-bottom, 0px)',
         }
       : side === 'top'
-        ? { paddingTop: 'max(1.5rem, env(safe-area-inset-top, 0px))' }
+        ? { paddingTop: 'env(safe-area-inset-top, 0px)' }
         : side === 'bottom'
-          ? { paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom, 0px))' }
+          ? { paddingBottom: 'env(safe-area-inset-bottom, 0px)' }
           : {}),
   };
 
