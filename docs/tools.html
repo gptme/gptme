@@ -550,7 +550,7 @@
 <section id="shell">
 <h2>Shell<a class="headerlink" href="#shell" title="Link to this heading">#</a></h2>
 <p>The assistant can execute shell commands with bash by outputting code blocks with <cite>shell</cite> as the language.</p>
-<dl class="simple">
+<dl>
 <dt>Configuration:</dt><dd><dl class="simple">
 <dt>GPTME_SHELL_TIMEOUT: Environment variable to configure command timeout (set before starting gptme)</dt><dd><ul class="simple">
 <li><p>Set to a number (e.g., 30) for timeout in seconds</p></li>
@@ -560,6 +560,13 @@
 </ul>
 </dd>
 </dl>
+<p>GPTME_SHELL_TRUNC_PRE_TOKENS / GPTME_SHELL_TRUNC_POST_TOKENS: Override the
+head/tail token budget for stdout truncation. Defaults: 2000 / 8000.
+GPTME_SHELL_TRUNC_STDERR_PRE_TOKENS / GPTME_SHELL_TRUNC_STDERR_POST_TOKENS:
+Same overrides for stderr. Defaults: 2000 / 2000. Lowering these makes the
+truncation path fire on smaller outputs, which surfaces savings telemetry
+in <cite>context-savings.jsonl</cite> and the <cite>/context</cite> command. Invalid values fall
+back to defaults.</p>
 </dd>
 </dl>
 <p class="rubric">Instructions</p>
