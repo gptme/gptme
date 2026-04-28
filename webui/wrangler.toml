@@ -1,10 +1,7 @@
-# Cloudflare Pages build configuration
-# Forces npm over bun, even when bun is in the CF Pages build environment.
-# Without this, CF Pages auto-detects bun and resolves newer package versions
-# than the pinned npm lockfile, causing TypeScript errors.
-# See: https://github.com/gptme/gptme/issues/2269
+# Cloudflare Pages configuration
+# pages_build_output_dir tells CF Pages where Vite puts the build output.
+# The [build] section is NOT supported by CF Pages (Workers-only) — build
+# command must be configured in the CF Pages dashboard.
+# See: https://github.com/gptme/gptme/issues/2277
 name = "gptme-webui"
 pages_build_output_dir = "dist"
-
-[build]
-command = "npm ci && npm run build"
