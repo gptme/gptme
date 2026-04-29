@@ -40,6 +40,26 @@ function isApiErrorResponse(response: unknown): response is ApiError {
   return typeof response === 'object' && response !== null && 'error' in response;
 }
 
+/**
+ * Heuristic: Chrome reports Private Network Access (PNA) and genuine network
+ * failures identically as "TypeError: Failed to fetch". When a public origin
+ * (e.g. chat.gptme.org) tries to reach a private/local address, "Failed to
+ * fetch" almost certainly means PNA blocking — not a transient server-down that
+ * would resolve by retrying. Classify it as 'cors' so the auto-connect loop exits.
+ */
+export function isLikelyChromeCorsPna(targetUrl: string): boolean {
+  try {
+    const target = new URL(targetUrl);
+    const privatePattern = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)/i;
+    const isTargetPrivate = privatePattern.test(target.hostname);
+    const isPublicOrigin =
+      typeof window !== 'undefined' && !privatePattern.test(window.location.hostname);
+    return isTargetPrivate && isPublicOrigin;
+  } catch {
+    return false;
+  }
+}
+
 // Result of a connection probe — captures enough context for a useful user-facing message.
 export type ConnectionProbeResult =
   | { ok: true; url: string }
@@ -348,7 +368,9 @@ export class ApiClient {
         message = 'Request timed out after 3s — server may be slow or unreachable';
       } else if (
         error instanceof TypeError &&
-        (error.message.includes('CORS') || error.message.includes('NetworkError'))
+        (error.message.includes('CORS') ||
+          error.message.includes('NetworkError') ||
+          (error.message.includes('Failed to fetch') && isLikelyChromeCorsPna(url)))
       ) {
         reason = 'cors';
         message =
