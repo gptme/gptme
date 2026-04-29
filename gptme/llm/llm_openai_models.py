@@ -156,6 +156,17 @@ OPENAI_SUBSCRIPTION_MODELS: dict[str, "_ModelDictMeta"] = {
         "supports_reasoning": True,
         "supports_parallel_tool_calls": True,
     },
+    # GPT-5.5 — flagship released April 2026, 1M context
+    # https://developers.openai.com/api/docs/changelog
+    "gpt-5.5": {
+        "context": 1_000_000,
+        "max_output": 128_000,
+        "price_input": 5,
+        "price_output": 30,
+        "supports_vision": True,
+        "supports_reasoning": True,
+        "supports_parallel_tool_calls": True,
+    },
     # GPT-5.4 — latest flagship, 1M context
     "gpt-5.4": {
         "context": 1_050_000,
