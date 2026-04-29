@@ -193,6 +193,7 @@ jobs:
 
   # API tests: only run requires_api tests, across multiple cheap models
   # Skipped on docs/config-only PRs to reduce API spend (~$30+/day in Haiku costs)
+  # Note: Anthropic tests route through OpenRouter (OPENROUTER_API_KEY) for cost controls
   test-api:
     needs: changes
     # Run on push to master, or on PRs when API-related code changed (and not a fork)
@@ -210,7 +211,7 @@ jobs:
       matrix:
         include:
           - model: 'openai/gpt-4o-mini'
-          - model: 'anthropic/claude-haiku-4-5'
+          - model: 'openrouter/anthropic/claude-haiku-4-5'
           # - model: 'openrouter/minimax/minimax-m2.5'  # disabled: too brittle (SSL errors, inconsistent stop reasons)
           #   experimental: true
 
