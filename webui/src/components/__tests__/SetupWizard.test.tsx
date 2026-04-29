@@ -132,6 +132,25 @@ describe('SetupWizard', () => {
     });
   });
 
+  it('closes the wizard via Skip on the welcome step and persists hasCompletedSetup', async () => {
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    expect(screen.getByRole('heading', { name: /welcome to gptme/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /skip for now/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('heading', { name: /welcome to gptme/i })).not.toBeInTheDocument();
+    });
+
+    expect(JSON.parse(localStorage.getItem('gptme-settings') || '{}')).toMatchObject({
+      hasCompletedSetup: true,
+    });
+  });
+
   it('waits for cloud connection before showing completion', async () => {
     const { rerender } = render(
       <SettingsProvider>

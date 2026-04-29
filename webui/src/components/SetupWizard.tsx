@@ -443,7 +443,10 @@ export function SetupWizard() {
                 <span>Works locally or in the cloud</span>
               </div>
             </div>
-            <DialogFooter className="sm:justify-center">
+            <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:justify-center">
+              <Button variant="ghost" onClick={closeWizard}>
+                Skip for now
+              </Button>
               <Button onClick={() => setStep('mode')} className="gap-2">
                 Get started
                 <ArrowRight className="h-4 w-4" />
