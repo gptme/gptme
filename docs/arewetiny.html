@@ -506,20 +506,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking import time for gptme
 time poetry run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep &quot;import time&quot; | cut -d&#39;|&#39; -f 2- | sort -n | tail -n 10
-     296882 |             pypdf._codecs
-     298632 |           pypdf.generic._base
-     299750 |       mcp
-     299775 |     mcp.types
-     303916 |         pypdf.generic
-     305048 |       pypdf._utils
-     311416 |     pypdf._crypt_providers
-     335901 |   pypdf
-     388475 |   gptme.tools.mcp_adapter
-    1458165 | gptme.cli.main
+     183516 |           mcp.types
+     235818 |         gptme.config
+     243998 |       gptme.llm
+     246089 |     gptme.commands
+     283514 |   gptme.chat
+     323729 |         mcp.client.session
+     457288 |       mcp
+     457315 |     mcp.types
+     524074 |   gptme.tools.mcp_adapter
+    1472257 | gptme.cli.main
 
-real	0m2.567s
-user	0m1.670s
-sys	0m0.547s
+real	0m2.658s
+user	0m2.144s
+sys	0m0.680s
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -528,10 +528,8 @@ make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking startup time for gptme
 hyperfine &quot;poetry run gptme &#39;/exit&#39;&quot; -M 5 || poetry run gptme &#39;/exit&#39; || exit 1
 Benchmark 1: poetry run gptme &#39;/exit&#39;
-  Time (mean ± σ):      2.104 s ±  0.211 s    [User: 1.781 s, System: 0.524 s]
-  Range (min … max):    1.987 s …  2.479 s    5 runs
- 
-  Warning: The first benchmarking run for this command was significantly slower than the rest (2.479 s). This could be caused by (filesystem) caches that were not filled until after the first run. You should consider using the &#39;--warmup&#39; option to fill those caches before the actual benchmark. Alternatively, use the &#39;--prepare&#39; option to clear the caches before each timing run.
+  Time (mean ± σ):      2.601 s ±  0.248 s    [User: 2.267 s, System: 0.573 s]
+  Range (min … max):    2.460 s …  3.042 s    5 runs
  
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -2176,7 +2174,7 @@ Clone found (python):
 │ Total:     │ 368            │ 96983       │ 599655       │ 57           │ 711 (0.73%)      │ 5932 (0.99%)      │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
 Found 57 clones.
-time: 4.860s
+time: 6.092s
 make[3]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
