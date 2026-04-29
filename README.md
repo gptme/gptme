@@ -592,6 +592,50 @@ Contributions welcome! See the [contributing guide](https://gptme.org/docs/contr
 [pepy]: https://pepy.tech/project/gptme
 [pypistats]: https://pypistats.org/packages/gptme
 
+## 🔗 Links
+
+- [Website][website]
+- [Documentation][docs]
+- [GitHub][github]
+- [Discord][discord]
+
+<!-- links -->
+
+[website]: https://gptme.org/
+[discord]: https://discord.gg/NMaCmmkxWv
+[github]: https://github.com/gptme/gptme
+[gptme.vim]: https://github.com/gptme/gptme.vim
+[gptme-webui]: https://github.com/gptme/gptme/tree/master/webui
+[gptme-rag]: https://github.com/gptme/gptme-rag
+[gptme-contrib]: https://github.com/gptme/gptme-contrib
+[gptme-tauri]: https://github.com/gptme/gptme-tauri
+[agent-template]: https://github.com/gptme/gptme-agent-template
+[bob]: https://github.com/TimeToBuildBob
+[docs]: https://gptme.org/docs/
+[docs-getting-started]: https://gptme.org/docs/getting-started.html
+[docs-examples]: https://gptme.org/docs/examples.html
+[docs-demos]: https://gptme.org/docs/demos.html
+[docs-providers]: https://gptme.org/docs/providers.html
+[docs-tools]: https://gptme.org/docs/tools.html
+[docs-tools-python]: https://gptme.org/docs/tools.html#python
+[docs-tools-shell]: https://gptme.org/docs/tools.html#shell
+[docs-tools-patch]: https://gptme.org/docs/tools.html#patch
+[docs-tools-browser]: https://gptme.org/docs/tools.html#browser
+[docs-tools-computer]: https://gptme.org/docs/tools.html#computer
+[docs-lessons]: https://gptme.org/docs/lessons.html
+[docs-skills]: https://gptme.org/docs/skills.html
+[docs-bot]: https://gptme.org/docs/bot.html
+[docs-server]: https://gptme.org/docs/server.html
+[docs-evals]: https://gptme.org/docs/evals.html
+[docs-config]: https://gptme.org/docs/config.html
+[docs-arewetiny]: https://gptme.org/docs/arewetiny.html
+[docs-plugins]: https://gptme.org/docs/plugins.html
+[docs-hooks]: https://gptme.org/docs/hooks.html
+[docs-commands]: https://gptme.org/docs/commands.html
+[docs-mcp]: https://gptme.org/docs/mcp.html
+[docs-acp]: https://gptme.org/docs/acp.html
+[anthropic-computer-use]: https://www.anthropic.com/news/3-5-models-and-computer-use
+
 ## ❓ FAQ
 
 ### What models are supported?
@@ -623,7 +667,7 @@ export OPENAI_API_BASE="http://localhost:4000"
 By default, gptme asks for confirmation before executing tools (shell commands, file writes, etc.) for safety. You can:
 - Press `y` to approve individual actions
 - Use `--non-interactive` flag for fully autonomous mode (no confirmations, use with caution)
-- Configure auto-approve for specific tools in `gptme.toml`
+- For repeated workflows, the server API and ACP runtime accept a session-level `auto_confirm` parameter
 
 ### How do I use gptme with local models?
 
@@ -678,47 +722,3 @@ Contributions are welcome! See the [contributing guide](https://gptme.org/docs/c
 - **Discord**: [Join our community][discord]
 - **Issues**: [GitHub Issues](https://github.com/gptme/gptme/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/gptme/gptme/discussions)
-
-## 🔗 Links
-
-- [Website][website]
-- [Documentation][docs]
-- [GitHub][github]
-- [Discord][discord]
-
-<!-- links -->
-
-[website]: https://gptme.org/
-[discord]: https://discord.gg/NMaCmmkxWv
-[github]: https://github.com/gptme/gptme
-[gptme.vim]: https://github.com/gptme/gptme.vim
-[gptme-webui]: https://github.com/gptme/gptme/tree/master/webui
-[gptme-rag]: https://github.com/gptme/gptme-rag
-[gptme-contrib]: https://github.com/gptme/gptme-contrib
-[gptme-tauri]: https://github.com/gptme/gptme-tauri
-[agent-template]: https://github.com/gptme/gptme-agent-template
-[bob]: https://github.com/TimeToBuildBob
-[docs]: https://gptme.org/docs/
-[docs-getting-started]: https://gptme.org/docs/getting-started.html
-[docs-examples]: https://gptme.org/docs/examples.html
-[docs-demos]: https://gptme.org/docs/demos.html
-[docs-providers]: https://gptme.org/docs/providers.html
-[docs-tools]: https://gptme.org/docs/tools.html
-[docs-tools-python]: https://gptme.org/docs/tools.html#python
-[docs-tools-shell]: https://gptme.org/docs/tools.html#shell
-[docs-tools-patch]: https://gptme.org/docs/tools.html#patch
-[docs-tools-browser]: https://gptme.org/docs/tools.html#browser
-[docs-tools-computer]: https://gptme.org/docs/tools.html#computer
-[docs-lessons]: https://gptme.org/docs/lessons.html
-[docs-skills]: https://gptme.org/docs/skills.html
-[docs-bot]: https://gptme.org/docs/bot.html
-[docs-server]: https://gptme.org/docs/server.html
-[docs-evals]: https://gptme.org/docs/evals.html
-[docs-config]: https://gptme.org/docs/config.html
-[docs-arewetiny]: https://gptme.org/docs/arewetiny.html
-[docs-plugins]: https://gptme.org/docs/plugins.html
-[docs-hooks]: https://gptme.org/docs/hooks.html
-[docs-commands]: https://gptme.org/docs/commands.html
-[docs-mcp]: https://gptme.org/docs/mcp.html
-[docs-acp]: https://gptme.org/docs/acp.html
-[anthropic-computer-use]: https://www.anthropic.com/news/3-5-models-and-computer-use
