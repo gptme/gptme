@@ -9,6 +9,7 @@ import { RightSidebar } from '@/components/RightSidebar';
 import { RightSidebarContent } from '@/components/RightSidebarContent';
 import { TaskCreationDialog } from '@/components/TaskCreationDialog';
 import { SidebarIcons } from '@/components/SidebarIcons';
+import { SettingsModal } from '@/components/SettingsModal';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { UnifiedSidebar } from '@/components/UnifiedSidebar';
 import { AgentsView } from '@/components/AgentsView';
@@ -571,6 +572,9 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
 
         {/* Mobile Bottom Navigation */}
         <MobileBottomNav />
+
+        {/* Headless SettingsModal mount — desktop has it inside SidebarIcons, mobile needs it here */}
+        <SettingsModal />
 
         <TaskCreationDialog
           open={showCreateTaskDialog}

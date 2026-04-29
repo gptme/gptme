@@ -371,13 +371,7 @@ export const SettingsModal = forwardRef<HTMLButtonElement, SettingsModalProps>(
 
     return (
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogTrigger asChild>
-          {children || (
-            <Button variant="ghost" size="icon" aria-label="Open settings">
-              <Settings className="h-4 w-4" />
-            </Button>
-          )}
-        </DialogTrigger>
+        {children !== undefined && <DialogTrigger asChild>{children}</DialogTrigger>}
         <DialogContent className="flex max-h-[80vh] max-w-4xl flex-col overflow-hidden p-0">
           <DialogHeader className="border-b px-6 py-3">
             <DialogTitle className="flex items-center gap-2">
