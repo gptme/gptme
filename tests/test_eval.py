@@ -529,5 +529,12 @@ def test_apply_adversarial_framing_varies_by_test_name():
     framed2 = _apply_adversarial_framing("add-logging", prompt)
     # Different test names *may* map to different scenarios (hash-based)
     # We only assert they are not identical when the hashes differ
-    if hash("write-test-suite") % 5 != hash("add-logging") % 5:
+    import hashlib
+
+    from gptme.eval.run import _ADVERSARIAL_SCENARIOS
+
+    n = len(_ADVERSARIAL_SCENARIOS)
+    idx1 = int(hashlib.md5(b"write-test-suite").hexdigest(), 16) % n
+    idx2 = int(hashlib.md5(b"add-logging").hexdigest(), 16) % n
+    if idx1 != idx2:
         assert framed1 != framed2

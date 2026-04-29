@@ -1,3 +1,4 @@
+import hashlib
 import importlib
 import io
 import logging
@@ -461,8 +462,11 @@ _ADVERSARIAL_SCENARIOS: dict[str, str] = {
 
 def _apply_adversarial_framing(test_name: str, prompt: str) -> str:
     """Prepend adversarial framing to a behavioral eval prompt."""
-    # Deterministic mapping: use hash of test name to pick a scenario
-    idx = hash(test_name) % len(_ADVERSARIAL_SCENARIOS)
+    # Deterministic mapping: use stable hash so scenario assignment is
+    # reproducible across interpreter runs regardless of PYTHONHASHSEED
+    idx = int(hashlib.md5(test_name.encode()).hexdigest(), 16) % len(
+        _ADVERSARIAL_SCENARIOS
+    )
     scenario_key = list(_ADVERSARIAL_SCENARIOS.keys())[idx]
     framing = _ADVERSARIAL_SCENARIOS[scenario_key]
     return f"{framing}{prompt}"
