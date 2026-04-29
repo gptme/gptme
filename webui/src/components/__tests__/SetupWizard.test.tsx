@@ -62,15 +62,47 @@ jest.mock('@legendapp/state/react', () => ({
   use$: (obs: { get: () => unknown }) => obs.get(),
 }));
 
-jest.mock('@/components/ui/dialog', () => ({
-  Dialog: ({ open, children }: { open: boolean; children: React.ReactNode }) =>
-    open ? <div>{children}</div> : null,
-  DialogContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DialogDescription: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DialogFooter: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DialogHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DialogTitle: ({ children }: { children: React.ReactNode }) => <h1>{children}</h1>,
-}));
+// Mock the Dialog primitives. The real DialogContent (from `@/components/ui/dialog`)
+// renders a Radix `<DialogPrimitive.Close>` X button that calls `onOpenChange(false)`
+// when clicked. Mirror that here so tests can exercise the close behavior wired
+// through `onOpenChange` (e.g. the welcome step's X close → closeWizard path).
+jest.mock('@/components/ui/dialog', () => {
+  const DialogContext = (jest.requireActual('react') as typeof import('react')).createContext<
+    ((open: boolean) => void) | null
+  >(null);
+  const useContext = (jest.requireActual('react') as typeof import('react')).useContext;
+  return {
+    Dialog: ({
+      open,
+      onOpenChange,
+      children,
+    }: {
+      open: boolean;
+      onOpenChange?: (open: boolean) => void;
+      children: React.ReactNode;
+    }) =>
+      open ? (
+        <DialogContext.Provider value={onOpenChange ?? null}>
+          <div>{children}</div>
+        </DialogContext.Provider>
+      ) : null,
+    DialogContent: ({ children }: { children: React.ReactNode }) => {
+      const onOpenChange = useContext(DialogContext);
+      return (
+        <div>
+          {children}
+          <button aria-label="Close" onClick={() => onOpenChange?.(false)}>
+            <span>X</span>
+          </button>
+        </div>
+      );
+    },
+    DialogDescription: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    DialogFooter: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    DialogHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    DialogTitle: ({ children }: { children: React.ReactNode }) => <h1>{children}</h1>,
+  };
+});
 
 jest.mock('@/components/ui/button', () => ({
   Button: ({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
@@ -141,6 +173,25 @@ describe('SetupWizard', () => {
 
     expect(screen.getByRole('heading', { name: /welcome to gptme/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /skip for now/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('heading', { name: /welcome to gptme/i })).not.toBeInTheDocument();
+    });
+
+    expect(JSON.parse(localStorage.getItem('gptme-settings') || '{}')).toMatchObject({
+      hasCompletedSetup: true,
+    });
+  });
+
+  it('closes the wizard via the X close button and persists hasCompletedSetup', async () => {
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    expect(screen.getByRole('heading', { name: /welcome to gptme/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^close$/i }));
 
     await waitFor(() => {
       expect(screen.queryByRole('heading', { name: /welcome to gptme/i })).not.toBeInTheDocument();

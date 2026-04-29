@@ -419,9 +419,16 @@ export function SetupWizard() {
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={() => {}}>
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open) {
+          closeWizard();
+        }
+      }}
+    >
       <DialogContent
-        className="sm:max-w-md [&>button]:hidden"
+        className="sm:max-w-md"
         onPointerDownOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={closeWizard}
       >
