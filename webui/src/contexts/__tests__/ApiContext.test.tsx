@@ -183,4 +183,52 @@ describe('ApiProvider mobile auto-connect', () => {
 
     expect(mockCheckConnection).not.toHaveBeenCalled();
   });
+
+  it('stops retrying after a CORS failure (permanent, not transient)', async () => {
+    setActiveServerBaseUrl('https://bob.example.com');
+
+    // Simulate Chrome's Private Network Access / CORS rejection — a hosted webapp
+    // trying to reach a localhost server, or a misconfigured server CORS policy.
+    // These do not recover by retrying within the session.
+    mockCheckConnection.mockImplementation(async () => {
+      lastConnectionResult$.set({ ok: false, reason: 'cors' } as { ok: boolean });
+      return false;
+    });
+
+    renderProvider();
+
+    await waitFor(() => {
+      expect(mockCheckConnection).toHaveBeenCalledTimes(1);
+    });
+
+    // Wait past the would-be first retry (INITIAL_RETRY_DELAY = 1000ms)
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    expect(mockCheckConnection).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps retrying on transient network failures', async () => {
+    setActiveServerBaseUrl('https://bob.example.com');
+
+    // Generic network failure (server starting up, transient connectivity)
+    // should still retry — the user shouldn't have to manually reconnect.
+    mockCheckConnection.mockImplementation(async () => {
+      lastConnectionResult$.set({ ok: false, reason: 'network' } as { ok: boolean });
+      return false;
+    });
+
+    renderProvider();
+
+    await waitFor(() => {
+      expect(mockCheckConnection).toHaveBeenCalledTimes(1);
+    });
+
+    // Wait past the first retry delay (1000ms)
+    await waitFor(
+      () => {
+        expect(mockCheckConnection).toHaveBeenCalledTimes(2);
+      },
+      { timeout: 2000 }
+    );
+  });
 });

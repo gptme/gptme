@@ -291,6 +291,19 @@ export function ApiProvider({
         console.log(`[ApiContext] Auto-connect attempt ${autoConnectAttempts} failed:`, error);
       }
 
+      // CORS / Private Network Access failures don't recover by retrying within
+      // the session. The user has a manual "Retry connection" button; spamming
+      // 10 attempts just clutters the console with the same error.
+      const lastResult = client.lastConnectionResult$.get();
+      if (lastResult && !lastResult.ok && lastResult.reason === 'cors') {
+        console.log('[ApiContext] CORS/PNA failure — stopping auto-connect (use manual reconnect)');
+        stopAutoConnect();
+        if (!isInitialAttempt) {
+          toast.error('Server blocked the connection (CORS) — check server config');
+        }
+        return;
+      }
+
       const delay = INITIAL_RETRY_DELAY * Math.pow(2, autoConnectAttempts - 1);
       const maxDelay = 30000;
       const nextDelay = Math.min(delay, maxDelay);
