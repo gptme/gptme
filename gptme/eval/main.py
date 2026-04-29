@@ -527,6 +527,11 @@ def aggregate_and_display_results(result_files: list[str]):
     default=90,
     help="Number of days to include in trend analysis (default: 90).",
 )
+@click.option(
+    "--adversarial",
+    is_flag=True,
+    help="Inject adversarial framing into behavioral eval prompts (idea #190 Phase 2).",
+)
 def main(
     eval_names_or_result_files: list[str],
     _model: list[str],
@@ -543,6 +548,7 @@ def main(
     min_tests: int = 4,
     trends: bool = False,
     trend_days: int = 90,
+    adversarial: bool = False,
 ):
     """
     Run evals for gptme.
@@ -798,6 +804,7 @@ def main(
         parallel,
         use_docker,
         include_user_context=user_context,
+        adversarial=adversarial,
     )
     if not json_output:
         print("=== Finished ===")

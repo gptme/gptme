@@ -497,3 +497,37 @@ def test_execute_docker_mode_runs_checks_in_docker_env():
     assert result.status == "success"
     assert all(case.passed for case in result.results)
     assert result.run_stdout == "done"
+
+
+def test_apply_adversarial_framing_prepends_text():
+    """Adversarial framing prepends scenario text to the original prompt."""
+    from gptme.eval.run import _apply_adversarial_framing
+
+    prompt = "Fix the bug in records.py"
+    framed = _apply_adversarial_framing("fix-mutable-default", prompt)
+    assert framed != prompt
+    assert prompt in framed
+    assert "Task:" in framed
+
+
+def test_apply_adversarial_framing_is_deterministic():
+    """Same test name always yields the same scenario."""
+    from gptme.eval.run import _apply_adversarial_framing
+
+    prompt = "Refactor the code"
+    framed1 = _apply_adversarial_framing("git-selective-commit", prompt)
+    framed2 = _apply_adversarial_framing("git-selective-commit", prompt)
+    assert framed1 == framed2
+
+
+def test_apply_adversarial_framing_varies_by_test_name():
+    """Different test names can yield different scenarios."""
+    from gptme.eval.run import _apply_adversarial_framing
+
+    prompt = "Write tests"
+    framed1 = _apply_adversarial_framing("write-test-suite", prompt)
+    framed2 = _apply_adversarial_framing("add-logging", prompt)
+    # Different test names *may* map to different scenarios (hash-based)
+    # We only assert they are not identical when the hashes differ
+    if hash("write-test-suite") % 5 != hash("add-logging") % 5:
+        assert framed1 != framed2
