@@ -528,6 +528,17 @@ def include_paths(msg: Message, workspace: Path | None = None) -> Message:
             if total_content_size >= INCLUDE_PATHS_MAX_CONTENT:
                 # Budget exhausted: skip I/O for text; fall through to binary check below
                 skipped_paths.append(word)
+            elif (
+                # Fast stat-based pre-check: skip reading if even the truncated content
+                # (capped at CONTENT_SIZE_WARN_THRESHOLD by _check_content_size) would
+                # exceed the remaining budget.  Path.stat() is a single syscall — far
+                # cheaper than reading the file only to discard the content.
+                (f := Path(word).expanduser()).is_file()
+                and min(f.stat().st_size, CONTENT_SIZE_WARN_THRESHOLD) + total_content_size
+                > INCLUDE_PATHS_MAX_CONTENT
+            ):
+                skipped_paths.append(word)
+                # fall through so binary files still get attached via msg.files
             elif contents := _resource_to_codeblock(word, confirmed_urls=None):
                 content_size = len(contents)
                 if total_content_size + content_size > INCLUDE_PATHS_MAX_CONTENT:
@@ -571,9 +582,9 @@ def include_paths(msg: Message, workspace: Path | None = None) -> Message:
 
     if skipped_paths:
         logger.warning(
-            "include_paths: per-message content budget exceeded "
-            f"({total_content_size} chars used, limit {INCLUDE_PATHS_MAX_CONTENT}), "
-            f"skipped {len(skipped_paths)} path(s): {skipped_paths}"
+            f"include_paths: per-message content budget reached "
+            f"({total_content_size}/{INCLUDE_PATHS_MAX_CONTENT} chars used); "
+            f"skipped {len(skipped_paths)} path(s) to stay within limit: {skipped_paths}"
         )
 
     if files:

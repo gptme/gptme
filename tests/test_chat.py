@@ -377,7 +377,7 @@ def test_include_paths_per_message_size_budget(tmp_path, monkeypatch, caplog):
 
     # Warning should be logged about the skipped paths
     log_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
-    assert any("per-message content budget exceeded" in m for m in log_messages)
+    assert any("per-message content budget reached" in m for m in log_messages)
     assert any("doc_2.txt" in m for m in log_messages)
 
 
