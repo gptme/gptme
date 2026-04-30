@@ -535,14 +535,16 @@ def include_paths(msg: Message, workspace: Path | None = None) -> Message:
                 # exceed the remaining budget.  Path.stat() is a single syscall — far
                 # cheaper than reading the file only to discard the content.
                 (f := Path(word).expanduser()).is_file()
-                and min(f.stat().st_size, CONTENT_SIZE_WARN_THRESHOLD) + total_content_size
+                and min(f.stat().st_size, CONTENT_SIZE_WARN_THRESHOLD)
+                + total_content_size
                 > INCLUDE_PATHS_MAX_CONTENT
             ):
-                skipped_paths.append(word)
                 mime, _ = mimetypes.guess_type(str(f))
                 if not mime or mime.startswith("text/"):
+                    skipped_paths.append(word)
                     continue  # text file: skip binary handling too
                 # Binary/image file: fall through so it still gets attached via msg.files
+                # (binary attachments are not counted against the text budget)
             elif contents := _resource_to_codeblock(word, confirmed_urls=None):
                 content_size = len(contents)
                 if total_content_size + content_size > INCLUDE_PATHS_MAX_CONTENT:
