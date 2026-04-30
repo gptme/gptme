@@ -529,7 +529,7 @@ def include_paths(msg: Message, workspace: Path | None = None) -> Message:
                 # Budget exhausted: skip entirely (text and binary alike)
                 skipped_paths.append(word)
                 continue
-            elif (
+            if (
                 # Fast stat-based pre-check: skip reading if even the truncated content
                 # (capped at CONTENT_SIZE_WARN_THRESHOLD by _check_content_size) would
                 # exceed the remaining budget.  Path.stat() is a single syscall — far
