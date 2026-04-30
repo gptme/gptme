@@ -56,6 +56,18 @@ def _restore_model_list_cache():
     listing_mod._model_list_cache_time = old_time
 
 
+@pytest.fixture(autouse=True)
+def _restore_logged_warnings():
+    """Save and restore the _logged_warnings set between tests for isolation."""
+    import gptme.llm.models.resolution as res_mod
+
+    old = res_mod._logged_warnings.copy()
+    res_mod._logged_warnings.clear()
+    yield
+    res_mod._logged_warnings.clear()
+    res_mod._logged_warnings.update(old)
+
+
 # ── Default model state ──────────────────────────────────────────────────
 
 
@@ -303,10 +315,7 @@ class TestLogWarnOnce:
 
     def test_warns_first_time(self, caplog):
         """First call with a message should log it."""
-        from gptme.llm.models.resolution import _logged_warnings
-
         test_msg = f"unique-test-message-{id(self)}"
-        _logged_warnings.discard(test_msg)  # ensure clean state
 
         import logging
 
@@ -317,16 +326,14 @@ class TestLogWarnOnce:
     def test_does_not_warn_second_time(self, caplog):
         """Second call with same message should not log again."""
         test_msg = f"dedup-test-message-{id(self)}"
-        from gptme.llm.models.resolution import _logged_warnings
-
-        _logged_warnings.discard(test_msg)
 
         import logging
 
-        log_warn_once(test_msg)  # first call
+        with caplog.at_level(logging.WARNING):
+            log_warn_once(test_msg)  # first call
         caplog.clear()
         with caplog.at_level(logging.WARNING):
-            log_warn_once(test_msg)  # second call
+            log_warn_once(test_msg)  # second call — should be suppressed
         assert test_msg not in caplog.text
 
 
