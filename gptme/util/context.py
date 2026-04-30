@@ -15,7 +15,11 @@ from datetime import datetime
 from pathlib import Path
 
 from ..config import get_config
-from ..constants import CONTENT_SIZE_INFO_THRESHOLD, CONTENT_SIZE_WARN_THRESHOLD
+from ..constants import (
+    CONTENT_SIZE_INFO_THRESHOLD,
+    CONTENT_SIZE_WARN_THRESHOLD,
+    INCLUDE_PATHS_MAX_CONTENT,
+)
 from ..message import Message
 from ..tools import has_tool
 from .gh import (
@@ -513,6 +517,8 @@ def include_paths(msg: Message, workspace: Path | None = None) -> Message:
 
     append_msg = ""
     files = []
+    total_content_size = 0
+    skipped_paths: list[str] = []
 
     # Process file paths
     for word in file_paths:
@@ -521,6 +527,11 @@ def include_paths(msg: Message, workspace: Path | None = None) -> Message:
         if not use_fresh_context() and (
             contents := _resource_to_codeblock(word, confirmed_urls=None)
         ):
+            content_size = len(contents)
+            if total_content_size + content_size > INCLUDE_PATHS_MAX_CONTENT:
+                skipped_paths.append(word)
+                continue
+            total_content_size += content_size
             append_msg += "\n\n" + contents
         else:
             # if we found a non-text file, include it in msg.files
@@ -545,7 +556,19 @@ def include_paths(msg: Message, workspace: Path | None = None) -> Message:
         if not use_fresh_context() and (
             contents := _resource_to_codeblock(url, confirmed_urls=confirmed_urls)
         ):
+            content_size = len(contents)
+            if total_content_size + content_size > INCLUDE_PATHS_MAX_CONTENT:
+                skipped_paths.append(url)
+                continue
+            total_content_size += content_size
             append_msg += "\n\n" + contents
+
+    if skipped_paths:
+        logger.warning(
+            "include_paths: per-message content budget exceeded "
+            f"({total_content_size} >= {INCLUDE_PATHS_MAX_CONTENT}), "
+            f"skipped {len(skipped_paths)} path(s): {skipped_paths}"
+        )
 
     if files:
         logger.debug(
