@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils';
 import { ServerConfiguration } from '@/components/settings/ServerConfiguration';
 import { use$ } from '@legendapp/state/react';
 import { settingsModal$, type SettingsCategory } from '@/stores/settingsModal';
+import { setupWizard$ } from '@/stores/setupWizard';
 import { getPrimaryClient } from '@/stores/serverClients';
 export type { SettingsCategory } from '@/stores/settingsModal';
 export { settingsModal$ } from '@/stores/settingsModal';
@@ -336,6 +337,28 @@ export const SettingsModal = forwardRef<HTMLButtonElement, SettingsModalProps>(
                       <ExternalLink className="mr-2 h-3 w-3" />
                       gptme-webui - Web interface
                     </a>
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div className="space-y-2">
+                  <h4 className="text-sm font-medium">Setup Wizard</h4>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-muted-foreground">
+                      Re-run the setup wizard to change server or sign in to gptme.ai
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setOpen(false);
+                        setupWizard$.step.set('welcome');
+                        setupWizard$.open.set(true);
+                      }}
+                    >
+                      Re-run Setup
+                    </Button>
                   </div>
                 </div>
 
