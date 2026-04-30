@@ -99,6 +99,10 @@ class ConversationResponse(BaseModel):
     name: str = Field(..., description="Conversation name")
     log: list[dict] = Field(..., description="Message history as raw objects")
     workspace: str = Field(..., description="Workspace path")
+    session: dict | None = Field(
+        None,
+        description="Most-recently-active session state (id, generating, last_error); omitted when no session exists",
+    )
 
 
 class ConversationListResponse(BaseModel):

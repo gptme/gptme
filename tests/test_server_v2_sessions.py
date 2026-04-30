@@ -694,9 +694,8 @@ class TestConversationGetSessionState:
 
     def test_session_field_omitted_when_no_session(self, client: FlaskClient):
         """Conversations without an active session omit the session field."""
-        # Create a conversation without going through PUT (which creates a session)
+        # Create a conversation via PUT, then manually remove the session to simulate no-session case
         convname = f"test-no-session-{uuid.uuid4().hex[:8]}"
-        # Use POST to add a message — this creates a conversation with no session
         response = client.put(
             f"/api/v2/conversations/{convname}",
             json={"prompt": "test"},
