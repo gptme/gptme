@@ -411,6 +411,22 @@ def api_conversation(conversation_id: str):
         if chat_config.agent:
             log_dict["agent"]["path"] = str(chat_config.agent)
 
+    # Surface session-level state so REST polling clients can see generation
+    # status and the last step error without subscribing to SSE.
+    # Errors during /step propagate via SSE error events, but clients that
+    # only poll the conversation would otherwise see {"status": "ok"} from
+    # /step and never learn the LLM call failed.
+    sessions = SessionManager.get_sessions_for_conversation(conversation_id)
+    if sessions:
+        # Pick the most recently active session — it's the one a polling
+        # client would care about.
+        latest = max(sessions, key=lambda s: s.last_activity)
+        log_dict["session"] = {
+            "id": latest.id,
+            "generating": latest.generating,
+            "last_error": latest.last_error,
+        }
+
     return flask.jsonify(log_dict)
 
 

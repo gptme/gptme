@@ -661,3 +661,52 @@ class TestEventsEndpoint:
         # SSE endpoint returns 200 with streaming content
         assert response.status_code == 200
         assert response.content_type.startswith("text/event-stream")
+
+
+class TestConversationGetSessionState:
+    """Test GET /api/v2/conversations/<id> exposes session state.
+
+    REST polling clients need to see generation status and the last step
+    error without subscribing to SSE — otherwise they can't tell that an
+    LLM call failed (issue gptme/gptme-cloud#172).
+    """
+
+    def test_session_field_present_when_session_exists(self, conv, client: FlaskClient):
+        """GET conversation includes session.id, generating, last_error."""
+        response = client.get(f"/api/v2/conversations/{conv['conversation_id']}")
+        assert response.status_code == 200
+        data = response.get_json()
+        assert "session" in data
+        assert data["session"]["id"] == conv["session_id"]
+        assert data["session"]["generating"] is False
+        assert data["session"]["last_error"] is None
+
+    def test_last_error_surfaces_in_get_response(self, conv, client: FlaskClient):
+        """A session.last_error set by a failed step is visible via GET."""
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        session.last_error = "LLM call failed: rate limit exceeded"
+
+        response = client.get(f"/api/v2/conversations/{conv['conversation_id']}")
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data["session"]["last_error"] == "LLM call failed: rate limit exceeded"
+
+    def test_session_field_omitted_when_no_session(self, client: FlaskClient):
+        """Conversations without an active session omit the session field."""
+        # Create a conversation without going through PUT (which creates a session)
+        convname = f"test-no-session-{uuid.uuid4().hex[:8]}"
+        # Use POST to add a message — this creates a conversation with no session
+        response = client.put(
+            f"/api/v2/conversations/{convname}",
+            json={"prompt": "test"},
+        )
+        assert response.status_code == 200
+        # Manually remove the session to simulate the no-session case
+        session_id = response.get_json()["session_id"]
+        SessionManager.remove_session(session_id)
+
+        response = client.get(f"/api/v2/conversations/{convname}")
+        assert response.status_code == 200
+        data = response.get_json()
+        assert "session" not in data
