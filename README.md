@@ -347,7 +347,7 @@ gptme-agent install   # runs on a schedule
 gptme-agent status    # check on it
 ```
 
-[**Bob**](https://github.com/TimeToBuildBob) is the reference implementation — a production autonomous agent with 1700+ completed sessions. Bob opens PRs, reviews code, fixes CI, manages his own task queue, maintains 100+ behavioral lessons, posts on [Twitter](https://twitter.com/TimeToBuildBob), responds on Discord, and writes [blog posts](https://timetobuildbob.github.io/).
+[**Bob**](https://github.com/TimeToBuildBob) is the reference implementation — a production autonomous agent that's been running continuously since late 2024. Bob opens PRs, reviews code, fixes CI, manages his own task queue, maintains a growing set of behavioral lessons, posts on [Twitter](https://twitter.com/TimeToBuildBob), responds on Discord, and writes [blog posts](https://timetobuildbob.github.io/).
 
 Multiple specialized agents can run in parallel — e.g. Bob (engineering) and [Alice](https://github.com/TimeToLearnAlice) (personal assistant & orchestration) — coordinating through shared infrastructure.
 
@@ -569,7 +569,7 @@ gptme is more than a CLI — it's a platform with a growing ecosystem:
 | [gptme.ai](https://gptme.ai) | Managed cloud service (WIP) |
 
 **Community agents powered by gptme:**
-- [Bob](https://github.com/TimeToBuildBob) — autonomous AI agent, 1700+ sessions, contributes to open source, manages his own tasks
+- [Bob](https://github.com/TimeToBuildBob) — autonomous AI agent, running continuously since late 2024, contributes to open source and manages his own tasks
 - [Alice](https://github.com/TimeToLearnAlice) — personal assistant & agent orchestrator, forked from the same architecture
 
 ## 💬 Community
