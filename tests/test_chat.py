@@ -380,6 +380,10 @@ def test_include_paths_per_message_size_budget(tmp_path, monkeypatch, caplog):
     assert any("per-message content budget reached" in m for m in log_messages)
     assert any("doc_2.txt" in m for m in log_messages)
 
+    # Skipped file must not be attached via msg.files (budget bypass via _parse_prompt_files)
+    attached_names = [f.name for f in (result.files or []) if isinstance(f, Path)]
+    assert "doc_2.txt" not in attached_names
+
 
 def test_embed_attached_preserves_image_files(tmp_path):
     """Images in msg.files should survive embed_attached_file_content.

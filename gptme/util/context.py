@@ -526,8 +526,9 @@ def include_paths(msg: Message, workspace: Path | None = None) -> Message:
         # If not using fresh context, include text file contents in the message
         if not use_fresh_context():
             if total_content_size >= INCLUDE_PATHS_MAX_CONTENT:
-                # Budget exhausted: skip I/O for text; fall through to binary check below
+                # Budget exhausted: skip entirely (text and binary alike)
                 skipped_paths.append(word)
+                continue
             elif (
                 # Fast stat-based pre-check: skip reading if even the truncated content
                 # (capped at CONTENT_SIZE_WARN_THRESHOLD by _check_content_size) would
@@ -538,7 +539,10 @@ def include_paths(msg: Message, workspace: Path | None = None) -> Message:
                 > INCLUDE_PATHS_MAX_CONTENT
             ):
                 skipped_paths.append(word)
-                # fall through so binary files still get attached via msg.files
+                mime, _ = mimetypes.guess_type(str(f))
+                if not mime or mime.startswith("text/"):
+                    continue  # text file: skip binary handling too
+                # Binary/image file: fall through so it still gets attached via msg.files
             elif contents := _resource_to_codeblock(word, confirmed_urls=None):
                 content_size = len(contents)
                 if total_content_size + content_size > INCLUDE_PATHS_MAX_CONTENT:
@@ -547,7 +551,7 @@ def include_paths(msg: Message, workspace: Path | None = None) -> Message:
                 total_content_size += content_size
                 append_msg += "\n\n" + contents
                 continue  # processed as text: skip binary handling
-        # Binary/image attachment: runs when use_fresh_context(), budget exhausted, or
+        # Binary/image attachment: runs when use_fresh_context() or
         # _resource_to_codeblock returned None (binary file unrepresentable as text)
         file = _parse_prompt_files(word)
         if file:
