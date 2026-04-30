@@ -524,28 +524,31 @@ def include_paths(msg: Message, workspace: Path | None = None) -> Message:
     for word in file_paths:
         logger.debug(f"potential path: {word=}")
         # If not using fresh context, include text file contents in the message
-        if not use_fresh_context() and (
-            contents := _resource_to_codeblock(word, confirmed_urls=None)
-        ):
-            content_size = len(contents)
-            if total_content_size + content_size > INCLUDE_PATHS_MAX_CONTENT:
+        if not use_fresh_context():
+            if total_content_size >= INCLUDE_PATHS_MAX_CONTENT:
+                # Budget exhausted: skip I/O for text; fall through to binary check below
                 skipped_paths.append(word)
-                continue
-            total_content_size += content_size
-            append_msg += "\n\n" + contents
-        else:
-            # if we found a non-text file, include it in msg.files
-            file = _parse_prompt_files(word)
-            if file:
-                # Store path relative to workspace if provided
-                file = file.expanduser()
-                if workspace and not file.is_absolute():
-                    try:
-                        file = file.absolute().relative_to(workspace)
-                    except ValueError:
-                        file = file.absolute()
-                logger.debug(f"auto-attaching file: {file}")
-                files.append(file)
+            elif contents := _resource_to_codeblock(word, confirmed_urls=None):
+                content_size = len(contents)
+                if total_content_size + content_size > INCLUDE_PATHS_MAX_CONTENT:
+                    skipped_paths.append(word)
+                    continue  # text file: skip binary handling
+                total_content_size += content_size
+                append_msg += "\n\n" + contents
+                continue  # processed as text: skip binary handling
+        # Binary/image attachment: runs when use_fresh_context(), budget exhausted, or
+        # _resource_to_codeblock returned None (binary file unrepresentable as text)
+        file = _parse_prompt_files(word)
+        if file:
+            # Store path relative to workspace if provided
+            file = file.expanduser()
+            if workspace and not file.is_absolute():
+                try:
+                    file = file.absolute().relative_to(workspace)
+                except ValueError:
+                    file = file.absolute()
+            logger.debug(f"auto-attaching file: {file}")
+            files.append(file)
 
     # Process URLs (only confirmed ones in interactive mode)
     for url in urls_found:
@@ -553,20 +556,23 @@ def include_paths(msg: Message, workspace: Path | None = None) -> Message:
             logger.debug(f"Skipping unconfirmed URL: {url}")
             continue
         logger.debug(f"potential url: {url=}")
-        if not use_fresh_context() and (
-            contents := _resource_to_codeblock(url, confirmed_urls=confirmed_urls)
-        ):
-            content_size = len(contents)
-            if total_content_size + content_size > INCLUDE_PATHS_MAX_CONTENT:
+        if not use_fresh_context():
+            # Early exit: skip network fetch entirely if budget already exhausted
+            if total_content_size >= INCLUDE_PATHS_MAX_CONTENT:
                 skipped_paths.append(url)
                 continue
-            total_content_size += content_size
-            append_msg += "\n\n" + contents
+            if contents := _resource_to_codeblock(url, confirmed_urls=confirmed_urls):
+                content_size = len(contents)
+                if total_content_size + content_size > INCLUDE_PATHS_MAX_CONTENT:
+                    skipped_paths.append(url)
+                    continue
+                total_content_size += content_size
+                append_msg += "\n\n" + contents
 
     if skipped_paths:
         logger.warning(
             "include_paths: per-message content budget exceeded "
-            f"({total_content_size} >= {INCLUDE_PATHS_MAX_CONTENT}), "
+            f"({total_content_size} chars used, limit {INCLUDE_PATHS_MAX_CONTENT}), "
             f"skipped {len(skipped_paths)} path(s): {skipped_paths}"
         )
 
