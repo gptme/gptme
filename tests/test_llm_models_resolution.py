@@ -323,9 +323,9 @@ class TestLogWarnOnce:
 
         import logging
 
-        log_warn_once(test_msg)  # first call
-        caplog.clear()
         with caplog.at_level(logging.WARNING):
+            log_warn_once(test_msg)  # first call
+            caplog.clear()
             log_warn_once(test_msg)  # second call
         assert test_msg not in caplog.text
 
