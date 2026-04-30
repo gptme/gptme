@@ -591,7 +591,8 @@ def _find_potential_paths(content: str) -> list[str]:
     # List current directory contents for relative path matching
     cwd_files = [f.name for f in Path.cwd().iterdir()]
 
-    paths = []
+    paths: list[str] = []
+    seen_paths: set[str] = set()
 
     def is_path_like(word: str) -> bool:
         """Helper to check if a word looks like a path.
@@ -626,12 +627,19 @@ def _find_potential_paths(content: str) -> list[str]:
         """Strip leading @ from path references (e.g. @src/file.py -> src/file.py)."""
         return word.removeprefix("@")
 
+    def _add_path(word: str) -> None:
+        """Add a path to the list if not already seen (preserves first-seen order)."""
+        path = _strip_at_prefix(word)
+        if path not in seen_paths:
+            seen_paths.add(path)
+            paths.append(path)
+
     # First find backtick-wrapped content
     for match in re.finditer(r"`([^`]+)`", content_no_xml):
         word = match.group(1).strip()
         word = word.rstrip("?").rstrip(".").rstrip(",").rstrip("!")
         if is_path_like(word):
-            paths.append(_strip_at_prefix(word))
+            _add_path(word)
 
     # Then find non-backtick-wrapped words
     # Remove backtick-wrapped content first to avoid double-processing
@@ -643,7 +651,7 @@ def _find_potential_paths(content: str) -> list[str]:
             continue
 
         if is_path_like(word):
-            paths.append(_strip_at_prefix(word))
+            _add_path(word)
 
     return paths
 

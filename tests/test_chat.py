@@ -61,6 +61,45 @@ def test_find_potential_paths_empty():
     assert _find_potential_paths("just some text") == []
 
 
+def test_find_potential_paths_deduplication():
+    """Paths mentioned multiple times should appear only once in the result."""
+    content = """
+    See `./scripts/foo.py --flag` for details.
+    Also `./scripts/foo.py --other` does the same.
+    And again: `./scripts/foo.py`
+    The plain word /abs/path appears twice: /abs/path
+    """
+    paths = _find_potential_paths(content)
+
+    # Each unique path must appear exactly once, even if mentioned multiple times
+    assert paths.count("./scripts/foo.py --flag") == 1
+    assert paths.count("/abs/path") == 1
+
+    # All unique paths should still be present
+    assert "./scripts/foo.py --flag" in paths
+    assert "/abs/path" in paths
+
+
+def test_include_paths_no_duplicate_embeddings(tmp_path, monkeypatch):
+    """include_paths must not embed the same file content multiple times."""
+    from gptme.message import Message
+    from gptme.util.context import include_paths
+
+    monkeypatch.chdir(tmp_path)
+    data_file = tmp_path / "data.txt"
+    data_file.write_text("unique-content-marker")
+
+    # Reference the same file four times
+    msg = Message(
+        "user",
+        "See `data.txt` and also `data.txt`. Then `data.txt` again and data.txt bare.",
+    )
+    result = include_paths(msg)
+
+    # The unique marker should appear exactly once, not four times
+    assert result.content.count("unique-content-marker") == 1
+
+
 def test_include_paths_skips_system_messages():
     """Test that include_paths skips role=system messages (tool output) entirely."""
     from gptme.message import Message
