@@ -1,7 +1,7 @@
 // Mock modules that use import.meta (not available in jest)
 jest.mock('@/utils/connectionConfig', () => ({
   getApiBaseUrl: jest.fn(() => 'http://127.0.0.1:5700'),
-  CLOUD_BASE_URL: 'https://fleet.gptme.ai',
+  CLOUD_BASE_URL: 'https://gptme.ai',
 }));
 jest.mock('@/stores/conversations', () => ({}));
 jest.mock('@/stores/servers', () => ({
