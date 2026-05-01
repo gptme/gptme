@@ -1861,3 +1861,34 @@ class TestMaybeApplyVerbosity:
             _maybe_apply_verbosity({}, model)
             _maybe_apply_verbosity({}, model)
         assert caplog.text.count("OPENAI_VERBOSITY") == 1
+
+
+class TestOpenrouterModelToModelmeta:
+    """Tests for openrouter_model_to_modelmeta — particularly the proxy double-prefix fix."""
+
+    def _model_data(self, model_id: str) -> dict:
+        return {
+            "id": model_id,
+            "context_length": 128000,
+            "pricing": {"prompt": "0.000003", "completion": "0.000015"},
+            "architecture": {"modality": "text->text"},
+            "supported_parameters": [],
+        }
+
+    def test_native_id_no_change(self):
+        """Direct OpenRouter API returns bare IDs — full should be openrouter/..."""
+        from gptme.llm.llm_openai import openrouter_model_to_modelmeta
+
+        meta = openrouter_model_to_modelmeta(
+            self._model_data("anthropic/claude-sonnet-4-20250514")
+        )
+        assert meta.full == "openrouter/anthropic/claude-sonnet-4-20250514"
+
+    def test_proxy_prefixed_id_strips_duplicate(self):
+        """Supabase models proxy pre-prefixes IDs — must not produce double prefix."""
+        from gptme.llm.llm_openai import openrouter_model_to_modelmeta
+
+        meta = openrouter_model_to_modelmeta(
+            self._model_data("openrouter/anthropic/claude-sonnet-4-20250514")
+        )
+        assert meta.full == "openrouter/anthropic/claude-sonnet-4-20250514"

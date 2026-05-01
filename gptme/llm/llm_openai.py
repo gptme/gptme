@@ -1387,9 +1387,14 @@ def openrouter_model_to_modelmeta(model_data: dict) -> ModelMeta:
         "supported_parameters", []
     )
 
+    # Strip redundant "openrouter/" prefix — the Supabase models proxy pre-prefixes
+    # IDs (e.g. "openrouter/anthropic/claude-3-5-sonnet"), but ModelMeta.full adds
+    # the provider prefix again, producing "openrouter/openrouter/...".
+    model_id = model_data.get("id", "").removeprefix("openrouter/")
+
     return ModelMeta(
         provider="openrouter",
-        model=model_data.get("id", ""),
+        model=model_id,
         context=model_data.get("context_length", 128_000),
         max_output=model_data.get("max_completion_tokens"),
         supports_streaming=True,  # Most OpenRouter models support streaming
