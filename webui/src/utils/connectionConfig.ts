@@ -7,9 +7,9 @@ import {
 
 const DEFAULT_API_URL = 'http://127.0.0.1:5700';
 
-// Cloud service URL for auth code exchange (fleet.gptme.ai)
+// Cloud service URL for auth code exchange (gptme.ai)
 // Configure via VITE_GPTME_CLOUD_BASE_URL environment variable
-const CLOUD_BASE_URL = import.meta.env.VITE_GPTME_CLOUD_BASE_URL || 'https://fleet.gptme.ai';
+const CLOUD_BASE_URL = import.meta.env.VITE_GPTME_CLOUD_BASE_URL || 'https://gptme.ai';
 
 export interface ConnectionConfig {
   baseUrl: string;

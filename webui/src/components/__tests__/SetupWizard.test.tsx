@@ -213,7 +213,7 @@ describe('SetupWizard', () => {
     fireEvent.click(screen.getByRole('button', { name: /cloud/i }));
     fireEvent.click(screen.getByRole('button', { name: /sign in to gptme.ai/i }));
 
-    expect(mockOpen).toHaveBeenCalledWith('https://fleet.gptme.ai/authorize', '_blank');
+    expect(mockOpen).toHaveBeenCalledWith('https://gptme.ai/authorize', '_blank');
     expect(screen.getByText(/waiting for sign-in to complete/i)).toBeInTheDocument();
     expect(screen.queryByText(/you're all set/i)).not.toBeInTheDocument();
 

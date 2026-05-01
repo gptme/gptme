@@ -39,7 +39,7 @@ type SetupModelsResponse = {
   recommended: string[];
 };
 
-// The gptme cloud service is hosted on fleet.gptme.ai (the cloud.gptme.ai domain
+// The gptme cloud service is hosted on gptme.ai (the cloud.gptme.ai domain
 // is a planned alias). Use a small runtime helper so Jest doesn't choke on import.meta.
 function getCloudAuthUrl(): string {
   let cloudBaseUrl: string | undefined;
@@ -52,7 +52,7 @@ function getCloudAuthUrl(): string {
     cloudBaseUrl = undefined;
   }
 
-  return `${cloudBaseUrl || 'https://fleet.gptme.ai'}/authorize`;
+  return `${cloudBaseUrl || 'https://gptme.ai'}/authorize`;
 }
 
 const CLOUD_AUTH_URL = getCloudAuthUrl();
