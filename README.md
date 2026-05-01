@@ -56,14 +56,19 @@
 </p>
 
 <p align="center">
-📜 A personal AI agent in your terminal, with tools to:<br/>
-run shell commands, write code, edit files, browse the web, use vision, and much more.<br/>
+📜 A personal AI agent that runs <i>anywhere a terminal runs</i> — your laptop,
+ssh sessions, tmux, headless servers, CI pipelines.<br/>
+Provider-agnostic, local-first, and unconstrained: ships with shell, Python, web,
+vision, and everything else an agent needs.<br/>
 A great coding agent, but general-purpose enough to assist in all kinds of knowledge-work.
 </p>
 
 <p align="center">
-An unconstrained local free and open-source <a href="https://gptme.org/docs/alternatives.html">alternative</a> to Claude Code, Codex, Cursor Agents, etc.<br/>
-One of the first agent CLIs created (Spring 2023) — and still in very active development.
+Free and open-source. Works with Anthropic, OpenAI, Google, xAI, DeepSeek, OpenRouter,
+or fully local via <code>llama.cpp</code> — your data, your models, your terminal.<br/>
+A capable <a href="https://gptme.org/docs/alternatives.html">alternative</a> to Claude Code,
+Codex, Cursor, and Warp — one of the first agent CLIs (Spring 2023), still in very
+active development.
 </p>
 
 ## 📚 Table of Contents
