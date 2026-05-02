@@ -814,7 +814,7 @@ def api_conversation_transcript(conversation_id: str):
     the transcript to the caller's conversation log so voice calls become
     searchable and persistent in the same interface as text chats.
 
-    The conversation_id is the caller's E.164 phone number (e.g. +46765784797).
+    The conversation_id is the caller's E.164 phone number (e.g. +15551234567).
     """
     if error := _validate_conversation_id(conversation_id):
         return error
