@@ -97,7 +97,8 @@ def anthropic_cache_cold_warning(
 
 
 def cache_cold_warning_hook(
-    manager: "LogManager",
+    messages: list[Message],
+    **kwargs: Any,
 ) -> Generator[Message | StopPropagation, None, None]:
     """Emit warning when Anthropic prompt cache is likely cold.
 
@@ -317,7 +318,7 @@ def register() -> None:
         "cost_awareness.cache_cold_warning",
         HookType.GENERATION_PRE,
         cache_cold_warning_hook,
-        priority=3,  # Before inject_pending_warning so warning is set before injection
+        priority=7,  # Must run before inject_pending_warning (priority=5) so warning is set before injection
     )
     register_hook(
         "cost_awareness.cost_warning",
@@ -329,7 +330,7 @@ def register() -> None:
         "cost_awareness.inject_warning",
         HookType.GENERATION_PRE,
         inject_pending_warning,
-        priority=5,  # Run after cache_cold_warning to inject any pending warning
+        priority=5,  # Runs after cache_cold_warning (priority=7) to inject any pending warning
     )
     register_hook(
         "cost_awareness.session_end",
