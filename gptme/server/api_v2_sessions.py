@@ -836,10 +836,6 @@ def api_conversation_transcript(conversation_id: str):
     if not call_sid:
         return flask.jsonify({"error": "call_metadata.call_sid is required"}), 400
 
-    # Load or create the conversation logdir
-    logdir = get_logs_dir() / conversation_id
-    logdir.mkdir(parents=True, exist_ok=True)
-
     with LogManager.load(conversation_id, lock=True, create=True) as manager:
         # Idempotency check: scan existing messages for this call_sid in metadata
         for msg in manager.log.messages:
