@@ -840,44 +840,39 @@ def api_conversation_transcript(conversation_id: str):
     logdir = get_logs_dir() / conversation_id
     logdir.mkdir(parents=True, exist_ok=True)
 
-    manager = LogManager.load(conversation_id, lock=True, create=True)
+    with LogManager.load(conversation_id, lock=True, create=True) as manager:
+        # Idempotency check: scan existing messages for this call_sid in metadata
+        for msg in manager.log.messages:
+            if msg.metadata:
+                voice_call = msg.metadata.get("voice_call")
+                if voice_call and voice_call.get("call_sid") == call_sid:
+                    return flask.jsonify(
+                        {
+                            "status": "already_acked",
+                            "conversation_id": conversation_id,
+                            "messages_added": 0,
+                        }
+                    )
 
-    # Idempotency check: scan existing messages for this call_sid in metadata
-    for msg in manager.log.messages:
-        if (
-            msg.metadata
-            and msg.metadata.get("voice_call", {}).get("call_sid") == call_sid
-        ):
-            manager._release_lock()
-            return flask.jsonify(
-                {
-                    "status": "already_acked",
-                    "conversation_id": conversation_id,
-                    "messages_added": 0,
-                }
+        messages_added = 0
+        # Append each turn as a Message
+        for turn in turns:
+            role = turn.get("role")
+            text = turn.get("text", "").strip()
+
+            # Skip empty/whitespace-only turns
+            if not text:
+                continue
+            if role not in ("user", "assistant"):
+                continue
+
+            msg = Message(
+                role=role,
+                content=text,
+                metadata={"voice_call": call_metadata},
             )
-
-    messages_added = 0
-    # Append each turn as a Message
-    for turn in turns:
-        role = turn.get("role")
-        text = turn.get("text", "").strip()
-
-        # Skip empty/whitespace-only turns
-        if not text:
-            continue
-        if role not in ("user", "assistant"):
-            continue
-
-        msg = Message(
-            role=role,
-            content=text,
-            metadata={"voice_call": call_metadata},  # type: ignore[arg-type]
-        )
-        manager.append(msg)
-        messages_added += 1
-
-    manager._release_lock()
+            manager.append(msg)
+            messages_added += 1
 
     return flask.jsonify(
         {

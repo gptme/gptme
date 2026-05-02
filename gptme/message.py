@@ -6,7 +6,7 @@ import textwrap
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Literal, TypedDict
+from typing import Any, Literal, TypedDict
 from xml.sax.saxutils import escape as xml_escape
 from xml.sax.saxutils import quoteattr
 
@@ -65,6 +65,7 @@ class MessageMetadata(TypedDict, total=False):
     model: str
     cost: float  # Cost in USD
     usage: UsageData
+    voice_call: dict[str, Any]  # Voice call metadata (call_sid, source, etc.)
 
 
 _TOKEN_KEYS = (
