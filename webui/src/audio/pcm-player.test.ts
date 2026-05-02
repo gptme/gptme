@@ -3,6 +3,7 @@ import { PCMPlayer } from './pcm-player';
 class MockAudioBuffer {
   duration: number;
   copiedChannel: Float32Array | null = null;
+  copiedChannelNumber: number | null = null;
 
   constructor(
     public channels: number,
@@ -12,8 +13,9 @@ class MockAudioBuffer {
     this.duration = length / sampleRate;
   }
 
-  copyToChannel(data: Float32Array): void {
+  copyToChannel(data: Float32Array, channelNumber: number): void {
     this.copiedChannel = data;
+    this.copiedChannelNumber = channelNumber;
   }
 }
 
@@ -104,6 +106,7 @@ describe('PCMPlayer', () => {
     expect(ctx.buffers[0].channels).toBe(1);
     expect(ctx.buffers[0].length).toBe(3);
     expect(ctx.buffers[0].sampleRate).toBe(24000);
+    expect(ctx.buffers[0].copiedChannelNumber).toBe(0);
     expect(Array.from(ctx.buffers[0].copiedChannel ?? [])).toEqual([-1, 0, 32767 / 32768]);
   });
 
@@ -129,7 +132,24 @@ describe('PCMPlayer', () => {
     const [first, second, third] = contexts[0].sources;
     expect(first.stopped).toBe(true);
     expect(second.stopped).toBe(true);
+    expect(third.stopped).toBe(false);
     expect(third.startTime).toBeCloseTo(1.01, 5);
+  });
+
+  it('onended splices the source out so reset does not stop it again', () => {
+    const player = new PCMPlayer(24000);
+
+    player.feed(pcm16Buffer([1, 2, 3]));
+    player.feed(pcm16Buffer([4, 5]));
+
+    const [first, second] = contexts[0].sources;
+    // Simulate the first source finishing playback naturally.
+    first.onended?.();
+
+    // reset() iterates scheduledSources — first should have been removed by onended.
+    player.reset();
+    expect(first.stopped).toBe(false); // already removed; reset did not stop it
+    expect(second.stopped).toBe(true); // still in list; reset stopped it
   });
 
   it('resumes the playback context on demand', async () => {

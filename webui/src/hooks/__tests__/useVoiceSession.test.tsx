@@ -8,20 +8,6 @@ import { act } from '@testing-library/react';
 import { renderHook, waitFor } from '@testing-library/react';
 import { useVoiceSession } from '../useVoiceSession';
 
-// ─── Mock PCMPlayer ─────────────────────────────────────────────────────────
-
-class MockPCMPlayer {
-  feedCount = 0;
-  resumeCalled = false;
-  resetCalled = false;
-  closed = false;
-
-  feed() { this.feedCount++; }
-  resume() { this.resumeCalled = true; }
-  reset() { this.resetCalled = true; }
-  close() { this.closed = true; }
-}
-
 // ─── Mock AudioContext ───────────────────────────────────────────────────────
 
 class MockAudioContext {
@@ -30,23 +16,46 @@ class MockAudioContext {
   destination = {} as AudioDestinationNode;
   closed = false;
 
-  async resume() { this.state = 'running'; }
-  async close() { this.closed = true; }
-  createMediaStreamSource() { return { connect: jest.fn() } as unknown as MediaStreamAudioSourceNode; }
+  async resume() {
+    this.state = 'running';
+  }
+  async close() {
+    this.closed = true;
+  }
+  createMediaStreamSource() {
+    return { connect: jest.fn() } as unknown as MediaStreamAudioSourceNode;
+  }
   createAnalyser() {
-    const a = {} as AnalyserNode;
-    a.fftSize = 256;
-    a.getByteFrequencyData = jest.fn().mockReturnValue(new Uint8Array(128).fill(128));
-    a.connect = jest.fn();
-    return a;
+    return {
+      fftSize: 256,
+      frequencyBinCount: 128,
+      getByteFrequencyData: jest.fn(),
+    } as unknown as AnalyserNode;
   }
   createGain() {
-    const g = {} as GainNode;
-    g.gain = { value: 0, connect: jest.fn() } as unknown as AudioParam;
-    g.connect = jest.fn();
-    return g;
+    return { gain: { value: 0 }, connect: jest.fn() } as unknown as GainNode;
   }
   audioWorklet = { addModule: jest.fn().mockResolvedValue(undefined) };
+}
+
+// ─── Mock AudioWorkletNode (not available in jsdom) ──────────────────────────
+
+let _lastWorkletPort: { onmessage: ((e: MessageEvent) => void) | null } | null = null;
+
+class MockAudioWorkletNode {
+  port: { onmessage: ((e: MessageEvent) => void) | null };
+  constructor(_context: AudioContext, _name: string) {
+    this.port = { onmessage: null };
+    _lastWorkletPort = this.port;
+  }
+  connect() {
+    return this;
+  }
+}
+
+/** Return the worklet port from the last constructed MockAudioWorkletNode. */
+function lastWorkletPort(): { onmessage: ((e: MessageEvent) => void) | null } | null {
+  return _lastWorkletPort;
 }
 
 // ─── Mock WebSocket ──────────────────────────────────────────────────────────
@@ -55,6 +64,8 @@ type WSReadyState = 0 | 1 | 2 | 3;
 const WS_OPEN = 1 as WSReadyState;
 
 class MockWebSocket {
+  static OPEN = 1 as WSReadyState;
+
   url: string;
   readyState: WSReadyState = WS_OPEN;
   binaryType: ArrayBuffer = new ArrayBuffer(0);
@@ -66,20 +77,34 @@ class MockWebSocket {
 
   sentMessages: (string | ArrayBuffer)[] = [];
 
-  constructor(url: string) { this.url = url; }
+  constructor(url: string) {
+    this.url = url;
+  }
 
-  send(data: string | ArrayBuffer) { this.sentMessages.push(data); }
+  send(data: string | ArrayBuffer) {
+    this.sentMessages.push(data);
+  }
 
+  /** Called by the hook in cleanup or by tests to simulate server-side close. */
   close() {
+    // Avoid re-entrant onclose loops: the hook's cleanup nulls onclose then
+    // calls close(), and onclose itself also calls cleanup(). Guard by
+    // releasing the handler before calling it, similar to real WebSocket.
     this.readyState = 3 as WSReadyState;
-    if (this.onclose) this.onclose();
+    const cb = this.onclose;
+    this.onclose = null;
+    if (cb) cb();
   }
 
   // Test helpers — called by tests to simulate server events
   emitReady() {
     if (this.onmessage) {
       this.onmessage({
-        data: JSON.stringify({ type: 'ready', input_sample_rate: 16000, output_sample_rate: 24000 }),
+        data: JSON.stringify({
+          type: 'ready',
+          input_sample_rate: 16000,
+          output_sample_rate: 24000,
+        }),
       });
     }
   }
@@ -94,93 +119,77 @@ class MockWebSocket {
     if (this.onmessage) this.onmessage({ data });
   }
 
-  emitError() { if (this.onerror) this.onerror(); }
+  emitError() {
+    if (this.onerror) this.onerror();
+  }
 }
 
-// ─── Globals ─────────────────────────────────────────────────────────────────
+// ─── Init / cleanup ─────────────────────────────────────────────────────────
+
+/**
+ * Wait for async microtasks (RAF callbacks scheduled via setTimeout(0)) to settle.
+ * Must be called inside act() from the test.
+ */
+async function flushMicrotasks() {
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 10));
+  });
+}
 
 let mockWs: MockWebSocket;
 let mockCtx: MockAudioContext;
-let workletPortOnMessage: ((e: MessageEvent) => void) | null = null;
-
-function setupGlobals() {
-  mockWs = new MockWebSocket('ws://test.local/voice');
-  mockCtx = new MockAudioContext();
-
-  // Mock AudioWorkletNode — stash the port.onmessage handler for test injection
-  Object.defineProperty(window, 'AudioWorkletNode', {
-    configurable: true,
-    writable: true,
-    value: jest.fn(() => {
-      const node = {
-        connect: jest.fn(),
-        disconnect: jest.fn(),
-        port: {
-          onmessage: null as ((e: MessageEvent) => void) | null,
-        },
-      };
-      // Stash port.onmessage so tests can simulate worklet messages
-      // (we intercept AudioWorkletNode ctor, but the hook captures it at call time)
-      const originalSetOnMessage = Object.defineProperty;
-      // We'll store a reference via a side channel below
-      return node;
-    }),
-  });
-
-  // Global refs for test injection
-  (window as unknown as Record<string, unknown>).__mockCtx = mockCtx;
-  (window as unknown as Record<string, unknown>).__mockWs = mockWs;
-  (window as unknown as Record<string, unknown>).__workletPortOnMessage = () => workletPortOnMessage;
-}
-
-function clearGlobals() {
-  delete (window as unknown as Record<string, unknown>).__mockCtx;
-  delete (window as unknown as Record<string, unknown>).__mockWs;
-  delete (window as unknown as Record<string, unknown>).__workletPortOnMessage;
-}
-
-let originalAudioContext: typeof window.AudioContext;
-let originalWebSocket: typeof window.WebSocket;
-let originalMediaDevices: typeof navigator.mediaDevices;
 
 beforeEach(() => {
-  setupGlobals();
+  _lastWorkletPort = null;
+  mockWs = new MockWebSocket('');
+  mockCtx = new MockAudioContext();
 
-  originalAudioContext = window.AudioContext;
-  originalWebSocket = window.WebSocket;
-  originalMediaDevices = navigator.mediaDevices;
-
+  // Mock AudioContext
   Object.defineProperty(window, 'AudioContext', {
     configurable: true,
     writable: true,
     value: jest.fn(() => mockCtx),
   });
 
+  // Mock WebSocket constructor + preserve static OPEN property
+  const MockWSConstructor: any = jest.fn(() => mockWs);
+  MockWSConstructor.OPEN = MockWebSocket.OPEN;
+  MockWSConstructor.CONNECTING = 0;
+  MockWSConstructor.CLOSING = 2;
+  MockWSConstructor.CLOSED = 3;
   Object.defineProperty(window, 'WebSocket', {
     configurable: true,
     writable: true,
-    value: jest.fn(() => mockWs),
+    value: MockWSConstructor,
   });
 
-  // Mock getUserMedia — must be synchronous for the hook's async IIFE
+  // Mock AudioWorkletNode
+  Object.defineProperty(window, 'AudioWorkletNode', {
+    configurable: true,
+    writable: true,
+    value: MockAudioWorkletNode,
+  });
+
+  // Mock getUserMedia
   Object.defineProperty(navigator, 'mediaDevices', {
     configurable: true,
     writable: true,
     value: {
-      ...navigator.mediaDevices,
       getUserMedia: jest.fn().mockResolvedValue(new MockMediaStream()),
     },
   });
 
-  // Mock requestAnimationFrame to avoid actual frame scheduling
-  jest.spyOn(window, 'requestAnimationFrame').mockImplementation(cb => {
-    // Execute immediately to keep tests synchronous
-    cb(1);
-    return 1;
+  // Mock requestAnimationFrame / cancelAnimationFrame via macrotask
+  // so calls inside the level-meter tick don't recurse infinitely.
+  jest.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+    const id = setTimeout(() => cb(performance.now()), 0);
+    return id as unknown as number;
   });
-  jest.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+  jest.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => {
+    clearTimeout(id);
+  });
 
-  // Mock AudioBuffer and AudioBufferSourceNode
+  // AudioBuffer constructors
   Object.defineProperty(window, 'AudioBuffer', {
     configurable: true,
     writable: true,
@@ -194,11 +203,12 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  Object.defineProperty(window, 'AudioContext', { configurable: true, writable: true, value: originalAudioContext });
-  Object.defineProperty(window, 'WebSocket', { configurable: true, writable: true, value: originalWebSocket });
-  Object.defineProperty(navigator, 'mediaDevices', { configurable: true, writable: true, value: originalMediaDevices });
+  delete (window as any).AudioContext;
+  delete (window as any).WebSocket;
+  delete (window as any).AudioWorkletNode;
+  delete (window as any).AudioBuffer;
+  delete (window as any).AudioBufferSourceNode;
   jest.restoreAllMocks();
-  clearGlobals();
 });
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -220,11 +230,18 @@ describe('useVoiceSession', () => {
   it('transitions idle → connecting → recording on start', async () => {
     const { result } = renderHook(() => useVoiceSession('ws://test.local/voice'));
 
-    act(() => { result.current.start(); });
+    act(() => {
+      result.current.start();
+    });
     expect(result.current.state).toBe('connecting');
 
+    // Let async setup (getUserMedia, AudioContext, addModule, AudioWorkletNode) resolve
+    await flushMicrotasks();
+
     // Simulate server ready frame
-    await waitFor(() => { mockWs.emitReady(); });
+    act(() => {
+      mockWs.emitReady();
+    });
 
     await waitFor(() => {
       expect(result.current.state).toBe('recording');
@@ -234,10 +251,14 @@ describe('useVoiceSession', () => {
   it('sets error and ends state on WebSocket error', async () => {
     const { result } = renderHook(() => useVoiceSession('ws://test.local/voice'));
 
-    act(() => { result.current.start(); });
-    await waitFor(() => expect(result.current.state).toBe('connecting'));
+    act(() => {
+      result.current.start();
+    });
+    await flushMicrotasks();
 
-    mockWs.emitError();
+    act(() => {
+      mockWs.emitError();
+    });
 
     await waitFor(() => {
       expect(result.current.error).toBe('Voice connection error');
@@ -246,37 +267,49 @@ describe('useVoiceSession', () => {
   });
 
   it('closes WebSocket on stop', async () => {
-    const closeSpy = jest.spyOn(mockWs, 'close');
     const { result } = renderHook(() => useVoiceSession('ws://test.local/voice'));
 
-    act(() => { result.current.start(); });
-    await waitFor(() => expect(result.current.state).toBe('connecting'));
-    mockWs.emitReady();
+    act(() => {
+      result.current.start();
+    });
+    await flushMicrotasks();
+    act(() => {
+      mockWs.emitReady();
+    });
     await waitFor(() => expect(result.current.state).toBe('recording'));
 
-    act(() => { result.current.stop(); });
+    act(() => {
+      result.current.stop();
+    });
 
     await waitFor(() => {
       expect(result.current.state).toBe('ended');
-      expect(closeSpy).toHaveBeenCalled();
     });
+    // stop() → cleanup() → s.ws.close() → readyState becomes 3 (CLOSED)
+    expect(mockWs.readyState).toBe(3);
   });
 
   it('resets state to idle after ended timeout (1500ms)', async () => {
     jest.useFakeTimers();
     const { result } = renderHook(() => useVoiceSession('ws://test.local/voice'));
 
-    act(() => { result.current.start(); });
+    act(() => {
+      result.current.start();
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(10);
+    });
     mockWs.emitReady();
-    await waitFor(() => expect(result.current.state).toBe('recording'));
+    await waitFor(() => expect(result.current.state).toBe('recording'), { timeout: 1000 });
 
-    act(() => { result.current.stop(); });
-    await waitFor(() => expect(result.current.state).toBe('ended'));
+    act(() => {
+      result.current.stop();
+    });
+    await waitFor(() => expect(result.current.state).toBe('ended'), { timeout: 1000 });
 
     await act(async () => {
       jest.advanceTimersByTime(1500);
     });
-
     expect(result.current.state).toBe('idle');
     jest.useRealTimers();
   });
@@ -284,43 +317,55 @@ describe('useVoiceSession', () => {
   it('sends {"type":"commit"} when commit() is called during recording', async () => {
     const { result } = renderHook(() => useVoiceSession('ws://test.local/voice'));
 
-    act(() => { result.current.start(); });
+    act(() => {
+      result.current.start();
+    });
+    await flushMicrotasks();
     mockWs.emitReady();
     await waitFor(() => expect(result.current.state).toBe('recording'));
 
-    act(() => { result.current.commit(); });
+    act(() => {
+      result.current.commit();
+    });
 
-    expect(mockWs.sentMessages.some(m =>
-      typeof m === 'string' && JSON.parse(m).type === 'commit'
-    )).toBe(true);
+    expect(
+      mockWs.sentMessages.some((m) => typeof m === 'string' && JSON.parse(m).type === 'commit')
+    ).toBe(true);
   });
 
   it('does not send commit when not connected', () => {
     const { result } = renderHook(() => useVoiceSession('ws://test.local/voice'));
-    act(() => { result.current.commit(); });
+    act(() => {
+      result.current.commit();
+    });
     expect(mockWs.sentMessages).toHaveLength(0);
   });
 
   it('closes WebSocket on server-initiated close', async () => {
-    const closeSpy = jest.spyOn(mockWs, 'close');
     const { result } = renderHook(() => useVoiceSession('ws://test.local/voice'));
 
-    act(() => { result.current.start(); });
+    act(() => {
+      result.current.start();
+    });
+    await flushMicrotasks();
     mockWs.emitReady();
     await waitFor(() => expect(result.current.state).toBe('recording'));
 
-    act(() => { mockWs.close(); });
+    act(() => {
+      mockWs.close();
+    });
 
     await waitFor(() => {
       expect(result.current.state).toBe('ended');
-      // close() was called by the hook's onclose handler
-      expect(closeSpy).toHaveBeenCalled();
     });
+    expect(mockWs.readyState).toBe(3);
   });
 
   it('does not start when voiceServerUrl is empty', () => {
     const { result } = renderHook(() => useVoiceSession(''));
-    act(() => { result.current.start(); });
+    act(() => {
+      result.current.start();
+    });
     expect(result.current.state).toBe('idle');
     expect(result.current.error).toBeNull();
   });
@@ -328,42 +373,54 @@ describe('useVoiceSession', () => {
   it('does not start a second session when one is already active', async () => {
     const { result } = renderHook(() => useVoiceSession('ws://test.local/voice'));
 
-    act(() => { result.current.start(); });
-    await waitFor(() => expect(result.current.state).toBe('connecting'));
+    act(() => {
+      result.current.start();
+    });
+    await flushMicrotasks();
 
     const firstState = result.current.state;
 
-    act(() => { result.current.start(); });
+    act(() => {
+      result.current.start();
+    });
 
-    // Should stay in connecting, not restart
+    // Should stay in same state, not restart
     expect(result.current.state).toBe(firstState);
   });
 
   it('forwards mic audio frames to WebSocket via worklet port', async () => {
     const { result } = renderHook(() => useVoiceSession('ws://test.local/voice'));
 
-    act(() => { result.current.start(); });
+    act(() => {
+      result.current.start();
+    });
+    await flushMicrotasks();
     mockWs.emitReady();
     await waitFor(() => expect(result.current.state).toBe('recording'));
 
-    // Capture worklet port.onmessage
-    const hookWindow = window as unknown as Record<string, unknown>;
-    const portOnMessage = hookWindow.__workletPortOnMessage as () => typeof workletPortOnMessage;
+    // After emitReady, the hook's ws.onmessage handler sets
+    // workletNode.port.onmessage = (e) => { ws.send(e.data) }.
+    // Our mock captures the port as _lastWorkletPort.
+    const port = lastWorkletPort();
+    expect(port).not.toBeNull();
 
-    // Emit a fake PCM frame from the worklet
     const frameData = pcm16Buffer([1, 2, 3]);
-    if (workletPortOnMessage) {
-      workletPortOnMessage({ data: frameData } as MessageEvent);
+    if (port?.onmessage) {
+      (port.onmessage as (e: MessageEvent) => void)({ data: frameData } as MessageEvent);
     }
 
-    // The hook should have sent it over WebSocket
-    expect(mockWs.sentMessages.some(m => m === frameData)).toBe(true);
+    expect(mockWs.sentMessages.some((m) => m === frameData)).toBe(true);
   });
 });
 
 // ─── Mock MediaStream for getUserMedia ───────────────────────────────────────
 
 class MockMediaStreamTrack implements MediaStreamTrack {
+  addEventListener = jest.fn();
+  removeEventListener = jest.fn();
+  contentHint = '';
+  onmute: ((...args: unknown[]) => unknown) | null = null;
+  onunmute: ((...args: unknown[]) => unknown) | null = null;
   kind = 'audio' as const;
   id = 'mock-track-id';
   label = 'Mock Microphone';
@@ -372,27 +429,63 @@ class MockMediaStreamTrack implements MediaStreamTrack {
   readyState = 'live' as MediaStreamTrackState;
   onended: ((...args: unknown[]) => unknown) | null = null;
 
-  stop() { /* no-op in mock */ }
-  getSettings() { return {} as MediaTrackSettings; }
-  getConstraints() { return {} as MediaTrackConstraints; }
-  applyConstraints() { return Promise.resolve(); }
-  clone() { return this; }
-  dispatchEvent() { return false; }
+  stop() {
+    /* no-op */
+  }
+  getSettings() {
+    return {} as MediaTrackSettings;
+  }
+  getCapabilities(): MediaTrackCapabilities {
+    return {};
+  }
+  getConstraints() {
+    return {} as MediaTrackConstraints;
+  }
+  applyConstraints() {
+    return Promise.resolve();
+  }
+  clone() {
+    return this as unknown as MediaStreamTrack;
+  }
+  dispatchEvent() {
+    return false;
+  }
 }
 
 class MockMediaStream implements MediaStream {
   id = 'mock-stream';
   active = true;
   tracks = [new MockMediaStreamTrack()];
-  getTracks() { return this.tracks; }
-  getAudioTracks() { return this.tracks as MediaStreamTrack[]; }
-  getVideoTracks() { return [] as MediaStreamTrack[]; }
-  addTrack() { /* no-op */ }
-  removeTrack() { /* no-op */ }
-  clone() { return new MockMediaStream(); }
-  addEventListener() { /* no-op */ }
-  removeEventListener() { /* no-op */ }
-  dispatchEvent() { return false; }
+  getTracks() {
+    return this.tracks;
+  }
+  getAudioTracks() {
+    return this.tracks as unknown as MediaStreamTrack[];
+  }
+  getVideoTracks() {
+    return [] as MediaStreamTrack[];
+  }
+  addTrack() {
+    /* no-op */
+  }
+  removeTrack() {
+    /* no-op */
+  }
+  getTrackById() {
+    return null;
+  }
+  clone() {
+    return this as unknown as MediaStream;
+  }
+  addEventListener() {
+    /* no-op */
+  }
+  removeEventListener() {
+    /* no-op */
+  }
+  dispatchEvent() {
+    return false;
+  }
   onaddtrack: ((...args: unknown[]) => unknown) | null = null;
   onremovetrack: ((...args: unknown[]) => unknown) | null = null;
 }
