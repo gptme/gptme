@@ -75,6 +75,10 @@ def anthropic_cache_cold_warning(
     if not anthropic_entries:
         return None
 
+    # Only warn when cache was actually written; uncached requests have nothing cold
+    if not any(entry.cache_creation_tokens > 0 for entry in anthropic_entries):
+        return None
+
     last_timestamp = max(entry.timestamp for entry in anthropic_entries)
     age_seconds = (time.time() if now is None else now) - last_timestamp
     if age_seconds <= ANTHROPIC_CACHE_TTL_SECONDS:

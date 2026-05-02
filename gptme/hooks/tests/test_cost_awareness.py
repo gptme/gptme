@@ -332,6 +332,29 @@ class TestAnthropicCacheColdWarning:
 
         assert warning is None
 
+    def test_no_warning_when_no_cache_created(self):
+        """No warning when prior Anthropic turns never wrote to cache."""
+        CostTracker.start_session("test")
+        CostTracker.record(
+            CostEntry(
+                timestamp=10,
+                model="claude-sonnet-4-6",
+                input_tokens=100,
+                output_tokens=50,
+                cache_read_tokens=0,
+                cache_creation_tokens=0,  # no cache written
+                cost=0.01,
+            )
+        )
+
+        warning = anthropic_cache_cold_warning(
+            CostTracker.get_session_costs(),
+            model="anthropic/claude-sonnet-4-6",
+            now=10 + ANTHROPIC_CACHE_TTL_SECONDS + 1,
+        )
+
+        assert warning is None
+
     def test_no_warning_within_ttl(self):
         """Anthropic cache is considered warm inside the 5-minute TTL."""
         CostTracker.start_session("test")
