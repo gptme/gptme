@@ -339,6 +339,48 @@ class InterruptRequest(BaseModel):
     session_id: str = Field(..., description="Session ID")
 
 
+class TranscriptTurn(BaseModel):
+    """A single transcript turn from a voice call."""
+
+    role: str = Field(
+        ...,
+        description="Message role (user or assistant)",
+        pattern="^(user|assistant)$",
+    )
+    text: str = Field(..., description="Transcript text content")
+    ended_at: float | None = Field(
+        None, description="Unix timestamp when this turn ended"
+    )
+
+
+class CallMetadata(BaseModel):
+    """Metadata about a voice call."""
+
+    call_sid: str = Field(
+        ..., description="Twilio/voice provider call SID for idempotency"
+    )
+    source: str | None = Field(None, description="Call source (twilio, local, etc.)")
+    duration_seconds: float | None = Field(None, description="Call duration in seconds")
+    archive_path: str | None = Field(None, description="Path to archived call record")
+
+
+class TranscriptRequest(BaseModel):
+    """Request to append voice transcript turns to a conversation."""
+
+    turns: list[TranscriptTurn] = Field(..., description="Transcript turns to append")
+    call_metadata: CallMetadata = Field(
+        ..., description="Call metadata for idempotency"
+    )
+
+
+class TranscriptResponse(BaseModel):
+    """Response from appending voice transcript turns."""
+
+    status: str = Field(..., description="Operation status (ok or already_acked)")
+    conversation_id: str = Field(..., description="Conversation ID")
+    messages_added: int = Field(..., description="Number of messages added")
+
+
 class AgentCreateRequest(BaseModel):
     """Request to create a new agent."""
 

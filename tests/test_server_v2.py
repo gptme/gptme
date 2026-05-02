@@ -1661,3 +1661,118 @@ def test_v2_user_settings_no_providers_no_model(client: FlaskClient, monkeypatch
     assert data["default_model"] is None
     assert data["default_model_source"] is None
     assert data["config_files"]["local_config_exists"] is False
+
+
+def test_v2_conversation_transcript_append(
+    client: FlaskClient, monkeypatch: pytest.MonkeyPatch
+):
+    """POST /api/v2/conversations/{id}/transcript appends voice transcript turns."""
+    conv_id = f"test-transcript-{random.randint(0, 1000000)}"
+
+    # Create conversation (also creates logdir)
+    response = client.put(f"/api/v2/conversations/{conv_id}", json={"prompt": "Test"})
+    assert response.status_code == 200
+
+    # First call: should add messages
+    transcript_payload = {
+        "turns": [
+            {"role": "user", "text": "Hello Bob!", "ended_at": 1234567890.0},
+            {
+                "role": "assistant",
+                "text": "Hi! How can I help?",
+                "ended_at": 1234567891.0,
+            },
+        ],
+        "call_metadata": {
+            "call_sid": "CA_test123",
+            "source": "twilio",
+            "duration_seconds": 60.0,
+            "archive_path": "state/voice-calls/archive/test.json",
+        },
+    }
+    response = client.post(
+        f"/api/v2/conversations/{conv_id}/transcript", json=transcript_payload
+    )
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["status"] == "ok"
+    assert data["conversation_id"] == conv_id
+    assert data["messages_added"] == 2
+
+    # Second call with same call_sid: idempotent (already_acked)
+    response = client.post(
+        f"/api/v2/conversations/{conv_id}/transcript", json=transcript_payload
+    )
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["status"] == "already_acked"
+    assert data["messages_added"] == 0
+
+    # Different call_sid: should add more messages
+    transcript_payload2 = {
+        "turns": [
+            {"role": "user", "text": "Follow-up question", "ended_at": 1234567892.0},
+            {"role": "assistant", "text": "Sure, go ahead!", "ended_at": 1234567893.0},
+        ],
+        "call_metadata": {
+            "call_sid": "CA_test456",
+            "source": "twilio",
+        },
+    }
+    response = client.post(
+        f"/api/v2/conversations/{conv_id}/transcript", json=transcript_payload2
+    )
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["status"] == "ok"
+    assert data["messages_added"] == 2
+
+
+def test_v2_conversation_transcript_skips_empty_turns(client: FlaskClient):
+    """Transcript endpoint skips whitespace-only and invalid-role turns."""
+    conv_id = f"test-transcript-skip-{random.randint(0, 1000000)}"
+
+    response = client.put(f"/api/v2/conversations/{conv_id}", json={"prompt": "Test"})
+    assert response.status_code == 200
+
+    payload = {
+        "turns": [
+            {"role": "user", "text": "Valid message", "ended_at": 1234567890.0},
+            {
+                "role": "user",
+                "text": "   ",
+                "ended_at": 1234567891.0,
+            },  # whitespace-only
+            {
+                "role": "invalid",
+                "text": "Should skip",
+                "ended_at": 1234567892.0,
+            },  # bad role
+            {"role": "assistant", "text": "", "ended_at": 1234567893.0},  # empty
+        ],
+        "call_metadata": {"call_sid": "CA_skip_test"},
+    }
+    response = client.post(f"/api/v2/conversations/{conv_id}/transcript", json=payload)
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["status"] == "ok"
+    assert data["messages_added"] == 1  # only the valid user message
+
+
+def test_v2_conversation_transcript_creates_conversation(client: FlaskClient):
+    """Transcript endpoint creates a new conversation if one doesn't exist."""
+    conv_id = f"test-new-conv-{random.randint(0, 1000000)}"
+
+    # Don't create the conversation first — transcript endpoint should create it
+    payload = {
+        "turns": [
+            {"role": "user", "text": "First message ever", "ended_at": 1234567890.0}
+        ],
+        "call_metadata": {"call_sid": "CA_new_conv"},
+    }
+    response = client.post(f"/api/v2/conversations/{conv_id}/transcript", json=payload)
+    # Should succeed even without pre-creating the conversation
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["status"] == "ok"
+    assert data["messages_added"] == 1

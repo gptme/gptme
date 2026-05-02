@@ -32,6 +32,8 @@ from .openapi_docs import (
     StatusResponse,
     StepRequest,
     ToolConfirmRequest,
+    TranscriptRequest,
+    TranscriptResponse,
     api_doc,
 )
 
@@ -791,6 +793,99 @@ def api_conversation_elicit_respond(conversation_id: str):
     )
 
     return flask.jsonify({"status": "ok", "message": f"Elicitation {action}ed"})
+
+
+@sessions_api.route(
+    "/api/v2/conversations/<string:conversation_id>/transcript", methods=["POST"]
+)
+@require_auth
+@api_doc(
+    summary="Append voice transcript turns to conversation (V2)",
+    description="Add voice transcript turns as messages to a conversation, creating the conversation if it doesn't exist. Used by the voice server to promote call transcripts to the conversation log.",
+    request_body=TranscriptRequest,
+    responses={200: TranscriptResponse, 400: ErrorResponse, 401: ErrorResponse},
+    parameters=[CONVERSATION_ID_PARAM],
+    tags=["sessions"],
+)
+def api_conversation_transcript(conversation_id: str):
+    """Append voice transcript turns to a conversation.
+
+    This endpoint is called by the voice server after a call ends, promoting
+    the transcript to the caller's conversation log so voice calls become
+    searchable and persistent in the same interface as text chats.
+
+    The conversation_id is the caller's E.164 phone number (e.g. +46765784797).
+    """
+    if error := _validate_conversation_id(conversation_id):
+        return error
+
+    req_json = _get_request_json_object()
+    if not isinstance(req_json, dict):
+        return req_json
+
+    # Validate request matches our expected shape
+    turns = req_json.get("turns")  # type: ignore[union-attr]
+    call_metadata = req_json.get("call_metadata")  # type: ignore[union-attr]
+
+    if not turns or not isinstance(turns, list):
+        return flask.jsonify({"error": "turns (list) is required"}), 400
+    if not call_metadata or not isinstance(call_metadata, dict):
+        return flask.jsonify({"error": "call_metadata (object) is required"}), 400
+
+    call_sid = call_metadata.get("call_sid")
+    if not call_sid:
+        return flask.jsonify({"error": "call_metadata.call_sid is required"}), 400
+
+    # Load or create the conversation logdir
+    logdir = get_logs_dir() / conversation_id
+    logdir.mkdir(parents=True, exist_ok=True)
+
+    manager = LogManager.load(conversation_id, lock=True, create=True)
+
+    # Idempotency check: scan existing messages for this call_sid in metadata
+    for msg in manager.log.messages:
+        if (
+            msg.metadata
+            and msg.metadata.get("voice_call", {}).get("call_sid") == call_sid
+        ):
+            manager._release_lock()
+            return flask.jsonify(
+                {
+                    "status": "already_acked",
+                    "conversation_id": conversation_id,
+                    "messages_added": 0,
+                }
+            )
+
+    messages_added = 0
+    # Append each turn as a Message
+    for turn in turns:
+        role = turn.get("role")
+        text = turn.get("text", "").strip()
+
+        # Skip empty/whitespace-only turns
+        if not text:
+            continue
+        if role not in ("user", "assistant"):
+            continue
+
+        msg = Message(
+            role=role,
+            content=text,
+            metadata={"voice_call": call_metadata},  # type: ignore[arg-type]
+        )
+        manager.append(msg)
+        messages_added += 1
+
+    manager._release_lock()
+
+    return flask.jsonify(
+        {
+            "status": "ok",
+            "conversation_id": conversation_id,
+            "messages_added": messages_added,
+        }
+    )
 
 
 @sessions_api.route(
