@@ -3,12 +3,14 @@
 Integrates with the CostTracker to:
 - Initialize cost tracking at session start
 - Emit cost warnings at configurable thresholds
+- Warn when Anthropic prompt cache is likely cold
 - Provide cost data for eval framework integration
 
-See Issue #935 for design context.
+See Issue #935 for design context, #2320 for cache-cold warning.
 """
 
 import logging
+import time
 from collections.abc import Generator
 from contextvars import ContextVar
 from pathlib import Path
@@ -27,6 +29,9 @@ logger = logging.getLogger(__name__)
 _pending_warning_var: ContextVar[str | None] = ContextVar(
     "pending_warning", default=None
 )
+
+# Anthropic prompt cache TTL (5 minutes)
+ANTHROPIC_CACHE_TTL_SECS = 5 * 60
 
 # Default cost warning thresholds (in USD)
 # Warns when total session cost crosses these values
@@ -50,6 +55,49 @@ COST_WARNING_THRESHOLDS = [
     500.00,
     1000.00,  # Large session warnings
 ]
+
+
+def cache_cold_warning_hook(
+    manager: "LogManager",
+) -> Generator[Message | StopPropagation, None, None]:
+    """Emit warning when Anthropic prompt cache is likely cold.
+
+    Anthropic's prompt cache has a 5-minute TTL. After 5 minutes of inactivity,
+    the next turn pays a full cache-miss cost. This hook detects the gap and
+    warns the user before the cold-start turn is generated.
+
+    Only warns if:
+    - There has been at least one prior Anthropic turn (cache had a chance to warm)
+    - The gap since the last Anthropic turn exceeds the 5-minute TTL
+
+    Yields:
+        Nothing — warning is stored for later injection via inject_pending_warning
+    """
+    costs = CostTracker.get_session_costs()
+    if not costs or not costs.entries:
+        return
+
+    # Filter for Anthropic entries
+    anthropic_entries = [e for e in costs.entries if e.model.startswith("anthropic/")]
+    if not anthropic_entries:
+        return  # No Anthropic turns yet — nothing to warm up
+
+    last_ts = max(e.timestamp for e in anthropic_entries)
+    age = time.time() - last_ts
+
+    if age > ANTHROPIC_CACHE_TTL_SECS:
+        warning_text = (
+            f"<system_warning>Anthropic prompt cache likely cold "
+            f"({age / 60:.0f} min since last turn, TTL=5 min) — "
+            f"next turn may incur higher cost</system_warning>"
+        )
+        _pending_warning_var.set(warning_text)
+        logger.info(
+            f"Anthropic cache cold warning: {age / 60:.0f} min since last turn "
+            f"(TTL=5 min)"
+        )
+
+    yield from ()
 
 
 def session_start_cost_tracking(
@@ -214,6 +262,12 @@ def register() -> None:
         priority=10,  # High priority to initialize early
     )
     register_hook(
+        "cost_awareness.cache_cold_warning",
+        HookType.GENERATION_PRE,
+        cache_cold_warning_hook,
+        priority=3,  # Before inject_pending_warning so warning is set before injection
+    )
+    register_hook(
         "cost_awareness.cost_warning",
         HookType.TURN_POST,
         cost_warning_hook,
@@ -223,7 +277,7 @@ def register() -> None:
         "cost_awareness.inject_warning",
         HookType.GENERATION_PRE,
         inject_pending_warning,
-        priority=5,  # Run early but after critical pre-processing
+        priority=5,  # Run after cache_cold_warning to inject any pending warning
     )
     register_hook(
         "cost_awareness.session_end",

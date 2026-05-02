@@ -1776,3 +1776,24 @@ def test_v2_conversation_transcript_creates_conversation(client: FlaskClient):
     data = response.get_json()
     assert data["status"] == "ok"
     assert data["messages_added"] == 1
+
+
+def test_v2_conversation_transcript_rejects_non_dict_turns(client: FlaskClient):
+    """Transcript endpoint returns 400 when any turn element is not an object."""
+    conv_id = f"test-transcript-nondict-{random.randint(0, 1000000)}"
+
+    for bad_turns in [
+        ["bare string"],
+        [42],
+        [{"role": "user", "text": "valid"}, "oops"],
+    ]:
+        payload = {
+            "turns": bad_turns,
+            "call_metadata": {"call_sid": "CA_nondict"},
+        }
+        response = client.post(
+            f"/api/v2/conversations/{conv_id}/transcript", json=payload
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert "turns[" in data["error"] and "must be an object" in data["error"]

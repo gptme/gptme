@@ -829,6 +829,9 @@ def api_conversation_transcript(conversation_id: str):
 
     if not turns or not isinstance(turns, list):
         return flask.jsonify({"error": "turns (list) is required"}), 400
+    for i, turn in enumerate(turns):
+        if not isinstance(turn, dict):
+            return flask.jsonify({"error": f"turns[{i}] must be an object"}), 400
     if not call_metadata or not isinstance(call_metadata, dict):
         return flask.jsonify({"error": "call_metadata (object) is required"}), 400
 
