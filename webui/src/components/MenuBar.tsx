@@ -1,16 +1,45 @@
 import { ServerSelector } from './ServerSelector';
 import { Button } from './ui/button';
-import { User, Search, Menu } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
+import { ChevronDown, Menu, Search, User } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useEmbeddedContext } from '@/contexts/EmbeddedContext';
+import type { EmbeddedMenuItem } from '@/lib/embeddedContext';
 import { Link } from 'react-router-dom';
 import { commandPaletteOpen$ } from '@/stores/commandPalette';
 import { leftSidebarVisible$, toggleLeftSidebar } from '@/stores/sidebar';
 import { use$ } from '@legendapp/state/react';
 
-import type { FC } from 'react';
+import { Fragment, type FC } from 'react';
+
+function groupEmbeddedMenuItems(menuItems: EmbeddedMenuItem[]) {
+  return menuItems.reduce<{ section?: string; items: EmbeddedMenuItem[] }[]>((groups, item) => {
+    const section = item.section?.trim() || undefined;
+    const lastGroup = groups.at(-1);
+
+    if (lastGroup && lastGroup.section === section) {
+      lastGroup.items.push(item);
+      return groups;
+    }
+
+    groups.push({ section, items: [item] });
+    return groups;
+  }, []);
+}
 
 export const MenuBar: FC = () => {
   const leftSidebarOpen = use$(leftSidebarVisible$);
+  const { menuItems, sendAction } = useEmbeddedContext();
+  const isEmbedded = import.meta.env.VITE_EMBEDDED_MODE === 'true';
+  const embeddedMenuGroups = groupEmbeddedMenuItems(menuItems);
+  const hasEmbeddedMenu = isEmbedded && embeddedMenuGroups.length > 0;
 
   return (
     <div
@@ -76,19 +105,69 @@ export const MenuBar: FC = () => {
           </Tooltip>
         </TooltipProvider>
         <ServerSelector />
-        {import.meta.env.VITE_EMBEDDED_MODE === 'true' && (
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Link to="/account">
-                  <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Dashboard">
-                    <User className="h-4 w-4" />
-                  </Button>
-                </Link>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">Dashboard</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+        {hasEmbeddedMenu ? (
+          <DropdownMenu>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 gap-1 px-2"
+                      aria-label="Account menu"
+                    >
+                      <User className="h-4 w-4" />
+                      <ChevronDown className="h-3 w-3" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Account</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <DropdownMenuContent align="end" className="w-56">
+              {embeddedMenuGroups.map((group, groupIndex) => (
+                <Fragment key={group.section ?? `group-${groupIndex}`}>
+                  {groupIndex > 0 && <DropdownMenuSeparator />}
+                  {group.section && <DropdownMenuLabel>{group.section}</DropdownMenuLabel>}
+                  {group.items.map((item) =>
+                    item.kind === 'link' ? (
+                      <DropdownMenuItem key={item.id} asChild>
+                        <a href={item.href} target="_top" rel="noreferrer">
+                          {item.label}
+                        </a>
+                      </DropdownMenuItem>
+                    ) : (
+                      <DropdownMenuItem
+                        key={item.id}
+                        className={
+                          item.destructive ? 'text-destructive focus:text-destructive' : undefined
+                        }
+                        onSelect={() => sendAction(item.action, item.id)}
+                      >
+                        {item.label}
+                      </DropdownMenuItem>
+                    )
+                  )}
+                </Fragment>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          isEmbedded && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <a href="/account" target="_top" rel="noreferrer">
+                    <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Dashboard">
+                      <User className="h-4 w-4" />
+                    </Button>
+                  </a>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Dashboard</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )
         )}
       </div>
     </div>
