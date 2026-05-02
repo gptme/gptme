@@ -163,7 +163,11 @@ def reply(
 
     context_msgs = list(
         trigger_hook(
-            HookType.GENERATION_PRE, messages, workspace=workspace, manager=None
+            HookType.GENERATION_PRE,
+            messages,
+            workspace=workspace,
+            manager=None,
+            model=model,
         )
     )
 

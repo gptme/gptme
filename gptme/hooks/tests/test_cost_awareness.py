@@ -8,8 +8,10 @@ from unittest.mock import patch
 import pytest
 
 from gptme.hooks.cost_awareness import (
+    ANTHROPIC_CACHE_TTL_SECONDS,
     COST_WARNING_THRESHOLDS,
     _pending_warning_var,
+    anthropic_cache_cold_warning,
     cost_warning_hook,
     inject_pending_warning,
     session_end_cost_summary,
@@ -231,6 +233,152 @@ class TestInjectPendingWarning:
         _pending_warning_var.set("<system_warning>test</system_warning>")
         msgs = list(inject_pending_warning([]))
         assert msgs == []
+
+    def test_injects_cache_cold_warning_for_anthropic_model(self):
+        """Injects and prints a warning when Anthropic cache is likely cold."""
+        CostTracker.start_session("test")
+        CostTracker.record(
+            CostEntry(
+                timestamp=time.time() - ANTHROPIC_CACHE_TTL_SECONDS - 60,
+                model="claude-sonnet-4-6",
+                input_tokens=100,
+                output_tokens=50,
+                cache_read_tokens=0,
+                cache_creation_tokens=100,
+                cost=0.01,
+            )
+        )
+
+        messages = [Message("user", "hello")]
+        with patch("gptme.util.console.log") as mock_log:
+            msgs = list(
+                inject_pending_warning(
+                    messages,
+                    model="anthropic/claude-sonnet-4-6",
+                )
+            )
+
+        assert len(msgs) == 1
+        msg = cast(Message, msgs[0])
+        assert msg.role == "system"
+        assert msg.hide is True
+        assert "Anthropic prompt cache likely cold" in msg.content
+        mock_log.assert_called_once()
+        assert "Warning: Anthropic prompt cache likely cold" in mock_log.call_args[0][0]
+
+    def test_does_not_inject_cache_cold_warning_after_assistant_message(self):
+        """Cache cold warning only fires before user-triggered generation."""
+        CostTracker.start_session("test")
+        CostTracker.record(
+            CostEntry(
+                timestamp=time.time() - ANTHROPIC_CACHE_TTL_SECONDS - 60,
+                model="claude-sonnet-4-6",
+                input_tokens=100,
+                output_tokens=50,
+                cache_read_tokens=0,
+                cache_creation_tokens=100,
+                cost=0.01,
+            )
+        )
+
+        messages = [Message("assistant", "response")]
+        with patch("gptme.util.console.log") as mock_log:
+            msgs = list(
+                inject_pending_warning(
+                    messages,
+                    model="anthropic/claude-sonnet-4-6",
+                )
+            )
+
+        assert msgs == []
+        mock_log.assert_not_called()
+
+
+class TestAnthropicCacheColdWarning:
+    """Tests for Anthropic prompt-cache TTL warning logic."""
+
+    def test_no_warning_for_non_anthropic_model(self):
+        """Non-Anthropic generations ignore Anthropic cache timing."""
+        CostTracker.start_session("test")
+        CostTracker.record(
+            CostEntry(
+                timestamp=0,
+                model="claude-sonnet-4-6",
+                input_tokens=100,
+                output_tokens=50,
+                cache_read_tokens=0,
+                cache_creation_tokens=100,
+                cost=0.01,
+            )
+        )
+
+        warning = anthropic_cache_cold_warning(
+            CostTracker.get_session_costs(),
+            model="openai/gpt-4o",
+            now=ANTHROPIC_CACHE_TTL_SECONDS + 1,
+        )
+
+        assert warning is None
+
+    def test_no_warning_for_first_anthropic_turn(self):
+        """First Anthropic request has no prior cache state to warn about."""
+        CostTracker.start_session("test")
+
+        warning = anthropic_cache_cold_warning(
+            CostTracker.get_session_costs(),
+            model="anthropic/claude-sonnet-4-6",
+            now=ANTHROPIC_CACHE_TTL_SECONDS + 1,
+        )
+
+        assert warning is None
+
+    def test_no_warning_within_ttl(self):
+        """Anthropic cache is considered warm inside the 5-minute TTL."""
+        CostTracker.start_session("test")
+        CostTracker.record(
+            CostEntry(
+                timestamp=10,
+                model="claude-sonnet-4-6",
+                input_tokens=100,
+                output_tokens=50,
+                cache_read_tokens=0,
+                cache_creation_tokens=100,
+                cost=0.01,
+            )
+        )
+
+        warning = anthropic_cache_cold_warning(
+            CostTracker.get_session_costs(),
+            model="anthropic/claude-sonnet-4-6",
+            now=10 + ANTHROPIC_CACHE_TTL_SECONDS,
+        )
+
+        assert warning is None
+
+    def test_warning_after_ttl(self):
+        """Anthropic cache is likely cold once the prior turn is older than TTL."""
+        CostTracker.start_session("test")
+        CostTracker.record(
+            CostEntry(
+                timestamp=10,
+                model="claude-sonnet-4-6",
+                input_tokens=100,
+                output_tokens=50,
+                cache_read_tokens=0,
+                cache_creation_tokens=100,
+                cost=0.01,
+            )
+        )
+
+        warning = anthropic_cache_cold_warning(
+            CostTracker.get_session_costs(),
+            model="anthropic/claude-sonnet-4-6",
+            now=10 + ANTHROPIC_CACHE_TTL_SECONDS + 1,
+        )
+
+        assert warning is not None
+        assert "Anthropic prompt cache likely cold" in warning
+        assert "TTL 5 min" in warning
 
 
 class TestSessionEndCostSummary:

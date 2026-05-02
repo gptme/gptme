@@ -9,6 +9,7 @@ See Issue #935 for design context.
 """
 
 import logging
+import time
 from collections.abc import Generator
 from contextvars import ContextVar
 from pathlib import Path
@@ -16,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..hooks import HookType, StopPropagation, register_hook
 from ..message import Message
-from ..util.cost_tracker import CostTracker
+from ..util.cost_tracker import CostTracker, SessionCosts
 
 if TYPE_CHECKING:
     from ..logmanager import LogManager
@@ -50,6 +51,41 @@ COST_WARNING_THRESHOLDS = [
     500.00,
     1000.00,  # Large session warnings
 ]
+
+ANTHROPIC_CACHE_TTL_SECONDS = 5 * 60
+
+
+def _is_direct_anthropic_model(model: str | None) -> bool:
+    """Return True for direct Anthropic model IDs recorded by gptme."""
+    return bool(model and model.startswith(("anthropic/", "claude-")))
+
+
+def anthropic_cache_cold_warning(
+    costs: SessionCosts | None,
+    model: str | None,
+    now: float | None = None,
+) -> str | None:
+    """Return a warning when the next Anthropic turn is likely cache-cold."""
+    if not _is_direct_anthropic_model(model) or not costs:
+        return None
+
+    anthropic_entries = [
+        entry for entry in costs.entries if _is_direct_anthropic_model(entry.model)
+    ]
+    if not anthropic_entries:
+        return None
+
+    last_timestamp = max(entry.timestamp for entry in anthropic_entries)
+    age_seconds = (time.time() if now is None else now) - last_timestamp
+    if age_seconds <= ANTHROPIC_CACHE_TTL_SECONDS:
+        return None
+
+    age_minutes = age_seconds / 60
+    ttl_minutes = ANTHROPIC_CACHE_TTL_SECONDS // 60
+    return (
+        "Anthropic prompt cache likely cold "
+        f"({age_minutes:.1f} min since last Anthropic turn; TTL {ttl_minutes} min)"
+    )
 
 
 def session_start_cost_tracking(
@@ -142,12 +178,25 @@ def inject_pending_warning(
         System message with pending warning if one exists
     """
     pending_warning = _pending_warning_var.get()
+    should_inject = bool(messages and messages[-1].role == "user")
+
+    if should_inject:
+        cache_warning = anthropic_cache_cold_warning(
+            CostTracker.get_session_costs(),
+            kwargs.get("model"),
+        )
+        if cache_warning:
+            from ..util import console
+
+            console.log(f"[yellow]Warning: {cache_warning}[/yellow]")
+            yield Message(
+                "system",
+                f"<system_warning>{cache_warning}</system_warning>",
+                hide=True,
+            )
 
     # Only inject if there's a pending warning and the last message is from user
-    if not pending_warning:
-        return
-
-    if messages and messages[-1].role == "user":
+    if pending_warning and should_inject:
         yield Message(
             "system",
             pending_warning,

@@ -182,6 +182,7 @@ class GenerationPreHook(Protocol):
         messages: List of conversation messages
         workspace: Workspace directory path (optional)
         manager: Conversation manager (optional, currently always None)
+        model: Fully-qualified model name used for this generation (optional)
     """
 
     def __call__(
