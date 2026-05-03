@@ -56,8 +56,6 @@ COST_WARNING_THRESHOLDS = [
     1000.00,  # Large session warnings
 ]
 
-ANTHROPIC_CACHE_TTL_SECONDS = 5 * 60
-
 
 def _is_direct_anthropic_model(model: str | None) -> bool:
     """Return True for direct Anthropic model IDs recorded by gptme."""
@@ -85,11 +83,11 @@ def anthropic_cache_cold_warning(
 
     last_timestamp = max(entry.timestamp for entry in anthropic_entries)
     age_seconds = (time.time() if now is None else now) - last_timestamp
-    if age_seconds <= ANTHROPIC_CACHE_TTL_SECONDS:
+    if age_seconds <= ANTHROPIC_CACHE_TTL_SECS:
         return None
 
     age_minutes = age_seconds / 60
-    ttl_minutes = ANTHROPIC_CACHE_TTL_SECONDS // 60
+    ttl_minutes = ANTHROPIC_CACHE_TTL_SECS // 60
     return (
         "Anthropic prompt cache likely cold "
         f"({age_minutes:.1f} min since last Anthropic turn; TTL {ttl_minutes} min)"
@@ -121,6 +119,10 @@ def cache_cold_warning_hook(
     anthropic_entries = [e for e in costs.entries if e.model.startswith("anthropic/")]
     if not anthropic_entries:
         return  # No Anthropic turns yet — nothing to warm up
+
+    # Only warn when cache was actually written; uncached requests have nothing cold
+    if not any(e.cache_creation_tokens > 0 for e in anthropic_entries):
+        return
 
     last_ts = max(e.timestamp for e in anthropic_entries)
     age = time.time() - last_ts

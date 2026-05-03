@@ -77,7 +77,7 @@ class TestCacheColdWarningHook:
         assert _pending_warning_var.get() is None
 
     def test_stale_anthropic_turn_warning(self):
-        """Stale Anthropic turn (>5 min ago) → warning set."""
+        """Stale Anthropic turn (>5 min ago) with cache creation → warning set."""
         CostTracker.start_session("test")
         stale_ts = time.time() - 400  # ~6.7 min ago
         CostTracker.record(
@@ -87,7 +87,7 @@ class TestCacheColdWarningHook:
                 input_tokens=100,
                 output_tokens=50,
                 cache_read_tokens=0,
-                cache_creation_tokens=0,
+                cache_creation_tokens=500,
                 cost=0.01,
             )
         )
@@ -96,6 +96,23 @@ class TestCacheColdWarningHook:
         assert warning is not None
         assert "cache likely cold" in warning
         assert "min since last turn" in warning
+
+    def test_stale_anthropic_turn_no_cache_creation_no_warning(self):
+        """Stale Anthropic turn but no cache creation → no warning (nothing cold)."""
+        CostTracker.start_session("test")
+        CostTracker.record(
+            CostEntry(
+                timestamp=time.time() - 400,
+                model="anthropic/claude-sonnet-4-6",
+                input_tokens=100,
+                output_tokens=50,
+                cache_read_tokens=0,
+                cache_creation_tokens=0,
+                cost=0.01,
+            )
+        )
+        list(cache_cold_warning_hook(messages=[]))
+        assert _pending_warning_var.get() is None
 
     def test_multiple_entries_last_recent_no_warning(self):
         """Multiple entries, most recent within TTL → no warning."""
@@ -126,7 +143,7 @@ class TestCacheColdWarningHook:
         assert _pending_warning_var.get() is None
 
     def test_multiple_entries_all_stale_warning(self):
-        """All entries stale → warning based on most recent."""
+        """All entries stale with cache creation → warning based on most recent."""
         CostTracker.start_session("test")
         CostTracker.record(
             CostEntry(
@@ -135,7 +152,7 @@ class TestCacheColdWarningHook:
                 input_tokens=100,
                 output_tokens=50,
                 cache_read_tokens=0,
-                cache_creation_tokens=0,
+                cache_creation_tokens=500,
                 cost=0.01,
             )
         )
@@ -146,7 +163,7 @@ class TestCacheColdWarningHook:
                 input_tokens=200,
                 output_tokens=100,
                 cache_read_tokens=0,
-                cache_creation_tokens=0,
+                cache_creation_tokens=200,
                 cost=0.02,
             )
         )
@@ -193,7 +210,7 @@ class TestCacheColdWarningHook:
                 input_tokens=100,
                 output_tokens=50,
                 cache_read_tokens=0,
-                cache_creation_tokens=0,
+                cache_creation_tokens=300,
                 cost=0.01,
             )
         )
@@ -493,7 +510,7 @@ class TestSessionEndCostSummary:
 
 class TestCostAwarenessIntegration:
     def test_cache_cold_then_inject(self):
-        """Integration: stale turn triggers warning, inject_pending_warning delivers it."""
+        """Integration: stale turn with cache creation triggers warning, inject delivers it."""
         CostTracker.start_session("test")
         CostTracker.record(
             CostEntry(
@@ -502,7 +519,7 @@ class TestCostAwarenessIntegration:
                 input_tokens=100,
                 output_tokens=50,
                 cache_read_tokens=0,
-                cache_creation_tokens=0,
+                cache_creation_tokens=500,
                 cost=0.01,
             )
         )
@@ -527,7 +544,7 @@ class TestCostAwarenessIntegration:
                 input_tokens=100,
                 output_tokens=50,
                 cache_read_tokens=0,
-                cache_creation_tokens=0,
+                cache_creation_tokens=500,
                 cost=0.01,
             )
         )
@@ -629,8 +646,4 @@ def test_register_called():
     """Verify the register() function can be called without error."""
     from gptme.hooks.cost_awareness import register
 
-    # Should not raise
-    try:
-        register()
-    except Exception:
-        pass  # May fail if hooks are already registered; that's OK
+    register()  # Registry silently replaces existing hooks with same name
