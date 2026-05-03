@@ -49,7 +49,7 @@ export const EmbeddedContextProvider: FC<PropsWithChildren> = ({ children }) => 
 
     const handleMessage = (event: MessageEvent) => {
       // Accept messages from parent frame (iframe case) or self (same-window case)
-      if (event.source !== window.parent && event.source !== window) {
+      if (inIframe ? event.source !== window.parent : event.source !== window) {
         return;
       }
 
