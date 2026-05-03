@@ -47,25 +47,32 @@ export const EmbeddedContextProvider: FC<PropsWithChildren> = ({ children }) => 
     setParentOrigin(referrerOrigin);
 
     const handleMessage = (event: MessageEvent) => {
+      if (event.source !== window.parent) {
+        return;
+      }
+
+      const parsedItems = parseEmbeddedContextMessage(event.data);
+      if (!parsedItems) {
+        return;
+      }
+
       if (
         !isEmbeddedContextEventAllowed(
           event.origin,
           parentOriginRef.current,
-          window.location.origin
+          window.location.origin,
+          { allowUnknownParentOrigin: true }
         )
       ) {
         return;
       }
 
-      const parsedItems = parseEmbeddedContextMessage(event.data);
-      if (parsedItems) {
-        setMenuItems(parsedItems);
-        // Capture confirmed parent origin from first valid inbound when referrer was absent
-        if (!parentOriginRef.current) {
-          parentOriginRef.current = event.origin;
-          setParentOrigin(event.origin);
-        }
+      if (!parentOriginRef.current) {
+        parentOriginRef.current = event.origin;
+        setParentOrigin(event.origin);
       }
+
+      setMenuItems(parsedItems);
     };
 
     window.addEventListener('message', handleMessage);

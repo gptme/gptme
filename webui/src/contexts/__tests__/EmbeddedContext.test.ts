@@ -102,4 +102,12 @@ describe('EmbeddedContext helpers', () => {
       false
     );
   });
+
+  it('can accept a first validated bootstrap message from an unknown parent origin', () => {
+    expect(
+      isEmbeddedContextEventAllowed('https://gptme.ai', null, 'http://localhost:5173', {
+        allowUnknownParentOrigin: true,
+      })
+    ).toBe(true);
+  });
 });

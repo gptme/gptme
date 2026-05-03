@@ -74,10 +74,15 @@ export function parseEmbeddedContextMessage(data: unknown): EmbeddedMenuItem[] |
 export function isEmbeddedContextEventAllowed(
   eventOrigin: string,
   parentOrigin: string | null,
-  ownOrigin: string
+  ownOrigin: string,
+  options: { allowUnknownParentOrigin?: boolean } = {}
 ): boolean {
   if (parentOrigin) {
     return eventOrigin === parentOrigin;
+  }
+
+  if (options.allowUnknownParentOrigin) {
+    return true;
   }
 
   return eventOrigin === ownOrigin;

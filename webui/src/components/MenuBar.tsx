@@ -126,7 +126,7 @@ export const MenuBar: FC = () => {
             </TooltipProvider>
             <DropdownMenuContent align="end" className="w-56">
               {embeddedMenuGroups.map((group, groupIndex) => (
-                <Fragment key={group.section ?? `group-${groupIndex}`}>
+                <Fragment key={`${group.section ?? 'group'}-${groupIndex}`}>
                   {groupIndex > 0 && <DropdownMenuSeparator />}
                   {group.section && <DropdownMenuLabel>{group.section}</DropdownMenuLabel>}
                   {group.items.map((item) =>
