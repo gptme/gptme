@@ -60,6 +60,27 @@ describe('EmbeddedContext helpers', () => {
     ).toBeNull();
   });
 
+  it('rejects unsafe href protocols in link menu items', () => {
+    const makeMsg = (href: string) => ({
+      type: 'gptme-host:embedded-context',
+      payload: { menuItems: [{ kind: 'link', id: 'x', label: 'X', href }] },
+    });
+
+    // Safe: relative paths and http/https
+    expect(parseEmbeddedContextMessage(makeMsg('/account'))).not.toBeNull();
+    expect(parseEmbeddedContextMessage(makeMsg('./relative'))).not.toBeNull();
+    expect(parseEmbeddedContextMessage(makeMsg('#anchor'))).not.toBeNull();
+    expect(parseEmbeddedContextMessage(makeMsg('https://example.com'))).not.toBeNull();
+    expect(parseEmbeddedContextMessage(makeMsg('http://localhost:3000'))).not.toBeNull();
+
+    // Unsafe: javascript: and other non-http protocols
+    expect(parseEmbeddedContextMessage(makeMsg('javascript:alert(1)'))).toBeNull();
+    expect(
+      parseEmbeddedContextMessage(makeMsg('data:text/html,<script>alert(1)</script>'))
+    ).toBeNull();
+    expect(parseEmbeddedContextMessage(makeMsg('vbscript:msgbox(1)'))).toBeNull();
+  });
+
   it('only accepts messages from the parent origin when known', () => {
     expect(
       isEmbeddedContextEventAllowed('https://gptme.ai', 'https://gptme.ai', 'http://localhost:5173')

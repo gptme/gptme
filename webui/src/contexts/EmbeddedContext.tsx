@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FC,
   type PropsWithChildren,
@@ -33,18 +34,25 @@ export const EmbeddedContextProvider: FC<PropsWithChildren> = ({ children }) => 
   const isEmbedded = import.meta.env.VITE_EMBEDDED_MODE === 'true';
   const [menuItems, setMenuItems] = useState<EmbeddedMenuItem[]>([]);
   const [parentOrigin, setParentOrigin] = useState<string | null>(null);
+  // Ref so the message handler closure always reads the latest confirmed origin
+  const parentOriginRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isEmbedded || typeof window === 'undefined' || window.parent === window) {
       return;
     }
 
-    const resolvedParentOrigin = getEmbeddedParentOrigin(document.referrer);
-    setParentOrigin(resolvedParentOrigin);
+    const referrerOrigin = getEmbeddedParentOrigin(document.referrer);
+    parentOriginRef.current = referrerOrigin;
+    setParentOrigin(referrerOrigin);
 
     const handleMessage = (event: MessageEvent) => {
       if (
-        !isEmbeddedContextEventAllowed(event.origin, resolvedParentOrigin, window.location.origin)
+        !isEmbeddedContextEventAllowed(
+          event.origin,
+          parentOriginRef.current,
+          window.location.origin
+        )
       ) {
         return;
       }
@@ -52,15 +60,19 @@ export const EmbeddedContextProvider: FC<PropsWithChildren> = ({ children }) => 
       const parsedItems = parseEmbeddedContextMessage(event.data);
       if (parsedItems) {
         setMenuItems(parsedItems);
+        // Capture confirmed parent origin from first valid inbound when referrer was absent
+        if (!parentOriginRef.current) {
+          parentOriginRef.current = event.origin;
+          setParentOrigin(event.origin);
+        }
       }
     };
 
     window.addEventListener('message', handleMessage);
+    // Ready signal carries no sensitive payload; '*' fallback is acceptable for the handshake
     window.parent.postMessage(
-      {
-        type: 'gptme-webui:embedded-context-ready',
-      },
-      resolvedParentOrigin ?? '*'
+      { type: 'gptme-webui:embedded-context-ready' },
+      referrerOrigin ?? '*'
     );
 
     return () => {
@@ -73,14 +85,13 @@ export const EmbeddedContextProvider: FC<PropsWithChildren> = ({ children }) => 
       if (!isEmbedded || typeof window === 'undefined' || window.parent === window) {
         return;
       }
-
+      if (!parentOrigin) {
+        // Don't send to '*' — skip until parent origin is confirmed via handshake
+        return;
+      }
       window.parent.postMessage(
-        {
-          type: 'gptme-webui:embedded-action',
-          action,
-          itemId,
-        },
-        parentOrigin ?? '*'
+        { type: 'gptme-webui:embedded-action', action, itemId },
+        parentOrigin
       );
     },
     [isEmbedded, parentOrigin]

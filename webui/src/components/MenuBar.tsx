@@ -36,8 +36,7 @@ function groupEmbeddedMenuItems(menuItems: EmbeddedMenuItem[]) {
 
 export const MenuBar: FC = () => {
   const leftSidebarOpen = use$(leftSidebarVisible$);
-  const { menuItems, sendAction } = useEmbeddedContext();
-  const isEmbedded = import.meta.env.VITE_EMBEDDED_MODE === 'true';
+  const { menuItems, sendAction, isEmbedded } = useEmbeddedContext();
   const embeddedMenuGroups = groupEmbeddedMenuItems(menuItems);
   const hasEmbeddedMenu = isEmbedded && embeddedMenuGroups.length > 0;
 

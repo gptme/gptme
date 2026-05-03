@@ -4,7 +4,30 @@ const embeddedLinkMenuItemSchema = z.object({
   kind: z.literal('link'),
   id: z.string().min(1),
   label: z.string().min(1),
-  href: z.string().min(1),
+  href: z
+    .string()
+    .min(1)
+    .refine(
+      (val) => {
+        // Allow relative paths (safe by definition)
+        if (
+          val.startsWith('/') ||
+          val.startsWith('./') ||
+          val.startsWith('../') ||
+          val.startsWith('#')
+        ) {
+          return true;
+        }
+        // For absolute URLs only allow http/https — blocks javascript: and other unsafe protocols
+        try {
+          const url = new URL(val);
+          return url.protocol === 'https:' || url.protocol === 'http:';
+        } catch {
+          return false;
+        }
+      },
+      { message: 'href must use http/https protocol or be a relative path' }
+    ),
   section: z.string().min(1).optional(),
 });
 
