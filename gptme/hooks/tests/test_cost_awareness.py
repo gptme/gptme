@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from gptme.hooks.cost_awareness import (
-    ANTHROPIC_CACHE_TTL_SECONDS,
+    ANTHROPIC_CACHE_TTL_SECS,
     COST_WARNING_THRESHOLDS,
     _pending_warning_var,
     anthropic_cache_cold_warning,
@@ -239,7 +239,7 @@ class TestInjectPendingWarning:
         CostTracker.start_session("test")
         CostTracker.record(
             CostEntry(
-                timestamp=time.time() - ANTHROPIC_CACHE_TTL_SECONDS - 60,
+                timestamp=time.time() - ANTHROPIC_CACHE_TTL_SECS - 60,
                 model="claude-sonnet-4-6",
                 input_tokens=100,
                 output_tokens=50,
@@ -271,7 +271,7 @@ class TestInjectPendingWarning:
         CostTracker.start_session("test")
         CostTracker.record(
             CostEntry(
-                timestamp=time.time() - ANTHROPIC_CACHE_TTL_SECONDS - 60,
+                timestamp=time.time() - ANTHROPIC_CACHE_TTL_SECS - 60,
                 model="claude-sonnet-4-6",
                 input_tokens=100,
                 output_tokens=50,
@@ -315,7 +315,7 @@ class TestAnthropicCacheColdWarning:
         warning = anthropic_cache_cold_warning(
             CostTracker.get_session_costs(),
             model="openai/gpt-4o",
-            now=ANTHROPIC_CACHE_TTL_SECONDS + 1,
+            now=ANTHROPIC_CACHE_TTL_SECS + 1,
         )
 
         assert warning is None
@@ -327,7 +327,7 @@ class TestAnthropicCacheColdWarning:
         warning = anthropic_cache_cold_warning(
             CostTracker.get_session_costs(),
             model="anthropic/claude-sonnet-4-6",
-            now=ANTHROPIC_CACHE_TTL_SECONDS + 1,
+            now=ANTHROPIC_CACHE_TTL_SECS + 1,
         )
 
         assert warning is None
@@ -350,7 +350,7 @@ class TestAnthropicCacheColdWarning:
         warning = anthropic_cache_cold_warning(
             CostTracker.get_session_costs(),
             model="anthropic/claude-sonnet-4-6",
-            now=10 + ANTHROPIC_CACHE_TTL_SECONDS + 1,
+            now=10 + ANTHROPIC_CACHE_TTL_SECS + 1,
         )
 
         assert warning is None
@@ -373,7 +373,7 @@ class TestAnthropicCacheColdWarning:
         warning = anthropic_cache_cold_warning(
             CostTracker.get_session_costs(),
             model="anthropic/claude-sonnet-4-6",
-            now=10 + ANTHROPIC_CACHE_TTL_SECONDS,
+            now=10 + ANTHROPIC_CACHE_TTL_SECS,
         )
 
         assert warning is None
@@ -396,7 +396,7 @@ class TestAnthropicCacheColdWarning:
         warning = anthropic_cache_cold_warning(
             CostTracker.get_session_costs(),
             model="anthropic/claude-sonnet-4-6",
-            now=10 + ANTHROPIC_CACHE_TTL_SECONDS + 1,
+            now=10 + ANTHROPIC_CACHE_TTL_SECS + 1,
         )
 
         assert warning is not None
