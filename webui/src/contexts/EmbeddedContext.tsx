@@ -38,16 +38,18 @@ export const EmbeddedContextProvider: FC<PropsWithChildren> = ({ children }) => 
   const parentOriginRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!isEmbedded || typeof window === 'undefined' || window.parent === window) {
+    if (!isEmbedded || typeof window === 'undefined') {
       return;
     }
 
-    const referrerOrigin = getEmbeddedParentOrigin(document.referrer);
+    const inIframe = window.parent !== window;
+    const referrerOrigin = inIframe ? getEmbeddedParentOrigin(document.referrer) : null;
     parentOriginRef.current = referrerOrigin;
     setParentOrigin(referrerOrigin);
 
     const handleMessage = (event: MessageEvent) => {
-      if (event.source !== window.parent) {
+      // Accept messages from parent frame (iframe case) or self (same-window case)
+      if (event.source !== window.parent && event.source !== window) {
         return;
       }
 
@@ -76,11 +78,13 @@ export const EmbeddedContextProvider: FC<PropsWithChildren> = ({ children }) => 
     };
 
     window.addEventListener('message', handleMessage);
-    // Ready signal carries no sensitive payload; '*' fallback is acceptable for the handshake
-    window.parent.postMessage(
-      { type: 'gptme-webui:embedded-context-ready' },
-      referrerOrigin ?? '*'
-    );
+    if (inIframe) {
+      // Ready signal to parent; '*' fallback is acceptable for the handshake
+      window.parent.postMessage(
+        { type: 'gptme-webui:embedded-context-ready' },
+        referrerOrigin ?? '*'
+      );
+    }
 
     return () => {
       window.removeEventListener('message', handleMessage);
@@ -89,7 +93,16 @@ export const EmbeddedContextProvider: FC<PropsWithChildren> = ({ children }) => 
 
   const sendAction = useCallback(
     (action: string, itemId?: string) => {
-      if (!isEmbedded || typeof window === 'undefined' || window.parent === window) {
+      if (!isEmbedded || typeof window === 'undefined') {
+        return;
+      }
+      const inIframe = window.parent !== window;
+      // Same-window embedding: post to self. Iframe: post to confirmed parent origin only.
+      if (!inIframe) {
+        window.postMessage(
+          { type: 'gptme-webui:embedded-action', action, itemId },
+          window.location.origin
+        );
         return;
       }
       if (!parentOrigin) {
