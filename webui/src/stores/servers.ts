@@ -46,17 +46,15 @@ function loadRegistry(): ServerRegistry {
   return migrateFromLegacy();
 }
 
-/** Migration: remove isPreset flag from old Cloud preset entries so they become removable.
+/** Migration: remove stale Cloud preset entries.
  *  The generic Cloud preset (https://api.gptme.ai) was broken — managed cloud auth returns
- *  an instance-specific URL, so the hardcoded preset was always stale. */
+ *  an instance-specific URL, so the hardcoded preset was always stale and causes CSP errors. */
 function migrateCloudPreset(registry: ServerRegistry): void {
   const STALE_CLOUD_URL = 'https://api.gptme.ai';
   const normalized = (url: string) => url.toLowerCase().replace(/\/+$/, '');
-  for (const server of registry.servers) {
-    if (server.isPreset && normalized(server.baseUrl) === normalized(STALE_CLOUD_URL)) {
-      delete server.isPreset;
-    }
-  }
+  registry.servers = registry.servers.filter(
+    (s) => !(s.isPreset && normalized(s.baseUrl) === normalized(STALE_CLOUD_URL))
+  );
 }
 
 function migrateFromLegacy(): ServerRegistry {
