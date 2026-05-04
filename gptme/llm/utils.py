@@ -197,13 +197,16 @@ def process_image_file(
 def apply_cache_control(
     messages: list[dict],
     system_messages: list[dict] | None = None,
+    ephemeral_boundary_idx: int | None = None,
 ) -> tuple[list[dict], list[dict] | None]:
     """Apply cache_control breakpoints for Anthropic-style caching.
 
     Anthropic requires explicit cache_control markers, unlike providers with
     automatic caching. This applies cache control to:
     1. The system message (either in system_messages or first message)
-    2. The last two user messages (for multi-turn conversation caching)
+    2. Optionally, the stable message just before the first ephemeral block
+       (so the prefix stays cached as ephemeral messages expire each turn)
+    3. The last user message (for the current request)
 
     Works with both OpenAI-style (system in messages) and Anthropic-style
     (system_messages as separate list) message formats.
@@ -215,6 +218,12 @@ def apply_cache_control(
         messages: List of message dicts with role and content
         system_messages: Optional separate list of system message content parts
                         (Anthropic-style)
+        ephemeral_boundary_idx: Index in ``messages`` of the last stable message
+                                before the first ephemeral message.  When set, a
+                                cache breakpoint is placed there in addition to
+                                the standard system + last-user breakpoints,
+                                keeping the stable prefix cached as ephemeral
+                                messages expire.
 
     Returns:
         Tuple of (modified messages, modified system_messages)
@@ -249,6 +258,15 @@ def apply_cache_control(
 
         return content
 
+    def _apply_cache_to_message(idx: int) -> None:
+        content = messages[idx].get("content")
+        if content:
+            if isinstance(content, str):
+                content = [{"type": "text", "text": content}]
+            elif isinstance(content, list):
+                content = list(content)
+            messages[idx]["content"] = _set_cache_control_on_last_part(content)
+
     # Handle system messages (Anthropic-style separate list)
     if system_messages:
         text = system_messages[0].get("text")
@@ -266,15 +284,17 @@ def apply_cache_control(
                 content = [{"type": "text", "text": content}]
             messages[0]["content"] = _set_cache_control_on_last_part(content)
 
-    # Set cache points on last two user messages
+    # Place a cache breakpoint at the stable boundary before the ephemeral block.
+    # This keeps the non-ephemeral prefix cached across turns as thinking blocks expire.
+    if ephemeral_boundary_idx is not None:
+        _apply_cache_to_message(ephemeral_boundary_idx)
+
+    # Set a cache point on the last user message (current request)
     user_indices = [i for i, m in enumerate(messages) if m.get("role") == "user"]
-    for idx in user_indices[-2:]:
-        content = messages[idx].get("content")
-        if content:
-            if isinstance(content, str):
-                content = [{"type": "text", "text": content}]
-            elif isinstance(content, list):
-                content = list(content)
-            messages[idx]["content"] = _set_cache_control_on_last_part(content)
+    if user_indices:
+        last_user_idx = user_indices[-1]
+        # Don't re-mark the ephemeral boundary if it happens to be the last user msg
+        if last_user_idx != ephemeral_boundary_idx:
+            _apply_cache_to_message(last_user_idx)
 
     return messages, system_messages

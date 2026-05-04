@@ -1138,6 +1138,14 @@ def _prepare_messages_for_api(
     # Transform system messages
     messages, system_messages = _transform_system_messages(messages)
 
+    # Find the stable boundary before the first ephemeral message.
+    # This index (into messages_dicts_new after conversion) is passed to
+    # apply_cache_control so a cache breakpoint is placed just before the
+    # ephemeral block, keeping the stable prefix cached as messages expire.
+    first_ephemeral_in_messages = next(
+        (i for i, m in enumerate(messages) if m.ephemeral_ttl is not None), None
+    )
+
     # Handle files and convert to dicts
     messages_dicts = (_process_file(f) for f in msgs2dicts(messages))
 
@@ -1170,6 +1178,10 @@ def _prepare_messages_for_api(
 
     # Apply cache control to optimize performance
     messages_dicts_new: list[anthropic.types.MessageParam] = []
+    # Track the output index of the stable boundary before the ephemeral block.
+    # msg_input_idx counts messages from the generator (before filtering).
+    _msg_input_idx = 0
+    _ephemeral_boundary_output_idx: int | None = None
     for msg in messages_dicts:
         content_parts: list[
             anthropic.types.TextBlockParam
@@ -1212,17 +1224,26 @@ def _prepare_messages_for_api(
 
         # Only add message if it has content (prevents Anthropic API error)
         if content_parts:
+            # Record the boundary: the last output index before the first ephemeral input
+            if (
+                first_ephemeral_in_messages is not None
+                and _msg_input_idx == first_ephemeral_in_messages
+                and len(messages_dicts_new) > 0
+            ):
+                _ephemeral_boundary_output_idx = len(messages_dicts_new) - 1
             messages_dicts_new.append({"role": msg["role"], "content": content_parts})
         else:
             logger.warning(
                 f"Skipping message with role '{msg['role']}' - all content was filtered out"
             )
+        _msg_input_idx += 1
 
     # Apply cache control for Anthropic prompt caching
     # See: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
     messages_with_cache, system_with_cache = apply_cache_control(
         cast(list[dict], messages_dicts_new),
         cast(list[dict] | None, system_messages),
+        ephemeral_boundary_idx=_ephemeral_boundary_output_idx,
     )
     messages_dicts_new = cast(list[anthropic.types.MessageParam], messages_with_cache)
     system_messages = cast(list[anthropic.types.TextBlockParam], system_with_cache)

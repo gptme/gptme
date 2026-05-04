@@ -148,6 +148,10 @@ class Message:
     pinned: bool = False
     hide: bool = False
     quiet: bool = False
+    # Number of later assistant turns after which this message is pruned from context.
+    # None means the message is never automatically pruned.
+    # ephemeral_ttl=2 means: keep for 2 more assistant turns, then drop from prepare_messages().
+    ephemeral_ttl: int | None = None
 
     # Metadata for token usage and cost tracking
     metadata: MessageMetadata | None = None
@@ -188,6 +192,10 @@ class Message:
         # Merge file_hashes (other's hashes take precedence for same paths)
         merged_hashes = {**self.file_hashes, **other.file_hashes}
 
+        # Use the shorter TTL when concatenating (the message expires sooner)
+        ttls = [t for t in (self.ephemeral_ttl, other.ephemeral_ttl) if t is not None]
+        merged_ttl = min(ttls) if ttls else None
+
         return self.replace(
             content=f"{self.content}{separator}{other.content}",
             files=self.files + other.files,
@@ -196,6 +204,7 @@ class Message:
             pinned=self.pinned or other.pinned,
             hide=self.hide or other.hide,
             quiet=self.quiet or other.quiet,
+            ephemeral_ttl=merged_ttl,
         )
 
     def __hash__(self):
@@ -227,6 +236,8 @@ class Message:
             d["pinned"] = True
         if self.hide:
             d["hide"] = True
+        if self.ephemeral_ttl is not None:
+            d["ephemeral_ttl"] = self.ephemeral_ttl
         if self.call_id:
             d["call_id"] = self.call_id
         # Only serialize metadata if it has content (compact storage)
@@ -284,6 +295,9 @@ class Message:
         if self.hide:
             flags.append("hide")
         flags_toml = "\n".join(f"{flag} = true" for flag in flags)
+        if self.ephemeral_ttl is not None:
+            sep = "\n" if flags_toml else ""
+            flags_toml += f"{sep}ephemeral_ttl = {self.ephemeral_ttl}"
         # Use proper TOML array syntax with escaped strings (not Python repr)
         if self.files:
             escaped_files = ", ".join(f'"{escape_string(str(f))}"' for f in self.files)
@@ -355,6 +369,7 @@ timestamp = "{self.timestamp.isoformat()}"
             _fix_toml_content(msg["content"]),
             pinned=msg.get("pinned", False),
             hide=msg.get("hide", False),
+            ephemeral_ttl=msg.get("ephemeral_ttl"),
             files=[parse_file_reference(f) for f in msg.get("files", [])],
             file_hashes=msg.get("file_hashes", {}),
             timestamp=isoparse(msg["timestamp"]),
