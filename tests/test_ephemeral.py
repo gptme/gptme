@@ -187,6 +187,33 @@ def test_ttl_zero_expires_after_one_assistant_turn():
     assert all("<think>" not in m.content for m in result)
 
 
+def test_mixed_ttl_dropped_message_does_not_inflate_counter():
+    """Regression: a dropped short-TTL assistant message must not count against
+    the TTL of an earlier message with a longer TTL.
+
+    Layout (forward order): A0(TTL=2), A1(TTL=0), A2(plain), A3(plain)
+    After A2+A3, A1 has 2 turns after it → drops (2 > 0 ✓).
+    A0 should see only 2 *surviving* turns (A2, A3), not 3.
+    """
+    msgs = [
+        _msg("system", "S"),
+        _msg("user", "Q0"),
+        _msg("assistant", "A0 long-lived", ttl=2),  # should survive
+        _msg("user", "Q1"),
+        _msg("assistant", "A1 quick expiry", ttl=0),  # should be dropped
+        _msg("user", "Q2"),
+        _msg("assistant", "A2"),
+        _msg("user", "Q3"),
+        _msg("assistant", "A3"),
+    ]
+    result = prune_ephemeral_messages(msgs)
+    contents = [m.content for m in result]
+    assert "A1 quick expiry" not in contents, "A1(TTL=0) should be pruned"
+    assert "A0 long-lived" in contents, (
+        "A0(TTL=2) must survive — only 2 real turns remain after it"
+    )
+
+
 # ---------------------------------------------------------------------------
 # ephemeral_cache_boundary
 # ---------------------------------------------------------------------------

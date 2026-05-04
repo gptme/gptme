@@ -699,9 +699,9 @@ def prune_ephemeral_messages(msgs: list[Message]) -> list[Message]:
 
         ttl = msg.ephemeral_ttl
         if ttl is not None and assistant_turns_after > ttl:
-            # Expired — drop from context window (not from the log on disk)
-            if msg.role == "assistant":
-                assistant_turns_after += 1
+            # Expired — drop from context window (not from the log on disk).
+            # Do NOT increment assistant_turns_after: dropped messages must not
+            # inflate the turn count seen by earlier messages with longer TTLs.
             continue
 
         kept_reversed.append(msg)
