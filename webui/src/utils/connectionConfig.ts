@@ -40,8 +40,25 @@ export async function exchangeAuthCode(
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-    throw new Error(error.hint || error.error || `Auth code exchange failed: ${response.status}`);
+    // Default to HTTP status — shown when JSON parsing fails (e.g. nginx HTML error page)
+    let errorMessage = `Auth code exchange failed: HTTP ${response.status}`;
+    try {
+      const body = await response.text();
+      try {
+        const parsed = JSON.parse(body);
+        if (parsed.hint) {
+          errorMessage = parsed.hint;
+        } else if (parsed.error) {
+          errorMessage = parsed.error;
+        }
+      } catch {
+        // Non-JSON body (nginx HTML error page, etc.) — log for diagnostics
+        console.error('[ConnectionConfig] Non-JSON error response body:', body.slice(0, 300));
+      }
+    } catch {
+      // Body unreadable — keep status-based message
+    }
+    throw new Error(errorMessage);
   }
 
   return response.json();
