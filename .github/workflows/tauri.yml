@@ -561,6 +561,15 @@ jobs:
       - name: Install webui deps and build
         run: cd webui && npm install && npm run build
 
+      - name: Create placeholder icons for tauri::generate_context!
+        run: |
+          mkdir -p tauri/src-tauri/icons
+          printf '\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82' > tauri/src-tauri/icons/32x32.png
+          cp tauri/src-tauri/icons/32x32.png tauri/src-tauri/icons/128x128.png
+          cp tauri/src-tauri/icons/32x32.png "tauri/src-tauri/icons/128x128@2x.png"
+          touch tauri/src-tauri/icons/icon.icns
+          touch tauri/src-tauri/icons/icon.ico
+
       - name: Build Android APK (aarch64 only for CI checks)
         if: "!startsWith(github.ref, 'refs/tags/v') && inputs.tag == ''"
         run: cd tauri && npm run tauri android build -- --apk --target aarch64
