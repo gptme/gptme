@@ -336,7 +336,7 @@ jobs:
         run: cd webui && npm install && npm run build
 
       - name: Download sidecar binaries
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           pattern: sidecar-*
           merge-multiple: true
@@ -609,7 +609,7 @@ jobs:
           ref: ${{ inputs.tag || github.ref }}
 
       - name: Download Android artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           name: android-build
           path: android-dist
