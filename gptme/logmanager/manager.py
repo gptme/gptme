@@ -708,7 +708,24 @@ def prune_ephemeral_messages(msgs: list[Message]) -> list[Message]:
         if msg.role == "assistant":
             assistant_turns_after += 1
 
-    return list(reversed(kept_reversed))
+    pruned = list(reversed(kept_reversed))
+    return _merge_consecutive_messages(pruned)
+
+
+def _merge_consecutive_messages(msgs: list[Message]) -> list[Message]:
+    """Merge adjacent same-role messages created by ephemeral pruning.
+
+    Dropping an assistant turn between two user turns creates a sequence strict
+    providers reject.  Merge the adjacent messages while preserving attachments
+    and message flags via Message.concat().
+    """
+    merged: list[Message] = []
+    for msg in msgs:
+        if merged and merged[-1].role == msg.role:
+            merged[-1] = merged[-1].concat(msg)
+        else:
+            merged.append(msg)
+    return merged
 
 
 def ephemeral_cache_boundary(
@@ -750,10 +767,13 @@ def prepare_messages(
 
     # Prune expired ephemeral messages (e.g. thinking blocks) after reduction
     # but before hard context limiting, so the budget goes to durable content.
+    # Adjacent same-role messages created by pruning are merged before provider
+    # formatting; strict APIs reject consecutive user/assistant turns.
     msgs_pruned = prune_ephemeral_messages(msgs_reduced)
     if len(msgs_reduced) != len(msgs_pruned):
         logger.info(
-            f"Pruned {len(msgs_reduced) - len(msgs_pruned)} expired ephemeral messages"
+            "Pruned/merged "
+            f"{len(msgs_reduced) - len(msgs_pruned)} messages during ephemeral cleanup"
         )
 
     model = get_default_model()

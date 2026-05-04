@@ -22,6 +22,11 @@ def _msg(role: Role, content: str = "hello", ttl: int | None = None) -> Message:
     )  # type: ignore[call-arg]
 
 
+def _assert_no_consecutive_same_role(msgs: list[Message]) -> None:
+    for prev, current in zip(msgs, msgs[1:], strict=False):
+        assert prev.role != current.role
+
+
 # ---------------------------------------------------------------------------
 # Message serialization round-trips
 # ---------------------------------------------------------------------------
@@ -123,8 +128,9 @@ def test_expired_ephemeral_message_pruned():
     # assistant0 should be gone
     contents = [m.content for m in result]
     assert "<think>reasoning</think>Answer 0" not in contents
-    # All other messages preserved
-    assert len(result) == len(msgs) - 1
+    # Adjacent user messages on either side of the pruned assistant are merged.
+    assert "Question 0\n\nQuestion 1" in contents
+    _assert_no_consecutive_same_role(result)
 
 
 def test_pinned_message_never_pruned():
@@ -148,7 +154,7 @@ def test_pinned_message_never_pruned():
     assert len(pinned_msgs) == 1
 
 
-def test_prune_order_preserved():
+def test_prune_merges_consecutive_roles_after_drop():
     msgs = [
         _msg("system", "System"),
         _msg("user", "Q0"),
@@ -160,8 +166,10 @@ def test_prune_order_preserved():
     ]
     result = prune_ephemeral_messages(msgs)
     roles = [m.role for m in result]
-    # Should maintain chronological order
-    assert roles == ["system", "user", "assistant", "user", "user", "assistant"]
+    # Should maintain chronological order and merge the user turns around the
+    # pruned assistant so strict providers do not reject the sequence.
+    assert roles == ["system", "user", "assistant", "user", "assistant"]
+    assert result[3].content == "Q1\n\nQ2"
 
 
 def test_no_ephemeral_messages_unchanged():
