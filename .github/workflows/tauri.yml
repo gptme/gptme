@@ -597,9 +597,10 @@ jobs:
       !cancelled() &&
       needs.lint.result == 'success' &&
       needs.test.result == 'success' &&
+      needs.build.result == 'success' &&
       needs.build-android.result == 'success' &&
       (startsWith(github.ref, 'refs/tags/v') || inputs.tag != '')
-    needs: [lint, test, build-android]
+    needs: [lint, test, build, build-android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
