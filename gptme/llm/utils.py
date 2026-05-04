@@ -289,12 +289,11 @@ def apply_cache_control(
     if ephemeral_boundary_idx is not None:
         _apply_cache_to_message(ephemeral_boundary_idx)
 
-    # Set a cache point on the last user message (current request)
+    # Set cache points on the last two user messages (multi-turn caching pattern).
+    # Skips any index already marked as the ephemeral boundary to avoid redundancy.
     user_indices = [i for i, m in enumerate(messages) if m.get("role") == "user"]
-    if user_indices:
-        last_user_idx = user_indices[-1]
-        # Don't re-mark the ephemeral boundary if it happens to be the last user msg
-        if last_user_idx != ephemeral_boundary_idx:
-            _apply_cache_to_message(last_user_idx)
+    for idx in user_indices[-2:]:
+        if idx != ephemeral_boundary_idx:
+            _apply_cache_to_message(idx)
 
     return messages, system_messages

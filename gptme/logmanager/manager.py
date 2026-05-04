@@ -102,7 +102,7 @@ class Log:
 # Thinking blocks are useful for the next 1-2 turns but rarely after that.
 _THINKING_TTL = 2
 
-_THINKING_PATTERN = re.compile(r"<think>|<thinking>", re.IGNORECASE | re.DOTALL)
+_THINKING_PATTERN = re.compile(r"<think>|<thinking>", re.IGNORECASE)
 
 
 def _auto_tag_ephemeral(msg: Message) -> Message:
@@ -712,7 +712,6 @@ def prune_ephemeral_messages(msgs: list[Message]) -> list[Message]:
 
 
 def ephemeral_cache_boundary(
-    msgs_before_pruning: list[Message],
     msgs_after_pruning: list[Message],
 ) -> int | None:
     """Return the index (in msgs_after_pruning) of the last message before the

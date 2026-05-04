@@ -1222,15 +1222,18 @@ def _prepare_messages_for_api(
                 filtered_parts.append(part)
         content_parts = filtered_parts
 
+        # Record the boundary before potentially skipping this message.
+        # The boundary is the last output index before the first ephemeral input,
+        # so it must be captured regardless of whether this message has content.
+        if (
+            first_ephemeral_in_messages is not None
+            and _msg_input_idx == first_ephemeral_in_messages
+            and len(messages_dicts_new) > 0
+        ):
+            _ephemeral_boundary_output_idx = len(messages_dicts_new) - 1
+
         # Only add message if it has content (prevents Anthropic API error)
         if content_parts:
-            # Record the boundary: the last output index before the first ephemeral input
-            if (
-                first_ephemeral_in_messages is not None
-                and _msg_input_idx == first_ephemeral_in_messages
-                and len(messages_dicts_new) > 0
-            ):
-                _ephemeral_boundary_output_idx = len(messages_dicts_new) - 1
             messages_dicts_new.append({"role": msg["role"], "content": content_parts})
         else:
             logger.warning(

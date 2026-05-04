@@ -194,7 +194,7 @@ def test_ttl_zero_expires_after_one_assistant_turn():
 
 def test_ephemeral_cache_boundary_returns_none_when_no_ephemeral():
     msgs = [_msg("system"), _msg("user"), _msg("assistant")]
-    assert ephemeral_cache_boundary(msgs, msgs) == None  # noqa: E711
+    assert ephemeral_cache_boundary(msgs) == None  # noqa: E711
 
 
 def test_ephemeral_cache_boundary_returns_index_before_first_ephemeral():
@@ -206,13 +206,13 @@ def test_ephemeral_cache_boundary_returns_index_before_first_ephemeral():
         _msg("assistant"),  # 4
     ]
     msgs[3] = _msg("user", ttl=1)
-    result = ephemeral_cache_boundary(msgs, msgs)
+    result = ephemeral_cache_boundary(msgs)
     assert result == 2
 
 
 def test_ephemeral_cache_boundary_none_when_first_msg_is_ephemeral():
     msgs = [_msg("user", ttl=1), _msg("assistant")]
-    assert ephemeral_cache_boundary(msgs, msgs) is None
+    assert ephemeral_cache_boundary(msgs) is None
 
 
 # ---------------------------------------------------------------------------
@@ -270,6 +270,39 @@ def test_apply_cache_control_ephemeral_boundary():
     assert isinstance(boundary_content, list)
     last_part = boundary_content[-1]
     assert last_part.get("cache_control") == {"type": "ephemeral"}
+
+
+def test_apply_cache_control_caches_last_two_users_without_ephemeral():
+    """Regression: without ephemeral messages, both last two user messages must be cached."""
+    from gptme.llm.utils import apply_cache_control
+
+    messages: list[dict] = [
+        {"role": "user", "content": "first"},
+        {"role": "assistant", "content": [{"type": "text", "text": "answer"}]},
+        {"role": "user", "content": "second to last"},
+        {"role": "assistant", "content": [{"type": "text", "text": "answer 2"}]},
+        {"role": "user", "content": "last"},
+    ]
+    modified, _ = apply_cache_control(messages)
+
+    def _has_cache(msg: dict) -> bool:
+        content = msg.get("content")
+        if isinstance(content, str):
+            return False
+        if isinstance(content, list):
+            return any(
+                p.get("cache_control") == {"type": "ephemeral"}
+                for p in content
+                if isinstance(p, dict)
+            )
+        return False
+
+    user_msgs = [m for m in modified if m.get("role") == "user"]
+    assert _has_cache(user_msgs[-1]), "last user message must be cached"
+    assert _has_cache(user_msgs[-2]), (
+        "second-to-last user message must be cached (Anthropic multi-turn pattern)"
+    )
+    assert not _has_cache(user_msgs[0]), "first user message should not be cached"
 
 
 def test_apply_cache_control_last_user_still_cached():
