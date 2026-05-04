@@ -206,7 +206,7 @@ def apply_cache_control(
     1. The system message (either in system_messages or first message)
     2. Optionally, the stable message just before the first ephemeral block
        (so the prefix stays cached as ephemeral messages expire each turn)
-    3. The last user message (for the current request)
+    3. The last two user messages (for the current request)
 
     Works with both OpenAI-style (system in messages) and Anthropic-style
     (system_messages as separate list) message formats.
