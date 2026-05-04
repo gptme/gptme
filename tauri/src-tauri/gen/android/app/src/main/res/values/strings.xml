@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">gptme-tauri</string>
+    <string name="main_activity_title">gptme-tauri</string>
+</resources>

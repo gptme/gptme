@@ -514,3 +514,103 @@ jobs:
           releaseDraft: ${{ inputs.tag == '' }}
           prerelease: ${{ contains(inputs.tag || github.ref_name, '.dev') || contains(inputs.tag || github.ref_name, '.a') || contains(inputs.tag || github.ref_name, '.b') || contains(inputs.tag || github.ref_name, '.rc') }}
           args: ${{ matrix.args }}
+
+  build-android:
+    name: Build Android (APK/AAB)
+    # Only aarch64 for PR/push checks; full multi-arch on release tags
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Install Android NDK 27
+        run: |
+          ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager "ndk;27.0.12077973"
+          echo "NDK_HOME=${ANDROID_HOME}/ndk/27.0.12077973" >> $GITHUB_ENV
+
+      - name: Set up Rust with Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: 'tauri/src-tauri -> target'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
+          cache-dependency-path: |
+            tauri/package-lock.json
+            webui/package-lock.json
+
+      - name: Install Tauri CLI deps
+        run: cd tauri && npm install
+
+      - name: Install webui deps and build
+        run: cd webui && npm install && npm run build
+
+      - name: Build Android APK (aarch64 only for CI checks)
+        if: "!startsWith(github.ref, 'refs/tags/v') && inputs.tag == ''"
+        run: cd tauri && npm run tauri android build -- --apk --target aarch64
+        env:
+          NDK_HOME: ${{ env.NDK_HOME }}
+
+      - name: Build Android APK + AAB (all arches for release)
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
+        run: cd tauri && npm run tauri android build -- --apk --aab
+        env:
+          NDK_HOME: ${{ env.NDK_HOME }}
+
+      - name: Upload Android artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-build
+          path: |
+            tauri/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+            tauri/src-tauri/gen/android/app/build/outputs/bundle/**/*.aab
+
+  release-android:
+    name: Release Android
+    if: >-
+      !cancelled() &&
+      needs.lint.result == 'success' &&
+      needs.test.result == 'success' &&
+      needs.build-android.result == 'success' &&
+      (startsWith(github.ref, 'refs/tags/v') || inputs.tag != '')
+    needs: [lint, test, build-android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Download Android artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: android-build
+          path: android-dist
+
+      - name: Upload APK/AAB to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          find android-dist -name "*.apk" -o -name "*.aab" | while read -r f; do
+            echo "Uploading $f"
+            gh release upload "$TAG" "$f" --clobber
+          done
