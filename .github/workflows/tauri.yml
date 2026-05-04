@@ -518,6 +518,7 @@ jobs:
   build-android:
     name: Build Android (APK/AAB)
     # Only aarch64 for PR/push checks; full multi-arch on release tags
+    needs: [lint, test]
     runs-on: ubuntu-latest
 
     steps:
