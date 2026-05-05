@@ -119,6 +119,28 @@ def test_include_paths_disabled_via_env_var(tmp_path, monkeypatch):
     assert result.files == []
 
 
+@pytest.mark.parametrize("falsy_val", ["0", "false", "False", "no", "off", ""])
+def test_include_paths_not_disabled_by_falsy_env_var(tmp_path, monkeypatch, falsy_val):
+    """Test that GPTME_DISABLE_PATH_INCLUDE=false/0/no/off does NOT disable expansion."""
+    from gptme.message import Message
+    from gptme.util.context import include_paths
+
+    monkeypatch.chdir(tmp_path)
+    data_file = tmp_path / "data.txt"
+    data_file.write_text("content-should-appear")
+
+    if falsy_val:
+        monkeypatch.setenv("GPTME_DISABLE_PATH_INCLUDE", falsy_val)
+    else:
+        monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
+
+    msg = Message("user", "See `data.txt` for details")
+    result = include_paths(msg)
+
+    # Content SHOULD appear — falsy values must not disable expansion
+    assert "content-should-appear" in result.content
+
+
 def test_include_paths_skips_system_messages():
     """Test that include_paths skips role=system messages (tool output) entirely."""
     from gptme.message import Message

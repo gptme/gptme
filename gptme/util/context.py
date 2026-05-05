@@ -473,17 +473,22 @@ def include_paths(msg: Message, workspace: Path | None = None) -> Message:
     In interactive mode, asks for confirmation before reading URLs to prevent
     accidental context bloat from pasted logs containing URLs.
 
-    When GPTME_DISABLE_PATH_INCLUDE is set (to any truthy value), all path
-    expansion is skipped. This is useful for autonomous/non-interactive modes
-    where prompts are programmatically constructed and path references should
-    be passed to the model as-is.
+    When GPTME_DISABLE_PATH_INCLUDE is set to a truthy value (1, true, yes, on),
+    all path expansion is skipped. This is useful for autonomous/non-interactive
+    modes where prompts are programmatically constructed and path references
+    should be passed to the model as-is.
 
     Args:
         msg: Message to process
         workspace: If provided, paths will be stored relative to this directory
     """
     # Check for explicit disable to prevent silent prompt bloat in autonomous mode
-    if os.environ.get("GPTME_DISABLE_PATH_INCLUDE"):
+    if os.environ.get("GPTME_DISABLE_PATH_INCLUDE", "").lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
         logger.debug("GPTME_DISABLE_PATH_INCLUDE is set; skipping path expansion")
         return msg
 
