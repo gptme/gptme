@@ -100,6 +100,25 @@ def test_include_paths_no_duplicate_embeddings(tmp_path, monkeypatch):
     assert result.content.count("unique-content-marker") == 1
 
 
+def test_include_paths_disabled_via_env_var(tmp_path, monkeypatch):
+    """Test that GPTME_DISABLE_PATH_INCLUDE skips all path expansion."""
+    from gptme.message import Message
+    from gptme.util.context import include_paths
+
+    monkeypatch.chdir(tmp_path)
+    data_file = tmp_path / "data.txt"
+    data_file.write_text("sensitive-content-should-not-appear")
+
+    monkeypatch.setenv("GPTME_DISABLE_PATH_INCLUDE", "1")
+
+    msg = Message("user", "See `data.txt` for details")
+    result = include_paths(msg)
+
+    # The file content should NOT appear when the env var is set
+    assert "sensitive-content-should-not-appear" not in result.content
+    assert result.files == []
+
+
 def test_include_paths_skips_system_messages():
     """Test that include_paths skips role=system messages (tool output) entirely."""
     from gptme.message import Message
