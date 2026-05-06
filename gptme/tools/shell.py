@@ -1111,6 +1111,8 @@ def _matches_gh_list(cmd: str) -> bool:
     for i, tok in enumerate(flags):
         if tok.startswith("--json"):
             return False
+        if tok.startswith("--format="):
+            return False
         if tok == "--format" and i + 1 < len(flags) and flags[i + 1] == "json":
             return False
 

@@ -736,6 +736,8 @@ def test_matches_gh_list_accepts_supported_shapes(cmd):
         "gh pr list --json number,state",
         "gh issue list --format json",
         "gh pr list --format json",
+        "gh issue list --format=json",
+        "gh pr list --format=json",
     ],
 )
 def test_matches_gh_list_rejects_unsupported_shapes(cmd):
