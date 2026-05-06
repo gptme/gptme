@@ -1176,28 +1176,7 @@ def execute_shell_impl(
         if e.args and isinstance(e.args[0], tuple) and len(e.args[0]) == 2:
             stdout, stderr = e.args[0]
 
-        # Terminate subprocess gracefully
-        logger.info("Shell command interrupted, sending SIGINT to subprocess")
-        try:
-            if _is_windows:
-                shell.process.terminate()
-                shell.process.wait(timeout=2.0)
-            else:
-                pgid = os.getpgid(shell.process.pid)
-                os.killpg(pgid, signal.SIGINT)
-                shell.process.wait(timeout=2.0)
-        except subprocess.TimeoutExpired:
-            logger.info("Process didn't exit gracefully, terminating")
-            try:
-                if _is_windows:
-                    shell.process.kill()
-                else:
-                    pgid = os.getpgid(shell.process.pid)
-                    os.killpg(pgid, signal.SIGTERM)
-            except Exception:
-                pass
-        except Exception as e:
-            logger.warning(f"Error terminating interrupted process: {e}")
+        _terminate_interrupted_shell(shell)
 
         returncode = shell.process.returncode
         interrupted = True
@@ -1221,6 +1200,32 @@ def execute_shell_impl(
 
     if interrupted:
         raise KeyboardInterrupt from None
+
+
+def _terminate_interrupted_shell(
+    shell: ShellSession, log_context: str = "Shell command"
+) -> None:
+    logger.info("%s interrupted, sending SIGINT to subprocess", log_context)
+    try:
+        if _is_windows:
+            shell.process.terminate()
+            shell.process.wait(timeout=2.0)
+        else:
+            pgid = os.getpgid(shell.process.pid)
+            os.killpg(pgid, signal.SIGINT)
+            shell.process.wait(timeout=2.0)
+    except subprocess.TimeoutExpired:
+        logger.info("Process didn't exit gracefully, terminating")
+        try:
+            if _is_windows:
+                shell.process.kill()
+            else:
+                pgid = os.getpgid(shell.process.pid)
+                os.killpg(pgid, signal.SIGTERM)
+        except Exception:
+            pass
+    except Exception as e:
+        logger.warning("Error terminating interrupted process: %s", e)
 
 
 def get_path_fn(*args, **kwargs) -> Path | None:
@@ -1270,6 +1275,23 @@ def _execute_preceding_commands(
             )
     except Exception as e:
         yield Message("system", f"Error running preceding commands: {e}")
+
+
+def _get_timeout() -> float | None:
+    timeout: float | None = 1200.0
+    timeout_env = os.environ.get("GPTME_SHELL_TIMEOUT")
+    if timeout_env is not None:
+        try:
+            timeout = float(timeout_env)
+            if timeout <= 0:
+                timeout = None
+        except ValueError:
+            logger.warning(
+                "Invalid GPTME_SHELL_TIMEOUT value: %s, using default 1200s (20 minutes)",
+                timeout_env,
+            )
+            timeout = 1200.0
+    return timeout
 
 
 def execute_shell(
@@ -1349,20 +1371,7 @@ def execute_shell(
             return
         # Fall through to regular shell execution for other kill commands
 
-    # Check for timeout from environment variable
-    # Default to 20 minutes (1200s) if not set
-    timeout: float | None = 1200.0
-    timeout_env = os.environ.get("GPTME_SHELL_TIMEOUT")
-    if timeout_env is not None:
-        try:
-            timeout = float(timeout_env)
-            if timeout <= 0:
-                timeout = None  # Disable timeout if set to 0 or negative
-        except ValueError:
-            logger.warning(
-                f"Invalid GPTME_SHELL_TIMEOUT value: {timeout_env}, using default 1200s (20 minutes)"
-            )
-            timeout = 1200.0
+    timeout = _get_timeout()
 
     # Check with shellcheck if available
     has_issues, should_block, shellcheck_msg = check_with_shellcheck(cmd)

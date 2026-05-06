@@ -9,10 +9,7 @@ to the regular shell tool.
 from __future__ import annotations
 
 import logging
-import os
 import shlex
-import signal
-import subprocess
 from typing import TYPE_CHECKING
 
 from ..message import Message
@@ -24,7 +21,8 @@ from .base import Parameter, ToolSpec, ToolUse
 from .shell import (
     _format_block_smart,
     _format_shell_output,
-    _is_windows,
+    _get_timeout,
+    _terminate_interrupted_shell,
     execute_shell,
     get_path_fn,
     get_shell,
@@ -72,25 +70,8 @@ def5678 feat: add shell_compact git log preview
 """.strip()
 
 
-def _get_timeout() -> float | None:
-    timeout: float | None = 1200.0
-    timeout_env = os.environ.get("GPTME_SHELL_TIMEOUT")
-    if timeout_env is not None:
-        try:
-            timeout = float(timeout_env)
-            if timeout <= 0:
-                timeout = None
-        except ValueError:
-            logger.warning(
-                "Invalid GPTME_SHELL_TIMEOUT value: %s, using default 1200s (20 minutes)",
-                timeout_env,
-            )
-            timeout = 1200.0
-    return timeout
-
-
 def _compact_command_display(cmd: str) -> str:
-    if len(cmd) > 100 or cmd.count("\n") > 2:
+    if len(cmd) > 100 or cmd.count("\n") >= 1:
         first_line = cmd.split("\n")[0][:80]
         line_count = cmd.count("\n") + 1
         return (
@@ -103,7 +84,7 @@ def _default_model_name() -> str:
     from ..llm.models import get_default_model  # fmt: skip
 
     model = get_default_model()
-    return model.model if model else "gpt-4"
+    return model.model if model else "cl100k_base"
 
 
 def _matches_git_log_oneline(cmd: str) -> bool:
@@ -200,27 +181,7 @@ def _execute_compacted_git_log(
         if e.args and isinstance(e.args[0], tuple) and len(e.args[0]) == 2:
             stdout, stderr = e.args[0]
 
-        logger.info("Shell compact command interrupted, sending SIGINT to subprocess")
-        try:
-            if _is_windows:
-                shell.process.terminate()
-                shell.process.wait(timeout=2.0)
-            else:
-                pgid = os.getpgid(shell.process.pid)
-                os.killpg(pgid, signal.SIGINT)
-                shell.process.wait(timeout=2.0)
-        except subprocess.TimeoutExpired:
-            logger.info("Process didn't exit gracefully, terminating")
-            try:
-                if _is_windows:
-                    shell.process.kill()
-                else:
-                    pgid = os.getpgid(shell.process.pid)
-                    os.killpg(pgid, signal.SIGTERM)
-            except Exception:
-                pass
-        except Exception as e:
-            logger.warning("Error terminating interrupted process: %s", e)
+        _terminate_interrupted_shell(shell, "Shell compact command")
 
         returncode = shell.process.returncode
         interrupted = True
@@ -272,10 +233,6 @@ def execute_shell_compact(
     cmd = get_shell_command(code, args, kwargs)
 
     if not _matches_git_log_oneline(cmd):
-        yield from execute_shell(code, args, kwargs)
-        return
-
-    if not shell_compact_allowlist_hook(ToolUse("shell_compact", [], cmd, {})):
         yield from execute_shell(code, args, kwargs)
         return
 

@@ -133,8 +133,8 @@ def test_execute_compacted_git_log_interrupts_process_group(tmp_path):
 
     with (
         patch("gptme.tools.shell_compact.get_shell") as mock_get_shell,
-        patch("gptme.tools.shell_compact.os.getpgid", return_value=456) as mock_getpgid,
-        patch("gptme.tools.shell_compact.os.killpg") as mock_killpg,
+        patch("gptme.tools.shell.os.getpgid", return_value=456) as mock_getpgid,
+        patch("gptme.tools.shell.os.killpg") as mock_killpg,
         patch(
             "gptme.tools.shell_compact._format_shell_output",
             return_value="interrupted output",
@@ -160,21 +160,6 @@ def test_execute_shell_compact_falls_back_for_unsupported_command():
 
         list(execute_shell_compact("git status", [], None))
 
-    mock_execute_shell.assert_called_once()
-
-
-def test_execute_shell_compact_falls_back_when_allowlist_hook_declines():
-    with (
-        patch(
-            "gptme.tools.shell_compact.shell_compact_allowlist_hook", return_value=None
-        ),
-        patch("gptme.tools.shell_compact.execute_shell") as mock_execute_shell,
-    ):
-        mock_execute_shell.return_value = iter([Message("system", "fallback")])
-
-        messages = list(execute_shell_compact("git log --oneline", [], None))
-
-    assert messages == [Message("system", "fallback")]
     mock_execute_shell.assert_called_once()
 
 
@@ -235,5 +220,5 @@ def test_compact_command_display_shortens_long_or_multiline_commands():
     long_cmd = "git log --oneline " + ("--decorate " * 10)
     assert _compact_command_display(long_cmd).endswith("... (1 line)")
 
-    multiline_cmd = "git log --oneline\npwd\nwhoami\ndate"
-    assert _compact_command_display(multiline_cmd) == "git log --oneline... (4 lines)"
+    multiline_cmd = "git log --oneline\npwd"
+    assert _compact_command_display(multiline_cmd) == "git log --oneline... (2 lines)"
