@@ -770,6 +770,17 @@ def test_format_gh_list_preview_without_logdir_does_not_save():
     save_large_output.assert_not_called()
 
 
+def test_format_gh_list_preview_without_logdir_uses_actual_cmd():
+    """Hint must echo the real command, not always say 'gh issue list'."""
+    stdout = _fixture_text("gh-issue-list.txt")
+
+    preview = _format_gh_list_preview("gh pr list --limit 50", stdout, None)
+
+    assert preview is not None
+    assert "gh pr list --limit 50 | cat" in preview
+    assert "gh issue list | cat" not in preview
+
+
 def test_format_gh_list_preview_skips_short_lists(tmp_path):
     stdout = "\n".join(_fixture_text("gh-issue-list.txt").splitlines()[:3])
 
@@ -794,6 +805,25 @@ def test_format_shell_output_uses_gh_list_preview(tmp_path):
 
     assert "Ran command: `gh issue list`" in output
     assert "Showing first 10 of 25 items." in output
+    assert "more items omitted" in output
+    assert "Full output saved to" in output
+
+
+def test_format_shell_output_uses_gh_list_preview_for_pr_list(tmp_path):
+    stdout = _fixture_text("gh-issue-list.txt")
+
+    output = _format_shell_output(
+        cmd="gh pr list",
+        stdout=stdout,
+        stderr="",
+        returncode=0,
+        interrupted=False,
+        allowlisted=False,
+        logdir=tmp_path,
+    )
+
+    assert "Ran command: `gh pr list`" in output
+    assert "Showing first 10 of" in output
     assert "more items omitted" in output
     assert "Full output saved to" in output
 

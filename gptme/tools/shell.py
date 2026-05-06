@@ -1183,7 +1183,7 @@ def _format_gh_list_preview(cmd: str, stdout: str, logdir: Path | None) -> str |
     else:
         detail += (
             " Full output was not saved because no conversation logdir is active."
-            " To get the full list, pipe through cat: `gh issue list | cat`."
+            f" To get the full list, pipe through cat: `{cmd} | cat`."
         )
     detail += " Use `gh issue view <number>` or `gh pr view <number>` for details."
 
