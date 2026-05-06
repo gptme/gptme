@@ -2,19 +2,26 @@ import json
 import os
 import tempfile
 from collections.abc import Generator
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from gptme.tools.shell import (
     ShellSession,
+    _format_git_log_preview,
     _format_shell_output,
     _get_truncation_budget,
+    _matches_git_log_oneline,
     _shorten_stdout,
     get_path_fn,
     is_denylisted,
     split_commands,
 )
+
+
+def _fixture_text(name: str) -> str:
+    return (Path(__file__).parent / "data" / name).read_text(encoding="utf-8")
 
 
 @pytest.fixture
@@ -558,6 +565,125 @@ def test_format_shell_output_lower_threshold_records_savings(monkeypatch, tmp_pa
         json.loads(line) for line in ledger.read_text().splitlines() if line.strip()
     ]
     assert any(row["source"] == "shell" and row["saved_tokens"] > 0 for row in rows)
+
+
+def test_format_git_log_preview_records_context_savings(tmp_path):
+    stdout = _fixture_text("git-log-oneline.txt")
+
+    preview = _format_git_log_preview("git log --oneline", stdout, tmp_path)
+
+    assert preview is not None
+    assert "Showing first 20 of 27 commits." in preview
+    assert "more commits omitted" in preview
+    assert "Full output saved to" in preview
+
+    ledger = tmp_path / "context-savings.jsonl"
+    rows = [
+        json.loads(line) for line in ledger.read_text().splitlines() if line.strip()
+    ]
+    assert len(rows) == 1
+    assert rows[0]["source"] == "shell"
+    assert rows[0]["command_info"] == "git_log_oneline: git log --oneline"
+
+
+def test_format_git_log_preview_skips_short_logs(tmp_path):
+    stdout = "\n".join(_fixture_text("git-log-oneline.txt").splitlines()[:3])
+
+    preview = _format_git_log_preview("git log --oneline", stdout, tmp_path)
+
+    assert preview is None
+    assert not (tmp_path / "context-savings.jsonl").exists()
+
+
+def test_format_shell_output_uses_git_log_preview(tmp_path):
+    stdout = _fixture_text("git-log-oneline.txt")
+
+    output = _format_shell_output(
+        cmd="git log --oneline",
+        stdout=stdout,
+        stderr="",
+        returncode=0,
+        interrupted=False,
+        allowlisted=False,
+        logdir=tmp_path,
+    )
+
+    assert "Ran command: `git log --oneline`" in output
+    assert "Showing first 20 of 27 commits." in output
+    assert "more commits omitted" in output
+    assert "Full output saved to" in output
+    assert "tool-outputs/shell" in output
+
+
+def test_format_shell_output_falls_back_when_git_log_preview_save_fails(tmp_path):
+    stdout = _fixture_text("git-log-oneline.txt")
+
+    with patch("gptme.tools.shell.save_large_output", side_effect=OSError("disk full")):
+        output = _format_shell_output(
+            cmd="git log --oneline",
+            stdout=stdout,
+            stderr="",
+            returncode=0,
+            interrupted=False,
+            allowlisted=False,
+            logdir=tmp_path,
+        )
+
+    assert "Showing first 20" not in output
+    assert "7d0c0de fix: wire context savings to current conversation logdir" in output
+    assert "92a3b4d chore: prep compact wrapper follow-up PR" in output
+
+
+def test_format_shell_output_keeps_git_log_preview_when_telemetry_fails(tmp_path):
+    stdout = _fixture_text("git-log-oneline.txt")
+
+    with patch(
+        "gptme.tools.shell.record_context_savings",
+        side_effect=OSError("ledger write failed"),
+    ):
+        output = _format_shell_output(
+            cmd="git log --oneline",
+            stdout=stdout,
+            stderr="",
+            returncode=0,
+            interrupted=False,
+            allowlisted=False,
+            logdir=tmp_path,
+        )
+
+    assert "Showing first 20 of 27 commits." in output
+    assert "Full output saved to" in output
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "git log --oneline",
+        "git log --decorate --oneline -n 5",
+        "git log '--oneline'",
+    ],
+)
+def test_matches_git_log_oneline_accepts_supported_shapes(cmd):
+    assert _matches_git_log_oneline(cmd) is True
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "git status --oneline",
+        "git log",
+        "git log --oneline | cat",
+        "git log --oneline; pwd",
+        "git log --oneline\npwd",
+        "git log --oneline > out.txt",
+        "git log '--oneline",
+        "git log --oneline $(id)",
+        "git log --oneline `id`",
+        "git log --oneline $HOME",
+    ],
+)
+def test_matches_git_log_oneline_rejects_unsupported_shapes(cmd):
+    assert _matches_git_log_oneline(cmd) is False
 
 
 def test_is_denylisted_pattern_matches():

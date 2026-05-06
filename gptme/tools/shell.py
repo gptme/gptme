@@ -93,6 +93,7 @@ _TRUNC_PRE_TOKENS_DEFAULT = 2000
 _TRUNC_POST_TOKENS_DEFAULT = 8000
 _TRUNC_STDERR_PRE_TOKENS_DEFAULT = 2000
 _TRUNC_STDERR_POST_TOKENS_DEFAULT = 2000
+_GIT_LOG_PREVIEW_LINES = 20
 
 
 candidates = (
@@ -1065,6 +1066,73 @@ def _get_truncation_budget(
     return _resolve(pre_env, default_pre), _resolve(post_env, default_post)
 
 
+def _default_model_name() -> str:
+    from ..llm.models import get_default_model  # fmt: skip
+
+    model = get_default_model()
+    return model.model if model else "cl100k_base"
+
+
+def _matches_git_log_oneline(cmd: str) -> bool:
+    if any(ch in cmd for ch in "\n|;&<>`$"):
+        return False
+
+    try:
+        tokens = shlex.split(cmd)
+    except ValueError:
+        return False
+
+    if len(tokens) < 3 or tokens[:2] != ["git", "log"]:
+        return False
+
+    return any(token == "--oneline" for token in tokens[2:])
+
+
+def _format_git_log_preview(cmd: str, stdout: str, logdir: Path | None) -> str | None:
+    lines = [line for line in strip_ansi_codes(stdout).splitlines() if line.strip()]
+    if len(lines) <= _GIT_LOG_PREVIEW_LINES:
+        return None
+
+    saved_path: Path | None = None
+    if logdir:
+        _, saved_path = save_large_output(
+            content=stdout,
+            logdir=logdir,
+            output_type="shell",
+            command_info=cmd,
+        )
+
+    omitted = len(lines) - _GIT_LOG_PREVIEW_LINES
+    preview = "\n".join(
+        lines[:_GIT_LOG_PREVIEW_LINES] + [f"... ({omitted} more commits omitted) ..."]
+    )
+
+    detail = f"Showing first {_GIT_LOG_PREVIEW_LINES} of {len(lines)} commits."
+    if saved_path:
+        detail += f" Full output saved to {saved_path}."
+    else:
+        detail += " Full output was not saved because no conversation logdir is active."
+    detail += " Use `shell` for a raw rerun or `git show <sha>` for a specific commit."
+
+    body = detail + "\n\n" + md_codeblock("stdout", preview)
+
+    if logdir and saved_path:
+        model_name = _default_model_name()
+        try:
+            record_context_savings(
+                logdir=logdir,
+                source="shell",
+                original_tokens=len_tokens(stdout, model_name),
+                kept_tokens=len_tokens(body, model_name),
+                command_info=f"git_log_oneline: {cmd}",
+                saved_path=saved_path,
+            )
+        except OSError as e:
+            logger.warning("Failed to record compact shell telemetry: %s", e)
+
+    return body
+
+
 def _format_shell_output(
     cmd: str,
     stdout: str,
@@ -1081,33 +1149,48 @@ def _format_shell_output(
     stdout = strip_ansi_codes(stdout)
     stderr = strip_ansi_codes(stderr)
 
-    # Apply shortening logic with output storage
-    pre_tokens, post_tokens = _get_truncation_budget(
-        "GPTME_SHELL_TRUNC_PRE_TOKENS",
-        "GPTME_SHELL_TRUNC_POST_TOKENS",
-        default_pre=_TRUNC_PRE_TOKENS_DEFAULT,
-        default_post=_TRUNC_POST_TOKENS_DEFAULT,
-    )
-    stderr_pre_tokens, stderr_post_tokens = _get_truncation_budget(
-        "GPTME_SHELL_TRUNC_STDERR_PRE_TOKENS",
-        "GPTME_SHELL_TRUNC_STDERR_POST_TOKENS",
-        default_pre=_TRUNC_STDERR_PRE_TOKENS_DEFAULT,
-        default_post=_TRUNC_STDERR_POST_TOKENS_DEFAULT,
-    )
-    stdout = _shorten_stdout(
-        stdout,
-        pre_tokens=pre_tokens,
-        post_tokens=post_tokens,
-        logdir=logdir,
-        cmd=cmd,
-    )
-    stderr = _shorten_stdout(
-        stderr,
-        pre_tokens=stderr_pre_tokens,
-        post_tokens=stderr_post_tokens,
-        logdir=logdir,
-        cmd=f"{cmd} (stderr)",
-    )
+    compact_stdout = None
+    if (
+        returncode == 0
+        and stdout
+        and not stderr
+        and not interrupted
+        and not timed_out
+        and _matches_git_log_oneline(cmd)
+    ):
+        try:
+            compact_stdout = _format_git_log_preview(cmd, stdout, logdir)
+        except OSError as e:
+            logger.warning("Failed to format compact shell output: %s", e)
+
+    if compact_stdout is None:
+        # Apply shortening logic with output storage
+        pre_tokens, post_tokens = _get_truncation_budget(
+            "GPTME_SHELL_TRUNC_PRE_TOKENS",
+            "GPTME_SHELL_TRUNC_POST_TOKENS",
+            default_pre=_TRUNC_PRE_TOKENS_DEFAULT,
+            default_post=_TRUNC_POST_TOKENS_DEFAULT,
+        )
+        stderr_pre_tokens, stderr_post_tokens = _get_truncation_budget(
+            "GPTME_SHELL_TRUNC_STDERR_PRE_TOKENS",
+            "GPTME_SHELL_TRUNC_STDERR_POST_TOKENS",
+            default_pre=_TRUNC_STDERR_PRE_TOKENS_DEFAULT,
+            default_post=_TRUNC_STDERR_POST_TOKENS_DEFAULT,
+        )
+        stdout = _shorten_stdout(
+            stdout,
+            pre_tokens=pre_tokens,
+            post_tokens=post_tokens,
+            logdir=logdir,
+            cmd=cmd,
+        )
+        stderr = _shorten_stdout(
+            stderr,
+            pre_tokens=stderr_pre_tokens,
+            post_tokens=stderr_post_tokens,
+            logdir=logdir,
+            cmd=f"{cmd} (stderr)",
+        )
 
     # Format header
     if timed_out:
@@ -1135,11 +1218,13 @@ def _format_shell_output(
     msg = _format_block_smart(header, cmd_display, lang="bash") + "\n\n"
 
     # Add output
-    if stdout:
+    if compact_stdout:
+        msg += compact_stdout + "\n\n"
+    elif stdout:
         msg += _format_block_smart("", stdout, "stdout").lstrip() + "\n\n"
     if stderr:
         msg += _format_block_smart("", stderr, "stderr").lstrip() + "\n\n"
-    if not stdout and not stderr:
+    if not compact_stdout and not stdout and not stderr:
         if timed_out:
             msg += "No output before timeout\n"
         elif interrupted:
