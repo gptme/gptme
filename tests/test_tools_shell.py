@@ -597,7 +597,7 @@ def test_format_git_log_preview_without_logdir_does_not_save():
     assert (
         "Full output was not saved because no conversation logdir is active" in preview
     )
-    assert "git log --format=oneline --abbrev-commit" in preview
+    assert "git log --oneline | cat" in preview
     assert "Use `shell` for a raw rerun" not in preview
     save_large_output.assert_not_called()
 
