@@ -224,6 +224,9 @@ def test_matches_git_log_oneline_accepts_supported_shapes(cmd):
         "git log --oneline\npwd",
         "git log --oneline > out.txt",
         "git log '--oneline",
+        "git log --oneline $(id)",
+        "git log --oneline `id`",
+        "git log --oneline $HOME",
     ],
 )
 def test_matches_git_log_oneline_rejects_unsupported_shapes(cmd):

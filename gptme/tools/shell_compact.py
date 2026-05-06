@@ -88,7 +88,7 @@ def _default_model_name() -> str:
 
 
 def _matches_git_log_oneline(cmd: str) -> bool:
-    if any(ch in cmd for ch in "\n|;&<>"):
+    if any(ch in cmd for ch in "\n|;&<>`$"):
         return False
 
     try:
