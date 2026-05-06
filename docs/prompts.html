@@ -695,7 +695,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fe95bc771a0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fa6092671a0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1757,6 +1757,26 @@ output<span class="w"> </span><span class="m">1</span>
 <span class="nb">kill</span><span class="w"> </span><span class="m">1</span>
 <span class="sb">```</span>
 
+<span class="gu">## shell_compact</span>
+
+<span class="gs">**Description:**</span> Executes compact previews for known high-output shell commands.
+
+<span class="gs">**Instructions:**</span> Use this tool for known high-output shell commands that have a compact preview.
+Currently it only compacts <span class="sb">`git log --oneline`</span> output.
+
+<span class="k">-</span><span class="w"> </span>Matched commands show the first 20 commits, total count, and where the full
+  output was saved.
+<span class="k">-</span><span class="w"> </span>Unsupported commands fall back to the regular shell tool.
+<span class="k">-</span><span class="w"> </span>If you need the full raw output, use the <span class="sb">`shell`</span> tool instead.
+
+<span class="gu">### Examples</span>
+
+<span class="k">&gt; </span><span class="ge">User: show recent commits compactly</span>
+<span class="k">&gt; </span><span class="ge">Assistant:</span>
+<span class="sb">```shell_compact</span>
+<span class="s">git log --oneline</span>
+<span class="sb">```</span>
+
 <span class="gu">## subagent</span>
 
 <span class="gs">**Description:**</span> Create and manage subagents
@@ -2252,7 +2272,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 12547</p>
+<p>Tokens: 12690</p>
 </dd></dl>
 
 <dl class="py function">
