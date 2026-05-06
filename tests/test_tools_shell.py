@@ -9,9 +9,11 @@ import pytest
 
 from gptme.tools.shell import (
     ShellSession,
+    _format_gh_list_preview,
     _format_git_log_preview,
     _format_shell_output,
     _get_truncation_budget,
+    _matches_gh_list,
     _matches_git_log_oneline,
     _shorten_stdout,
     get_path_fn,
@@ -700,6 +702,100 @@ def test_matches_git_log_oneline_accepts_supported_shapes(cmd):
 )
 def test_matches_git_log_oneline_rejects_unsupported_shapes(cmd):
     assert _matches_git_log_oneline(cmd) is False
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "gh issue list",
+        "gh pr list",
+        "gh issue list --state open",
+        "gh pr list --limit 50",
+    ],
+)
+def test_matches_gh_list_accepts_supported_shapes(cmd):
+    assert _matches_gh_list(cmd) is True
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "gh run list",
+        "gh repo list",
+        "gh issue view 1",
+        "gh issue list | cat",
+        "gh issue list; pwd",
+        "gh issue list\npwd",
+        "gh issue list > out.txt",
+        "gh issue list $(id)",
+        "gh issue list `id`",
+        "gh issue list $HOME",
+    ],
+)
+def test_matches_gh_list_rejects_unsupported_shapes(cmd):
+    assert _matches_gh_list(cmd) is False
+
+
+def test_format_gh_list_preview_records_context_savings(tmp_path):
+    stdout = _fixture_text("gh-issue-list.txt")
+
+    preview = _format_gh_list_preview("gh issue list", stdout, tmp_path)
+
+    assert preview is not None
+    assert "Showing first 10 of 25 items." in preview
+    assert "more items omitted" in preview
+    assert "Full output saved to" in preview
+
+    ledger = tmp_path / "context-savings.jsonl"
+    rows = [
+        json.loads(line) for line in ledger.read_text().splitlines() if line.strip()
+    ]
+    assert len(rows) == 1
+    assert rows[0]["source"] == "shell"
+    assert rows[0]["command_info"] == "gh_list: gh issue list"
+
+
+def test_format_gh_list_preview_without_logdir_does_not_save():
+    stdout = _fixture_text("gh-issue-list.txt")
+
+    with patch("gptme.tools.shell.save_large_output") as save_large_output:
+        preview = _format_gh_list_preview("gh issue list", stdout, None)
+
+    assert preview is not None
+    assert "Showing first 10 of 25 items." in preview
+    assert (
+        "Full output was not saved because no conversation logdir is active" in preview
+    )
+    assert "gh issue list | cat" in preview
+    save_large_output.assert_not_called()
+
+
+def test_format_gh_list_preview_skips_short_lists(tmp_path):
+    stdout = "\n".join(_fixture_text("gh-issue-list.txt").splitlines()[:3])
+
+    preview = _format_gh_list_preview("gh issue list", stdout, tmp_path)
+
+    assert preview is None
+    assert not (tmp_path / "context-savings.jsonl").exists()
+
+
+def test_format_shell_output_uses_gh_list_preview(tmp_path):
+    stdout = _fixture_text("gh-issue-list.txt")
+
+    output = _format_shell_output(
+        cmd="gh issue list",
+        stdout=stdout,
+        stderr="",
+        returncode=0,
+        interrupted=False,
+        allowlisted=False,
+        logdir=tmp_path,
+    )
+
+    assert "Ran command: `gh issue list`" in output
+    assert "Showing first 10 of 25 items." in output
+    assert "more items omitted" in output
+    assert "Full output saved to" in output
 
 
 def test_is_denylisted_pattern_matches():

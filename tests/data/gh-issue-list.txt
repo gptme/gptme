@@ -1,0 +1,25 @@
+#301  fix: broken import in tools/shell.py           open   2025-01-15
+#302  feat: add gh list compaction                   open   2025-01-15
+#303  docs: update CLAUDE.md conventions             open   2025-01-15
+#304  chore: bump dependencies                       open   2025-01-16
+#305  fix: handle edge case in shorten_stdout        open   2025-01-16
+#306  feat: add context savings telemetry            open   2025-01-17
+#307  docs: add usage examples for shell_compact     open   2025-01-17
+#308  fix: typo in error message                     open   2025-01-18
+#309  feat: add support for gh pr list preview       open   2025-01-18
+#310  chore: update CI configuration                 open   2025-01-19
+#311  feat: extend shell compaction to more commands open   2025-01-20
+#312  fix: race condition in save_large_output       open   2025-01-21
+#313  feat: add per-command context savings detail   open   2025-01-22
+#314  docs: document context-savings.jsonl format    open   2025-01-22
+#315  fix: incorrect token count for multiline msgs  open   2025-01-23
+#316  feat: add shell compaction for gh run list     open   2025-01-24
+#317  chore: clean up dead code in shell_compact     open   2025-01-25
+#318  fix: handle empty output in preview formatter  open   2025-01-25
+#319  feat: add ANSI stripping before token count    open   2025-01-26
+#320  docs: add integration tests for shell preview  open   2025-01-27
+#321  fix: edge case with piped commands detection   open   2025-01-28
+#322  feat: add context savings to PR review flow    open   2025-01-29
+#323  chore: bump minimum Python version to 3.11     open   2025-01-30
+#324  fix: wrong file path in save_large_output log  open   2025-01-31
+#325  feat: expose context savings via /context cmd  open   2025-02-01

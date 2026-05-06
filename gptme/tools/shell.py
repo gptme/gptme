@@ -94,6 +94,7 @@ _TRUNC_POST_TOKENS_DEFAULT = 8000
 _TRUNC_STDERR_PRE_TOKENS_DEFAULT = 2000
 _TRUNC_STDERR_POST_TOKENS_DEFAULT = 2000
 _GIT_LOG_PREVIEW_LINES = 20
+_GH_LIST_PREVIEW_LINES = 10
 
 
 candidates = (
@@ -1088,6 +1089,22 @@ def _matches_git_log_oneline(cmd: str) -> bool:
     return any(token == "--oneline" for token in tokens[2:])
 
 
+def _matches_gh_list(cmd: str) -> bool:
+    """Detect ``gh issue list`` or ``gh pr list`` commands."""
+    if any(ch in cmd for ch in "\n|;&<>`$"):
+        return False
+
+    try:
+        tokens = shlex.split(cmd)
+    except ValueError:
+        return False
+
+    if len(tokens) < 3 or tokens[0] != "gh":
+        return False
+
+    return tokens[1] in ("issue", "pr") and tokens[2] == "list"
+
+
 def _format_git_log_preview(cmd: str, stdout: str, logdir: Path | None) -> str | None:
     lines = [line for line in strip_ansi_codes(stdout).splitlines() if line.strip()]
     if len(lines) <= _GIT_LOG_PREVIEW_LINES:
@@ -1138,6 +1155,57 @@ def _format_git_log_preview(cmd: str, stdout: str, logdir: Path | None) -> str |
     return body
 
 
+def _format_gh_list_preview(cmd: str, stdout: str, logdir: Path | None) -> str | None:
+    """Format a compact preview for ``gh issue list`` / ``gh pr list`` output."""
+    lines = [line for line in strip_ansi_codes(stdout).splitlines() if line.strip()]
+    if len(lines) <= _GH_LIST_PREVIEW_LINES:
+        return None
+
+    saved_path: Path | None = None
+    if logdir:
+        _, saved_path = save_large_output(
+            content=stdout,
+            logdir=logdir,
+            output_type="shell",
+            command_info=cmd,
+        )
+
+    omitted = len(lines) - _GH_LIST_PREVIEW_LINES
+    preview = "\n".join(
+        lines[:_GH_LIST_PREVIEW_LINES] + [f"... ({omitted} more items omitted) ..."]
+    )
+
+    detail = f"Showing first {_GH_LIST_PREVIEW_LINES} of {len(lines)} items."
+    if saved_path:
+        detail += (
+            f" Full output saved to {saved_path}; read that file for the complete list."
+        )
+    else:
+        detail += (
+            " Full output was not saved because no conversation logdir is active."
+            " To get the full list, pipe through cat: `gh issue list | cat`."
+        )
+    detail += " Use `gh issue view <number>` or `gh pr view <number>` for details."
+
+    body = detail + "\n\n" + md_codeblock("stdout", preview)
+
+    if logdir and saved_path:
+        model_name = _default_model_name()
+        try:
+            record_context_savings(
+                logdir=logdir,
+                source="shell",
+                original_tokens=len_tokens(stdout, model_name),
+                kept_tokens=len_tokens(body, model_name),
+                command_info=f"gh_list: {cmd}",
+                saved_path=saved_path,
+            )
+        except OSError as e:
+            logger.warning("Failed to record compact shell telemetry: %s", e)
+
+    return body
+
+
 def _format_shell_output(
     cmd: str,
     stdout: str,
@@ -1165,6 +1233,19 @@ def _format_shell_output(
     ):
         try:
             compact_stdout = _format_git_log_preview(cmd, stdout, logdir)
+        except OSError as e:
+            logger.warning("Failed to format compact shell output: %s", e)
+
+    if compact_stdout is None and (
+        returncode == 0
+        and stdout
+        and not stderr
+        and not interrupted
+        and not timed_out
+        and _matches_gh_list(cmd)
+    ):
+        try:
+            compact_stdout = _format_gh_list_preview(cmd, stdout, logdir)
         except OSError as e:
             logger.warning("Failed to format compact shell output: %s", e)
 
