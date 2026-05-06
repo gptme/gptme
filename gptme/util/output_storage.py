@@ -131,7 +131,7 @@ def create_tool_result_summary(
             command_info=command_info,
             saved_path=saved_path,
         )
-    except (OSError, ImportError) as e:
+    except Exception as e:
         logger.warning("Failed to record autocompact context savings: %s", e)
 
     return summary_msg
