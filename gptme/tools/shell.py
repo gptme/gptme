@@ -1109,10 +1109,15 @@ def _format_git_log_preview(cmd: str, stdout: str, logdir: Path | None) -> str |
 
     detail = f"Showing first {_GIT_LOG_PREVIEW_LINES} of {len(lines)} commits."
     if saved_path:
-        detail += f" Full output saved to {saved_path}."
+        detail += (
+            f" Full output saved to {saved_path}; read that file for the complete list."
+        )
     else:
-        detail += " Full output was not saved because no conversation logdir is active."
-    detail += " Use `shell` for a raw rerun or `git show <sha>` for a specific commit."
+        detail += (
+            " Full output was not saved because no conversation logdir is active;"
+            " use `git log --format=oneline --abbrev-commit` if you need the raw full list."
+        )
+    detail += " Use `git show <sha>` for a specific commit."
 
     body = detail + "\n\n" + md_codeblock("stdout", preview)
 

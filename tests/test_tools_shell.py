@@ -586,6 +586,22 @@ def test_format_git_log_preview_records_context_savings(tmp_path):
     assert rows[0]["command_info"] == "git_log_oneline: git log --oneline"
 
 
+def test_format_git_log_preview_without_logdir_does_not_save():
+    stdout = _fixture_text("git-log-oneline.txt")
+
+    with patch("gptme.tools.shell.save_large_output") as save_large_output:
+        preview = _format_git_log_preview("git log --oneline", stdout, None)
+
+    assert preview is not None
+    assert "Showing first 20 of 27 commits." in preview
+    assert (
+        "Full output was not saved because no conversation logdir is active" in preview
+    )
+    assert "git log --format=oneline --abbrev-commit" in preview
+    assert "Use `shell` for a raw rerun" not in preview
+    save_large_output.assert_not_called()
+
+
 def test_format_git_log_preview_skips_short_logs(tmp_path):
     stdout = "\n".join(_fixture_text("git-log-oneline.txt").splitlines()[:3])
 
