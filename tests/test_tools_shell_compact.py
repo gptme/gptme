@@ -116,22 +116,8 @@ def test_execute_compacted_git_log_falls_back_when_timed_out(tmp_path):
     assert mock_format.call_args.kwargs["timed_out"] is True
 
 
-@pytest.mark.parametrize(
-    ("patched_name", "patched_value", "patched_side_effect"),
-    [
-        ("save_large_output", None, OSError("disk full")),
-        (
-            "record_context_savings",
-            None,
-            OSError("ledger write failed"),
-        ),
-    ],
-)
-def test_execute_compacted_git_log_falls_back_when_preview_io_fails(
-    tmp_path, patched_name, patched_value, patched_side_effect
-):
+def test_execute_compacted_git_log_falls_back_when_output_save_fails(tmp_path):
     stdout = _fixture_text("git-log-oneline.txt")
-    patch_target = f"gptme.tools.shell_compact.{patched_name}"
 
     with (
         patch("gptme.tools.shell_compact.get_shell") as mock_get_shell,
@@ -140,7 +126,8 @@ def test_execute_compacted_git_log_falls_back_when_preview_io_fails(
             return_value="raw shell output",
         ) as mock_format,
         patch(
-            patch_target, return_value=patched_value, side_effect=patched_side_effect
+            "gptme.tools.shell_compact.save_large_output",
+            side_effect=OSError("disk full"),
         ),
     ):
         shell = MagicMock()
@@ -153,6 +140,30 @@ def test_execute_compacted_git_log_falls_back_when_preview_io_fails(
     mock_format.assert_called_once()
     assert mock_format.call_args.kwargs["allowlisted"] is True
     assert mock_format.call_args.args[3] == 0
+
+
+def test_execute_compacted_git_log_keeps_preview_when_telemetry_fails(tmp_path):
+    stdout = _fixture_text("git-log-oneline.txt")
+
+    with (
+        patch("gptme.tools.shell_compact.get_shell") as mock_get_shell,
+        patch("gptme.tools.shell_compact._format_shell_output") as mock_format,
+        patch(
+            "gptme.tools.shell_compact.record_context_savings",
+            side_effect=OSError("ledger write failed"),
+        ),
+    ):
+        shell = MagicMock()
+        shell.run.return_value = (0, stdout, "")
+        mock_get_shell.return_value = shell
+
+        messages = list(_execute_compacted_git_log("git log --oneline", tmp_path, 7.5))
+
+    assert len(messages) == 1
+    assert "Ran allowlisted compact command" in messages[0].content
+    assert "Showing first 20 of 27 commits." in messages[0].content
+    assert "Full output saved to" in messages[0].content
+    mock_format.assert_not_called()
 
 
 def test_execute_compacted_git_log_raises_value_error_on_shell_error(tmp_path):

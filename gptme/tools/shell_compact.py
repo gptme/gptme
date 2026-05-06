@@ -132,14 +132,17 @@ def _format_git_log_preview(cmd: str, stdout: str, logdir: Path | None) -> str |
 
     if logdir and saved_path:
         model_name = _default_model_name()
-        record_context_savings(
-            logdir=logdir,
-            source=_COMPACTOR_SOURCE,
-            original_tokens=len_tokens(stdout, model_name),
-            kept_tokens=len_tokens(body, model_name),
-            command_info=f"git_log_oneline: {cmd}",
-            saved_path=saved_path,
-        )
+        try:
+            record_context_savings(
+                logdir=logdir,
+                source=_COMPACTOR_SOURCE,
+                original_tokens=len_tokens(stdout, model_name),
+                kept_tokens=len_tokens(body, model_name),
+                command_info=f"git_log_oneline: {cmd}",
+                saved_path=saved_path,
+            )
+        except OSError as e:
+            logger.warning("Failed to record compact shell telemetry: %s", e)
 
     return body
 
