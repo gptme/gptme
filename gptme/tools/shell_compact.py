@@ -51,7 +51,7 @@ Currently it only compacts `git log --oneline` output.
 - If you need the full raw output, use the `shell` tool instead.
 """.strip()
 
-instructions_format = {}
+instructions_format: dict[str, str] = {}
 
 
 def examples(tool_format):
