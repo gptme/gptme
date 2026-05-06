@@ -122,7 +122,7 @@ def create_tool_result_summary(
         from .tokens import len_tokens
 
         model = get_default_model()
-        model_name = model.model if model else "gpt-4"
+        model_name = model.model if model else "cl100k_base"
         record_context_savings(
             logdir=logdir,
             source=tool_name,
