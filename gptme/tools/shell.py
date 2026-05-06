@@ -1090,7 +1090,7 @@ def _matches_git_log_oneline(cmd: str) -> bool:
 
 
 def _matches_gh_list(cmd: str) -> bool:
-    """Detect ``gh issue list`` or ``gh pr list`` commands."""
+    """Detect ``gh issue list`` or ``gh pr list`` commands (tabular output only)."""
     if any(ch in cmd for ch in "\n|;&<>`$"):
         return False
 
@@ -1102,7 +1102,19 @@ def _matches_gh_list(cmd: str) -> bool:
     if len(tokens) < 3 or tokens[0] != "gh":
         return False
 
-    return tokens[1] in ("issue", "pr") and tokens[2] == "list"
+    if not (tokens[1] in ("issue", "pr") and tokens[2] == "list"):
+        return False
+
+    # Reject JSON output formats — truncating a JSON array at line boundaries
+    # produces invalid JSON that the model cannot parse.
+    flags = tokens[3:]
+    for i, tok in enumerate(flags):
+        if tok.startswith("--json"):
+            return False
+        if tok == "--format" and i + 1 < len(flags) and flags[i + 1] == "json":
+            return False
+
+    return True
 
 
 def _format_git_log_preview(cmd: str, stdout: str, logdir: Path | None) -> str | None:

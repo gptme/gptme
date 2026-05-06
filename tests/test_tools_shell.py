@@ -730,6 +730,12 @@ def test_matches_gh_list_accepts_supported_shapes(cmd):
         "gh issue list $(id)",
         "gh issue list `id`",
         "gh issue list $HOME",
+        # JSON output: truncating a JSON array at line boundaries produces invalid JSON
+        "gh issue list --json number,title",
+        "gh issue list --json number",
+        "gh pr list --json number,state",
+        "gh issue list --format json",
+        "gh pr list --format json",
     ],
 )
 def test_matches_gh_list_rejects_unsupported_shapes(cmd):
