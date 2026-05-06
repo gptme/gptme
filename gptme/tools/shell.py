@@ -1224,7 +1224,10 @@ def execute_shell_impl(
 
 
 def get_path_fn(*args, **kwargs) -> Path | None:
-    return None
+    from ..logmanager import LogManager  # fmt: skip
+
+    manager = LogManager.get_current_log()
+    return manager.logdir if manager and manager.logdir else None
 
 
 def _execute_preceding_commands(

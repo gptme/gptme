@@ -1,0 +1,27 @@
+7d0c0de fix: wire context savings to current conversation logdir
+f00dbad feat: add shell_compact preview for git log
+1a2b3c4 docs: note compact wrapper fallback behavior
+2b3c4d5 test: cover shell_compact fallback path
+3c4d5e6 refactor: share shell output formatting helpers
+4d5e6f7 feat: surface compact savings in /context
+5e6f708 fix: keep stderr untouched in compact mode
+6f70819 chore: add git log fixture for shell_compact tests
+708192a feat: reuse shell allowlist hook for compact tool
+8192a3b fix: keep full shell output under tool-outputs
+92a3b4c docs: sharpen shell_compact tool description
+a3b4c5d test: verify shell_compact uses existing shell session
+b4c5d6e feat: add compact summary for commit previews
+c5d6e7f refactor: keep compactor routing deterministic
+d6e7f80 fix: avoid compacting multiline shell pipelines
+e7f8091 test: record context savings for compact previews
+f8091a2 feat: add saved-path hint to compact summaries
+091a2b3 chore: sync shell tool examples
+1a2b3c5 docs: capture proactive wrapper spike design
+2b3c4d6 feat: use conversation logdir for shell tool output saves
+3c4d5e7 fix: preserve raw fallback for unsupported commands
+4d5e6f8 test: fallback to shell for git status
+5e6f709 docs: explain when to use shell vs shell_compact
+6f7081a feat: compact first 20 git log lines
+708192b fix: avoid savings rows when nothing is saved
+8192a3c test: short git logs bypass compaction
+92a3b4d chore: prep compact wrapper follow-up PR

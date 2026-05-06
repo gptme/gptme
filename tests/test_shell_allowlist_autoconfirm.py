@@ -15,6 +15,7 @@ from gptme.tools.shell import (
     is_allowlisted,
     shell_allowlist_hook,
 )
+from gptme.tools.shell_compact import shell_compact_allowlist_hook
 
 # Test cases: (command, should_be_allowlisted, description)
 ALLOWLIST_TEST_CASES = [
@@ -107,6 +108,20 @@ class TestShellAllowlistHook:
         )
 
         result = shell_allowlist_hook(tool_use)
+
+        assert result is not None
+        assert result.action.value == "confirm"
+
+    def test_allowlisted_shell_compact_command_auto_confirms(self):
+        """Compact shell commands use their own narrow auto-confirm hook."""
+        tool_use = ToolUse(
+            tool="shell_compact",
+            args=[],
+            kwargs={},
+            content="git log --oneline",
+        )
+
+        result = shell_compact_allowlist_hook(tool_use)
 
         assert result is not None
         assert result.action.value == "confirm"

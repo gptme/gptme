@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 from collections.abc import Generator
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -10,6 +11,7 @@ from gptme.tools.shell import (
     _format_shell_output,
     _get_truncation_budget,
     _shorten_stdout,
+    get_path_fn,
     is_denylisted,
     split_commands,
 )
@@ -486,6 +488,14 @@ def test_shorten_stdout_records_context_savings(tmp_path):
     assert rows[0]["source"] == "shell"
     assert rows[0]["command_info"] == "git log --oneline"
     assert rows[0]["saved_tokens"] > 0
+
+
+def test_get_path_fn_uses_current_logdir(tmp_path):
+    manager = MagicMock()
+    manager.logdir = tmp_path
+
+    with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
+        assert get_path_fn() == tmp_path
 
 
 def test_truncation_budget_default(monkeypatch):
