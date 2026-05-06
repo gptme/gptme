@@ -191,7 +191,10 @@ def _execute_compacted_git_log(
 
     compact_body = None
     if returncode == 0 and not stderr and not interrupted and not timed_out:
-        compact_body = _format_git_log_preview(cmd, stdout, logdir)
+        try:
+            compact_body = _format_git_log_preview(cmd, stdout, logdir)
+        except OSError as e:
+            logger.warning("Failed to format compact shell output: %s", e)
 
     if compact_body is None:
         yield Message(
