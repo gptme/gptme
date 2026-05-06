@@ -1,9 +1,11 @@
 """
 Compact shell wrapper for known high-output command shapes.
 
-Currently this only compacts ``git log --oneline`` by returning the first few
-commits plus a pointer to the full saved output. Unsupported commands fall back
-to the regular shell tool.
+Currently supports:
+- ``git log --oneline`` — shows first 20 commits + count.
+- ``gh issue list``, ``gh pr list`` — shows first 10 items + total count.
+
+Unsupported commands fall back to the regular shell tool.
 """
 
 from __future__ import annotations
@@ -37,14 +39,15 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 _PREVIEW_LINES = 20
+_GH_LIST_PREVIEW_LINES = 10
 _COMPACTOR_SOURCE = "shell_compact"
 
 instructions = """
 Use this tool for known high-output shell commands that have a compact preview.
-Currently it only compacts `git log --oneline` output.
+Currently supports `git log --oneline`, `gh issue list`, and `gh pr list`.
 
-- Matched commands show the first 20 commits, total count, and where the full
-  output was saved.
+- Matched commands show a preview (first N items + total count) and where the
+  full output was saved.
 - Unsupported commands fall back to the regular shell tool.
 - If you need the full raw output, use the `shell` tool instead.
 """.strip()
@@ -102,6 +105,22 @@ def _matches_git_log_oneline(cmd: str) -> bool:
     return any(token == "--oneline" for token in tokens[2:])
 
 
+def _matches_gh_list(cmd: str) -> bool:
+    """Detect ``gh issue list`` or ``gh pr list`` commands."""
+    if any(ch in cmd for ch in "\n|;&<>`$"):
+        return False
+
+    try:
+        tokens = shlex.split(cmd)
+    except ValueError:
+        return False
+
+    if len(tokens) < 3 or tokens[0] != "gh":
+        return False
+
+    return tokens[1] in ("issue", "pr") and tokens[2] == "list"
+
+
 def _format_git_log_preview(cmd: str, stdout: str, logdir: Path | None) -> str | None:
     lines = [line for line in strip_ansi_codes(stdout).splitlines() if line.strip()]
     if len(lines) <= _PREVIEW_LINES:
@@ -147,6 +166,52 @@ def _format_git_log_preview(cmd: str, stdout: str, logdir: Path | None) -> str |
     return body
 
 
+def _format_gh_list_preview(cmd: str, stdout: str, logdir: Path | None) -> str | None:
+    """Format a compact preview for ``gh issue list`` / ``gh pr list`` output."""
+    lines = [line for line in strip_ansi_codes(stdout).splitlines() if line.strip()]
+    if len(lines) <= _GH_LIST_PREVIEW_LINES:
+        return None
+
+    saved_path: Path | None = None
+    if logdir:
+        _, saved_path = save_large_output(
+            content=stdout,
+            logdir=logdir,
+            output_type="shell",
+            command_info=cmd,
+        )
+
+    omitted = len(lines) - _GH_LIST_PREVIEW_LINES
+    preview = "\n".join(
+        lines[:_GH_LIST_PREVIEW_LINES] + [f"... ({omitted} more items omitted) ..."]
+    )
+
+    detail = f"Showing first {_GH_LIST_PREVIEW_LINES} of {len(lines)} items."
+    if saved_path:
+        detail += f" Full output saved to {saved_path}."
+    else:
+        detail += " Full output was not saved because no conversation logdir is active."
+    detail += " Use `shell` for a raw rerun."
+
+    body = detail + "\n\n" + md_codeblock("stdout", preview)
+
+    if logdir and saved_path:
+        model_name = _default_model_name()
+        try:
+            record_context_savings(
+                logdir=logdir,
+                source=_COMPACTOR_SOURCE,
+                original_tokens=len_tokens(stdout, model_name),
+                kept_tokens=len_tokens(body, model_name),
+                command_info=f"gh_list: {cmd}",
+                saved_path=saved_path,
+            )
+        except OSError as e:
+            logger.warning("Failed to record compact shell telemetry: %s", e)
+
+    return body
+
+
 def shell_compact_allowlist_hook(
     tool_use: ToolUse,
     preview: str | None = None,
@@ -164,7 +229,7 @@ def shell_compact_allowlist_hook(
     if not cmd:
         return None
 
-    if _matches_git_log_oneline(cmd):
+    if _matches_git_log_oneline(cmd) or _matches_gh_list(cmd):
         return ConfirmationResult.confirm()
 
     return None
@@ -230,6 +295,67 @@ def _execute_compacted_git_log(
         raise KeyboardInterrupt from None
 
 
+def _execute_compacted_gh_list(
+    cmd: str, logdir: Path | None, timeout: float | None
+) -> Generator[Message, None, None]:
+    """Execute ``gh issue list`` / ``gh pr list`` with a compact preview."""
+    shell = get_shell()
+
+    try:
+        returncode, stdout, stderr = shell.run(cmd, timeout=timeout)
+        interrupted = False
+        timed_out = returncode == -124
+    except KeyboardInterrupt as e:
+        stdout = stderr = ""
+        if e.args and isinstance(e.args[0], tuple) and len(e.args[0]) == 2:
+            stdout, stderr = e.args[0]
+
+        _terminate_interrupted_shell(shell, "Shell compact command")
+
+        returncode = shell.process.returncode
+        interrupted = True
+        timed_out = False
+    except Exception as e:
+        raise ValueError(f"Shell error: {e}") from None
+
+    compact_body = None
+    if returncode == 0 and not stderr and not interrupted and not timed_out:
+        try:
+            compact_body = _format_gh_list_preview(cmd, stdout, logdir)
+        except OSError as e:
+            logger.warning("Failed to format compact shell output: %s", e)
+
+    if compact_body is None:
+        yield Message(
+            "system",
+            _format_shell_output(
+                cmd,
+                stdout,
+                stderr,
+                returncode,
+                interrupted,
+                allowlisted=True,
+                timed_out=timed_out,
+                timeout_value=timeout,
+                logdir=logdir,
+            ),
+        )
+    else:
+        cmd_display = _compact_command_display(cmd)
+        msg = (
+            _format_block_smart(
+                "Ran allowlisted compact command", cmd_display, lang="bash"
+            )
+            + "\n\n"
+            + compact_body
+            + "\n"
+        )
+        yield Message("system", msg)
+
+    if interrupted:
+        raise KeyboardInterrupt from None
+
+
 def execute_shell_compact(
     code: str | None,
     args: list[str] | None,
@@ -238,15 +364,20 @@ def execute_shell_compact(
     """Execute a compact shell command when the command shape is supported."""
     cmd = get_shell_command(code, args, kwargs)
 
-    if not _matches_git_log_oneline(cmd):
+    if _matches_git_log_oneline(cmd):
+        yield from _execute_compacted_git_log(
+            cmd,
+            logdir=get_path_fn(),
+            timeout=_get_timeout(),
+        )
+    elif _matches_gh_list(cmd):
+        yield from _execute_compacted_gh_list(
+            cmd,
+            logdir=get_path_fn(),
+            timeout=_get_timeout(),
+        )
+    else:
         yield from execute_shell(code, args, kwargs)
-        return
-
-    yield from _execute_compacted_git_log(
-        cmd,
-        logdir=get_path_fn(),
-        timeout=_get_timeout(),
-    )
 
 
 tool = ToolSpec(

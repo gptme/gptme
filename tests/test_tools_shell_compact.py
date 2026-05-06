@@ -10,6 +10,7 @@ from gptme.tools.shell_compact import (
     _execute_compacted_git_log,
     _format_git_log_preview,
     _get_timeout,
+    _matches_gh_list,
     _matches_git_log_oneline,
     execute_shell_compact,
     shell_compact_allowlist_hook,
@@ -35,6 +36,71 @@ def test_format_git_log_preview_records_context_savings(tmp_path):
     assert len(rows) == 1
     assert "shell_compact" in rows[0]
     assert "git_log_oneline: git log --oneline" in rows[0]
+
+
+def test_format_gh_list_preview(tmp_path):
+    stdout = _fixture_text("gh-issue-list.txt")
+
+    from gptme.tools.shell_compact import _format_gh_list_preview
+
+    preview = _format_gh_list_preview("gh issue list --limit 50", stdout, tmp_path)
+
+    assert preview is not None
+    assert "Showing first 10 of 25 items." in preview
+    assert "more items omitted" in preview
+    assert "Full output saved to" in preview
+    assert "ISSUE-0030" in preview  # last shown item
+    assert "ISSUE-0020" not in preview  # omitted item
+
+    ledger = tmp_path / "context-savings.jsonl"
+    rows = ledger.read_text(encoding="utf-8").splitlines()
+    assert len(rows) == 1
+    assert "gh_list" in rows[0]
+
+
+def test_format_gh_list_preview_skips_short_outputs(tmp_path):
+    from gptme.tools.shell_compact import _format_gh_list_preview
+
+    short_stdout = 'ISSUE-0001\tbug\t"Minor bug"\topen\t2026-05-01\n'
+    assert _format_gh_list_preview("gh issue list", short_stdout, tmp_path) is None
+
+    # 10 lines is at the boundary, still below _GH_LIST_PREVIEW_LINES=10
+    ten_lines = "\n".join(f"ITEM-{i}" for i in range(10))
+    assert _format_gh_list_preview("gh issue list", ten_lines, tmp_path) is None
+
+
+@pytest.mark.parametrize(
+    ("cmd", "expected"),
+    [
+        ("gh issue list", True),
+        ("gh issue list --limit 50", True),
+        ("gh issue list --label bug --state open", True),
+        ("gh issue list --json number,title", True),
+        ("gh pr list", True),
+        ("gh pr list --state merged --limit 20", True),
+        ("gh pr list --author me --json number", True),
+        ("git log --oneline", False),
+        ("gh issue view 123", False),
+        ("gh pr view 456", False),
+        ("gh api issues", False),
+        ("ls -la", False),
+    ],
+)
+def test_matches_gh_list(cmd, expected):
+    assert _matches_gh_list(cmd) is expected
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "gh issue list; echo pwned",
+        "gh issue list | grep foo",
+        "gh issue list > /tmp/out",
+        "gh issue list `id`",
+    ],
+)
+def test_matches_gh_list_rejects_unsupported_shapes(cmd):
+    assert _matches_gh_list(cmd) is False
 
 
 def test_format_git_log_preview_skips_short_logs(tmp_path):
