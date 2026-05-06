@@ -1,0 +1,24 @@
+2334	Settings modal squished on mobile	bug		2026-05-05T12:02:45Z
+2333	Add GPTME_DISABLE_PATH_INCLUDE env var for non-interactive prompts		2026-05-05T20:53:57Z
+2328	No Android apk/aab in releases	bug	2026-05-04T20:50:31Z
+2320	feat(cost-awareness): warn when cache is cold	enhancement	2026-05-03T04:07:30Z
+2318	Add EmbeddedContext slot for host-injected MenuBar	enhancement	2026-05-03T21:35:59Z
+2313	feat(cli): /account command for multi-credential switching		2026-05-04T20:19:46Z
+2193	desktop/tauri: user-testing — onboarding, settings, cloud integration	enhancement	2026-04-27T09:58:35Z
+1593	feat(tauri): first-run experience and welcome screen	enhancement	2026-03-04T13:51:38Z
+1532	Add shell_compact tool for high-output commands	enhancement	2026-02-15T10:22:10Z
+1501	Fix memory leak in long-running sessions	bug	2026-02-10T14:33:45Z
+1420	Add JSON output formatter for tools	enhancement	2026-01-28T09:15:22Z
+1389	Race condition in message queue	bug	2026-01-20T16:42:08Z
+1350	Config reload command	enhancement	2026-01-15T11:05:30Z
+1310	Auth token not refreshed automatically	bug	2026-01-08T08:30:15Z
+1280	Plugin hot-reload support	enhancement	2026-01-02T14:20:00Z
+1245	Network timeout not configurable	bug	2025-12-28T10:00:00Z
+1210	Workspace templates	enhancement	2025-12-20T12:30:00Z
+1180	Export to PDF	enhancement	2025-12-15T09:45:00Z
+1150	Batch operations support	enhancement	2025-12-10T15:20:00Z
+1120	UI freezes on large file handling	bug	2025-12-05T11:10:00Z
+1090	Add CLI reference docs	docs	2025-11-30T08:00:00Z
+1050	Progress bar not updating in TUI	bug	2025-11-25T16:30:00Z
+1020	Login flow redirects wrong	bug	2025-11-20T13:00:00Z
+0980	Configuration file not found after upgrade	bug	2025-11-15T10:15:00Z
