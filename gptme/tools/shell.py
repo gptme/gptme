@@ -1648,18 +1648,43 @@ def _shorten_stdout(
 
     # If truncation will happen, save full output to file
     saved_path = None
-    if (will_truncate_by_lines or will_truncate_by_tokens) and logdir:
-        command_info = f"Command: {cmd}" if cmd else None
-        original_tokens = (
-            len(tokens) if (will_truncate_by_tokens and tokenizer is not None) else None
-        )
-        _, saved_path = save_large_output(
-            content=stdout,
-            logdir=logdir,
-            output_type="shell",
-            command_info=command_info,
-            original_tokens=original_tokens,
-        )
+    if will_truncate_by_lines or will_truncate_by_tokens:
+        # Fallback: if the caller didn't pass logdir (e.g. a code path that
+        # bypassed execute_shell's get_path_fn), try the current LogManager
+        # context directly. This avoids silent telemetry loss in cases where
+        # the parameter wasn't threaded through correctly.
+        if logdir is None:
+            from ..logmanager import LogManager  # fmt: skip
+
+            manager = LogManager.get_current_log()
+            if manager and manager.logdir:
+                logdir = manager.logdir
+                logger.debug(
+                    "_shorten_stdout: recovered logdir from current LogManager"
+                )
+
+        if logdir is not None:
+            command_info = f"Command: {cmd}" if cmd else None
+            original_tokens = (
+                len(tokens)
+                if (will_truncate_by_tokens and tokenizer is not None)
+                else None
+            )
+            _, saved_path = save_large_output(
+                content=stdout,
+                logdir=logdir,
+                output_type="shell",
+                command_info=command_info,
+                original_tokens=original_tokens,
+            )
+        else:
+            logger.warning(
+                "_shorten_stdout: truncating output but no logdir is available; "
+                "full output will not be saved and context-savings ledger entry "
+                "will be skipped (cmd=%s, lines=%s)",
+                cmd,
+                len(lines),
+            )
 
     # NOTE: This can cause issues when, for example, reading a CSV with dates in the first column
     if strip_dates:

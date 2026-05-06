@@ -507,6 +507,61 @@ def test_get_path_fn_uses_current_logdir(tmp_path):
         assert get_path_fn() == tmp_path
 
 
+def test_shorten_stdout_falls_back_to_current_logdir(tmp_path):
+    """When logdir param is None, _shorten_stdout falls back to LogManager."""
+    stdout = "\n".join(f"line {i}" for i in range(200))
+
+    manager = MagicMock()
+    manager.logdir = tmp_path
+
+    with patch("gptme.logmanager.LogManager.get_current_log", return_value=manager):
+        shortened = _shorten_stdout(
+            stdout,
+            pre_lines=5,
+            post_lines=5,
+            logdir=None,
+            cmd="git log --oneline",
+        )
+
+    ledger = tmp_path / "context-savings.jsonl"
+    assert ledger.exists(), "context-savings.jsonl should be written via fallback"
+    rows = [json.loads(line) for line in ledger.read_text().splitlines()]
+    assert "full output saved to" in shortened
+    assert len(rows) == 1
+    assert rows[0]["source"] == "shell"
+    assert rows[0]["saved_tokens"] > 0
+
+
+def test_shorten_stdout_warns_when_no_logdir_available(tmp_path, caplog):
+    """When neither logdir param nor LogManager has a logdir, log a warning."""
+    import logging
+
+    stdout = "\n".join(f"line {i}" for i in range(200))
+
+    with (
+        patch("gptme.logmanager.LogManager.get_current_log", return_value=None),
+        caplog.at_level(logging.WARNING, logger="gptme.tools.shell"),
+    ):
+        shortened = _shorten_stdout(
+            stdout,
+            pre_lines=5,
+            post_lines=5,
+            logdir=None,
+            cmd="echo hello",
+        )
+
+    # Truncation still happens (preserves context budget) but no save and no record
+    assert "lines truncated" in shortened
+    assert "full output saved to" not in shortened
+    assert not (tmp_path / "context-savings.jsonl").exists()
+    # And we got a warning so the case is visible in logs
+    assert any(
+        "no logdir is available" in record.message for record in caplog.records
+    ), (
+        f"Expected warning about missing logdir, got: {[r.message for r in caplog.records]}"
+    )
+
+
 def test_truncation_budget_default(monkeypatch):
     monkeypatch.delenv("GPTME_SHELL_TRUNC_PRE_TOKENS", raising=False)
     monkeypatch.delenv("GPTME_SHELL_TRUNC_POST_TOKENS", raising=False)
