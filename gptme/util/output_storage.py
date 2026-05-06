@@ -112,5 +112,26 @@ def create_tool_result_summary(
         original_tokens=original_tokens,
     )
 
-    # Return message with file reference
-    return f"{base_msg}. Full output saved to: {saved_path}\nYou can read or grep this file if needed."
+    summary_msg = f"{base_msg}. Full output saved to: {saved_path}\nYou can read or grep this file if needed."
+
+    # Record telemetry for the autocompact savings. The replacement message
+    # is what stays in the conversation, so kept_tokens is its token count.
+    try:
+        from ..llm.models import get_default_model
+        from .context_savings import record_context_savings
+        from .tokens import len_tokens
+
+        model = get_default_model()
+        model_name = model.model if model else "gpt-4"
+        record_context_savings(
+            logdir=logdir,
+            source=tool_name,
+            original_tokens=original_tokens,
+            kept_tokens=len_tokens(summary_msg, model_name),
+            command_info=command_info,
+            saved_path=saved_path,
+        )
+    except (OSError, ImportError) as e:
+        logger.warning("Failed to record autocompact context savings: %s", e)
+
+    return summary_msg

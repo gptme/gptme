@@ -1,5 +1,6 @@
 """Tests for the output_storage utility module."""
 
+import json
 from pathlib import Path
 
 from gptme.util.output_storage import create_tool_result_summary, save_large_output
@@ -101,3 +102,38 @@ def test_create_tool_result_summary_no_command(tmp_path: Path):
     assert "500 tokens" in result
     # Should not have command info
     assert "Command:" not in result or "Ran command:" not in result
+
+
+def test_create_tool_result_summary_records_savings_ledger(tmp_path: Path):
+    """create_tool_result_summary should append to context-savings.jsonl."""
+    create_tool_result_summary(
+        content="x" * 4000,  # ensure non-trivial original token count
+        original_tokens=10000,
+        logdir=tmp_path,
+        tool_name="autocompact",
+    )
+    ledger = tmp_path / "context-savings.jsonl"
+    assert ledger.exists(), "ledger should be created when logdir is provided"
+
+    rows = [
+        json.loads(line) for line in ledger.read_text().splitlines() if line.strip()
+    ]
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["source"] == "autocompact"
+    assert row["original_tokens"] == 10000
+    assert row["saved_tokens"] > 0
+    assert row["saved_tokens"] == row["original_tokens"] - row["kept_tokens"]
+    assert "saved_path" in row
+
+
+def test_create_tool_result_summary_no_logdir_no_ledger(tmp_path: Path):
+    """Without logdir, no ledger should be written anywhere."""
+    create_tool_result_summary(
+        content="lots of output",
+        original_tokens=10000,
+        logdir=None,
+        tool_name="shell",
+    )
+    # Sanity: the test's tmp_path stays clean
+    assert not (tmp_path / "context-savings.jsonl").exists()
