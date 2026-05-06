@@ -1114,8 +1114,8 @@ def _format_git_log_preview(cmd: str, stdout: str, logdir: Path | None) -> str |
         )
     else:
         detail += (
-            " Full output was not saved because no conversation logdir is active;"
-            " use `git log --format=oneline --abbrev-commit` if you need the raw full list."
+            " Full output was not saved because no conversation logdir is active."
+            " To get the full list, pipe through cat: `git log --oneline | cat`."
         )
     detail += " Use `git show <sha>` for a specific commit."
 
