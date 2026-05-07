@@ -187,8 +187,8 @@ def gather_conversation_costs(messages: list[Message]) -> CostData | None:
         request_count=request_count,
     )
 
-    # Only surface biggest_turn when it's meaningful (multiple turns observed
-    # and the peak is a clear outlier vs. average input per turn)
+    # Suppress biggest_turn when the winning turn had zero total input tokens
+    # (degenerate case; outlier-vs-average filtering happens in display_costs).
     if (
         biggest_turn is not None
         and request_count >= 2
