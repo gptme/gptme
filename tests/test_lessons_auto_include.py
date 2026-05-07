@@ -78,14 +78,14 @@ def test_format_with_budget_drops_lowest():
 
 
 def test_format_with_budget_first_lesson_too_large():
-    """If even the first (highest-scored) lesson exceeds budget, all are dropped."""
+    """First lesson is force-included even if it exceeds the budget (minimum 1)."""
     lessons = [
         _make_lesson("Huge Lesson", "body " * 10000),  # ~50000 chars, ~16666 tokens
     ]
     matches = [_MockMatch(lesson=lesson, score=10.0) for lesson in lessons]
     content, dropped = _format_with_budget(matches, max_tokens=100)
-    # First lesson exceeds budget but is included (minimum of 1 lesson)
-    assert dropped == 0  # First/highest-scored always included
+    # First/highest-scored lesson is always included regardless of size
+    assert dropped == 0  # Only one lesson — nothing left to drop
     assert "Huge Lesson" in content
 
 

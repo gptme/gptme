@@ -121,12 +121,6 @@ def auto_include_lessons(
         # Format lessons for inclusion, respecting token budget
         lesson_content, dropped_count = _format_with_budget(matches, max_tokens)
 
-        if not lesson_content:
-            logger.warning(
-                "All matched lessons exceed token budget, skipping inclusion"
-            )
-            return messages
-
         # Log if we dropped lessons due to budget
         if dropped_count > 0:
             logger.warning(
