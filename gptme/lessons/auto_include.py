@@ -70,7 +70,8 @@ def auto_include_lessons(
         enabled: Whether auto-inclusion is enabled
         use_hybrid: Use hybrid matching (semantic + effectiveness)
         hybrid_config: Configuration for hybrid matching
-        max_tokens: Maximum token budget for lesson content (default from env GPTME_LESSONS_TOKEN_BUDGET)
+        max_tokens: Token budget for lessons beyond the first (default from env GPTME_LESSONS_TOKEN_BUDGET).
+            The highest-scored lesson is always force-included regardless of this limit.
 
     Returns:
         Updated message list with lessons included
@@ -126,16 +127,18 @@ def auto_include_lessons(
         matches = matches[:max_lessons]
 
         # Format lessons for inclusion, respecting token budget
-        lesson_content, dropped_count = _format_with_budget(matches, max_tokens)
+        lesson_content, dropped_count, subsequent_tokens = _format_with_budget(
+            matches, max_tokens
+        )
 
         # Log if we dropped lessons due to budget
         if dropped_count > 0:
             logger.warning(
                 "Lesson token budget exceeded: dropped %d/%d matched lessons"
-                " (%dK/%dK budget)",
+                " (%dK/%dK subsequent-lesson budget used)",
                 dropped_count,
                 len(matches),
-                _estimate_tokens(lesson_content) // 1000,
+                subsequent_tokens // 1000,
                 max_tokens // 1000,
             )
 
@@ -159,7 +162,7 @@ def auto_include_lessons(
         return messages
 
 
-def _format_with_budget(matches: list, max_tokens: int) -> tuple[str, int]:
+def _format_with_budget(matches: list, max_tokens: int) -> tuple[str, int, int]:
     """Format matched lessons with token budget enforcement.
 
     The highest-scored lesson is always included regardless of size.
@@ -172,7 +175,8 @@ def _format_with_budget(matches: list, max_tokens: int) -> tuple[str, int]:
         max_tokens: Maximum token budget for non-first lessons
 
     Returns:
-        Tuple of (formatted content, number of lessons dropped due to budget)
+        Tuple of (formatted content, number of lessons dropped due to budget,
+        tokens used by subsequent (non-first) lessons)
     """
     included: list[str] = []
     dropped = 0
@@ -207,7 +211,7 @@ def _format_with_budget(matches: list, max_tokens: int) -> tuple[str, int]:
             included.append(lesson_str)
             subsequent_tokens += lesson_tokens
 
-    return "".join(included), dropped
+    return "".join(included), dropped, subsequent_tokens
 
 
 def _format_lessons(matches: list) -> str:

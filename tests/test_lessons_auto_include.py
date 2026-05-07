@@ -54,7 +54,7 @@ def test_format_with_budget_all_fit():
     matches = [
         _MockMatch(lesson=lesson, score=2.0 - i) for i, lesson in enumerate(lessons)
     ]
-    content, dropped = _format_with_budget(matches, max_tokens=10000)
+    content, dropped, _ = _format_with_budget(matches, max_tokens=10000)
     assert dropped == 0
     assert "Test 1" in content
     assert "Test 2" in content
@@ -70,7 +70,7 @@ def test_format_with_budget_drops_lowest():
         _MockMatch(lesson=lesson, score=2.0 - i) for i, lesson in enumerate(lessons)
     ]
     # Budget just enough for one lesson
-    content, dropped = _format_with_budget(matches, max_tokens=100)
+    content, dropped, _ = _format_with_budget(matches, max_tokens=100)
     # First lesson (highest score) should fit, second should be dropped
     assert dropped == 1
     assert "High Score" in content
@@ -83,7 +83,7 @@ def test_format_with_budget_first_lesson_too_large():
         _make_lesson("Huge Lesson", "body " * 10000),  # ~50000 chars, ~16666 tokens
     ]
     matches = [_MockMatch(lesson=lesson, score=10.0) for lesson in lessons]
-    content, dropped = _format_with_budget(matches, max_tokens=100)
+    content, dropped, _ = _format_with_budget(matches, max_tokens=100)
     # First/highest-scored lesson is always included regardless of size
     assert dropped == 0  # Only one lesson — nothing left to drop
     assert "Huge Lesson" in content
@@ -99,7 +99,7 @@ def test_format_with_budget_oversized_first_does_not_block_small_subsequent():
         _MockMatch(lesson=lesson, score=2.0 - i) for i, lesson in enumerate(lessons)
     ]
     # Budget of 1000 — first lesson far exceeds it, but second lesson is tiny
-    content, dropped = _format_with_budget(matches, max_tokens=1000)
+    content, dropped, _ = _format_with_budget(matches, max_tokens=1000)
     # Tiny second lesson should still be included because it fits the subsequent budget
     assert dropped == 0
     assert "Huge Lesson" in content
@@ -117,7 +117,7 @@ def test_format_with_budget_drops_multiple():
     matches = [
         _MockMatch(lesson=lesson, score=5.0 - i) for i, lesson in enumerate(lessons)
     ]
-    content, dropped = _format_with_budget(matches, max_tokens=1000)
+    content, dropped, _ = _format_with_budget(matches, max_tokens=1000)
     # Best should always fit (small). Medium might depending on total.
     # At least worst/worstest should be dropped.
     assert dropped >= 1
@@ -128,12 +128,33 @@ def test_format_with_budget_includes_metadata():
     """Check that lesson metadata is included in formatted output."""
     lesson = _make_lesson("Metadata Test", "body content")
     match = _MockMatch(lesson, matched_by=["keyword:test"])
-    content, dropped = _format_with_budget([match], max_tokens=10000)
+    content, dropped, _ = _format_with_budget([match], max_tokens=10000)
     assert dropped == 0
     assert "Metadata Test" in content  # title
     assert "/tmp/test.md" in content  # path
     assert "test" in content  # category
     assert "1 keyword(s)" in content  # match info
+
+
+def test_format_with_budget_subsequent_tokens_excludes_first():
+    """subsequent_tokens must not include the force-included first lesson.
+
+    The warning log compares subsequent_tokens against max_tokens (which only
+    governs non-first lessons). If subsequent_tokens included the first lesson
+    the comparison would be misleading.
+    """
+    big_body = "word " * 5000  # ~8333 tokens, well over any subsequent budget
+    lessons = [
+        _make_lesson("First", big_body),
+        _make_lesson("Second", "tiny"),
+    ]
+    matches = [
+        _MockMatch(lesson=lesson, score=2.0 - i) for i, lesson in enumerate(lessons)
+    ]
+    _, dropped, subsequent_tokens = _format_with_budget(matches, max_tokens=10000)
+    # Second lesson is tiny so it fits; first is excluded from subsequent_tokens count
+    assert dropped == 0
+    assert subsequent_tokens < 100  # only "tiny" second lesson counts
 
 
 def test_get_token_budget_default(monkeypatch):
