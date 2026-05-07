@@ -6,6 +6,7 @@ from gptme.util.cost_display import (
     CostData,
     RequestCosts,
     TotalCosts,
+    display_costs,
     gather_conversation_costs,
 )
 
@@ -378,3 +379,131 @@ def test_biggest_turn_set_for_single_request():
     assert result is not None
     assert result.biggest_turn is not None
     assert result.biggest_turn.request_index == 1
+
+
+def test_biggest_turn_zero_input_suppressed():
+    """biggest_turn is suppressed when the winning turn has zero total input.
+
+    A degenerate case where both turns have output tokens but zero input/cache.
+    The first turn becomes biggest_turn by default but has zero total input,
+    triggering the suppression guard.
+    """
+    msgs = [
+        Message(
+            role="assistant",
+            content="first",
+            metadata={
+                "cost": 0.001,
+                "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 50,
+                    "cache_read_tokens": 0,
+                    "cache_creation_tokens": 0,
+                },
+            },
+        ),
+        Message(
+            role="assistant",
+            content="second",
+            metadata={
+                "cost": 0.002,
+                "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 100,
+                    "cache_read_tokens": 0,
+                    "cache_creation_tokens": 0,
+                },
+            },
+        ),
+    ]
+    result = gather_conversation_costs(msgs)
+    assert result is not None
+    assert result.biggest_turn is None  # zero-input suppression
+
+
+def test_display_costs_biggest_turn_shown(capsys):
+    """display_costs shows Biggest Turn section when peak >= 1.5x avg."""
+    conv = CostData(
+        last_request=RequestCosts(100, 50, 0, 0, 0.005),
+        total=TotalCosts(1200, 300, 0, 0, 0.02, 0.0, 3),
+        source="conversation",
+        biggest_turn=BiggestTurn(
+            request_index=2,
+            input_tokens=1000,
+            output_tokens=100,
+            cache_read_tokens=0,
+            cache_creation_tokens=0,
+            cost=0.01,
+        ),
+    )
+    display_costs(
+        session=None,
+        conversation=conv,
+    )
+    output = capsys.readouterr().out
+    assert "Biggest Turn" in output
+    assert "request #2" in output
+    assert "1,000" in output or "1000" in output
+
+
+def test_display_costs_biggest_turn_suppressed_below_threshold(capsys):
+    """Biggest Turn not shown when peak is below 1.5x average."""
+    conv = CostData(
+        last_request=RequestCosts(100, 50, 0, 0, 0.005),
+        total=TotalCosts(400, 300, 0, 0, 0.02, 0.0, 3),
+        source="conversation",
+        biggest_turn=BiggestTurn(
+            request_index=2,
+            input_tokens=150,
+            output_tokens=100,
+            cache_read_tokens=0,
+            cache_creation_tokens=0,
+            cost=0.01,
+        ),
+    )
+    # avg = 400/3 ≈ 133, peak = 150, ratio = 1.13x < 1.5x
+    display_costs(
+        session=None,
+        conversation=conv,
+    )
+    output = capsys.readouterr().out
+    assert "Biggest Turn" not in output
+
+
+def test_display_costs_biggest_turn_single_request(capsys):
+    """Biggest Turn not shown for single-request conversations."""
+    conv = CostData(
+        last_request=RequestCosts(100, 50, 0, 0, 0.005),
+        total=TotalCosts(100, 50, 0, 0, 0.005, 0.0, 1),
+        source="conversation",
+        biggest_turn=BiggestTurn(
+            request_index=1,
+            input_tokens=100,
+            output_tokens=50,
+            cache_read_tokens=0,
+            cache_creation_tokens=0,
+            cost=0.005,
+        ),
+    )
+    display_costs(
+        session=None,
+        conversation=conv,
+    )
+    output = capsys.readouterr().out
+    assert "Biggest Turn" not in output
+
+
+def test_display_costs_biggest_turn_none(capsys):
+    """No Biggest Turn section when biggest_turn is None."""
+    conv = CostData(
+        last_request=RequestCosts(100, 50, 0, 0, 0.005),
+        total=TotalCosts(300, 150, 0, 0, 0.015, 0.0, 3),
+        source="conversation",
+        biggest_turn=None,
+    )
+    display_costs(
+        session=None,
+        conversation=conv,
+    )
+    output = capsys.readouterr().out
+    assert "Biggest Turn" not in output
