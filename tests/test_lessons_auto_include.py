@@ -136,8 +136,9 @@ def test_format_with_budget_includes_metadata():
     assert "1 keyword(s)" in content  # match info
 
 
-def test_get_token_budget_default():
+def test_get_token_budget_default(monkeypatch):
     """Default token budget from the function."""
+    monkeypatch.delenv("GPTME_LESSONS_TOKEN_BUDGET", raising=False)
     budget = _get_token_budget()
     assert budget == 50000
 
@@ -152,5 +153,19 @@ def test_get_token_budget_env(monkeypatch):
 def test_get_token_budget_invalid_env(monkeypatch):
     """Invalid env var falls back to default."""
     monkeypatch.setenv("GPTME_LESSONS_TOKEN_BUDGET", "not-a-number")
+    budget = _get_token_budget()
+    assert budget == 50000
+
+
+def test_get_token_budget_zero_env(monkeypatch):
+    """Zero budget falls back to default (non-positive is not allowed)."""
+    monkeypatch.setenv("GPTME_LESSONS_TOKEN_BUDGET", "0")
+    budget = _get_token_budget()
+    assert budget == 50000
+
+
+def test_get_token_budget_negative_env(monkeypatch):
+    """Negative budget falls back to default."""
+    monkeypatch.setenv("GPTME_LESSONS_TOKEN_BUDGET", "-1000")
     budget = _get_token_budget()
     assert budget == 50000

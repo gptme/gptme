@@ -29,9 +29,17 @@ _DEFAULT_TOKEN_BUDGET = 50000
 def _get_token_budget() -> int:
     """Get the lesson token budget from environment or default."""
     try:
-        return int(
+        budget = int(
             os.environ.get("GPTME_LESSONS_TOKEN_BUDGET", str(_DEFAULT_TOKEN_BUDGET))
         )
+        if budget <= 0:
+            logger.warning(
+                "GPTME_LESSONS_TOKEN_BUDGET=%d is non-positive, using default %d",
+                budget,
+                _DEFAULT_TOKEN_BUDGET,
+            )
+            return _DEFAULT_TOKEN_BUDGET
+        return budget
     except (ValueError, TypeError):
         return _DEFAULT_TOKEN_BUDGET
 
@@ -39,11 +47,10 @@ def _get_token_budget() -> int:
 def _estimate_tokens(text: str) -> int:
     """Estimate token count for a text string.
 
-    Uses a simple character-based heuristic (~4 chars per token for English text,
-    adjusted for code/markdown density). This is a rough estimate sufficient for
-    budget enforcement — actual tokenization varies by model.
+    Uses a simple character-based heuristic (~3 chars per token, conservative for
+    code/markdown density). This is a rough estimate sufficient for budget
+    enforcement — actual tokenization varies by model.
     """
-    # Use conservative estimate: 3.5 chars per token for code-heavy content
     return max(1, len(text) // 3)
 
 
