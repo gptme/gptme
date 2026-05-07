@@ -506,20 +506,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking import time for gptme
 time poetry run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep &quot;import time&quot; | cut -d&#39;|&#39; -f 2- | sort -n | tail -n 10
-     179949 |   gptme.tools._browser_playwright
-     214114 |         gptme.config
-     222454 |       gptme.llm
-     224455 |     gptme.commands
-     244218 |         mcp.client.session
-     262211 |   gptme.chat
-     374945 |       mcp
-     374974 |     mcp.types
-     441723 |   gptme.tools.mcp_adapter
-    1572147 | gptme.cli.main
+     177561 |   gptme.tools._browser_playwright
+     197113 |         gptme.config
+     204292 |       gptme.llm
+     206175 |     gptme.commands
+     238713 |         mcp.client.session
+     241979 |   gptme.chat
+     366431 |       mcp
+     366459 |     mcp.types
+     431915 |   gptme.tools.mcp_adapter
+    1492039 | gptme.cli.main
 
-real	0m2.859s
-user	0m2.167s
-sys	0m0.729s
+real	0m2.627s
+user	0m2.021s
+sys	0m0.655s
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -528,10 +528,10 @@ make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking startup time for gptme
 hyperfine &quot;poetry run gptme &#39;/exit&#39;&quot; -M 5 || poetry run gptme &#39;/exit&#39; || exit 1
 Benchmark 1: poetry run gptme &#39;/exit&#39;
-  Time (mean ± σ):      2.683 s ±  0.258 s    [User: 2.314 s, System: 0.622 s]
-  Range (min … max):    2.555 s …  3.145 s    5 runs
+  Time (mean ± σ):      2.612 s ±  0.251 s    [User: 2.225 s, System: 0.642 s]
+  Range (min … max):    2.488 s …  3.061 s    5 runs
  
-  Warning: The first benchmarking run for this command was significantly slower than the rest (3.145 s). This could be caused by (filesystem) caches that were not filled until after the first run. You should consider using the &#39;--warmup&#39; option to fill those caches before the actual benchmark. Alternatively, use the &#39;--prepare&#39; option to clear the caches before each timing run.
+  Warning: The first benchmarking run for this command was significantly slower than the rest (3.061 s). This could be caused by (filesystem) caches that were not filled until after the first run. You should consider using the &#39;--warmup&#39; option to fill those caches before the actual benchmark. Alternatively, use the &#39;--prepare&#39; option to clear the caches before each timing run.
  
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -744,7 +744,7 @@ gptme/server/static/main.js                           51             69         
 gptme/server/workspace_api.py                         97             89            437
 gptme/server/external_sessions.py                     40             25            267
 gptme/server/session_models.py                        57             69            201
-gptme/server/static/index.html                        11             18            199
+gptme/server/static/index.html                        11             18            201
 gptme/server/cli.py                                   37             39            197
 gptme/server/acp_session_runtime.py                   34             30            165
 gptme/server/auth.py                                  57             80            160
@@ -758,7 +758,7 @@ gptme/server/constants.py                              7             11         
 gptme/server/__init__.py                               2              3              3
 gptme/server/__main__.py                               1              0              3
 --------------------------------------------------------------------------------------
-SUM:                                                1501           1399           6617
+SUM:                                                1501           1399           6619
 --------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -2185,7 +2185,7 @@ Clone found (python):
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ javascript │ 1              │ 616         │ 5619         │ 0            │ 0 (0%)           │ 0 (0%)            │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ markup     │ 2              │ 318         │ 2696         │ 0            │ 0 (0%)           │ 0 (0%)            │
+│ markup     │ 2              │ 320         │ 2702         │ 0            │ 0 (0%)           │ 0 (0%)            │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ markdown   │ 7              │ 1234        │ 8782         │ 0            │ 0 (0%)           │ 0 (0%)            │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
@@ -2193,10 +2193,10 @@ Clone found (python):
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ url        │ 1              │ 2           │ 16           │ 0            │ 0 (0%)           │ 0 (0%)            │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ Total:     │ 367            │ 96647       │ 596422       │ 59           │ 740 (0.77%)      │ 6115 (1.03%)      │
+│ Total:     │ 367            │ 96649       │ 596428       │ 59           │ 740 (0.77%)      │ 6115 (1.03%)      │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
 Found 59 clones.
-time: 5.986s
+time: 5.788s
 make[3]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
