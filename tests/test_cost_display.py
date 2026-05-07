@@ -358,8 +358,12 @@ def test_biggest_turn_includes_cache_tokens():
     assert result.biggest_turn.cache_read_tokens == 9000
 
 
-def test_biggest_turn_none_for_single_request():
-    """Biggest turn is meaningful only with multiple requests; otherwise None."""
+def test_biggest_turn_set_for_single_request():
+    """gather_conversation_costs sets biggest_turn even for a single request.
+
+    Suppression for single-request conversations is handled in display_costs,
+    not in gather_conversation_costs.
+    """
     msgs = [
         Message(
             role="assistant",
@@ -372,6 +376,5 @@ def test_biggest_turn_none_for_single_request():
     ]
     result = gather_conversation_costs(msgs)
     assert result is not None
-    # Still set, but display logic skips it for single-request conversations
     assert result.biggest_turn is not None
     assert result.biggest_turn.request_index == 1

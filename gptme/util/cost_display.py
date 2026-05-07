@@ -192,7 +192,12 @@ def gather_conversation_costs(messages: list[Message]) -> CostData | None:
     if (
         biggest_turn is not None
         and request_count >= 2
-        and (biggest_turn.input_tokens + biggest_turn.cache_read_tokens) == 0
+        and (
+            biggest_turn.input_tokens
+            + biggest_turn.cache_read_tokens
+            + biggest_turn.cache_creation_tokens
+        )
+        == 0
     ):
         biggest_turn = None
 
