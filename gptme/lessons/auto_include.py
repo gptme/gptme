@@ -155,16 +155,24 @@ def auto_include_lessons(
 def _format_with_budget(matches: list, max_tokens: int) -> tuple[str, int]:
     """Format matched lessons with token budget enforcement.
 
+    The highest-scored lesson is always included regardless of size.
+    Subsequent lessons are included only if their tokens fit within max_tokens
+    counting only the non-first lessons — so an oversized first lesson does not
+    consume the budget available to smaller subsequent ones.
+
     Args:
         matches: List of match results (already sorted by score, descending)
-        max_tokens: Maximum token budget
+        max_tokens: Maximum token budget for non-first lessons
 
     Returns:
         Tuple of (formatted content, number of lessons dropped due to budget)
     """
     included: list[str] = []
     dropped = 0
-    total_tokens = 0
+    # Track tokens for budget enforcement separately from the first (forced) lesson.
+    # This prevents an oversized first lesson from consuming the budget available
+    # to smaller subsequent lessons.
+    subsequent_tokens = 0
 
     for match in matches:
         lesson = match.lesson
@@ -183,12 +191,14 @@ def _format_with_budget(matches: list, max_tokens: int) -> tuple[str, int]:
         lesson_str = "".join(parts)
         lesson_tokens = _estimate_tokens(lesson_str)
 
-        # Check if adding this lesson would exceed budget
-        if included and total_tokens + lesson_tokens > max_tokens:
+        if not included:
+            # Always include the first (highest-scored) lesson regardless of size
+            included.append(lesson_str)
+        elif subsequent_tokens + lesson_tokens > max_tokens:
             dropped += 1
         else:
             included.append(lesson_str)
-            total_tokens += lesson_tokens
+            subsequent_tokens += lesson_tokens
 
     return "".join(included), dropped
 

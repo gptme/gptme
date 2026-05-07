@@ -89,6 +89,23 @@ def test_format_with_budget_first_lesson_too_large():
     assert "Huge Lesson" in content
 
 
+def test_format_with_budget_oversized_first_does_not_block_small_subsequent():
+    """Oversized first lesson must not consume the budget for subsequent small lessons."""
+    lessons = [
+        _make_lesson("Huge Lesson", "body " * 10000),  # ~16666 tokens, well over budget
+        _make_lesson("Tiny Lesson", "hi"),  # ~1 token
+    ]
+    matches = [
+        _MockMatch(lesson=lesson, score=2.0 - i) for i, lesson in enumerate(lessons)
+    ]
+    # Budget of 1000 — first lesson far exceeds it, but second lesson is tiny
+    content, dropped = _format_with_budget(matches, max_tokens=1000)
+    # Tiny second lesson should still be included because it fits the subsequent budget
+    assert dropped == 0
+    assert "Huge Lesson" in content
+    assert "Tiny Lesson" in content
+
+
 def test_format_with_budget_drops_multiple():
     """Multiple low-scored lessons are dropped."""
     lessons = [
