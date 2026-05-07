@@ -23,6 +23,22 @@ class RequestCosts:
 
 
 @dataclass
+class BiggestTurn:
+    """Largest single-turn input observed in a conversation.
+
+    Helps identify when a single tool result blows up the next turn's input.
+    Indexed by assistant-message position (1-based) in the conversation.
+    """
+
+    request_index: int
+    input_tokens: int
+    output_tokens: int
+    cache_read_tokens: int
+    cache_creation_tokens: int
+    cost: float
+
+
+@dataclass
 class TotalCosts:
     """Aggregated cost data."""
 
@@ -42,6 +58,7 @@ class CostData:
     last_request: RequestCosts | None
     total: TotalCosts
     source: str  # "session" | "conversation" | "approximation"
+    biggest_turn: BiggestTurn | None = None
 
 
 def gather_session_costs() -> CostData | None:
@@ -91,19 +108,41 @@ def gather_conversation_costs(messages: list[Message]) -> CostData | None:
     total_cost = 0.0
     request_count = 0
     last_metadata = None
+    biggest_turn: BiggestTurn | None = None
 
     for msg in messages:
         if msg.metadata:
+            usage = msg.metadata.get("usage", {})
+            msg_input = usage.get("input_tokens", 0)
+            msg_output = usage.get("output_tokens", 0)
+            msg_cache_read = usage.get("cache_read_tokens", 0)
+            msg_cache_created = usage.get("cache_creation_tokens", 0)
+            msg_cost = msg.metadata.get("cost", 0.0)
+
             if msg.role == "assistant":
                 last_metadata = msg.metadata
                 request_count += 1
 
-            usage = msg.metadata.get("usage", {})
-            total_input += usage.get("input_tokens", 0)
-            total_output += usage.get("output_tokens", 0)
-            total_cache_read += usage.get("cache_read_tokens", 0)
-            total_cache_created += usage.get("cache_creation_tokens", 0)
-            total_cost += msg.metadata.get("cost", 0.0)
+                turn_input_total = msg_input + msg_cache_read + msg_cache_created
+                if biggest_turn is None or turn_input_total > (
+                    biggest_turn.input_tokens
+                    + biggest_turn.cache_read_tokens
+                    + biggest_turn.cache_creation_tokens
+                ):
+                    biggest_turn = BiggestTurn(
+                        request_index=request_count,
+                        input_tokens=msg_input,
+                        output_tokens=msg_output,
+                        cache_read_tokens=msg_cache_read,
+                        cache_creation_tokens=msg_cache_created,
+                        cost=msg_cost,
+                    )
+
+            total_input += msg_input
+            total_output += msg_output
+            total_cache_read += msg_cache_read
+            total_cache_created += msg_cache_created
+            total_cost += msg_cost
 
     # Check if we have any actual data
     has_data = (
@@ -148,7 +187,26 @@ def gather_conversation_costs(messages: list[Message]) -> CostData | None:
         request_count=request_count,
     )
 
-    return CostData(last_request=last_request, total=total, source="conversation")
+    # Suppress biggest_turn when the winning turn had zero total input tokens
+    # (degenerate case; outlier-vs-average filtering happens in display_costs).
+    if (
+        biggest_turn is not None
+        and request_count >= 2
+        and (
+            biggest_turn.input_tokens
+            + biggest_turn.cache_read_tokens
+            + biggest_turn.cache_creation_tokens
+        )
+        == 0
+    ):
+        biggest_turn = None
+
+    return CostData(
+        last_request=last_request,
+        total=total,
+        source="conversation",
+        biggest_turn=biggest_turn,
+    )
 
 
 def display_costs(
@@ -202,6 +260,39 @@ def display_costs(
     ):
         console.log("[bold]Conversation Total:[/bold] (all messages)")
         _display_total(conversation.total)
+
+    # Highlight the largest single-turn input (helps catch context spikes,
+    # e.g. when a tool result blows up the next turn's input).
+    biggest = (
+        conversation.biggest_turn
+        if conversation and conversation.biggest_turn is not None
+        else None
+    )
+    if biggest is not None and conversation and conversation.total.request_count >= 2:
+        biggest_total_in = (
+            biggest.input_tokens
+            + biggest.cache_read_tokens
+            + biggest.cache_creation_tokens
+        )
+        avg_input_per_request = (
+            (
+                conversation.total.input_tokens
+                + conversation.total.cache_read_tokens
+                + conversation.total.cache_creation_tokens
+            )
+            / conversation.total.request_count
+            if conversation.total.request_count
+            else 0
+        )
+        # Only flag if peak is at least 1.5x the average — otherwise it's noise
+        if avg_input_per_request and biggest_total_in >= 1.5 * avg_input_per_request:
+            ratio = biggest_total_in / avg_input_per_request
+            console.log("")
+            console.log(
+                "[bold]Biggest Turn:[/bold] "
+                f"request #{biggest.request_index} — "
+                f"{biggest_total_in:,} in ({ratio:.1f}x avg)"
+            )
 
 
 def _display_total(total: TotalCosts) -> None:

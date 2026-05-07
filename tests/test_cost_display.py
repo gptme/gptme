@@ -2,6 +2,7 @@
 
 from gptme.message import Message
 from gptme.util.cost_display import (
+    BiggestTurn,
     CostData,
     RequestCosts,
     TotalCosts,
@@ -286,3 +287,94 @@ def test_gather_conversation_costs_no_last_request_when_zero():
     assert result is not None
     # Last metadata has all zeros, so last_request should be None
     assert result.last_request is None
+
+
+def test_biggest_turn_identifies_outlier():
+    """Biggest turn surfaces the largest single-turn input."""
+    msgs = [
+        Message(
+            role="assistant",
+            content="small",
+            metadata={
+                "cost": 0.001,
+                "usage": {"input_tokens": 100, "output_tokens": 20},
+            },
+        ),
+        Message(
+            role="assistant",
+            content="huge tool result",
+            metadata={
+                "cost": 0.05,
+                "usage": {"input_tokens": 5000, "output_tokens": 30},
+            },
+        ),
+        Message(
+            role="assistant",
+            content="small again",
+            metadata={
+                "cost": 0.002,
+                "usage": {"input_tokens": 200, "output_tokens": 25},
+            },
+        ),
+    ]
+    result = gather_conversation_costs(msgs)
+    assert result is not None
+    assert result.biggest_turn is not None
+    assert isinstance(result.biggest_turn, BiggestTurn)
+    assert result.biggest_turn.request_index == 2
+    assert result.biggest_turn.input_tokens == 5000
+
+
+def test_biggest_turn_includes_cache_tokens():
+    """Biggest turn ranks by total input including cache_read + cache_creation."""
+    msgs = [
+        Message(
+            role="assistant",
+            content="cached huge",
+            metadata={
+                "cost": 0.005,
+                "usage": {
+                    "input_tokens": 10,
+                    "output_tokens": 30,
+                    "cache_read_tokens": 9000,
+                    "cache_creation_tokens": 0,
+                },
+            },
+        ),
+        Message(
+            role="assistant",
+            content="non-cached small",
+            metadata={
+                "cost": 0.01,
+                "usage": {"input_tokens": 1000, "output_tokens": 30},
+            },
+        ),
+    ]
+    result = gather_conversation_costs(msgs)
+    assert result is not None
+    assert result.biggest_turn is not None
+    # First turn wins because cache_read pushes it past 1000
+    assert result.biggest_turn.request_index == 1
+    assert result.biggest_turn.cache_read_tokens == 9000
+
+
+def test_biggest_turn_set_for_single_request():
+    """gather_conversation_costs sets biggest_turn even for a single request.
+
+    Suppression for single-request conversations is handled in display_costs,
+    not in gather_conversation_costs.
+    """
+    msgs = [
+        Message(
+            role="assistant",
+            content="only response",
+            metadata={
+                "cost": 0.005,
+                "usage": {"input_tokens": 100, "output_tokens": 50},
+            },
+        ),
+    ]
+    result = gather_conversation_costs(msgs)
+    assert result is not None
+    assert result.biggest_turn is not None
+    assert result.biggest_turn.request_index == 1
