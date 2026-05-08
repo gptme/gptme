@@ -9,7 +9,7 @@ from functools import lru_cache, wraps
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 import requests
-from openai import NOT_GIVEN
+from openai import NOT_GIVEN, NotGiven
 from typing_extensions import NotRequired
 
 from ..config import Config, get_config
@@ -40,6 +40,18 @@ if TYPE_CHECKING:
 # Dictionary to store clients for each provider (includes custom providers)
 clients: dict[Provider, "OpenAI"] = {}
 logger = logging.getLogger(__name__)
+
+
+def _get_provider_api_key(config: Config, provider: Provider, env_var: str) -> str:
+    """Resolve a provider key from env/config first, then credentials.toml."""
+    from ..credentials import get_stored_api_key
+
+    api_key = config.get_env(env_var) or get_stored_api_key(str(provider))
+    if api_key:
+        return api_key
+    raise KeyError(
+        f"Environment variable {env_var} not set in env/config or credentials.toml"
+    )
 
 
 # Type definitions for message dictionaries used in API transformations
@@ -217,6 +229,64 @@ def _make_response_format(output_schema):
     }
 
 
+def _init_openai_client(
+    provider: Provider,
+    api_key: str,
+    base_url: str | None = None,
+    timeout: float | NotGiven | None = None,
+) -> None:
+    """Internal helper to create and register an OpenAI client for a provider.
+
+    Handles Azure vs regular OpenAI client selection automatically.
+    """
+    from openai import AzureOpenAI, OpenAI  # fmt: skip
+
+    from ..config import get_config  # fmt: skip
+
+    config = get_config()
+
+    if timeout is None:
+        timeout_str = config.get_env("LLM_API_TIMEOUT")
+        try:
+            timeout = float(timeout_str) if timeout_str else NOT_GIVEN  # type: ignore[assignment]
+        except ValueError as parse_err:
+            raise ValueError(
+                f"Invalid LLM_API_TIMEOUT value: {timeout_str!r}. Must be a valid number."
+            ) from parse_err
+
+    if provider == "azure":
+        azure_endpoint = base_url or config.get_env_required("AZURE_OPENAI_ENDPOINT")
+        clients[provider] = AzureOpenAI(
+            api_key=api_key,
+            api_version="2023-07-01-preview",
+            azure_endpoint=azure_endpoint,
+            timeout=timeout,  # type: ignore[arg-type]
+        )
+    else:
+        clients[provider] = OpenAI(
+            api_key=api_key,
+            base_url=base_url or None,
+            timeout=timeout,  # type: ignore[arg-type]
+        )
+
+
+def reinit(provider: Provider, api_key: str) -> None:
+    """Reinitialize an OpenAI-compatible provider with a new API key at runtime.
+
+    This is the counterpart to ``init()`` for the ``/account`` command.
+    Currently only supports providers backed by a plain ``OpenAI`` client
+    (e.g. openai, openrouter, deepseek, groq, xai, gemini, custom providers).
+    Azure is not supported for runtime reinit.
+    """
+    if provider not in clients:
+        raise ValueError(
+            f"Cannot reinit provider {provider!r}: not currently initialized"
+        )
+    if provider == "azure":
+        raise ValueError("Runtime credential switch not supported for Azure")
+    _init_openai_client(provider, api_key=api_key)
+
+
 def init(provider: Provider, config: Config):
     """Initialize OpenAI client for a given provider."""
     from openai import AzureOpenAI, OpenAI  # fmt: skip
@@ -241,11 +311,9 @@ def init(provider: Provider, config: Config):
         ) from parse_err
 
     if provider == "openai":
-        api_key = proxy_key or config.get_env_required("OPENAI_API_KEY")
-        clients[provider] = OpenAI(
-            api_key=api_key,
-            base_url=proxy_url or None,
-            timeout=timeout,
+        api_key = proxy_key or _get_provider_api_key(config, provider, "OPENAI_API_KEY")
+        _init_openai_client(
+            provider, api_key=api_key, base_url=proxy_url or None, timeout=timeout
         )
     elif provider == "azure":
         api_key = config.get_env_required("AZURE_OPENAI_API_KEY")
@@ -257,7 +325,9 @@ def init(provider: Provider, config: Config):
             timeout=timeout,
         )
     elif provider == "openrouter":
-        api_key = proxy_key or config.get_env_required("OPENROUTER_API_KEY")
+        api_key = proxy_key or _get_provider_api_key(
+            config, provider, "OPENROUTER_API_KEY"
+        )
         clients[provider] = OpenAI(
             api_key=api_key,
             base_url=proxy_url or "https://openrouter.ai/api/v1",
@@ -274,29 +344,29 @@ def init(provider: Provider, config: Config):
             timeout=timeout,
         )
     elif provider == "gemini":
-        api_key = config.get_env_required("GEMINI_API_KEY")
+        api_key = _get_provider_api_key(config, provider, "GEMINI_API_KEY")
         clients[provider] = OpenAI(
             api_key=api_key,
             base_url="https://generativelanguage.googleapis.com/v1beta",
             timeout=timeout,
         )
     elif provider == "xai":
-        api_key = config.get_env_required("XAI_API_KEY")
+        api_key = _get_provider_api_key(config, provider, "XAI_API_KEY")
         clients[provider] = OpenAI(
             api_key=api_key, base_url="https://api.x.ai/v1", timeout=timeout
         )
     elif provider == "groq":
-        api_key = config.get_env_required("GROQ_API_KEY")
+        api_key = _get_provider_api_key(config, provider, "GROQ_API_KEY")
         clients[provider] = OpenAI(
             api_key=api_key, base_url="https://api.groq.com/openai/v1", timeout=timeout
         )
     elif provider == "deepseek":
-        api_key = config.get_env_required("DEEPSEEK_API_KEY")
+        api_key = _get_provider_api_key(config, provider, "DEEPSEEK_API_KEY")
         clients[provider] = OpenAI(
             api_key=api_key, base_url="https://api.deepseek.com/v1", timeout=timeout
         )
     elif provider == "nvidia":
-        api_key = config.get_env_required("NVIDIA_API_KEY")
+        api_key = _get_provider_api_key(config, provider, "NVIDIA_API_KEY")
         clients[provider] = OpenAI(
             api_key=api_key,
             base_url="https://integrate.api.nvidia.com/v1",
