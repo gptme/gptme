@@ -266,13 +266,19 @@ def reinit(provider: Provider, api_key: str) -> None:
     (e.g. openai, openrouter, deepseek, groq, xai, gemini, custom providers).
     Azure is not supported for runtime reinit.
     """
+    if not api_key:
+        raise ValueError("api_key must not be empty")
     if provider not in clients:
         raise ValueError(
             f"Cannot reinit provider {provider!r}: not currently initialized"
         )
     if provider == "azure":
         raise ValueError("Runtime credential switch not supported for Azure")
-    _init_openai_client(provider, api_key=api_key)
+    # Preserve the provider's existing base_url so the correct endpoint is kept
+    existing_base_url = (
+        str(clients[provider].base_url) if clients[provider].base_url else None
+    )
+    _init_openai_client(provider, api_key=api_key, base_url=existing_base_url)
 
 
 def init(provider: Provider, config: Config):

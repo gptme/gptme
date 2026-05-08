@@ -512,7 +512,9 @@ def reinit(
     Both streaming and non-streaming calls use the same module-level client,
     so the old client is discarded and replaced.
     """
-    _init_anthropic(api_key or "<missing>", proxy_url, proxy_key)
+    if not api_key:
+        raise ValueError("api_key must not be empty")
+    _init_anthropic(api_key, proxy_url, proxy_key)
 
 
 def _init_anthropic(

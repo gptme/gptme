@@ -31,7 +31,7 @@ def test_account_list_with_no_providers():
         patch("gptme.commands.account._get_available_providers") as mock_providers,
         patch("builtins.print") as mock_print,
     ):
-        mock_providers.return_value = {}
+        mock_providers.return_value = []
         # Execute the command
         result = cmd_account(ctx)
         if isinstance(result, Generator):

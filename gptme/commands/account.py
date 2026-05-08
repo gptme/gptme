@@ -121,22 +121,26 @@ def cmd_account(ctx: CommandContext):
         provider = ctx.args[1]
         api_key = ctx.args[2]
 
-        if provider == "anthropic":
-            _switch_anthropic(api_key)
-        elif provider in (
-            "openai",
-            "openrouter",
-            "deepseek",
-            "gemini",
-            "groq",
-            "xai",
-        ):
-            _switch_openai_like(provider, api_key)
-        else:
-            print(f"Unknown provider: {provider}")
-            print(
-                "Supported: anthropic, openai, openrouter, deepseek, gemini, groq, xai"
-            )
+        try:
+            if provider == "anthropic":
+                _switch_anthropic(api_key)
+            elif provider in (
+                "openai",
+                "openrouter",
+                "deepseek",
+                "gemini",
+                "groq",
+                "xai",
+            ):
+                _switch_openai_like(provider, api_key)
+            else:
+                print(f"Unknown provider: {provider}")
+                print(
+                    "Supported: anthropic, openai, openrouter, deepseek, gemini, groq, xai"
+                )
+                return
+        except ValueError as e:
+            print(f"Error switching {provider} credentials: {e}")
             return
 
         print(f"Switched {provider} credentials.")
