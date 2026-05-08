@@ -532,6 +532,11 @@ def aggregate_and_display_results(result_files: list[str]):
     is_flag=True,
     help="Inject adversarial framing into behavioral eval prompts (idea #190 Phase 2).",
 )
+@click.option(
+    "--no-lessons",
+    is_flag=True,
+    help="Disable lesson auto-inclusion during eval runs (for no-context baselines).",
+)
 def main(
     eval_names_or_result_files: list[str],
     _model: list[str],
@@ -549,6 +554,7 @@ def main(
     trends: bool = False,
     trend_days: int = 90,
     adversarial: bool = False,
+    no_lessons: bool = False,
 ):
     """
     Run evals for gptme.
@@ -805,6 +811,7 @@ def main(
         use_docker,
         include_user_context=user_context,
         adversarial=adversarial,
+        no_lessons=no_lessons,
     )
     if not json_output:
         print("=== Finished ===")

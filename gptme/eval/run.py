@@ -92,6 +92,7 @@ def run_evals(
     use_docker: bool = False,
     include_user_context: bool = False,
     adversarial: bool = False,
+    no_lessons: bool = False,
 ) -> dict[ModelConfig, list[EvalResult]]:
     """
     Run evals for a list of tests.
@@ -105,6 +106,7 @@ def run_evals(
         include_user_context: Include user-level prompt files and agent
             instructions from ~/.config/gptme in eval runs
         adversarial: Inject adversarial framing into behavioral eval prompts
+        no_lessons: Disable lesson auto-inclusion during eval runs
     """
     # For coverage to work with multiprocessing
     # https://pytest-cov.readthedocs.io/en/latest/subprocess-support.html
@@ -161,6 +163,7 @@ def run_evals(
                     parallel > 1,
                     use_docker,
                     adversarial=adversarial,
+                    no_lessons=no_lessons,
                 )
                 futures.append(future)
                 future_to_model_test[future] = (config, test, agent)
@@ -250,6 +253,7 @@ def execute(
     use_docker: bool = False,
     suppress_output: bool = False,
     adversarial: bool = False,
+    no_lessons: bool = False,
 ) -> EvalResult:
     """
     Executes the code for a specific model with a timeout.
@@ -262,6 +266,10 @@ def execute(
     prompt = test["prompt"]
     if adversarial:
         prompt = _apply_adversarial_framing(test["name"], prompt)
+
+    # Disable lesson auto-injection for no-lessons baseline runs
+    if no_lessons:
+        os.environ["GPTME_LESSONS_AUTO_INCLUDE"] = "false"
 
     with Manager() as manager:
         sync_dict = manager.dict()
