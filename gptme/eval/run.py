@@ -267,7 +267,9 @@ def execute(
     if adversarial:
         prompt = _apply_adversarial_framing(test["name"], prompt)
 
-    # Disable lesson auto-injection for no-lessons baseline runs
+    # Disable lesson auto-injection for no-lessons baseline runs.
+    # Save/restore to prevent env bleed across reused ProcessPoolExecutor workers.
+    _prev_lessons_env = os.environ.get("GPTME_LESSONS_AUTO_INCLUDE")
     if no_lessons:
         os.environ["GPTME_LESSONS_AUTO_INCLUDE"] = "false"
 
@@ -287,6 +289,11 @@ def execute(
         )
 
         p.start()
+        # Restore parent env immediately after fork; child already has its own copy.
+        if _prev_lessons_env is None:
+            os.environ.pop("GPTME_LESSONS_AUTO_INCLUDE", None)
+        else:
+            os.environ["GPTME_LESSONS_AUTO_INCLUDE"] = _prev_lessons_env
         try:
             p.join(timeout)
             status: Status = "success"
