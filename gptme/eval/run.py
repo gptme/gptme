@@ -163,6 +163,10 @@ def run_evals(
                 task_type = test.get("task_type")
                 if task_type == "creative_restructuring":
                     eval_no_lessons = True
+                    logger.debug(
+                        "Suppressing lessons for %s (task_type=creative_restructuring)",
+                        test["name"],
+                    )
                 future = executor.submit(
                     execute,
                     test,
