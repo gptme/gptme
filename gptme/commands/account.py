@@ -138,6 +138,11 @@ def _setup_openrouter() -> None:
 
 def _setup_manual_provider(provider: str, provided_api_key: str | None = None) -> None:
     """Prompt for a provider API key, validate it, and store it."""
+    if provided_api_key:
+        print(
+            "Warning: passing keys inline is visible in conversation logs. "
+            "Use the interactive prompt instead."
+        )
     api_key = (
         provided_api_key or Prompt.ask(f"{provider} API key", password=True).strip()
     )

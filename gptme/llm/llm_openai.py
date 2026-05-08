@@ -284,7 +284,9 @@ def reinit(provider: Provider, api_key: str) -> None:
         )
     if provider == "azure":
         raise ValueError("Runtime credential switch not supported for Azure")
-    _init_openai_client(provider, api_key=api_key)
+    existing = clients[provider]
+    base_url = str(existing.base_url) if getattr(existing, "base_url", None) else None
+    _init_openai_client(provider, api_key=api_key, base_url=base_url)
 
 
 def init(provider: Provider, config: Config):
