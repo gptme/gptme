@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import html
 import http.server
 import logging
 import secrets
@@ -71,67 +72,69 @@ def is_port_available(port: int) -> bool:
             return False
 
 
-class _CallbackHandler(http.server.BaseHTTPRequestHandler):
-    """HTTP handler for the OpenRouter OAuth callback.
+def _make_callback_handler(state_holder: dict) -> type:
+    """Return a per-flow handler class whose state is isolated to ``state_holder``.
 
-    State is shared via class variables — only one OAuth flow may run on
-    OPENROUTER_CALLBACK_PORT at a time, which is enforced by the port check
-    in :func:`authenticate`.
+    Using a factory instead of class variables means two concurrent
+    ``authenticate()`` calls on different ports cannot corrupt each other's
+    CSRF state or authorization code.
     """
 
-    authorization_code: str | None = None
-    error: str | None = None
-    expected_state: str | None = None
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, format: str, *args: Any) -> None:
+            pass
 
-    def log_message(self, format: str, *args: Any) -> None:
-        pass
+        def do_GET(self) -> None:
+            parsed = urlparse(self.path)
 
-    def do_GET(self) -> None:
-        parsed = urlparse(self.path)
-
-        if parsed.path != OPENROUTER_CALLBACK_PATH:
-            self._respond_html(404, "Not found")
-            return
-
-        params = parse_qs(parsed.query)
-
-        # CSRF: validate state parameter when one was issued
-        if _CallbackHandler.expected_state is not None:
-            received_state = params.get("state", [None])[0]
-            if received_state != _CallbackHandler.expected_state:
-                _CallbackHandler.error = (
-                    "Invalid state parameter (possible CSRF attack)"
-                )
-                self._respond_html(400, "Security error: invalid state parameter")
+            if parsed.path != OPENROUTER_CALLBACK_PATH:
+                self._respond_html(404, "Not found")
                 return
 
-        if "code" in params:
-            _CallbackHandler.authorization_code = params["code"][0]
-            self._respond_html(
-                200, "Authentication successful. You can close this window."
-            )
-        elif "error" in params:
-            err_desc = params.get("error_description", params["error"])[0]
-            _CallbackHandler.error = err_desc
-            self._respond_html(400, f"Authentication failed: {err_desc}")
-        else:
-            self._respond_html(400, "No authorization code received")
+            params = parse_qs(parsed.query)
 
-    def _respond_html(self, status: int, message: str) -> None:
-        html = (
-            "<!DOCTYPE html><html><head>"
-            '<meta charset="utf-8"><title>gptme — OpenRouter</title>'
-            '</head><body style="font-family: system-ui; text-align: center; '
-            'padding: 50px; color: #222; background: #fafafa;">'
-            '<h1 style="font-size: 1.5em;">gptme</h1>'
-            f'<p style="font-size: 1.2em;">{message}</p>'
-            "<script>setTimeout(() => window.close(), 3000);</script>"
-            "</body></html>"
-        )
-        self.send_response(status)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(html.encode())
+            # CSRF: validate state parameter when one was issued
+            if state_holder["expected_state"] is not None:
+                received_state = params.get("state", [None])[0]
+                if received_state != state_holder["expected_state"]:
+                    state_holder["error"] = (
+                        "Invalid state parameter (possible CSRF attack)"
+                    )
+                    self._respond_html(400, "Security error: invalid state parameter")
+                    return
+
+            if "code" in params:
+                state_holder["authorization_code"] = params["code"][0]
+                self._respond_html(
+                    200, "Authentication successful. You can close this window."
+                )
+            elif "error" in params:
+                err_desc = params.get("error_description", params["error"])[0]
+                state_holder["error"] = err_desc
+                # html.escape() prevents reflected injection from the error_description param
+                self._respond_html(
+                    400, f"Authentication failed: {html.escape(err_desc)}"
+                )
+            else:
+                self._respond_html(400, "No authorization code received")
+
+        def _respond_html(self, status: int, message: str) -> None:
+            body = (
+                "<!DOCTYPE html><html><head>"
+                '<meta charset="utf-8"><title>gptme — OpenRouter</title>'
+                '</head><body style="font-family: system-ui; text-align: center; '
+                'padding: 50px; color: #222; background: #fafafa;">'
+                '<h1 style="font-size: 1.5em;">gptme</h1>'
+                f'<p style="font-size: 1.2em;">{message}</p>'
+                "<script>setTimeout(() => window.close(), 3000);</script>"
+                "</body></html>"
+            )
+            self.send_response(status)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(body.encode())
+
+    return _Handler
 
 
 def authenticate(
@@ -175,39 +178,51 @@ def authenticate(
     }
     auth_url = f"{OPENROUTER_AUTH_URL}?{urlencode(auth_params)}"
 
-    # Reset shared state for this flow
-    _CallbackHandler.authorization_code = None
-    _CallbackHandler.error = None
-    _CallbackHandler.expected_state = state
+    # Per-flow state dict passed via closure — isolated from any concurrent flow
+    state_holder: dict = {
+        "authorization_code": None,
+        "error": None,
+        "expected_state": state,
+    }
+    handler_class = _make_callback_handler(state_holder)
 
-    server = http.server.HTTPServer(("127.0.0.1", callback_port), _CallbackHandler)
+    # Wrap HTTPServer construction to catch races between is_port_available() and bind()
+    try:
+        server = http.server.HTTPServer(("127.0.0.1", callback_port), handler_class)
+    except OSError as e:
+        raise OAuthError(
+            f"Port {callback_port} is not available. OpenRouter requires "
+            "this exact port for the OAuth callback. Close any process "
+            "using it and try again."
+        ) from e
+
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
 
     try:
-        print(f"Opening browser to {OPENROUTER_AUTH_URL} ...")
+        logger.info(f"Opening browser to {OPENROUTER_AUTH_URL} ...")
         try:
             open_browser(auth_url)
         except Exception as e:  # pragma: no cover — webbrowser is best-effort
             logger.warning(f"Could not auto-open browser: {e}")
-        print(f"If the browser did not open, visit:\n  {auth_url}")
-        print(f"Waiting for callback on {callback_url} ...")
+        logger.info(f"If the browser did not open, visit:\n  {auth_url}")
+        logger.info(f"Waiting for callback on {callback_url} ...")
 
         deadline = time.time() + timeout
         while time.time() < deadline:
-            if _CallbackHandler.authorization_code or _CallbackHandler.error:
+            if state_holder["authorization_code"] or state_holder["error"]:
                 break
             time.sleep(0.2)
     finally:
         server.shutdown()
         server.server_close()
 
-    if _CallbackHandler.error:
-        raise OAuthError(f"OAuth callback error: {_CallbackHandler.error}")
-    if not _CallbackHandler.authorization_code:
+    if state_holder["error"]:
+        raise OAuthError(f"OAuth callback error: {state_holder['error']}")
+    if not state_holder["authorization_code"]:
         raise OAuthError(f"OAuth flow timed out after {timeout:.0f}s")
 
-    code = _CallbackHandler.authorization_code
+    code = state_holder["authorization_code"]
     return _exchange_code_for_key(code, code_verifier)
 
 
