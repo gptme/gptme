@@ -523,6 +523,36 @@ def test_timeout_invalid_value(monkeypatch):
         llm_openai.init("openai", config)
 
 
+def test_reinit_preserves_existing_base_url(monkeypatch):
+    from types import SimpleNamespace
+
+    import gptme.llm.llm_openai as llm_openai
+
+    llm_openai.clients.clear()
+    llm_openai.clients["openrouter"] = SimpleNamespace(
+        base_url="https://openrouter.ai/api/v1"
+    )  # type: ignore[assignment]
+
+    captured: dict[str, str | None] = {}
+
+    def fake_init_openai_client(provider, api_key, base_url=None, timeout=None):
+        captured["provider"] = provider
+        captured["api_key"] = api_key
+        captured["base_url"] = base_url
+        captured["timeout"] = str(timeout) if timeout is not None else None
+
+    monkeypatch.setattr(llm_openai, "_init_openai_client", fake_init_openai_client)
+
+    llm_openai.reinit("openrouter", "sk-or-test-12345678")
+
+    assert captured == {
+        "provider": "openrouter",
+        "api_key": "sk-or-test-12345678",
+        "base_url": "https://openrouter.ai/api/v1",
+        "timeout": None,
+    }
+
+
 def test_message_conversion_gpt5_with_tool_results():
     """Test that gpt-5 models preserve tool result messages (system with call_id).
 

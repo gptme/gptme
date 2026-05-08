@@ -136,16 +136,9 @@ def _setup_openrouter() -> None:
     print(f"Stored OpenRouter key in {path}.")
 
 
-def _setup_manual_provider(provider: str, provided_api_key: str | None = None) -> None:
+def _setup_manual_provider(provider: str) -> None:
     """Prompt for a provider API key, validate it, and store it."""
-    if provided_api_key:
-        print(
-            "Warning: passing keys inline is visible in conversation logs. "
-            "Use the interactive prompt instead."
-        )
-    api_key = (
-        provided_api_key or Prompt.ask(f"{provider} API key", password=True).strip()
-    )
+    api_key = Prompt.ask(f"{provider} API key", password=True).strip()
     if not api_key:
         print("No API key provided.")
         return
@@ -206,9 +199,13 @@ def cmd_account(ctx: CommandContext):
             _setup_openrouter()
             return
         if provider in MANUAL_SETUP_PROVIDERS:
-            _setup_manual_provider(
-                provider, provided_api_key=ctx.args[2] if len(ctx.args) >= 3 else None
-            )
+            if len(ctx.args) >= 3:
+                print(
+                    "Passing API keys on the command line is not supported. "
+                    f"Re-run `/account setup {provider}` and paste the key into the hidden prompt."
+                )
+                return
+            _setup_manual_provider(provider)
             return
 
         print(f"Unknown provider: {provider}")

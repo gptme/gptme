@@ -101,13 +101,13 @@ def test_account_setup_prompts_for_provider_when_missing():
         if isinstance(result, Generator):
             list(result)
 
-    mock_setup.assert_called_once_with("anthropic", provided_api_key=None)
+    mock_setup.assert_called_once_with("anthropic")
 
 
-def test_account_setup_manual_provider_with_inline_key():
+def test_account_setup_manual_provider_dispatches():
     ctx = CommandContext(
-        args=["setup", "anthropic", "sk-ant-test"],
-        full_args="setup anthropic sk-ant-test",
+        args=["setup", "anthropic"],
+        full_args="setup anthropic",
         manager=_make_manager(),
     )
     with patch("gptme.commands.account._setup_manual_provider") as mock_setup:
@@ -115,7 +115,29 @@ def test_account_setup_manual_provider_with_inline_key():
         if isinstance(result, Generator):
             list(result)
 
-    mock_setup.assert_called_once_with("anthropic", provided_api_key="sk-ant-test")
+    mock_setup.assert_called_once_with("anthropic")
+
+
+def test_account_setup_manual_provider_rejects_inline_key():
+    ctx = CommandContext(
+        args=["setup", "anthropic", "sk-ant-test"],
+        full_args="setup anthropic sk-ant-test",
+        manager=_make_manager(),
+    )
+    with (
+        patch("gptme.commands.account._setup_manual_provider") as mock_setup,
+        patch("builtins.print") as mock_print,
+    ):
+        result = cmd_account(ctx)
+        if isinstance(result, Generator):
+            list(result)
+
+    mock_setup.assert_not_called()
+    printed = " ".join(
+        str(call.args[0]) for call in mock_print.call_args_list if call.args
+    )
+    assert "command line" in printed
+    assert "/account setup anthropic" in printed
 
 
 def test_setup_openrouter_stores_key_and_sets_default_model():

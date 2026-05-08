@@ -58,11 +58,14 @@ def set_stored_api_key(provider: str, api_key: str) -> Path:
         providers = tomlkit.table()
         doc["providers"] = providers
     providers[provider] = api_key
-    # Use os.open with mode 0o600 at creation time to avoid a world-readable window.
-    # open(path, "w") would create the file with umask permissions first, then chmod.
+    # Create with 0o600, then tighten existing files before writing new secrets.
     fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
+    if hasattr(os, "fchmod"):
+        os.fchmod(fd, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
         tomlkit.dump(doc, f)
+    if not hasattr(os, "fchmod"):
+        path.chmod(0o600)
     return path
 
 

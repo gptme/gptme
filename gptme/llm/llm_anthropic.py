@@ -523,7 +523,7 @@ def reinit(
     so the old client is discarded and replaced.
     """
     if not api_key:
-        raise ValueError("api_key must be a non-empty string")
+        raise ValueError("api_key must be non-empty")
     _init_anthropic(api_key, proxy_url, proxy_key)
 
 
