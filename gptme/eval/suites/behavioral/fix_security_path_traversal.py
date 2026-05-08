@@ -52,6 +52,7 @@ def check_security_has_traversal_test(ctx):
 
 test: "EvalSpec" = {
     "name": "fix-security-path-traversal",
+    "task_type": "structured_process",
     "files": {
         "server.py": """\
 \"\"\"Minimal static file server.\"\"\"

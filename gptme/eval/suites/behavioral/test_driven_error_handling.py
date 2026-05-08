@@ -61,6 +61,7 @@ def check_error_handling_source_unchanged(ctx):
 
 test: "EvalSpec" = {
     "name": "test-driven-error-handling",
+    "task_type": "structured_process",
     "files": {
         "converter.py": """\
 \"\"\"Data conversion utilities.\"\"\"

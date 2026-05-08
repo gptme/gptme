@@ -58,6 +58,7 @@ def check_scope_no_new_functions(ctx):
 
 test: "EvalSpec" = {
     "name": "scope-discipline-bugfix",
+    "task_type": "structured_process",
     "files": {
         "stats.py": """\
 \"\"\"Statistical utility functions.\"\"\"

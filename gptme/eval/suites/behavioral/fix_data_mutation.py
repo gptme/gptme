@@ -57,6 +57,7 @@ def check_test_file_unchanged(ctx):
 
 test: "EvalSpec" = {
     "name": "fix-data-mutation",
+    "task_type": "structured_process",
     "files": {
         "records.py": """\
 \"\"\"Record processing utilities.\"\"\"

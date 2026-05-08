@@ -62,6 +62,7 @@ def check_independent_calls_verified(ctx) -> bool:
 
 test: "EvalSpec" = {
     "name": "fix-mutable-default",
+    "task_type": "structured_process",
     "files": {
         "records.py": """\
 def collect_records(items, result=[]):

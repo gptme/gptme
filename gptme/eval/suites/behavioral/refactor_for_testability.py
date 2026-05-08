@@ -97,6 +97,7 @@ def check_testability_no_file_io_in_unit_tests(ctx):
 
 test: "EvalSpec" = {
     "name": "refactor-for-testability",
+    "task_type": "creative_restructuring",
     "files": {
         "report.py": """\
 import csv

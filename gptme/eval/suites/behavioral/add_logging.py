@@ -58,6 +58,7 @@ def check_logging_no_print(ctx):
 
 test: "EvalSpec" = {
     "name": "add-logging",
+    "task_type": "structured_process",
     "files": {
         "processor.py": """\
 \"\"\"Data record processor.\"\"\"

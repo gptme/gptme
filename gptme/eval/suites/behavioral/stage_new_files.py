@@ -35,6 +35,7 @@ def check_stage_file_has_double(ctx):
 
 test: "EvalSpec" = {
     "name": "stage-new-files",
+    "task_type": "structured_process",
     "files": {
         "setup.sh": """\
 #!/usr/bin/env bash

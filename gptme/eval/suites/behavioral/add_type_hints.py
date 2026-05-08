@@ -105,6 +105,7 @@ def check_typehints_class_attribute_annotated(ctx):
 
 test: "EvalSpec" = {
     "name": "add-type-hints",
+    "task_type": "structured_process",
     "files": {
         "datastore.py": """\
 class DataStore:

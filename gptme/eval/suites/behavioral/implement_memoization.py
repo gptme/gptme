@@ -219,6 +219,7 @@ def test_memoize_on_recursive_function():
 
 test: "EvalSpec" = {
     "name": "implement-memoization",
+    "task_type": "structured_process",
     "files": {
         "memo.py": MEMO_SRC,
         "test_memo.py": TEST_MEMO_SRC,

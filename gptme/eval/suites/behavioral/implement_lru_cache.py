@@ -231,6 +231,7 @@ def test_returns_none_for_missing_key():
 
 test: "EvalSpec" = {
     "name": "implement-lru-cache",
+    "task_type": "structured_process",
     "files": {
         "cache.py": CACHE_SRC,
         "test_cache.py": TEST_CACHE_SRC,

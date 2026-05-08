@@ -91,6 +91,7 @@ def check_signature_preserved(ctx):
 
 test: "EvalSpec" = {
     "name": "optimize-n-squared",
+    "task_type": "creative_restructuring",
     "files": {
         "analytics.py": """\
 \"\"\"Analytics utilities.\"\"\"
