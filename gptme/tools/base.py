@@ -176,8 +176,14 @@ class Parameter:
     required: bool = False
 
 
-# TODO: there must be a better way?
 def derive_type(t) -> str:
+    """Convert a type annotation to a human-readable string for tool signatures.
+
+    Python's stdlib has no clean public API for this — ``str(t)`` includes
+    the ``typing.`` prefix and ``__repr__`` is inconsistent across versions.
+    This produces the concise form used in JSON schemas and LLM-readable
+    function descriptions (``Literal["foo"]``, ``Union[int, str]``, etc.).
+    """
     # Handle None value (e.g., return type of Callable[[...], None])
     if t is None:
         return "None"
@@ -194,12 +200,12 @@ def derive_type(t) -> str:
     origin = get_origin(t)
 
     # Handle Literal types
-    if origin == Literal:
+    if origin is Literal:
         v = ", ".join(f'"{a}"' for a in get_args(t))
         return f"Literal[{v}]"
 
     # Handle Union types (both typing.Union and types.UnionType)
-    if origin == Union or origin == types.UnionType:
+    if origin is Union or origin is types.UnionType:
         v = ", ".join(derive_type(a) for a in get_args(t))
         return f"Union[{v}]"
 
