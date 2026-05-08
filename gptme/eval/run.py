@@ -155,6 +155,14 @@ def run_evals(
                         include_user_context=include_user_context,
                         use_docker=use_docker,
                     )
+                # Conditional lesson injection by task type (Phase 2, idea #228).
+                # Suppress lessons for creative-restructuring tasks (they are harmed
+                # by lesson context per crossover-effect analysis). Structured-process
+                # tasks use the global no_lessons flag as-is.
+                eval_no_lessons = no_lessons
+                task_type = test.get("task_type")
+                if task_type == "creative_restructuring":
+                    eval_no_lessons = True
                 future = executor.submit(
                     execute,
                     test,
@@ -163,7 +171,7 @@ def run_evals(
                     parallel > 1,
                     use_docker,
                     adversarial=adversarial,
-                    no_lessons=no_lessons,
+                    no_lessons=eval_no_lessons,
                 )
                 futures.append(future)
                 future_to_model_test[future] = (config, test, agent)

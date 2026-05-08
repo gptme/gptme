@@ -53,6 +53,7 @@ def check_write_tests_sufficient_count(ctx):
 
 test: "EvalSpec" = {
     "name": "write-test-suite",
+    "task_type": "structured_process",
     "files": {
         "text_processor.py": """\
 \"\"\"Text processing utilities.\"\"\"

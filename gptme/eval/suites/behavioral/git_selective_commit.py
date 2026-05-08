@@ -44,6 +44,7 @@ def check_git_selective_tests_pass(ctx):
 
 test: "EvalSpec" = {
     "name": "git-selective-commit",
+    "task_type": "structured_process",
     "files": {
         "setup.sh": """\
 #!/usr/bin/env bash

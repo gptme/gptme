@@ -44,6 +44,7 @@ def check_extract_callers_import(ctx):
 
 test: "EvalSpec" = {
     "name": "extract-function-refactor",
+    "task_type": "creative_restructuring",
     "files": {
         "user_service.py": """\
 \"\"\"User account service.\"\"\"
