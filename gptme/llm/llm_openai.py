@@ -9,7 +9,7 @@ from functools import lru_cache, wraps
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 import requests
-from openai import NOT_GIVEN
+from openai import NOT_GIVEN, NotGiven
 from typing_extensions import NotRequired
 
 from ..config import Config, get_config
@@ -217,6 +217,64 @@ def _make_response_format(output_schema):
     }
 
 
+def _init_openai_client(
+    provider: Provider,
+    api_key: str,
+    base_url: str | None = None,
+    timeout: float | NotGiven | None = None,
+) -> None:
+    """Internal helper to create and register an OpenAI client for a provider.
+
+    Handles Azure vs regular OpenAI client selection automatically.
+    """
+    from openai import AzureOpenAI, OpenAI  # fmt: skip
+
+    from ..config import get_config  # fmt: skip
+
+    config = get_config()
+
+    if timeout is None:
+        timeout_str = config.get_env("LLM_API_TIMEOUT")
+        try:
+            timeout = float(timeout_str) if timeout_str else NOT_GIVEN  # type: ignore[assignment]
+        except ValueError as parse_err:
+            raise ValueError(
+                f"Invalid LLM_API_TIMEOUT value: {timeout_str!r}. Must be a valid number."
+            ) from parse_err
+
+    if provider == "azure":
+        azure_endpoint = base_url or config.get_env_required("AZURE_OPENAI_ENDPOINT")
+        clients[provider] = AzureOpenAI(
+            api_key=api_key,
+            api_version="2023-07-01-preview",
+            azure_endpoint=azure_endpoint,
+            timeout=timeout,  # type: ignore[arg-type]
+        )
+    else:
+        clients[provider] = OpenAI(
+            api_key=api_key,
+            base_url=base_url or None,
+            timeout=timeout,  # type: ignore[arg-type]
+        )
+
+
+def reinit(provider: Provider, api_key: str) -> None:
+    """Reinitialize an OpenAI-compatible provider with a new API key at runtime.
+
+    This is the counterpart to ``init()`` for the ``/account`` command.
+    Currently only supports providers backed by a plain ``OpenAI`` client
+    (e.g. openai, openrouter, deepseek, groq, xai, gemini, custom providers).
+    Azure is not supported for runtime reinit.
+    """
+    if provider not in clients:
+        raise ValueError(
+            f"Cannot reinit provider {provider!r}: not currently initialized"
+        )
+    if provider == "azure":
+        raise ValueError("Runtime credential switch not supported for Azure")
+    _init_openai_client(provider, api_key=api_key)
+
+
 def init(provider: Provider, config: Config):
     """Initialize OpenAI client for a given provider."""
     from openai import AzureOpenAI, OpenAI  # fmt: skip
@@ -242,10 +300,8 @@ def init(provider: Provider, config: Config):
 
     if provider == "openai":
         api_key = proxy_key or config.get_env_required("OPENAI_API_KEY")
-        clients[provider] = OpenAI(
-            api_key=api_key,
-            base_url=proxy_url or None,
-            timeout=timeout,
+        _init_openai_client(
+            provider, api_key=api_key, base_url=proxy_url or None, timeout=timeout
         )
     elif provider == "azure":
         api_key = config.get_env_required("AZURE_OPENAI_API_KEY")

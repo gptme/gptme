@@ -18,6 +18,7 @@ from .. import llm as _llm  # noqa: F401
 
 # Import command modules to register their commands
 from . import (  # noqa: F401
+    account,
     export,
     llm,
     meta,
