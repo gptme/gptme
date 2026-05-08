@@ -107,6 +107,94 @@ def test_account_switch_unknown_provider():
     assert "fakeprovider" in printed
 
 
+def test_account_switch_anthropic_success():
+    """/account switch anthropic <key> calls reinit and prints success."""
+    ctx = CommandContext(
+        args=["switch", "anthropic", "sk-ant-api03-test"],
+        full_args="switch anthropic sk-ant-api03-test",
+        manager=_make_manager(),
+    )
+    with (
+        patch("gptme.commands.account._switch_anthropic") as mock_switch,
+        patch("builtins.print") as mock_print,
+    ):
+        result = cmd_account(ctx)
+        if isinstance(result, Generator):
+            list(result)
+
+    mock_switch.assert_called_once_with("sk-ant-api03-test")
+    printed = " ".join(
+        str(call.args[0]) for call in mock_print.call_args_list if call.args
+    )
+    assert "Switched anthropic credentials" in printed
+
+
+def test_account_switch_openai_like_success():
+    """/account switch openai <key> calls reinit and prints success."""
+    ctx = CommandContext(
+        args=["switch", "openrouter", "or-test-key"],
+        full_args="switch openrouter or-test-key",
+        manager=_make_manager(),
+    )
+    with (
+        patch("gptme.commands.account._switch_openai_like") as mock_switch,
+        patch("builtins.print") as mock_print,
+    ):
+        result = cmd_account(ctx)
+        if isinstance(result, Generator):
+            list(result)
+
+    mock_switch.assert_called_once_with("openrouter", "or-test-key")
+    printed = " ".join(
+        str(call.args[0]) for call in mock_print.call_args_list if call.args
+    )
+    assert "Switched openrouter credentials" in printed
+
+
+def test_account_switch_missing_key_arg():
+    """/account switch <provider> with no key shows usage error."""
+    ctx = CommandContext(
+        args=["switch", "anthropic"],
+        full_args="switch anthropic",
+        manager=_make_manager(),
+    )
+    with patch("builtins.print") as mock_print:
+        result = cmd_account(ctx)
+        if isinstance(result, Generator):
+            list(result)
+
+    printed = " ".join(
+        str(call.args[0]) for call in mock_print.call_args_list if call.args
+    )
+    assert "Usage" in printed
+    assert "api_key" in printed
+
+
+def test_account_switch_raises_value_error():
+    """/account switch that raises ValueError shows a friendly error."""
+    ctx = CommandContext(
+        args=["switch", "anthropic", ""],
+        full_args="switch anthropic ",
+        manager=_make_manager(),
+    )
+    with (
+        patch(
+            "gptme.commands.account._switch_anthropic",
+            side_effect=ValueError("api_key must not be empty"),
+        ),
+        patch("builtins.print") as mock_print,
+    ):
+        result = cmd_account(ctx)
+        if isinstance(result, Generator):
+            list(result)
+
+    printed = " ".join(
+        str(call.args[0]) for call in mock_print.call_args_list if call.args
+    )
+    assert "Error switching" in printed
+    assert "api_key must not be empty" in printed
+
+
 # --- Credential redaction tests ---
 
 
