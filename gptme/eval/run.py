@@ -288,12 +288,14 @@ def execute(
             ),
         )
 
-        p.start()
-        # Restore parent env immediately after fork; child already has its own copy.
-        if _prev_lessons_env is None:
-            os.environ.pop("GPTME_LESSONS_AUTO_INCLUDE", None)
-        else:
-            os.environ["GPTME_LESSONS_AUTO_INCLUDE"] = _prev_lessons_env
+        try:
+            p.start()
+        finally:
+            # Restore parent env immediately after fork; child already has its own copy.
+            if _prev_lessons_env is None:
+                os.environ.pop("GPTME_LESSONS_AUTO_INCLUDE", None)
+            else:
+                os.environ["GPTME_LESSONS_AUTO_INCLUDE"] = _prev_lessons_env
         try:
             p.join(timeout)
             status: Status = "success"
