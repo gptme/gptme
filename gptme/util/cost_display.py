@@ -52,6 +52,23 @@ class TotalCosts:
 
 
 @dataclass
+class StepCost:
+    """Per-step token usage for a single assistant request.
+
+    Used to show per-step breakdown in /tokens output.  Index is 1-based
+    (matching how assistant messages appear in the conversation).
+    """
+
+    step_index: int
+    input_tokens: int
+    output_tokens: int
+    cache_read_tokens: int
+    cache_creation_tokens: int
+    cost: float
+    model: str | None = None
+
+
+@dataclass
 class CostData:
     """Complete cost information from a single source."""
 
@@ -59,6 +76,21 @@ class CostData:
     total: TotalCosts
     source: str  # "session" | "conversation" | "approximation"
     biggest_turn: BiggestTurn | None = None
+
+
+def _short_model_name(full_model: str) -> str:
+    """Extract a short provider/model name for display.
+
+    'openrouter/deepseek/deepseek-v4-pro@deepseek' → 'deepseek-v4-pro'
+    'anthropic/claude-sonnet-4-5' → 'claude-sonnet-4-5'
+    'openai/gpt-5.1-codex-max' → 'gpt-5.1-codex-max'
+    """
+    # Strip provider prefix (e.g. 'openrouter/', 'anthropic/', 'openai/')
+    model = full_model.rsplit("/", 1)[-1] if "/" in full_model else full_model
+    # Strip OpenRouter routing suffix (@provider)
+    if "@" in model:
+        model = model.rsplit("@", 1)[0]
+    return model
 
 
 def gather_session_costs() -> CostData | None:
@@ -209,8 +241,46 @@ def gather_conversation_costs(messages: list[Message]) -> CostData | None:
     )
 
 
+def gather_per_step_costs(messages: list[Message]) -> list[StepCost]:
+    """Extract per-step token usage from conversation messages.
+
+    Returns one StepCost per assistant message that carries metadata.
+    Steps are 1-based (first assistant message = step 1).
+    """
+    steps: list[StepCost] = []
+    step_idx = 0
+
+    for msg in messages:
+        if msg.metadata:
+            usage = msg.metadata.get("usage", {})
+            input_tokens = usage.get("input_tokens", 0)
+            output_tokens = usage.get("output_tokens", 0)
+            cache_read = usage.get("cache_read_tokens", 0)
+            cache_create = usage.get("cache_creation_tokens", 0)
+            cost = msg.metadata.get("cost", 0.0)
+
+            # Only include steps that have some token data
+            if input_tokens > 0 or output_tokens > 0 or cache_read > 0:
+                step_idx += 1
+                steps.append(
+                    StepCost(
+                        step_index=step_idx,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        cache_read_tokens=cache_read,
+                        cache_creation_tokens=cache_create,
+                        cost=cost,
+                        model=msg.metadata.get("model"),
+                    )
+                )
+
+    return steps
+
+
 def display_costs(
-    session: CostData | None = None, conversation: CostData | None = None
+    session: CostData | None = None,
+    conversation: CostData | None = None,
+    per_step: list[StepCost] | None = None,
 ) -> None:
     """Display costs in unified format.
 
@@ -292,6 +362,48 @@ def display_costs(
                 "[bold]Biggest Turn:[/bold] "
                 f"request #{biggest.request_index} — "
                 f"{biggest_total_in:,} in ({ratio:.1f}x avg)"
+            )
+
+    # Per-step breakdown table (compact, one line per assistant turn)
+    if per_step:
+        console.log("")
+        console.log("[bold]Per-Step Breakdown:[/bold]")
+        # Header
+        console.log(
+            "  "
+            + "Step".rjust(4)
+            + "  "
+            + "Input".rjust(7)
+            + "  "
+            + "Output".rjust(7)
+            + "  "
+            + "Cache".rjust(7)
+            + "  "
+            + "Total".rjust(7)
+            + "  "
+            + "Model"
+        )
+        for step in per_step:
+            total_tokens = (
+                step.input_tokens
+                + step.output_tokens
+                + step.cache_read_tokens
+                + step.cache_creation_tokens
+            )
+            model_short = _short_model_name(step.model) if step.model else ""
+            console.log(
+                "  "
+                + str(step.step_index).rjust(4)
+                + "  "
+                + f"{step.input_tokens:,}".rjust(7)
+                + "  "
+                + f"{step.output_tokens:,}".rjust(7)
+                + "  "
+                + f"{step.cache_read_tokens:,}".rjust(7)
+                + "  "
+                + f"{total_tokens:,}".rjust(7)
+                + "  "
+                + model_short
             )
 
 
