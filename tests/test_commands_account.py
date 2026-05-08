@@ -70,8 +70,8 @@ def test_account_list_with_providers():
     assert "ANTHROPIC_API_KEY" in printed
 
 
-def test_account_switch_unknown():
-    """/account <name> with unknown provider shows error."""
+def test_account_switch_unknown_subcommand():
+    """/account <name> with unknown subcommand shows usage error."""
     ctx = CommandContext(
         args=["nonexistent"], full_args="nonexistent", manager=_make_manager()
     )
@@ -83,4 +83,23 @@ def test_account_switch_unknown():
     printed = " ".join(
         str(call.args[0]) for call in mock_print.call_args_list if call.args
     )
-    assert "Unknown" in printed or "not found" in printed or "don't know" in printed
+    assert "Unknown subcommand" in printed
+
+
+def test_account_switch_unknown_provider():
+    """/account switch with an unsupported provider name shows an error."""
+    ctx = CommandContext(
+        args=["switch", "fakeprovider", "sk-123"],
+        full_args="switch fakeprovider sk-123",
+        manager=_make_manager(),
+    )
+    with patch("builtins.print") as mock_print:
+        result = cmd_account(ctx)
+        if isinstance(result, Generator):
+            list(result)
+
+    printed = " ".join(
+        str(call.args[0]) for call in mock_print.call_args_list if call.args
+    )
+    assert "Unknown provider" in printed
+    assert "fakeprovider" in printed

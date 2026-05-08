@@ -74,6 +74,9 @@ logger = logging.getLogger(__name__)
 
 _anthropic: "Anthropic | None" = None
 _is_proxy: bool = False
+_proxy_url: str | None = None
+_proxy_key: str | None = None
+_client_timeout: float | None = None  # None means use Anthropic's default (10 min)
 
 
 def _inject_schema_instruction(messages, schema_name):
@@ -500,7 +503,14 @@ def init(config):
     proxy_url = config.get_env("LLM_PROXY_URL", None)
     proxy_key = config.get_env("LLM_PROXY_API_KEY")
     api_key = proxy_key or config.get_env_required("ANTHROPIC_API_KEY")
-    _init_anthropic(api_key, proxy_url, proxy_key)
+    timeout_str = config.get_env("LLM_API_TIMEOUT")
+    try:
+        timeout = float(timeout_str) if timeout_str else None
+    except ValueError as parse_err:
+        raise ValueError(
+            f"Invalid LLM_API_TIMEOUT value: {timeout_str!r}. Must be a valid number."
+        ) from parse_err
+    _init_anthropic(api_key, proxy_url, proxy_key, timeout=timeout)
 
 
 def reinit(
@@ -511,39 +521,46 @@ def reinit(
     Call this to switch credentials mid-session without restarting gptme.
     Both streaming and non-streaming calls use the same module-level client,
     so the old client is discarded and replaced.
+    Proxy and timeout settings from the original init() call are preserved
+    unless explicitly overridden.
     """
     if not api_key:
         raise ValueError("api_key must not be empty")
-    _init_anthropic(api_key, proxy_url, proxy_key)
+    # Preserve proxy config and timeout from original init() unless caller overrides explicitly
+    _init_anthropic(
+        api_key,
+        proxy_url if proxy_url is not None else _proxy_url,
+        proxy_key if proxy_key is not None else _proxy_key,
+        timeout=_client_timeout,
+    )
 
 
 def _init_anthropic(
     api_key: str,
     proxy_url: str | None = None,
     proxy_key: str | None = None,
+    timeout: float | None = None,
 ) -> None:
-    global _anthropic, _is_proxy
+    global _anthropic, _is_proxy, _proxy_url, _proxy_key, _client_timeout
     proxy_key = proxy_key or None
     proxy_url = proxy_url or None
 
     from anthropic import NOT_GIVEN, Anthropic  # fmt: skip
 
-    # Get configurable API timeout (default: client's own default of 10 minutes)
-    timeout_str = os.environ.get("LLM_API_TIMEOUT")
-    try:
-        timeout = float(timeout_str) if timeout_str else NOT_GIVEN
-    except ValueError as parse_err:
-        raise ValueError(
-            f"Invalid LLM_API_TIMEOUT value: {timeout_str!r}. Must be a valid number."
-        ) from parse_err
+    # Store the resolved timeout so reinit() can reuse it without re-reading env.
+    # timeout=None means "use Anthropic's default (10 min)".
+    _client_timeout = timeout
+    anthropic_timeout = timeout if timeout is not None else NOT_GIVEN
 
     _anthropic = Anthropic(
         api_key=api_key,
         max_retries=5,
         base_url=proxy_url or None,
-        timeout=timeout,
+        timeout=anthropic_timeout,
     )
     _is_proxy = proxy_url is not None
+    _proxy_url = proxy_url
+    _proxy_key = proxy_key
 
 
 def get_client() -> "Anthropic | None":
