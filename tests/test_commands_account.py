@@ -3,8 +3,10 @@
 from collections.abc import Generator
 from unittest.mock import MagicMock, patch
 
+from gptme.chat import _redact_sensitive_commands
 from gptme.commands.account import cmd_account
 from gptme.commands.base import CommandContext, _command_registry
+from gptme.message import Message
 
 
 def _make_manager() -> MagicMock:
@@ -103,3 +105,49 @@ def test_account_switch_unknown_provider():
     )
     assert "Unknown provider" in printed
     assert "fakeprovider" in printed
+
+
+# --- Credential redaction tests ---
+
+
+def _user_msg(content: str) -> Message:
+    return Message(role="user", content=content)
+
+
+def test_redact_account_switch_key():
+    """API key is redacted from /account switch before conversation logging."""
+    msg = _user_msg("/account switch anthropic sk-ant-api03-realkey")
+    redacted = _redact_sensitive_commands(msg)
+    assert "sk-ant-api03-realkey" not in redacted.content
+    assert "<REDACTED>" in redacted.content
+    assert "anthropic" in redacted.content
+
+
+def test_redact_creds_alias():
+    """/creds switch (alias) is also redacted."""
+    msg = _user_msg("/creds switch openai sk-openai-secret")
+    redacted = _redact_sensitive_commands(msg)
+    assert "sk-openai-secret" not in redacted.content
+    assert "<REDACTED>" in redacted.content
+
+
+def test_redact_preserves_provider():
+    """Provider name is preserved after redaction."""
+    msg = _user_msg("/account switch openrouter or-realkey-abc123")
+    redacted = _redact_sensitive_commands(msg)
+    assert "openrouter" in redacted.content
+    assert "or-realkey-abc123" not in redacted.content
+
+
+def test_no_redact_account_list():
+    """/account list (no key) is not modified."""
+    msg = _user_msg("/account")
+    redacted = _redact_sensitive_commands(msg)
+    assert redacted is msg  # same object, no copy needed
+
+
+def test_no_redact_regular_message():
+    """Regular messages are not modified."""
+    msg = _user_msg("hello, what is the weather today?")
+    redacted = _redact_sensitive_commands(msg)
+    assert redacted is msg

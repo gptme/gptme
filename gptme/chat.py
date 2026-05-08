@@ -1,6 +1,7 @@
 import copy
 import logging
 import os
+import re
 import threading
 from collections.abc import Callable, Generator
 from pathlib import Path
@@ -158,6 +159,20 @@ def chat(
         return
 
 
+_SENSITIVE_CMD_PATTERN = re.compile(
+    r"^(\/(?:account|creds)\s+switch\s+\S+\s+)\S+",
+    re.MULTILINE,
+)
+
+
+def _redact_sensitive_commands(msg: "Message") -> "Message":
+    """Return msg with API keys redacted from /account switch commands before logging."""
+    redacted = _SENSITIVE_CMD_PATTERN.sub(r"\1<REDACTED>", msg.content)
+    if redacted == msg.content:
+        return msg
+    return msg.replace(content=redacted)
+
+
 def _run_chat_loop(
     manager,
     prompt_queue,
@@ -223,11 +238,12 @@ def _run_chat_loop(
                 else:
                     # Normal case: user provided input
                     msg = user_input
-                    manager.append(msg)
+                    # Redact sensitive commands (e.g. /account switch key) before logging
+                    manager.append(_redact_sensitive_commands(msg))
 
                     # Reset interrupt flag since user provided new input
 
-                    # Handle user commands
+                    # Handle user commands (uses original msg with unredacted content)
                     if msg.role == "user" and execute_cmd(msg, manager):
                         continue
 
