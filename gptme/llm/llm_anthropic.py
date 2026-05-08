@@ -538,8 +538,12 @@ def _init_anthropic(
 
     from anthropic import NOT_GIVEN, Anthropic  # fmt: skip
 
+    from ..config import get_config  # fmt: skip
+
+    config = get_config()
+
     # Get configurable API timeout (default: client's own default of 10 minutes)
-    timeout_str = os.environ.get("LLM_API_TIMEOUT")
+    timeout_str = config.get_env("LLM_API_TIMEOUT")
     try:
         timeout = float(timeout_str) if timeout_str else NOT_GIVEN
     except ValueError as parse_err:
