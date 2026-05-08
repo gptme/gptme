@@ -331,12 +331,14 @@ def cmd_tokens(ctx: CommandContext) -> None:
     from ..util.cost_display import (
         display_costs,
         gather_conversation_costs,
+        gather_per_step_costs,
         gather_session_costs,
     )
 
     session = gather_session_costs()
     conversation = gather_conversation_costs(ctx.manager.log.messages)
-    display_costs(session, conversation)
+    per_step = gather_per_step_costs(ctx.manager.log.messages)
+    display_costs(session, conversation, per_step=per_step)
 
 
 def _print_available_models() -> None:
