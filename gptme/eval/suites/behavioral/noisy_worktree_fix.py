@@ -50,6 +50,7 @@ def check_noisy_worktree_fix_correct(ctx):
 
 test: "EvalSpec" = {
     "name": "noisy-worktree-fix",
+    "task_type": "structured_process",
     "files": {
         "setup.sh": """\
 #!/usr/bin/env bash

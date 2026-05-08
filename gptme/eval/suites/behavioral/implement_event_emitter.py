@@ -214,6 +214,7 @@ def test_independent_event_namespaces():
 
 test: "EvalSpec" = {
     "name": "implement-event-emitter",
+    "task_type": "creative_restructuring",
     "files": {
         "emitter.py": EMITTER_SRC,
         "test_emitter.py": TEST_EMITTER_SRC,

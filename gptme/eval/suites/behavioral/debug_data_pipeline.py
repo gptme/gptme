@@ -38,6 +38,7 @@ def check_pipeline_source_unchanged(ctx):
 
 test: "EvalSpec" = {
     "name": "debug-data-pipeline",
+    "task_type": "structured_process",
     "files": {
         "pipeline.py": """\
 \"\"\"User data processing pipeline.\"\"\"

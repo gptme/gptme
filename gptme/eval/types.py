@@ -116,6 +116,13 @@ class EvalSpec(TypedDict):
     prompt: str
     expect: dict[str, Callable[[ResultContext], bool]]
     tools: NotRequired[list[str]]
+    task_type: NotRequired[Literal["structured_process", "creative_restructuring"]]
+    """Task category for lesson injection gating.
+
+    ``structured_process``: Clear step-by-step procedure; lessons help. Lesson injection
+    enabled (default). ``creative_restructuring``: Open-ended synthesis; lessons may harm.
+    Lesson injection suppressed. Unset = backward-compatible default (lessons enabled).
+    """
     restore_files: NotRequired[list[str]]
     """Files to restore to original fixture content before the run phase.
 

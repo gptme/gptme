@@ -216,6 +216,7 @@ def test_succeeds_after_rate_limit_resets():
 
 test: "EvalSpec" = {
     "name": "rate-limiting",
+    "task_type": "structured_process",
     "files": {
         "client.py": CLIENT_SRC,
         "test_client.py": TEST_CLIENT_SRC,

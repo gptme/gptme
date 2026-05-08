@@ -234,6 +234,7 @@ def test_mixed_priorities_interleaved():
 
 test: "EvalSpec" = {
     "name": "implement-priority-queue",
+    "task_type": "structured_process",
     "files": {
         "priority_queue.py": PRIORITY_QUEUE_SRC,
         "test_priority_queue.py": TEST_PRIORITY_QUEUE_SRC,

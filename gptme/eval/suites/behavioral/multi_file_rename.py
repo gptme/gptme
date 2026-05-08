@@ -40,6 +40,7 @@ def check_rename_test_uses_new_name(ctx):
 
 test: "EvalSpec" = {
     "name": "multi-file-rename",
+    "task_type": "structured_process",
     "files": {
         "src/__init__.py": "",
         "src/geometry.py": """\

@@ -51,6 +51,7 @@ def check_merge_commit_completed(ctx):
 
 test: "EvalSpec" = {
     "name": "merge-conflict-resolution",
+    "task_type": "creative_restructuring",
     "files": {
         "setup.sh": """\
 #!/usr/bin/env bash

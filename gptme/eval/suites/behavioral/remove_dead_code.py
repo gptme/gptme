@@ -45,6 +45,7 @@ def check_processor_unchanged(ctx):
 
 test: "EvalSpec" = {
     "name": "remove-dead-code",
+    "task_type": "structured_process",
     "files": {
         "utils.py": """\
 \"\"\"Record processing utilities.\"\"\"

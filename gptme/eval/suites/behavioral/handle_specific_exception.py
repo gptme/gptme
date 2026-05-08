@@ -76,6 +76,7 @@ def check_config_propagates_file_error(ctx):
 
 test: "EvalSpec" = {
     "name": "handle-specific-exception",
+    "task_type": "structured_process",
     "files": {
         "config.py": (
             '"""Application configuration loader."""\n'

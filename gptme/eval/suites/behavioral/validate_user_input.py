@@ -72,6 +72,7 @@ def check_tests_pass(ctx):
 
 test: "EvalSpec" = {
     "name": "validate-user-input",
+    "task_type": "structured_process",
     "files": {
         "user_service.py": """\
 \"\"\"User service for managing user profiles.\"\"\"

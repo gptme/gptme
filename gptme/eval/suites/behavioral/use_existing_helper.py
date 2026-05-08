@@ -46,6 +46,7 @@ def check_reuse_utils_unchanged(ctx):
 
 test: "EvalSpec" = {
     "name": "use-existing-helper",
+    "task_type": "structured_process",
     "files": {
         "utils.py": """\
 \"\"\"Shared utility functions.\"\"\"

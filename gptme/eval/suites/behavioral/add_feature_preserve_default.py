@@ -81,6 +81,7 @@ def check_compat_new_tests_exist(ctx):
 
 test: "EvalSpec" = {
     "name": "add-feature-preserve-default",
+    "task_type": "structured_process",
     "files": {
         "text_stats.py": """\
 def summarize(text):

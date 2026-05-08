@@ -65,6 +65,7 @@ def check_retry_tests_pass(ctx):
 
 test: "EvalSpec" = {
     "name": "retry-with-backoff",
+    "task_type": "structured_process",
     "files": {
         "api_client.py": '''\
 """API client for fetching user data."""

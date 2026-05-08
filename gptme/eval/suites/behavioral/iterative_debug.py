@@ -33,6 +33,7 @@ def check_debug_fix_in_file(ctx):
 
 test: "EvalSpec" = {
     "name": "iterative-debug",
+    "task_type": "structured_process",
     "files": {
         "calculator.py": """\
 \"\"\"Simple calculator module.\"\"\"

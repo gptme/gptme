@@ -153,6 +153,7 @@ def check_migration_guidance(ctx):
 
 test: "EvalSpec" = {
     "name": "add-deprecation-warning",
+    "task_type": "structured_process",
     "files": {
         "api_client.py": '''\
 """API client module for the metrics service."""

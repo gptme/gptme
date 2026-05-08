@@ -90,6 +90,7 @@ def check_all_functions_have_docstrings(ctx):
 
 test: "EvalSpec" = {
     "name": "add-docstrings",
+    "task_type": "structured_process",
     "files": {
         "utils.py": """\
 import re

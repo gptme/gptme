@@ -228,6 +228,7 @@ def test_raises_on_circuit_open():
 
 test: "EvalSpec" = {
     "name": "circuit-breaker",
+    "task_type": "structured_process",
     "files": {
         "client.py": CLIENT_SRC,
         "test_client.py": TEST_CLIENT_SRC,
