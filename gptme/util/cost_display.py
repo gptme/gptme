@@ -251,7 +251,7 @@ def gather_per_step_costs(messages: list[Message]) -> list[StepCost]:
     step_idx = 0
 
     for msg in messages:
-        if msg.metadata:
+        if msg.role == "assistant" and msg.metadata:
             usage = msg.metadata.get("usage", {})
             input_tokens = usage.get("input_tokens", 0)
             output_tokens = usage.get("output_tokens", 0)
@@ -384,12 +384,8 @@ def display_costs(
             + "Model"
         )
         for step in per_step:
-            total_tokens = (
-                step.input_tokens
-                + step.output_tokens
-                + step.cache_read_tokens
-                + step.cache_creation_tokens
-            )
+            cache_tokens = step.cache_read_tokens + step.cache_creation_tokens
+            total_tokens = step.input_tokens + step.output_tokens + cache_tokens
             model_short = _short_model_name(step.model) if step.model else ""
             console.log(
                 "  "
@@ -399,7 +395,7 @@ def display_costs(
                 + "  "
                 + f"{step.output_tokens:,}".rjust(7)
                 + "  "
-                + f"{step.cache_read_tokens:,}".rjust(7)
+                + f"{cache_tokens:,}".rjust(7)
                 + "  "
                 + f"{total_tokens:,}".rjust(7)
                 + "  "

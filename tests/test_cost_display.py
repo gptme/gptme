@@ -461,6 +461,33 @@ def test_gather_per_step_costs_multiple_steps():
     assert result[1].input_tokens == 200
 
 
+def test_gather_per_step_costs_cache_arithmetic():
+    """Cache column (read+creation) + input + output == total."""
+    msgs = [
+        Message(
+            role="assistant",
+            content="response",
+            metadata={
+                "usage": {
+                    "input_tokens": 100,
+                    "output_tokens": 50,
+                    "cache_read_tokens": 200,
+                    "cache_creation_tokens": 300,
+                },
+            },
+        ),
+    ]
+    result = gather_per_step_costs(msgs)
+    assert len(result) == 1
+    s = result[0]
+    # cache column = read + creation; total = input + output + cache_read + cache_creation
+    assert s.cache_read_tokens + s.cache_creation_tokens == 500
+    assert (
+        s.input_tokens + s.output_tokens + s.cache_read_tokens + s.cache_creation_tokens
+        == 650
+    )
+
+
 def test_gather_per_step_costs_skips_zero_input():
     """Messages with zero input AND zero output are skipped."""
     msgs = [
@@ -488,9 +515,8 @@ def test_gather_per_step_costs_skips_zero_input():
     assert result[0].input_tokens == 100
 
 
-def test_gather_per_step_costs_counts_user_metadata():
-    """Messages with metadata from any role are counted (step_index follows position)."""
-    # user message with a "system" token hit followed by assistant's actual usage
+def test_gather_per_step_costs_skips_user_metadata():
+    """Only assistant messages are counted; user messages with metadata are ignored."""
     msgs = [
         Message(
             role="user",
@@ -510,7 +536,8 @@ def test_gather_per_step_costs_counts_user_metadata():
         ),
     ]
     result = gather_per_step_costs(msgs)
-    # Both messages carry input_tokens > 0, so both are included
-    assert len(result) == 2
-    assert result[0].step_index == 1  # first with tokens
-    assert result[1].step_index == 2  # second with tokens
+    # Only the assistant message is a step; user metadata is ignored
+    assert len(result) == 1
+    assert result[0].step_index == 1
+    assert result[0].input_tokens == 25000
+    assert result[0].output_tokens == 100
