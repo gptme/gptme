@@ -193,9 +193,9 @@ def _run_chat_loop(
                 msg = prompt_queue.pop(0)
                 assert msg is not None, "prompt_queue contained None"
                 msg = include_paths(msg, manager.workspace)
-                manager.append(msg)
+                manager.append(_redact_sensitive_commands(msg))
 
-                # Handle user commands
+                # Handle user commands (uses original msg with unredacted content)
                 if msg.role == "user" and execute_cmd(msg, manager):
                     continue
 
