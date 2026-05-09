@@ -497,16 +497,52 @@ def retry_generator_on_overloaded(max_retries: int = 5, base_delay: float = 1.0)
 
 def init(config):
     global _anthropic, _is_proxy
+    from ..credentials import get_stored_api_key
+
     proxy_url = config.get_env("LLM_PROXY_URL", None)
     proxy_key = config.get_env("LLM_PROXY_API_KEY")
-    api_key = proxy_key or config.get_env_required("ANTHROPIC_API_KEY")
+    api_key = (
+        proxy_key
+        or config.get_env("ANTHROPIC_API_KEY")
+        or get_stored_api_key("anthropic")
+    )
+    if not api_key:
+        raise KeyError(
+            "Environment variable ANTHROPIC_API_KEY not set in env/config or credentials.toml"
+        )
+    _init_anthropic(api_key, proxy_url, proxy_key)
+
+
+def reinit(
+    api_key: str, proxy_url: str | None = None, proxy_key: str | None = None
+) -> None:
+    """Reinitialize the Anthropic client with a new API key at runtime.
+
+    Call this to switch credentials mid-session without restarting gptme.
+    Both streaming and non-streaming calls use the same module-level client,
+    so the old client is discarded and replaced.
+    """
+    if not api_key:
+        raise ValueError("api_key must be non-empty")
+    _init_anthropic(api_key, proxy_url, proxy_key)
+
+
+def _init_anthropic(
+    api_key: str,
+    proxy_url: str | None = None,
+    proxy_key: str | None = None,
+) -> None:
+    global _anthropic, _is_proxy
+    proxy_key = proxy_key or None
+    proxy_url = proxy_url or None
 
     from anthropic import NOT_GIVEN, Anthropic  # fmt: skip
 
+    from ..config import get_config  # fmt: skip
+
+    config = get_config()
+
     # Get configurable API timeout (default: client's own default of 10 minutes)
-    # If not set explicitly via LLM_API_TIMEOUT, we use NOT_GIVEN to let the
-    # client use its own default behavior, which handles streaming vs non-streaming
-    # requests differently and may evolve with future client versions.
     timeout_str = config.get_env("LLM_API_TIMEOUT")
     try:
         timeout = float(timeout_str) if timeout_str else NOT_GIVEN

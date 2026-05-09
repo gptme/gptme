@@ -614,24 +614,35 @@ def list_available_providers() -> list[tuple[Provider, str]]:
         auth_source is an env var name for API key providers, or "oauth" for
         OAuth-based providers like openai-subscription.
     """
+    from ..credentials import STORED_CREDENTIALS_SOURCE, list_stored_credentials
+
     config = get_config()
     available = []
+    seen: set[str] = set()
 
     for provider, env_var in PROVIDER_API_KEYS.items():
         if config.get_env(env_var):
             available.append((cast(Provider, provider), env_var))
+            seen.add(provider)
+
+    for provider, _api_key in list_stored_credentials():
+        if provider not in seen:
+            available.append((cast(Provider, provider), STORED_CREDENTIALS_SOURCE))
+            seen.add(provider)
 
     # Check OAuth-based providers (no API key, use token file)
     # Note: compute path directly to avoid side-effecting mkdir in _get_token_storage_path()
     _config_dir = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
     _token_path = _config_dir / "gptme" / "oauth" / "openai_subscription.json"
-    if _token_path.exists():
+    if _token_path.exists() and "openai-subscription" not in seen:
         available.append((cast(Provider, "openai-subscription"), "oauth"))
+        seen.add("openai-subscription")
 
     # Include plugin providers that have their API key configured
     for plugin_name, env_var in get_plugin_api_keys().items():
-        if config.get_env(env_var):
+        if config.get_env(env_var) and plugin_name not in seen:
             available.append((CustomProvider(plugin_name), env_var))
+            seen.add(plugin_name)
 
     return available
 

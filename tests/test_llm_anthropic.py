@@ -3,6 +3,7 @@ import os
 
 import pytest
 
+import gptme.llm.llm_anthropic as llm_anthropic
 from gptme.llm.llm_anthropic import (
     _HAS_OUTPUT_CONFIG,
     _adjust_thinking_budget,
@@ -16,6 +17,11 @@ from gptme.llm.llm_anthropic import (
 from gptme.message import Message
 from gptme.prompts import SYSTEM_PROMPT_CACHE_BOUNDARY
 from gptme.tools import get_tool, init_tools
+
+
+def test_reinit_requires_non_empty_api_key():
+    with pytest.raises(ValueError, match="api_key must be non-empty"):
+        llm_anthropic.reinit("")
 
 
 def test_message_conversion():
