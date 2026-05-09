@@ -156,7 +156,7 @@ Feature Comparison
    * - Price
      - Free
      - $20/mo+
-     - $0.08/hr + tokens
+     - pay-per-token
      - Free
      - $20/mo
      - Free
