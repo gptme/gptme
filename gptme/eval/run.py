@@ -26,6 +26,7 @@ from .agents import Agent, GPTMe
 from .agents.claude_code import ClaudeCodeAgent, is_claude_code_model
 from .cost import get_eval_costs
 from .execenv import DockerExecutionEnv, SimpleExecutionEnv
+from .pass_rate_gate import apply_gate, load_pass_rate_data
 from .types import (
     CaseResult,
     EvalResult,
@@ -128,6 +129,14 @@ def run_evals(
         if not evals:
             logger.warning("No evals to run")
         return {}
+    # Load natural pass-rate gate data once per run (Phase 3, idea #228).
+    # Opt-in via $GPTME_EVAL_PASS_RATE_GATE_FILE; missing => no override.
+    pass_rate_data = load_pass_rate_data()
+    if pass_rate_data:
+        logger.info(
+            "Pass-rate gate enabled: %d models in lookup",
+            len(pass_rate_data.get("lookup", {})),
+        )
     model_results: dict[ModelConfig, dict[str, EvalResult]] = defaultdict(dict)
     parallel = min(n_runs, parallel)
     with ProcessPoolExecutor(parallel) as executor:
@@ -166,6 +175,23 @@ def run_evals(
                     logger.debug(
                         "Suppressing lessons for %s (task_type=creative_restructuring)",
                         test["name"],
+                    )
+                # Natural pass-rate gate (Phase 3, idea #228).
+                # When per-(model,eval) holdout data says lessons help/hurt with
+                # statistical confidence, override the task_type default. Falls back
+                # to ``eval_no_lessons`` from above when no recommendation exists.
+                eval_no_lessons, pr_decision = apply_gate(
+                    model=config.model,
+                    eval_name=test["name"],
+                    no_lessons=eval_no_lessons,
+                    data=pass_rate_data,
+                )
+                if pr_decision != "default":
+                    logger.debug(
+                        "Pass-rate gate %s lessons for %s (model=%s)",
+                        pr_decision,
+                        test["name"],
+                        config.model,
                     )
                 future = executor.submit(
                     execute,
