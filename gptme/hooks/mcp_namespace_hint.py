@@ -81,14 +81,12 @@ def mcp_namespace_hint(
         total = len(tools)
         lines.append(
             f"\nMCP tool hint for @{server_name}: {total} available tool(s). "
-            f"Use the full tool name (e.g. ``mcp__{server_name}__tool_name``).\n"
+            f"Use the full tool name (e.g. ``{server_name}.tool_name``).\n"
         )
         for tool in tools:
             desc = getattr(tool, "description", "") or ""
             name = getattr(tool, "name", "?")
-            desc_line = f"- `mcp__{server_name}__{name}`" + (
-                f": {desc}" if desc else ""
-            )
+            desc_line = f"- `{server_name}.{name}`" + (f": {desc}" if desc else "")
             lines.append(desc_line)
         lines.append("")
 

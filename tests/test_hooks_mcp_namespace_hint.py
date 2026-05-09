@@ -79,7 +79,7 @@ class TestMcpNamespaceHint:
         hint = results[0]
         assert hint.role == "system"
         assert "github" in hint.content
-        assert "mcp__github__list_issues" in hint.content
+        assert "github.list_issues" in hint.content
         assert "List GitHub issues" in hint.content
 
     def test_at_ref_no_matching_server_yields_nothing(self):
@@ -103,8 +103,8 @@ class TestMcpNamespaceHint:
 
         assert len(results) == 1
         content = results[0].content
-        assert "mcp__github__list_issues" in content
-        assert "mcp__linear__create_ticket" in content
+        assert "github.list_issues" in content
+        assert "linear.create_ticket" in content
 
     def test_only_last_user_message_checked(self):
         client = _make_client(("list_issues", "List issues"))
@@ -131,7 +131,7 @@ class TestMcpNamespaceHint:
 
         assert len(results) == 1
         # Tool appears without description suffix
-        assert "mcp__myserver__ping`" in results[0].content
+        assert "myserver.ping`" in results[0].content
 
     def test_hint_format_contains_full_tool_name(self):
         client = _make_client(("do_thing", "Does a thing"))
@@ -139,6 +139,6 @@ class TestMcpNamespaceHint:
         results = _run(msgs, {"srv": client})
         content = results[0].content
         # Full namespaced name must appear
-        assert "mcp__srv__do_thing" in content
+        assert "srv.do_thing" in content
         # Description must appear
         assert "Does a thing" in content
