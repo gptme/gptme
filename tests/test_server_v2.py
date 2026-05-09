@@ -986,6 +986,55 @@ def test_v2_create_conversation_webui_html_hint(
     )
 
 
+def test_v2_create_conversation_webui_html_hint_disabled(
+    client: FlaskClient, tmp_path, monkeypatch
+):
+    """Test that GPTME_SERVE_HTML_HINT=false suppresses the webui HTML hint."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GPTME_CHAT_HISTORY", "false")
+    monkeypatch.setenv("GPTME_SERVE_HTML_HINT", "false")
+
+    from gptme.config import Config, set_config
+    from gptme.config.user import default_config
+
+    set_config(Config(user=default_config))
+    monkeypatch.setattr(
+        "gptme.prompts.workspace.config_path",
+        str(tmp_path / "config.toml"),
+    )
+
+    convname = f"test-server-v2-no-hint-{random.randint(0, 1000000)}"
+    response = client.put(
+        f"/api/v2/conversations/{convname}",
+        json={
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "Hello from non-webui client",
+                    "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+                }
+            ]
+        },
+    )
+    assert response.status_code == 200
+    conversation_id = response.get_json()["conversation_id"]
+
+    response = client.get(f"/api/v2/conversations/{conversation_id}")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data is not None
+    system_msgs = [m for m in data["log"] if m["role"] == "system"]
+
+    hint_found = any(
+        "Output format:" in m["content"] and "web interface" in m["content"]
+        for m in system_msgs
+    )
+    assert not hint_found, (
+        "WebUI HTML hint should be absent when GPTME_SERVE_HTML_HINT=false. "
+        f"System contents: {[m['content'][:80] for m in system_msgs]}"
+    )
+
+
 def test_v2_conversation_post(v2_conv, client: FlaskClient):
     """Test posting a message to a V2 conversation."""
     conversation_id = v2_conv["conversation_id"]
