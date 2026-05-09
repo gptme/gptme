@@ -176,6 +176,28 @@ class LessonsConfig:
 
 
 @dataclass
+class ArchitectConfig:
+    """Configuration for architect/editor coder split.
+
+    When enabled, planning (architect model) and editing (editor model) are
+    split into separate turns. The architect model produces a natural-language
+    plan without tools, then the editor model executes against the plan.
+    """
+
+    enabled: bool = False
+    """Enable architect/editor split mode."""
+
+    architect_model: str | None = None
+    """Model to use for the planning turn. Falls back to the primary model."""
+
+    editor_model: str | None = None
+    """Model to use for the editing turn. Falls back to a cheaper fast model."""
+
+    auto_accept: bool = False
+    """Skip user confirmation between architect and editor turns."""
+
+
+@dataclass
 class ProjectConfig:
     """Project-level configuration, such as which files to include in the context by default.
 
@@ -196,6 +218,8 @@ class ProjectConfig:
     context: ContextConfig = field(default_factory=ContextConfig)
 
     plugins: PluginsConfig = field(default_factory=PluginsConfig)
+
+    architect: ArchitectConfig = field(default_factory=ArchitectConfig)
 
     # Plugin-specific configuration namespace
     # Allows plugins to have their own config sections like [plugin.retrieval]
@@ -264,6 +288,12 @@ class ProjectConfig:
             if isinstance(plugin_data, dict):
                 plugin_config = plugin_data
 
+        # Parse architect config from TOML dict
+        architect = ArchitectConfig()
+        if architect_data := config_data.pop("architect", None):
+            if isinstance(architect_data, dict):
+                architect = ArchitectConfig(**architect_data)
+
         # Warn about unknown keys and drop them instead of passing them through
         # as kwargs (which would crash with "unexpected keyword argument").
         if config_data:
@@ -281,6 +311,7 @@ class ProjectConfig:
             agent=agent,
             lessons=lessons,
             context=context,
+            architect=architect,
             plugins=plugins,
             plugin=plugin_config,
             env=env,
