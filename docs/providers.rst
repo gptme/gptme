@@ -91,7 +91,7 @@ To configure provider credentials interactively, run ``/account`` inside gptme:
 
 ``/account setup openrouter`` starts browser-based OpenRouter sign-in using OAuth / PKCE, stores the resulting key in ``~/.config/gptme/credentials.toml``, and switches the default model to OpenRouter's recommended default.
 
-For providers without OAuth onboarding yet, ``/account setup <provider>`` prompts for the key without putting it in shell history and stores it in ``~/.config/gptme/credentials.toml``. Supported manual providers currently include ``anthropic``, ``openai``, ``deepseek``, ``gemini``, ``groq``, and ``xai``.
+For providers without OAuth onboarding yet, ``/account setup <provider>`` prompts for the key without putting it in shell history and stores it in ``~/.config/gptme/credentials.toml`` (or ``$XDG_CONFIG_HOME/gptme/credentials.toml`` if set). Supported manual providers currently include ``anthropic``, ``openai``, ``deepseek``, ``gemini``, ``groq``, and ``xai``.
 
 You can still use the ``[env]`` section in the :ref:`global-config` file to store API keys using the same format as the environment variables:
 
