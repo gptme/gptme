@@ -27,6 +27,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_vision": True,
             "supports_reasoning": True,
             "supports_parallel_tool_calls": True,
+            "preferred_edit_format": "diff",
             "knowledge_cutoff": datetime(
                 2025, 8, 1, tzinfo=timezone.utc
             ),  # training cutoff Aug 2025
@@ -40,6 +41,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_vision": True,
             "supports_reasoning": True,
             "supports_parallel_tool_calls": True,
+            "preferred_edit_format": "diff",
             "knowledge_cutoff": datetime(
                 2025, 8, 1, tzinfo=timezone.utc
             ),  # training cutoff Aug 2025, reliable May 2025
@@ -53,6 +55,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_vision": True,
             "supports_reasoning": True,
             "supports_parallel_tool_calls": True,  # verified: emits multiple tool calls per response
+            "preferred_edit_format": "diff",
             "knowledge_cutoff": datetime(
                 2026, 1, 1, tzinfo=timezone.utc
             ),  # training cutoff Jan 2026, reliable Aug 2025
@@ -65,6 +68,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_vision": True,
             "supports_reasoning": True,
             "supports_parallel_tool_calls": True,
+            "preferred_edit_format": "diff",
             "knowledge_cutoff": datetime(
                 2025, 8, 1, tzinfo=timezone.utc
             ),  # training cutoff Aug 2025, reliable May 2025
@@ -77,6 +81,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_vision": True,
             "supports_reasoning": True,
             "supports_parallel_tool_calls": True,
+            "preferred_edit_format": "diff",
             "knowledge_cutoff": datetime(
                 2025, 7, 1, tzinfo=timezone.utc
             ),  # training cutoff Jul 2025, reliable Jan 2025
@@ -90,6 +95,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_reasoning": True,
             # supports_parallel_tool_calls intentionally absent (defaults to False):
             # unlike Sonnet/Opus 4.5, Haiku 4.5 does not emit multiple tool calls per response
+            "preferred_edit_format": "diff",
             "knowledge_cutoff": datetime(
                 2025, 7, 1, tzinfo=timezone.utc
             ),  # "reliable cutoff" is Feb 2025
@@ -102,6 +108,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_vision": True,
             "supports_reasoning": True,
             "supports_parallel_tool_calls": True,
+            "preferred_edit_format": "diff",
             "knowledge_cutoff": datetime(2025, 3, 1, tzinfo=timezone.utc),
         },
         "claude-opus-4-20250514": {
@@ -112,6 +119,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_vision": True,
             "supports_reasoning": True,
             "supports_parallel_tool_calls": True,
+            "preferred_edit_format": "diff",
             "knowledge_cutoff": datetime(2025, 3, 1, tzinfo=timezone.utc),
         },
         "claude-sonnet-4-20250514": {
@@ -122,6 +130,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_vision": True,
             "supports_reasoning": True,
             "supports_parallel_tool_calls": True,
+            "preferred_edit_format": "diff",
             "knowledge_cutoff": datetime(2025, 3, 1, tzinfo=timezone.utc),
         },
         # Deprecated models merged from separate file
@@ -234,12 +243,14 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             # 10x better price for cache hits
             "price_input": 0.14,
             "price_output": 1.1,
+            "preferred_edit_format": "diff",
         },
         "deepseek-reasoner": {
             "context": 128_000,
             "max_output": 8192,
             "price_input": 0.55,
             "price_output": 2.19,
+            "preferred_edit_format": "diff",
         },
     },
     # https://groq.com/pricing/
@@ -249,6 +260,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "max_output": 32_768,
             "price_input": 0.59,
             "price_output": 0.79,
+            "preferred_edit_format": "diff",
         },
     },
     # https://docs.x.ai/docs/models
@@ -260,6 +272,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 0.5,
             "supports_vision": True,
             "supports_reasoning": True,
+            "preferred_edit_format": "diff",
         },
         "grok-code-fast-1": {
             "context": 256_000,
@@ -267,6 +280,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_input": 0.2,
             "price_output": 1.5,
             "supports_reasoning": True,
+            "preferred_edit_format": "diff",
         },
         "grok-4-fast": {
             "context": 2_000_000,
@@ -275,6 +289,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 0.5,
             "supports_reasoning": True,
             "supports_vision": True,
+            "preferred_edit_format": "diff",
         },
         "grok-4": {
             "context": 256_000,
@@ -283,6 +298,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 15,
             "supports_reasoning": True,
             "supports_vision": True,
+            "preferred_edit_format": "diff",
         },
         "grok-3": {
             "context": 131_072,
@@ -291,6 +307,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 15,
             "supports_reasoning": True,
             "supports_vision": True,
+            "preferred_edit_format": "diff",
         },
         "grok-3-mini": {
             "context": 131_072,
@@ -298,6 +315,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_input": 0.3,
             "price_output": 0.5,
             "supports_reasoning": True,
+            "preferred_edit_format": "diff",
         },
         "grok-2-vision-1212": {
             "context": 32_768,
@@ -305,6 +323,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_input": 2,
             "price_output": 10,
             "supports_vision": True,
+            "preferred_edit_format": "whole",
         },
     },
     "openrouter": {

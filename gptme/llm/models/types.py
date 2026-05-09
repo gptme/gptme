@@ -117,6 +117,13 @@ class ModelMeta:
     # preferred tool format for this model (used as fallback when not explicitly set)
     default_tool_format: "ToolFormat | None" = None
 
+    # preferred code-edit format for this model (hint: "diff" for patch/morph,
+    # "whole" for save/whole-file).  Derived from Aider's empirical per-model
+    # edit-format registry.  Used by callers that want to steer the model
+    # toward the format it handles best.
+    # See gptme/gptme#2362.
+    preferred_edit_format: str | None = None
+
     @property
     def full(self) -> str:
         # For unknown providers (including custom providers), the model field
@@ -210,3 +217,6 @@ class _ModelDictMeta(TypedDict):
 
     # preferred tool format for this model
     default_tool_format: NotRequired["ToolFormat"]
+
+    # preferred edit format for this model
+    preferred_edit_format: NotRequired[str]
