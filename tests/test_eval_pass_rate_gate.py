@@ -55,6 +55,19 @@ def test_load_returns_none_for_missing_file(tmp_path, monkeypatch):
     assert load_pass_rate_data(missing) is None
 
 
+def test_load_warns_when_env_var_set_but_file_missing(tmp_path, monkeypatch, caplog):
+    import logging
+
+    monkeypatch.setenv(ENV_VAR, str(tmp_path / "nonexistent.json"))
+    with caplog.at_level(logging.WARNING, logger="gptme.eval.pass_rate_gate"):
+        result = load_pass_rate_data()
+    assert result is None
+    assert any(
+        "nonexistent.json" in r.message and r.levelno == logging.WARNING
+        for r in caplog.records
+    )
+
+
 def test_load_picks_up_env_var(tmp_path, monkeypatch, sample_data):
     p = tmp_path / "rates.json"
     p.write_text(json.dumps(sample_data))

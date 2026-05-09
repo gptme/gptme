@@ -45,14 +45,23 @@ def load_pass_rate_data(path: Path | str | None = None) -> dict | None:
     Returns ``None`` if no path is configured or the file does not exist.
     Raises ``ValueError`` for malformed JSON so misconfigurations fail loudly.
     """
+    from_env = False
     if path is None:
         env = os.environ.get(ENV_VAR)
         if not env:
             return None
         path = env
+        from_env = True
     p = Path(path)
     if not p.is_file():
-        logger.debug("Pass-rate gate file not found: %s", p)
+        if from_env:
+            logger.warning(
+                "Pass-rate gate file not found (set via %s): %s — gating disabled",
+                ENV_VAR,
+                p,
+            )
+        else:
+            logger.debug("Pass-rate gate file not found: %s", p)
         return None
     try:
         data = json.loads(p.read_text())
