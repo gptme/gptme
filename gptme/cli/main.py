@@ -686,8 +686,15 @@ def main(
         )
         sys.exit(1)
 
-    # Architect/editor split: if enabled, run architect plan turn before editor
-    if architect_enabled and prompt_msgs and not is_existing_conversation:
+    # Architect/editor split: if enabled via CLI flag OR via TOML config
+    _toml_architect_enabled = bool(
+        config.project and config.project.architect and config.project.architect.enabled
+    )
+    if (
+        (architect_enabled or _toml_architect_enabled)
+        and prompt_msgs
+        and not is_existing_conversation
+    ):
         # Determine architect model: CLI flag > config > default model
         _arch_model = architect_model or (
             config.project
@@ -738,6 +745,25 @@ def main(
 
         plan_text = architect_response.content.strip()
         logger.info("Architect plan generated (%d chars)", len(plan_text))
+
+        # Confirmation gate: show plan and ask before handing off to editor
+        if not _auto_accept and not no_confirm:
+            from ..util import console
+
+            console.print("\n[bold]Architect plan:[/bold]")
+            console.print(plan_text)
+            console.print()
+            answer = input("Proceed with editor turn? [y/N] ").strip().lower()
+            if answer not in ("y", "yes"):
+                logger.info("Architect turn cancelled by user.")
+                return
+
+        if len(prompt_msgs) > 1:
+            logger.warning(
+                "Architect mode: %d extra prompt message(s) beyond the first will be dropped. "
+                "Only the first user message is used for planning.",
+                len(prompt_msgs) - 1,
+            )
 
         # Inject plan as system message + editor prompt, replace original prompt
         editor_injection = make_editor_injection(plan_text)

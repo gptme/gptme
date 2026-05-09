@@ -292,7 +292,15 @@ class ProjectConfig:
         architect = ArchitectConfig()
         if architect_data := config_data.pop("architect", None):
             if isinstance(architect_data, dict):
-                architect = ArchitectConfig(**architect_data)
+                known_keys = set(ArchitectConfig.__dataclass_fields__)
+                unknown = {k for k in architect_data if k not in known_keys}
+                if unknown:
+                    logger.warning(
+                        f"Unknown keys in architect config: {unknown} (ignored)"
+                    )
+                architect = ArchitectConfig(
+                    **{k: v for k, v in architect_data.items() if k in known_keys}
+                )
 
         # Warn about unknown keys and drop them instead of passing them through
         # as kwargs (which would crash with "unexpected keyword argument").
