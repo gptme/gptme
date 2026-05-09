@@ -89,10 +89,7 @@ class TestMcpNamespaceHint:
 
     def test_no_loaded_servers_yields_nothing(self):
         msgs = [Message("user", "@github list PRs")]
-        with (
-            patch("gptme.tools.mcp_adapter._mcp_clients", {}),
-            patch("gptme.tools.mcp_adapter._dynamic_servers", {}),
-        ):
+        with patch("gptme.tools.mcp_adapter.get_mcp_clients", return_value={}):
             results = list(mcp_namespace_hint(msgs))
         assert results == []
 
