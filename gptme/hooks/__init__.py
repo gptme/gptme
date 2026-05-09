@@ -180,6 +180,9 @@ def init_hooks(
         "agents_md_inject": lambda: __import__(
             "gptme.hooks.agents_md_inject", fromlist=["register"]
         ).register(),
+        "mcp_namespace_hint": lambda: __import__(
+            "gptme.hooks.mcp_namespace_hint", fromlist=["register"]
+        ).register(),
         # Tool confirmation hooks (mode-specific, not registered by default)
         "cli_confirm": lambda: __import__(
             "gptme.hooks.cli_confirm", fromlist=["register"]
