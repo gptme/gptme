@@ -74,6 +74,8 @@ _OPENAI_MODELS_ACTIVE: dict[str, "_ModelDictMeta"] = {
         "price_output": 1.6,
         "supports_vision": True,
         "supports_parallel_tool_calls": True,
+        # "diff" despite "mini" in name — GPT-4.1-mini (Apr 2025) is a newer, more capable
+        # generation than gpt-4o-mini, with substantially better instruction-following.
         "preferred_edit_format": "diff",
         "knowledge_cutoff": datetime(2024, 6, 1, tzinfo=timezone.utc),
     },

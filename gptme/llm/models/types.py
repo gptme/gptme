@@ -122,7 +122,7 @@ class ModelMeta:
     # edit-format registry.  Used by callers that want to steer the model
     # toward the format it handles best.
     # See gptme/gptme#2362.
-    preferred_edit_format: str | None = None
+    preferred_edit_format: Literal["diff", "whole"] | None = None
 
     @property
     def full(self) -> str:
@@ -219,4 +219,4 @@ class _ModelDictMeta(TypedDict):
     default_tool_format: NotRequired["ToolFormat"]
 
     # preferred edit format for this model
-    preferred_edit_format: NotRequired[str]
+    preferred_edit_format: NotRequired[Literal["diff", "whole"]]

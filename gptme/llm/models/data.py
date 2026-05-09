@@ -147,6 +147,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 12,
             "supports_vision": True,
             "supports_reasoning": True,
+            "preferred_edit_format": "diff",
         },
         "gemini-3-pro-preview": {
             "context": 1_000_000,
@@ -155,6 +156,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 12,
             "supports_vision": True,
             "supports_reasoning": True,
+            "preferred_edit_format": "diff",
         },
         "gemini-3-flash-preview": {
             "context": 1_000_000,
@@ -163,6 +165,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 3,
             "supports_vision": True,
             "supports_reasoning": True,
+            "preferred_edit_format": "diff",
         },
         "gemini-2.0-flash": {
             "context": 1_048_576,
@@ -170,6 +173,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_input": 0.10,
             "price_output": 0.40,
             "supports_vision": True,
+            "preferred_edit_format": "whole",
         },
         "gemini-1.5-flash-latest": {
             "context": 1_048_576,
@@ -177,6 +181,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_input": 0.15,
             "price_output": 0.60,
             "supports_vision": True,
+            "preferred_edit_format": "whole",
         },
         "gemini-2.0-flash-thinking-exp-01-21": {
             "context": 1_048_576,
@@ -185,12 +190,14 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 0.60,
             "supports_vision": True,
             "supports_reasoning": True,
+            "preferred_edit_format": "diff",
         },
         "gemini-2.0-flash-lite": {
             "context": 1_048_576,
             "max_output": 8192,
             "price_input": 0.075,
             "price_output": 0.30,
+            "preferred_edit_format": "whole",
         },
         "gemini-2.5-flash-preview-04-17": {
             "context": 1_048_576,
@@ -200,6 +207,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 0.60,
             "supports_vision": True,
             "supports_reasoning": True,
+            "preferred_edit_format": "diff",
         },
         "gemini-2.5-pro-preview-05-06": {
             "context": 1_048_576,
@@ -209,6 +217,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 10,
             "supports_vision": True,
             "supports_reasoning": True,
+            "preferred_edit_format": "diff",
         },
         "gemini-2.5-flash-lite": {
             "context": 1_000_000,
@@ -216,6 +225,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_input": 0.1,
             "price_output": 0.4,
             "supports_vision": True,
+            "preferred_edit_format": "whole",
         },
         "gemini-2.5-flash": {
             "context": 1_048_576,
@@ -224,6 +234,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 2.5,
             "supports_vision": True,
             "supports_reasoning": True,
+            "preferred_edit_format": "diff",
         },
         "gemini-2.5-pro": {
             "context": 1_048_576,
@@ -233,6 +244,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 10,
             "supports_vision": True,
             "supports_reasoning": True,
+            "preferred_edit_format": "diff",
         },
     },
     # https://api-docs.deepseek.com/quick_start/pricing

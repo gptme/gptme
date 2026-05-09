@@ -37,6 +37,8 @@ def model_to_dict(model: ModelMeta) -> dict[str, Any]:
         d["knowledge_cutoff"] = model.knowledge_cutoff.isoformat()
     if model.deprecated:
         d["deprecated"] = True
+    if model.preferred_edit_format is not None:
+        d["preferred_edit_format"] = model.preferred_edit_format
     return d
 
 
