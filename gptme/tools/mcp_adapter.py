@@ -43,6 +43,16 @@ _registry = MCPRegistry()
 _dynamic_servers: dict[str, MCPClient] = {}
 
 
+def get_mcp_clients() -> dict[str, MCPClient]:
+    """Get all loaded MCP clients (pre-configured and dynamic).
+
+    Returns a merged view of all currently loaded MCP clients keyed by
+    server name. The hook layer uses this instead of importing private
+    module-level dicts directly.
+    """
+    return {**_mcp_clients, **_dynamic_servers}
+
+
 def _get_mcp_client(server_name: str) -> MCPClient | None:
     """Get MCP client from either pre-configured or dynamically loaded servers."""
     return _mcp_clients.get(server_name) or _dynamic_servers.get(server_name)

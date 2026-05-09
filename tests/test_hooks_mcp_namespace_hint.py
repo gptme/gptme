@@ -24,10 +24,7 @@ def _make_client(*tool_specs: tuple[str, str]) -> MagicMock:
 
 def _run(messages: list[Message], clients: dict) -> list[Message]:
     """Invoke the hook under a patched MCP adapter state."""
-    with (
-        patch("gptme.tools.mcp_adapter._mcp_clients", clients),
-        patch("gptme.tools.mcp_adapter._dynamic_servers", {}),
-    ):
+    with patch("gptme.tools.mcp_adapter.get_mcp_clients", return_value=clients):
         return [
             item
             for item in mcp_namespace_hint(messages)
@@ -52,6 +49,10 @@ class TestMcpHintRegex:
 
     def test_no_match_plain_text(self):
         assert _MCP_HINT_RE.findall("just some text here") == []
+
+    def test_no_false_positive_on_email_address(self):
+        # word char before @ means it's an email, not an MCP ref
+        assert _MCP_HINT_RE.findall("contact user@github.com for help") == []
 
 
 # ---------------------------------------------------------------------------

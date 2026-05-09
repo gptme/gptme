@@ -18,7 +18,9 @@ from . import HookType, StopPropagation, register_hook
 logger = getLogger(__name__)
 
 # Match @name patterns — server names are alphanumeric + hyphens
-_MCP_HINT_RE = re.compile(r"@([\w][\w-]*)")
+# Match @name patterns — server names are alphanumeric + hyphens.
+# Negative lookbehind avoids false positives on email addresses (user@github.com).
+_MCP_HINT_RE = re.compile(r"(?<!\w)@([\w][\w-]*)")
 
 
 def mcp_namespace_hint(
@@ -52,9 +54,9 @@ def mcp_namespace_hint(
         return
 
     # Get loaded MCP servers and their tool listings
-    from gptme.tools.mcp_adapter import _dynamic_servers, _mcp_clients
+    from gptme.tools.mcp_adapter import get_mcp_clients
 
-    all_clients: dict[str, object] = {**_mcp_clients, **_dynamic_servers}
+    all_clients = get_mcp_clients()
     if not all_clients:
         return
 
