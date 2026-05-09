@@ -557,9 +557,16 @@ gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span clas
 gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>gptme/claude-sonnet-4-6
 </pre></div>
 </div>
-<p>You can list the models known to gptme using <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">'/models'</span> <span class="pre">-</span> <span class="pre">'/exit'</span></code></p>
-<p>On first startup API key will be prompted for if no model and no API keys are set in the config/environment. The key will be saved in the configuration file, the provider will be inferred, and its default model used.</p>
-<p>Use the <code class="docutils literal notranslate"><span class="pre">[env]</span></code> section in the <a class="reference internal" href="config.html#global-config"><span class="std std-ref">Global config</span></a> file to store API keys using the same format as the environment variables:</p>
+<p>You can list the models known to gptme using <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">'/models'</span> <span class="pre">-</span> <span class="pre">'/exit'</span></code>.</p>
+<p>To configure provider credentials interactively, run <code class="docutils literal notranslate"><span class="pre">/account</span></code> inside gptme:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/account
+/account setup
+/account setup openrouter
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">/account</span> <span class="pre">setup</span> <span class="pre">openrouter</span></code> starts browser-based OpenRouter sign-in using OAuth / PKCE, stores the resulting key in <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/credentials.toml</span></code>, and switches the default model to OpenRouter’s recommended default.</p>
+<p>For providers without OAuth onboarding yet, <code class="docutils literal notranslate"><span class="pre">/account</span> <span class="pre">setup</span> <span class="pre">&lt;provider&gt;</span></code> prompts for the key without putting it in shell history and stores it in <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/credentials.toml</span></code> (or <code class="docutils literal notranslate"><span class="pre">$XDG_CONFIG_HOME/gptme/credentials.toml</span></code> if set). Supported manual providers currently include <code class="docutils literal notranslate"><span class="pre">anthropic</span></code>, <code class="docutils literal notranslate"><span class="pre">openai</span></code>, <code class="docutils literal notranslate"><span class="pre">deepseek</span></code>, <code class="docutils literal notranslate"><span class="pre">gemini</span></code>, <code class="docutils literal notranslate"><span class="pre">groq</span></code>, and <code class="docutils literal notranslate"><span class="pre">xai</span></code>.</p>
+<p>You can still use the <code class="docutils literal notranslate"><span class="pre">[env]</span></code> section in the <a class="reference internal" href="config.html#global-config"><span class="std std-ref">Global config</span></a> file to store API keys using the same format as the environment variables:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">OPENAI_API_KEY=&quot;your-api-key&quot;</span></code></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">ANTHROPIC_API_KEY=&quot;your-api-key&quot;</span></code></p></li>
