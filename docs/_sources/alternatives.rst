@@ -156,7 +156,7 @@ Feature Comparison
    * - Price
      - Free
      - $20/mo+
-     - Pay-per-use
+     - pay-per-token
      - Free
      - $20/mo
      - Free
@@ -164,6 +164,17 @@ Feature Comparison
      - Free
      - Free
      - $500/mo
+   * - Runtime fee
+     - $0
+     - $0
+     - $0.08/hr (~$58/mo)
+     - $0
+     - $0
+     - $0
+     - $0
+     - $0
+     - $0
+     - bundled
 
 
 Overview
@@ -198,7 +209,7 @@ Overview
      - API
      - Autonomous agents
      - Cloud
-     - Pay-per-use
+     - $0.08/hr + tokens
      - VC
      - |cross|
    * - Aider
