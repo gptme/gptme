@@ -723,10 +723,12 @@ def main(
             make_editor_injection,
         )
 
-        # Build full messages for architect: initial_msgs + architect system + user prompt
-        architect_msgs = list(initial_msgs)
+        # Build architect messages: stripped context (no tool docs).
+        # Do NOT include initial_msgs — the full tool-laden system prompt contradicts
+        # the design intent of a stripped planning context where the model sees
+        # only ARCHITECT_SYSTEM_PROMPT + the user's request.
         first_prompt = prompt_msgs[0]
-        architect_msgs.extend(make_architect_messages(first_prompt.content))
+        architect_msgs = make_architect_messages(first_prompt.content)
 
         logger.info(
             "Architect mode: planning with %s, will edit with %s",
