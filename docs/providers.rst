@@ -79,11 +79,21 @@ To select a provider and model, run ``gptme`` with the ``-m``/``--model`` flag s
     gptme "hello" -m local/llama3.2:1b
     gptme "hello" -m gptme/claude-sonnet-4-6
 
-You can list the models known to gptme using ``gptme '/models' - '/exit'``
+You can list the models known to gptme using ``gptme '/models' - '/exit'``.
 
-On first startup API key will be prompted for if no model and no API keys are set in the config/environment. The key will be saved in the configuration file, the provider will be inferred, and its default model used.
+To configure provider credentials interactively, run ``/account`` inside gptme:
 
-Use the ``[env]`` section in the :ref:`global-config` file to store API keys using the same format as the environment variables:
+.. code-block:: text
+
+    /account
+    /account setup
+    /account setup openrouter
+
+``/account setup openrouter`` starts browser-based OpenRouter sign-in using OAuth / PKCE, stores the resulting key in ``~/.config/gptme/credentials.toml``, and switches the default model to OpenRouter's recommended default.
+
+For providers without OAuth onboarding yet, ``/account setup <provider>`` prompts for the key without putting it in shell history and stores it in ``credentials.toml``. Supported manual providers currently include ``anthropic``, ``openai``, ``deepseek``, ``gemini``, ``groq``, and ``xai``.
+
+You can still use the ``[env]`` section in the :ref:`global-config` file to store API keys using the same format as the environment variables:
 
 - ``OPENAI_API_KEY="your-api-key"``
 - ``ANTHROPIC_API_KEY="your-api-key"``

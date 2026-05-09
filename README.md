@@ -405,11 +405,14 @@ This stack is simple and composable: selectors improve work choice, lessons stee
 ### Prerequisites
 
 - Python 3.10 or newer
-- An API key for at least one LLM provider:
-  - [Anthropic](https://console.anthropic.com/) (set `ANTHROPIC_API_KEY`)
-  - [OpenAI](https://platform.openai.com/) (set `OPENAI_API_KEY`)
-  - [OpenRouter](https://openrouter.ai/) (set `OPENROUTER_API_KEY`)
-  - Local models via `llama.cpp` (no key required — see [providers docs][docs-providers])
+- Credentials for at least one LLM provider:
+  - OpenRouter can be configured interactively with `/account setup openrouter`
+    inside gptme, using browser OAuth onboarding.
+  - You can also set API keys manually for [Anthropic](https://console.anthropic.com/)
+    (`ANTHROPIC_API_KEY`), [OpenAI](https://platform.openai.com/)
+    (`OPENAI_API_KEY`), [OpenRouter](https://openrouter.ai/)
+    (`OPENROUTER_API_KEY`), and other providers.
+  - Local models via `llama.cpp` need no key — see [providers docs][docs-providers].
 
 ### Installation
 
