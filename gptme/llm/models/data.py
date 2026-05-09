@@ -27,6 +27,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_vision": True,
             "supports_reasoning": True,
             "supports_parallel_tool_calls": True,
+            "preferred_edit_format": "diff",
             "knowledge_cutoff": datetime(
                 2025, 8, 1, tzinfo=timezone.utc
             ),  # training cutoff Aug 2025
@@ -40,6 +41,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_vision": True,
             "supports_reasoning": True,
             "supports_parallel_tool_calls": True,
+            "preferred_edit_format": "diff",
             "knowledge_cutoff": datetime(
                 2025, 8, 1, tzinfo=timezone.utc
             ),  # training cutoff Aug 2025, reliable May 2025
@@ -53,6 +55,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_vision": True,
             "supports_reasoning": True,
             "supports_parallel_tool_calls": True,  # verified: emits multiple tool calls per response
+            "preferred_edit_format": "diff",
             "knowledge_cutoff": datetime(
                 2026, 1, 1, tzinfo=timezone.utc
             ),  # training cutoff Jan 2026, reliable Aug 2025
@@ -65,6 +68,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_vision": True,
             "supports_reasoning": True,
             "supports_parallel_tool_calls": True,
+            "preferred_edit_format": "diff",
             "knowledge_cutoff": datetime(
                 2025, 8, 1, tzinfo=timezone.utc
             ),  # training cutoff Aug 2025, reliable May 2025
@@ -77,6 +81,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_vision": True,
             "supports_reasoning": True,
             "supports_parallel_tool_calls": True,
+            "preferred_edit_format": "diff",
             "knowledge_cutoff": datetime(
                 2025, 7, 1, tzinfo=timezone.utc
             ),  # training cutoff Jul 2025, reliable Jan 2025
@@ -90,6 +95,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_reasoning": True,
             # supports_parallel_tool_calls intentionally absent (defaults to False):
             # unlike Sonnet/Opus 4.5, Haiku 4.5 does not emit multiple tool calls per response
+            "preferred_edit_format": "diff",
             "knowledge_cutoff": datetime(
                 2025, 7, 1, tzinfo=timezone.utc
             ),  # "reliable cutoff" is Feb 2025
@@ -102,6 +108,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_vision": True,
             "supports_reasoning": True,
             "supports_parallel_tool_calls": True,
+            "preferred_edit_format": "diff",
             "knowledge_cutoff": datetime(2025, 3, 1, tzinfo=timezone.utc),
         },
         "claude-opus-4-20250514": {
@@ -112,6 +119,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_vision": True,
             "supports_reasoning": True,
             "supports_parallel_tool_calls": True,
+            "preferred_edit_format": "diff",
             "knowledge_cutoff": datetime(2025, 3, 1, tzinfo=timezone.utc),
         },
         "claude-sonnet-4-20250514": {
@@ -122,6 +130,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_vision": True,
             "supports_reasoning": True,
             "supports_parallel_tool_calls": True,
+            "preferred_edit_format": "diff",
             "knowledge_cutoff": datetime(2025, 3, 1, tzinfo=timezone.utc),
         },
         # Deprecated models merged from separate file
@@ -138,6 +147,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 12,
             "supports_vision": True,
             "supports_reasoning": True,
+            "preferred_edit_format": "diff",
         },
         "gemini-3-pro-preview": {
             "context": 1_000_000,
@@ -146,6 +156,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 12,
             "supports_vision": True,
             "supports_reasoning": True,
+            "preferred_edit_format": "diff",
         },
         "gemini-3-flash-preview": {
             "context": 1_000_000,
@@ -154,6 +165,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 3,
             "supports_vision": True,
             "supports_reasoning": True,
+            "preferred_edit_format": "diff",
         },
         "gemini-2.0-flash": {
             "context": 1_048_576,
@@ -161,6 +173,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_input": 0.10,
             "price_output": 0.40,
             "supports_vision": True,
+            "preferred_edit_format": "whole",
         },
         "gemini-1.5-flash-latest": {
             "context": 1_048_576,
@@ -168,6 +181,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_input": 0.15,
             "price_output": 0.60,
             "supports_vision": True,
+            "preferred_edit_format": "whole",
         },
         "gemini-2.0-flash-thinking-exp-01-21": {
             "context": 1_048_576,
@@ -176,12 +190,14 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 0.60,
             "supports_vision": True,
             "supports_reasoning": True,
+            "preferred_edit_format": "diff",
         },
         "gemini-2.0-flash-lite": {
             "context": 1_048_576,
             "max_output": 8192,
             "price_input": 0.075,
             "price_output": 0.30,
+            "preferred_edit_format": "whole",
         },
         "gemini-2.5-flash-preview-04-17": {
             "context": 1_048_576,
@@ -191,6 +207,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 0.60,
             "supports_vision": True,
             "supports_reasoning": True,
+            "preferred_edit_format": "diff",
         },
         "gemini-2.5-pro-preview-05-06": {
             "context": 1_048_576,
@@ -200,6 +217,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 10,
             "supports_vision": True,
             "supports_reasoning": True,
+            "preferred_edit_format": "diff",
         },
         "gemini-2.5-flash-lite": {
             "context": 1_000_000,
@@ -207,6 +225,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_input": 0.1,
             "price_output": 0.4,
             "supports_vision": True,
+            "preferred_edit_format": "whole",
         },
         "gemini-2.5-flash": {
             "context": 1_048_576,
@@ -215,6 +234,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 2.5,
             "supports_vision": True,
             "supports_reasoning": True,
+            "preferred_edit_format": "diff",
         },
         "gemini-2.5-pro": {
             "context": 1_048_576,
@@ -224,6 +244,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 10,
             "supports_vision": True,
             "supports_reasoning": True,
+            "preferred_edit_format": "diff",
         },
     },
     # https://api-docs.deepseek.com/quick_start/pricing
@@ -234,12 +255,14 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             # 10x better price for cache hits
             "price_input": 0.14,
             "price_output": 1.1,
+            "preferred_edit_format": "diff",
         },
         "deepseek-reasoner": {
             "context": 128_000,
             "max_output": 8192,
             "price_input": 0.55,
             "price_output": 2.19,
+            "preferred_edit_format": "diff",
         },
     },
     # https://groq.com/pricing/
@@ -249,6 +272,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "max_output": 32_768,
             "price_input": 0.59,
             "price_output": 0.79,
+            "preferred_edit_format": "diff",
         },
     },
     # https://docs.x.ai/docs/models
@@ -260,6 +284,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 0.5,
             "supports_vision": True,
             "supports_reasoning": True,
+            "preferred_edit_format": "diff",
         },
         "grok-code-fast-1": {
             "context": 256_000,
@@ -267,6 +292,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_input": 0.2,
             "price_output": 1.5,
             "supports_reasoning": True,
+            "preferred_edit_format": "diff",
         },
         "grok-4-fast": {
             "context": 2_000_000,
@@ -275,6 +301,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 0.5,
             "supports_reasoning": True,
             "supports_vision": True,
+            "preferred_edit_format": "diff",
         },
         "grok-4": {
             "context": 256_000,
@@ -283,6 +310,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 15,
             "supports_reasoning": True,
             "supports_vision": True,
+            "preferred_edit_format": "diff",
         },
         "grok-3": {
             "context": 131_072,
@@ -291,6 +319,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 15,
             "supports_reasoning": True,
             "supports_vision": True,
+            "preferred_edit_format": "diff",
         },
         "grok-3-mini": {
             "context": 131_072,
@@ -298,6 +327,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_input": 0.3,
             "price_output": 0.5,
             "supports_reasoning": True,
+            "preferred_edit_format": "diff",
         },
         "grok-2-vision-1212": {
             "context": 32_768,
@@ -305,6 +335,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_input": 2,
             "price_output": 10,
             "supports_vision": True,
+            "preferred_edit_format": "whole",
         },
     },
     "openrouter": {

@@ -302,6 +302,7 @@ def test_models_list_json_suppresses_provider_noise(mocker):
                 price_output=None,
                 knowledge_cutoff=None,
                 deprecated=False,
+                preferred_edit_format=None,
             )
         ]
 
@@ -340,6 +341,7 @@ def test_models_list_json_available_keeps_plugin_models(mocker):
                 price_output=0,
                 knowledge_cutoff=None,
                 deprecated=False,
+                preferred_edit_format=None,
             )
         ],
     )
