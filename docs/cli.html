@@ -719,6 +719,30 @@ PROMPTS can be chained with the ‘-’ separator.</p>
 <dd><p>Context to include (default: all). Comma-separated or repeated. Tools and agent config (–agent-path) are always included.</p>
 </dd></dl>
 
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-architect">
+<span class="sig-name descname"><span class="pre">--architect</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-architect" title="Link to this definition">#</a></dt>
+<dd><p>Enable architect/editor split mode: plan with strong model, execute with cheap model.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-architect-model">
+<span class="sig-name descname"><span class="pre">--architect-model</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;architect_model&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-architect-model" title="Link to this definition">#</a></dt>
+<dd><p>Model to use for the architect (planning) turn. E.g. openai/o3, anthropic/claude-opus-4-7.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-editor-model">
+<span class="sig-name descname"><span class="pre">--editor-model</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;editor_model&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-editor-model" title="Link to this definition">#</a></dt>
+<dd><p>Model to use for the editor (execution) turn. E.g. anthropic/claude-sonnet-4-5, openai/gpt-5-mini.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-auto-accept-architect">
+<span class="sig-name descname"><span class="pre">--auto-accept-architect</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-auto-accept-architect" title="Link to this definition">#</a></dt>
+<dd><p>Skip user confirmation between architect and editor turns.</p>
+</dd></dl>
+
 <p class="rubric">Arguments</p>
 <dl class="std option">
 <dt class="sig sig-object std" id="cmdoption-gptme-arg-PROMPTS">
