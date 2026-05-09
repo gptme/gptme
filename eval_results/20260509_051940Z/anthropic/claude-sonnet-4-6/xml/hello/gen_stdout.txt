@@ -1,0 +1,13 @@
+
+--- Start of generation ---
+[05:18:35] Using model: anthropic/claude-sonnet-4-6                             
+[05:18:36] Using logdir:                                                        
+           ~/.local/share/gptme/logs/2026-05-09-gptme-evals-anthropic--claude-so
+           nnet-4-6-xml-cce0a279                                                
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2026-05-09-gptme-evals-anthropic--claude-so
+           nnet-4-6-xml-cce0a279/workspace                                      
+Skipped 2 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: write a script hello.py which prints "Hello, world!"
+Assistant: Thinking...                                                                                
