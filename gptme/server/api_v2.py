@@ -530,6 +530,19 @@ def api_conversation_put(conversation_id: str):
         agent_path=chat_config.agent,
     )
 
+    # Inject output-format capability hint for webui mode
+    # gptme-webui renders ```html code blocks in a sandboxed iframe with
+    # Code/Preview tabs — inform the model so it can use HTML when it provides
+    # a richer experience for the reader.
+    msgs.append(
+        Message(
+            "system",
+            "Output format: you are in a web interface. "
+            "For interactive content (dashboards, tables, diagrams), "
+            "use ```html blocks — they render live in a sandboxed preview panel.",
+        )
+    )
+
     for role, content, timestamp in validated_msgs:
         msgs.append(Message(role, content, timestamp=timestamp))
 

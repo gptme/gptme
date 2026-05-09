@@ -916,11 +916,12 @@ def test_v2_create_conversation_default_system_prompt(
     assert data is not None
     assert "log" in data
     assert (
-        len(data["log"]) == 2
-    )  # Only system prompt + user message (no workspace context)
+        len(data["log"]) == 3
+    )  # System prompt + webui hint + user message (no workspace context)
     assert data["log"][0]["role"] == "system"  # Primary system prompt
-    assert data["log"][1]["role"] == "user"
-    assert data["log"][1]["content"] == "Hello, this is a test message."
+    assert data["log"][1]["role"] == "system"  # Webui hint
+    assert data["log"][2]["role"] == "user"
+    assert data["log"][2]["content"] == "Hello, this is a test message."
 
     # Check that the system prompt is the default one
     prompt_msgs = get_prompt(
@@ -932,6 +933,57 @@ def test_v2_create_conversation_default_system_prompt(
         workspace=tmp_path,
     )
     assert data["log"][0]["content"] == prompt_msgs[0].content
+
+
+def test_v2_create_conversation_webui_html_hint(
+    client: FlaskClient, tmp_path, monkeypatch
+):
+    """Test that V2 conversations get the webui HTML output-format hint."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GPTME_CHAT_HISTORY", "false")
+
+    from gptme.config import Config, set_config
+    from gptme.config.user import default_config
+
+    set_config(Config(user=default_config))
+    monkeypatch.setattr(
+        "gptme.prompts.workspace.config_path",
+        str(tmp_path / "config.toml"),
+    )
+
+    convname = f"test-server-v2-webui-hint-{random.randint(0, 1000000)}"
+    response = client.put(
+        f"/api/v2/conversations/{convname}",
+        json={
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "Hello from webui test",
+                    "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+                }
+            ]
+        },
+    )
+    assert response.status_code == 200
+    conversation_id = response.get_json()["conversation_id"]
+
+    response = client.get(f"/api/v2/conversations/{conversation_id}")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data is not None
+    system_msgs = [m for m in data["log"] if m["role"] == "system"]
+
+    # Check that the HTML rendering hint is in the system messages
+    hint_found = any(
+        "Output format:" in m["content"]
+        and "web interface" in m["content"]
+        and "```html" in m["content"]
+        for m in system_msgs
+    )
+    assert hint_found, (
+        f"WebUI HTML output hint not found in system messages. "
+        f"System contents: {[m['content'][:80] for m in system_msgs]}"
+    )
 
 
 def test_v2_conversation_post(v2_conv, client: FlaskClient):
