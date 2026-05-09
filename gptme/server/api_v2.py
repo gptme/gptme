@@ -535,7 +535,10 @@ def api_conversation_put(conversation_id: str):
     # Code/Preview tabs — inform the model so it can use HTML when it provides
     # a richer experience for the reader.
     # Set GPTME_SERVE_HTML_HINT=false to disable for non-webui API clients.
-    if os.environ.get("GPTME_SERVE_HTML_HINT", "true").lower() != "false":
+    if (
+        os.environ.get("GPTME_SERVE_HTML_HINT", "true").lower() != "false"
+        and prompt != "none"
+    ):
         msgs.append(
             Message(
                 "system",

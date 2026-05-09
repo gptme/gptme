@@ -878,6 +878,8 @@ def test_v2_create_conversation_default_system_prompt(
     monkeypatch.chdir(tmp_path)
     # Explicitly disable chat history for this test
     monkeypatch.setenv("GPTME_CHAT_HISTORY", "false")
+    # Pin env var so test is deterministic regardless of caller's environment
+    monkeypatch.setenv("GPTME_SERVE_HTML_HINT", "true")
 
     # Fully isolate from user config.
     # Patching gptme.config.config_path alone is insufficient because:
@@ -941,6 +943,7 @@ def test_v2_create_conversation_webui_html_hint(
     """Test that V2 conversations get the webui HTML output-format hint."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("GPTME_CHAT_HISTORY", "false")
+    monkeypatch.setenv("GPTME_SERVE_HTML_HINT", "true")
 
     from gptme.config import Config, set_config
     from gptme.config.user import default_config
