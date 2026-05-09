@@ -86,6 +86,7 @@ def test_include_paths_no_duplicate_embeddings(tmp_path, monkeypatch):
     from gptme.util.context import include_paths
 
     monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
     data_file = tmp_path / "data.txt"
     data_file.write_text("unique-content-marker")
 
@@ -236,6 +237,7 @@ def test_include_paths_at_prefix(tmp_path, monkeypatch):
     from gptme.util.context import include_paths
 
     monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
     test_file = tmp_path / "config.toml"
     test_file.write_text("[settings]\nkey = 'value'\n")
 
@@ -337,7 +339,7 @@ Also check `./outside/xml.py` which should be found.
     assert "/another/xml/path.csv" not in paths
 
 
-def test_include_paths_image_auto_attach(tmp_path):
+def test_include_paths_image_auto_attach(tmp_path, monkeypatch):
     """Image files in user messages should be auto-attached to msg.files.
 
     This verifies the full pipeline: _find_potential_paths detects the path,
@@ -347,6 +349,7 @@ def test_include_paths_image_auto_attach(tmp_path):
     from gptme.message import Message
     from gptme.util.context import include_paths
 
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
     # Create a minimal PNG file (valid header)
     img_file = tmp_path / "test.png"
     img_file.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
@@ -362,7 +365,7 @@ def test_include_paths_image_auto_attach(tmp_path):
     assert str(img_file) in result.content
 
 
-def test_include_paths_image_in_text(tmp_path):
+def test_include_paths_image_in_text(tmp_path, monkeypatch):
     """Image paths embedded in natural language text should be auto-attached.
 
     Simulates the scenario where a user types 'View this image ~/test.png'
@@ -371,6 +374,7 @@ def test_include_paths_image_in_text(tmp_path):
     from gptme.message import Message
     from gptme.util.context import include_paths
 
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
     # Create a minimal PNG file
     img_file = tmp_path / "screenshot.png"
     img_file.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
@@ -392,6 +396,7 @@ def test_include_paths_per_message_size_budget(tmp_path, monkeypatch, caplog):
     from gptme.util.context import include_paths
 
     monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
 
     # Create several moderately sized files that collectively exceed the budget
     # INCLUDE_PATHS_MAX_CONTENT = 200_000. Create 3 files at ~80KB each (~240KB total)
