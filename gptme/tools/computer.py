@@ -546,14 +546,18 @@ def _dispatch_transport(
         print(f"Moved mouse to {x},{y}")
         return None
 
-    click_map = {
-        "left_click": lambda: transport.left_click(),
-        "right_click": lambda: transport.right_click(),
-        "middle_click": lambda: transport.middle_click(),
-        "double_click": lambda: transport.double_click(),
-    }
-    if action in click_map:
-        click_map[action]()
+    click_actions = {"left_click", "right_click", "middle_click", "double_click"}
+    if action in click_actions:
+        if coordinate:
+            x, y = coordinate
+            transport.mouse_move(x, y)
+        click_fn = {
+            "left_click": transport.left_click,
+            "right_click": transport.right_click,
+            "middle_click": transport.middle_click,
+            "double_click": transport.double_click,
+        }[action]
+        click_fn()
         print(f"Performed {action}")
         return None
 

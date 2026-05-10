@@ -323,6 +323,51 @@ class TestTransportCloseOnEnvVarChange(unittest.TestCase):
         )
 
 
+class TestDispatchTransportClickCoordinateForwarding(unittest.TestCase):
+    """_dispatch_transport must forward click coordinates via mouse_move."""
+
+    def test_click_with_coordinate_calls_mouse_move_first(self):
+        """When coordinate is provided to a click action, mouse_move is called before the click."""
+        stub = StubTransport()
+        stub.mouse_move = MagicMock()  # type: ignore[method-assign]
+        stub.left_click = MagicMock()  # type: ignore[method-assign]
+
+        from gptme.tools.computer import _dispatch_transport
+
+        _dispatch_transport(stub, "left_click", coordinate=(100, 200))
+
+        stub.mouse_move.assert_called_once_with(100, 200)
+        stub.left_click.assert_called_once()
+
+    def test_click_without_coordinate_does_not_call_mouse_move(self):
+        """When no coordinate is provided, mouse_move must not be called."""
+        stub = StubTransport()
+        stub.mouse_move = MagicMock()  # type: ignore[method-assign]
+        stub.right_click = MagicMock()  # type: ignore[method-assign]
+
+        from gptme.tools.computer import _dispatch_transport
+
+        _dispatch_transport(stub, "right_click")
+
+        stub.mouse_move.assert_not_called()
+        stub.right_click.assert_called_once()
+
+    def test_all_click_actions_forward_coordinate(self):
+        """All four click types forward the coordinate via mouse_move."""
+        from gptme.tools.computer import _dispatch_transport
+
+        for action in ("left_click", "right_click", "middle_click", "double_click"):
+            with self.subTest(action=action):
+                stub = StubTransport()
+                stub.mouse_move = MagicMock()  # type: ignore[method-assign]
+                setattr(stub, action, MagicMock())
+
+                _dispatch_transport(stub, action, coordinate=(50, 75))  # type: ignore[arg-type]
+
+                stub.mouse_move.assert_called_once_with(50, 75)
+                getattr(stub, action).assert_called_once()
+
+
 class TestNativeDoubleClickCalledProcessError(unittest.TestCase):
     """macOS double_click must wrap CalledProcessError into RuntimeError."""
 
