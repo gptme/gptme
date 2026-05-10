@@ -441,7 +441,7 @@ class TestNativeCursorPositionErrorHandling(unittest.TestCase):
                 "gptme.tools.computer._get_display_resolution",
                 return_value=(1920, 1080),
             ),
-            self.assertRaises((RuntimeError, ValueError)),
+            self.assertRaises(RuntimeError),
         ):
             transport.cursor_position()
 
