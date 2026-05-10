@@ -309,8 +309,6 @@ class CuaComputerTransport(ComputerTransport):
         if self._initialized:
             return
 
-        import asyncio
-
         from cua_sandbox import (
             Sandbox,  # type: ignore[import-untyped,import-not-found]
         )
@@ -319,7 +317,7 @@ class CuaComputerTransport(ComputerTransport):
             sandbox = await Sandbox.create()
             return sandbox
 
-        self._sandbox = asyncio.run(_create())
+        self._sandbox = self._run_async(_create())
         self._initialized = True
 
     def _run_async(self, coro: object) -> object:
