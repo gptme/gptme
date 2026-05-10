@@ -160,6 +160,8 @@ nitpick_ignore = [
     # Hook confirmation system types
     ("py:class", "gptme.hooks.confirm.ToolConfirmHook"),
     ("py:class", "gptme.hooks.elicitation.ElicitationHook"),
+    # computer transport abstraction types
+    ("py:class", "Action"),
 ]
 
 # -- Options for HTML output -------------------------------------------------
