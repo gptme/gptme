@@ -138,8 +138,17 @@ class NativeComputerTransport(ComputerTransport):
             _linux_type(text, display)
 
     def mouse_move(self, x: int, y: int) -> None:
-        from .computer import IS_MACOS, _macos_mouse_move, _run_xdotool
+        from .computer import (
+            IS_MACOS,
+            _get_api_resolution,
+            _macos_mouse_move,
+            _run_xdotool,
+            _scale_coordinates,
+            _ScalingSource,
+        )
 
+        api_w, api_h = _get_api_resolution()
+        x, y = _scale_coordinates(_ScalingSource.API, x, y, api_w, api_h)
         if IS_MACOS:
             _macos_mouse_move(x, y)
         else:
@@ -199,8 +208,17 @@ class NativeComputerTransport(ComputerTransport):
             _run_xdotool("click --repeat 2 --delay 100 1", display)
 
     def left_click_drag(self, x: int, y: int) -> None:
-        from .computer import IS_MACOS, _macos_drag, _run_xdotool
+        from .computer import (
+            IS_MACOS,
+            _get_api_resolution,
+            _macos_drag,
+            _run_xdotool,
+            _scale_coordinates,
+            _ScalingSource,
+        )
 
+        api_w, api_h = _get_api_resolution()
+        x, y = _scale_coordinates(_ScalingSource.API, x, y, api_w, api_h)
         if IS_MACOS:
             _macos_drag(x, y)
         else:
@@ -274,24 +292,26 @@ class CuaComputerTransport(ComputerTransport):
     """
 
     def __init__(self) -> None:
-        self._sandbox: object | None = None  # typed as Any for attribute access
-        self._initialized: bool = False
-
-    def _ensure_sandbox(self) -> None:
-        """Lazy-init: import cua_sandbox and create a Docker sandbox."""
-        if self._initialized:
-            return
-
+        # Probe import eagerly so get_transport()'s try/except catches missing deps.
         try:
-            from cua_sandbox import (
-                Sandbox,  # type: ignore[import-untyped,import-not-found]
-            )
+            import cua_sandbox as _  # type: ignore[import-untyped,import-not-found] # noqa: F401
         except ImportError:
             raise RuntimeError(
                 "cua-sandbox not installed. Install with: pip install cua-sandbox"
             ) from None
+        self._sandbox: object | None = None  # typed as Any for attribute access
+        self._initialized: bool = False
+
+    def _ensure_sandbox(self) -> None:
+        """Lazy-init: create the Docker sandbox on first use."""
+        if self._initialized:
+            return
 
         import asyncio
+
+        from cua_sandbox import (
+            Sandbox,  # type: ignore[import-untyped,import-not-found]
+        )
 
         async def _create() -> object:
             sandbox = await Sandbox.create()
@@ -301,10 +321,25 @@ class CuaComputerTransport(ComputerTransport):
         self._initialized = True
 
     def _run_async(self, coro: object) -> object:
-        """Run an async cua call synchronously."""
+        """Run an async cua call synchronously.
+
+        Uses a thread pool when called from inside a running event loop (e.g.
+        gptme's server path) to avoid the 'This event loop is already running'
+        RuntimeError from asyncio.run().
+        """
         import asyncio
 
-        return asyncio.run(coro)  # type: ignore[arg-type]
+        try:
+            asyncio.get_running_loop()
+            # A loop is already running on this thread — delegate to a worker thread.
+            import concurrent.futures
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future: concurrent.futures.Future = pool.submit(asyncio.run, coro)  # type: ignore[arg-type]
+                return future.result()
+        except RuntimeError:
+            # No running loop — safe to call asyncio.run() directly.
+            return asyncio.run(coro)  # type: ignore[arg-type]
 
     def key(self, text: str) -> None:
         self._ensure_sandbox()
@@ -354,7 +389,11 @@ class CuaComputerTransport(ComputerTransport):
 
         async def _capture() -> Path:
             ss = await self._sandbox.screen.screenshot()  # type: ignore[attr-defined, union-attr]
-            path = Path(tempfile.mktemp(suffix=".png"))
+            fd, tmp = tempfile.mkstemp(suffix=".png")
+            import os as _os
+
+            _os.close(fd)
+            path = Path(tmp)
             ss.save(str(path))
             if width and height:
                 ss = ss.resize((width, height))

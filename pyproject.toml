@@ -294,6 +294,10 @@ ignore_missing_imports = true
 module = "sounddevice.*"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = "cua_sandbox"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
