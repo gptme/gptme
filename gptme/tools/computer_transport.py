@@ -331,17 +331,21 @@ class CuaComputerTransport(ComputerTransport):
         """
         import asyncio
 
+        # Detect a running loop with a narrow try so we don't accidentally
+        # swallow RuntimeErrors raised by the coroutine itself.
         try:
             asyncio.get_running_loop()
-            # A loop is already running on this thread — delegate to a worker thread.
+            has_running_loop = True
+        except RuntimeError:
+            has_running_loop = False
+
+        if has_running_loop:
             import concurrent.futures
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                 future: concurrent.futures.Future = pool.submit(asyncio.run, coro)  # type: ignore[arg-type]
                 return future.result()
-        except RuntimeError:
-            # No running loop — safe to call asyncio.run() directly.
-            return asyncio.run(coro)  # type: ignore[arg-type]
+        return asyncio.run(coro)  # type: ignore[arg-type]
 
     def key(self, text: str) -> None:
         self._ensure_sandbox()
