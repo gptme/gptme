@@ -13,6 +13,7 @@ from .base import CommandContext, command
 
 Actions = Literal[
     "log",
+    "checkpoint",
     "undo",
     "edit",
     "rename",
@@ -41,6 +42,7 @@ Actions = Literal[
 action_descriptions: dict[Actions, str] = {
     "undo": "Undo the last action",
     "log": "Show the conversation log",
+    "checkpoint": "Manage workspace checkpoints",
     "edit": "Edit the conversation in your editor",
     "rename": "Rename the conversation",
     "fork": "Create a copy of the conversation",

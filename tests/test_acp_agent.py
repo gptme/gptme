@@ -958,6 +958,7 @@ class TestGetCommandsWithDescriptions:
         from gptme.commands import get_commands_with_descriptions
 
         names = {name for name, _ in get_commands_with_descriptions()}
+        assert "checkpoint" in names
         assert "help" in names
         assert "model" in names
         assert "tools" in names
