@@ -345,6 +345,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_input": 1.2,
             "price_output": 6.0,
             "supports_vision": True,
+            "preferred_edit_format": "whole",
         },
         "mistralai/magistral-medium-2506": {
             "context": 41_000,
@@ -353,6 +354,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 5,
             # "supports_vision": True,
             "supports_reasoning": True,
+            "preferred_edit_format": "diff",
         },
         "anthropic/claude-opus-4.7": {
             "context": 1_000_000,
@@ -363,6 +365,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_vision": True,
             "supports_reasoning": True,
             "supports_parallel_tool_calls": True,
+            "preferred_edit_format": "diff",
         },
         "anthropic/claude-sonnet-4.6": {
             "context": 1_000_000,
@@ -373,6 +376,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_vision": True,
             "supports_reasoning": True,
             "supports_parallel_tool_calls": True,
+            "preferred_edit_format": "diff",
         },
         "anthropic/claude-haiku-4.5": {
             "context": 200_000,
@@ -380,18 +384,21 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_input": 1,
             "price_output": 5,
             "supports_vision": True,
+            "preferred_edit_format": "diff",
         },
         "meta-llama/llama-3.3-70b-instruct": {
             "context": 128_000,
             "max_output": 32_768,
             "price_input": 0.12,
             "price_output": 0.3,
+            "preferred_edit_format": "diff",
         },
         "meta-llama/llama-3.1-405b-instruct": {
             "context": 128_000,
             "max_output": 32_768,
             "price_input": 0.8,
             "price_output": 0.8,
+            "preferred_edit_format": "whole",
         },
         "google/gemini-flash-1.5": {
             "context": 1_048_576,
@@ -399,6 +406,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_input": 0.075,
             "price_output": 0.3,
             "supports_vision": True,
+            "preferred_edit_format": "diff",
         },
         "moonshotai/kimi-k2": {
             "context": 262_144,
@@ -406,6 +414,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_input": 0.38,
             "price_output": 1.52,
             "supports_vision": True,
+            "preferred_edit_format": "diff",
         },
         "moonshotai/kimi-k2-0905": {
             "context": 262_144,
@@ -413,6 +422,7 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_input": 0.38,
             "price_output": 1.52,
             "supports_vision": True,
+            "preferred_edit_format": "diff",
         },
     },
     "nvidia": {},
