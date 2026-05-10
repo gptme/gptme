@@ -146,11 +146,14 @@ def _get_agent_name(config: Config) -> str | None:
     return agent_config.name if agent_config and agent_config.name else None
 
 
-def _resolve_max_tokens(max_tokens: int | None) -> int | None:
-    """Apply the GPTME_MAX_TOKENS env override when no explicit value is set."""
+def _resolve_max_tokens(model: str, max_tokens: int | None) -> int | None:
+    """Apply the GPTME_MAX_TOKENS env override for OpenRouter models only."""
 
     if max_tokens is not None:
         return max_tokens
+
+    if get_provider_from_model(model) != "openrouter":
+        return None
 
     raw = get_config().get_env("GPTME_MAX_TOKENS")
     if raw is None or raw == "":
@@ -286,7 +289,7 @@ def _chat_complete(
 ) -> tuple[str, MessageMetadata | None]:
     if max_tokens is not None and max_tokens <= 0:
         raise ValueError(f"max_tokens must be a positive integer, got {max_tokens}")
-    max_tokens = _resolve_max_tokens(max_tokens)
+    max_tokens = _resolve_max_tokens(model, max_tokens)
     provider = get_provider_from_model(model)
 
     # Providers with native constrained decoding support
@@ -360,7 +363,7 @@ def _stream(
     output_schema: type | None = None,
     max_tokens: int | None = None,
 ) -> _StreamWithMetadata:
-    max_tokens = _resolve_max_tokens(max_tokens)
+    max_tokens = _resolve_max_tokens(model, max_tokens)
     provider = get_provider_from_model(model)
     # Custom providers and plugin providers are OpenAI-compatible, route through OpenAI path
     if (

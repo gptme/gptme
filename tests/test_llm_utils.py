@@ -844,6 +844,27 @@ class TestMaxTokensEnvOverride:
 
         assert captured["max_tokens"] == 2048
 
+    def test_chat_complete_ignores_env_override_for_openai(self, monkeypatch):
+        from gptme.llm import _chat_complete
+        from gptme.message import Message
+
+        captured: dict[str, Any] = {}
+
+        def fake_chat(messages, model, tools, output_schema=None, max_tokens=None):
+            captured["max_tokens"] = max_tokens
+            return "ok", {"model": model}
+
+        monkeypatch.setenv("GPTME_MAX_TOKENS", "8192")
+        monkeypatch.setattr("gptme.llm.llm_openai.chat", fake_chat)
+
+        _chat_complete(
+            [Message("user", "hi")],
+            "openai/gpt-4o-mini",
+            None,
+        )
+
+        assert captured["max_tokens"] is None
+
     def test_stream_uses_env_override(self, monkeypatch):
         from gptme.llm import _stream
         from gptme.message import Message
@@ -868,3 +889,28 @@ class TestMaxTokensEnvOverride:
         assert list(wrapper) == []
         assert wrapper.metadata == {"model": "openrouter/anthropic/claude-haiku-4-5"}
         assert captured["max_tokens"] == 4096
+
+    def test_stream_ignores_env_override_for_openai(self, monkeypatch):
+        from gptme.llm import _stream
+        from gptme.message import Message
+
+        captured: dict[str, Any] = {}
+
+        def fake_stream(messages, model, tools, output_schema=None, max_tokens=None):
+            captured["max_tokens"] = max_tokens
+            if False:
+                yield ""
+            return {"model": model}
+
+        monkeypatch.setenv("GPTME_MAX_TOKENS", "4096")
+        monkeypatch.setattr("gptme.llm.llm_openai.stream", fake_stream)
+
+        wrapper = _stream(
+            [Message("user", "hi")],
+            "openai/gpt-4o-mini",
+            None,
+        )
+
+        assert list(wrapper) == []
+        assert wrapper.metadata == {"model": "openai/gpt-4o-mini"}
+        assert captured["max_tokens"] is None
