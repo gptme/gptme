@@ -25,10 +25,6 @@ from __future__ import annotations
 
 import abc
 from pathlib import Path
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    pass
 
 
 class ComputerTransport(abc.ABC):
@@ -110,8 +106,7 @@ class NativeComputerTransport(ComputerTransport):
     def __init__(self) -> None:
         from .computer import IS_MACOS, _ensure_cliclick
 
-        self._is_macos = IS_MACOS
-        if self._is_macos:
+        if IS_MACOS:
             _ensure_cliclick()
 
     def key(self, text: str) -> None:

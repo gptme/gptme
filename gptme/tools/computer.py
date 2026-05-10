@@ -541,9 +541,10 @@ def _dispatch_transport(
         x, y = coordinate
         if action == "mouse_move":
             transport.mouse_move(x, y)
+            print(f"Moved mouse to {x},{y}")
         else:
             transport.left_click_drag(x, y)
-        print(f"Moved mouse to {x},{y}")
+            print(f"Dragged to {x},{y}")
         return None
 
     click_actions = {"left_click", "right_click", "middle_click", "double_click"}
