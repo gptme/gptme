@@ -265,16 +265,26 @@ class NativeComputerTransport(ComputerTransport):
                     check=True,
                     timeout=10,
                 ).stdout.strip()
+                x, y = map(int, output.split(","))
             except subprocess.TimeoutExpired as e:
                 raise RuntimeError("cliclick cursor position query timed out") from e
             except subprocess.CalledProcessError as e:
                 raise RuntimeError(f"Failed to get cursor position: {e.stderr}") from e
-            x, y = map(int, output.split(","))
+            except FileNotFoundError as e:
+                raise RuntimeError(
+                    "cliclick not found. Install with: brew install cliclick"
+                ) from e
+            except ValueError as e:
+                raise RuntimeError(
+                    f"Unexpected cliclick output format: {output!r}"
+                ) from e
         else:
             import os
 
             display = os.getenv("DISPLAY", ":1")
             output = _run_xdotool("getmouselocation --shell", display)
+            if "X=" not in output or "Y=" not in output:
+                raise RuntimeError(f"Unexpected xdotool output format: {output!r}")
             x = int(output.split("X=")[1].split("\n")[0])
             y = int(output.split("Y=")[1].split("\n")[0])
 

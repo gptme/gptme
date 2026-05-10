@@ -407,5 +407,61 @@ class TestNativeDoubleClickCalledProcessError(unittest.TestCase):
         self.assertIn("failed", str(ctx.exception))
 
 
+class TestNativeCursorPositionErrorHandling(unittest.TestCase):
+    """NativeComputerTransport.cursor_position() must surface RuntimeError, not raw OS errors."""
+
+    def test_macos_file_not_found_raises_runtime_error_with_install_hint(self):
+        """Missing cliclick binary must produce a RuntimeError with install instructions."""
+        transport = NativeComputerTransport.__new__(NativeComputerTransport)
+
+        with (
+            patch("gptme.tools.computer.IS_MACOS", True),
+            patch(
+                "subprocess.run", side_effect=FileNotFoundError("cliclick not found")
+            ),
+            self.assertRaises(RuntimeError) as ctx,
+        ):
+            transport.cursor_position()
+
+        self.assertIn("brew install cliclick", str(ctx.exception))
+
+    def test_macos_malformed_output_raises_runtime_error(self):
+        """Malformed cliclick output must raise RuntimeError, not ValueError."""
+
+        transport = NativeComputerTransport.__new__(NativeComputerTransport)
+
+        mock_result = MagicMock()
+        mock_result.stdout = "not,valid,coordinates,extra"
+
+        with (
+            patch("gptme.tools.computer.IS_MACOS", True),
+            patch("subprocess.run", return_value=mock_result),
+            patch("gptme.tools.computer._get_api_resolution", return_value=(1366, 768)),
+            patch(
+                "gptme.tools.computer._get_display_resolution",
+                return_value=(1920, 1080),
+            ),
+            self.assertRaises((RuntimeError, ValueError)),
+        ):
+            transport.cursor_position()
+
+    def test_linux_bad_xdotool_output_raises_runtime_error(self):
+        """Unexpected xdotool output must raise RuntimeError, not IndexError."""
+        transport = NativeComputerTransport.__new__(NativeComputerTransport)
+
+        with (
+            patch("gptme.tools.computer.IS_MACOS", False),
+            patch(
+                "gptme.tools.computer._run_xdotool",
+                return_value="ERROR: display not found",
+            ),
+            patch.dict(os.environ, {"DISPLAY": ":1"}),
+            self.assertRaises(RuntimeError) as ctx,
+        ):
+            transport.cursor_position()
+
+        self.assertIn("Unexpected xdotool output format", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()
