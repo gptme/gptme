@@ -260,5 +260,68 @@ class TestCuaTransportAsyncio(unittest.TestCase):
         self.assertEqual(result, 99)
 
 
+class TestTransportCloseOnEnvVarChange(unittest.TestCase):
+    """Verify get_transport() closes the old transport when the env var changes."""
+
+    def setUp(self):
+        import gptme.tools.computer_transport as ct
+
+        ct._transport = None
+        ct._transport_name = None
+
+    def tearDown(self):
+        import gptme.tools.computer_transport as ct
+
+        ct._transport = None
+        ct._transport_name = None
+
+    def test_old_transport_closed_on_env_var_change(self):
+        """Switching transport via env var must close the previous transport."""
+        closed: list[bool] = []
+
+        class RecordingTransport(StubTransport):
+            def close(self) -> None:
+                closed.append(True)
+
+        import gptme.tools.computer_transport as ct
+
+        # Pre-seed the module-level singleton as if "native" was previously active.
+        ct._transport = RecordingTransport()
+        ct._transport_name = "native"
+
+        # Switching to an empty env var should close the previous transport.
+        with patch.dict(os.environ, {}, clear=True):
+            os.environ.pop("GPTME_COMPUTER_TRANSPORT", None)
+            get_transport()
+
+        self.assertEqual(
+            len(closed), 1, "close() must be called once on the stale transport"
+        )
+
+
+class TestNativeDoubleClickCalledProcessError(unittest.TestCase):
+    """macOS double_click must wrap CalledProcessError into RuntimeError."""
+
+    def test_double_click_macos_wraps_called_process_error(self):
+        """CalledProcessError from cliclick must be re-raised as RuntimeError."""
+        import subprocess
+
+        transport = NativeComputerTransport.__new__(NativeComputerTransport)
+
+        def raise_called_process_error(*args, **kwargs):
+            raise subprocess.CalledProcessError(
+                1, "cliclick", stderr="permission denied"
+            )
+
+        with (
+            patch("gptme.tools.computer.IS_MACOS", True),
+            patch("subprocess.run", side_effect=raise_called_process_error),
+            self.assertRaises(RuntimeError) as ctx,
+        ):
+            transport.double_click()
+
+        self.assertIn("failed", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

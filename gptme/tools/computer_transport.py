@@ -201,6 +201,8 @@ class NativeComputerTransport(ComputerTransport):
                 )
             except subprocess.TimeoutExpired as e:
                 raise RuntimeError("cliclick double-click timed out") from e
+            except subprocess.CalledProcessError as e:
+                raise RuntimeError(f"cliclick double-click failed: {e.stderr}") from e
         else:
             import os
 
@@ -450,9 +452,13 @@ def get_transport() -> ComputerTransport | None:
     if _transport is not None and _transport_name == current:
         return _transport
 
+    # Env var changed — close the stale transport to avoid resource leaks
+    if _transport is not None and _transport_name != current:
+        _transport.close()
+        _transport = None
+
     # No transport requested
     if not current:
-        _transport = None
         _transport_name = None
         return None
 
