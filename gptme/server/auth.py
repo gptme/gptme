@@ -26,6 +26,12 @@ _server_token: str | None = None
 # Auth state (disabled for local-only binding)
 _auth_enabled: bool = True
 
+# Network binding state (True if bound to a non-loopback interface).
+# Tracked independently of _auth_enabled because auth can be disabled on a
+# network binding via GPTME_DISABLE_AUTH (external auth scenarios), and some
+# gates (e.g. auto_confirm) need to remain network-aware regardless.
+_is_network_binding: bool = False
+
 # Cookie configuration
 AUTH_COOKIE_NAME = "gptme_auth"
 AUTH_COOKIE_MAX_AGE = 86400  # 24 hours
@@ -187,7 +193,12 @@ def init_auth(host: str = "127.0.0.1", display: bool = True) -> str | None:
         The server token (only generated when binding to network,
         None for local-only binding).
     """
-    global _auth_enabled
+    global _auth_enabled, _is_network_binding
+
+    # Track whether this binding is network-reachable, independent of whether
+    # gptme's own auth layer is enforced. Some gates (e.g. auto_confirm) need
+    # this signal even when auth is disabled in favour of an external layer.
+    _is_network_binding = not is_local_host(host)
 
     # Check if auth is explicitly disabled via environment variable
     if os.environ.get("GPTME_DISABLE_AUTH", "").lower() in ("true", "1", "yes"):
@@ -268,10 +279,15 @@ def is_auto_confirm_allowed() -> bool:
     foothold into arbitrary command execution (CWE-78), since LLM output is
     fed straight into shell/python tools without human review. We therefore
     require an explicit operator opt-in (GPTME_ALLOW_AUTO_CONFIRM=1) whenever
-    auth is enforced (network binding). On loopback, where auth is disabled
-    by design, the existing behavior is preserved.
+    the server is bound to a non-loopback interface, regardless of whether
+    gptme's own auth layer is enforced.
+
+    Keying on the network-binding flag (rather than ``_auth_enabled``) closes
+    the bypass that exists when ``GPTME_DISABLE_AUTH`` is set on a network
+    binding for external-auth deployments (e.g. k8s ingress, reverse proxy).
+    On loopback the existing behavior is preserved.
     """
-    if not _auth_enabled:
+    if not _is_network_binding:
         return True
     return os.environ.get("GPTME_ALLOW_AUTO_CONFIRM", "").lower() in ("1", "true", "yes")
 

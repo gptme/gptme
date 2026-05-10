@@ -699,3 +699,132 @@ def _mock_config(env: dict[str, str] | None = None):
             raise KeyError(f"Missing environment variable: {key}")
 
     return MockConfig()
+
+
+# --- Auto-confirm gate (CWE-78) ---
+
+
+class TestIsAutoConfirmAllowed:
+    """Tests for is_auto_confirm_allowed() — the API auto_confirm gate.
+
+    The gate must remain network-aware even when gptme's own auth is
+    disabled (external-auth deployments such as k8s ingress / reverse
+    proxy), since prompt-injection -> RCE is a network-binding concern,
+    not an auth-layer concern.
+    """
+
+    def _save(self):
+        import gptme.server.auth as a
+
+        return (a._auth_enabled, a._is_network_binding)
+
+    def _restore(self, saved):
+        import gptme.server.auth as a
+
+        a._auth_enabled, a._is_network_binding = saved
+
+    def test_loopback_allows_without_optin(self):
+        import gptme.server.auth as a
+
+        saved = self._save()
+        try:
+            a._is_network_binding = False
+            a._auth_enabled = False
+            with patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("GPTME_ALLOW_AUTO_CONFIRM", None)
+                assert a.is_auto_confirm_allowed() is True
+        finally:
+            self._restore(saved)
+
+    def test_network_binding_blocks_without_optin(self):
+        import gptme.server.auth as a
+
+        saved = self._save()
+        try:
+            a._is_network_binding = True
+            a._auth_enabled = True
+            os.environ.pop("GPTME_ALLOW_AUTO_CONFIRM", None)
+            assert a.is_auto_confirm_allowed() is False
+        finally:
+            self._restore(saved)
+
+    def test_network_binding_allows_with_optin(self):
+        import gptme.server.auth as a
+
+        saved = self._save()
+        try:
+            a._is_network_binding = True
+            a._auth_enabled = True
+            for val in ("1", "true", "TRUE", "yes"):
+                with patch.dict(os.environ, {"GPTME_ALLOW_AUTO_CONFIRM": val}):
+                    assert a.is_auto_confirm_allowed() is True, f"failed for {val}"
+        finally:
+            self._restore(saved)
+            os.environ.pop("GPTME_ALLOW_AUTO_CONFIRM", None)
+
+    def test_network_binding_with_external_auth_still_blocks(self):
+        """Regression: external-auth deployments (GPTME_DISABLE_AUTH on a
+        non-loopback bind) must still be gated by GPTME_ALLOW_AUTO_CONFIRM."""
+        import gptme.server.auth as a
+
+        saved = self._save()
+        try:
+            # Simulate: bound to 0.0.0.0, GPTME_DISABLE_AUTH=true.
+            a._is_network_binding = True
+            a._auth_enabled = False
+            os.environ.pop("GPTME_ALLOW_AUTO_CONFIRM", None)
+            assert a.is_auto_confirm_allowed() is False
+        finally:
+            self._restore(saved)
+
+
+class TestInitAuthNetworkBindingFlag:
+    """init_auth() must set _is_network_binding correctly in all branches."""
+
+    def _save(self):
+        import gptme.server.auth as a
+
+        return (a._auth_enabled, a._is_network_binding, a._server_token)
+
+    def _restore(self, saved):
+        import gptme.server.auth as a
+
+        a._auth_enabled, a._is_network_binding, a._server_token = saved
+
+    def test_loopback_sets_network_false(self):
+        import gptme.server.auth as a
+
+        saved = self._save()
+        try:
+            a._is_network_binding = True
+            a.init_auth("127.0.0.1", display=False)
+            assert a._is_network_binding is False
+        finally:
+            self._restore(saved)
+
+    def test_network_bind_sets_network_true(self):
+        import gptme.server.auth as a
+
+        saved = self._save()
+        try:
+            a._is_network_binding = False
+            a._server_token = None
+            with patch.dict(os.environ, {"GPTME_SERVER_TOKEN": "t"}):
+                a.init_auth("0.0.0.0", display=False)
+            assert a._is_network_binding is True
+        finally:
+            self._restore(saved)
+
+    def test_external_auth_on_network_keeps_network_true(self):
+        import gptme.server.auth as a
+
+        saved = self._save()
+        try:
+            a._is_network_binding = False
+            with patch.dict(os.environ, {"GPTME_DISABLE_AUTH": "true"}):
+                a.init_auth("0.0.0.0", display=False)
+            assert a._is_network_binding is True
+            assert a._auth_enabled is False
+        finally:
+            self._restore(saved)
+            os.environ.pop("GPTME_DISABLE_AUTH", None)

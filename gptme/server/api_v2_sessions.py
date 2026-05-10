@@ -621,12 +621,9 @@ def api_conversation_tool_confirm(conversation_id: str):
         _start_step_thread(conversation_id, session, model, chat_config.workspace)
 
     elif action == "auto":
-        # Enable auto-confirmation for future tools
-        count = req_json.get("count", 1)
-        if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
-            return flask.jsonify({"error": "count must be a positive integer"}), 400
-
-        # CWE-78: gate auto_confirm on network bindings.
+        # CWE-78: gate auto_confirm on network bindings. Run this before count
+        # validation so a 403 is returned consistently with the other gated
+        # paths in this file (POST /step, PUT conversation).
         if not is_auto_confirm_allowed():
             return (
                 flask.jsonify(
@@ -641,6 +638,11 @@ def api_conversation_tool_confirm(conversation_id: str):
                 ),
                 403,
             )
+
+        # Enable auto-confirmation for future tools
+        count = req_json.get("count", 1)
+        if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
+            return flask.jsonify({"error": "count must be a positive integer"}), 400
 
         session.auto_confirm_count = count
 
