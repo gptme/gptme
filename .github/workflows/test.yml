@@ -205,6 +205,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RELEASE: false
+      # OpenRouter can treat omitted max_tokens as the model's full output ceiling,
+      # which is wasteful and can exceed the CI account's credit budget.
+      GPTME_MAX_TOKENS: "8192"
     continue-on-error: ${{ matrix.experimental || false }}
     strategy:
       fail-fast: false

@@ -33,6 +33,7 @@ from .provider_plugins import (
 )
 
 logger = logging.getLogger(__name__)
+_max_tokens_env_warned = False
 
 
 # Cheap/fast default model per provider for first-run / fallback scenarios.
@@ -145,6 +146,36 @@ def _get_agent_name(config: Config) -> str | None:
     return agent_config.name if agent_config and agent_config.name else None
 
 
+def _resolve_max_tokens(max_tokens: int | None) -> int | None:
+    """Apply the GPTME_MAX_TOKENS env override when no explicit value is set."""
+
+    if max_tokens is not None:
+        return max_tokens
+
+    raw = get_config().get_env("GPTME_MAX_TOKENS")
+    if raw is None or raw == "":
+        return None
+
+    global _max_tokens_env_warned
+    try:
+        parsed = int(raw)
+    except ValueError:
+        if not _max_tokens_env_warned:
+            logger.warning("Invalid GPTME_MAX_TOKENS value: %r, ignoring", raw)
+            _max_tokens_env_warned = True
+        return None
+
+    if parsed <= 0:
+        if not _max_tokens_env_warned:
+            logger.warning(
+                "GPTME_MAX_TOKENS must be a positive integer, got %r; ignoring", raw
+            )
+            _max_tokens_env_warned = True
+        return None
+
+    return parsed
+
+
 @trace_function(name="llm.reply", attributes={"component": "llm"})
 def reply(
     messages: list[Message],
@@ -255,6 +286,7 @@ def _chat_complete(
 ) -> tuple[str, MessageMetadata | None]:
     if max_tokens is not None and max_tokens <= 0:
         raise ValueError(f"max_tokens must be a positive integer, got {max_tokens}")
+    max_tokens = _resolve_max_tokens(max_tokens)
     provider = get_provider_from_model(model)
 
     # Providers with native constrained decoding support
@@ -328,6 +360,7 @@ def _stream(
     output_schema: type | None = None,
     max_tokens: int | None = None,
 ) -> _StreamWithMetadata:
+    max_tokens = _resolve_max_tokens(max_tokens)
     provider = get_provider_from_model(model)
     # Custom providers and plugin providers are OpenAI-compatible, route through OpenAI path
     if (
