@@ -251,7 +251,13 @@ class NativeComputerTransport(ComputerTransport):
         return path
 
     def cursor_position(self) -> tuple[int, int]:
-        from .computer import IS_MACOS, _run_xdotool
+        from .computer import (
+            IS_MACOS,
+            _get_api_resolution,
+            _run_xdotool,
+            _scale_coordinates,
+            _ScalingSource,
+        )
 
         if IS_MACOS:
             import subprocess
@@ -264,13 +270,16 @@ class NativeComputerTransport(ComputerTransport):
                 timeout=10,
             ).stdout.strip()
             x, y = map(int, output.split(","))
-            return x, y
-        import os
+        else:
+            import os
 
-        display = os.getenv("DISPLAY", ":1")
-        output = _run_xdotool("getmouselocation --shell", display)
-        x = int(output.split("X=")[1].split("\n")[0])
-        y = int(output.split("Y=")[1].split("\n")[0])
+            display = os.getenv("DISPLAY", ":1")
+            output = _run_xdotool("getmouselocation --shell", display)
+            x = int(output.split("X=")[1].split("\n")[0])
+            y = int(output.split("Y=")[1].split("\n")[0])
+
+        api_w, api_h = _get_api_resolution()
+        x, y = _scale_coordinates(_ScalingSource.COMPUTER, x, y, api_w, api_h)
         return x, y
 
     def close(self) -> None:

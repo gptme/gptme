@@ -231,6 +231,30 @@ class TestNativeTransportCoordinateScaling(unittest.TestCase):
         self.assertAlmostEqual(phys_x, round(683 * 1920 / 1366), delta=2)
         self.assertAlmostEqual(phys_y, round(384 * 1080 / 768), delta=2)
 
+    def test_cursor_position_scales_to_api_space(self):
+        """cursor_position() must convert physical pixels → API-space before returning."""
+        transport = NativeComputerTransport()
+
+        # Simulate xdotool reporting physical-pixel position (mid-screen at 1920x1080)
+        fake_xdotool_output = "X=960\nY=540\nSCREEN=0\n"
+
+        with (
+            patch("gptme.tools.computer.IS_MACOS", False),
+            patch(
+                "gptme.tools.computer._get_display_resolution",
+                return_value=(1920, 1080),
+            ),
+            patch(
+                "gptme.tools.computer._run_xdotool", return_value=fake_xdotool_output
+            ),
+            patch.dict(os.environ, {"WIDTH": "1366", "HEIGHT": "768", "DISPLAY": ":1"}),
+        ):
+            api_x, api_y = transport.cursor_position()
+
+        # Physical 960,540 on 1920x1080 → API ~683,384 on 1366x768
+        self.assertAlmostEqual(api_x, round(960 * 1366 / 1920), delta=2)
+        self.assertAlmostEqual(api_y, round(540 * 768 / 1080), delta=2)
+
 
 class TestCuaTransportAsyncio(unittest.TestCase):
     """Verify _run_async() works both inside and outside a running event loop."""
