@@ -246,6 +246,36 @@ def init_auth(host: str = "127.0.0.1", display: bool = True) -> str | None:
     return token
 
 
+def is_auth_enabled() -> bool:
+    """Return True if authentication is currently enforced.
+
+    Authentication is enforced when the server is bound to a non-loopback
+    address (network binding). It is disabled for loopback binding and when
+    the operator has explicitly opted out via GPTME_DISABLE_AUTH.
+
+    Other modules use this signal to decide whether requests originate from a
+    trusted local context or from a potentially-remote caller, so that
+    high-impact features (e.g. auto-confirming LLM-generated tool executions)
+    can be gated more conservatively in the network case.
+    """
+    return _auth_enabled
+
+
+def is_auto_confirm_allowed() -> bool:
+    """Return True if API callers may set auto_confirm to a truthy value.
+
+    Auto-confirming tool executions over the API turns any prompt-injection
+    foothold into arbitrary command execution (CWE-78), since LLM output is
+    fed straight into shell/python tools without human review. We therefore
+    require an explicit operator opt-in (GPTME_ALLOW_AUTO_CONFIRM=1) whenever
+    auth is enforced (network binding). On loopback, where auth is disabled
+    by design, the existing behavior is preserved.
+    """
+    if not _auth_enabled:
+        return True
+    return os.environ.get("GPTME_ALLOW_AUTO_CONFIRM", "").lower() in ("1", "true", "yes")
+
+
 @auth_api.route("/api/v2/auth/cookie", methods=["POST"])
 @require_auth
 def set_auth_cookie():

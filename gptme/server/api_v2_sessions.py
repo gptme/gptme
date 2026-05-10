@@ -22,7 +22,7 @@ from ..llm.models import get_default_model
 from ..logmanager import LogManager
 from ..message import Message
 from .api_v2_common import _validate_branch, _validate_conversation_id
-from .auth import require_auth
+from .auth import is_auto_confirm_allowed, require_auth
 from .constants import DEFAULT_FALLBACK_MODEL
 from .openapi_docs import (
     CONVERSATION_ID_PARAM,
@@ -301,6 +301,26 @@ def api_conversation_step(conversation_id: str):
                 }
             ),
             400,
+        )
+
+    # CWE-78: gate auto_confirm on network bindings. See api_v2.py for rationale.
+    auto_confirm_truthy = (
+        (type(auto_confirm) is bool and auto_confirm)
+        or (type(auto_confirm) is int and auto_confirm > 0)
+    )
+    if auto_confirm_truthy and not is_auto_confirm_allowed():
+        return (
+            flask.jsonify(
+                {
+                    "error": "auto_confirm not allowed",
+                    "message": (
+                        "Setting 'auto_confirm' over the API is disabled when "
+                        "the server is bound to a network interface. Set "
+                        "GPTME_ALLOW_AUTO_CONFIRM=1 on the server to opt in."
+                    ),
+                }
+            ),
+            403,
         )
 
     # If auto_confirm set, set auto_confirm_count.
@@ -605,6 +625,22 @@ def api_conversation_tool_confirm(conversation_id: str):
         count = req_json.get("count", 1)
         if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
             return flask.jsonify({"error": "count must be a positive integer"}), 400
+
+        # CWE-78: gate auto_confirm on network bindings.
+        if not is_auto_confirm_allowed():
+            return (
+                flask.jsonify(
+                    {
+                        "error": "auto_confirm not allowed",
+                        "message": (
+                            "The 'auto' confirmation action is disabled when "
+                            "the server is bound to a network interface. Set "
+                            "GPTME_ALLOW_AUTO_CONFIRM=1 on the server to opt in."
+                        ),
+                    }
+                ),
+                403,
+            )
 
         session.auto_confirm_count = count
 

@@ -57,7 +57,7 @@ from .api_v2_common import (
     msg2dict,
 )
 from .api_v2_sessions import SessionManager, sessions_api
-from .auth import require_auth
+from .auth import is_auto_confirm_allowed, require_auth
 from .external_sessions import get_external_session_provider
 from .openapi_docs import (
     CONVERSATION_ID_PARAM,
@@ -471,6 +471,30 @@ def api_conversation_put(conversation_id: str):
                 }
             ),
             400,
+        )
+
+    # CWE-78: when the server is reachable over the network (auth enabled),
+    # allowing API callers to set auto_confirm turns any prompt-injection
+    # foothold into shell/python execution. Require an explicit operator
+    # opt-in (GPTME_ALLOW_AUTO_CONFIRM=1). Loopback binding (auth disabled)
+    # keeps existing behavior.
+    auto_confirm_truthy = (
+        (type(auto_confirm) is bool and auto_confirm)
+        or (type(auto_confirm) is int and auto_confirm > 0)
+    )
+    if auto_confirm_truthy and not is_auto_confirm_allowed():
+        return (
+            flask.jsonify(
+                {
+                    "error": "auto_confirm not allowed",
+                    "message": (
+                        "Setting 'auto_confirm' over the API is disabled when "
+                        "the server is bound to a network interface. Set "
+                        "GPTME_ALLOW_AUTO_CONFIRM=1 on the server to opt in."
+                    ),
+                }
+            ),
+            403,
         )
 
     # Validate all messages before creating any side effects (directories).
