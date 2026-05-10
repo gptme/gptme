@@ -8,13 +8,15 @@ Deep xdotool/subprocess integration tests live in computer.py's
 existing test suite — this file validates the abstraction layer.
 """
 
+import asyncio
 import os
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from gptme.tools.computer_transport import (
     ComputerTransport,
+    CuaComputerTransport,
     NativeComputerTransport,
     get_transport,
 )
@@ -158,6 +160,104 @@ class TestGetTransport(unittest.TestCase):
         """Unknown transport name falls back to native with a warning."""
         transport = get_transport()
         self.assertIsInstance(transport, NativeComputerTransport)
+
+    @patch.dict(os.environ, {"GPTME_COMPUTER_TRANSPORT": "cua"}, clear=True)
+    def test_cua_missing_package_falls_back_to_native(self):
+        """GPTME_COMPUTER_TRANSPORT=cua falls back gracefully when cua-sandbox is absent."""
+        with patch.dict("sys.modules", {"cua_sandbox": None}):
+            transport = get_transport()
+        self.assertIsInstance(transport, NativeComputerTransport)
+
+
+class TestScreenshotNotBypassed(unittest.TestCase):
+    """Verify the screenshot action is routed through the transport (not local fallback)."""
+
+    def setUp(self):
+        import gptme.tools.computer_transport as ct
+
+        ct._transport = None
+        ct._transport_name = None
+
+    def test_screenshot_dispatched_through_transport(self):
+        """When a transport is active, screenshot() must be called on the transport."""
+        stub = StubTransport()
+        stub.screenshot = MagicMock(return_value=Path("/tmp/stub.png"))  # type: ignore[method-assign]
+
+        with (
+            patch(
+                "gptme.tools.computer._dispatch_transport",
+                wraps=lambda t, a, *args, **kw: (
+                    t.screenshot() if a == "screenshot" else None
+                ),
+            ) as mock_dispatch,
+            patch("gptme.tools.computer.get_transport", return_value=stub),
+        ):
+            from gptme.tools.computer import computer
+
+            computer("screenshot")
+
+        mock_dispatch.assert_called_once()
+        stub.screenshot.assert_called_once()
+
+
+class TestNativeTransportCoordinateScaling(unittest.TestCase):
+    """Verify NativeComputerTransport applies API→physical coordinate scaling."""
+
+    def test_mouse_move_scales_coordinates(self):
+        """mouse_move() must scale from API-space to physical before calling xdotool."""
+        transport = NativeComputerTransport()
+        called_with: list[tuple[int, int]] = []
+
+        def fake_xdotool(cmd: str, display: str) -> str:
+            # Extract the x,y from "mousemove --sync X Y"
+            parts = cmd.split()
+            called_with.append((int(parts[-2]), int(parts[-1])))
+            return ""
+
+        with (
+            patch("gptme.tools.computer.IS_MACOS", False),
+            patch(
+                "gptme.tools.computer._get_display_resolution",
+                return_value=(1920, 1080),
+            ),
+            patch("gptme.tools.computer._run_xdotool", fake_xdotool),
+            patch.dict(os.environ, {"WIDTH": "1366", "HEIGHT": "768", "DISPLAY": ":1"}),
+        ):
+            transport.mouse_move(683, 384)  # mid-point in API space
+
+        self.assertEqual(len(called_with), 1)
+        phys_x, phys_y = called_with[0]
+        # At 1920x1080 physical vs 1366x768 API, scaling is ~1.406x and ~1.406x
+        self.assertAlmostEqual(phys_x, round(683 * 1920 / 1366), delta=2)
+        self.assertAlmostEqual(phys_y, round(384 * 1080 / 768), delta=2)
+
+
+class TestCuaTransportAsyncio(unittest.TestCase):
+    """Verify _run_async() works both inside and outside a running event loop."""
+
+    def test_run_async_outside_loop(self):
+        """_run_async should work normally when no event loop is running."""
+        transport = CuaComputerTransport.__new__(CuaComputerTransport)
+
+        async def _coro() -> int:
+            return 42
+
+        with patch.object(CuaComputerTransport, "__init__", return_value=None):
+            result = transport._run_async(_coro())
+        self.assertEqual(result, 42)
+
+    def test_run_async_inside_loop(self):
+        """_run_async must not raise when called from inside a running event loop."""
+        transport = CuaComputerTransport.__new__(CuaComputerTransport)
+
+        async def _coro() -> int:
+            return 99
+
+        async def _runner() -> int:
+            return transport._run_async(_coro())  # type: ignore[return-value]
+
+        result = asyncio.run(_runner())
+        self.assertEqual(result, 99)
 
 
 if __name__ == "__main__":

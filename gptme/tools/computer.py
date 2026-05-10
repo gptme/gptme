@@ -133,6 +133,25 @@ class _ScalingSource(Enum):
     API = "api"
 
 
+def _get_api_resolution() -> tuple[int, int]:
+    """Return the configured API-space resolution (WIDTH/HEIGHT env or display-ratio defaults)."""
+    display_width, display_height = _get_display_resolution()
+    display_ratio = display_width / display_height
+    default_resolution: _Resolution | None = None
+    closest_ratio_diff = float("inf")
+    for res in MAX_SCALING_TARGETS.values():
+        ratio = res["width"] / res["height"]
+        ratio_diff = abs(ratio - display_ratio)
+        if ratio_diff < closest_ratio_diff:
+            closest_ratio_diff = ratio_diff
+            default_resolution = res
+    if default_resolution is None:
+        default_resolution = MAX_SCALING_TARGETS["XGA"]
+    width = int(os.getenv("WIDTH", str(default_resolution["width"])))
+    height = int(os.getenv("HEIGHT", str(default_resolution["height"])))
+    return width, height
+
+
 def _chunks(s: str, chunk_size: int) -> list[str]:
     """Split string into chunks for typing simulation."""
     return [s[i : i + chunk_size] for i in range(0, len(s), chunk_size)]
@@ -566,7 +585,7 @@ def computer(
     """
     # Optional transport-layer dispatch (env: GPTME_COMPUTER_TRANSPORT)
     transport = get_transport()
-    if transport and action != "screenshot":
+    if transport:
         return _dispatch_transport(transport, action, text, coordinate)
 
     display = os.getenv("DISPLAY", ":1")
