@@ -478,13 +478,13 @@ def get_transport() -> ComputerTransport | None:
         _transport_name = None
         return None
 
-    _transport_name = current
-
     if current == "native":
         _transport = NativeComputerTransport()
+        _transport_name = current
     elif current == "cua":
         try:
             _transport = CuaComputerTransport()
+            _transport_name = current  # only cache on success
         except RuntimeError as e:
             import logging
 
@@ -493,6 +493,9 @@ def get_transport() -> ComputerTransport | None:
                 "CuaComputerTransport init failed: %s; falling back to native", e
             )
             _transport = NativeComputerTransport()
+            # Leave _transport_name as None so the next call retries CuaComputerTransport
+            # (allows recovery from transient failures like Docker not yet running)
+            _transport_name = None
     else:
         import logging
 
@@ -502,5 +505,6 @@ def get_transport() -> ComputerTransport | None:
             current,
         )
         _transport = NativeComputerTransport()
+        _transport_name = current
 
     return _transport

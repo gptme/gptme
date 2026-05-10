@@ -168,6 +168,21 @@ class TestGetTransport(unittest.TestCase):
             transport = get_transport()
         self.assertIsInstance(transport, NativeComputerTransport)
 
+    @patch.dict(os.environ, {"GPTME_COMPUTER_TRANSPORT": "cua"}, clear=True)
+    def test_cua_fallback_does_not_poison_cache(self):
+        """After CuaComputerTransport fallback, _transport_name must not be set to 'cua'.
+
+        A poisoned cache would prevent retries after transient failures
+        (e.g. Docker not yet running when the first call is made).
+        """
+        import gptme.tools.computer_transport as ct
+
+        with patch.dict("sys.modules", {"cua_sandbox": None}):
+            get_transport()
+
+        # Cache must NOT be poisoned: _transport_name should be None (retryable)
+        self.assertIsNone(ct._transport_name)
+
 
 class TestScreenshotNotBypassed(unittest.TestCase):
     """Verify the screenshot action is routed through the transport (not local fallback)."""
