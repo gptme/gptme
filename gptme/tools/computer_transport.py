@@ -262,13 +262,18 @@ class NativeComputerTransport(ComputerTransport):
         if IS_MACOS:
             import subprocess
 
-            output = subprocess.run(
-                ["cliclick", "p"],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=10,
-            ).stdout.strip()
+            try:
+                output = subprocess.run(
+                    ["cliclick", "p"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=10,
+                ).stdout.strip()
+            except subprocess.TimeoutExpired as e:
+                raise RuntimeError("cliclick cursor position query timed out") from e
+            except subprocess.CalledProcessError as e:
+                raise RuntimeError(f"Failed to get cursor position: {e.stderr}") from e
             x, y = map(int, output.split(","))
         else:
             import os
