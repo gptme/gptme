@@ -138,8 +138,8 @@ class TestGetTransport(unittest.TestCase):
         # Reset the module-level cache between tests
         import gptme.tools.computer_transport as ct
 
-        ct._transport_loaded = False
         ct._transport = None
+        ct._transport_name = None
 
     @patch.dict(os.environ, {}, clear=True)
     def test_default_returns_none(self):

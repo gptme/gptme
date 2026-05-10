@@ -385,7 +385,7 @@ class CuaComputerTransport(ComputerTransport):
 # ---------------------------------------------------------------------------
 
 _transport: ComputerTransport | None = None
-_transport_loaded: bool = False
+_transport_name: str | None = None  # env-var value the cache was built for
 
 
 def get_transport() -> ComputerTransport | None:
@@ -396,22 +396,32 @@ def get_transport() -> ComputerTransport | None:
     - ``native`` → ``NativeComputerTransport`` (explicit opt-in to
       transport-layer wrapper around xdotool/cliclick)
     - ``cua`` → ``CuaComputerTransport`` (Docker sandbox via cua-sandbox)
+
+    Caches the transport object.  Re-validates against the current env
+    var on every call so that tests can switch backends without process
+    restarts.
     """
-    global _transport, _transport_loaded
+    global _transport, _transport_name
 
-    if _transport_loaded:
-        return _transport
-
-    _transport_loaded = True
     import os
 
-    transport_name = os.getenv("GPTME_COMPUTER_TRANSPORT", "").strip()
-    if not transport_name:
+    current = os.getenv("GPTME_COMPUTER_TRANSPORT", "").strip()
+
+    # Cache hit — env var hasn't changed since last creation
+    if _transport is not None and _transport_name == current:
+        return _transport
+
+    # No transport requested
+    if not current:
+        _transport = None
+        _transport_name = None
         return None
 
-    if transport_name == "native":
+    _transport_name = current
+
+    if current == "native":
         _transport = NativeComputerTransport()
-    elif transport_name == "cua":
+    elif current == "cua":
         try:
             _transport = CuaComputerTransport()
         except RuntimeError as e:
@@ -428,7 +438,7 @@ def get_transport() -> ComputerTransport | None:
         logger = logging.getLogger(__name__)
         logger.warning(
             "Unknown GPTME_COMPUTER_TRANSPORT=%r; falling back to native",
-            transport_name,
+            current,
         )
         _transport = NativeComputerTransport()
 
