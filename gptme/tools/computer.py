@@ -70,6 +70,8 @@ Examples:
 Using a single sequence for complex operations ensures proper timing and recognition of keyboard shortcuts.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import platform
@@ -77,12 +79,16 @@ import shlex
 import shutil
 import subprocess
 from enum import Enum
-from typing import Literal, TypedDict
+from typing import TYPE_CHECKING, Literal, TypedDict
 
-from ..message import Message
 from .base import ToolSpec, ToolUse
+from .computer_transport import get_transport
 from .screenshot import screenshot
 from .vision import view_image
+
+if TYPE_CHECKING:
+    from ..message import Message
+    from .computer_transport import ComputerTransport
 
 logger = logging.getLogger(__name__)
 
@@ -489,6 +495,64 @@ def _macos_drag(x: int, y: int) -> None:
         raise RuntimeError(f"Failed to drag: {e.stderr}") from e
 
 
+def _dispatch_transport(
+    transport: ComputerTransport,
+    action: Action,
+    text: str | None = None,
+    coordinate: tuple[int, int] | None = None,
+) -> Message | None:
+    """Route a computer action through the transport layer."""
+    if action == "key":
+        if not text:
+            raise ValueError("text is required for key")
+        transport.key(text)
+        print(f"Sent key sequence: {text}")
+        return None
+
+    if action == "type":
+        if not text:
+            raise ValueError("text is required for type")
+        transport.type_text(text)
+        print(f"Typed text: {text}")
+        return None
+
+    if action in ("mouse_move", "left_click_drag"):
+        if not coordinate:
+            raise ValueError(f"coordinate is required for {action}")
+        x, y = coordinate
+        if action == "mouse_move":
+            transport.mouse_move(x, y)
+        else:
+            transport.left_click_drag(x, y)
+        print(f"Moved mouse to {x},{y}")
+        return None
+
+    click_map = {
+        "left_click": lambda: transport.left_click(),
+        "right_click": lambda: transport.right_click(),
+        "middle_click": lambda: transport.middle_click(),
+        "double_click": lambda: transport.double_click(),
+    }
+    if action in click_map:
+        click_map[action]()
+        print(f"Performed {action}")
+        return None
+
+    if action == "screenshot":
+        path = transport.screenshot()
+        if path.exists():
+            return view_image(path)
+        print("Error: Screenshot failed")
+        return None
+
+    if action == "cursor_position":
+        x, y = transport.cursor_position()
+        print(f"Cursor position: X={x},Y={y}")
+        return None
+
+    raise ValueError(f"Invalid action: {action}")
+
+
 def computer(
     action: Action, text: str | None = None, coordinate: tuple[int, int] | None = None
 ) -> Message | None:
@@ -500,6 +564,11 @@ def computer(
         text: Text to type or key sequence to send
         coordinate: X,Y coordinates for mouse actions
     """
+    # Optional transport-layer dispatch (env: GPTME_COMPUTER_TRANSPORT)
+    transport = get_transport()
+    if transport and action != "screenshot":
+        return _dispatch_transport(transport, action, text, coordinate)
+
     display = os.getenv("DISPLAY", ":1")
     # Default API space resolution
     # Get actual display resolution and calculate aspect ratio
