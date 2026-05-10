@@ -22,6 +22,7 @@ from .llm import reply
 from .llm.models import get_default_model, get_model
 from .logmanager import Log, LogManager, prepare_messages
 from .message import Message
+from .prompt_queue import drain_prompt_queue
 from .telemetry import set_conversation_context, trace_function
 from .tools import (
     ToolFormat,
@@ -171,6 +172,7 @@ def _run_chat_loop(
     """Main chat loop - extracted to allow clean exception handling."""
 
     while True:
+        _drain_external_prompt_queue(manager, prompt_queue)
         msg: Message | None = None
         try:
             # Process next message (either from prompt queue or user input)
@@ -190,6 +192,7 @@ def _run_chat_loop(
                         manager, stream, tool_format, model, output_schema
                     )
                 except SessionCompleteException:
+                    _drain_external_prompt_queue(manager, prompt_queue)
                     if not prompt_queue:
                         # No more prompts, properly exit
                         raise
@@ -273,6 +276,22 @@ def _run_chat_loop(
     ):
         for msg in session_end_msgs:
             manager.append(msg)
+
+
+def _drain_external_prompt_queue(
+    manager: LogManager, prompt_queue: list[Message]
+) -> None:
+    """Merge any durable queued prompts into the in-memory queue."""
+    capacity = MAX_PROMPT_QUEUE_SIZE - len(prompt_queue)
+    if capacity <= 0:
+        return
+
+    drained = drain_prompt_queue(manager.logdir, max_items=capacity)
+    if not drained:
+        return
+
+    prompt_queue.extend(drained)
+    logger.info("Loaded %d queued prompt(s) for %s", len(drained), manager.logdir.name)
 
 
 def _process_message_conversation(

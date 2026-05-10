@@ -1,5 +1,6 @@
 """Tests for the gptme-util CLI."""
 
+import json
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -141,6 +142,26 @@ def test_context_index_and_retrieve(tmp_path):
     assert result.exit_code == 0
     assert result.output.count("Hello, world!") > 0
     # assert result.output.count("Hello, world!") == 1
+
+
+def test_chats_send(tmp_path, monkeypatch):
+    """Test queueing a prompt for an existing conversation."""
+    runner = CliRunner()
+
+    logs_dir = tmp_path / "logs"
+    conv_dir = logs_dir / "chat-123"
+    conv_dir.mkdir(parents=True)
+
+    monkeypatch.setattr("gptme.cli.cmd_chats.get_logs_dir", lambda: logs_dir)
+
+    result = runner.invoke(main, ["chats", "send", "chat-123", "follow", "up"])
+
+    assert result.exit_code == 0
+    assert "Queued prompt for 'chat-123'" in result.output
+
+    queue_path = conv_dir / "prompt-queue.jsonl"
+    records = [json.loads(line) for line in queue_path.read_text().splitlines()]
+    assert [record["content"] for record in records] == ["follow up"]
 
 
 def test_tools_list():

@@ -10,6 +10,7 @@ import click
 from ..dirs import get_logs_dir
 from ..logmanager import LogManager
 from ..logmanager.conversations import ConversationMeta
+from ..prompt_queue import queue_prompt
 from ..tools import get_tools, init_tools
 from ..tools.chats import find_empty_conversations, list_chats, search_chats
 
@@ -193,6 +194,24 @@ def chats_rename(id: str, name: str):
     else:
         print(f"Chat '{id}' not found")
         sys.exit(1)
+
+
+@chats.command("send")
+@click.argument("id")
+@click.argument("message", nargs=-1, required=True)
+def chats_send(id: str, message: tuple[str, ...]):
+    """Queue a prompt for the next turn of a running conversation."""
+    logdir = get_logs_dir() / id
+    if not logdir.exists():
+        click.echo(f"Chat '{id}' not found")
+        raise SystemExit(1)
+
+    content = " ".join(message).strip()
+    if not content:
+        raise click.UsageError("Queued message must not be empty.")
+
+    queue_prompt(logdir, content)
+    click.echo(f"Queued prompt for '{id}'")
 
 
 @chats.command("export")
