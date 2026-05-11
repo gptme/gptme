@@ -14,12 +14,15 @@ from gptme.hooks.cache_awareness import (
     CacheState,
     _get_state,
     _handle_cache_invalidated,
+    _handle_generation_post,
     _handle_message_post_process,
     get_cache_state,
+    get_elapsed_since_last_call,
     get_invalidation_count,
     get_status_summary,
     get_tokens_since_invalidation,
     get_turns_since_invalidation,
+    is_cache_likely_cold,
     is_cache_valid,
     notify_token_usage,
     notify_turn_complete,
@@ -464,6 +467,9 @@ class TestGetStatusSummary:
             "last_invalidation_reason",
             "tokens_before",
             "tokens_after",
+            "last_call_completed_at",
+            "elapsed_since_last_call",
+            "cache_likely_cold",
         }
         assert set(summary.keys()) == expected_keys
 
@@ -558,3 +564,117 @@ class TestLifecycleScenarios:
         list(_handle_cache_invalidated(manager, reason="compact"))
         # New state has no callbacks registered
         assert get_cache_state()._callbacks == []
+
+
+# === TTL-based cache coldness heuristic ===
+
+
+class TestCacheColdHeuristic:
+    """Tests for is_cache_likely_cold / get_elapsed_since_last_call."""
+
+    def test_no_prior_call_returns_false(self):
+        """With no prior LLM call recorded, assume warm (conservative)."""
+
+        assert is_cache_likely_cold() is False
+
+    def test_get_elapsed_returns_none_before_first_call(self):
+
+        assert get_elapsed_since_last_call() is None
+
+    def test_recent_call_not_cold(self):
+        """A call that completed seconds ago should not be considered cold."""
+        from datetime import timedelta
+
+        from gptme.hooks.cache_awareness import (
+            _get_state,
+            _set_state,
+        )
+
+        state = _get_state()
+        state.last_call_completed_at = datetime.now(tz=timezone.utc) - timedelta(
+            seconds=10
+        )
+        _set_state(state)
+
+        assert is_cache_likely_cold(ttl_seconds=300.0) is False
+
+    def test_old_call_is_cold(self):
+        """A call that completed 6+ minutes ago should be considered cold (default 300s TTL)."""
+        from datetime import timedelta
+
+        from gptme.hooks.cache_awareness import (
+            _get_state,
+            _set_state,
+        )
+
+        state = _get_state()
+        state.last_call_completed_at = datetime.now(tz=timezone.utc) - timedelta(
+            seconds=400
+        )
+        _set_state(state)
+
+        assert is_cache_likely_cold(ttl_seconds=300.0) is True
+
+    def test_custom_ttl_threshold(self):
+        """Custom TTL threshold should override the default 300 s."""
+        from datetime import timedelta
+
+        from gptme.hooks.cache_awareness import (
+            _get_state,
+            _set_state,
+        )
+
+        state = _get_state()
+        state.last_call_completed_at = datetime.now(tz=timezone.utc) - timedelta(
+            seconds=60
+        )
+        _set_state(state)
+
+        assert is_cache_likely_cold(ttl_seconds=30.0) is True
+        assert is_cache_likely_cold(ttl_seconds=120.0) is False
+
+    def test_elapsed_since_last_call(self):
+        from datetime import timedelta
+
+        from gptme.hooks.cache_awareness import (
+            _get_state,
+            _set_state,
+        )
+
+        state = _get_state()
+        state.last_call_completed_at = datetime.now(tz=timezone.utc) - timedelta(
+            seconds=90
+        )
+        _set_state(state)
+
+        elapsed = get_elapsed_since_last_call()
+        assert elapsed is not None
+        assert 89 <= elapsed <= 92  # allow 2s tolerance
+
+    def test_handle_generation_post_records_time(self):
+        """_handle_generation_post() should set last_call_completed_at."""
+        from unittest.mock import MagicMock
+
+        from gptme.hooks.cache_awareness import _get_state
+
+        msg = MagicMock()
+        before = datetime.now(tz=timezone.utc)
+        list(_handle_generation_post(msg))
+        after = datetime.now(tz=timezone.utc)
+
+        state = _get_state()
+        assert state.last_call_completed_at is not None
+        assert before <= state.last_call_completed_at <= after
+
+    def test_status_summary_includes_cold_heuristic(self):
+        """get_status_summary() should expose the new TTL fields."""
+        from gptme.hooks.cache_awareness import get_status_summary
+
+        summary = get_status_summary()
+        assert "last_call_completed_at" in summary
+        assert "elapsed_since_last_call" in summary
+        assert "cache_likely_cold" in summary
+        # No call recorded yet → cold=False, elapsed=None
+        assert summary["cache_likely_cold"] is False
+        assert summary["elapsed_since_last_call"] is None
+        assert summary["last_call_completed_at"] is None

@@ -5,7 +5,9 @@ Provides centralized cache state tracking that other hooks/plugins/tools
 can rely on to get current cache usage or detect cache invalidation.
 
 This module:
-- Tracks when cache was last invalidated
+- Tracks when cache was last invalidated (explicit, via CACHE_INVALIDATED hook)
+- Tracks when the last LLM call completed (via GENERATION_POST hook)
+- Provides ``is_cache_likely_cold()`` to predict implicit TTL-based expiry
 - Tracks token counts before/after compaction
 - Provides query functions for plugins to check cache state
 - Emits events on cache invalidation for reactive plugins
@@ -16,19 +18,20 @@ Terminology:
     not individual messages. See: https://github.com/gptme/gptme/issues/1075
     for discussion on standardizing "turns" vs "steps" terminology.
 
-Limitations:
-    Currently only tracks *explicit* cache invalidations triggered by
-    auto-compact (via CACHE_INVALIDATED hook). Does NOT detect:
-    - Cache expiry due to time (e.g., Anthropic's 5-minute TTL)
-    - Cache misses from view regeneration/switching
-    - Other implicit invalidation scenarios
-    Future work may add heuristics for these cases (e.g., detecting
-    >5min gaps between messages as probable cache misses).
+Cache coldness heuristic:
+    ``is_cache_likely_cold(ttl_seconds)`` returns True when the time elapsed
+    since the last LLM call exceeds the provider's cache TTL (default 300 s
+    for Anthropic).  This lets plugins like ToolOutputTrimmer trim context
+    *before* a predicted cold-cache request, rather than reacting after the
+    fact.  The heuristic is conservative: if no prior call has been recorded
+    it returns False (unknown → assume warm).
 
 Usage by other plugins:
     from gptme.hooks.cache_awareness import (
         get_cache_state,
         is_cache_valid,
+        is_cache_likely_cold,
+        get_elapsed_since_last_call,
         get_tokens_since_invalidation,
         on_cache_change,
     )
@@ -40,6 +43,10 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, TypedDict
+
+# Default Anthropic prompt-cache TTL in seconds.
+# The actual TTL is ~5 min; we use 300 s as the heuristic threshold.
+ANTHROPIC_CACHE_TTL_SECONDS: float = 300.0
 
 from ..hooks import HookType, StopPropagation, register_hook
 from ..message import Message
@@ -63,6 +70,9 @@ class CacheStatusSummary(TypedDict):
     last_invalidation_reason: str | None
     tokens_before: int | None
     tokens_after: int | None
+    last_call_completed_at: str | None
+    elapsed_since_last_call: float | None
+    cache_likely_cold: bool
 
 
 @dataclass
@@ -87,6 +97,10 @@ class CacheState:
 
     # Total number of cache invalidations in this session
     invalidation_count: int = 0
+
+    # Timestamp when the last LLM call completed (GENERATION_POST).
+    # Used to predict implicit cache expiry via TTL heuristic.
+    last_call_completed_at: datetime | None = None
 
     # Registered callbacks for cache change events
     _callbacks: list[Callable[["CacheState"], None]] = field(default_factory=list)
@@ -141,6 +155,62 @@ def is_cache_valid() -> bool:
     """
     state = _get_state()
     return state.turns_since_invalidation > 0
+
+
+def is_cache_likely_cold(ttl_seconds: float = ANTHROPIC_CACHE_TTL_SECONDS) -> bool:
+    """Check whether the prompt cache is likely cold (expired due to inactivity).
+
+    Uses a time-gap heuristic: if more than *ttl_seconds* have elapsed since
+    the last LLM call completed, the provider's TTL has almost certainly
+    expired and the cache is cold.
+
+    This lets plugins act *before* the next LLM request rather than reacting
+    to a confirmed cache miss after the fact.
+
+    Returns False (assume warm) when no prior call has been recorded.
+
+    Note:
+        The default threshold (``ANTHROPIC_CACHE_TTL_SECONDS``) is calibrated
+        for Anthropic's ~5-minute prompt-cache TTL.  For non-Anthropic providers
+        (OpenAI, local models, etc.) pass an explicit *ttl_seconds* value, or
+        treat the result as meaningless if that provider has no prompt cache.
+
+    Args:
+        ttl_seconds: Cache TTL threshold in seconds.
+                     Defaults to ``ANTHROPIC_CACHE_TTL_SECONDS`` (300 s).
+
+    Returns:
+        True if the cache is predicted to be cold, False otherwise.
+
+    Example::
+
+        if is_cache_likely_cold():
+            # Trim context before the request to save cost on cold-cache hit
+            pass
+    """
+    elapsed = get_elapsed_since_last_call()
+    if elapsed is None:
+        return False  # No prior call recorded — assume warm (conservative)
+    return elapsed >= ttl_seconds
+
+
+def get_elapsed_since_last_call() -> float | None:
+    """Return the number of seconds elapsed since the last LLM call completed.
+
+    Returns:
+        Elapsed seconds as a float, or None if no call has been recorded yet.
+
+    Example::
+
+        elapsed = get_elapsed_since_last_call()
+        if elapsed is not None and elapsed > 60:
+            print(f"Last call was {elapsed:.0f}s ago")
+    """
+    state = _get_state()
+    if state.last_call_completed_at is None:
+        return None
+    now = datetime.now(tz=timezone.utc)
+    return (now - state.last_call_completed_at).total_seconds()
 
 
 def get_invalidation_count() -> int:
@@ -296,14 +366,34 @@ def _handle_message_post_process(
     yield from ()
 
 
+def _handle_generation_post(
+    message: Message,
+    **kwargs: object,
+) -> Generator[Message | StopPropagation, None, None]:
+    """Record the completion time of each LLM call.
+
+    Stores the current UTC timestamp in ``CacheState.last_call_completed_at``
+    so that ``is_cache_likely_cold()`` can later check whether the provider's
+    cache TTL has elapsed since this call.
+
+    Args:
+        message: The generated assistant message (unused here).
+
+    Yields:
+        Nothing (tracking only)
+    """
+    state = _get_state()
+    state.last_call_completed_at = datetime.now(tz=timezone.utc)
+    _set_state(state)
+    logger.debug("Recorded LLM call completion time for cache TTL heuristic")
+    yield from ()
+
+
 def register() -> None:
     """Register cache awareness hooks with the hook system."""
     # Listen for cache invalidation events.
     # NOTE: This only captures EXPLICIT invalidations from auto-compact.
-    # It does NOT detect implicit invalidations like:
-    # - Cache expiry (e.g., Anthropic's 5-minute TTL)
-    # - View regeneration/switching
-    # Future work may add time-based heuristics for implicit invalidation.
+    # For implicit TTL-based expiry, use is_cache_likely_cold() instead.
     register_hook(
         "cache_awareness.invalidated",
         HookType.CACHE_INVALIDATED,
@@ -318,6 +408,16 @@ def register() -> None:
         HookType.TURN_POST,
         _handle_message_post_process,
         priority=0,  # Normal priority
+    )
+
+    # Track LLM call completion time for TTL-based cache coldness heuristic.
+    # Fires after each assistant generation so is_cache_likely_cold() can
+    # measure elapsed time at the next GENERATION_PRE.
+    register_hook(
+        "cache_awareness.generation_post",
+        HookType.GENERATION_POST,
+        _handle_generation_post,
+        priority=100,  # High priority - record time before other handlers
     )
 
     logger.debug("Registered cache awareness hooks")
@@ -348,6 +448,10 @@ def get_status_summary() -> CacheStatusSummary:
         Type-safe dictionary with key cache metrics.
     """
     state = _get_state()
+    # Compute elapsed once so elapsed_since_last_call and cache_likely_cold are
+    # derived from the same instant — avoids contradictory snapshots at the threshold.
+    elapsed = get_elapsed_since_last_call()
+    cache_cold = elapsed is not None and elapsed >= ANTHROPIC_CACHE_TTL_SECONDS
     return {
         "invalidation_count": state.invalidation_count,
         "turns_since_invalidation": state.turns_since_invalidation,
@@ -358,4 +462,11 @@ def get_status_summary() -> CacheStatusSummary:
         "last_invalidation_reason": state.last_invalidation_reason,
         "tokens_before": state.tokens_before_invalidation,
         "tokens_after": state.tokens_after_invalidation,
+        "last_call_completed_at": (
+            state.last_call_completed_at.isoformat()
+            if state.last_call_completed_at
+            else None
+        ),
+        "elapsed_since_last_call": elapsed,
+        "cache_likely_cold": cache_cold,
     }
