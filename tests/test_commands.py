@@ -592,6 +592,32 @@ class TestBuiltinCommands:
         assert "sess-123" in captured.out
         assert "abcdef123456" in captured.out
 
+    def test_checkpoint_list_command_handles_oserror(self, mock_manager, capsys):
+        """The /checkpoint list command should print OSError failures."""
+
+        @dataclass
+        class Decision:
+            repo_root: Path | None
+            reason: str
+            head_sha: str | None
+
+        with (
+            patch("gptme.commands.checkpoint.classify") as mock_classify,
+            patch(
+                "gptme.commands.checkpoint.list_checkpoints",
+                side_effect=OSError("permission denied"),
+            ),
+        ):
+            mock_classify.return_value = Decision(
+                repo_root=Path("/tmp/test-workspace"),
+                reason="",
+                head_sha="abcdef1234567890",
+            )
+            list(handle_cmd("/checkpoint list", mock_manager))
+
+        captured = capsys.readouterr()
+        assert "checkpoint: permission denied" in captured.out
+
     def test_checkpoint_restore_command(self, mock_manager, capsys):
         """The /checkpoint restore command should call restore_checkpoint."""
         with patch("gptme.commands.checkpoint.restore_checkpoint") as mock_restore:
@@ -606,6 +632,17 @@ class TestBuiltinCommands:
         captured = capsys.readouterr()
         assert "Restored to checkpoint abcdef123456." in captured.out
 
+    def test_checkpoint_restore_command_handles_oserror(self, mock_manager, capsys):
+        """The /checkpoint restore command should print OSError failures."""
+        with patch(
+            "gptme.commands.checkpoint.restore_checkpoint",
+            side_effect=OSError("permission denied"),
+        ):
+            list(handle_cmd("/checkpoint restore 1", mock_manager))
+
+        captured = capsys.readouterr()
+        assert "checkpoint: permission denied" in captured.out
+
     def test_checkpoint_diff_command(self, mock_manager, capsys):
         """The /checkpoint diff command should call diff_checkpoint and print output."""
         with patch("gptme.commands.checkpoint.diff_checkpoint") as mock_diff:
@@ -617,3 +654,14 @@ class TestBuiltinCommands:
         mock_diff.assert_called_once_with(Path("/tmp/test-workspace"), "1")
         captured = capsys.readouterr()
         assert "diff --git" in captured.out
+
+    def test_checkpoint_diff_command_handles_oserror(self, mock_manager, capsys):
+        """The /checkpoint diff command should print OSError failures."""
+        with patch(
+            "gptme.commands.checkpoint.diff_checkpoint",
+            side_effect=OSError("permission denied"),
+        ):
+            list(handle_cmd("/checkpoint diff 1", mock_manager))
+
+        captured = capsys.readouterr()
+        assert "checkpoint: permission denied" in captured.out

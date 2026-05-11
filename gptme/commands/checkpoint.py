@@ -104,7 +104,11 @@ def cmd_checkpoint(ctx: CommandContext) -> None:
             print(f"checkpoint: {decision.reason}")
             return
 
-        records = list_checkpoints(decision.repo_root)
+        try:
+            records = list_checkpoints(decision.repo_root)
+        except (CheckpointError, OSError) as exc:
+            print(f"checkpoint: {exc}")
+            return
         if not records:
             print("No checkpoints yet.")
             return
@@ -127,7 +131,7 @@ def cmd_checkpoint(ctx: CommandContext) -> None:
             return
         try:
             output = diff_checkpoint(target, args[0])
-        except CheckpointError as exc:
+        except (CheckpointError, OSError) as exc:
             print(f"checkpoint: {exc}")
             return
         if output:
@@ -154,7 +158,7 @@ def cmd_checkpoint(ctx: CommandContext) -> None:
                 remaining[0],
                 include_dirty=include_dirty,
             )
-        except CheckpointError as exc:
+        except (CheckpointError, OSError) as exc:
             print(f"checkpoint: {exc}")
             return
         print(result)
