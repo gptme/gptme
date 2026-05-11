@@ -7,10 +7,10 @@ in the Bob repo for the full design.
 
 Activation
 ----------
-The hook is **opt-in**. It self-no-ops unless either:
-
-- ``GPTME_AUTO_SNAPSHOTS`` is set to a truthy value, or
-- The CLI passed ``--auto-snapshots`` (which sets the same env var).
+The hook is **opt-in**. It self-no-ops unless ``GPTME_AUTO_SNAPSHOTS`` is set to
+a truthy value.  The preferred activation path is adding ``[plugin.auto_snapshots]``
+to ``gptme.toml`` or ``~/.config/gptme/config.toml``; the plugin ``init`` sets the
+env var automatically.  Power users can also set the env var directly.
 
 Storage backend: ``$XDG_STATE_HOME/gptme/workspace-snapshots/<fingerprint>.git``
 (an XDG-located shadow git repo, not a ``.gptme-snapshots/`` directory inside
@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..hooks import HookType, register_hook
+from ..plugins.plugin import GptmePlugin
 from ..workspace_snapshot import (
     DEFAULT_MAX_SNAPSHOTS,
     Shadow,
@@ -282,12 +283,7 @@ def _post(
 
 
 def register() -> None:
-    """Register pre/post auto-snapshot hooks.
-
-    Always registered; the hooks self-no-op when ``GPTME_AUTO_SNAPSHOTS``
-    is unset. Registering unconditionally keeps the activation surface a
-    single env var and avoids ordering issues with plugin loaders.
-    """
+    """Register pre/post auto-snapshot hooks."""
     register_hook(
         "auto_snapshots.pre",
         HookType.TOOL_EXECUTE_PRE,
@@ -301,3 +297,20 @@ def register() -> None:
         priority=90,
     )
     logger.debug("Registered auto-snapshot hooks")
+
+
+def _init_from_config(config: object) -> None:
+    """Activate auto-snapshots when ``[plugin.auto_snapshots]`` is present in config."""
+    user_cfg = getattr(getattr(config, "user", None), "plugin", {}) or {}
+    project = getattr(config, "project", None)
+    project_cfg = getattr(project, "plugin", {}) or {} if project else {}
+    if "auto_snapshots" in user_cfg or "auto_snapshots" in project_cfg:
+        os.environ.setdefault("GPTME_AUTO_SNAPSHOTS", "1")
+        logger.debug("auto-snapshots activated via plugin config")
+
+
+plugin = GptmePlugin(
+    name="auto_snapshots",
+    register_hooks=register,
+    init=_init_from_config,
+)
