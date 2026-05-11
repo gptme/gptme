@@ -4,6 +4,7 @@ import { observable } from '@legendapp/state';
 import { SettingsProvider } from '@/contexts/SettingsContext';
 import { WelcomeView } from '../WelcomeView';
 import { setupWizard$ } from '@/stores/setupWizard';
+import { settingsModal$ } from '@/stores/settingsModal';
 
 const mockNavigate = jest.fn();
 const mockInvalidateQueries = jest.fn();
@@ -65,6 +66,7 @@ describe('WelcomeView', () => {
     setupWizard$.step.set('welcome');
     setupWizard$.open.set(false);
     setupWizard$.providerStatusVersion.set(0);
+    settingsModal$.set({ open: false, category: 'appearance' });
     mockConnect.mockReset();
     mockNavigate.mockClear();
     mockInvalidateQueries.mockClear();
@@ -145,6 +147,27 @@ describe('WelcomeView', () => {
 
     await waitFor(() => {
       expect(setupWizard$.get()).toMatchObject({ open: true, step: 'provider' });
+    });
+  });
+
+  it('opens server settings from the provider-required banner', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ provider_configured: false }),
+    });
+
+    render(
+      <SettingsProvider>
+        <WelcomeView />
+      </SettingsProvider>
+    );
+
+    expect(await screen.findByText('Provider setup required')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /server settings/i }));
+
+    await waitFor(() => {
+      expect(settingsModal$.get()).toMatchObject({ open: true, category: 'servers' });
     });
   });
 
