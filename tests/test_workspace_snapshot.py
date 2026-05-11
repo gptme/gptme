@@ -224,6 +224,27 @@ def test_restore_creates_safety_snapshot(isolated_state_dir, workspace):
     assert any("pre-restore-to-" in label for label in labels)
 
 
+def test_restore_aborts_when_safety_snapshot_fails(
+    isolated_state_dir, workspace, monkeypatch
+):
+    """restore() must not overwrite working tree when the safety snapshot fails."""
+    from unittest.mock import patch
+
+    shadow = init_shadow(workspace)
+    (workspace / "a.txt").write_text("original\n")
+    sha = snapshot(shadow, label="checkpoint")
+    assert sha is not None
+    (workspace / "a.txt").write_text("modified\n")
+
+    # Simulate a failed safety snapshot (e.g. disk-full or corrupt object store).
+    with patch("gptme.workspace_snapshot.snapshot", return_value=None):
+        result = restore(shadow, sha)
+
+    assert result is False
+    # Working tree must be untouched.
+    assert (workspace / "a.txt").read_text() == "modified\n"
+
+
 # --- prune ------------------------------------------------------------------
 
 

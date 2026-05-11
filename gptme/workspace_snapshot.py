@@ -70,7 +70,8 @@ class Shadow:
 
 _EXCLUDE_RULES = (
     # User's real git history is not ours to snapshot.
-    "/.git/\n"
+    # No leading slash — matches .git in nested repos and submodule worktrees too.
+    ".git/\n"
     # Common bulk dirs / generated artifacts.
     "/.venv/\n"
     "__pycache__/\n"
@@ -203,7 +204,12 @@ def restore(shadow: Shadow, snapshot_id: str) -> bool:
     """
     if not shadow.initialized():
         return False
-    snapshot(shadow, label=f"pre-restore-to-{snapshot_id}")
+    safety_sha = snapshot(shadow, label=f"pre-restore-to-{snapshot_id}")
+    if safety_sha is None:
+        logger.warning(
+            "restore: safety pre-restore snapshot failed; aborting to protect working tree"
+        )
+        return False
     tree = shadow.run("rev-parse", f"{snapshot_id}^{{tree}}", check=False)
     if tree.returncode != 0:
         logger.warning("restore: cannot resolve tree for %s", snapshot_id)
