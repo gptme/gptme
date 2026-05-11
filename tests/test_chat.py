@@ -459,7 +459,7 @@ def test_embed_attached_preserves_image_files(tmp_path):
     assert any(Path(str(f)).name == "photo.png" for f in result.files)
 
 
-def test_image_auto_attach_end_to_end(tmp_path):
+def test_image_auto_attach_end_to_end(tmp_path, monkeypatch):
     """End-to-end test: image path in user text → include_paths → embed → msgs2dicts.
 
     Verifies that an image mentioned by path in a user message survives the
@@ -467,6 +467,9 @@ def test_image_auto_attach_end_to_end(tmp_path):
     """
     from gptme.message import Message, msgs2dicts
     from gptme.util.context import embed_attached_file_content, include_paths
+
+    # Ensure GPTME_DISABLE_PATH_INCLUDE does not interfere
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
 
     # Create a minimal PNG
     img_file = tmp_path / "paste_20260225.png"
