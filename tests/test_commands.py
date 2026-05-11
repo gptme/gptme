@@ -605,3 +605,15 @@ class TestBuiltinCommands:
         )
         captured = capsys.readouterr()
         assert "Restored to checkpoint abcdef123456." in captured.out
+
+    def test_checkpoint_diff_command(self, mock_manager, capsys):
+        """The /checkpoint diff command should call diff_checkpoint and print output."""
+        with patch("gptme.commands.checkpoint.diff_checkpoint") as mock_diff:
+            mock_diff.return_value = (
+                "diff --git a/foo.py b/foo.py\n--- a/foo.py\n+++ b/foo.py\n"
+            )
+            list(handle_cmd("/checkpoint diff 1", mock_manager))
+
+        mock_diff.assert_called_once_with(Path("/tmp/test-workspace"), "1")
+        captured = capsys.readouterr()
+        assert "diff --git" in captured.out

@@ -79,7 +79,7 @@ def cmd_checkpoint(ctx: CommandContext) -> None:
                 session_id=session_id,
                 include_dirty=include_dirty,
             )
-        except CheckpointError as exc:
+        except (CheckpointError, OSError) as exc:
             print(f"checkpoint: {exc}")
             return
 
