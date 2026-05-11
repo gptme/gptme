@@ -27,6 +27,7 @@ import { playChime } from '@/utils/audio';
 import { findLatestAssistantIndexForError } from '@/utils/conversationErrorHandling';
 import { notifyGenerationComplete, notifyToolConfirmation } from '@/utils/notifications';
 import { ApiClientError } from '@/utils/api';
+import { toastStepStartError } from '@/utils/stepErrorHandling';
 
 const MAX_CONNECTED_CONVERSATIONS = 3;
 
@@ -342,6 +343,7 @@ export function useConversation(conversationId: string, serverId?: string) {
                 setNeedsInitialStep(conversationId, false);
                 api.step(conversationId).catch((error) => {
                   console.error('[useConversation] Error triggering initial step:', error);
+                  toastStepStartError(toast, error);
                 });
               }
             },

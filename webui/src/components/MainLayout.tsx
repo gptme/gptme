@@ -14,7 +14,9 @@ import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { UnifiedSidebar } from '@/components/UnifiedSidebar';
 import { AgentsView } from '@/components/AgentsView';
 import { WorkspacesView } from '@/components/WorkspacesView';
+import { useToast } from '@/components/ui/use-toast';
 import { setDocumentTitle } from '@/utils/title';
+import { toastStepStartError } from '@/utils/stepErrorHandling';
 import { useQueryClient } from '@tanstack/react-query';
 import { useConversationsInfiniteQuery } from '@/hooks/useConversationsInfiniteQuery';
 import { useSecondaryServerConversations } from '@/hooks/useMultiServerConversations';
@@ -54,6 +56,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
   const stepParam = searchParams.get('step');
   const serverParam = searchParams.get('server');
   const { api, isConnected$ } = useApi();
+  const { toast } = useToast();
   const queryClient = useQueryClient();
   const isConnected = use$(isConnected$);
   const conversation$ = useObservable<ConversationSummary | undefined>(undefined);
@@ -141,6 +144,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
 
           api.step(conversationId).catch((error) => {
             console.error('[MainLayout] Failed to start generation:', error);
+            toastStepStartError(toast, error);
           });
 
           const newSearchParams = new URLSearchParams(searchParams);
@@ -155,7 +159,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
 
       checkAndStart();
     }
-  }, [stepParam, conversationId, isConnected, api, navigate, searchParams]);
+  }, [stepParam, conversationId, isConnected, api, navigate, searchParams, toast]);
 
   // Fetch conversations from primary server
   const { data, isError, error, isLoading, isFetching, fetchNextPage, hasNextPage, refetch } =
