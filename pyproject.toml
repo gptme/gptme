@@ -16,6 +16,9 @@ Repository = "https://github.com/gptme/gptme"
 Documentation = "https://gptme.org/docs/"
 Issues = "https://github.com/gptme/gptme/issues"
 
+[project.entry-points."gptme.plugins"]
+auto_snapshots = "gptme.hooks.auto_snapshots:plugin"
+
 [project.scripts]
 gptme = "gptme.cli.main:main"
 gptme-server = "gptme.server.cli:main"
