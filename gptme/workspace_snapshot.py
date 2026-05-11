@@ -218,9 +218,9 @@ def restore(shadow: Shadow, snapshot_id: str) -> bool:
 def prune(shadow: Shadow, keep: int = DEFAULT_MAX_SNAPSHOTS) -> int:
     """Keep newest ``keep`` snapshots; drop the rest. Returns dropped count.
 
-    Implementation: walk back ``keep`` commits, then reset the snapshot ref
-    to that point. Older commits become unreachable and ``git gc`` can
-    reclaim them on its own schedule.
+    Implementation: collect the ``keep`` newest (tree, message) pairs, replay
+    them as a fresh orphan chain, and point SNAPSHOT_REF at the new tip.
+    Older commits become unreachable and ``git gc`` can reclaim them.
     """
     if not shadow.initialized() or keep <= 0:
         return 0
@@ -233,15 +233,39 @@ def prune(shadow: Shadow, keep: int = DEFAULT_MAX_SNAPSHOTS) -> int:
         return 0
     if total <= keep:
         return 0
-    # The commit `keep-1` steps back is the new tip.
-    target = shadow.run("rev-parse", f"{SNAPSHOT_REF}~{total - keep}", check=False)
-    if target.returncode != 0:
+    to_drop = total - keep
+    # Collect (tree, subject) for the ``keep`` newest commits, newest-first.
+    log = shadow.run(
+        "log", "--pretty=format:%T\t%s", f"-{keep}", SNAPSHOT_REF, check=False
+    )
+    if log.returncode != 0 or not log.stdout.strip():
         return 0
-    sha = target.stdout.strip()
-    reset = shadow.run("update-ref", SNAPSHOT_REF, sha, check=False)
+    entries = []
+    for line in log.stdout.splitlines():
+        if "\t" in line:
+            tree, msg = line.split("\t", 1)
+            entries.append((tree.strip(), msg.strip()))
+    if not entries:
+        return 0
+    # Reverse so we build oldest-of-kept → newest (oldest is entries[-1]).
+    entries.reverse()
+    # Create an orphan root from the oldest kept commit.
+    first_tree, first_msg = entries[0]
+    res = shadow.run("commit-tree", first_tree, "-m", first_msg, check=False)
+    if res.returncode != 0:
+        return 0
+    parent = res.stdout.strip()
+    # Chain remaining commits onto the orphan root.
+    for tree, msg in entries[1:]:
+        res = shadow.run("commit-tree", tree, "-p", parent, "-m", msg, check=False)
+        if res.returncode != 0:
+            return 0
+        parent = res.stdout.strip()
+    # Point the ref at the new tip.
+    reset = shadow.run("update-ref", SNAPSHOT_REF, parent, check=False)
     if reset.returncode != 0:
         return 0
-    return total - keep
+    return to_drop
 
 
 def tree_hash(shadow: Shadow, stage: bool = True) -> str | None:

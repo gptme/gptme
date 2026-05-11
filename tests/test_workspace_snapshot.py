@@ -236,6 +236,9 @@ def test_prune_keeps_newest_n(isolated_state_dir, workspace):
     assert dropped > 0
     remaining = list_snapshots(shadow, limit=50)
     assert len(remaining) == 3
+    # Must retain the 3 NEWEST snapshots, not the oldest.
+    labels = [label for _, label in remaining]
+    assert labels == ["snap-9", "snap-8", "snap-7"]
 
 
 def test_prune_noop_when_under_limit(isolated_state_dir, workspace):
