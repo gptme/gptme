@@ -242,7 +242,7 @@ def _pre(
     except Exception as e:  # pragma: no cover — defensive
         logger.warning("auto-snapshot pre failed: %s", e)
     return
-    yield  # make this a generator (matches cwd_changed.py shape)
+    yield  # noqa: unreachable — presence of `yield` makes this a generator; matches cwd_changed.py shape
 
 
 def _post(
@@ -272,7 +272,7 @@ def _post(
     except Exception as e:  # pragma: no cover — defensive
         logger.warning("auto-snapshot post failed: %s", e)
     return
-    yield  # make this a generator
+    yield  # noqa: unreachable — presence of `yield` makes this a generator; matches cwd_changed.py shape
 
 
 def register() -> None:
