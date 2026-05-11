@@ -169,6 +169,12 @@ def is_cache_likely_cold(ttl_seconds: float = ANTHROPIC_CACHE_TTL_SECONDS) -> bo
 
     Returns False (assume warm) when no prior call has been recorded.
 
+    Note:
+        The default threshold (``ANTHROPIC_CACHE_TTL_SECONDS``) is calibrated
+        for Anthropic's ~5-minute prompt-cache TTL.  For non-Anthropic providers
+        (OpenAI, local models, etc.) pass an explicit *ttl_seconds* value, or
+        treat the result as meaningless if that provider has no prompt cache.
+
     Args:
         ttl_seconds: Cache TTL threshold in seconds.
                      Defaults to ``ANTHROPIC_CACHE_TTL_SECONDS`` (300 s).
@@ -442,7 +448,10 @@ def get_status_summary() -> CacheStatusSummary:
         Type-safe dictionary with key cache metrics.
     """
     state = _get_state()
+    # Compute elapsed once so elapsed_since_last_call and cache_likely_cold are
+    # derived from the same instant — avoids contradictory snapshots at the threshold.
     elapsed = get_elapsed_since_last_call()
+    cache_cold = elapsed is not None and elapsed >= ANTHROPIC_CACHE_TTL_SECONDS
     return {
         "invalidation_count": state.invalidation_count,
         "turns_since_invalidation": state.turns_since_invalidation,
@@ -459,5 +468,5 @@ def get_status_summary() -> CacheStatusSummary:
             else None
         ),
         "elapsed_since_last_call": elapsed,
-        "cache_likely_cold": is_cache_likely_cold(),
+        "cache_likely_cold": cache_cold,
     }
