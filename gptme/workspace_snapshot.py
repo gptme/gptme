@@ -69,17 +69,16 @@ class Shadow:
 
 
 _EXCLUDE_RULES = (
-    # User's real git history is not ours to snapshot.
-    # No leading slash — matches .git in nested repos and submodule worktrees too.
+    # No leading slash on any rule — matches at any depth in nested monorepos.
+    # Leading / would anchor to the shadow-repo root only, missing subdirs.
     ".git/\n"
-    # Common bulk dirs / generated artifacts.
-    "/.venv/\n"
+    ".venv/\n"
     "__pycache__/\n"
     "*.pyc\n"
-    "/node_modules/\n"
-    "/.mypy_cache/\n"
-    "/.ruff_cache/\n"
-    "/.pytest_cache/\n"
+    "node_modules/\n"
+    ".mypy_cache/\n"
+    ".ruff_cache/\n"
+    ".pytest_cache/\n"
 )
 
 
