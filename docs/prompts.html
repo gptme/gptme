@@ -695,7 +695,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f793e838860&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f8b68d98860&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1097,7 +1097,7 @@ Common modifiers (ctrl, alt, cmd/super, shift) work consistently across platform
 The following Python functions are available using the <span class="sb">`ipython`</span> tool:
 
 <span class="sb">```txt</span>
-<span class="s">computer(action: Literal[&quot;key&quot;, &quot;type&quot;, &quot;mouse_move&quot;, &quot;left_click&quot;, &quot;left_click_drag&quot;, &quot;right_click&quot;, &quot;middle_click&quot;, &quot;double_click&quot;, &quot;screenshot&quot;, &quot;cursor_position&quot;], text: Union[str, None], coordinate: Union[tuple[int, int], None]) -&gt; Union[Message, None]:</span>
+<span class="s">computer(action: Action, text: str | None, coordinate: tuple[int, int] | None) -&gt; Message | None:</span>
 <span class="s">    Perform computer interactions in X11 or macOS environments.</span>
 
 <span class="s">    Args:</span>
@@ -2252,7 +2252,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 12547</p>
+<p>Tokens: 12505</p>
 </dd></dl>
 
 <dl class="py function">
