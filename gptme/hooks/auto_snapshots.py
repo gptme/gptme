@@ -94,7 +94,13 @@ _SHELL_MUTATOR_PATTERNS: tuple[re.Pattern[str], ...] = (
         r"\bgit\s+(?:apply|restore|checkout|clean|reset|pull|merge|rebase|stash\s+pop)\b"
     ),
     # Common build/install/test tools that write into the workspace.
-    re.compile(r"\b(?:make|cmake|cargo|npm|yarn|pnpm|pip|uv|poetry)\b"),
+    # Negative lookahead excludes obvious read-only sub-commands so
+    # 'pip show', 'cargo --version', 'npm list' don't trigger spurious snapshots.
+    # Design goal: prefer false negatives over false positives.
+    re.compile(
+        r"\b(?:make|cmake|cargo|npm|yarn|pnpm|pip|uv|poetry)\b"
+        r"(?!\s+(?:show|list|ls|info|view|help|search|--version|-V|outdated|audit|tree|metadata)\b)"
+    ),
     # Python/shell test runners that may write reports.
     re.compile(r"\bpytest\b"),
 )
