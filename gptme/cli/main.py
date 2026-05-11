@@ -319,6 +319,12 @@ Run 'gptme-util --help' for all utility commands."""
     help="Skip user confirmation between architect and editor turns.",
 )
 @click.option(
+    "--auto-snapshots",
+    "auto_snapshots",
+    is_flag=True,
+    help="Record reversible pre/post snapshots around mutating tool calls. Shadow git repo at $XDG_STATE_HOME/gptme/workspace-snapshots/.",
+)
+@click.option(
     "--output-schema",
     "output_schema",
     default=None,
@@ -350,10 +356,16 @@ def main(
     architect_model: str | None,
     editor_model: str | None,
     auto_accept_architect: bool,
+    auto_snapshots: bool,
     context_include: tuple[str, ...],
     output_schema: str | None,
 ):
     """Main entrypoint for the CLI."""
+
+    # --auto-snapshots: opt-in workspace rollback via side-git shadow repo.
+    # Set the env var so the hook self-activates without needing extra plumbing.
+    if auto_snapshots:
+        os.environ["GPTME_AUTO_SNAPSHOTS"] = "1"
 
     # Apply agent profile if specified
     selected_profile = None
