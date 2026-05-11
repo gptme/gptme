@@ -70,6 +70,8 @@ Examples:
 Using a single sequence for complex operations ensures proper timing and recognition of keyboard shortcuts.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import platform
@@ -77,12 +79,16 @@ import shlex
 import shutil
 import subprocess
 from enum import Enum
-from typing import Literal, TypedDict
+from typing import TYPE_CHECKING, Literal, TypedDict
 
-from ..message import Message
 from .base import ToolSpec, ToolUse
+from .computer_transport import get_transport
 from .screenshot import screenshot
 from .vision import view_image
+
+if TYPE_CHECKING:
+    from ..message import Message
+    from .computer_transport import ComputerTransport
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +131,25 @@ MAX_SCALING_TARGETS: dict[str, _Resolution] = {
 class _ScalingSource(Enum):
     COMPUTER = "computer"
     API = "api"
+
+
+def _get_api_resolution() -> tuple[int, int]:
+    """Return the configured API-space resolution (WIDTH/HEIGHT env or display-ratio defaults)."""
+    display_width, display_height = _get_display_resolution()
+    display_ratio = display_width / display_height
+    default_resolution: _Resolution | None = None
+    closest_ratio_diff = float("inf")
+    for res in MAX_SCALING_TARGETS.values():
+        ratio = res["width"] / res["height"]
+        ratio_diff = abs(ratio - display_ratio)
+        if ratio_diff < closest_ratio_diff:
+            closest_ratio_diff = ratio_diff
+            default_resolution = res
+    if default_resolution is None:
+        default_resolution = MAX_SCALING_TARGETS["XGA"]
+    width = int(os.getenv("WIDTH", str(default_resolution["width"])))
+    height = int(os.getenv("HEIGHT", str(default_resolution["height"])))
+    return width, height
 
 
 def _chunks(s: str, chunk_size: int) -> list[str]:
@@ -489,6 +514,69 @@ def _macos_drag(x: int, y: int) -> None:
         raise RuntimeError(f"Failed to drag: {e.stderr}") from e
 
 
+def _dispatch_transport(
+    transport: ComputerTransport,
+    action: Action,
+    text: str | None = None,
+    coordinate: tuple[int, int] | None = None,
+) -> Message | None:
+    """Route a computer action through the transport layer."""
+    if action == "key":
+        if not text:
+            raise ValueError("text is required for key")
+        transport.key(text)
+        print(f"Sent key sequence: {text}")
+        return None
+
+    if action == "type":
+        if not text:
+            raise ValueError("text is required for type")
+        transport.type_text(text)
+        print(f"Typed text: {text}")
+        return None
+
+    if action in ("mouse_move", "left_click_drag"):
+        if not coordinate:
+            raise ValueError(f"coordinate is required for {action}")
+        x, y = coordinate
+        if action == "mouse_move":
+            transport.mouse_move(x, y)
+            print(f"Moved mouse to {x},{y}")
+        else:
+            transport.left_click_drag(x, y)
+            print(f"Dragged to {x},{y}")
+        return None
+
+    click_actions = {"left_click", "right_click", "middle_click", "double_click"}
+    if action in click_actions:
+        if coordinate:
+            x, y = coordinate
+            transport.mouse_move(x, y)
+        click_fn = {
+            "left_click": transport.left_click,
+            "right_click": transport.right_click,
+            "middle_click": transport.middle_click,
+            "double_click": transport.double_click,
+        }[action]
+        click_fn()
+        print(f"Performed {action}")
+        return None
+
+    if action == "screenshot":
+        path = transport.screenshot()
+        if path.exists():
+            return view_image(path)
+        print("Error: Screenshot failed")
+        return None
+
+    if action == "cursor_position":
+        x, y = transport.cursor_position()
+        print(f"Cursor position: X={x},Y={y}")
+        return None
+
+    raise ValueError(f"Invalid action: {action}")
+
+
 def computer(
     action: Action, text: str | None = None, coordinate: tuple[int, int] | None = None
 ) -> Message | None:
@@ -500,6 +588,11 @@ def computer(
         text: Text to type or key sequence to send
         coordinate: X,Y coordinates for mouse actions
     """
+    # Optional transport-layer dispatch (env: GPTME_COMPUTER_TRANSPORT)
+    transport = get_transport()
+    if transport:
+        return _dispatch_transport(transport, action, text, coordinate)
+
     display = os.getenv("DISPLAY", ":1")
     # Default API space resolution
     # Get actual display resolution and calculate aspect ratio
