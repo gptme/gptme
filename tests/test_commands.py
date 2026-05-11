@@ -10,6 +10,7 @@ Tests the core command infrastructure in gptme/commands/base.py:
 """
 
 from collections.abc import Generator
+from dataclasses import dataclass
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -451,6 +452,7 @@ class TestBuiltinCommands:
     def test_builtin_commands_registered(self):
         """All expected built-in commands should be registered."""
         expected = [
+            "checkpoint",
             "help",
             "exit",
             "log",
@@ -528,3 +530,138 @@ class TestBuiltinCommands:
             # First arg is conversation name, third arg is output path
             args = mock_export.call_args
             assert args[0][2] == Path("output.html")
+
+    def test_checkpoint_create_command(self, mock_manager, capsys):
+        """The /checkpoint create command should call create_checkpoint."""
+
+        @dataclass
+        class Record:
+            head_sha: str
+            session_id: str
+
+        with patch("gptme.commands.checkpoint.create_checkpoint") as mock_create:
+            mock_create.return_value = (Record("abcdef1234567890", "sess-123"), None)
+            list(handle_cmd("/checkpoint create --session-id sess-123", mock_manager))
+
+        mock_create.assert_called_once_with(
+            Path("/tmp/test-workspace"),
+            session_id="sess-123",
+            include_dirty=False,
+        )
+        captured = capsys.readouterr()
+        assert "Checkpoint created: abcdef123456" in captured.out
+        assert "session=sess-123" in captured.out
+
+    def test_checkpoint_list_command(self, mock_manager, capsys):
+        """The /checkpoint list command should print checkpoint rows."""
+
+        @dataclass
+        class Decision:
+            repo_root: Path | None
+            reason: str
+            head_sha: str | None
+
+        @dataclass
+        class Record:
+            session_id: str
+            timestamp: str
+            head_sha: str
+            workspace: str
+
+        with (
+            patch("gptme.commands.checkpoint.classify") as mock_classify,
+            patch("gptme.commands.checkpoint.list_checkpoints") as mock_list,
+        ):
+            mock_classify.return_value = Decision(
+                repo_root=Path("/tmp/test-workspace"),
+                reason="",
+                head_sha="abcdef1234567890",
+            )
+            mock_list.return_value = [
+                Record(
+                    session_id="sess-123",
+                    timestamp="2026-05-10T12:34:56+00:00",
+                    head_sha="abcdef1234567890",
+                    workspace="/tmp/test-workspace",
+                )
+            ]
+            list(handle_cmd("/checkpoint list", mock_manager))
+
+        captured = capsys.readouterr()
+        assert "Session" in captured.out
+        assert "sess-123" in captured.out
+        assert "abcdef123456" in captured.out
+
+    def test_checkpoint_list_command_handles_oserror(self, mock_manager, capsys):
+        """The /checkpoint list command should print OSError failures."""
+
+        @dataclass
+        class Decision:
+            repo_root: Path | None
+            reason: str
+            head_sha: str | None
+
+        with (
+            patch("gptme.commands.checkpoint.classify") as mock_classify,
+            patch(
+                "gptme.commands.checkpoint.list_checkpoints",
+                side_effect=OSError("permission denied"),
+            ),
+        ):
+            mock_classify.return_value = Decision(
+                repo_root=Path("/tmp/test-workspace"),
+                reason="",
+                head_sha="abcdef1234567890",
+            )
+            list(handle_cmd("/checkpoint list", mock_manager))
+
+        captured = capsys.readouterr()
+        assert "checkpoint: permission denied" in captured.out
+
+    def test_checkpoint_restore_command(self, mock_manager, capsys):
+        """The /checkpoint restore command should call restore_checkpoint."""
+        with patch("gptme.commands.checkpoint.restore_checkpoint") as mock_restore:
+            mock_restore.return_value = "Restored to checkpoint abcdef123456."
+            list(handle_cmd("/checkpoint restore 1 --include-dirty", mock_manager))
+
+        mock_restore.assert_called_once_with(
+            Path("/tmp/test-workspace"),
+            "1",
+            include_dirty=True,
+        )
+        captured = capsys.readouterr()
+        assert "Restored to checkpoint abcdef123456." in captured.out
+
+    def test_checkpoint_restore_command_handles_oserror(self, mock_manager, capsys):
+        """The /checkpoint restore command should print OSError failures."""
+        with patch(
+            "gptme.commands.checkpoint.restore_checkpoint",
+            side_effect=OSError("permission denied"),
+        ):
+            list(handle_cmd("/checkpoint restore 1", mock_manager))
+
+        captured = capsys.readouterr()
+        assert "checkpoint: permission denied" in captured.out
+
+    def test_checkpoint_diff_command(self, mock_manager, capsys):
+        """The /checkpoint diff command should call diff_checkpoint and print output."""
+        with patch("gptme.commands.checkpoint.diff_checkpoint") as mock_diff:
+            mock_diff.return_value = (
+                "diff --git a/foo.py b/foo.py\n--- a/foo.py\n+++ b/foo.py\n"
+            )
+            list(handle_cmd("/checkpoint diff 1", mock_manager))
+
+        mock_diff.assert_called_once_with(Path("/tmp/test-workspace"), "1")
+        captured = capsys.readouterr()
+        assert "diff --git" in captured.out
+
+    def test_checkpoint_diff_command_handles_oserror(self, mock_manager, capsys):
+        """The /checkpoint diff command should print OSError failures."""
+        with patch(
+            "gptme.commands.checkpoint.diff_checkpoint",
+            side_effect=OSError("permission denied"),
+        ):
+            list(handle_cmd("/checkpoint diff 1", mock_manager))
+
+        captured = capsys.readouterr()
+        assert "checkpoint: permission denied" in captured.out
