@@ -24,6 +24,7 @@ from gptme.hooks.auto_snapshots import (
     is_mutating_shell_payload,
     is_mutating_tmux_payload,
 )
+from gptme.tools.base import ToolUse
 from gptme.workspace_snapshot import (
     Shadow,
     init_shadow,
@@ -309,6 +310,31 @@ def test_post_skips_when_no_mutation(isolated_state_dir, workspace, monkeypatch)
     post_count = len(list_snapshots(shadow, limit=100))
     # Pre adds one snapshot; post adds zero because tree is unchanged.
     assert post_count == pre_count
+
+
+def test_pre_post_snapshot_round_trip_via_tool_format_shell_kwargs(
+    isolated_state_dir, workspace, monkeypatch
+):
+    monkeypatch.setenv("GPTME_AUTO_SNAPSHOTS", "1")
+    _pre_tree_var.set(None)
+    tu = ToolUse(
+        tool="shell",
+        args=None,
+        content=None,
+        kwargs={"command": "printf 'beta\\n' >> smoke.txt"},
+        _format="tool",
+    )
+
+    list(_pre(MagicMock(), workspace, tu))
+    shadow = Shadow.for_workspace(workspace)
+    assert shadow.initialized()
+    pre_labels = [label for _, label in list_snapshots(shadow, limit=100)]
+    assert any(label == "pre:shell" for label in pre_labels)
+
+    (workspace / "smoke.txt").write_text("alpha\nbeta\n")
+    list(_post(MagicMock(), workspace, tu))
+    post_labels = [label for _, label in list_snapshots(shadow, limit=100)]
+    assert any(label == "post:shell" for label in post_labels)
 
 
 def test_hook_skips_non_mutating_shell(isolated_state_dir, workspace, monkeypatch):

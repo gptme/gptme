@@ -164,6 +164,36 @@ def _enabled() -> bool:
     )
 
 
+def _tool_payload(tool_use: Any) -> str | None:
+    """Return the classifier payload for a tool call across tool formats.
+
+    Markdown/XML tool calls populate ``content`` directly. Structured ``tool``
+    format stores the payload in ``kwargs`` instead, for example:
+
+    - ``shell`` / ``tmux``: ``{"command": ...}``
+    - ``ipython``: ``{"code": ...}``
+    """
+    content = getattr(tool_use, "content", None)
+    if isinstance(content, str) and content.strip():
+        return content
+
+    kwargs = getattr(tool_use, "kwargs", None)
+    if not isinstance(kwargs, dict):
+        return content if isinstance(content, str) else None
+
+    tool_name = getattr(tool_use, "tool", None) or ""
+    if tool_name in ("shell", "tmux"):
+        payload = kwargs.get("command")
+    elif tool_name == "ipython":
+        payload = kwargs.get("code")
+    else:
+        payload = None
+
+    if isinstance(payload, str) and payload:
+        return payload
+    return content if isinstance(content, str) else None
+
+
 def _max_snapshots() -> int:
     raw = os.environ.get("GPTME_AUTO_SNAPSHOT_MAX")
     if not raw:
@@ -194,7 +224,7 @@ def _pre(
     if tool_use is None:
         return
     tool_name = getattr(tool_use, "tool", None) or ""
-    content = getattr(tool_use, "content", None)
+    content = _tool_payload(tool_use)
     if not classify_tool_use(tool_name, content):
         _pre_tree_var.set(None)
         return
@@ -202,9 +232,12 @@ def _pre(
     if shadow is None:
         return
     try:
-        before = tree_hash(shadow)
-        label = f"pre:{tool_name}"
-        snapshot(shadow, label=label)
+        _pre_tree_var.set(
+            None
+        )  # reset before work; exception paths must not leak stale hash
+        shadow.run("add", "-A")
+        before = tree_hash(shadow, stage=False)
+        snapshot(shadow, label=f"pre:{tool_name}", stage=False)
         _pre_tree_var.set(before)
     except Exception as e:  # pragma: no cover — defensive
         logger.warning("auto-snapshot pre failed: %s", e)
@@ -221,7 +254,7 @@ def _post(
     if tool_use is None:
         return
     tool_name = getattr(tool_use, "tool", None) or ""
-    content = getattr(tool_use, "content", None)
+    content = _tool_payload(tool_use)
     if not classify_tool_use(tool_name, content):
         return
     shadow = _shadow_for(workspace)
@@ -229,11 +262,12 @@ def _post(
         return
     try:
         before = _pre_tree_var.get()
-        after = tree_hash(shadow)
+        shadow.run("add", "-A")
+        after = tree_hash(shadow, stage=False)
         if before is not None and after is not None and before == after:
             # No mutation actually happened; skip noise.
             return
-        snapshot(shadow, label=f"post:{tool_name}")
+        snapshot(shadow, label=f"post:{tool_name}", stage=False)
         prune(shadow, keep=_max_snapshots())
     except Exception as e:  # pragma: no cover — defensive
         logger.warning("auto-snapshot post failed: %s", e)

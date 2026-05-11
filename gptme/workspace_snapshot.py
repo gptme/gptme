@@ -147,11 +147,12 @@ def init_shadow(workspace: Path) -> Shadow:
     return shadow
 
 
-def snapshot(shadow: Shadow, label: str = "snapshot") -> str | None:
+def snapshot(shadow: Shadow, label: str = "snapshot", stage: bool = True) -> str | None:
     """Create a snapshot. Returns short SHA, or ``None`` on failure."""
     if not shadow.initialized():
         return None
-    shadow.run("add", "-A")
+    if stage:
+        shadow.run("add", "-A")
     # Allow empty so consecutive identical snapshots still record a ref.
     # Bypass user hooks: internal bookkeeping, not a social commit.
     result = shadow.run(
@@ -243,11 +244,12 @@ def prune(shadow: Shadow, keep: int = DEFAULT_MAX_SNAPSHOTS) -> int:
     return total - keep
 
 
-def tree_hash(shadow: Shadow) -> str | None:
+def tree_hash(shadow: Shadow, stage: bool = True) -> str | None:
     """Return the tree hash of the current workspace state (no commit)."""
     if not shadow.initialized():
         return None
-    shadow.run("add", "-A")
+    if stage:
+        shadow.run("add", "-A")
     res = shadow.run("write-tree", check=False)
     if res.returncode != 0:
         return None
