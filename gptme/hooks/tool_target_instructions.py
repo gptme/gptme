@@ -38,15 +38,22 @@ _MAX_INJECTIONS_PER_EVENT = 3
 # Prefix used for content-hash dedup keys (shared with agents_md_inject)
 _HASH_PREFIX = "ch:"
 
-# Tag format for injected instructions (reused from agents_md_inject)
-_INJECTION_TAG = '<agent-instructions source="{display_path}">'
+# Tag format for injected instructions.
+# content-hash embeds the hash of the raw file content so the server-mode
+# log fallback can reconstruct content-hash dedup keys without re-reading files.
+_INJECTION_TAG = (
+    '<agent-instructions source="{display_path}" content-hash="{content_hash}">'
+)
 
 
-def _extract_tool_paths(tool_use: Any) -> list[Path]:
+def _extract_tool_paths(tool_use: Any, workspace: Path | None = None) -> list[Path]:
     """Extract path-like targets from a structured tool use's kwargs.
 
     Only uses kwargs (not positional args) to avoid false positives
     from tools like ``shell`` where args[0] is a command string.
+
+    Relative paths are resolved against *workspace* when provided,
+    falling back to ``os.getcwd()`` only as a last resort.
     """
     paths: list[Path] = []
 
@@ -58,13 +65,15 @@ def _extract_tool_paths(tool_use: Any) -> list[Path]:
         if key in kwargs and isinstance(kwargs[key], str)
     ]
 
+    base = workspace or Path(os.getcwd())
+
     for candidate in candidates:
         if not candidate:
             continue
         try:
             resolved = Path(candidate).expanduser()
             if not resolved.is_absolute():
-                resolved = Path(os.getcwd(), candidate).resolve()
+                resolved = (base / candidate).resolve()
             else:
                 resolved = resolved.resolve()
         except (OSError, ValueError):
@@ -88,15 +97,18 @@ def _get_existing_injected_files(log: Log) -> set[str]:
     if loaded is not None:
         return loaded
 
-    # Fallback: derive paths from log messages (server mode)
+    # Fallback: derive paths and content hashes from log messages (server mode).
+    # Must mirror agents_md_inject._derive_loaded_files_from_log — both path-based
+    # and content-hash-based dedup keys are needed to prevent re-injection.
     import re
 
     loaded = set()
     for msg in log.messages:
         if msg.role != "system":
             continue
+        # Extract source paths (attribute order-independent).
         for path_match in re.finditer(
-            r'<agent-instructions source="([^"]+)">', msg.content
+            r'<agent-instructions[^>]* source="([^"]+)"', msg.content
         ):
             path_str = path_match.group(1)
             try:
@@ -104,6 +116,12 @@ def _get_existing_injected_files(log: Log) -> set[str]:
                 loaded.add(resolved)
             except (OSError, ValueError):
                 loaded.add(path_str)
+        # Extract content-hash attribute — the hash of the raw file content stored
+        # at injection time, giving consistent dedup keys without re-hashing block text.
+        for hash_match in re.finditer(
+            r'<agent-instructions[^>]* content-hash="([^"]+)"', msg.content
+        ):
+            loaded.add(f"{_HASH_PREFIX}{hash_match.group(1)}")
     _loaded_agent_files_var.set(loaded)
     return loaded
 
@@ -142,7 +160,7 @@ def on_tool_execute_post(
             return
 
         # Phase 1 scope: only structured file tools with path kwargs
-        target_paths = _extract_tool_paths(tool_use)
+        target_paths = _extract_tool_paths(tool_use, workspace)
         if not target_paths:
             return
 
@@ -199,9 +217,11 @@ def on_tool_execute_post(
                 display_path,
                 tool_use.tool,
             )
+            # content_key is "ch:{hash}"; strip the prefix to embed the bare hash
+            content_hash_val = content_key.removeprefix(_HASH_PREFIX)
             yield Message(
                 "system",
-                f"{_INJECTION_TAG.format(display_path=display_path)}\n"
+                f"{_INJECTION_TAG.format(display_path=display_path, content_hash=content_hash_val)}\n"
                 f"# Agent Instructions ({display_path})\n\n"
                 f"{content}\n"
                 f"</agent-instructions>",

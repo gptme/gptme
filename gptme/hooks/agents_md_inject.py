@@ -26,7 +26,7 @@ See: https://github.com/gptme/gptme/issues/1958
 
 import logging
 import re
-from collections.abc import Generator
+from collections.abc import Generator, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -57,9 +57,9 @@ def _derive_loaded_files_from_log(log: Log) -> set[str]:
     loaded: set[str] = set()
     for msg in log.messages:
         if msg.role == "system":
-            # Extract source paths from opening tags (works even if closing tag missing).
+            # Extract source paths (attribute order-independent).
             for path_match in re.finditer(
-                r'<agent-instructions source="([^"]+)">', msg.content
+                r'<agent-instructions[^>]* source="([^"]+)"', msg.content
             ):
                 path_str = path_match.group(1)
                 try:
@@ -67,14 +67,13 @@ def _derive_loaded_files_from_log(log: Log) -> set[str]:
                     loaded.add(resolved)
                 except (OSError, ValueError):
                     loaded.add(path_str)
-            # Extract content hashes from complete blocks so worktree copies with
-            # identical content are also skipped.
-            for block_match in re.finditer(
-                r'<agent-instructions source="[^"]*">(.*?)</agent-instructions>',
-                msg.content,
-                re.DOTALL,
+            # Extract content-hash attribute — the hash of the raw file content
+            # stored at injection time. This gives consistent dedup keys without
+            # re-hashing the full block (which includes injected header lines).
+            for hash_match in re.finditer(
+                r'<agent-instructions[^>]* content-hash="([^"]+)"', msg.content
             ):
-                loaded.add(f"{_HASH_PREFIX}{_content_hash(block_match.group(1))}")
+                loaded.add(f"{_HASH_PREFIX}{hash_match.group(1)}")
     return loaded
 
 
@@ -94,6 +93,105 @@ def _get_loaded_files(log: Log | None = None) -> set[str]:
     return files
 
 
+def _format_display_path(agent_file: Path) -> str:
+    """Format an agent file path for transcript display."""
+    try:
+        relative = agent_file.resolve().relative_to(Path.home())
+        return f"~/{relative}"
+    except ValueError:
+        return str(agent_file.resolve())
+
+
+def inject_agent_instruction_files(
+    log: Log | None,
+    agent_files: Iterable[Path],
+    *,
+    max_files: int | None = None,
+    max_bytes: int | None = None,
+    skip_tag: str = "agent-instructions-skipped",
+) -> Generator[Message, None, None]:
+    """Inject discovered agent instruction files with shared dedup semantics.
+
+    Args:
+        log: Conversation log used for server-mode dedup fallback.
+        agent_files: Candidate AGENTS/CLAUDE/GEMINI files to inject.
+        max_files: Optional per-call cap on injected files.
+        max_bytes: Optional per-call cap on combined injected content size.
+        skip_tag: XML-ish tag used for skip-note system messages.
+    """
+    loaded = _get_loaded_files(log)
+    seen_candidates: set[str] = set()
+    injected = 0
+    bytes_injected = 0
+
+    for agent_file in agent_files:
+        resolved = str(agent_file.resolve())
+        if resolved in loaded or resolved in seen_candidates:
+            continue
+        seen_candidates.add(resolved)
+
+        try:
+            content = agent_file.read_text()
+        except OSError as e:
+            logger.warning(f"Could not read agent file {agent_file}: {e}")
+            continue
+
+        # Skip if identical content was already injected from a different path
+        # (e.g. switching cwd to a git worktree that shares the same AGENTS.md).
+        content_key = f"{_HASH_PREFIX}{_content_hash(content)}"
+        if content_key in loaded:
+            logger.debug(f"Skipping {agent_file}: identical content already injected")
+            loaded.add(resolved)
+            continue
+
+        display_path = _format_display_path(agent_file)
+        content_bytes = len(content.encode("utf-8"))
+
+        if max_files is not None and injected >= max_files:
+            logger.info(
+                "Skipping %s: reached per-event injection cap (%d)",
+                display_path,
+                max_files,
+            )
+            yield Message(
+                "system",
+                f'<{skip_tag} source="{display_path}">\n'
+                f"Skipped: reached per-event injection cap of {max_files} files.\n"
+                f"</{skip_tag}>",
+            )
+            continue
+
+        if max_bytes is not None and bytes_injected + content_bytes > max_bytes:
+            logger.info(
+                "Skipping %s: would exceed per-event budget (%d bytes)",
+                display_path,
+                max_bytes,
+            )
+            yield Message(
+                "system",
+                f'<{skip_tag} source="{display_path}">\n'
+                f"Skipped: would exceed per-event budget of {max_bytes} bytes.\n"
+                f"</{skip_tag}>",
+            )
+            continue
+
+        loaded.add(resolved)
+        loaded.add(content_key)
+        injected += 1
+        bytes_injected += content_bytes
+
+        logger.info(f"Injecting agent instructions from {display_path}")
+        content_hash_val = content_key.removeprefix(_HASH_PREFIX)
+        yield Message(
+            "system",
+            f'<agent-instructions source="{display_path}" content-hash="{content_hash_val}">\n'
+            f"# Agent Instructions ({display_path})\n\n"
+            f"{content}\n"
+            f"</agent-instructions>",
+            files=[agent_file],
+        )
+
+
 def on_cwd_changed(
     log: Log,
     workspace: Path | None,
@@ -111,59 +209,12 @@ def on_cwd_changed(
         tool_use: The tool that caused the change
     """
     try:
-        # find_agent_files_in_tree() is shared with prompt_workspace() in prompts.py
-        # Pass the log so server mode can derive loaded files from conversation history
-        # when the ContextVar is empty (ContextVars reset per Flask request context).
         new_files = find_agent_files_in_tree(
             Path(new_cwd), exclude=_get_loaded_files(log)
         )
         if not new_files:
             return
-
-        loaded = _get_loaded_files(log)
-
-        # Read and inject each new file
-        for agent_file in new_files:
-            resolved = str(agent_file.resolve())
-            # Double-check (could have been added by concurrent call)
-            if resolved in loaded:
-                continue
-
-            try:
-                content = agent_file.read_text()
-            except OSError as e:
-                logger.warning(f"Could not read agent file {agent_file}: {e}")
-                continue
-
-            # Skip if identical content was already injected from a different path
-            # (e.g. switching cwd to a git worktree that shares the same AGENTS.md).
-            content_key = f"{_HASH_PREFIX}{_content_hash(content)}"
-            if content_key in loaded:
-                logger.debug(
-                    f"Skipping {agent_file}: identical content already injected"
-                )
-                loaded.add(resolved)
-                continue
-
-            loaded.add(resolved)
-            loaded.add(content_key)
-
-            # Make the path relative to home for cleaner display
-            try:
-                display_path = str(agent_file.resolve().relative_to(Path.home()))
-                display_path = f"~/{display_path}"
-            except ValueError:
-                display_path = str(agent_file)
-
-            logger.info(f"Injecting agent instructions from {display_path}")
-            yield Message(
-                "system",
-                f'<agent-instructions source="{display_path}">\n'
-                f"# Agent Instructions ({display_path})\n\n"
-                f"{content}\n"
-                f"</agent-instructions>",
-                files=[agent_file],
-            )
+        yield from inject_agent_instruction_files(log, new_files)
 
     except Exception as e:
         logger.exception(f"Error in agents_md on CWD change: {e}")

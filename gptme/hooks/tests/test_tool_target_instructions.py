@@ -15,6 +15,7 @@ from gptme.hooks.tool_target_instructions import (
 from gptme.message import Message
 from gptme.prompts import _loaded_agent_files_var
 from gptme.tools.base import ToolUse
+from gptme.util.context_dedup import _content_hash
 
 
 @pytest.fixture(autouse=True)
@@ -210,6 +211,79 @@ class TestOnToolExecutePost:
         messages = [m for m in msgs if isinstance(m, Message)]
         assert len(messages) >= 1
         assert "<agent-instructions" in messages[0].content
+
+
+class TestServerModeFallback:
+    """Tests for server-mode path: ContextVar is None, log must be scanned."""
+
+    def test_no_reinjection_when_contextvar_none_path_in_log(
+        self, tmp_path: Path
+    ) -> None:
+        """With ContextVar=None, path already in log should not be re-injected."""
+        subdir = tmp_path / "my-project"
+        subdir.mkdir()
+        content = "# Agent instructions\n\nDo not delete.\n"
+        agents_file = _make_agents_md(subdir, content)
+        target_file = subdir / "main.py"
+        target_file.write_text("# placeholder")
+
+        # Simulate a prior injection (new format with content-hash attribute)
+        display = str(agents_file)
+        ch = _content_hash(content)
+        prior_msg = Message(
+            "system",
+            f'<agent-instructions source="{display}" content-hash="{ch}">\n# Agent Instructions ({display})\n\n{content}\n</agent-instructions>',
+        )
+
+        log = MagicMock()
+        log.messages = [prior_msg]
+
+        # ContextVar is reset to None (server mode — no session context propagation)
+        _loaded_agent_files_var.set(None)
+
+        tu = ToolUse(
+            "save", [str(target_file)], "print('hi')", {"path": str(target_file)}
+        )
+        msgs = list(on_tool_execute_post(log=log, workspace=tmp_path, tool_use=tu))
+        messages = [m for m in msgs if isinstance(m, Message)]
+        assert len(messages) == 0, "Should not re-inject when path is already in log"
+
+    def test_no_reinjection_when_contextvar_none_content_hash_in_log(
+        self, tmp_path: Path
+    ) -> None:
+        """With ContextVar=None, identical content in log (different path) must not re-inject."""
+        subdir_a = tmp_path / "repo-a"
+        subdir_b = tmp_path / "repo-b"
+        subdir_a.mkdir()
+        subdir_b.mkdir()
+
+        content = "# Agent instructions\n\nIdentical content.\n"
+        (subdir_a / "AGENTS.md").write_text(content)
+        (subdir_b / "AGENTS.md").write_text(content)
+
+        file_b = subdir_b / "main.py"
+        file_b.write_text("# b")
+
+        # Log contains a prior injection from repo-a with the same content (new format)
+        display_a = str(subdir_a / "AGENTS.md")
+        ch = _content_hash(content)
+        prior_msg = Message(
+            "system",
+            f'<agent-instructions source="{display_a}" content-hash="{ch}">\n# Agent Instructions ({display_a})\n\n{content}\n</agent-instructions>',
+        )
+
+        log = MagicMock()
+        log.messages = [prior_msg]
+
+        # ContextVar starts as None — server mode
+        _loaded_agent_files_var.set(None)
+
+        tu_b = ToolUse("save", [str(file_b)], "print('b')", {"path": str(file_b)})
+        msgs = list(on_tool_execute_post(log=log, workspace=tmp_path, tool_use=tu_b))
+        messages = [m for m in msgs if isinstance(m, Message)]
+        assert len(messages) == 0, (
+            "Should not re-inject identical content from different path"
+        )
 
 
 class TestRegister:
