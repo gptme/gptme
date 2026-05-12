@@ -1,122 +1,149 @@
 """
-Inject AGENTS.md/CLAUDE.md/GEMINI.md files when a tool touches a path in a
-directory that has agent instruction files, even if CWD itself didn't change.
+Inject AGENTS.md / CLAUDE.md / GEMINI.md files when tools touch new directories.
 
-This extends ``agents_md_inject`` (which fires on CWD_CHANGED) to also cover
-common real workflows where the agent reads or patches a file in a different
-directory via an explicit path argument while staying in the same CWD.
+Extends `agents_md_inject` from cwd-aware to tool-target-aware: when a structured
+file tool (read, save, append, patch, etc.) references a path outside the
+already-loaded directory tree, this hook discovers local agent instruction files
+near that path and injects them before the next reasoning step.
 
-Examples:
+Reuses the existing agent-file discovery (`find_agent_files_in_tree`) and the
+`_loaded_agent_files_var` dedup set populated by `prompt_workspace()` and
+`agents_md_inject`. Identical-content files (worktree copies) are skipped via
+content-hash dedup.
 
-- ``read projects/gptme/webui/src/foo.ts`` from repo root
-- ``patch /tmp/worktrees/feature/file.py`` while CWD is unchanged
-- ``save subdir/AGENTS.md`` content in a sibling repo
+Phase 1: structured file tools only (read/save/append/patch/morph). Shell command
+parsing is intentionally out of scope — `cwd.changed` covers that.
 
-Subscribes to ``TOOL_EXECUTE_POST`` so the loaded instructions arrive before
-the next reasoning step. Reuses ``find_agent_files_in_tree`` and the
-``_loaded_agent_files_var`` dedup state from :mod:`agents_md_inject`.
-
-Scope (Phase 1):
-
-- Structured file tools only — ``read``, ``save``, ``append``, ``patch``,
-  ``morph``, ``ls``, ``browse``.
-- Hard caps to keep the hook cheap: at most ``MAX_PATHS_PER_EVENT``
-  directories inspected per tool event and at most ``MAX_NEW_FILES``
-  instruction files injected per event.
-
-See: ``knowledge/technical-designs/tool-targeted-agent-instruction-loading.md``
-in the Bob repo for the full design.
+See: knowledge/technical-designs/tool-targeted-agent-instruction-loading.md
 """
 
-from __future__ import annotations
-
 import logging
-import os
+from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ..hooks import HookType, register_hook
+from ..hooks import HookType, StopPropagation, register_hook
+from ..logmanager import Log
 from ..message import Message
 from ..prompts import find_agent_files_in_tree
-from ..util.context_dedup import _content_hash
-from .agents_md_inject import _HASH_PREFIX, _get_loaded_files
+from .agents_md_inject import _get_loaded_files, inject_agent_instruction_files
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
-
-    from ..hooks import StopPropagation
-    from ..logmanager import Log
+    from ..tools.base import ToolUse  # fmt: skip
 
 logger = logging.getLogger(__name__)
 
-# Tools whose argument shape is structured enough to extract paths from
-# without parsing shell strings. Shell payload parsing is explicitly a Phase 2
-# concern.
-_STRUCTURED_PATH_TOOLS: frozenset[str] = frozenset(
+# Tools whose arguments name a target file or directory. Free-form tools
+# (shell, ipython, browser_query) are excluded — their target is implicit
+# and would produce too many false positives.
+_PATH_TOOLS: frozenset[str] = frozenset(
     {
-        "read",
         "save",
         "append",
         "patch",
         "morph",
-        "ls",
-        "browse",
+        "read",
     }
 )
 
-# Caps. Keep small — this hook fires on every tool execution.
-MAX_PATHS_PER_EVENT = 3
-MAX_NEW_FILES = 3
+# kwarg keys that contain explicit path-like values for the tools above.
+_PATH_KWARG_KEYS: tuple[str, ...] = (
+    "path",
+    "paths",
+    "file",
+    "files",
+    "directory",
+    "cwd",
+)
+
+# Hard caps per tool event — keep the hook fast and prevent prompt-cache thrash.
+_MAX_INJECT_PER_EVENT = 3
+_MAX_BYTES_PER_EVENT = 12_000
 
 
-def _extract_paths(tool_use: Any) -> list[str]:
-    """Extract candidate path strings from a structured file-tool invocation.
+def _extract_paths(tool_use: "ToolUse") -> list[Path]:
+    """Extract explicit file/directory path candidates from a tool's arguments.
 
-    Phase 1 strategy: take the first positional arg if present, plus any
-    string values under ``path``/``filename``/``directory`` keys in kwargs.
-    Stop early when ``MAX_PATHS_PER_EVENT`` candidates are collected.
+    Returns expanded `Path` objects for downstream resolution. Free text and
+    unknown tools yield an empty list — phase 1 keeps the extractor strict.
     """
+    if tool_use is None or tool_use.tool not in _PATH_TOOLS:
+        return []
+
     candidates: list[str] = []
-    args = getattr(tool_use, "args", None) or []
-    if args:
-        first = args[0]
-        if isinstance(first, str) and first.strip():
-            candidates.append(first.strip())
-    kwargs = getattr(tool_use, "kwargs", None) or {}
-    for key in ("path", "filename", "directory", "file"):
-        val = kwargs.get(key)
-        if isinstance(val, str) and val.strip() and val.strip() not in candidates:
-            candidates.append(val.strip())
-            if len(candidates) >= MAX_PATHS_PER_EVENT:
-                break
-    return candidates[:MAX_PATHS_PER_EVENT]
+
+    # 1. Structured kwargs from tool/function-calling formats.
+    if tool_use.kwargs:
+        for key in _PATH_KWARG_KEYS:
+            value = tool_use.kwargs.get(key)
+            if not value:
+                continue
+            # `paths` / `files` may be newline- or comma-separated.
+            if key in ("paths", "files"):
+                for part in str(value).replace(",", "\n").splitlines():
+                    part = part.strip()
+                    if part:
+                        candidates.append(part)
+            else:
+                candidates.append(str(value))
+
+    # 2. Positional args from markdown-format tool blocks. The first arg is
+    #    conventionally the path for save/append/patch/morph/read.
+    if not candidates and tool_use.args:
+        first = tool_use.args[0].strip()
+        if first:
+            candidates.append(first)
+
+    # 3. Markdown-format batch reads put paths in the content block rather
+    #    than positional args. Support one-path-per-line with comment lines.
+    if not candidates and tool_use.tool == "read" and tool_use.content:
+        for line in tool_use.content.splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                candidates.append(line)
+
+    paths: list[Path] = []
+    seen: set[str] = set()
+    for raw in candidates:
+        try:
+            path = Path(raw).expanduser()
+        except (OSError, ValueError):
+            continue
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        paths.append(path)
+    return paths
 
 
-def _resolve_directory(path_str: str) -> Path | None:
-    """Resolve a tool-supplied path to a real directory to inspect.
+def _candidate_directories(paths: list[Path]) -> list[Path]:
+    """Resolve each input path to a directory to scan.
 
-    - Absolute paths are used as-is.
-    - Relative paths are resolved against the current CWD.
-    - If the path points at a file (or doesn't exist), use its parent.
-    - Returns ``None`` if the path can't be resolved or escapes obvious bounds.
+    File paths → parent directory. Directory paths → themselves. Non-existent
+    paths are still resolved so we walk what the agent *intended* to touch.
+    Duplicate directories are deduped while preserving order.
     """
-    try:
-        p = Path(path_str).expanduser()
-        if not p.is_absolute():
-            p = Path(os.getcwd()) / p
-        resolved = p.resolve()
-    except (OSError, ValueError, RuntimeError):
-        return None
-
-    if resolved.is_dir():
-        return resolved
-    # File or nonexistent — fall back to parent directory, which is a real dir
-    # on disk in the common cases (read/save/patch on an existing or new file
-    # under an existing directory).
-    parent = resolved.parent
-    if parent.is_dir():
-        return parent
-    return None
+    dirs: list[Path] = []
+    seen: set[str] = set()
+    for path in paths:
+        try:
+            resolved = path.resolve()
+        except (OSError, ValueError):
+            continue
+        if resolved.is_dir():
+            directory = resolved
+        elif resolved.exists():
+            directory = resolved.parent
+        else:
+            # For unborn files (e.g. about-to-be-saved), use the parent.
+            directory = resolved.parent
+        key = str(directory)
+        if key in seen:
+            continue
+        seen.add(key)
+        dirs.append(directory)
+    return dirs
 
 
 def on_tool_execute_post(
@@ -124,100 +151,64 @@ def on_tool_execute_post(
     workspace: Path | None,
     tool_use: Any,
 ) -> Generator[Message | StopPropagation, None, None]:
-    """Discover and inject AGENTS.md-style files for the tool's target path.
+    """Discover and inject AGENTS.md files for paths touched by structured tools.
 
     Args:
-        log: The conversation log.
+        log: The conversation log (used as a fallback for the loaded-files set
+            in server mode, mirroring `agents_md_inject`).
         workspace: Workspace directory path.
-        tool_use: The ToolUse object that just executed.
+        tool_use: The tool that just executed.
     """
-    tool_name = getattr(tool_use, "tool", None)
-    if tool_name not in _STRUCTURED_PATH_TOOLS:
-        return
-
     try:
-        path_strs = _extract_paths(tool_use)
-        if not path_strs:
+        paths = _extract_paths(tool_use)
+        if not paths:
             return
 
-        # Resolve to directories, dedup while preserving order
-        seen_dirs: set[str] = set()
-        directories: list[Path] = []
-        for path_str in path_strs:
-            d = _resolve_directory(path_str)
-            if d is None:
-                continue
-            key = str(d)
-            if key in seen_dirs:
-                continue
-            seen_dirs.add(key)
-            directories.append(d)
-
-        if not directories:
+        candidate_dirs = _candidate_directories(paths)
+        if not candidate_dirs:
             return
 
         loaded = _get_loaded_files(log)
-        injected = 0
+        candidate_files: list[Path] = []
+        seen_files: set[str] = set()
 
-        for directory in directories:
-            if injected >= MAX_NEW_FILES:
-                break
+        for directory in candidate_dirs:
             new_files = find_agent_files_in_tree(directory, exclude=loaded)
+            if not new_files:
+                continue
+
             for agent_file in new_files:
-                if injected >= MAX_NEW_FILES:
-                    break
                 resolved = str(agent_file.resolve())
-                if resolved in loaded:
+                if resolved in seen_files:
                     continue
-                try:
-                    content = agent_file.read_text()
-                except OSError as e:
-                    logger.warning(f"Could not read agent file {agent_file}: {e}")
-                    continue
+                seen_files.add(resolved)
+                candidate_files.append(agent_file)
 
-                content_key = f"{_HASH_PREFIX}{_content_hash(content)}"
-                if content_key in loaded:
-                    logger.debug(
-                        f"Skipping {agent_file}: identical content already injected"
-                    )
-                    loaded.add(resolved)
-                    continue
+        if not candidate_files:
+            return
 
-                loaded.add(resolved)
-                loaded.add(content_key)
-
-                try:
-                    display_path = str(agent_file.resolve().relative_to(Path.home()))
-                    display_path = f"~/{display_path}"
-                except ValueError:
-                    display_path = str(agent_file)
-
-                logger.info(
-                    f"Injecting agent instructions from {display_path} "
-                    f"(tool={tool_name})"
-                )
-                injected += 1
-                yield Message(
-                    "system",
-                    f'<agent-instructions source="{display_path}">\n'
-                    f"# Agent Instructions ({display_path})\n\n"
-                    f"{content}\n"
-                    f"</agent-instructions>",
-                    files=[agent_file],
-                )
+        # Reverse so most-specific (deepest) files come first — when the
+        # per-event cap fires, general/home-level files are dropped rather
+        # than the project-level ones the tool is actually targeting.
+        yield from inject_agent_instruction_files(
+            log,
+            reversed(candidate_files),
+            max_files=_MAX_INJECT_PER_EVENT,
+            max_bytes=_MAX_BYTES_PER_EVENT,
+        )
 
     except Exception as e:
-        logger.exception(f"Error in tool_target_instructions: {e}")
+        logger.exception(f"Error in tool_target_instructions hook: {e}")
 
 
 def register() -> None:
-    """Register the tool-target agent-instruction injection hook."""
+    """Register the tool-target agent instruction injection hook."""
     register_hook(
         "tool_target_instructions.on_tool_post",
         HookType.TOOL_EXECUTE_POST,
         on_tool_execute_post,
-        # Lower priority than cwd_changed.detect (100) so CWD-driven injection
-        # gets first crack at any new instruction files.
+        # Lower priority than cwd_changed.detect (100) so cwd-driven loading
+        # runs first when a tool both changes cwd and touches a path.
         priority=10,
     )
-    logger.debug("Registered tool-target AGENTS.md injection hook")
+    logger.debug("Registered tool_target_instructions hook")
