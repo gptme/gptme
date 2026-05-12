@@ -282,8 +282,8 @@ def test_subagent_with_use_subprocess():
     # Verify subprocess parameter exists (callbacks removed in favor of hooks)
     assert "use_subprocess" in sig.parameters
 
-    # Verify default value
-    assert sig.parameters["use_subprocess"].default is False
+    # Verify default value (None = "not set"; False only means explicit disable)
+    assert sig.parameters["use_subprocess"].default is None
 
     # Callbacks have been removed - completion is now delivered via LOOP_CONTINUE hook
     assert "on_complete" not in sig.parameters
@@ -1636,6 +1636,55 @@ def test_role_explicit_profile_overrides_role_profile(mock_create_thread: MagicM
     call_kwargs = mock_create_thread.call_args[1]
     # Explicit profile wins over role-derived profile
     assert call_kwargs["profile_name"] == "researcher"
+
+
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
+def test_role_overrides_agent_id_auto_detection(mock_create_thread: MagicMock):
+    """Test that role= profile overrides agent_id auto-detection.
+
+    agent_id='explorer' would auto-detect profile='explorer', but role='implement'
+    should win and set profile to 'developer' (role > agent_id auto-detection).
+    """
+    initial_count = len(_subagents)
+
+    subagent(
+        agent_id="explorer",  # would auto-detect to 'explorer' profile
+        prompt="Implement feature X",
+        role="implement",  # should override to 'developer'
+    )
+
+    assert len(_subagents) == initial_count + 1
+    _wait_for_new_subagent_threads(initial_count)
+
+    mock_create_thread.assert_called_once()
+    call_kwargs = mock_create_thread.call_args[1]
+    assert call_kwargs["profile_name"] == "developer", (
+        "role= should override agent_id auto-detection"
+    )
+
+
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
+def test_role_verify_explicit_false_subprocess_opts_out(
+    mock_create_thread: MagicMock,
+):
+    """Test that explicit use_subprocess=False overrides role='verify' subprocess default."""
+    initial_count = len(_subagents)
+
+    subagent(
+        agent_id="checker",
+        prompt="Verify the auth module",
+        role="verify",
+        use_subprocess=False,  # explicit opt-out should win
+    )
+
+    assert len(_subagents) == initial_count + 1
+    _wait_for_new_subagent_threads(initial_count)
+
+    mock_create_thread.assert_called_once()
+    sa = _subagents[-1]
+    assert sa.execution_mode == "thread", (
+        "explicit use_subprocess=False should override role='verify' subprocess default"
+    )
 
 
 def test_planner_subtask_role_passthrough():

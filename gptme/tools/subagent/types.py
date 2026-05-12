@@ -43,15 +43,19 @@ _ROLE_PROFILES: dict[Role, str] = {
 
 def resolve_role_defaults(
     role: Role | None,
-    explicit_use_subprocess: bool = False,
-    explicit_isolated: bool = False,
+    explicit_use_subprocess: bool | None = None,
+    explicit_isolated: bool | None = None,
 ) -> tuple[bool, bool, str | None]:
     """Resolve profile and defaults from a role.
 
     Args:
         role: The role to resolve, or None.
-        explicit_use_subprocess: Whether caller explicitly set use_subprocess.
-        explicit_isolated: Whether caller explicitly set isolated.
+        explicit_use_subprocess: Caller's use_subprocess setting.
+            None means "not set — use role default or False".
+            True/False means "explicitly set — override role default".
+        explicit_isolated: Caller's isolated setting.
+            None means "not set — use role default or False".
+            True/False means "explicitly set — override role default".
 
     Returns:
         Tuple of (effective_use_subprocess, effective_isolated, effective_profile).
@@ -59,7 +63,7 @@ def resolve_role_defaults(
     Precedence: explicit args > role defaults > base defaults.
     """
     if role is None:
-        return explicit_use_subprocess, explicit_isolated, None
+        return bool(explicit_use_subprocess), bool(explicit_isolated), None
 
     profile = _ROLE_PROFILES.get(role)
 
@@ -70,9 +74,13 @@ def resolve_role_defaults(
         subprocess_default = True
         isolated_default = True
 
-    # Explicit args override role defaults
-    use_sub = explicit_use_subprocess or subprocess_default
-    use_iso = explicit_isolated or isolated_default
+    # Explicit True/False overrides role defaults; None falls through to role default.
+    use_sub = (
+        explicit_use_subprocess
+        if explicit_use_subprocess is not None
+        else subprocess_default
+    )
+    use_iso = explicit_isolated if explicit_isolated is not None else isolated_default
 
     return use_sub, use_iso, profile
 

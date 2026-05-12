@@ -40,12 +40,12 @@ def subagent(
     context_mode: Literal["full", "selective"] = "full",
     context_include: list[str] | None = None,
     output_schema: type | None = None,
-    use_subprocess: bool = False,
+    use_subprocess: bool | None = None,
     use_acp: bool = False,
     acp_command: str = "gptme-acp",
     profile: str | None = None,
     model: str | None = None,
-    isolated: bool = False,
+    isolated: bool | None = None,
     timeout: int = 1800,
     role: Role | None = None,
 ):
@@ -124,6 +124,10 @@ def subagent(
 
     from ...profiles import get_profile as _get_profile  # fmt: skip
 
+    # Track whether profile was set explicitly by the caller (before any auto-detection).
+    # This lets role= override agent_id auto-detection without overriding explicit profile=.
+    explicit_profile = profile is not None
+
     # Auto-detect profile from agent_id when no explicit profile is set
     if profile is None:
         if _get_profile(agent_id) is not None:
@@ -147,16 +151,15 @@ def subagent(
                     f"Auto-detected profile '{profile}' from agent_id alias '{agent_id}'"
                 )
 
-    # Role-based defaults: explicit args > role defaults > existing resolution
+    # Role-based defaults: explicit caller args > role defaults > agent_id auto-detection
     if role is not None:
         use_sub, use_iso, role_profile = resolve_role_defaults(
             role,
-            # Only treat as explicit if caller set to True
-            use_subprocess or False,
-            isolated or False,
+            use_subprocess,  # None = not set; True/False = explicit override
+            isolated,
         )
-        # Role-derived profile is a default, not an override
-        if profile is None and role_profile is not None:
+        # Role-derived profile overrides agent_id auto-detection but NOT an explicit profile=
+        if not explicit_profile and role_profile is not None:
             profile = role_profile
             logger.info(f"Set profile '{profile}' from role='{role}'")
         use_subprocess = use_sub
@@ -164,6 +167,10 @@ def subagent(
         logger.info(
             f"Role '{role}' resolved: profile={profile}, use_subprocess={use_subprocess}, isolated={isolated}"
         )
+
+    # Normalize to bool after role resolution (None = "not set" → False default)
+    use_subprocess = bool(use_subprocess)
+    isolated = bool(isolated)
 
     # Determine model: explicit parameter > parent's model
     model_name: str | None

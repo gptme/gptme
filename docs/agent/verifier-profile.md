@@ -50,10 +50,12 @@ Explicit `use_subprocess` and `isolated` arguments override these defaults.
 
 Role resolution follows deterministic priority:
 1. Explicit `profile=` parameter (highest priority)
-2. Profile auto-detection from `agent_id` matching a profile name
-3. Profile alias resolution (e.g., `"verify"` → `"verifier"`)
-4. Profile auto-detection from `agent_id` matching a role alias
-5. Existing base defaults (no profile applied)
+2. `role=` parameter profile (e.g., `role="verify"` → `"verifier"`, overrides `agent_id` auto-detection)
+3. `agent_id` auto-detection (profile name match or alias, e.g., `"verify"` → `"verifier"`)
+4. Existing base defaults (no profile applied)
+
+Note: `role=` overrides `agent_id` auto-detection so typed delegation is unambiguous.
+An explicit `profile=` still wins over everything, including `role=`.
 
 ## Differences from Related Profiles
 
