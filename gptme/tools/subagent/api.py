@@ -65,6 +65,7 @@ def subagent(
     - ``"implement"``: Defaults profile to ``developer`` (full capability)
     - ``"verify"``: Defaults profile to ``verifier`` plus ``use_subprocess=True``
       and ``isolated=True`` (read-only validation in isolation)
+
     Explicit arguments override role defaults.
 
     Args:
