@@ -14,7 +14,7 @@ import subprocess
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, TypedDict
+from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict
 
 from ..base import ToolUse
 
@@ -24,6 +24,51 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 Status = Literal["running", "success", "failure"]
+Role = Literal["general", "explore", "implement", "verify"]
+
+# Role → profile name mapping
+_ROLE_PROFILES: dict[Role, str] = {
+    "general": "default",
+    "explore": "explorer",
+    "implement": "developer",
+    "verify": "verifier",
+}
+
+
+def resolve_role_defaults(
+    role: Role | None,
+    explicit_use_subprocess: bool = False,
+    explicit_isolated: bool = False,
+) -> tuple[bool, bool, str | None]:
+    """Resolve profile and defaults from a role.
+
+    Args:
+        role: The role to resolve, or None.
+        explicit_use_subprocess: Whether caller explicitly set use_subprocess.
+        explicit_isolated: Whether caller explicitly set isolated.
+
+    Returns:
+        Tuple of (effective_use_subprocess, effective_isolated, effective_profile).
+
+    Precedence: explicit args > role defaults > base defaults.
+    """
+    if role is None:
+        return explicit_use_subprocess, explicit_isolated, None
+
+    profile = _ROLE_PROFILES.get(role)
+
+    # Role defaults
+    subprocess_default = False
+    isolated_default = False
+    if role == "verify":
+        subprocess_default = True
+        isolated_default = True
+
+    # Explicit args override role defaults
+    use_sub = explicit_use_subprocess or subprocess_default
+    use_iso = explicit_isolated or isolated_default
+
+    return use_sub, use_iso, profile
 
 
 class SubtaskDef(TypedDict):
@@ -31,6 +76,7 @@ class SubtaskDef(TypedDict):
 
     id: str
     description: str
+    role: NotRequired[Role]
 
 
 # ---------------------------------------------------------------------------

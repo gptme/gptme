@@ -1483,3 +1483,156 @@ def test_acp_mode_subagent_batch():
             for agent_id in job.agent_ids:
                 assert agent_id in _subagent_results
                 assert _subagent_results[agent_id].status == "success"
+
+
+# ---------------------------------------------------------------------------
+# Role parameter tests (Phase 1 of subagent role taxonomy)
+# ---------------------------------------------------------------------------
+
+
+def test_role_parameter_exists():
+    """Test that subagent() accepts a role parameter."""
+    import inspect
+
+    sig = inspect.signature(subagent)
+
+    assert "role" in sig.parameters
+    assert sig.parameters["role"].default is None
+
+
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
+def test_role_explore_resolves_explorer_profile(mock_create_thread: MagicMock):
+    """Test that role='explore' defaults profile to 'explorer'."""
+    initial_count = len(_subagents)
+
+    subagent(
+        agent_id="scout",
+        prompt="Explore the codebase",
+        role="explore",
+    )
+
+    assert len(_subagents) == initial_count + 1
+    _wait_for_new_subagent_threads(initial_count)
+
+    mock_create_thread.assert_called_once()
+    call_kwargs = mock_create_thread.call_args[1]
+    assert call_kwargs["profile_name"] == "explorer"
+
+
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
+def test_role_implement_resolves_developer_profile(mock_create_thread: MagicMock):
+    """Test that role='implement' defaults profile to 'developer'."""
+    initial_count = len(_subagents)
+
+    subagent(
+        agent_id="builder",
+        prompt="Implement feature X",
+        role="implement",
+    )
+
+    assert len(_subagents) == initial_count + 1
+    _wait_for_new_subagent_threads(initial_count)
+
+    mock_create_thread.assert_called_once()
+    call_kwargs = mock_create_thread.call_args[1]
+    assert call_kwargs["profile_name"] == "developer"
+
+
+@patch("gptme.tools.subagent.execution._run_subagent_subprocess")
+def test_role_verify_defaults_subprocess_and_isolated(
+    mock_run_subprocess: MagicMock,
+):
+    """Test that role='verify' defaults to subprocess mode with isolation and verifier profile."""
+    initial_count = len(_subagents)
+    _subagents.clear()
+
+    subagent(
+        agent_id="checker",
+        prompt="Verify the auth module",
+        role="verify",
+    )
+
+    assert len(_subagents) == initial_count + 1
+    sa = _subagents[-1]
+    # The subagent should be created in subprocess mode (not thread mode)
+    assert sa.execution_mode == "subprocess"
+    assert sa.isolated is True
+
+    # Verify that role overrides profile auto-detection from agent_id
+    # agent_id 'checker' would normally auto-detect nothing, but role='verify'
+    # should set profile to 'verifier'
+    mock_run_subprocess.assert_called_once()
+
+
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
+def test_role_explore_does_not_set_use_subprocess(mock_create_thread: MagicMock):
+    """Test that role='explore' does NOT set subprocess mode (thread mode default)."""
+    initial_count = len(_subagents)
+
+    subagent(
+        agent_id="scout",
+        prompt="Explore",
+        role="explore",
+    )
+
+    assert len(_subagents) == initial_count + 1
+    sa = _subagents[-1]
+    assert sa.execution_mode == "thread"
+    assert sa.isolated is False
+
+
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
+def test_role_implement_does_not_set_use_subprocess(mock_create_thread: MagicMock):
+    """Test that role='implement' does NOT set subprocess mode (thread mode default)."""
+    initial_count = len(_subagents)
+
+    subagent(
+        agent_id="builder",
+        prompt="Implement",
+        role="implement",
+    )
+
+    assert len(_subagents) == initial_count + 1
+    sa = _subagents[-1]
+    assert sa.execution_mode == "thread"
+    assert sa.isolated is False
+
+
+@patch("gptme.tools.subagent.execution._run_subagent_subprocess")
+def test_role_verify_subprocess_has_verifier_profile(
+    mock_run_subprocess: MagicMock,
+):
+    """Test that verify role forwarded correctly to subprocess runner via profile."""
+    _subagents.clear()
+
+    subagent(
+        agent_id="checker",
+        prompt="Verify everything",
+        role="verify",
+    )
+
+    sa = _subagents[-1]
+
+    # The Subagent should capture isolate=True
+    assert sa.isolated is True
+
+
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
+def test_role_explicit_profile_overrides_role_profile(mock_create_thread: MagicMock):
+    """Test that explicit profile argument overrides role-derived profile."""
+    initial_count = len(_subagents)
+
+    subagent(
+        agent_id="scout",
+        prompt="Research task",
+        role="explore",
+        profile="researcher",
+    )
+
+    assert len(_subagents) == initial_count + 1
+    _wait_for_new_subagent_threads(initial_count)
+
+    mock_create_thread.assert_called_once()
+    call_kwargs = mock_create_thread.call_args[1]
+    # Explicit profile wins over role-derived profile
+    assert call_kwargs["profile_name"] == "researcher"

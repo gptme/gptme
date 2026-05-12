@@ -18,12 +18,14 @@ from . import execution as _exec
 from .hooks import notify_completion
 from .types import (
     ReturnType,
+    Role,
     Subagent,
     SubtaskDef,
     _subagent_results,
     _subagent_results_lock,
     _subagents,
     _subagents_lock,
+    resolve_role_defaults,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,6 +47,7 @@ def subagent(
     model: str | None = None,
     isolated: bool = False,
     timeout: int = 1800,
+    role: Role | None = None,
 ):
     """Starts an asynchronous subagent. Returns None immediately.
 
@@ -56,6 +59,13 @@ def subagent(
     (e.g. "explorer", "researcher", "developer", "verifier") or a common role alias
     ("explore"→"explorer", "research"→"researcher", "impl"/"dev"→"developer", "verify"→"verifier"),
     the profile is applied automatically — no need to pass ``profile`` separately.
+
+    Role-based defaults (``role`` parameter):
+    - ``"explore"``: Defaults profile to ``explorer`` (read-only analysis)
+    - ``"implement"``: Defaults profile to ``developer`` (full capability)
+    - ``"verify"``: Defaults profile to ``verifier`` plus ``use_subprocess=True``
+      and ``isolated=True`` (read-only validation in isolation)
+    Explicit arguments override role defaults.
 
     Args:
         agent_id: Unique identifier for the subagent. If it matches a known
@@ -136,6 +146,24 @@ def subagent(
                 logger.info(
                     f"Auto-detected profile '{profile}' from agent_id alias '{agent_id}'"
                 )
+
+    # Role-based defaults: explicit args > role defaults > existing resolution
+    if role is not None:
+        use_sub, use_iso, role_profile = resolve_role_defaults(
+            role,
+            # Only treat as explicit if caller set to True
+            use_subprocess or False,
+            isolated or False,
+        )
+        # Role-derived profile is a default, not an override
+        if profile is None and role_profile is not None:
+            profile = role_profile
+            logger.info(f"Set profile '{profile}' from role='{role}'")
+        use_subprocess = use_sub
+        isolated = use_iso
+        logger.info(
+            f"Role '{role}' resolved: profile={profile}, use_subprocess={use_subprocess}, isolated={isolated}"
+        )
 
     # Determine model: explicit parameter > parent's model
     model_name: str | None
