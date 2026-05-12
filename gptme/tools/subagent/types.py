@@ -90,6 +90,8 @@ class SubtaskDef(TypedDict):
 
     id: str
     description: str
+    # NOTE(phase2): role sets the executor profile but subprocess/isolated defaults
+    # are not yet forwarded — planner always spawns executors in thread mode.
     role: NotRequired[Role]
 
 

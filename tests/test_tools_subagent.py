@@ -1543,7 +1543,6 @@ def test_role_verify_defaults_subprocess_and_isolated(
     mock_run_subprocess: MagicMock,
 ):
     """Test that role='verify' defaults to subprocess mode with isolation and verifier profile."""
-    initial_count = len(_subagents)
     _subagents.clear()
 
     subagent(
@@ -1552,7 +1551,7 @@ def test_role_verify_defaults_subprocess_and_isolated(
         role="verify",
     )
 
-    assert len(_subagents) == initial_count + 1
+    assert len(_subagents) == 1
     sa = _subagents[-1]
     # The subagent should be created in subprocess mode (not thread mode)
     assert sa.execution_mode == "subprocess"

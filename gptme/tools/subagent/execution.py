@@ -497,7 +497,10 @@ def _run_planner(
         subtask_role = subtask.get("role")
         resolved_profile = profile_name
         if subtask_role:
-            _, _, role_profile = resolve_role_defaults(subtask_role, False, False)
+            # NOTE(phase2): use_subprocess/isolated from role are not yet forwarded
+            # to individual executors (planner always uses thread mode). Only profile
+            # is applied here. See SubtaskDef.role docstring for the Phase 2 plan.
+            _, _, role_profile = resolve_role_defaults(subtask_role, None, None)
             if role_profile is not None and profile_name is None:
                 resolved_profile = role_profile
                 logger.info(
