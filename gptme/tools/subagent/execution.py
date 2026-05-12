@@ -460,6 +460,7 @@ def _run_planner(
     context_include: list[str] | None = None,
     model: str | None = None,
     profile_name: str | None = None,
+    plan: dict | None = None,
 ) -> None:
     """Run a planner that delegates work to multiple executor subagents.
 
@@ -471,10 +472,11 @@ def _run_planner(
         context_mode: Controls what context is shared with executors (see subagent() docs)
         context_include: For selective mode, list of context components to include
         profile_name: Agent profile to apply to executor subagents
+        plan: Internal plan dict (for subagent spawning relay)
     """
     from gptme.cli.main import get_logdir
 
-    from .types import Subagent, _subagents, _subagents_lock
+    from .types import Subagent, _subagents, _subagents_lock, resolve_role_defaults
 
     logger.info(
         f"Starting planner {agent_id} with {len(subtasks)} subtasks "
@@ -491,6 +493,17 @@ def _run_planner(
         name = f"subagent-{executor_id}"
         logdir = get_logdir(name + "-" + random_string(4))
 
+        # Resolve role-based profile per subtask if role is set
+        subtask_role = subtask.get("role")
+        resolved_profile = profile_name
+        if subtask_role:
+            _, _, role_profile = resolve_role_defaults(subtask_role, False, False)
+            if role_profile is not None and profile_name is None:
+                resolved_profile = role_profile
+                logger.info(
+                    f"Subtask '{subtask['id']}' resolved profile '{role_profile}' from role='{subtask_role}'"
+                )
+
         # Capture workspace before spawning thread to avoid FileNotFoundError
         # if cwd is deleted (e.g., tmpdir cleanup in tests)
         try:
@@ -498,7 +511,12 @@ def _run_planner(
         except FileNotFoundError:
             workspace = logdir.parent
 
-        def run_executor(prompt=executor_prompt, log_dir=logdir, ws=workspace):
+        def run_executor(
+            prompt=executor_prompt,
+            log_dir=logdir,
+            ws=workspace,
+            subtask_profile=resolved_profile,
+        ):
             _create_subagent_thread(
                 prompt=prompt,
                 logdir=log_dir,
@@ -507,7 +525,7 @@ def _run_planner(
                 context_include=context_include,
                 workspace=ws,
                 target="planner",
-                profile_name=profile_name,
+                profile_name=subtask_profile,
             )
 
         t = threading.Thread(target=run_executor, daemon=True)
