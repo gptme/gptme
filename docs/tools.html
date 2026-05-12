@@ -174,7 +174,10 @@
 <li class="toctree-l1"><a class="reference internal" href="features.html">Features</a></li>
 <li class="toctree-l1"><a class="reference internal" href="concepts.html">Core Concepts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
-<li class="toctree-l1"><a class="reference internal" href="agents.html">Agents</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="agents.html">Agents</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="agent/verifier-profile.html">Verifier Profile</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="server.html">Server</a></li>
 <li class="toctree-l1"><a class="reference internal" href="mcp.html">MCP</a></li>
 <li class="toctree-l1"><a class="reference internal" href="acp.html">ACP (Agent Client Protocol)</a></li>
@@ -1270,6 +1273,7 @@ When agent_id matches a profile name, the profile is auto-applied:
 <span class="k">-</span><span class="w"> </span>explorer: Read-only analysis (tools: read)
 <span class="k">-</span><span class="w"> </span>researcher: Web research without file modification (tools: browser, read)
 <span class="k">-</span><span class="w"> </span>developer: Full development capabilities (all tools)
+<span class="k">-</span><span class="w"> </span>verifier: Critical review &amp; validation (tools: read, shell, ipython, chats)
 <span class="k">-</span><span class="w"> </span>isolated: Restricted processing for untrusted content (tools: read, ipython)
 <span class="k">-</span><span class="w"> </span>computer-use: Visual UI testing specialist (tools: computer, vision, ipython, shell)
 <span class="k">-</span><span class="w"> </span>browser-use: Web interaction and testing specialist (tools: browser, screenshot, vision, shell) — supports interactive browsing (open_page, click, fill, scroll) and one-shot reads
@@ -1753,8 +1757,8 @@ during the next LOOP_CONTINUE cycle.</p>
 a “fire-and-forget-then-get-alerted” pattern where the orchestrator can
 continue working and get notified when subagents finish.</p>
 <p>Profile auto-detection: If <code class="docutils literal notranslate"><span class="pre">agent_id</span></code> matches a known profile name
-(e.g. “explorer”, “researcher”, “developer”) or a common role alias
-(“explore”→”explorer”, “research”→”researcher”, “impl”/”dev”→”developer”),
+(e.g. “explorer”, “researcher”, “developer”, “verifier”) or a common role alias
+(“explore”→”explorer”, “research”→”researcher”, “impl”/”dev”→”developer”, “verify”→”verifier”),
 the profile is applied automatically — no need to pass <code class="docutils literal notranslate"><span class="pre">profile</span></code> separately.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -1789,7 +1793,7 @@ Only used when use_acp=True. Can be any ACP-compatible CLI.</p></li>
 - Tool access restrictions (which tools the subagent can use)
 - Behavior rules (read-only, no-network, etc.)
 Use ‘gptme-util profile list’ to see available profiles.
-Built-in profiles: default, explorer, researcher, developer, isolated, computer-use, browser-use.
+Built-in profiles: default, explorer, researcher, developer, verifier, isolated, computer-use, browser-use.
 If not set, auto-detected from agent_id when it matches a profile name.</p></li>
 <li><p><strong>model</strong> – Model to use for the subagent. Overrides parent’s model.
 Useful for routing cheap tasks to faster/cheaper models.</p></li>

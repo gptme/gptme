@@ -174,7 +174,10 @@
 <li class="toctree-l1"><a class="reference internal" href="features.html">Features</a></li>
 <li class="toctree-l1"><a class="reference internal" href="concepts.html">Core Concepts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="glossary.html">Glossary</a></li>
-<li class="toctree-l1"><a class="reference internal" href="agents.html">Agents</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="agents.html">Agents</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="agent/verifier-profile.html">Verifier Profile</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="server.html">Server</a></li>
 <li class="toctree-l1"><a class="reference internal" href="mcp.html">MCP</a></li>
 <li class="toctree-l1"><a class="reference internal" href="acp.html">ACP (Agent Client Protocol)</a></li>
@@ -695,7 +698,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7ffbee68cd60&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f1a904ee5c0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1786,6 +1789,7 @@ When agent_id matches a profile name, the profile is auto-applied:
 <span class="k">-</span><span class="w"> </span>explorer: Read-only analysis (tools: read)
 <span class="k">-</span><span class="w"> </span>researcher: Web research without file modification (tools: browser, read)
 <span class="k">-</span><span class="w"> </span>developer: Full development capabilities (all tools)
+<span class="k">-</span><span class="w"> </span>verifier: Critical review &amp; validation (tools: read, shell, ipython, chats)
 <span class="k">-</span><span class="w"> </span>isolated: Restricted processing for untrusted content (tools: read, ipython)
 <span class="k">-</span><span class="w"> </span>computer-use: Visual UI testing specialist (tools: computer, vision, ipython, shell)
 <span class="k">-</span><span class="w"> </span>browser-use: Web interaction and testing specialist (tools: browser, screenshot, vision, shell) — supports interactive browsing (open_page, click, fill, scroll) and one-shot reads
@@ -1830,8 +1834,8 @@ The following Python functions are available using the <span class="sb">`ipython
 <span class="s">    continue working and get notified when subagents finish.</span>
 
 <span class="s">    Profile auto-detection: If ``agent_id`` matches a known profile name</span>
-<span class="s">    (e.g. &quot;explorer&quot;, &quot;researcher&quot;, &quot;developer&quot;) or a common role alias</span>
-<span class="s">    (&quot;explore&quot;→&quot;explorer&quot;, &quot;research&quot;→&quot;researcher&quot;, &quot;impl&quot;/&quot;dev&quot;→&quot;developer&quot;),</span>
+<span class="s">    (e.g. &quot;explorer&quot;, &quot;researcher&quot;, &quot;developer&quot;, &quot;verifier&quot;) or a common role alias</span>
+<span class="s">    (&quot;explore&quot;→&quot;explorer&quot;, &quot;research&quot;→&quot;researcher&quot;, &quot;impl&quot;/&quot;dev&quot;→&quot;developer&quot;, &quot;verify&quot;→&quot;verifier&quot;),</span>
 <span class="s">    the profile is applied automatically — no need to pass ``profile`` separately.</span>
 
 <span class="s">    Args:</span>
@@ -1865,7 +1869,7 @@ The following Python functions are available using the <span class="sb">`ipython
 <span class="s">            - Tool access restrictions (which tools the subagent can use)</span>
 <span class="s">            - Behavior rules (read-only, no-network, etc.)</span>
 <span class="s">            Use &#39;gptme-util profile list&#39; to see available profiles.</span>
-<span class="s">            Built-in profiles: default, explorer, researcher, developer, isolated, computer-use, browser-use.</span>
+<span class="s">            Built-in profiles: default, explorer, researcher, developer, verifier, isolated, computer-use, browser-use.</span>
 <span class="s">            If not set, auto-detected from agent_id when it matches a profile name.</span>
 <span class="s">        model: Model to use for the subagent. Overrides parent&#39;s model.</span>
 <span class="s">            Useful for routing cheap tasks to faster/cheaper models.</span>
@@ -2252,7 +2256,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 12505</p>
+<p>Tokens: 12539</p>
 </dd></dl>
 
 <dl class="py function">
