@@ -460,7 +460,6 @@ def _run_planner(
     context_include: list[str] | None = None,
     model: str | None = None,
     profile_name: str | None = None,
-    plan: dict | None = None,
 ) -> None:
     """Run a planner that delegates work to multiple executor subagents.
 
@@ -471,8 +470,8 @@ def _run_planner(
         execution_mode: "parallel" (all at once) or "sequential" (one by one)
         context_mode: Controls what context is shared with executors (see subagent() docs)
         context_include: For selective mode, list of context components to include
-        profile_name: Agent profile to apply to executor subagents
-        plan: Internal plan dict (for subagent spawning relay)
+        profile_name: Agent profile to apply to executor subagents (per-subtask role
+            always overrides this when set — subtask role is more specific)
     """
     from gptme.cli.main import get_logdir
 
@@ -493,15 +492,17 @@ def _run_planner(
         name = f"subagent-{executor_id}"
         logdir = get_logdir(name + "-" + random_string(4))
 
-        # Resolve role-based profile per subtask if role is set
+        # Resolve role-based profile per subtask if role is set.
+        # Per-subtask role is more specific than the planner-level profile, so it
+        # always wins — even when the planner itself carries a profile.
+        # NOTE(phase2): use_subprocess/isolated from role are not yet forwarded
+        # to individual executors (planner always uses thread mode). Only profile
+        # is applied here. See SubtaskDef.role docstring for the Phase 2 plan.
         subtask_role = subtask.get("role")
         resolved_profile = profile_name
         if subtask_role:
-            # NOTE(phase2): use_subprocess/isolated from role are not yet forwarded
-            # to individual executors (planner always uses thread mode). Only profile
-            # is applied here. See SubtaskDef.role docstring for the Phase 2 plan.
             _, _, role_profile = resolve_role_defaults(subtask_role, None, None)
-            if role_profile is not None and profile_name is None:
+            if role_profile is not None:
                 resolved_profile = role_profile
                 logger.info(
                     f"Subtask '{subtask['id']}' resolved profile '{role_profile}' from role='{subtask_role}'"

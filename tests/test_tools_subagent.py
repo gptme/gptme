@@ -1796,3 +1796,39 @@ def test_planner_with_role_uses_role_for_self_profile(mock_create_thread: MagicM
         # for planner children since the role resolution happens in api.py
         # and planner receives profile_name as-is
         assert "profile_name" in kwargs
+
+
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
+def test_planner_subtask_role_overrides_planner_profile(mock_create_thread: MagicMock):
+    """Subtask role wins over planner-level profile.
+
+    When the planner itself carries a profile (e.g. role=implement → "developer"),
+    a subtask with its own role (e.g. role=verify → "verifier") must still resolve
+    to the subtask's profile — not silently inherit the planner's.
+
+    This is the regression case flagged by Greptile: the old guard
+    `profile_name is None` meant subtask roles were silently dropped as soon
+    as the planner had any profile of its own.
+    """
+    subtasks: list[SubtaskDef] = [
+        {"id": "verify", "description": "Verify the output", "role": "verify"},
+    ]
+
+    # Planner inherits role=implement → profile_name="developer" in _run_planner
+    subagent(
+        agent_id="impl-plan",
+        prompt="Build and verify a component",
+        mode="planner",
+        role="implement",
+        subtasks=subtasks,
+    )
+
+    _wait_for_new_subagent_threads(0, timeout=2.0)
+
+    mock_create_thread.assert_called_once()
+    kwargs = mock_create_thread.call_args[1]
+    # Subtask role=verify must resolve to "verifier", overriding planner's "developer"
+    assert kwargs["profile_name"] == "verifier", (
+        f"Expected subtask role 'verify' to resolve to 'verifier', got {kwargs['profile_name']!r}. "
+        "Per-subtask role should always override planner-level profile."
+    )
