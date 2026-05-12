@@ -11,10 +11,16 @@ import logging
 import queue
 import re
 import subprocess
+import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypedDict
+
+if sys.version_info >= (3, 11):
+    from typing import NotRequired
+else:
+    from typing_extensions import NotRequired
 
 from ..base import ToolUse
 
@@ -24,6 +30,59 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 Status = Literal["running", "success", "failure"]
+Role = Literal["general", "explore", "implement", "verify"]
+
+# Role → profile name mapping
+_ROLE_PROFILES: dict[Role, str] = {
+    "general": "default",
+    "explore": "explorer",
+    "implement": "developer",
+    "verify": "verifier",
+}
+
+
+def resolve_role_defaults(
+    role: Role | None,
+    explicit_use_subprocess: bool | None = None,
+    explicit_isolated: bool | None = None,
+) -> tuple[bool, bool, str | None]:
+    """Resolve profile and defaults from a role.
+
+    Args:
+        role: The role to resolve, or None.
+        explicit_use_subprocess: Caller's use_subprocess setting.
+            None means "not set — use role default or False".
+            True/False means "explicitly set — override role default".
+        explicit_isolated: Caller's isolated setting.
+            None means "not set — use role default or False".
+            True/False means "explicitly set — override role default".
+
+    Returns:
+        Tuple of (effective_use_subprocess, effective_isolated, effective_profile).
+
+    Precedence: explicit args > role defaults > base defaults.
+    """
+    if role is None:
+        return bool(explicit_use_subprocess), bool(explicit_isolated), None
+
+    profile = _ROLE_PROFILES.get(role)
+
+    # Role defaults
+    subprocess_default = False
+    isolated_default = False
+    if role == "verify":
+        subprocess_default = True
+        isolated_default = True
+
+    # Explicit True/False overrides role defaults; None falls through to role default.
+    use_sub = (
+        explicit_use_subprocess
+        if explicit_use_subprocess is not None
+        else subprocess_default
+    )
+    use_iso = explicit_isolated if explicit_isolated is not None else isolated_default
+
+    return use_sub, use_iso, profile
 
 
 class SubtaskDef(TypedDict):
@@ -31,6 +90,9 @@ class SubtaskDef(TypedDict):
 
     id: str
     description: str
+    # NOTE(phase2): role sets the executor profile but subprocess/isolated defaults
+    # are not yet forwarded — planner always spawns executors in thread mode.
+    role: NotRequired[Role]
 
 
 # ---------------------------------------------------------------------------

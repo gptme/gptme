@@ -18,12 +18,14 @@ from . import execution as _exec
 from .hooks import notify_completion
 from .types import (
     ReturnType,
+    Role,
     Subagent,
     SubtaskDef,
     _subagent_results,
     _subagent_results_lock,
     _subagents,
     _subagents_lock,
+    resolve_role_defaults,
 )
 
 logger = logging.getLogger(__name__)
@@ -38,13 +40,14 @@ def subagent(
     context_mode: Literal["full", "selective"] = "full",
     context_include: list[str] | None = None,
     output_schema: type | None = None,
-    use_subprocess: bool = False,
+    use_subprocess: bool | None = None,
     use_acp: bool = False,
     acp_command: str = "gptme-acp",
     profile: str | None = None,
     model: str | None = None,
-    isolated: bool = False,
+    isolated: bool | None = None,
     timeout: int = 1800,
+    role: Role | None = None,
 ):
     """Starts an asynchronous subagent. Returns None immediately.
 
@@ -56,6 +59,14 @@ def subagent(
     (e.g. "explorer", "researcher", "developer", "verifier") or a common role alias
     ("explore"→"explorer", "research"→"researcher", "impl"/"dev"→"developer", "verify"→"verifier"),
     the profile is applied automatically — no need to pass ``profile`` separately.
+
+    Role-based defaults (``role`` parameter):
+
+    - ``"explore"``: Defaults profile to ``explorer`` (read-only analysis)
+    - ``"implement"``: Defaults profile to ``developer`` (full capability)
+    - ``"verify"``: Defaults profile to ``verifier`` plus ``use_subprocess=True`` and ``isolated=True`` (read-only validation in isolation)
+
+    Explicit arguments override role defaults.
 
     Args:
         agent_id: Unique identifier for the subagent. If it matches a known
@@ -114,6 +125,10 @@ def subagent(
 
     from ...profiles import get_profile as _get_profile  # fmt: skip
 
+    # Track whether profile was set explicitly by the caller (before any auto-detection).
+    # This lets role= override agent_id auto-detection without overriding explicit profile=.
+    explicit_profile = profile is not None
+
     # Auto-detect profile from agent_id when no explicit profile is set
     if profile is None:
         if _get_profile(agent_id) is not None:
@@ -136,6 +151,27 @@ def subagent(
                 logger.info(
                     f"Auto-detected profile '{profile}' from agent_id alias '{agent_id}'"
                 )
+
+    # Role-based defaults: explicit caller args > role defaults > agent_id auto-detection
+    if role is not None:
+        use_sub, use_iso, role_profile = resolve_role_defaults(
+            role,
+            use_subprocess,  # None = not set; True/False = explicit override
+            isolated,
+        )
+        # Role-derived profile overrides agent_id auto-detection but NOT an explicit profile=
+        if not explicit_profile and role_profile is not None:
+            profile = role_profile
+            logger.info(f"Set profile '{profile}' from role='{role}'")
+        use_subprocess = use_sub
+        isolated = use_iso
+        logger.info(
+            f"Role '{role}' resolved: profile={profile}, use_subprocess={use_subprocess}, isolated={isolated}"
+        )
+
+    # Normalize to bool after role resolution (None = "not set" → False default)
+    use_subprocess = bool(use_subprocess)
+    isolated = bool(isolated)
 
     # Determine model: explicit parameter > parent's model
     model_name: str | None

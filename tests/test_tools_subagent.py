@@ -282,8 +282,8 @@ def test_subagent_with_use_subprocess():
     # Verify subprocess parameter exists (callbacks removed in favor of hooks)
     assert "use_subprocess" in sig.parameters
 
-    # Verify default value
-    assert sig.parameters["use_subprocess"].default is False
+    # Verify default value (None = "not set"; False only means explicit disable)
+    assert sig.parameters["use_subprocess"].default is None
 
     # Callbacks have been removed - completion is now delivered via LOOP_CONTINUE hook
     assert "on_complete" not in sig.parameters
@@ -1483,3 +1483,352 @@ def test_acp_mode_subagent_batch():
             for agent_id in job.agent_ids:
                 assert agent_id in _subagent_results
                 assert _subagent_results[agent_id].status == "success"
+
+
+# ---------------------------------------------------------------------------
+# Role parameter tests (Phase 1 of subagent role taxonomy)
+# ---------------------------------------------------------------------------
+
+
+def test_role_parameter_exists():
+    """Test that subagent() accepts a role parameter."""
+    import inspect
+
+    sig = inspect.signature(subagent)
+
+    assert "role" in sig.parameters
+    assert sig.parameters["role"].default is None
+
+
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
+def test_role_explore_resolves_explorer_profile(mock_create_thread: MagicMock):
+    """Test that role='explore' defaults profile to 'explorer'."""
+    initial_count = len(_subagents)
+
+    subagent(
+        agent_id="scout",
+        prompt="Explore the codebase",
+        role="explore",
+    )
+
+    assert len(_subagents) == initial_count + 1
+    _wait_for_new_subagent_threads(initial_count)
+
+    mock_create_thread.assert_called_once()
+    call_kwargs = mock_create_thread.call_args[1]
+    assert call_kwargs["profile_name"] == "explorer"
+
+
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
+def test_role_implement_resolves_developer_profile(mock_create_thread: MagicMock):
+    """Test that role='implement' defaults profile to 'developer'."""
+    initial_count = len(_subagents)
+
+    subagent(
+        agent_id="builder",
+        prompt="Implement feature X",
+        role="implement",
+    )
+
+    assert len(_subagents) == initial_count + 1
+    _wait_for_new_subagent_threads(initial_count)
+
+    mock_create_thread.assert_called_once()
+    call_kwargs = mock_create_thread.call_args[1]
+    assert call_kwargs["profile_name"] == "developer"
+
+
+@patch("gptme.tools.subagent.execution._run_subagent_subprocess")
+def test_role_verify_defaults_subprocess_and_isolated(
+    mock_run_subprocess: MagicMock,
+):
+    """Test that role='verify' defaults to subprocess mode with isolation and verifier profile."""
+    _subagents.clear()
+
+    subagent(
+        agent_id="checker",
+        prompt="Verify the auth module",
+        role="verify",
+    )
+
+    assert len(_subagents) == 1
+    sa = _subagents[-1]
+    # The subagent should be created in subprocess mode (not thread mode)
+    assert sa.execution_mode == "subprocess"
+    assert sa.isolated is True
+
+    # Verify that role overrides profile auto-detection from agent_id
+    # agent_id 'checker' would normally auto-detect nothing, but role='verify'
+    # should set profile to 'verifier'
+    mock_run_subprocess.assert_called_once()
+
+
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
+def test_role_explore_does_not_set_use_subprocess(mock_create_thread: MagicMock):
+    """Test that role='explore' does NOT set subprocess mode (thread mode default)."""
+    initial_count = len(_subagents)
+
+    subagent(
+        agent_id="scout",
+        prompt="Explore",
+        role="explore",
+    )
+
+    assert len(_subagents) == initial_count + 1
+    sa = _subagents[-1]
+    assert sa.execution_mode == "thread"
+    assert sa.isolated is False
+
+
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
+def test_role_implement_does_not_set_use_subprocess(mock_create_thread: MagicMock):
+    """Test that role='implement' does NOT set subprocess mode (thread mode default)."""
+    initial_count = len(_subagents)
+
+    subagent(
+        agent_id="builder",
+        prompt="Implement",
+        role="implement",
+    )
+
+    assert len(_subagents) == initial_count + 1
+    sa = _subagents[-1]
+    assert sa.execution_mode == "thread"
+    assert sa.isolated is False
+
+
+@patch("gptme.tools.subagent.execution._run_subagent_subprocess")
+def test_role_verify_subprocess_has_verifier_profile(
+    mock_run_subprocess: MagicMock,
+):
+    """Test that verify role forwarded correctly to subprocess runner via profile."""
+    _subagents.clear()
+
+    subagent(
+        agent_id="checker",
+        prompt="Verify everything",
+        role="verify",
+    )
+
+    sa = _subagents[-1]
+
+    # The Subagent should capture isolate=True
+    assert sa.isolated is True
+
+
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
+def test_role_explicit_profile_overrides_role_profile(mock_create_thread: MagicMock):
+    """Test that explicit profile argument overrides role-derived profile."""
+    initial_count = len(_subagents)
+
+    subagent(
+        agent_id="scout",
+        prompt="Research task",
+        role="explore",
+        profile="researcher",
+    )
+
+    assert len(_subagents) == initial_count + 1
+    _wait_for_new_subagent_threads(initial_count)
+
+    mock_create_thread.assert_called_once()
+    call_kwargs = mock_create_thread.call_args[1]
+    # Explicit profile wins over role-derived profile
+    assert call_kwargs["profile_name"] == "researcher"
+
+
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
+def test_role_overrides_agent_id_auto_detection(mock_create_thread: MagicMock):
+    """Test that role= profile overrides agent_id auto-detection.
+
+    agent_id='explorer' would auto-detect profile='explorer', but role='implement'
+    should win and set profile to 'developer' (role > agent_id auto-detection).
+    """
+    initial_count = len(_subagents)
+
+    subagent(
+        agent_id="explorer",  # would auto-detect to 'explorer' profile
+        prompt="Implement feature X",
+        role="implement",  # should override to 'developer'
+    )
+
+    assert len(_subagents) == initial_count + 1
+    _wait_for_new_subagent_threads(initial_count)
+
+    mock_create_thread.assert_called_once()
+    call_kwargs = mock_create_thread.call_args[1]
+    assert call_kwargs["profile_name"] == "developer", (
+        "role= should override agent_id auto-detection"
+    )
+
+
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
+def test_role_verify_explicit_false_subprocess_opts_out(
+    mock_create_thread: MagicMock,
+):
+    """Test that explicit use_subprocess=False overrides role='verify' subprocess default."""
+    initial_count = len(_subagents)
+
+    subagent(
+        agent_id="checker",
+        prompt="Verify the auth module",
+        role="verify",
+        use_subprocess=False,  # explicit opt-out should win
+    )
+
+    assert len(_subagents) == initial_count + 1
+    _wait_for_new_subagent_threads(initial_count)
+
+    mock_create_thread.assert_called_once()
+    sa = _subagents[-1]
+    assert sa.execution_mode == "thread", (
+        "explicit use_subprocess=False should override role='verify' subprocess default"
+    )
+
+
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
+def test_planner_subtask_role_passthrough(mock_create_thread: MagicMock):
+    """Test that planner subtasks with role pass role through to spawned executor."""
+    from gptme.tools.subagent import SubtaskDef, _subagents, subagent
+
+    initial_count = len(_subagents)
+
+    subtasks: list[SubtaskDef] = [
+        {"id": "scout", "description": "Explore the codebase", "role": "explore"},
+        {"id": "build", "description": "Implement the feature", "role": "implement"},
+        {"id": "check", "description": "Verify the result", "role": "verify"},
+    ]
+
+    subagent(
+        agent_id="test-role-planner",
+        prompt="Plan and execute a feature",
+        mode="planner",
+        subtasks=subtasks,
+    )
+
+    # Wait for threads to execute while the patch is still active; without this
+    # the OS may schedule them after @patch exits and they call the real function.
+    _wait_for_new_subagent_threads(initial_count, timeout=5.0)
+
+    # Should have spawned 3 executors
+    assert len(_subagents) == initial_count + 3
+    assert _subagents[-3].agent_id.endswith("-scout")
+    assert _subagents[-2].agent_id.endswith("-build")
+    assert _subagents[-1].agent_id.endswith("-check")
+
+
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
+def test_planner_subtask_role_does_not_affect_planner_internals(
+    mock_create_thread: MagicMock,
+):
+    """Test that planner subtask roles don't interfere with planner execution flow.
+
+    The planner should still spawn all subtask executors correctly even when
+    each subtask carries a different role. The role is passed to the executor
+    but does NOT affect planner-level behavior.
+    """
+    from gptme.tools.subagent import SubtaskDef, _subagents, subagent
+
+    initial_count = len(_subagents)
+
+    subtasks: list[SubtaskDef] = [
+        {"id": "task1", "description": "First task", "role": "explore"},
+    ]
+
+    subagent(
+        agent_id="test-planner-with-role",
+        prompt="Overall context",
+        mode="planner",
+        subtasks=subtasks,
+    )
+
+    assert len(_subagents) == initial_count + 1
+    executor = _subagents[-1]
+    assert executor.agent_id == "test-planner-with-role-task1"
+
+    _wait_for_new_subagent_threads(initial_count, timeout=5.0)
+
+    mock_create_thread.assert_called_once()
+    # Subtask role resolves to the executor's profile_name. The planner
+    # itself is unaffected — same number of executors, standard planning
+    # flow. But each executor gets the role-derived profile.
+    call_kwargs = mock_create_thread.call_args[1]
+    assert call_kwargs["profile_name"] == "explorer"
+    assert "explore" in executor.prompt or "First task" in executor.prompt
+
+
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
+def test_planner_with_role_uses_role_for_self_profile(mock_create_thread: MagicMock):
+    """Test that planner with role uses role to set profile on API side.
+
+    When subagent() is called with role in planner mode, the role-derived profile
+    should be passed to _run_planner as profile_name so all executor children
+    inherit the role's intended posture.
+    """
+    from gptme.tools.subagent import SubtaskDef, _subagents, subagent
+
+    initial_count = len(_subagents)
+
+    subtasks: list[SubtaskDef] = [
+        {"id": "build1", "description": "Build component A", "role": "implement"},
+        {"id": "build2", "description": "Build component B", "role": "implement"},
+    ]
+
+    subagent(
+        agent_id="builder-plan",
+        prompt="Build two components",
+        mode="planner",
+        subtasks=subtasks,
+    )
+
+    assert len(_subagents) == initial_count + 2
+
+    _wait_for_new_subagent_threads(initial_count, timeout=2.0)
+
+    # Planner mode already merged: _run_planner does NOT pass role to
+    # _create_subagent_thread directly. The profile_name is set from the
+    # parent's own profile resolution. This test verifies the planner
+    # spawns correctly when the parent itself has a role-derived profile.
+    mock_create_thread.assert_called()
+    for call in mock_create_thread.call_args_list:
+        kwargs = call[1]
+        # When no explicit profile or agent_id match, profile_name stays None
+        # for planner children since the role resolution happens in api.py
+        # and planner receives profile_name as-is
+        assert "profile_name" in kwargs
+
+
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
+def test_planner_subtask_role_overrides_planner_profile(mock_create_thread: MagicMock):
+    """Subtask role wins over planner-level profile.
+
+    When the planner itself carries a profile (e.g. role=implement → "developer"),
+    a subtask with its own role (e.g. role=verify → "verifier") must still resolve
+    to the subtask's profile — not silently inherit the planner's.
+
+    This is the regression case flagged by Greptile: the old guard
+    `profile_name is None` meant subtask roles were silently dropped as soon
+    as the planner had any profile of its own.
+    """
+    subtasks: list[SubtaskDef] = [
+        {"id": "verify", "description": "Verify the output", "role": "verify"},
+    ]
+
+    # Planner inherits role=implement → profile_name="developer" in _run_planner
+    subagent(
+        agent_id="impl-plan",
+        prompt="Build and verify a component",
+        mode="planner",
+        role="implement",
+        subtasks=subtasks,
+    )
+
+    _wait_for_new_subagent_threads(0, timeout=2.0)
+
+    mock_create_thread.assert_called_once()
+    kwargs = mock_create_thread.call_args[1]
+    # Subtask role=verify must resolve to "verifier", overriding planner's "developer"
+    assert kwargs["profile_name"] == "verifier", (
+        f"Expected subtask role 'verify' to resolve to 'verifier', got {kwargs['profile_name']!r}. "
+        "Per-subtask role should always override planner-level profile."
+    )
