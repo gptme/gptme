@@ -1706,6 +1706,10 @@ def test_planner_subtask_role_passthrough(mock_create_thread: MagicMock):
         subtasks=subtasks,
     )
 
+    # Wait for threads to execute while the patch is still active; without this
+    # the OS may schedule them after @patch exits and they call the real function.
+    _wait_for_new_subagent_threads(initial_count, timeout=5.0)
+
     # Should have spawned 3 executors
     assert len(_subagents) == initial_count + 3
     assert _subagents[-3].agent_id.endswith("-scout")
@@ -1742,7 +1746,7 @@ def test_planner_subtask_role_does_not_affect_planner_internals(
     executor = _subagents[-1]
     assert executor.agent_id == "test-planner-with-role-task1"
 
-    _wait_for_new_subagent_threads(initial_count)
+    _wait_for_new_subagent_threads(initial_count, timeout=5.0)
 
     mock_create_thread.assert_called_once()
     # Subtask role resolves to the executor's profile_name. The planner
