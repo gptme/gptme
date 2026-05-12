@@ -61,10 +61,10 @@ def subagent(
     the profile is applied automatically — no need to pass ``profile`` separately.
 
     Role-based defaults (``role`` parameter):
+
     - ``"explore"``: Defaults profile to ``explorer`` (read-only analysis)
     - ``"implement"``: Defaults profile to ``developer`` (full capability)
-    - ``"verify"``: Defaults profile to ``verifier`` plus ``use_subprocess=True``
-      and ``isolated=True`` (read-only validation in isolation)
+    - ``"verify"``: Defaults profile to ``verifier`` plus ``use_subprocess=True`` and ``isolated=True`` (read-only validation in isolation)
 
     Explicit arguments override role defaults.
 
