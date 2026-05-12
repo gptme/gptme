@@ -207,6 +207,22 @@ BUILTIN_PROFILES: dict[str, Profile] = {
         tools=["browser", "screenshot", "vision", "ipython", "shell"],
         behavior=ProfileBehavior(),
     ),
+    "verifier": Profile(
+        name="verifier",
+        description="Review and verify mode — read-only analysis with reporting output",
+        system_prompt=(
+            "You are in VERIFIER mode. Your purpose is to review, verify, and "
+            "validate work done by other agents. You should:\n"
+            "- Review code, test output, and design decisions for correctness\n"
+            "- Check for edge cases, security issues, and regressions\n"
+            "- Provide structured verification reports\n"
+            "- NOT modify any files or make changes\n"
+            "- NOT access the network or external resources\n"
+            "- Use `complete` tool to return your verification report\n"
+        ),
+        tools=["read", "ipython", "shell", "chats"],
+        behavior=ProfileBehavior(read_only=True, no_network=True),
+    ),
 }
 
 

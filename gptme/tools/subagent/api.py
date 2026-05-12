@@ -53,8 +53,8 @@ def subagent(
     continue working and get notified when subagents finish.
 
     Profile auto-detection: If ``agent_id`` matches a known profile name
-    (e.g. "explorer", "researcher", "developer") or a common role alias
-    ("explore"→"explorer", "research"→"researcher", "impl"/"dev"→"developer"),
+    (e.g. "explorer", "researcher", "developer", "verifier") or a common role alias
+    ("explore"→"explorer", "research"→"researcher", "impl"/"dev"→"developer", "verify"→"verifier"),
     the profile is applied automatically — no need to pass ``profile`` separately.
 
     Args:
@@ -88,7 +88,7 @@ def subagent(
             - Tool access restrictions (which tools the subagent can use)
             - Behavior rules (read-only, no-network, etc.)
             Use 'gptme-util profile list' to see available profiles.
-            Built-in profiles: default, explorer, researcher, developer, isolated, computer-use, browser-use.
+            Built-in profiles: default, explorer, researcher, developer, verifier, isolated, computer-use, browser-use.
             If not set, auto-detected from agent_id when it matches a profile name.
         model: Model to use for the subagent. Overrides parent's model.
             Useful for routing cheap tasks to faster/cheaper models.
@@ -127,6 +127,8 @@ def subagent(
                 "research": "researcher",
                 "impl": "developer",
                 "dev": "developer",
+                "verify": "verifier",
+                "check": "verifier",
             }
             aliased_profile = profile_aliases.get(agent_id)
             if aliased_profile and _get_profile(aliased_profile) is not None:

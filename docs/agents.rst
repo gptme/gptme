@@ -356,3 +356,10 @@ For more details, see the following resources:
 
 - `gptme-agent-template <https://github.com/gptme/gptme-agent-template/>`_ - Template for creating new agents
 - `gptme-contrib <https://github.com/gptme/gptme-contrib>`_ - Community-contributed tools and scripts for agents
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Agent Profiles
+   :hidden:
+
+   agent/verifier-profile
