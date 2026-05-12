@@ -509,20 +509,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking import time for gptme
 time poetry run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep &quot;import time&quot; | cut -d&#39;|&#39; -f 2- | sort -n | tail -n 10
-     185160 |   gptme.tools._browser_playwright
-     216554 |         gptme.config
-     224685 |       gptme.llm
-     250931 |         mcp.client.session
-     292126 |     gptme.commands
-     329609 |   gptme.chat
-     386987 |       mcp
-     387020 |     mcp.types
-     404325 |   gptme.tools.mcp_adapter
-    1483986 | gptme.cli.main
+     172961 |   gptme.tools._browser_playwright
+     196939 |         gptme.config
+     204254 |       gptme.llm
+     245824 |         mcp.client.session
+     268379 |     gptme.commands
+     302448 |   gptme.chat
+     375356 |       mcp
+     375403 |     mcp.types
+     391505 |   gptme.tools.mcp_adapter
+    1359168 | gptme.cli.main
 
-real	0m2.686s
-user	0m2.237s
-sys	0m0.627s
+real	0m2.592s
+user	0m2.029s
+sys	0m0.591s
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -531,10 +531,8 @@ make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking startup time for gptme
 hyperfine &quot;poetry run gptme &#39;/exit&#39;&quot; -M 5 || poetry run gptme &#39;/exit&#39; || exit 1
 Benchmark 1: poetry run gptme &#39;/exit&#39;
-  Time (mean ± σ):      2.807 s ±  0.249 s    [User: 2.411 s, System: 0.661 s]
-  Range (min … max):    2.640 s …  3.248 s    5 runs
- 
-  Warning: The first benchmarking run for this command was significantly slower than the rest (3.248 s). This could be caused by (filesystem) caches that were not filled until after the first run. You should consider using the &#39;--warmup&#39; option to fill those caches before the actual benchmark. Alternatively, use the &#39;--prepare&#39; option to clear the caches before each timing run.
+  Time (mean ± σ):      2.616 s ±  0.213 s    [User: 2.298 s, System: 0.560 s]
+  Range (min … max):    2.462 s …  2.986 s    5 runs
  
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -1038,7 +1036,7 @@ cloc gptme/eval/**.py --by-file --hide-rate --quiet | tail -n +2
 ------------------------------------------------------------------------------------------
 File                                        blank        comment           code
 ------------------------------------------------------------------------------------------
-gptme/eval/main.py                            103            109            856
+gptme/eval/main.py                            104            110            864
 gptme/eval/leaderboard.py                     149            485            804
 gptme/eval/execenv.py                          85            146            514
 gptme/eval/run.py                              63             88            492
@@ -1050,7 +1048,7 @@ gptme/eval/cost.py                             12             24              6
 gptme/eval/__init__.py                          2              2              4
 gptme/eval/__main__.py                          1              0              3
 ------------------------------------------------------------------------------------------
-SUM:                                          529            960           3193
+SUM:                                          530            961           3201
 ------------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -1080,7 +1078,7 @@ gptme/acp/agent.py                                                            18
 gptme/hooks/workspace_agents.py                                               187            125            887
 tests/test_eval_leaderboard.py                                                126            104            883
 tests/test_info.py                                                            167             73            878
-gptme/eval/main.py                                                            103            109            856
+gptme/eval/main.py                                                            104            110            864
 gptme/llm/llm_anthropic.py                                                    199            256            835
 gptme/eval/leaderboard.py                                                     149            485            804
 tests/test_util_gh_mocked.py                                                  149            119            777
@@ -1673,7 +1671,7 @@ gptme/server/__main__.py                                                        
 gptme/tools/_browser_format.py                                                  3              5              3
 gptme/oauth/__init__.py                                                         1              4              0
 ---------------------------------------------------------------------------------------------------------------
-SUM:                                                                        38990          38052         134275
+SUM:                                                                        38991          38053         134283
 ---------------------------------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -1689,7 +1687,7 @@ make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Project Overview:
   Files: 611
   Total blocks: 10963
-  Average complexity: 3.606220924929308
+  Average complexity: 3.606494572653471
 
 Most Complex Functions (D+):
   gptme/server/openapi_docs.py
@@ -1869,7 +1867,7 @@ Largest Files (&gt;300 SLOC):
    888 gptme/hooks/workspace_agents.py
    878 tests/test_info.py
    869 tests/test_codeblock.py
-   858 gptme/eval/main.py
+   866 gptme/eval/main.py
    837 gptme/llm/llm_anthropic.py
    784 tests/test_util_gh_mocked.py
    724 gptme/cli/main.py
@@ -2318,7 +2316,7 @@ Clone found (python):
 │ Total:     │ 381            │ 100658      │ 621793       │ 76           │ 892 (0.89%)      │ 7751 (1.25%)      │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
 Found 76 clones.
-time: 4.799s
+time: 4.893s
 
 💡 Auto-refactor with AI: npx skills add kucherenko/jscpd
 🎩 New: Gangsta Agents — discipline your AI coding → gangsta.page
