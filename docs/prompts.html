@@ -698,7 +698,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f1a904ee5c0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f98c67da5c0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1827,7 +1827,7 @@ CONTEXT: This is for the gptme server API, see existing endpoints in server.py
 The following Python functions are available using the <span class="sb">`ipython`</span> tool:
 
 <span class="sb">```txt</span>
-<span class="s">subagent(agent_id: str, prompt: str, mode: Literal[&quot;executor&quot;, &quot;planner&quot;], subtasks: Union[list[SubtaskDef], None], execution_mode: Literal[&quot;parallel&quot;, &quot;sequential&quot;], context_mode: Literal[&quot;full&quot;, &quot;selective&quot;], context_include: Union[list[str], None], output_schema: Union[type, None], use_subprocess: bool, use_acp: bool, acp_command: str, profile: Union[str, None], model: Union[str, None], isolated: bool, timeout: int): Starts an asynchronous subagent. Returns None immediately.</span>
+<span class="s">subagent(agent_id: str, prompt: str, mode: Literal[&quot;executor&quot;, &quot;planner&quot;], subtasks: Union[list[SubtaskDef], None], execution_mode: Literal[&quot;parallel&quot;, &quot;sequential&quot;], context_mode: Literal[&quot;full&quot;, &quot;selective&quot;], context_include: Union[list[str], None], output_schema: Union[type, None], use_subprocess: Union[bool, None], use_acp: bool, acp_command: str, profile: Union[str, None], model: Union[str, None], isolated: Union[bool, None], timeout: int, role: Union[Literal[&quot;general&quot;, &quot;explore&quot;, &quot;implement&quot;, &quot;verify&quot;], None]): Starts an asynchronous subagent. Returns None immediately.</span>
 
 <span class="s">    Subagent completions are delivered via the LOOP_CONTINUE hook, enabling</span>
 <span class="s">    a &quot;fire-and-forget-then-get-alerted&quot; pattern where the orchestrator can</span>
@@ -1837,6 +1837,14 @@ The following Python functions are available using the <span class="sb">`ipython
 <span class="s">    (e.g. &quot;explorer&quot;, &quot;researcher&quot;, &quot;developer&quot;, &quot;verifier&quot;) or a common role alias</span>
 <span class="s">    (&quot;explore&quot;→&quot;explorer&quot;, &quot;research&quot;→&quot;researcher&quot;, &quot;impl&quot;/&quot;dev&quot;→&quot;developer&quot;, &quot;verify&quot;→&quot;verifier&quot;),</span>
 <span class="s">    the profile is applied automatically — no need to pass ``profile`` separately.</span>
+
+<span class="s">    Role-based defaults (``role`` parameter):</span>
+
+<span class="s">    - ``&quot;explore&quot;``: Defaults profile to ``explorer`` (read-only analysis)</span>
+<span class="s">    - ``&quot;implement&quot;``: Defaults profile to ``developer`` (full capability)</span>
+<span class="s">    - ``&quot;verify&quot;``: Defaults profile to ``verifier`` plus ``use_subprocess=True`` and ``isolated=True`` (read-only validation in isolation)</span>
+
+<span class="s">    Explicit arguments override role defaults.</span>
 
 <span class="s">    Args:</span>
 <span class="s">        agent_id: Unique identifier for the subagent. If it matches a known</span>
@@ -2256,7 +2264,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 12539</p>
+<p>Tokens: 12658</p>
 </dd></dl>
 
 <dl class="py function">

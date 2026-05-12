@@ -519,10 +519,17 @@ bundles. The <code class="docutils literal notranslate"><span class="pre">verifi
 <span class="c1"># Auto-detected from alias</span>
 <span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;verify&quot;</span><span class="p">,</span> <span class="s2">&quot;Review the PR diff for correctness issues&quot;</span><span class="p">)</span>
 
+<span class="c1"># Via explicit role parameter (recommended for typed delegation)</span>
+<span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;my-reviewer&quot;</span><span class="p">,</span> <span class="s2">&quot;Review this code&quot;</span><span class="p">,</span> <span class="n">role</span><span class="o">=</span><span class="s2">&quot;verify&quot;</span><span class="p">)</span>
+
 <span class="c1"># Explicit profile parameter overrides auto-detection</span>
 <span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;my-reviewer&quot;</span><span class="p">,</span> <span class="s2">&quot;Review this code&quot;</span><span class="p">,</span> <span class="n">profile</span><span class="o">=</span><span class="s2">&quot;verifier&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
+<p>The <code class="docutils literal notranslate"><span class="pre">role=&quot;verify&quot;</span></code> parameter additionally sets <code class="docutils literal notranslate"><span class="pre">use_subprocess=True</span></code> and
+<code class="docutils literal notranslate"><span class="pre">isolated=True</span></code> by default — the verifier runs in a subprocess with a
+throwaway worktree so it cannot accidentally modify the parent workspace.
+Explicit <code class="docutils literal notranslate"><span class="pre">use_subprocess</span></code> and <code class="docutils literal notranslate"><span class="pre">isolated</span></code> arguments override these defaults.</p>
 </section>
 <section id="implementation">
 <h2>Implementation<a class="headerlink" href="#implementation" title="Link to this heading">#</a></h2>
@@ -538,11 +545,12 @@ bundles. The <code class="docutils literal notranslate"><span class="pre">verifi
 <p>Role resolution follows deterministic priority:</p>
 <ol class="arabic simple">
 <li><p>Explicit <code class="docutils literal notranslate"><span class="pre">profile=</span></code> parameter (highest priority)</p></li>
-<li><p>Profile auto-detection from <code class="docutils literal notranslate"><span class="pre">agent_id</span></code> matching a profile name</p></li>
-<li><p>Profile alias resolution (e.g., <code class="docutils literal notranslate"><span class="pre">&quot;verify&quot;</span></code> → <code class="docutils literal notranslate"><span class="pre">&quot;verifier&quot;</span></code>)</p></li>
-<li><p>Profile auto-detection from <code class="docutils literal notranslate"><span class="pre">agent_id</span></code> matching a role alias</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">role=</span></code> parameter profile (e.g., <code class="docutils literal notranslate"><span class="pre">role=&quot;verify&quot;</span></code> → <code class="docutils literal notranslate"><span class="pre">&quot;verifier&quot;</span></code>, overrides <code class="docutils literal notranslate"><span class="pre">agent_id</span></code> auto-detection)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">agent_id</span></code> auto-detection (profile name match or alias, e.g., <code class="docutils literal notranslate"><span class="pre">&quot;verify&quot;</span></code> → <code class="docutils literal notranslate"><span class="pre">&quot;verifier&quot;</span></code>)</p></li>
 <li><p>Existing base defaults (no profile applied)</p></li>
 </ol>
+<p>Note: <code class="docutils literal notranslate"><span class="pre">role=</span></code> overrides <code class="docutils literal notranslate"><span class="pre">agent_id</span></code> auto-detection so typed delegation is unambiguous.
+An explicit <code class="docutils literal notranslate"><span class="pre">profile=</span></code> still wins over everything, including <code class="docutils literal notranslate"><span class="pre">role=</span></code>.</p>
 </section>
 <section id="differences-from-related-profiles">
 <h2>Differences from Related Profiles<a class="headerlink" href="#differences-from-related-profiles" title="Link to this heading">#</a></h2>
