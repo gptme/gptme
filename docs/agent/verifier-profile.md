@@ -27,9 +27,17 @@ subagent("verifier", "Check that the refactored module passes all existing tests
 # Auto-detected from alias
 subagent("verify", "Review the PR diff for correctness issues")
 
+# Via explicit role parameter (recommended for typed delegation)
+subagent("my-reviewer", "Review this code", role="verify")
+
 # Explicit profile parameter overrides auto-detection
 subagent("my-reviewer", "Review this code", profile="verifier")
 ```
+
+The `role="verify"` parameter additionally sets `use_subprocess=True` and
+`isolated=True` by default — the verifier runs in a subprocess with a
+throwaway worktree so it cannot accidentally modify the parent workspace.
+Explicit `use_subprocess` and `isolated` arguments override these defaults.
 
 ## Implementation
 
