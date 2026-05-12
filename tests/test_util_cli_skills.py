@@ -94,7 +94,7 @@ def test_skills_list_no_skills_shows_next_steps(tmp_path, mocker):
     assert result.exit_code == 0
     assert "No skills found." in result.output
     assert "gptme-util skills dirs" in result.output
-    assert "gptme-util skills init" in result.output
+    assert "gptme-util skills init <path>" in result.output
     assert "gptme-util skills install <name>" in result.output
     assert "1 lessons available" in result.output
 
