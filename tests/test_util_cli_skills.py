@@ -80,6 +80,25 @@ def test_skills_list_with_skills(tmp_path, mocker):
     assert "1 lessons available" in result.output
 
 
+def test_skills_list_no_skills_shows_next_steps(tmp_path, mocker):
+    """Test skills list shows actionable hints when only lessons are available."""
+    _create_lesson(tmp_path, "test-lesson")
+
+    mocker.patch(
+        "gptme.lessons.index.LessonIndex._default_dirs",
+        return_value=[tmp_path / "lessons"],
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["skills", "list"])
+    assert result.exit_code == 0
+    assert "No skills found." in result.output
+    assert "gptme-util skills dirs" in result.output
+    assert "gptme-util skills init" in result.output
+    assert "gptme-util skills install <name>" in result.output
+    assert "1 lessons available" in result.output
+
+
 def test_skills_list_all(tmp_path, mocker):
     """Test skills list --all showing skills and lessons."""
     _create_skill(tmp_path, "my-skill", "My skill description")

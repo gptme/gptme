@@ -160,6 +160,22 @@ Skills are loaded from the following directories (if they exist):
 The ``~/.agents/`` and ``~/.claude/`` paths provide cross-platform compatibility,
 enabling skills to be shared between gptme and other AI tools.
 
+Discovering Skills
+------------------
+
+Use the utility CLI to see what the current workspace already knows about:
+
+.. code-block:: bash
+
+    gptme-util skills list
+    gptme-util skills list --all
+    gptme-util skills show python-repl
+    gptme-util skills dirs
+
+``skills list`` shows skill names and descriptions. ``--all`` includes regular
+lessons in the same discovery pass, and ``skills dirs`` shows exactly which
+directories are being scanned.
+
 Creating Skills
 ---------------
 

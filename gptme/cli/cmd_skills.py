@@ -67,6 +67,11 @@ def skills_list(show_all: bool, json_output: bool):
             click.echo(f"  {name or '':30s} {desc}")
     else:
         click.echo("No skills found.")
+        click.echo(
+            "Use 'gptme-util skills dirs' to inspect search paths, "
+            "'gptme-util skills init' to create one, or "
+            "'gptme-util skills install <name>' to add one."
+        )
 
     if not show_all:
         if lessons_items:
