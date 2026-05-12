@@ -180,6 +180,9 @@ def init_hooks(
         "agents_md_inject": lambda: __import__(
             "gptme.hooks.agents_md_inject", fromlist=["register"]
         ).register(),
+        "tool_target_instructions": lambda: __import__(
+            "gptme.hooks.tool_target_instructions", fromlist=["register"]
+        ).register(),
         "mcp_namespace_hint": lambda: __import__(
             "gptme.hooks.mcp_namespace_hint", fromlist=["register"]
         ).register(),
