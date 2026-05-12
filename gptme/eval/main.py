@@ -1008,6 +1008,7 @@ def write_results(
             "Tool Format",
             "Test",
             "Passed",
+            "Score",
             "Total Duration",
             "Generation Time",
             "Run Time",
@@ -1027,6 +1028,14 @@ def write_results(
                     else False
                 )
 
+                # Partial-credit score: how many individual checkers passed
+                if result.results:
+                    passed_count = sum(1 for c in result.results if c.passed)
+                    total_count = len(result.results)
+                    score = f"{passed_count}/{total_count}"
+                else:
+                    score = ""
+
                 # Use model/tool_format/test_name directory layout
                 test_dir = results_dir / config.model / config.tool_format / result.name
                 test_dir.mkdir(parents=True, exist_ok=True)
@@ -1042,6 +1051,7 @@ def write_results(
                     "Tool Format": config.tool_format,
                     "Test": result.name,
                     "Passed": "true" if passed else "false",
+                    "Score": score,
                     "Total Duration": round(sum(result.timings.values()), 2),
                     "Generation Time": round(result.timings["gen"], 2),
                     "Run Time": round(result.timings["run"], 2),
