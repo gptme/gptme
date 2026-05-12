@@ -922,6 +922,60 @@ class TestOpenAIRetryLogic:
             # On last attempt, should not sleep (no retry)
             mock_sleep.assert_not_called()
 
+    def test_handle_openai_transient_error_openrouter_402_diagnostic(self, caplog):
+        """Test that OpenRouter 402 'insufficient credits' errors surface an
+        actionable diagnostic before re-raising.
+
+        OpenRouter reserves max_tokens + reasoning_budget worth of credits when
+        max_tokens is omitted, so a partially-spent key can return 402 with an
+        "affordable: X, requested: Y" body. Without a hint, the eval pipeline
+        catches the APIStatusError silently and writes empty conversation.jsonl.
+        See: https://github.com/gptme/gptme/issues/2383
+        """
+        import logging
+        from unittest.mock import MagicMock
+
+        import pytest
+        from openai import APIStatusError
+
+        from gptme.llm.llm_openai import _handle_openai_transient_error
+
+        mock_response = MagicMock()
+        mock_response.status_code = 402
+        error = APIStatusError(
+            "Payment required",
+            response=mock_response,
+            body={
+                "error": {
+                    "message": (
+                        "This request requires more credits, or fewer "
+                        "max_tokens. You requested up to 65536 tokens, but "
+                        "can only afford 14993."
+                    ),
+                    "code": 402,
+                }
+            },
+        )
+
+        # 402 is non-transient → must raise immediately even on attempt 0
+        with (
+            caplog.at_level(logging.WARNING, logger="gptme.llm.llm_openai"),
+            pytest.raises(APIStatusError),
+        ):
+            _handle_openai_transient_error(
+                error, attempt=0, max_retries=3, base_delay=0.1
+            )
+
+        # The diagnostic must mention max_tokens so users can act on it.
+        warning_messages = [
+            r.message for r in caplog.records if r.levelno >= logging.WARNING
+        ]
+        assert any(
+            "max_tokens" in msg.lower() and "402" in msg for msg in warning_messages
+        ), (
+            f"Expected an actionable 402 diagnostic mentioning max_tokens, got: {warning_messages}"
+        )
+
     def test_retry_decorator_retries_on_transient_error(self, monkeypatch):
         """Test that the retry decorator properly retries on transient errors."""
         from unittest.mock import MagicMock, patch
