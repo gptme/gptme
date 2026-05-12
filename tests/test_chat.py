@@ -590,6 +590,99 @@ def test_chained_prompts_complete_exits_when_last():
         )
 
 
+def test_external_queued_prompts_are_drained_between_turns(tmp_path):
+    """Queued prompts on disk should be picked up by the next loop iteration."""
+    import sys
+
+    from gptme.chat import _run_chat_loop
+    from gptme.prompt_queue import get_prompt_queue_path, queue_prompt
+
+    _chat_mod = sys.modules["gptme.chat"]
+
+    logdir = tmp_path / "chat"
+    logdir.mkdir()
+    queue_prompt(logdir, "queued prompt")
+
+    manager = MagicMock()
+    manager.log = MagicMock()
+    manager.workspace = tmp_path
+    manager.logdir = logdir
+
+    processed: list[str] = []
+
+    def mock_append(msg):
+        processed.append(msg.content)
+
+    manager.append.side_effect = mock_append
+
+    with (
+        patch.object(_chat_mod, "_process_message_conversation", return_value=None),
+        patch.object(_chat_mod, "trigger_hook", return_value=[]),
+        patch.object(_chat_mod, "include_paths", side_effect=lambda msg, ws: msg),
+        patch.object(_chat_mod, "execute_cmd", return_value=False),
+    ):
+        _run_chat_loop(
+            manager=manager,
+            prompt_queue=[],
+            stream=False,
+            tool_format="markdown",
+            model=None,
+            interactive=False,
+        )
+
+    assert processed == ["queued prompt"]
+    assert not get_prompt_queue_path(logdir).exists()
+
+
+def test_complete_checks_external_queue_before_exiting(tmp_path):
+    """External queued prompts should keep the loop alive after complete."""
+    import sys
+
+    from gptme.chat import _run_chat_loop
+    from gptme.message import Message
+    from gptme.prompt_queue import get_prompt_queue_path, queue_prompt
+    from gptme.tools.complete import SessionCompleteException
+
+    _chat_mod = sys.modules["gptme.chat"]
+
+    logdir = tmp_path / "chat"
+    logdir.mkdir()
+    queue_prompt(logdir, "queued follow-up")
+
+    manager = MagicMock()
+    manager.log = MagicMock()
+    manager.workspace = tmp_path
+    manager.logdir = logdir
+
+    call_count = 0
+
+    def mock_process(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise SessionCompleteException("first prompt done")
+
+    with (
+        patch.object(
+            _chat_mod, "_process_message_conversation", side_effect=mock_process
+        ),
+        patch.object(_chat_mod, "trigger_hook", return_value=[]),
+        patch.object(_chat_mod, "include_paths", side_effect=lambda msg, ws: msg),
+        patch.object(_chat_mod, "execute_cmd", return_value=False),
+    ):
+        _run_chat_loop(
+            manager=manager,
+            prompt_queue=[Message("user", "first prompt")],
+            stream=False,
+            tool_format="markdown",
+            model=None,
+            interactive=False,
+        )
+
+    assert call_count == 2
+    assert not get_prompt_queue_path(logdir).exists()
+
+
 def test_complete_hook_does_not_refire_on_next_prompt():
     """complete_hook must not raise when the complete tool call is in a prior turn.
 
