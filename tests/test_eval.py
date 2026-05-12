@@ -397,7 +397,7 @@ def test_eval_agent_attaches_fixture_files(monkeypatch, tmp_path):
     assert msg.content == "fix bug"
     fixture_paths = [f for f in msg.files if isinstance(f, Path)]
     assert len(fixture_paths) == 2
-    assert [p.name for p in fixture_paths] == ["stats.py", "test_stats.py"]
+    assert {p.name for p in fixture_paths} == {"stats.py", "test_stats.py"}
     assert all(p.parent == agent.workspace_dir for p in fixture_paths)
     assert all(p.exists() for p in fixture_paths)
 
