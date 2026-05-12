@@ -61,6 +61,8 @@ def runner():
 def test_help(runner: CliRunner):
     result = runner.invoke(cli.main, ["--help"])
     assert result.exit_code == 0
+    assert "gptme-util skills list" in result.output
+    assert "gptme-util skills show NAME" in result.output
 
 
 def test_version(runner: CliRunner):

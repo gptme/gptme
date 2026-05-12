@@ -145,6 +145,8 @@ The interface provides /commands during a conversation:
 Utilities (gptme-util):
   gptme-util tools list       List all tools and their availability
   gptme-util tools info TOOL  Show detailed tool instructions/examples
+  gptme-util skills list      List discoverable skills in the current workspace
+  gptme-util skills show NAME Show a skill or lesson by name
   gptme-util chats list       List past conversations
   gptme-util chats search Q   Search conversations for query
   gptme-util chats send ID MSG Queue a prompt for a running chat
