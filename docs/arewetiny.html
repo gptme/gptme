@@ -509,20 +509,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking import time for gptme
 time poetry run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep &quot;import time&quot; | cut -d&#39;|&#39; -f 2- | sort -n | tail -n 10
-     156217 |   gptme.tools._browser_playwright
-     181715 |         gptme.config
-     188472 |       gptme.llm
-     219622 |         mcp.client.session
-     249177 |     gptme.commands
-     280484 |   gptme.chat
-     337500 |       mcp
-     337528 |     mcp.types
-     351829 |   gptme.tools.mcp_adapter
-    1371215 | gptme.cli.main
+     211650 |       playwright.sync_api._generated
+     219795 |     playwright.sync_api
+     229915 |   gptme.tools._browser_playwright
+     245744 |         mcp.client.session
+     270489 |     gptme.commands
+     305098 |   gptme.chat
+     378534 |       mcp
+     378566 |     mcp.types
+     394701 |   gptme.tools.mcp_adapter
+    1470477 | gptme.cli.main
 
-real	0m2.490s
-user	0m2.055s
-sys	0m0.419s
+real	0m2.648s
+user	0m2.205s
+sys	0m0.594s
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -531,10 +531,10 @@ make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking startup time for gptme
 hyperfine &quot;poetry run gptme &#39;/exit&#39;&quot; -M 5 || poetry run gptme &#39;/exit&#39; || exit 1
 Benchmark 1: poetry run gptme &#39;/exit&#39;
-  Time (mean ± σ):      2.406 s ±  0.217 s    [User: 2.184 s, System: 0.385 s]
-  Range (min … max):    2.275 s …  2.785 s    5 runs
+  Time (mean ± σ):      2.594 s ±  0.235 s    [User: 2.273 s, System: 0.567 s]
+  Range (min … max):    2.473 s …  3.014 s    5 runs
  
-  Warning: The first benchmarking run for this command was significantly slower than the rest (2.785 s). This could be caused by (filesystem) caches that were not filled until after the first run. You should consider using the &#39;--warmup&#39; option to fill those caches before the actual benchmark. Alternatively, use the &#39;--prepare&#39; option to clear the caches before each timing run.
+  Warning: The first benchmarking run for this command was significantly slower than the rest (3.014 s). This could be caused by (filesystem) caches that were not filled until after the first run. You should consider using the &#39;--warmup&#39; option to fill those caches before the actual benchmark. Alternatively, use the &#39;--prepare&#39; option to clear the caches before each timing run.
  
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -704,8 +704,9 @@ gptme/tools/restart.py                                    51             81     
 gptme/tools/form.py                                       38             55            145
 gptme/hooks/token_awareness.py                            44             50            142
 gptme/hooks/types.py                                      74            112            139
-gptme/hooks/tool_target_instructions.py                   37             50            136
+gptme/hooks/agents_md_inject.py                           36             59            136
 gptme/tools/elicit.py                                     36            109            135
+gptme/hooks/tool_target_instructions.py                   34             48            132
 gptme/tools/complete.py                                   34             45            125
 gptme/hooks/form_autodetect.py                            48             65            123
 gptme/hooks/server_confirm.py                             51             58            122
@@ -714,7 +715,6 @@ gptme/hooks/server_elicit.py                              52             56     
 gptme/hooks/confirm.py                                    53             88            109
 gptme/tools/choice.py                                     32             38            103
 gptme/hooks/active_context.py                             25             23            100
-gptme/hooks/agents_md_inject.py                           30             56             94
 gptme/tools/screenshot.py                                 25             29             94
 gptme/hooks/time_awareness.py                             29             31             84
 gptme/tools/autocommit.py                                 37             58             80
@@ -731,7 +731,7 @@ gptme/hooks/auto_confirm.py                               11              9     
 gptme/plugins/plugin.py                                   25             39             17
 gptme/tools/_browser_format.py                             3              5              3
 ------------------------------------------------------------------------------------------
-SUM:                                                    4170           4974          14450
+SUM:                                                    4173           4975          14488
 ------------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -1209,6 +1209,7 @@ tests/test_computer_transport.py                                              11
 tests/test_context.py                                                         130             79            297
 tests/test_external_sessions.py                                                80             49            296
 gptme/info.py                                                                  84             70            293
+gptme/hooks/tests/test_tool_target_instructions.py                             58             49            292
 tests/test_prompts.py                                                          90             56            292
 tests/test_execenv.py                                                          76             54            288
 tests/lessons/test_wildcard_matching.py                                       114            125            287
@@ -1360,7 +1361,6 @@ tests/test_shell_allowlist_autoconfirm.py                                      3
 tests/test_tools_tmux.py                                                       69             63            154
 gptme/init.py                                                                  33             39            153
 gptme/hooks/cli_confirm.py                                                     50             54            152
-gptme/hooks/tests/test_tool_target_instructions.py                             47             18            152
 gptme/tools/autocompact/scoring.py                                             53             89            152
 gptme/commands/account.py                                                      45             20            151
 gptme/eval/suites/behavioral/add_deprecation_warning.py                        73            138            151
@@ -1395,11 +1395,12 @@ tests/test_tools_vision.py                                                     3
 tests/test_server_elicitation.py                                               47             17            137
 tests/test_util_cli_models.py                                                  15             11            137
 tests/test_util_content.py                                                     49             25            137
-gptme/hooks/tool_target_instructions.py                                        37             50            136
+gptme/hooks/agents_md_inject.py                                                36             59            136
 gptme/lessons/auto_include.py                                                  50             59            136
 gptme/tools/elicit.py                                                          36            109            135
 gptme/eval/swebench/utils.py                                                   29             10            134
 gptme/server/api_v2_common.py                                                  75             62            133
+gptme/hooks/tool_target_instructions.py                                        34             48            132
 gptme/eval/suites/practical17.py                                               64            137            131
 tests/test_agent_workspace_timeouts.py                                         41             22            129
 gptme/tools/subagent/types.py                                                  47             65            128
@@ -1483,7 +1484,6 @@ gptme/eval/suites/practical31.py                                               6
 gptme/eval/suites/behavioral/implement_priority_queue.py                       61            109             98
 gptme/eval/suites/behavioral/optimize_n_squared.py                             31             43             96
 tests/test_session.py                                                          40             21             95
-gptme/hooks/agents_md_inject.py                                                30             56             94
 gptme/tools/screenshot.py                                                      25             29             94
 gptme/prompts/chat_history.py                                                  34             27             91
 tests/test_tools_choice.py                                                     47             24             91
@@ -1673,7 +1673,7 @@ gptme/server/__main__.py                                                        
 gptme/tools/_browser_format.py                                                  3              5              3
 gptme/oauth/__init__.py                                                         1              4              0
 ---------------------------------------------------------------------------------------------------------------
-SUM:                                                                        38959          37998         134001
+SUM:                                                                        38973          38030         134179
 ---------------------------------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -1688,8 +1688,8 @@ make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 
 Project Overview:
   Files: 611
-  Total blocks: 10953
-  Average complexity: 3.601113850086734
+  Total blocks: 10960
+  Average complexity: 3.605383211678832
 
 Most Complex Functions (D+):
   gptme/server/openapi_docs.py
@@ -1822,6 +1822,8 @@ Most Complex Functions (D+):
       F 265:0 parse_lesson - D
   gptme/hooks/token_awareness.py
       F 88:0 add_token_usage_warning - D
+  gptme/hooks/tool_target_instructions.py
+      F 64:0 _extract_paths - D
   gptme/hooks/cli_confirm.py
       F 162:0 _looks_like_diff - D
   gptme/hooks/registry.py
@@ -2096,6 +2098,14 @@ Clone found (python):
    gptme/hooks/tests/test_workspace_agents.py [431:13 - 443:53]
 
 Clone found (python):
+ - gptme/hooks/tests/test_tool_target_instructions.py [154:32 - 159:67] (5 lines, 77 tokens)
+   gptme/hooks/tests/test_tool_target_instructions.py [133:31 - 138:72]
+
+Clone found (python):
+ - gptme/hooks/tests/test_tool_target_instructions.py [245:36 - 253:42] (8 lines, 84 tokens)
+   gptme/hooks/tests/test_tool_target_instructions.py [131:43 - 137:63]
+
+Clone found (python):
  - gptme/hooks/tests/test_time_awareness.py [130:32 - 136:23] (6 lines, 77 tokens)
    gptme/hooks/tests/test_time_awareness.py [112:36 - 118:22]
 
@@ -2290,7 +2300,7 @@ Clone found (python):
 ┌────────────┬────────────────┬─────────────┬──────────────┬──────────────┬──────────────────┬───────────────────┐
 │ Format     │ Files analyzed │ Total lines │ Total tokens │ Clones found │ Duplicated lines │ Duplicated tokens │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ python     │ 358            │ 97423       │ 599649       │ 74           │ 879 (0.9%)       │ 7590 (1.27%)      │
+│ python     │ 358            │ 97647       │ 601685       │ 76           │ 892 (0.91%)      │ 7751 (1.29%)      │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ css        │ 1              │ 173         │ 1053         │ 0            │ 0 (0%)           │ 0 (0%)            │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
@@ -2304,10 +2314,10 @@ Clone found (python):
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ url        │ 1              │ 2           │ 16           │ 0            │ 0 (0%)           │ 0 (0%)            │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ Total:     │ 381            │ 100427      │ 619739       │ 74           │ 879 (0.88%)      │ 7590 (1.22%)      │
+│ Total:     │ 381            │ 100651      │ 621775       │ 76           │ 892 (0.89%)      │ 7751 (1.25%)      │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
-Found 74 clones.
-time: 4.774s
+Found 76 clones.
+time: 4.776s
 
 💡 Auto-refactor with AI: npx skills add kucherenko/jscpd
 🎩 New: Gangsta Agents — discipline your AI coding → gangsta.page
