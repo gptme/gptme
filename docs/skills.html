@@ -467,6 +467,7 @@
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skill-format">Skill Format</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#directory-structure">Directory Structure</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skill-loading-directories">Skill Loading Directories</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#discovering-skills">Discovering Skills</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#creating-skills">Creating Skills</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#design-the-skill">1. Design the Skill</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#create-skill-directory">2. Create Skill Directory</a></li>
@@ -670,6 +671,19 @@ hooks, or script execution orchestration, use <a class="reference internal" href
 </ol>
 <p>The <code class="docutils literal notranslate"><span class="pre">~/.agents/</span></code> and <code class="docutils literal notranslate"><span class="pre">~/.claude/</span></code> paths provide cross-platform compatibility,
 enabling skills to be shared between gptme and other AI tools.</p>
+</section>
+<section id="discovering-skills">
+<h2>Discovering Skills<a class="headerlink" href="#discovering-skills" title="Link to this heading">#</a></h2>
+<p>Use the utility CLI to see what the current workspace already knows about:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>skills<span class="w"> </span>list
+gptme-util<span class="w"> </span>skills<span class="w"> </span>list<span class="w"> </span>--all
+gptme-util<span class="w"> </span>skills<span class="w"> </span>show<span class="w"> </span>python-repl
+gptme-util<span class="w"> </span>skills<span class="w"> </span><span class="nb">dirs</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">skills</span> <span class="pre">list</span></code> shows skill names and descriptions. <code class="docutils literal notranslate"><span class="pre">--all</span></code> includes regular
+lessons in the same discovery pass, and <code class="docutils literal notranslate"><span class="pre">skills</span> <span class="pre">dirs</span></code> shows exactly which
+directories are being scanned.</p>
 </section>
 <section id="creating-skills">
 <h2>Creating Skills<a class="headerlink" href="#creating-skills" title="Link to this heading">#</a></h2>
@@ -902,6 +916,7 @@ For bundled utilities, mention &quot;python-repl&quot; to load helper functions.
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skill-format">Skill Format</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#directory-structure">Directory Structure</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skill-loading-directories">Skill Loading Directories</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#discovering-skills">Discovering Skills</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#creating-skills">Creating Skills</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#design-the-skill">1. Design the Skill</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#create-skill-directory">2. Create Skill Directory</a></li>
