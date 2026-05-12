@@ -1686,7 +1686,8 @@ def test_role_verify_explicit_false_subprocess_opts_out(
     )
 
 
-def test_planner_subtask_role_passthrough():
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
+def test_planner_subtask_role_passthrough(mock_create_thread: MagicMock):
     """Test that planner subtasks with role pass role through to spawned executor."""
     from gptme.tools.subagent import SubtaskDef, _subagents, subagent
 
