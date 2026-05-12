@@ -236,7 +236,7 @@ When agent_id matches a profile name, the profile is auto-applied:
 - explorer: Read-only analysis (tools: read)
 - researcher: Web research without file modification (tools: browser, read)
 - developer: Full development capabilities (all tools)
-- verifier: Critical review & validation (tools: read, shell, ipython, patch)
+- verifier: Critical review & validation (tools: read, shell, ipython, chats)
 - isolated: Restricted processing for untrusted content (tools: read, ipython)
 - computer-use: Visual UI testing specialist (tools: computer, vision, ipython, shell)
 - browser-use: Web interaction and testing specialist (tools: browser, screenshot, vision, shell) — supports interactive browsing (open_page, click, fill, scroll) and one-shot reads

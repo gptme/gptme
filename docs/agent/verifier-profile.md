@@ -15,7 +15,7 @@ bundles. The `verifier` profile makes the contract explicit.
 | Attribute | Value |
 |-----------|-------|
 | System prompt | "You are in VERIFIER mode." — focuses on validation, testing, and correctness |
-| Tool access | `read`, `shell`, `ipython` — can read code, execute tests, analyze results. No network access (no `browser`), no file modification (no `save`/`patch`) |
+| Tool access | `read`, `shell`, `ipython`, `chats` — can read code, execute tests, analyze results, and query conversation history. No network access (no `browser`), no file modification (no `save`/`patch`) |
 | Behavior rules | `read_only=True` — soft prompting only, not hard-enforced at the tool level for subprocess/ACP modes |
 
 ## Usage
@@ -34,7 +34,7 @@ subagent("my-reviewer", "Review this code", profile="verifier")
 ## Implementation
 
 - Defined in `gptme/profiles.py` in the `BUILTIN_PROFILES` dict
-- Tool restrictions: `["read", "shell", "ipython"]` — can analyze and test but not modify files or browse
+- Tool restrictions: `["read", "shell", "ipython", "chats"]` — can analyze and test but not modify files or browse
 - Behavior: `read_only=True` (soft prompt, not hard-enforced in subprocess mode)
 - Alias `"verify"` mapped via `profile_aliases` dict in `gptme/tools/subagent/api.py`
 
@@ -53,5 +53,5 @@ Role resolution follows deterministic priority:
 |---------|-------|---------|--------|----------|
 | `explorer` | `read`, `chats` | No | No | Read-only codebase exploration |
 | `researcher` | `browser`, `read`, `screenshot` | Yes | No | Web research |
-| `verifier` | `read`, `shell`, `ipython` | No | No | Test/validate code |
+| `verifier` | `read`, `shell`, `ipython`, `chats` | No | Soft (prompt only) | Test/validate code |
 | `developer` | All | Yes | Yes | Full development |
