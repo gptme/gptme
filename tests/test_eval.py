@@ -366,6 +366,42 @@ def test_eval_agent_passes_user_context_flag(monkeypatch, tmp_path):
     assert captured == [False, True]
 
 
+def test_eval_agent_attaches_fixture_files(monkeypatch, tmp_path):
+    """GPTMe eval agent should attach workspace fixtures to the user prompt."""
+    captured_messages: list[Message] = []
+
+    monkeypatch.setattr("gptme.eval.agents.get_logs_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        "gptme.eval.agents.generate_conversation_id",
+        lambda prefix, _log_dir: prefix,
+    )
+    monkeypatch.setattr(
+        "gptme.eval.agents.prepare_execution_environment",
+        lambda workspace, tools: (None, []),
+    )
+    monkeypatch.setattr(
+        "gptme.eval.agents.get_prompt",
+        lambda *args, **kwargs: [Message("system", "base prompt")],
+    )
+
+    def fake_chat(messages, *args, **kwargs):
+        captured_messages.extend(messages)
+
+    monkeypatch.setattr("gptme.eval.agents.gptme_chat", fake_chat)
+
+    agent = GPTMe(model="test-model", tool_format="markdown")
+    agent.act({"stats.py": "x = 1\n", "test_stats.py": "assert True\n"}, "fix bug")
+
+    assert len(captured_messages) == 1
+    msg = captured_messages[0]
+    assert msg.content == "fix bug"
+    fixture_paths = [f for f in msg.files if isinstance(f, Path)]
+    assert len(fixture_paths) == 2
+    assert [p.name for p in fixture_paths] == ["stats.py", "test_stats.py"]
+    assert all(p.parent == agent.workspace_dir for p in fixture_paths)
+    assert all(p.exists() for p in fixture_paths)
+
+
 def _detect_model():
     # detect which model is configured (manual since init() hasn't run in tests)
     config = get_config()

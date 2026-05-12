@@ -2,6 +2,7 @@ import logging
 import uuid
 from abc import abstractmethod
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 from gptme import Message, get_prompt
 from gptme import chat as gptme_chat
@@ -13,6 +14,9 @@ from ...tools import ToolFormat
 from ..execenv import DockerGPTMeEnv
 from ..filestore import FileStore
 from ..types import Files
+
+if TYPE_CHECKING:
+    from gptme.util.uri import FilePath
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +79,7 @@ class GPTMe(Agent):
 
         if self.use_docker:
             return self._act_docker(store, prompt)
-        return self._act_local(store, prompt)
+        return self._act_local(store, prompt, files)
 
     def _act_docker(self, store: FileStore, prompt: str) -> Files:
         """Execute gptme inside a Docker container for isolation."""
@@ -123,7 +127,7 @@ class GPTMe(Agent):
         print("--- Finished generation (Docker-isolated) ---\n")
         return store.download()
 
-    def _act_local(self, store: FileStore, prompt: str) -> Files:
+    def _act_local(self, store: FileStore, prompt: str, files: Files | None) -> Files:
         """Execute gptme directly in the current process."""
         # Prepare execution environment and get initialized tools
         _, tools = prepare_execution_environment(
@@ -158,9 +162,13 @@ class GPTMe(Agent):
             prompt_sys_msgs[0] = prompt_sys_msgs[0].replace(
                 content=prompt_sys_msgs[0].content + eval_instructions
             )
+        # Attach workspace fixture files so the eval prompt deterministically
+        # embeds the exact scenario inputs instead of relying on incidental
+        # workspace reads or provider-specific behavior.
+        user_files = [self.workspace_dir / name for name in files] if files else []
         try:
             gptme_chat(
-                [Message("user", prompt)],
+                [Message("user", prompt, files=cast("list[FilePath]", user_files))],
                 prompt_sys_msgs,
                 logdir=self.log_dir,
                 model=self.model,
