@@ -546,6 +546,25 @@ def _handle_openai_transient_error(e, attempt, max_retries, base_delay):
                 for keyword in ["overload", "internal", "timeout"]
             ):
                 should_retry = True
+            elif e.status_code == 402 and any(
+                hint in combined_error
+                for hint in ("affordable", "more credits", "fewer max_tokens")
+            ):
+                # OpenRouter reserves model.max_output + reasoning_budget worth
+                # of credits when max_tokens is omitted. A partially-spent key
+                # then rejects requests as 402 even with plenty of room for the
+                # actual response. Eval callers silently swallow the resulting
+                # APIStatusError as gen_stderr and write empty conversation.jsonl,
+                # so we surface an actionable diagnostic before re-raising.
+                # See: https://github.com/gptme/gptme/issues/2383
+                logger.warning(
+                    "OpenAI/OpenRouter 402 insufficient credits — the request "
+                    "reservation exceeds available key budget. Lower the "
+                    "reservation by setting --max-tokens (or GPTME_MAX_TOKENS) "
+                    "to a value such as 16000, or top up / switch the key. "
+                    "Detail: %s",
+                    combined_error[:500],
+                )
 
     # Re-raise if not transient or max retries reached
     if not should_retry or attempt == max_retries - 1:
