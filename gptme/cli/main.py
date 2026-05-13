@@ -212,6 +212,13 @@ Run 'gptme-util --help' for all utility commands."""
     help="Non-interactive mode. Implies --no-confirm.",
 )
 @click.option(
+    "--output-format",
+    "output_format",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    help="Output format for non-interactive mode. 'json' emits one JSON object per line on stdout.",
+)
+@click.option(
     "--system",
     "prompt_system",
     default="full",
@@ -341,6 +348,7 @@ def main(
     verbose: bool,
     no_confirm: bool,
     non_interactive: bool,
+    output_format: str,
     show_hidden: bool,
     version: bool,
     version_json: bool,
@@ -576,7 +584,8 @@ def main(
 
     # Register atexit handler to show conversation ID on exit
     def goodbye_handler():
-        print(f"\nGoodbye! (resume with: gptme --name {logdir.name})")
+        if output_format != "json":
+            print(f"\nGoodbye! (resume with: gptme --name {logdir.name})")
 
     atexit.register(goodbye_handler)
 
@@ -620,6 +629,24 @@ def main(
     # as they're already in the loaded log
     log_file = logdir / "conversation.jsonl"
     is_existing_conversation = log_file.exists() and log_file.stat().st_size > 0
+
+    # Validate --output-format json and --non-interactive requirements early,
+    # before the expensive get_prompt() call (which can take 10+ seconds).
+    # This avoids CI timeouts when the CLI will just exit with usage error.
+    if output_format == "json" and not non_interactive:
+        logger.error("--output-format json is only allowed with --non-interactive.")
+        sys.exit(1)
+
+    if not interactive and not prompt_msgs and not is_existing_conversation:
+        logger.error(
+            "Non-interactive mode requires a prompt. Provide a prompt as an argument, "
+            "use --resume to continue an existing conversation, or pipe input via stdin.\n\n"
+            "Examples:\n"
+            "  gptme --non-interactive 'hello world'\n"
+            "  gptme --non-interactive --resume\n"
+            "  echo 'hello' | gptme --non-interactive"
+        )
+        sys.exit(1)
 
     if is_existing_conversation:
         logger.debug("Existing conversation found, skipping initial prompt generation")
@@ -676,18 +703,6 @@ def main(
                 f"Could not load output_schema '{output_schema}': {e}. "
                 "Verify the module is installed and the class name is correct."
             )
-
-    # Validate non-interactive mode requires a prompt or existing conversation
-    if not interactive and not prompt_msgs and not is_existing_conversation:
-        logger.error(
-            "Non-interactive mode requires a prompt. Provide a prompt as an argument, "
-            "use --resume to continue an existing conversation, or pipe input via stdin.\n\n"
-            "Examples:\n"
-            "  gptme --non-interactive 'hello world'\n"
-            "  gptme --non-interactive --resume\n"
-            "  echo 'hello' | gptme --non-interactive"
-        )
-        sys.exit(1)
 
     # Architect/editor split: if enabled via CLI flag OR via TOML config
     _toml_architect_enabled = bool(
@@ -796,6 +811,7 @@ def main(
             config.chat.tools,
             config.chat.tool_format,
             output_schema_type,
+            output_format,
         )
     except (RuntimeError, Exception) as e:
         logger.error("Fatal error occurred")

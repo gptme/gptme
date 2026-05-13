@@ -21,7 +21,7 @@ from .init import init
 from .llm import reply
 from .llm.models import get_default_model, get_model
 from .logmanager import Log, LogManager, prepare_messages
-from .message import Message
+from .message import Message, get_output_format, is_output_json, set_output_format
 from .prompt_queue import drain_prompt_queue
 from .telemetry import set_conversation_context, trace_function
 from .tools import (
@@ -57,6 +57,7 @@ def chat(
     tool_allowlist: list[str] | None = None,
     tool_format: ToolFormat | None = None,
     output_schema: type | None = None,
+    output_format: str = "text",
 ) -> None:
     """
     Run the chat loop.
@@ -80,63 +81,70 @@ def chat(
         "tool_format should be resolved before calling chat()"
     )
 
-    # init
-    # Mode detection for confirmation hooks is now handled inside init_hooks()
-    init(model, interactive, tool_allowlist, tool_format, no_confirm)
-
-    # Trigger session start hooks
-    if session_start_msgs := trigger_hook(
-        HookType.SESSION_START,
-        logdir=logdir,
-        workspace=workspace,
-        initial_msgs=initial_msgs,
-    ):
-        # Process any messages from session start hooks
-        for hook_msg in session_start_msgs:
-            initial_msgs = initial_msgs + [hook_msg]
-
-    default_model = get_default_model()
-    # Only require default_model if no explicit model was passed
-    # Use nested if/else for proper mypy type narrowing
-    if model is None:
-        if default_model is None:
-            raise ValueError("No model loaded and no model specified")
-        model_to_use = default_model.full
-    else:
-        model_to_use = model
-    modelmeta = get_model(model_to_use)
-    if not modelmeta.supports_streaming and stream:
-        logger.info(
-            "Disabled streaming for '%s/%s' model (not supported)",
-            modelmeta.provider,
-            modelmeta.model,
-        )
-        stream = False
-
-    console.log(f"Using logdir: {path_with_tilde(logdir)}")
-    manager = LogManager.load(logdir, initial_msgs=initial_msgs, create=True)
-
-    # Note: todo replay is now handled via SESSION_START hook
-
-    # Initialize workspace
-    console.log(f"Using workspace: {path_with_tilde(workspace)}")
-    os.chdir(workspace)
-
-    # print log
-    manager.log.print(show_hidden=show_hidden)
-    console.print("--- ^^^ past messages ^^^ ---")
-
-    # Note: todo replay is now handled via SESSION_START hook
-    # Note: Confirmation is now handled within ToolUse.execute() using the hook system,
-    # so we no longer need to create and pass confirm_func.
-
-    # Convert prompt_msgs to a queue for unified handling
-    prompt_queue = list(prompt_msgs)
-
-    # Import SessionCompleteException for clean exit handling
-
-    # main loop
+    # Apply output format (must happen before any rendering).
+    # Save the caller's format so nested chat() calls (inline subagents) can
+    # restore it on exit instead of unconditionally resetting to "text".
+    _prev_output_format = get_output_format()
     try:
+        set_output_format(output_format)
+
+        # init
+        # Mode detection for confirmation hooks is now handled inside init_hooks()
+        init(model, interactive, tool_allowlist, tool_format, no_confirm)
+
+        # Trigger session start hooks
+        if session_start_msgs := trigger_hook(
+            HookType.SESSION_START,
+            logdir=logdir,
+            workspace=workspace,
+            initial_msgs=initial_msgs,
+        ):
+            # Process any messages from session start hooks
+            for hook_msg in session_start_msgs:
+                initial_msgs = initial_msgs + [hook_msg]
+
+        default_model = get_default_model()
+        # Only require default_model if no explicit model was passed
+        # Use nested if/else for proper mypy type narrowing
+        if model is None:
+            if default_model is None:
+                raise ValueError("No model loaded and no model specified")
+            model_to_use = default_model.full
+        else:
+            model_to_use = model
+        modelmeta = get_model(model_to_use)
+        if not modelmeta.supports_streaming and stream:
+            logger.info(
+                "Disabled streaming for '%s/%s' model (not supported)",
+                modelmeta.provider,
+                modelmeta.model,
+            )
+            stream = False
+
+        if not is_output_json():
+            console.log(f"Using logdir: {path_with_tilde(logdir)}")
+        manager = LogManager.load(logdir, initial_msgs=initial_msgs, create=True)
+
+        # Note: todo replay is now handled via SESSION_START hook
+
+        # Initialize workspace
+        if not is_output_json():
+            console.log(f"Using workspace: {path_with_tilde(workspace)}")
+        os.chdir(workspace)
+
+        # print log (suppressed in JSON output mode)
+        if not is_output_json():
+            manager.log.print(show_hidden=show_hidden)
+            console.print("--- ^^^ past messages ^^^ ---")
+
+        # Note: todo replay is now handled via SESSION_START hook
+        # Note: Confirmation is now handled within ToolUse.execute() using the hook system,
+        # so we no longer need to create and pass confirm_func.
+
+        # Convert prompt_msgs to a queue for unified handling
+        prompt_queue = list(prompt_msgs)
+
+        # main loop
         _run_chat_loop(
             manager,
             prompt_queue,
@@ -148,7 +156,8 @@ def chat(
             output_schema=output_schema,
         )
     except SessionCompleteException as e:
-        console.log(f"Autonomous mode: {e}. Exiting.")
+        if not is_output_json():
+            console.log(f"Autonomous mode: {e}. Exiting.")
 
         # Trigger session end hooks
         if session_end_msgs := trigger_hook(
@@ -156,7 +165,10 @@ def chat(
         ):
             for msg in session_end_msgs:
                 manager.append(msg)
-        return
+    finally:
+        # Restore the caller's format so nested chat() calls (inline subagents)
+        # don't clobber the parent's JSON mode when they exit.
+        set_output_format(_prev_output_format)
 
 
 def _run_chat_loop(
@@ -260,11 +272,13 @@ def _run_chat_loop(
                         )
                         break
                     prompt_queue.append(msg)
-                    console.log(f"[Loop control] {msg.content[:100]}...")
+                    if not is_output_json():
+                        console.log(f"[Loop control] {msg.content[:100]}...")
                 continue  # Process the queued messages
 
         except KeyboardInterrupt:
-            console.log("Interrupted.")
+            if not is_output_json():
+                console.log("Interrupted.")
             manager.append(Message("system", INTERRUPT_CONTENT))
             # Clear any remaining prompts to avoid confusion
             prompt_queue.clear()
@@ -339,7 +353,8 @@ def _process_message_conversation(
                 )
             )
         except KeyboardInterrupt:
-            console.log("Interrupted during response generation.")
+            if not is_output_json():
+                console.log("Interrupted during response generation.")
             manager.append(Message("system", INTERRUPT_CONTENT))
             break
         finally:
@@ -354,7 +369,8 @@ def _process_message_conversation(
         # Check if user declined execution - return to prompt without generating response
         # This makes "n" at confirm prompt behave like Ctrl+C (return to user prompt)
         if any(msg.content == DECLINED_CONTENT for msg in response_msgs):
-            console.log("Execution declined, returning to prompt.")
+            if not is_output_json():
+                console.log("Execution declined, returning to prompt.")
             break
 
         # Auto-generate display name in background thread to avoid blocking.
@@ -380,7 +396,8 @@ def _process_message_conversation(
         # Check step limit (GPTME_MAX_STEPS)
         step_count += 1
         if max_steps is not None and step_count >= max_steps:
-            console.log(f"Reached max steps limit ({max_steps}), stopping.")
+            if not is_output_json():
+                console.log(f"Reached max steps limit ({max_steps}), stopping.")
             manager.append(
                 Message("system", f"Stopped: reached max steps limit ({max_steps})")
             )

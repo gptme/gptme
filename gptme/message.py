@@ -1,4 +1,5 @@
 import dataclasses
+import json
 import logging
 import shutil
 import sys
@@ -25,6 +26,32 @@ from .util.tokens import len_tokens
 from .util.uri import URI, FilePath, parse_file_reference
 
 logger = logging.getLogger(__name__)
+
+
+# Global output format for the CLI. Defaults to "text".
+# Set to "json" via set_output_format() to emit line-delimited JSON to stdout.
+_output_format: str = "text"
+
+
+def set_output_format(fmt: str) -> None:
+    """Set the output format for print_msg and related rendering.
+
+    Args:
+        fmt: "text" for Rich-formatted output (default), "json" for JSONL stdout.
+    """
+    assert fmt in ("text", "json"), f"Invalid output format: {fmt}"
+    global _output_format
+    _output_format = fmt
+
+
+def get_output_format() -> str:
+    """Return the current output format ("text" or "json")."""
+    return _output_format
+
+
+def is_output_json() -> bool:
+    """Return True if the output format is set to JSON (JSONL stdout mode)."""
+    return _output_format == "json"
 
 
 class UsageData(TypedDict, total=False):
@@ -487,6 +514,36 @@ def print_msg(
         highlight = False
 
     msgs = msg if isinstance(msg, list) else [msg]
+
+    # JSON output mode: emit line-delimited dicts to stdout
+    if _output_format == "json":
+        for m in msgs:
+            if m.hide and not show_hidden:
+                continue
+            event: dict = {
+                "type": "message",
+                "role": m.role,
+                "content": m.content,
+                "timestamp": m.timestamp.isoformat(),
+            }
+            if m.files:
+                event["files"] = [
+                    str(f) if isinstance(f, URI) else str(f.resolve()) for f in m.files
+                ]
+            if m.call_id:
+                event["call_id"] = m.call_id
+            if m.metadata:
+                meta_dict = dict(m.metadata)
+                # Ensure nested usage dict is also a plain dict (not tomlkit types),
+                # same as to_dict() — avoids default=str garbling structured data.
+                usage = meta_dict.get("usage")
+                if isinstance(usage, dict):
+                    meta_dict["usage"] = dict(usage)
+                event["metadata"] = meta_dict
+            sys.stdout.write(json.dumps(event, default=str) + "\n")
+        sys.stdout.flush()
+        return
+
     msgstrs = format_msgs(msgs, highlight=highlight, oneline=oneline)
     skipped_hidden = 0
     for m, s in zip(msgs, msgstrs):
