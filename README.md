@@ -14,6 +14,8 @@
 <p align="center">
   <a href="https://gptme.org/docs/getting-started.html">Getting Started</a>
   •
+  <a href="https://gptme.org/downloads/">Downloads</a>
+  •
   <a href="https://gptme.org/">Website</a>
   •
   <a href="https://gptme.org/docs/">Documentation</a>
@@ -54,14 +56,19 @@
 </p>
 
 <p align="center">
-📜 A personal AI agent in your terminal, with tools to:<br/>
-run shell commands, write code, edit files, browse the web, use vision, and much more.<br/>
+📜 A personal AI agent that runs <i>anywhere a terminal runs</i> — your laptop,
+ssh sessions, tmux, headless servers, CI pipelines.<br/>
+Provider-agnostic, local-first, and unconstrained: ships with shell, Python, web,
+vision, and everything else an agent needs.<br/>
 A great coding agent, but general-purpose enough to assist in all kinds of knowledge-work.
 </p>
 
 <p align="center">
-An unconstrained local free and open-source <a href="https://gptme.org/docs/alternatives.html">alternative</a> to Claude Code, Codex, Cursor Agents, etc.<br/>
-One of the first agent CLIs created (Spring 2023) — and still in very active development.
+Free and open-source. Works with Anthropic, OpenAI, Google, xAI, DeepSeek, OpenRouter,
+or fully local via <code>llama.cpp</code> — your data, your models, your terminal.<br/>
+A capable <a href="https://gptme.org/docs/alternatives.html">alternative</a> to Claude Code,
+Codex, Cursor, and Warp — one of the first agent CLIs (Spring 2023), still in very
+active development.
 </p>
 
 ## 📚 Table of Contents
@@ -99,7 +106,7 @@ One of the first agent CLIs created (Spring 2023) — and still in very active d
 - **2024-10** - [First viral tweet](https://x.com/rohanpaul_ai/status/1841999030999470326) bringing widespread attention
 - **2024-08** - [Show HN](https://news.ycombinator.com/item?id=41204256), Anthropic Claude support, tmux tool
 - **2023-09** - [Initial public release](https://news.ycombinator.com/item?id=37394845) on HN, [Reddit](https://www.reddit.com/r/LocalLLaMA/comments/16atlia/), [Twitter](https://x.com/ErikBjare/status/1699097896451289115)
-- **2023-03** - [Initial commit](https://github.com/gptme/gptme/commit/d00e9aae68cbd6b89bbc474ed7721d08796dc) - one of the first agent CLIs
+- **2023-03** - [Initial commit](https://github.com/gptme/gptme/commit/d00e9aae68cbd6b89bbc474ed7721d08798f96dc) - one of the first agent CLIs
 
 
 <!-- source of truth: docs/timeline.rst and docs/changelog.rst -->
@@ -345,7 +352,7 @@ gptme-agent install   # runs on a schedule
 gptme-agent status    # check on it
 ```
 
-[**Bob**](https://github.com/TimeToBuildBob) is the reference implementation — a production autonomous agent with 1700+ completed sessions. Bob opens PRs, reviews code, fixes CI, manages his own task queue, maintains 100+ behavioral lessons, posts on [Twitter](https://twitter.com/TimeToBuildBob), responds on Discord, and writes [blog posts](https://timetobuildbob.github.io/).
+[**Bob**](https://github.com/TimeToBuildBob) is the reference implementation — a production autonomous agent that's been running continuously since late 2024. Bob opens PRs, reviews code, fixes CI, manages his own task queue, maintains a growing set of behavioral lessons, posts on [Twitter](https://twitter.com/TimeToBuildBob), responds on Discord, and writes [blog posts](https://timetobuildbob.github.io/).
 
 Multiple specialized agents can run in parallel — e.g. Bob (engineering) and [Alice](https://github.com/TimeToLearnAlice) (personal assistant & orchestration) — coordinating through shared infrastructure.
 
@@ -398,11 +405,14 @@ This stack is simple and composable: selectors improve work choice, lessons stee
 ### Prerequisites
 
 - Python 3.10 or newer
-- An API key for at least one LLM provider:
-  - [Anthropic](https://console.anthropic.com/) (set `ANTHROPIC_API_KEY`)
-  - [OpenAI](https://platform.openai.com/) (set `OPENAI_API_KEY`)
-  - [OpenRouter](https://openrouter.ai/) (set `OPENROUTER_API_KEY`)
-  - Local models via `llama.cpp` (no key required — see [providers docs][docs-providers])
+- Credentials for at least one LLM provider:
+  - OpenRouter can be configured interactively with `/account setup openrouter`
+    inside gptme, using browser OAuth onboarding.
+  - You can also set API keys manually for [Anthropic](https://console.anthropic.com/)
+    (`ANTHROPIC_API_KEY`), [OpenAI](https://platform.openai.com/)
+    (`OPENAI_API_KEY`), [OpenRouter](https://openrouter.ai/)
+    (`OPENROUTER_API_KEY`), and other providers.
+  - Local models via `llama.cpp` need no key — see [providers docs][docs-providers].
 
 ### Installation
 
@@ -567,7 +577,7 @@ gptme is more than a CLI — it's a platform with a growing ecosystem:
 | [gptme.ai](https://gptme.ai) | Managed cloud service (WIP) |
 
 **Community agents powered by gptme:**
-- [Bob](https://github.com/TimeToBuildBob) — autonomous AI agent, 1700+ sessions, contributes to open source, manages his own tasks
+- [Bob](https://github.com/TimeToBuildBob) — autonomous AI agent, running continuously since late 2024, contributes to open source and manages his own tasks
 - [Alice](https://github.com/TimeToLearnAlice) — personal assistant & agent orchestrator, forked from the same architecture
 
 ## 💬 Community
@@ -635,90 +645,203 @@ Contributions welcome! See the [contributing guide](https://gptme.org/docs/contr
 [docs-mcp]: https://gptme.org/docs/mcp.html
 [docs-acp]: https://gptme.org/docs/acp.html
 [anthropic-computer-use]: https://www.anthropic.com/news/3-5-models-and-computer-use
-
 ## ❓ FAQ
 
-### What models are supported?
+### What is gptme?
 
-gptme supports any model provider compatible with OpenAI API format, including:
-- **OpenAI**: GPT-4o, GPT-4.1, o3, o4-mini
-- **Anthropic**: Claude 4 Sonnet, Claude 4 Opus, Claude 3.5 Sonnet
-- **Local models**: Via LiteLLM proxy (Ollama, vLLM, etc.)
-- **Other providers**: Azure, Groq, Bedrock, Vertex AI
+gptme is a **personal AI agent that runs anywhere a terminal runs** — your laptop, SSH sessions, tmux, headless servers, CI pipelines. It's provider-agnostic, local-first, and unconstrained: ships with shell, Python, web, vision, and everything else an agent needs. Pronounced /ʤiː piː tiː miː/ like "GPT-ME".
 
-Set your model via `MODEL` environment variable or in `gptme.toml`.
+### How does gptme compare to other AI coding assistants?
 
-### How do I configure API keys?
+| Feature | gptme | Claude Code | Cursor | Warp |
+|---------|-------|-------------|--------|------|
+| **Environment** | Any terminal | Terminal | IDE | Terminal |
+| **Autonomy** | Autonomous agents | One-shot | IDE-assisted | Terminal AI |
+| **Local-first** | ✅ Full support | ❌ API required | ❌ API required | ❌ API required |
+| **MCP Support** | ✅ Built-in | ✅ Built-in | ❌ | ❌ |
+| **Plugin System** | ✅ Full plugins | ❌ | ✅ Extensions | ❌ |
+| **Web Browsing** | ✅ Playwright | ❌ | ❌ | ❌ |
+| **Vision** | ✅ Screenshots/Images | ✅ | ✅ | ❌ |
+| **Self-hosting** | ✅ Full control | ❌ | ❌ | ❌ |
 
-Set the appropriate environment variable for your provider:
+### How do I install gptme?
+
+**Prerequisites**: Python 3.10+ or Node.js
+
+**Installation**:
 ```bash
-# OpenAI
-export OPENAI_API_KEY="sk-..."
-
-# Anthropic
-export ANTHROPIC_API_KEY="sk-ant-..."
-
-# Custom endpoint (via LiteLLM)
-export OPENAI_API_BASE="http://localhost:4000"
+pip install gptme
+# or
+pipx install gptme
 ```
 
-### Why is gptme asking for tool confirmations?
-
-By default, gptme asks for confirmation before executing tools (shell commands, file writes, etc.) for safety. You can:
-- Press `y` to approve individual actions
-- Use `--non-interactive` flag for fully autonomous mode (no confirmations, use with caution)
-- For repeated workflows, the server API and ACP runtime accept a session-level `auto_confirm` parameter
-
-### How do I use gptme with local models?
-
-Use LiteLLM as a proxy to connect local models:
+**First Run**:
 ```bash
-# Install LiteLLM proxy
-pip install "litellm[proxy]"
-
-# Start proxy with Ollama
-litellm --model ollama/llama3
-
-# Point gptme to the proxy
-export OPENAI_API_BASE="http://localhost:4000"
-export OPENAI_API_KEY="dummy"
+gptme
 ```
 
-### What is the difference between Skills and Plugins?
+### What AI providers does gptme support?
 
-- **Skills**: Lightweight workflow bundles (Anthropic format) that auto-load when mentioned. Great for reusable instructions without writing Python.
-- **Plugins**: Python modules that extend gptme with new tools and capabilities. More powerful but require Python knowledge.
-- **Lessons**: Contextual guidance that auto-injects based on keywords, tools, and patterns.
+gptme supports multiple AI providers:
 
-### How do I run gptme in autonomous mode?
+| Provider | Setup | Features |
+|----------|-------|----------|
+| **Anthropic** | `ANTHROPIC_API_KEY` | Claude 3.7 Sonnet, Opus |
+| **OpenAI** | `OPENAI_API_KEY` | GPT-4, GPT-3.5 |
+| **Google** | `GOOGLE_API_KEY` | Gemini |
+| **xAI** | `XAI_API_KEY` | Grok |
+| **DeepSeek** | `DEEPSEEK_API_KEY` | DeepSeek V3, R1 |
+| **OpenRouter** | `OPENROUTER_API_KEY` | Multi-provider gateway |
+| **llama.cpp** | Local server | Fully local, no API |
 
-Use the `--non-interactive` flag for fully autonomous operation:
+### How do I use local models?
+
+Use **llama.cpp** for fully local operation:
+
+1. Start llama.cpp server:
 ```bash
-gptme --non-interactive "Research the latest developments in AI agents and write a summary"
+llama-server --model ./models/llama-3.gguf --port 8080
 ```
 
-⚠️ **Warning**: In autonomous mode, gptme can execute commands without confirmation. Use only in safe, isolated environments.
-
-### Can I use gptme as a server/API?
-
-Yes! gptme includes a built-in server mode:
+2. Configure gptme:
 ```bash
-gptme-server
+export LLAMACPP_API_URL=http://localhost:8080
+gptme --model llama
 ```
 
-This exposes a REST API for integrating gptme into other applications. See the [Server documentation][docs-server] for details.
+### What tools does gptme have?
 
-### How do I contribute to gptme?
+gptme ships with comprehensive tools:
 
-Contributions are welcome! See the [contributing guide](https://gptme.org/docs/contributing.html). Key areas:
-- Bug fixes and feature improvements
-- New tools and plugins
-- Documentation improvements
-- Testing and evaluation
+- **shell**: Execute commands in terminal
+- **python**: Run Python code
+- **patch**: Make incremental file edits
+- **browser**: Browse web via Playwright
+- **vision**: Process images/screenshots
+- **tmux**: Manage tmux sessions
+- **morph**: Fast file transformations
+- **form**: Interactive forms
+- **mcp**: MCP tool discovery and use
 
-### Where can I get help?
+### How does the MCP integration work?
 
-- **Documentation**: [gptme.org/docs](https://gptme.org/docs/)
-- **Discord**: [Join our community][discord]
-- **Issues**: [GitHub Issues](https://github.com/gptme/gptme/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/gptme/gptme/discussions)
+gptme has **built-in MCP support**:
+
+- **MCP Discovery**: Automatically discovers MCP servers
+- **Dynamic Loading**: Loads MCP tools on demand
+- **Tool Integration**: MCP tools work like native tools
+
+Example MCP servers supported:
+- GitHub MCP
+- Puppeteer MCP
+- SQLite MCP
+- Custom MCP servers
+
+### What is the Lessons system?
+
+The **Lessons system** provides contextual guidance and best practices that are automatically included when relevant:
+
+- **Project-specific lessons**: Custom guidance for your project
+- **Best practices**: Coding patterns and conventions
+- **Context injection**: Automatic context based on situation
+
+### How do I create autonomous agents?
+
+Use **gptme-agent-template** for persistent autonomous agents:
+
+1. Clone template:
+```bash
+git clone https://github.com/gptme/gptme-agent-template
+```
+
+2. Configure agent:
+```yaml
+# config.yaml
+name: "MyAgent"
+role: "Code reviewer"
+schedule: "hourly"
+```
+
+3. Run:
+```bash
+python agent.py
+```
+
+See [Bob](https://github.com/TimeToBuildBob) for an example autonomous agent with 1700+ sessions.
+
+### What is the plugin system?
+
+gptme has a **full plugin system**:
+
+- **Skills**: Custom tools and capabilities
+- **Hooks**: Pre/post execution hooks
+- **Integrations**: External service connectors
+- **Community plugins**: [gptme-contrib](https://github.com/gptme/gptme-contrib) repository
+
+Example plugins:
+- Twitter/X bot
+- Discord bot
+- Email tools
+- Consortium (multi-agent)
+
+### How do I use gptme in CI/CD?
+
+gptme runs in **CI pipelines**:
+
+```yaml
+# GitHub Actions
+- name: Run gptme
+  run: |
+    pip install gptme
+    gptme --non-interactive "Review PR and suggest improvements"
+```
+
+### What are the use cases?
+
+gptme is general-purpose but excels at:
+
+- **Coding**: Write, refactor, debug code
+- **Research**: Web browsing, data collection
+- **Automation**: File management, CI tasks
+- **Documentation**: Generate docs, summaries
+- **Testing**: Write tests, run tests, fix failures
+- **DevOps**: Server management, deployment
+
+### How do I configure gptme?
+
+Configuration via environment variables:
+
+```bash
+# Provider selection
+export GPTME_MODEL=anthropic/claude-3-sonnet
+
+# API keys
+export ANTHROPIC_API_KEY=your-key
+
+# Logging level
+export GPTME_LOG_LEVEL=INFO
+
+# Enable/disable features
+export GPTME_ENABLE_VISION=true
+```
+
+### How do I handle errors?
+
+gptme is **self-correcting**:
+
+- Output feeds back to assistant
+- Automatic retry on errors
+- User intervention when needed
+
+### Where can I find more resources?
+
+- **Website**: [gptme.org](https://gptme.org)
+- **Documentation**: [docs.gptme.org](https://gptme.org/docs/)
+- **Examples**: [Examples](https://gptme.org/docs/examples.html)
+- **Downloads**: [Downloads](https://gptme.org/downloads/)
+- **Discord**: [Discord Community](https://discord.gg/NMaCmmkxWv)
+- **Twitter**: [@gptmeorg](https://x.com/gptmeorg)
+
+---
+
+**Happy Terminal Agent Building!** 🤖
