@@ -396,3 +396,13 @@ class TestSupportsParallelToolCalls:
         """Unknown models fall back to False (safe default — don't break things)."""
         model = get_model("unknown-provider/unknown-model")
         assert model.supports_parallel_tool_calls is False
+
+
+class TestSupportsResponsesAPI:
+    def test_gpt5_family_is_marked_for_responses_api(self):
+        model = get_model("openai/gpt-5")
+        assert model.supports_responses_api is True
+
+    def test_gpt4o_is_not_marked_for_responses_api(self):
+        model = get_model("openai/gpt-4o")
+        assert model.supports_responses_api is False

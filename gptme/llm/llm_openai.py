@@ -125,6 +125,11 @@ def _record_usage(usage, model: str) -> MessageMetadata | None:
     prompt_tokens = getattr(usage, "prompt_tokens", None)
     output_tokens = getattr(usage, "completion_tokens", None)
     details = getattr(usage, "prompt_tokens_details", None)
+    if prompt_tokens is None:
+        prompt_tokens = getattr(usage, "input_tokens", None)
+        details = getattr(usage, "input_tokens_details", None)
+    if output_tokens is None:
+        output_tokens = getattr(usage, "output_tokens", None)
     cache_read_tokens = getattr(details, "cached_tokens", None)
     # OpenRouter currently exposes cache writes in two response shapes:
     # 1) legacy passthrough: usage.cache_creation_input_tokens
@@ -227,6 +232,229 @@ def _make_response_format(output_schema):
         "type": "json_schema",
         "json_schema": {"name": schema_name, "schema": json_schema, "strict": True},
     }
+
+
+def _responses_api_enabled() -> bool:
+    value = os.environ.get("GPTME_OPENAI_RESPONSES_API")
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _should_use_responses_api(
+    provider: Provider, model_meta: ModelMeta, client: "OpenAI"
+) -> bool:
+    return (
+        provider == "openai"
+        and model_meta.supports_responses_api
+        and not _is_proxy(client)
+        and _responses_api_enabled()
+    )
+
+
+def _obj_get(obj: Any, key: str, default: Any = None) -> Any:
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
+def _content_to_text(content: MessageContent) -> str:
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+
+    text_parts: list[str] = []
+    for part in content:
+        if isinstance(part, str):
+            text_parts.append(part)
+        elif isinstance(part, dict) and part.get("type") == "text":
+            text_parts.append(part.get("text", ""))
+    return "".join(text_parts)
+
+
+def _content_to_responses_input(content: MessageContent) -> str | list[dict[str, Any]]:
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+
+    converted: list[dict[str, Any]] = []
+    for part in content:
+        if isinstance(part, str):
+            converted.append({"type": "input_text", "text": part})
+            continue
+        if not isinstance(part, dict):
+            raise TypeError(f"Unsupported content part type: {type(part)!r}")
+
+        part_type = part.get("type")
+        if part_type == "text":
+            converted.append({"type": "input_text", "text": part.get("text", "")})
+        elif part_type == "image_url":
+            image_url = _obj_get(part.get("image_url", {}), "url")
+            if not image_url:
+                raise ValueError("image_url content part missing url")
+            converted.append(
+                {
+                    "type": "input_image",
+                    "image_url": image_url,
+                    "detail": "auto",
+                }
+            )
+        else:
+            raise ValueError(f"Unsupported responses input part type: {part_type!r}")
+
+    if all(item["type"] == "input_text" for item in converted):
+        return "".join(item["text"] for item in converted)
+    return converted
+
+
+def _chat_tool_to_responses_tool(tool: "ChatCompletionToolParam") -> dict[str, Any]:
+    function = tool["function"]
+    return {
+        "type": tool["type"],
+        "name": function["name"],
+        "description": function["description"],
+        "parameters": function["parameters"],
+    }
+
+
+def _make_responses_text_config(
+    output_schema, model_meta: ModelMeta
+) -> dict[str, Any] | None:
+    text_config: dict[str, Any] = {}
+
+    if output_schema is not None:
+        text_config["format"] = {
+            "type": "json_schema",
+            "name": output_schema.__name__,
+            "schema": output_schema.model_json_schema(),
+            "strict": True,
+        }
+
+    if OPENAI_VERBOSITY and model_meta.model.startswith("gpt-5"):
+        global _verbosity_warned
+        if OPENAI_VERBOSITY not in _VALID_VERBOSITY:
+            if not _verbosity_warned:
+                logger.warning(
+                    "OPENAI_VERBOSITY=%r is not one of %s; ignoring.",
+                    OPENAI_VERBOSITY,
+                    sorted(_VALID_VERBOSITY),
+                )
+                _verbosity_warned = True
+        else:
+            text_config["verbosity"] = OPENAI_VERBOSITY
+
+    return text_config or None
+
+
+def _messages_dicts_to_responses_input(
+    messages_dicts: list[MessageDict],
+) -> tuple[str | None, list[dict[str, Any]]]:
+    instructions_parts: list[str] = []
+    items: list[dict[str, Any]] = []
+
+    for message in messages_dicts:
+        role = message["role"]
+        tool_call_id = _obj_get(message, "tool_call_id") or _obj_get(message, "call_id")
+
+        if role == "system" and tool_call_id:
+            items.append(
+                {
+                    "type": "function_call_output",
+                    "call_id": tool_call_id,
+                    "output": _content_to_text(message["content"]),
+                }
+            )
+            continue
+
+        if role == "tool":
+            items.append(
+                {
+                    "type": "function_call_output",
+                    "call_id": tool_call_id,
+                    "output": _content_to_text(message["content"]),
+                }
+            )
+            continue
+
+        if role == "system":
+            text = _content_to_text(message["content"]).strip()
+            if text:
+                instructions_parts.append(text)
+            continue
+
+        if role == "assistant" and message.get("tool_calls"):
+            text = _content_to_text(message.get("content")).strip()
+            if text:
+                items.append({"role": "assistant", "content": text})
+            for tool_call in message["tool_calls"]:
+                function = tool_call["function"]
+                items.append(
+                    {
+                        "type": "function_call",
+                        "call_id": tool_call["id"],
+                        "name": function["name"],
+                        "arguments": function["arguments"],
+                    }
+                )
+            continue
+
+        items.append(
+            {
+                "role": role,
+                "content": _content_to_responses_input(message["content"]),
+            }
+        )
+
+    instructions = "\n\n".join(instructions_parts).strip() or None
+    return instructions, items
+
+
+def _prepare_messages_for_responses_api(
+    messages: list[Message],
+    model: str,
+    tools: list[ToolSpec] | None,
+) -> tuple[str | None, list[dict[str, Any]], list[dict[str, Any]] | None]:
+    from .models import get_model  # fmt: skip
+
+    model_meta = get_model(model)
+    messages_dicts: Iterable[dict[str, Any]] = _process_msgs(
+        msgs2dicts(messages), model_meta
+    )
+
+    tools_dict = [_spec2tool(tool, model_meta) for tool in tools] if tools else None
+    if tools_dict is not None:
+        messages_dicts = _merge_tool_results_with_same_call_id(
+            _handle_tools(messages_dicts)
+        )
+
+    typed_messages = _transform_msgs_for_special_provider(messages_dicts, model_meta)
+    messages_list = list(typed_messages)
+    instructions, input_items = _messages_dicts_to_responses_input(messages_list)
+    responses_tools = (
+        [_chat_tool_to_responses_tool(tool) for tool in tools_dict]
+        if tools_dict is not None
+        else None
+    )
+    return instructions, input_items, responses_tools
+
+
+def _log_responses_reasoning(item: Any) -> None:
+    summary = _obj_get(item, "summary") or []
+    summary_text = "\n".join(
+        part.text if hasattr(part, "text") else part.get("text", "") for part in summary
+    ).strip()
+    if summary_text:
+        logger.info("Reasoning content: %s", summary_text)
+        return
+
+    content = _obj_get(item, "content") or []
+    content_text = "\n".join(
+        part.text if hasattr(part, "text") else part.get("text", "") for part in content
+    ).strip()
+    if content_text:
+        logger.info("Reasoning content: %s", content_text)
 
 
 def _init_openai_client(
@@ -694,6 +922,54 @@ def chat(
 
     # make the model name prefix with the provider if using LLM_PROXY, to make proxy aware of the provider
     api_model = model if is_proxy else base_model
+
+    if _should_use_responses_api(provider, model_meta, client):
+        instructions, input_items, responses_tools = (
+            _prepare_messages_for_responses_api(messages, model, tools)
+        )
+        text_config = _make_responses_text_config(output_schema, model_meta)
+
+        response_kwargs: dict[str, Any] = {
+            "model": api_model.split("@")[0],
+            "input": input_items,
+            "store": False,
+        }
+        if instructions is not None:
+            response_kwargs["instructions"] = instructions
+        if responses_tools is not None:
+            response_kwargs["tools"] = responses_tools
+        if text_config is not None:
+            response_kwargs["text"] = text_config
+        if max_tokens is not None:
+            response_kwargs["max_output_tokens"] = max_tokens
+        if not is_reasoner:
+            response_kwargs["temperature"] = TEMPERATURE
+            response_kwargs["top_p"] = TOP_P
+
+        response = client.responses.create(**response_kwargs)
+        metadata = _record_usage(response.usage, model)
+
+        result: list[str] = []
+        for item in response.output:
+            item_type = _obj_get(item, "type")
+            if item_type == "reasoning":
+                _log_responses_reasoning(item)
+            elif item_type == "function_call":
+                name = _obj_get(item, "name", "").strip()
+                call_id = _obj_get(item, "call_id", "").strip()
+                arguments = _obj_get(item, "arguments", "")
+                result.append(f"@{name}({call_id}): {arguments}")
+            elif item_type == "message":
+                for part in _obj_get(item, "content", []) or []:
+                    part_type = _obj_get(part, "type")
+                    if part_type == "output_text":
+                        result.append(_obj_get(part, "text", ""))
+                    elif part_type == "refusal":
+                        result.append(_obj_get(part, "refusal", ""))
+
+        if not result:
+            raise ValueError("Responses API returned no usable output items")
+        return "\n".join(part for part in result if part), metadata
 
     from openai.types.chat import ChatCompletionMessageToolCall  # fmt: skip
 
