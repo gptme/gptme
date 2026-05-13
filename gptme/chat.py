@@ -21,7 +21,7 @@ from .init import init
 from .llm import reply
 from .llm.models import get_default_model, get_model
 from .logmanager import Log, LogManager, prepare_messages
-from .message import Message
+from .message import Message, is_output_json, set_output_format
 from .prompt_queue import drain_prompt_queue
 from .telemetry import set_conversation_context, trace_function
 from .tools import (
@@ -57,6 +57,7 @@ def chat(
     tool_allowlist: list[str] | None = None,
     tool_format: ToolFormat | None = None,
     output_schema: type | None = None,
+    output_format: str = "text",
 ) -> None:
     """
     Run the chat loop.
@@ -79,6 +80,9 @@ def chat(
     assert tool_format is not None, (
         "tool_format should be resolved before calling chat()"
     )
+
+    # Apply output format (must happen before any rendering)
+    set_output_format(output_format)
 
     # init
     # Mode detection for confirmation hooks is now handled inside init_hooks()
@@ -113,18 +117,21 @@ def chat(
         )
         stream = False
 
-    console.log(f"Using logdir: {path_with_tilde(logdir)}")
+    if not is_output_json():
+        console.log(f"Using logdir: {path_with_tilde(logdir)}")
     manager = LogManager.load(logdir, initial_msgs=initial_msgs, create=True)
 
     # Note: todo replay is now handled via SESSION_START hook
 
     # Initialize workspace
-    console.log(f"Using workspace: {path_with_tilde(workspace)}")
+    if not is_output_json():
+        console.log(f"Using workspace: {path_with_tilde(workspace)}")
     os.chdir(workspace)
 
-    # print log
-    manager.log.print(show_hidden=show_hidden)
-    console.print("--- ^^^ past messages ^^^ ---")
+    # print log (suppressed in JSON output mode)
+    if not is_output_json():
+        manager.log.print(show_hidden=show_hidden)
+        console.print("--- ^^^ past messages ^^^ ---")
 
     # Note: todo replay is now handled via SESSION_START hook
     # Note: Confirmation is now handled within ToolUse.execute() using the hook system,

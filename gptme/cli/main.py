@@ -212,6 +212,13 @@ Run 'gptme-util --help' for all utility commands."""
     help="Non-interactive mode. Implies --no-confirm.",
 )
 @click.option(
+    "--output-format",
+    "output_format",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    help="Output format for non-interactive mode. 'json' emits one JSON object per line on stdout.",
+)
+@click.option(
     "--system",
     "prompt_system",
     default="full",
@@ -341,6 +348,7 @@ def main(
     verbose: bool,
     no_confirm: bool,
     non_interactive: bool,
+    output_format: str,
     show_hidden: bool,
     version: bool,
     version_json: bool,
@@ -576,7 +584,8 @@ def main(
 
     # Register atexit handler to show conversation ID on exit
     def goodbye_handler():
-        print(f"\nGoodbye! (resume with: gptme --name {logdir.name})")
+        if output_format != "json":
+            print(f"\nGoodbye! (resume with: gptme --name {logdir.name})")
 
     atexit.register(goodbye_handler)
 
@@ -678,6 +687,15 @@ def main(
             )
 
     # Validate non-interactive mode requires a prompt or existing conversation
+    # Validate --output-format json requires --non-interactive
+    # Check the explicit flag (non_interactive) rather than the computed interactive
+    # variable, because the auto-switch (stdin not a TTY) may set interactive=False
+    # after our validation point. We only reject JSON when the user explicitly
+    # requested interactive mode.
+    if output_format == "json" and not non_interactive:
+        logger.error("--output-format json is only allowed with --non-interactive.")
+        sys.exit(1)
+
     if not interactive and not prompt_msgs and not is_existing_conversation:
         logger.error(
             "Non-interactive mode requires a prompt. Provide a prompt as an argument, "
@@ -796,6 +814,7 @@ def main(
             config.chat.tools,
             config.chat.tool_format,
             output_schema_type,
+            output_format,
         )
     except (RuntimeError, Exception) as e:
         logger.error("Fatal error occurred")
