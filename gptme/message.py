@@ -521,8 +521,20 @@ def print_msg(
                 "content": m.content,
                 "timestamp": m.timestamp.isoformat(),
             }
+            if m.files:
+                event["files"] = [
+                    str(f) if isinstance(f, URI) else str(f.resolve()) for f in m.files
+                ]
+            if m.call_id:
+                event["call_id"] = m.call_id
             if m.metadata:
-                event["metadata"] = dict(m.metadata)
+                meta_dict = dict(m.metadata)
+                # Ensure nested usage dict is also a plain dict (not tomlkit types),
+                # same as to_dict() — avoids default=str garbling structured data.
+                usage = meta_dict.get("usage")
+                if isinstance(usage, dict):
+                    meta_dict["usage"] = dict(usage)
+                event["metadata"] = meta_dict
             sys.stdout.write(json.dumps(event, default=str) + "\n")
         sys.stdout.flush()
         return

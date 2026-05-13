@@ -3,10 +3,18 @@
 import json
 from datetime import datetime, timezone
 
+import pytest
 from click.testing import CliRunner
 
 import gptme.cli.main as cli
 from gptme.message import Message, print_msg, set_output_format
+
+
+@pytest.fixture(autouse=True)
+def reset_output_format():
+    """Guarantee _output_format is reset to 'text' after every test, even on failure."""
+    yield
+    set_output_format("text")
 
 
 class TestOutputFormatValidation:

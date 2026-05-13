@@ -155,7 +155,8 @@ def chat(
             output_schema=output_schema,
         )
     except SessionCompleteException as e:
-        console.log(f"Autonomous mode: {e}. Exiting.")
+        if not is_output_json():
+            console.log(f"Autonomous mode: {e}. Exiting.")
 
         # Trigger session end hooks
         if session_end_msgs := trigger_hook(
@@ -164,6 +165,10 @@ def chat(
             for msg in session_end_msgs:
                 manager.append(msg)
         return
+    finally:
+        # Reset global format state so callers that invoke chat() multiple times
+        # (e.g. tests) don't inherit a stale JSON mode.
+        set_output_format("text")
 
 
 def _run_chat_loop(
@@ -267,11 +272,13 @@ def _run_chat_loop(
                         )
                         break
                     prompt_queue.append(msg)
-                    console.log(f"[Loop control] {msg.content[:100]}...")
+                    if not is_output_json():
+                        console.log(f"[Loop control] {msg.content[:100]}...")
                 continue  # Process the queued messages
 
         except KeyboardInterrupt:
-            console.log("Interrupted.")
+            if not is_output_json():
+                console.log("Interrupted.")
             manager.append(Message("system", INTERRUPT_CONTENT))
             # Clear any remaining prompts to avoid confusion
             prompt_queue.clear()
@@ -346,7 +353,8 @@ def _process_message_conversation(
                 )
             )
         except KeyboardInterrupt:
-            console.log("Interrupted during response generation.")
+            if not is_output_json():
+                console.log("Interrupted during response generation.")
             manager.append(Message("system", INTERRUPT_CONTENT))
             break
         finally:
@@ -361,7 +369,8 @@ def _process_message_conversation(
         # Check if user declined execution - return to prompt without generating response
         # This makes "n" at confirm prompt behave like Ctrl+C (return to user prompt)
         if any(msg.content == DECLINED_CONTENT for msg in response_msgs):
-            console.log("Execution declined, returning to prompt.")
+            if not is_output_json():
+                console.log("Execution declined, returning to prompt.")
             break
 
         # Auto-generate display name in background thread to avoid blocking.
@@ -387,7 +396,8 @@ def _process_message_conversation(
         # Check step limit (GPTME_MAX_STEPS)
         step_count += 1
         if max_steps is not None and step_count >= max_steps:
-            console.log(f"Reached max steps limit ({max_steps}), stopping.")
+            if not is_output_json():
+                console.log(f"Reached max steps limit ({max_steps}), stopping.")
             manager.append(
                 Message("system", f"Stopped: reached max steps limit ({max_steps})")
             )
