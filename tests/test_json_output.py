@@ -29,16 +29,21 @@ class TestOutputFormatValidation:
         )
 
     def test_json_with_noninteractive_parses(self):
-        """--output-format json --non-interactive should parse (but may fail on model/etc)."""
+        """--output-format json --non-interactive should fail about missing prompt, not output-format."""
         runner = CliRunner()
+        # Omit the prompt so the CLI exits fast with "requires a prompt" — no API call needed.
         result = runner.invoke(
-            cli.main, ["--output-format", "json", "--non-interactive", "hello"]
+            cli.main, ["--output-format", "json", "--non-interactive"]
         )
-        # It might exit with an error about no model, but not about --output-format
-        if result.exception:
-            assert "output-format" not in str(result.exception).lower(), (
-                f"Unexpected output-format error: {result.exception}"
-            )
+        # Should fail (no prompt given), but the error must not mention --output-format
+        output = (result.output or "").lower()
+        exc_str = str(result.exception or "").lower()
+        assert "output-format" not in output, (
+            f"Unexpected output-format error in output: {result.output}"
+        )
+        assert "output-format" not in exc_str, (
+            f"Unexpected output-format error in exception: {result.exception}"
+        )
 
     def test_output_format_default(self):
         """Default output_format should be 'text'."""
