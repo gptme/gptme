@@ -21,7 +21,7 @@ from .init import init
 from .llm import reply
 from .llm.models import get_default_model, get_model
 from .logmanager import Log, LogManager, prepare_messages
-from .message import Message, is_output_json, set_output_format
+from .message import Message, get_output_format, is_output_json, set_output_format
 from .prompt_queue import drain_prompt_queue
 from .telemetry import set_conversation_context, trace_function
 from .tools import (
@@ -81,7 +81,10 @@ def chat(
         "tool_format should be resolved before calling chat()"
     )
 
-    # Apply output format (must happen before any rendering)
+    # Apply output format (must happen before any rendering).
+    # Save the caller's format so nested chat() calls (inline subagents) can
+    # restore it on exit instead of unconditionally resetting to "text".
+    _prev_output_format = get_output_format()
     set_output_format(output_format)
 
     # init
@@ -166,9 +169,9 @@ def chat(
                 manager.append(msg)
         return
     finally:
-        # Reset global format state so callers that invoke chat() multiple times
-        # (e.g. tests) don't inherit a stale JSON mode.
-        set_output_format("text")
+        # Restore the caller's format so nested chat() calls (inline subagents)
+        # don't clobber the parent's JSON mode when they exit.
+        set_output_format(_prev_output_format)
 
 
 def _run_chat_loop(

@@ -44,6 +44,11 @@ def set_output_format(fmt: str) -> None:
     _output_format = fmt
 
 
+def get_output_format() -> str:
+    """Return the current output format ("text" or "json")."""
+    return _output_format
+
+
 def is_output_json() -> bool:
     """Return True if the output format is set to JSON (JSONL stdout mode)."""
     return _output_format == "json"
@@ -523,8 +528,7 @@ def print_msg(
             }
             if m.files:
                 event["files"] = [
-                    str(f) if isinstance(f, URI) else str(f.resolve())
-                    for f in m.files
+                    str(f) if isinstance(f, URI) else str(f.resolve()) for f in m.files
                 ]
             if m.call_id:
                 event["call_id"] = m.call_id

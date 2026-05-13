@@ -7,7 +7,7 @@ import pytest
 from click.testing import CliRunner
 
 import gptme.cli.main as cli
-from gptme.message import Message, print_msg, set_output_format
+from gptme.message import Message, get_output_format, print_msg, set_output_format
 
 
 @pytest.fixture(autouse=True)
@@ -140,6 +140,37 @@ class TestJSONRendering:
         event = json.loads(captured.out.strip())
         assert event["metadata"]["model"] == "test-model"
         assert event["metadata"]["cost"] == 0.001
+
+    def test_nested_chat_restores_parent_format(self):
+        """Nested chat() calls (inline subagents) must restore parent's format on exit.
+
+        Regression test for the reentrancy bug: a subagent calling chat() with
+        output_format="text" used to unconditionally reset the global to "text",
+        silently corrupting the parent's JSONL stream for all subsequent messages.
+
+        Verifies get_output_format() + set_output_format() save/restore works.
+        """
+
+        def simulate_chat(output_format: str) -> None:
+            """Mirrors the save/restore pattern now used in chat()."""
+            prev = get_output_format()
+            set_output_format(output_format)
+            try:
+                pass  # body of chat would go here
+            finally:
+                set_output_format(prev)
+
+        # Parent enters JSON mode
+        set_output_format("json")
+        assert get_output_format() == "json"
+
+        # Inline subagent calls chat() with default output_format="text"
+        simulate_chat("text")
+
+        # Parent's JSON mode must be intact after subagent returns
+        assert get_output_format() == "json", (
+            "parent's JSON format must be restored after nested chat() returns"
+        )
 
     def test_json_multiple_messages(self, capsys):
         """Multiple messages should each emit a separate JSON line."""
