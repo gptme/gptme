@@ -394,7 +394,7 @@ class CuaComputerTransport(ComputerTransport):
 
         try:
             self._sandbox = self._run_async(_create())
-        except TimeoutError as e:
+        except (TimeoutError, asyncio.TimeoutError) as e:
             self._cleanup_local_container(name)
             self._shutdown_loop()
             raise RuntimeError(
@@ -551,17 +551,18 @@ class CuaComputerTransport(ComputerTransport):
                 path.write_bytes(screenshot)
             else:
                 screenshot.save(str(path))
-            if width and height:
-                subprocess.run(
-                    ["convert", str(path), "-resize", f"{width}x{height}!", str(path)],
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
             return path
 
-        return self._run_async(_capture())  # type: ignore[return-value]
+        path: Path = self._run_async(_capture())  # type: ignore[assignment]
+        if width and height:
+            subprocess.run(
+                ["convert", str(path), "-resize", f"{width}x{height}!", str(path)],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        return path
 
     def cursor_position(self) -> tuple[int, int]:
         self._ensure_sandbox()
