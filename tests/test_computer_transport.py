@@ -10,6 +10,7 @@ existing test suite — this file validates the abstraction layer.
 
 import asyncio
 import os
+import types
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -284,6 +285,7 @@ class TestCuaTransportAsyncio(unittest.TestCase):
         with patch.object(CuaComputerTransport, "__init__", return_value=None):
             result = transport._run_async(_coro())
         self.assertEqual(result, 42)
+        transport._shutdown_loop()
 
     def test_run_async_inside_loop(self):
         """_run_async must not raise when called from inside a running event loop."""
@@ -297,6 +299,222 @@ class TestCuaTransportAsyncio(unittest.TestCase):
 
         result = asyncio.run(_runner())
         self.assertEqual(result, 99)
+        transport._shutdown_loop()
+
+    def test_run_async_reuses_same_loop_between_calls(self):
+        """Repeated calls must reuse one loop so sandbox clients stay valid."""
+        transport = CuaComputerTransport.__new__(CuaComputerTransport)
+
+        async def _loop_id() -> int:
+            return id(asyncio.get_running_loop())
+
+        first = transport._run_async(_loop_id())
+        second = transport._run_async(_loop_id())
+
+        self.assertEqual(first, second)
+        transport._shutdown_loop()
+
+
+class TestCuaTransportSandboxInit(unittest.TestCase):
+    """Verify local sandbox creation uses the expected live compatibility path."""
+
+    @staticmethod
+    def _fake_cua_module(create_impl):
+        class FakeCuaModule(types.ModuleType):
+            Image: object
+            Sandbox: object
+
+        module = FakeCuaModule("cua_sandbox")
+
+        class FakeImage:
+            calls: list[tuple[str, str, str]] = []
+
+            @classmethod
+            def linux(
+                cls, distro: str = "ubuntu", version: str = "24.04", kind: str = "vm"
+            ):
+                cls.calls.append((distro, version, kind))
+                return {
+                    "distro": distro,
+                    "version": version,
+                    "kind": kind,
+                }
+
+        class FakeSandbox:
+            @classmethod
+            async def create(cls, image, **kwargs):
+                return await create_impl(image, **kwargs)
+
+        module.Image = FakeImage
+        module.Sandbox = FakeSandbox
+        return module, FakeImage
+
+    def test_ensure_sandbox_uses_local_container_image(self):
+        """_ensure_sandbox() must create a local Docker-backed Linux container image."""
+        captured: dict[str, object] = {}
+
+        async def fake_create(image, **kwargs):
+            captured["image"] = image
+            captured["kwargs"] = kwargs
+            return object()
+
+        fake_module, fake_image = self._fake_cua_module(fake_create)
+
+        with patch.dict("sys.modules", {"cua_sandbox": fake_module}):
+            transport = CuaComputerTransport()
+            transport._ensure_sandbox()
+            transport._ensure_sandbox()
+
+        self.assertTrue(transport._initialized)
+        self.assertEqual(fake_image.calls, [("ubuntu", "24.04", "container")])
+        self.assertEqual(
+            captured["image"],
+            {"distro": "ubuntu", "version": "24.04", "kind": "container"},
+        )
+        kwargs = captured["kwargs"]
+        assert isinstance(kwargs, dict)
+        self.assertTrue(kwargs["local"])
+        self.assertRegex(kwargs["name"], r"^gptme-cua-[0-9a-f]{8}$")
+
+    def test_timeout_raises_actionable_error(self):
+        """Sandbox startup timeout should surface a stage-specific RuntimeError."""
+
+        async def fake_create(image, **kwargs):
+            raise TimeoutError("container not ready")
+
+        fake_module, _ = self._fake_cua_module(fake_create)
+
+        with patch.dict("sys.modules", {"cua_sandbox": fake_module}):
+            transport = CuaComputerTransport()
+            with (
+                patch.object(transport, "_cleanup_local_container") as mock_cleanup,
+                self.assertRaises(RuntimeError) as ctx,
+            ):
+                transport._ensure_sandbox()
+
+        self.assertFalse(transport._initialized)
+        self.assertIn("Timed out while starting local CUA sandbox", str(ctx.exception))
+        self.assertIn("GPTME_CUA_STARTUP_TIMEOUT", str(ctx.exception))
+        mock_cleanup.assert_called_once()
+
+    def test_timeout_shuts_down_loop_on_failed_init(self):
+        """Background loop must be stopped when sandbox startup times out."""
+
+        async def fake_create(image, **kwargs):
+            raise TimeoutError("container not ready")
+
+        fake_module, _ = self._fake_cua_module(fake_create)
+
+        with patch.dict("sys.modules", {"cua_sandbox": fake_module}):
+            transport = CuaComputerTransport()
+            with (
+                patch.object(transport, "_cleanup_local_container"),
+                patch.object(transport, "_shutdown_loop") as mock_shutdown,
+                self.assertRaises(RuntimeError),
+            ):
+                transport._ensure_sandbox()
+
+        mock_shutdown.assert_called_once()
+
+    def test_exception_shuts_down_loop_on_failed_init(self):
+        """Background loop must be stopped when sandbox init raises any exception."""
+
+        async def fake_create(image, **kwargs):
+            raise ValueError("docker daemon not running")
+
+        fake_module, _ = self._fake_cua_module(fake_create)
+
+        with patch.dict("sys.modules", {"cua_sandbox": fake_module}):
+            transport = CuaComputerTransport()
+            with (
+                patch.object(transport, "_cleanup_local_container"),
+                patch.object(transport, "_shutdown_loop") as mock_shutdown,
+                self.assertRaises(RuntimeError),
+            ):
+                transport._ensure_sandbox()
+
+        mock_shutdown.assert_called_once()
+
+
+class TestCuaTransportLiveCompatibility(unittest.TestCase):
+    """Compatibility checks against the current cua-sandbox return surface."""
+
+    def test_screenshot_writes_byte_payload(self):
+        """Top-level Sandbox.screenshot() byte payloads should be written to disk."""
+
+        class FakeSandbox:
+            async def screenshot(self):
+                return b"\x89PNG\r\n\x1a\nfake"
+
+        transport = CuaComputerTransport.__new__(CuaComputerTransport)
+        transport._sandbox = FakeSandbox()
+        transport._initialized = True
+
+        path = transport.screenshot()
+        try:
+            self.assertTrue(path.exists())
+            self.assertEqual(path.read_bytes(), b"\x89PNG\r\n\x1a\nfake")
+        finally:
+            path.unlink(missing_ok=True)
+
+    def test_close_prefers_destroy_for_ephemeral_sandbox(self):
+        """close() should destroy ephemeral sandboxes on the current API surface."""
+        calls: list[str] = []
+
+        class FakeSandbox:
+            async def destroy(self):
+                calls.append("destroy")
+
+        transport = CuaComputerTransport.__new__(CuaComputerTransport)
+        transport._sandbox = FakeSandbox()
+        transport._initialized = True
+
+        transport.close()
+
+        self.assertEqual(calls, ["destroy"])
+        self.assertIsNone(transport._sandbox)
+        self.assertFalse(transport._initialized)
+
+    def test_close_shuts_down_loop_when_sandbox_is_none(self):
+        """close() must stop the event loop even if _sandbox was never initialized."""
+        transport = CuaComputerTransport.__new__(CuaComputerTransport)
+        transport._sandbox = None
+        transport._initialized = False
+        transport._cursor_position = None
+
+        with patch.object(transport, "_shutdown_loop") as mock_shutdown:
+            transport.close()
+
+        mock_shutdown.assert_called_once()
+
+    def test_left_click_uses_tracked_cursor_position(self):
+        """Clicks should reuse the last mouse_move() position on the current API."""
+        calls: list[tuple[int, int, str]] = []
+
+        class FakeMouse:
+            async def click(self, x: int, y: int, button: str = "left"):
+                calls.append((x, y, button))
+
+        transport = CuaComputerTransport.__new__(CuaComputerTransport)
+        transport._sandbox = types.SimpleNamespace(mouse=FakeMouse())
+        transport._initialized = True
+        transport._cursor_position = (12, 34)
+
+        transport.left_click()
+
+        self.assertEqual(calls, [(12, 34, "left")])
+
+    def test_cursor_position_requires_tracking_when_api_has_no_query(self):
+        """Without a prior move, cursor_position() should explain the current API gap."""
+        transport = CuaComputerTransport.__new__(CuaComputerTransport)
+        transport._sandbox = object()
+        transport._initialized = True
+        transport._cursor_position = None
+
+        with self.assertRaises(RuntimeError) as ctx:
+            transport.cursor_position()
+
+        self.assertIn("Call mouse_move() first", str(ctx.exception))
 
 
 class TestTransportCloseOnEnvVarChange(unittest.TestCase):
