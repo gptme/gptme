@@ -523,7 +523,8 @@ def print_msg(
             }
             if m.files:
                 event["files"] = [
-                    str(f) if isinstance(f, URI) else str(f.resolve()) for f in m.files
+                    str(f) if isinstance(f, URI) else str(f.resolve())
+                    for f in m.files
                 ]
             if m.call_id:
                 event["call_id"] = m.call_id

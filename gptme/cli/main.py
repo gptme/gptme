@@ -630,6 +630,24 @@ def main(
     log_file = logdir / "conversation.jsonl"
     is_existing_conversation = log_file.exists() and log_file.stat().st_size > 0
 
+    # Validate --output-format json and --non-interactive requirements early,
+    # before the expensive get_prompt() call (which can take 10+ seconds).
+    # This avoids CI timeouts when the CLI will just exit with usage error.
+    if output_format == "json" and not non_interactive:
+        logger.error("--output-format json is only allowed with --non-interactive.")
+        sys.exit(1)
+
+    if not interactive and not prompt_msgs and not is_existing_conversation:
+        logger.error(
+            "Non-interactive mode requires a prompt. Provide a prompt as an argument, "
+            "use --resume to continue an existing conversation, or pipe input via stdin.\n\n"
+            "Examples:\n"
+            "  gptme --non-interactive 'hello world'\n"
+            "  gptme --non-interactive --resume\n"
+            "  echo 'hello' | gptme --non-interactive"
+        )
+        sys.exit(1)
+
     if is_existing_conversation:
         logger.debug("Existing conversation found, skipping initial prompt generation")
         initial_msgs = []
@@ -685,27 +703,6 @@ def main(
                 f"Could not load output_schema '{output_schema}': {e}. "
                 "Verify the module is installed and the class name is correct."
             )
-
-    # Validate non-interactive mode requires a prompt or existing conversation
-    # Validate --output-format json requires --non-interactive
-    # Check the explicit flag (non_interactive) rather than the computed interactive
-    # variable, because the auto-switch (stdin not a TTY) may set interactive=False
-    # after our validation point. We only reject JSON when the user explicitly
-    # requested interactive mode.
-    if output_format == "json" and not non_interactive:
-        logger.error("--output-format json is only allowed with --non-interactive.")
-        sys.exit(1)
-
-    if not interactive and not prompt_msgs and not is_existing_conversation:
-        logger.error(
-            "Non-interactive mode requires a prompt. Provide a prompt as an argument, "
-            "use --resume to continue an existing conversation, or pipe input via stdin.\n\n"
-            "Examples:\n"
-            "  gptme --non-interactive 'hello world'\n"
-            "  gptme --non-interactive --resume\n"
-            "  echo 'hello' | gptme --non-interactive"
-        )
-        sys.exit(1)
 
     # Architect/editor split: if enabled via CLI flag OR via TOML config
     _toml_architect_enabled = bool(
