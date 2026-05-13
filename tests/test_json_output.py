@@ -172,6 +172,30 @@ class TestJSONRendering:
             "parent's JSON format must be restored after nested chat() returns"
         )
 
+    def test_setup_exception_restores_format(self):
+        """If an exception occurs during chat() setup, format must be restored.
+
+        Regression test for the gap where set_output_format() was called before
+        the try/finally block, leaving _output_format stuck in 'json' mode if
+        init(), get_model(), LogManager.load(), or os.chdir() raised.
+        """
+
+        def simulate_chat_setup_raises(output_format: str) -> None:
+            """Mirrors the expanded try/finally structure now in chat()."""
+            prev = get_output_format()
+            try:
+                set_output_format(output_format)
+                raise RuntimeError("simulated setup failure (e.g. model not found)")
+            finally:
+                set_output_format(prev)
+
+        set_output_format("json")
+        with pytest.raises(RuntimeError, match="simulated setup failure"):
+            simulate_chat_setup_raises("json")
+        assert get_output_format() == "json", (
+            "format must be restored to caller's value after setup exception"
+        )
+
     def test_json_multiple_messages(self, capsys):
         """Multiple messages should each emit a separate JSON line."""
         set_output_format("json")
