@@ -5,6 +5,7 @@ from dataclasses import replace
 from typing import cast
 
 from dotenv import load_dotenv
+from rich.console import Console
 from rich.logging import RichHandler
 
 from .cli.setup import ask_for_api_key
@@ -187,7 +188,8 @@ def init_model(
 
 
 def init_logging(verbose):
-    handler = RichHandler()  # show_time=False
+    # Route logging to stderr so stdout is clean for piped/JSON output.
+    handler = RichHandler(console=Console(stderr=True))
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(message)s",

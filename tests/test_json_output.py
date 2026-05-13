@@ -1,8 +1,6 @@
 """Tests for the headless JSON output mode (--output-format json)."""
 
-import io
 import json
-import sys
 from datetime import datetime, timezone
 from unittest.mock import patch
 
@@ -222,13 +220,11 @@ class TestJSONOutputIntegration:
     """End-to-end tests validating stdout is pure JSONL when --output-format json is used.
 
     These tests mock chat() to avoid API calls while still exercising the full
-    CLI → chat() → print_msg() → stdout path.
+    CLI → chat() → print_msg() → stdout path via Click's CliRunner.
 
-    Design note: CliRunner (Click's test helper) merges stdout and stderr into
-    result.output, which would mix Rich log lines with our JSON output. To test
-    stdout in isolation we temporarily redirect sys.stdout inside the fake chat()
-    to a separate StringIO buffer; that buffer captures exactly what print_msg()
-    writes, independent of logging.
+    Click 8.2+ exposes result.stdout (stdout only) and result.stderr separately,
+    so we read result.stdout — exactly what a real caller sees when piping stdout.
+    fake_chat calls print_msg() normally; no manual sys.stdout redirect needed.
 
     The critical invariant: EVERY non-empty byte on stdout must be a valid JSON
     object, so callers can do ``for line in proc.stdout: json.loads(line)``.
@@ -236,7 +232,6 @@ class TestJSONOutputIntegration:
 
     def _run_and_capture(self, messages: list[Message]) -> str:
         """Invoke the CLI in JSON mode with a fake chat(); return only what print_msg wrote."""
-        json_out = io.StringIO()
 
         def fake_chat(
             prompt_msgs,
@@ -254,25 +249,23 @@ class TestJSONOutputIntegration:
             output_format="text",
         ):
             prev_fmt = get_output_format()
-            # Redirect sys.stdout so print_msg writes to our isolated buffer,
-            # separate from CliRunner's merged stdout+stderr stream.
-            old_stdout, sys.stdout = sys.stdout, json_out
             try:
                 set_output_format(output_format)
                 for msg in messages:
                     print_msg(msg)
             finally:
-                sys.stdout = old_stdout
                 set_output_format(prev_fmt)
 
         runner = CliRunner()
         with patch("gptme.cli.main.chat", new=fake_chat):
-            runner.invoke(
+            result = runner.invoke(
                 cli.main,
                 ["--output-format", "json", "--non-interactive", "hello"],
                 catch_exceptions=False,
             )
-        return json_out.getvalue()
+        # result.stdout (Click 8.2+) contains only stdout; stderr is separate.
+        # This ensures logging/Rich output on stderr does not contaminate the check.
+        return result.stdout
 
     def _assert_pure_jsonl(self, stdout: str, *, min_lines: int = 1) -> list[dict]:
         """Assert every non-empty stdout line is a valid JSON object; return parsed list."""
