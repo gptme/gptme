@@ -1,7 +1,10 @@
 """Tests for the headless JSON output mode (--output-format json)."""
 
+import io
 import json
+import sys
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
@@ -213,3 +216,147 @@ class TestJSONRendering:
         json.loads(lines[1])  # no error
         assert json.loads(lines[0])["content"] == "first"
         assert json.loads(lines[1])["content"] == "second"
+
+
+class TestJSONOutputIntegration:
+    """End-to-end tests validating stdout is pure JSONL when --output-format json is used.
+
+    These tests mock chat() to avoid API calls while still exercising the full
+    CLI → chat() → print_msg() → stdout path.
+
+    Design note: CliRunner (Click's test helper) merges stdout and stderr into
+    result.output, which would mix Rich log lines with our JSON output. To test
+    stdout in isolation we temporarily redirect sys.stdout inside the fake chat()
+    to a separate StringIO buffer; that buffer captures exactly what print_msg()
+    writes, independent of logging.
+
+    The critical invariant: EVERY non-empty byte on stdout must be a valid JSON
+    object, so callers can do ``for line in proc.stdout: json.loads(line)``.
+    """
+
+    def _run_and_capture(self, messages: list[Message]) -> str:
+        """Invoke the CLI in JSON mode with a fake chat(); return only what print_msg wrote."""
+        json_out = io.StringIO()
+
+        def fake_chat(
+            prompt_msgs,
+            initial_msgs,
+            logdir,
+            workspace,
+            model,
+            stream=True,
+            no_confirm=False,
+            interactive=True,
+            show_hidden=False,
+            tool_allowlist=None,
+            tool_format=None,
+            output_schema=None,
+            output_format="text",
+        ):
+            prev_fmt = get_output_format()
+            # Redirect sys.stdout so print_msg writes to our isolated buffer,
+            # separate from CliRunner's merged stdout+stderr stream.
+            old_stdout, sys.stdout = sys.stdout, json_out
+            try:
+                set_output_format(output_format)
+                for msg in messages:
+                    print_msg(msg)
+            finally:
+                sys.stdout = old_stdout
+                set_output_format(prev_fmt)
+
+        runner = CliRunner()
+        with patch("gptme.cli.main.chat", new=fake_chat):
+            runner.invoke(
+                cli.main,
+                ["--output-format", "json", "--non-interactive", "hello"],
+                catch_exceptions=False,
+            )
+        return json_out.getvalue()
+
+    def _assert_pure_jsonl(self, stdout: str, *, min_lines: int = 1) -> list[dict]:
+        """Assert every non-empty stdout line is a valid JSON object; return parsed list."""
+        lines = [line for line in stdout.splitlines() if line.strip()]
+        assert len(lines) >= min_lines, (
+            f"Expected at least {min_lines} JSON line(s) on stdout, got {len(lines)}.\n"
+            f"Full stdout:\n{stdout!r}"
+        )
+        objects = []
+        for i, line in enumerate(lines):
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError as exc:
+                pytest.fail(
+                    f"Non-JSON on stdout at line {i} — stdout must be pure JSONL.\n"
+                    f"Offending line: {line!r}\n"
+                    f"JSONDecodeError: {exc}\n"
+                    f"Full stdout:\n{stdout!r}"
+                )
+            assert isinstance(obj, dict), (
+                f"Expected a JSON object on line {i}, got {type(obj).__name__}: {line!r}"
+            )
+            objects.append(obj)
+        return objects
+
+    def test_stdout_is_pure_jsonl(self):
+        """Core invariant: stdout contains ONLY valid JSON objects, zero non-JSON lines."""
+        messages = [
+            Message("user", "hello"),
+            Message("assistant", "world"),
+        ]
+        stdout = self._run_and_capture(messages)
+        objects = self._assert_pure_jsonl(stdout, min_lines=2)
+        assert objects[0]["role"] == "user"
+        assert objects[0]["content"] == "hello"
+        assert objects[1]["role"] == "assistant"
+        assert objects[1]["content"] == "world"
+
+    def test_stdout_jsonl_is_machine_readable(self):
+        """Stdout is consumable by a JSONL reader: every line parses, schema is correct."""
+        messages = [Message("assistant", f"message {i}") for i in range(5)]
+        stdout = self._run_and_capture(messages)
+        objects = self._assert_pure_jsonl(stdout, min_lines=5)
+        for i, obj in enumerate(objects):
+            assert obj["content"] == f"message {i}"
+            assert obj["type"] == "message"
+            assert "timestamp" in obj
+            datetime.fromisoformat(obj["timestamp"])  # must be valid ISO 8601
+
+    def test_stdout_has_no_rich_markup(self):
+        """No Rich/ANSI escape codes or prose text leak into the JSONL stream."""
+        messages = [Message("assistant", "clean output")]
+        stdout = self._run_and_capture(messages)
+        self._assert_pure_jsonl(stdout, min_lines=1)
+        assert "\x1b[" not in stdout, "ANSI escape codes leaked into JSONL stdout"
+
+    def test_cli_passes_json_format_to_chat(self):
+        """The CLI must forward output_format='json' to chat() when --output-format json is given."""
+        received_format: list[str] = []
+
+        def fake_chat(
+            prompt_msgs,
+            initial_msgs,
+            logdir,
+            workspace,
+            model,
+            stream=True,
+            no_confirm=False,
+            interactive=True,
+            show_hidden=False,
+            tool_allowlist=None,
+            tool_format=None,
+            output_schema=None,
+            output_format="text",
+        ):
+            received_format.append(output_format)
+
+        runner = CliRunner()
+        with patch("gptme.cli.main.chat", new=fake_chat):
+            runner.invoke(
+                cli.main,
+                ["--output-format", "json", "--non-interactive", "hello"],
+                catch_exceptions=False,
+            )
+        assert received_format == ["json"], (
+            f"CLI must pass output_format='json' to chat(); got {received_format}"
+        )
