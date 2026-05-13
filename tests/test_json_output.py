@@ -317,6 +317,7 @@ class TestJSONOutputIntegration:
         stdout = self._run_and_capture(messages)
         objects = self._assert_pure_jsonl(stdout, min_lines=5)
         for i, obj in enumerate(objects):
+            assert obj["role"] == "assistant"
             assert obj["content"] == f"message {i}"
             assert obj["type"] == "message"
             assert "timestamp" in obj
