@@ -397,6 +397,44 @@ class TestCuaTransportSandboxInit(unittest.TestCase):
         self.assertIn("GPTME_CUA_STARTUP_TIMEOUT", str(ctx.exception))
         mock_cleanup.assert_called_once()
 
+    def test_timeout_shuts_down_loop_on_failed_init(self):
+        """Background loop must be stopped when sandbox startup times out."""
+
+        async def fake_create(image, **kwargs):
+            raise TimeoutError("container not ready")
+
+        fake_module, _ = self._fake_cua_module(fake_create)
+
+        with patch.dict("sys.modules", {"cua_sandbox": fake_module}):
+            transport = CuaComputerTransport()
+            with (
+                patch.object(transport, "_cleanup_local_container"),
+                patch.object(transport, "_shutdown_loop") as mock_shutdown,
+                self.assertRaises(RuntimeError),
+            ):
+                transport._ensure_sandbox()
+
+        mock_shutdown.assert_called_once()
+
+    def test_exception_shuts_down_loop_on_failed_init(self):
+        """Background loop must be stopped when sandbox init raises any exception."""
+
+        async def fake_create(image, **kwargs):
+            raise ValueError("docker daemon not running")
+
+        fake_module, _ = self._fake_cua_module(fake_create)
+
+        with patch.dict("sys.modules", {"cua_sandbox": fake_module}):
+            transport = CuaComputerTransport()
+            with (
+                patch.object(transport, "_cleanup_local_container"),
+                patch.object(transport, "_shutdown_loop") as mock_shutdown,
+                self.assertRaises(RuntimeError),
+            ):
+                transport._ensure_sandbox()
+
+        mock_shutdown.assert_called_once()
+
 
 class TestCuaTransportLiveCompatibility(unittest.TestCase):
     """Compatibility checks against the current cua-sandbox return surface."""
@@ -436,6 +474,18 @@ class TestCuaTransportLiveCompatibility(unittest.TestCase):
         self.assertEqual(calls, ["destroy"])
         self.assertIsNone(transport._sandbox)
         self.assertFalse(transport._initialized)
+
+    def test_close_shuts_down_loop_when_sandbox_is_none(self):
+        """close() must stop the event loop even if _sandbox was never initialized."""
+        transport = CuaComputerTransport.__new__(CuaComputerTransport)
+        transport._sandbox = None
+        transport._initialized = False
+        transport._cursor_position = None
+
+        with patch.object(transport, "_shutdown_loop") as mock_shutdown:
+            transport.close()
+
+        mock_shutdown.assert_called_once()
 
     def test_left_click_uses_tracked_cursor_position(self):
         """Clicks should reuse the last mouse_move() position on the current API."""

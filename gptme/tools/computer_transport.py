@@ -396,6 +396,7 @@ class CuaComputerTransport(ComputerTransport):
             self._sandbox = self._run_async(_create())
         except TimeoutError as e:
             self._cleanup_local_container(name)
+            self._shutdown_loop()
             raise RuntimeError(
                 "Timed out while starting local CUA sandbox "
                 f"(image=linux/ubuntu:24.04 kind=container, timeout={self._startup_timeout:g}s). "
@@ -405,6 +406,7 @@ class CuaComputerTransport(ComputerTransport):
             ) from e
         except Exception as e:
             self._cleanup_local_container(name)
+            self._shutdown_loop()
             raise RuntimeError(
                 "Failed to start local CUA sandbox "
                 f"(image=linux/ubuntu:24.04 kind=container): {e}"
@@ -578,7 +580,7 @@ class CuaComputerTransport(ComputerTransport):
                 self._sandbox = None
                 self._initialized = False
                 self._cursor_position = None
-                self._shutdown_loop()
+        self._shutdown_loop()
 
 
 # ---------------------------------------------------------------------------
