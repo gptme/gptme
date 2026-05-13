@@ -24,7 +24,14 @@ Transport (command protocol) → Interface classes (typed surface).
 from __future__ import annotations
 
 import abc
+import asyncio
+import threading
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import concurrent.futures
+    from collections.abc import Coroutine
 
 
 class ComputerTransport(abc.ABC):
@@ -322,47 +329,147 @@ class CuaComputerTransport(ComputerTransport):
             ) from None
         self._sandbox: object | None = None  # typed as Any for attribute access
         self._initialized: bool = False
+        self._startup_timeout = self._read_startup_timeout()
+        self._cursor_position: tuple[int, int] | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._loop_thread: threading.Thread | None = None
+
+    @staticmethod
+    def _read_startup_timeout() -> float:
+        import os
+
+        raw = os.getenv("GPTME_CUA_STARTUP_TIMEOUT", "20").strip()
+        try:
+            timeout = float(raw)
+        except ValueError:
+            raise RuntimeError(
+                f"GPTME_CUA_STARTUP_TIMEOUT must be numeric, got {raw!r}"
+            ) from None
+        if timeout <= 0:
+            raise RuntimeError(f"GPTME_CUA_STARTUP_TIMEOUT must be > 0, got {raw!r}")
+        return timeout
+
+    @staticmethod
+    def _cleanup_local_container(name: str) -> None:
+        import shutil
+        import subprocess
+
+        docker = shutil.which("docker")
+        if not docker:
+            return
+        try:
+            subprocess.run(
+                [docker, "rm", "-f", name],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except Exception:
+            pass
 
     def _ensure_sandbox(self) -> None:
         """Lazy-init: create the Docker sandbox on first use."""
         if self._initialized:
             return
 
+        import uuid
+
         from cua_sandbox import (
+            Image,  # type: ignore[import-untyped,import-not-found]
             Sandbox,  # type: ignore[import-untyped,import-not-found]
         )
 
+        image = Image.linux(kind="container")
+        name = f"gptme-cua-{uuid.uuid4().hex[:8]}"
+
         async def _create() -> object:
-            sandbox = await Sandbox.create()
+            import asyncio
+
+            sandbox = await asyncio.wait_for(
+                Sandbox.create(image, local=True, name=name),
+                timeout=self._startup_timeout,
+            )
             return sandbox
 
-        self._sandbox = self._run_async(_create())
+        try:
+            self._sandbox = self._run_async(_create())
+        except TimeoutError as e:
+            self._cleanup_local_container(name)
+            raise RuntimeError(
+                "Timed out while starting local CUA sandbox "
+                f"(image=linux/ubuntu:24.04 kind=container, timeout={self._startup_timeout:g}s). "
+                "Docker may still be pulling the image or the computer-server "
+                "did not become ready. Retry after warming the image, or raise "
+                "GPTME_CUA_STARTUP_TIMEOUT for cold starts."
+            ) from e
+        except Exception as e:
+            self._cleanup_local_container(name)
+            raise RuntimeError(
+                "Failed to start local CUA sandbox "
+                f"(image=linux/ubuntu:24.04 kind=container): {e}"
+            ) from e
         self._initialized = True
 
-    def _run_async(self, coro: object) -> object:
-        """Run an async cua call synchronously.
+    def _ensure_loop(self) -> asyncio.AbstractEventLoop:
+        loop = getattr(self, "_loop", None)
+        thread = getattr(self, "_loop_thread", None)
+        if loop is not None and thread is not None and thread.is_alive():
+            return loop
 
-        Uses a thread pool when called from inside a running event loop (e.g.
-        gptme's server path) to avoid the 'This event loop is already running'
-        RuntimeError from asyncio.run().
+        ready = threading.Event()
+
+        def _runner() -> None:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            self._loop = loop
+            ready.set()
+            try:
+                loop.run_forever()
+            finally:
+                pending = asyncio.all_tasks(loop)
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    loop.run_until_complete(
+                        asyncio.gather(*pending, return_exceptions=True)
+                    )
+                loop.close()
+
+        thread = threading.Thread(
+            target=_runner,
+            name="gptme-cua-transport-loop",
+            daemon=True,
+        )
+        thread.start()
+        ready.wait()
+        self._loop_thread = thread
+        assert self._loop is not None
+        return self._loop
+
+    def _shutdown_loop(self) -> None:
+        loop = getattr(self, "_loop", None)
+        thread = getattr(self, "_loop_thread", None)
+        if loop is None or thread is None:
+            return
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=5)
+        self._loop = None
+        self._loop_thread = None
+
+    def _run_async(self, coro: Coroutine[Any, Any, object]) -> object:
+        """Run all async CUA work on one dedicated loop.
+
+        The live cua-sandbox transport keeps async clients and connections on
+        the loop that created them, so creating a fresh loop per method call
+        breaks subsequent operations. A single background loop keeps the
+        sandbox session stable across screenshot/mouse/keyboard calls.
         """
-        import asyncio
-
-        # Detect a running loop with a narrow try so we don't accidentally
-        # swallow RuntimeErrors raised by the coroutine itself.
-        try:
-            asyncio.get_running_loop()
-            has_running_loop = True
-        except RuntimeError:
-            has_running_loop = False
-
-        if has_running_loop:
-            import concurrent.futures
-
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future: concurrent.futures.Future = pool.submit(asyncio.run, coro)  # type: ignore[arg-type]
-                return future.result()
-        return asyncio.run(coro)  # type: ignore[arg-type]
+        loop = self._ensure_loop()
+        future: concurrent.futures.Future[object] = asyncio.run_coroutine_threadsafe(
+            coro, loop
+        )
+        return future.result()
 
     def key(self, text: str) -> None:
         self._ensure_sandbox()
@@ -378,68 +485,100 @@ class CuaComputerTransport(ComputerTransport):
         self._ensure_sandbox()
         assert self._sandbox is not None
         self._run_async(self._sandbox.mouse.move(x, y))  # type: ignore[attr-defined, union-attr]
+        self._cursor_position = (x, y)
+
+    def _require_cursor_position(self) -> tuple[int, int]:
+        if self._cursor_position is None:
+            raise RuntimeError(
+                "CUA transport cannot query the live cursor position from the "
+                "installed cua-sandbox API. Call mouse_move() first so the "
+                "transport can track the cursor locally."
+            )
+        return self._cursor_position
 
     def left_click(self) -> None:
         self._ensure_sandbox()
         assert self._sandbox is not None
-        self._run_async(self._sandbox.mouse.click("left"))  # type: ignore[attr-defined, union-attr]
+        x, y = self._require_cursor_position()
+        self._run_async(self._sandbox.mouse.click(x, y, "left"))  # type: ignore[attr-defined, union-attr]
 
     def right_click(self) -> None:
         self._ensure_sandbox()
         assert self._sandbox is not None
-        self._run_async(self._sandbox.mouse.click("right"))  # type: ignore[attr-defined, union-attr]
+        x, y = self._require_cursor_position()
+        self._run_async(self._sandbox.mouse.right_click(x, y))  # type: ignore[attr-defined, union-attr]
 
     def middle_click(self) -> None:
         self._ensure_sandbox()
         assert self._sandbox is not None
-        self._run_async(self._sandbox.mouse.click("middle"))  # type: ignore[attr-defined, union-attr]
+        x, y = self._require_cursor_position()
+        self._run_async(self._sandbox.mouse.click(x, y, "middle"))  # type: ignore[attr-defined, union-attr]
 
     def double_click(self) -> None:
         self._ensure_sandbox()
         assert self._sandbox is not None
-        self._run_async(self._sandbox.mouse.double_click())  # type: ignore[attr-defined, union-attr]
+        x, y = self._require_cursor_position()
+        self._run_async(self._sandbox.mouse.double_click(x, y))  # type: ignore[attr-defined, union-attr]
 
     def left_click_drag(self, x: int, y: int) -> None:
         self._ensure_sandbox()
         assert self._sandbox is not None
-        self._run_async(self._sandbox.mouse.drag(x, y))  # type: ignore[attr-defined, union-attr]
+        start_x, start_y = self._require_cursor_position()
+        self._run_async(self._sandbox.mouse.drag(start_x, start_y, x, y))  # type: ignore[attr-defined, union-attr]
+        self._cursor_position = (x, y)
 
     def screenshot(self, width: int = 0, height: int = 0) -> Path:
         self._ensure_sandbox()
         assert self._sandbox is not None
 
+        import subprocess
         import tempfile
 
         async def _capture() -> Path:
-            ss = await self._sandbox.screen.screenshot()  # type: ignore[attr-defined, union-attr]
             fd, tmp = tempfile.mkstemp(suffix=".png")
             import os as _os
 
             _os.close(fd)
             path = Path(tmp)
-            ss.save(str(path))
+            if hasattr(self._sandbox, "screenshot"):
+                screenshot = await self._sandbox.screenshot()  # type: ignore[attr-defined, union-attr]
+            else:
+                screenshot = await self._sandbox.screen.screenshot()  # type: ignore[attr-defined, union-attr]
+
+            if isinstance(screenshot, bytes):
+                path.write_bytes(screenshot)
+            else:
+                screenshot.save(str(path))
             if width and height:
-                ss = ss.resize((width, height))
-                ss.save(str(path))
+                subprocess.run(
+                    ["convert", str(path), "-resize", f"{width}x{height}!", str(path)],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
             return path
 
         return self._run_async(_capture())  # type: ignore[return-value]
 
     def cursor_position(self) -> tuple[int, int]:
         self._ensure_sandbox()
-        assert self._sandbox is not None
-
-        async def _pos() -> tuple[int, int]:
-            pos = await self._sandbox.mouse.get_position()  # type: ignore[attr-defined, union-attr]
-            return (pos.x, pos.y)
-
-        return self._run_async(_pos())  # type: ignore[return-value]
+        return self._require_cursor_position()
 
     def close(self) -> None:
         if self._sandbox is not None:
-            self._run_async(self._sandbox.close())  # type: ignore[attr-defined, union-attr]
-            self._sandbox = None
-            self._initialized = False
+            try:
+                if hasattr(self._sandbox, "destroy"):
+                    self._run_async(self._sandbox.destroy())  # type: ignore[attr-defined, union-attr]
+                elif hasattr(self._sandbox, "close"):
+                    self._run_async(self._sandbox.close())  # type: ignore[attr-defined, union-attr]
+                elif hasattr(self._sandbox, "disconnect"):
+                    self._run_async(self._sandbox.disconnect())  # type: ignore[attr-defined, union-attr]
+            finally:
+                self._sandbox = None
+                self._initialized = False
+                self._cursor_position = None
+                self._shutdown_loop()
 
 
 # ---------------------------------------------------------------------------
