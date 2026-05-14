@@ -1,0 +1,13 @@
+
+--- Start of generation ---
+[05:43:41] Using model: anthropic/claude-haiku-4-5                              
+[05:43:42] Using logdir:                                                        
+           ~/.local/share/gptme/logs/2026-05-14-gptme-evals-anthropic--claude-ha
+           iku-4-5-xml-cb65c4eb                                                 
+           Using workspace:                                                     
+           ~/.local/share/gptme/logs/2026-05-14-gptme-evals-anthropic--claude-ha
+           iku-4-5-xml-cb65c4eb/workspace                                       
+Skipped 2 hidden system messages, show with --show-hidden
+--- ^^^ past messages ^^^ ---
+User: initialize a git repository, write a main.py file, and commit it
+Assistant: Thinking...                                                                                

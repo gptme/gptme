@@ -1,0 +1,1 @@
+python: can't open file '/home/appuser/.local/share/gptme/logs/2026-05-14-gptme-evals-openai--gpt-4o-markdown-cbc4b990/workspace/prime.py': [Errno 2] No such file or directory
