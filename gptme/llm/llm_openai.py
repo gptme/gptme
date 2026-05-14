@@ -1122,6 +1122,94 @@ def extra_body(
     return body
 
 
+def _stream_responses(
+    messages: list[Message],
+    model: str,
+    tools: list[ToolSpec] | None,
+    model_meta: ModelMeta,
+    max_tokens: int | None = None,
+) -> Generator[str, None, MessageMetadata | None]:
+    """Stream via the OpenAI Responses API (used for GPT-5 class models)."""
+    from . import _get_base_model, get_provider_from_model  # fmt: skip
+
+    provider = get_provider_from_model(model)
+    client = get_client(provider)
+    is_proxy = _is_proxy(client)
+    base_model = _get_base_model(model)
+    api_model = model if is_proxy else base_model
+    is_reasoner = model_meta.supports_reasoning
+
+    instructions, input_items, responses_tools = _prepare_messages_for_responses_api(
+        messages, model, tools
+    )
+    text_config = _make_responses_text_config(None, model_meta)
+
+    kwargs: dict[str, Any] = {
+        "model": api_model.split("@")[0],
+        "input": input_items,
+        "store": False,
+        "stream": True,
+    }
+    if instructions is not None:
+        kwargs["instructions"] = instructions
+    if responses_tools is not None:
+        kwargs["tools"] = responses_tools
+    if text_config is not None:
+        kwargs["text"] = text_config
+    if max_tokens is not None:
+        kwargs["max_output_tokens"] = max_tokens
+    if not is_reasoner:
+        kwargs["temperature"] = TEMPERATURE
+        kwargs["top_p"] = TOP_P
+
+    # Track function-call items: output_index -> (item_id, name, call_id)
+    func_call_items: dict[int, tuple[str, str, str]] = {}
+    header_emitted: set[int] = set()
+    in_reasoning_block = False
+    captured_metadata: MessageMetadata | None = None
+
+    stream = client.responses.create(**kwargs)
+
+    for event in stream:
+        if event.type == "response.output_item.added":
+            item = event.item
+            if _obj_get(item, "type") == "function_call":
+                func_call_items[event.output_index] = (
+                    _obj_get(item, "id") or _obj_get(item, "call_id") or "",
+                    _obj_get(item, "name", ""),
+                    _obj_get(item, "call_id", ""),
+                )
+
+        elif event.type == "response.reasoning_text.delta":
+            if not in_reasoning_block:
+                yield "<think>\n"
+                in_reasoning_block = True
+            yield event.delta
+
+        elif event.type == "response.output_text.delta":
+            if in_reasoning_block:
+                yield "\n</think>\n\n"
+                in_reasoning_block = False
+            yield event.delta
+
+        elif event.type == "response.function_call_arguments.delta":
+            output_index = event.output_index
+            if output_index not in header_emitted:
+                _, name, call_id = func_call_items.get(output_index, ("", "", ""))
+                yield f"\n@{name}({call_id}): "
+                header_emitted.add(output_index)
+            yield event.delta
+
+        elif event.type == "response.completed":
+            if event.response.usage:
+                captured_metadata = _record_usage(event.response.usage, model)
+
+    if in_reasoning_block:
+        yield "\n</think>\n"
+
+    return captured_metadata
+
+
 @retry_generator_on_openai_error()
 def stream(
     messages: list[Message],
@@ -1146,6 +1234,13 @@ def stream(
 
     # make the model name prefix with the provider if using LLM_PROXY, to make proxy aware of the provider
     api_model = model if is_proxy else base_model
+
+    # Dispatch to Responses API streaming when enabled for GPT-5 class models
+    if _should_use_responses_api(provider, model_meta, client):
+        captured_metadata = yield from _stream_responses(
+            messages, model, tools, model_meta, max_tokens=max_tokens
+        )
+        return captured_metadata
 
     messages_dicts, tools_dict = _prepare_messages_for_api(messages, model, tools)
     response_format = _make_response_format(output_schema)
