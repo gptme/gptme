@@ -425,8 +425,9 @@ jobs:
 
       - name: Set Tauri bundle version from release tag
         shell: bash
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          TAG="${{ inputs.tag || github.ref_name }}"
           export VERSION="${TAG#v}"
           python3 - <<'PY'
           import json
@@ -619,8 +620,8 @@ jobs:
       - name: Upload APK/AAB to release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          TAG="${{ inputs.tag || github.ref_name }}"
           find android-dist -name "*.apk" -o -name "*.aab" | while read -r f; do
             echo "Uploading $f"
             gh release upload "$TAG" "$f" --clobber

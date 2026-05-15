@@ -48,6 +48,9 @@ def get_project_context_cmd_output(cmd: str, workspace: Path) -> str | None:
     console.log(f"Using project context command: {cmd}")
     try:
         start = time.time()
+        # shell=True is intentional: `cmd` is a user-configured project context
+        # command. The trust model is that the user controls `cmd` and is also
+        # the threat model — no untrusted input should ever reach this path.
         result = subprocess.run(
             cmd,
             check=False,
