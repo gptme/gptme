@@ -164,15 +164,18 @@ def test_chats_send(tmp_path, monkeypatch):
     assert [record["content"] for record in records] == ["follow up"]
 
 
-def test_chats_send_help_mentions_second_terminal():
+def test_chats_send_help_mentions_queued_follow_up_flow():
     """Test that chats send help explains the queued-follow-up workflow."""
+    import re
+
     runner = CliRunner()
 
     result = runner.invoke(main, ["chats", "send", "--help"])
 
     assert result.exit_code == 0
-    assert "another gptme process is busy" in result.output
-    assert "next instruction" in result.output
+    help_text = " ".join(result.output.lower().split())
+    assert re.search(r"queue.*prompt", help_text)
+    assert re.search(r"running conversation|gptme process.*busy", help_text)
 
 
 def test_tools_list():
