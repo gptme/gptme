@@ -168,9 +168,9 @@ jobs:
 
       - name: Bump version
         id: version
-        run: |
-          TYPE="${{ github.event.inputs.release_type || 'dev' }}"
-          bash scripts/bump_version.sh --type "$TYPE"
+        env:
+          TYPE: ${{ github.event.inputs.release_type || 'dev' }}
+        run: bash scripts/bump_version.sh --type "$TYPE"
 
       - name: Generate changelog
         run: |

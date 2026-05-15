@@ -208,8 +208,8 @@ jobs:
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
+        TAG: ${{ inputs.tag || github.ref_name }}
       run: |
-        TAG="${{ inputs.tag || github.ref_name }}"
         VERSION="${TAG#v}"
         OS_SUFFIX="${{ runner.os }}-${{ runner.arch }}"
         OS_SUFFIX=$(echo "$OS_SUFFIX" | tr '[:upper:]' '[:lower:]')

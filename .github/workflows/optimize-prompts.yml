@@ -72,22 +72,31 @@ jobs:
           echo "OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}" >> $GITHUB_ENV
 
       - name: Run baseline evaluation
+        env:
+          MODEL: ${{ github.event.inputs.model || 'anthropic/claude-haiku-4-5' }}
         run: |
           python -m gptme.eval.dspy show-prompt \
-            --model "${{ github.event.inputs.model || 'anthropic/claude-haiku-4-5' }}"
+            --model "$MODEL"
 
       - name: Run quick test
+        env:
+          MODEL: ${{ github.event.inputs.model || 'anthropic/claude-haiku-4-5' }}
         run: |
           python -m gptme.eval.dspy -v quick-test \
             --num-examples 5 \
-            --model "${{ github.event.inputs.model || 'anthropic/claude-haiku-4-5' }}"
+            --model "$MODEL"
 
       - name: Run prompt optimization
+        env:
+          OPTIMIZERS: ${{ github.event.inputs.optimizers || 'miprov2,bootstrap' }}
+          MODEL: ${{ github.event.inputs.model || 'anthropic/claude-haiku-4-5' }}
+          MAX_DEMOS: ${{ github.event.inputs.max_demos || '3' }}
+          NUM_TRIALS: ${{ github.event.inputs.num_trials || '10' }}
         run: |
           EXPERIMENT_NAME="automated_optimization_$(date +%Y%m%d_%H%M%S)"
 
           # Convert comma-separated optimizers to multiple flags
-          OPTIMIZERS="${{ github.event.inputs.optimizers || 'miprov2,bootstrap' }}"
+          OPTIMIZERS="$OPTIMIZERS"
           OPTIMIZER_FLAGS=""
           for optimizer in $(echo $OPTIMIZERS | tr ',' ' '); do
             OPTIMIZER_FLAGS="$OPTIMIZER_FLAGS --optimizers $optimizer"
@@ -95,9 +104,9 @@ jobs:
 
           python -m gptme.eval.dspy -v optimize \
             --name "$EXPERIMENT_NAME" \
-            --model "${{ github.event.inputs.model || 'anthropic/claude-haiku-4-5' }}" \
-            --max-demos "${{ github.event.inputs.max_demos || '3' }}" \
-            --num-trials "${{ github.event.inputs.num_trials || '10' }}" \
+            --model "$MODEL" \
+            --max-demos "$MAX_DEMOS" \
+            --num-trials "$NUM_TRIALS" \
             $OPTIMIZER_FLAGS \
             --output-dir ./optimization_results
         continue-on-error: true
@@ -109,12 +118,16 @@ jobs:
 
       - name: Generate summary report
         if: always()
+        env:
+          MODEL: ${{ github.event.inputs.model || 'anthropic/claude-haiku-4-5' }}
+          OPTIMIZERS: ${{ github.event.inputs.optimizers || 'miprov2,bootstrap' }}
+          NUM_TRIALS: ${{ github.event.inputs.num_trials || '10' }}
         run: |
           echo "# Prompt Optimization Summary" > optimization_summary.md
           echo "**Date:** $(date)" >> optimization_summary.md
-          echo "**Model:** ${{ github.event.inputs.model || 'anthropic/claude-haiku-4-5' }}" >> optimization_summary.md
-          echo "**Optimizers:** ${{ github.event.inputs.optimizers || 'miprov2,bootstrap' }}" >> optimization_summary.md
-          echo "**Trials:** ${{ github.event.inputs.num_trials || '10' }}" >> optimization_summary.md
+          echo "**Model:** $MODEL" >> optimization_summary.md
+          echo "**Optimizers:** $OPTIMIZERS" >> optimization_summary.md
+          echo "**Trials:** $NUM_TRIALS" >> optimization_summary.md
           echo "" >> optimization_summary.md
 
           if [ -d "./optimization_results" ]; then
@@ -145,12 +158,14 @@ jobs:
       - name: Create issue with results (on failure)
         if: failure()
         uses: actions/github-script@v9
+        env:
+          MODEL: ${{ github.event.inputs.model || 'anthropic/claude-haiku-4-5' }}
         with:
           script: |
             const fs = require('fs');
             let body = '## Prompt Optimization Failed\n\n';
             body += `**Run:** ${context.runNumber}\n`;
-            body += `**Model:** ${{ github.event.inputs.model || 'anthropic/claude-haiku-4-5' }}\n`;
+            body += `**Model:** ${process.env.MODEL}\n`;
             body += `**Workflow:** [${context.workflow}](${context.payload.repository.html_url}/actions/runs/${context.runId})\n\n`;
 
             if (fs.existsSync('optimization_summary.md')) {
