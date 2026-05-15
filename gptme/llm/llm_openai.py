@@ -1129,7 +1129,17 @@ def _stream_responses(
     model_meta: ModelMeta,
     max_tokens: int | None = None,
 ) -> Generator[str, None, MessageMetadata | None]:
-    """Stream via the OpenAI Responses API (used for GPT-5 class models)."""
+    """Stream via the OpenAI Responses API (used for GPT-5 class models).
+
+    Convergence note: If the reasoning/wrapping logic here and in
+    llm_openai_subscription.py grow further apart, consider merging the
+    streaming loop into a shared _stream_responses_events() helper that
+    accepts an event iterator.  Both providers use the same Responses API
+    SSE event types (output_text.delta, reasoning_text.delta,
+    function_call_arguments.delta, output_item.added, completed).  The
+    only differences are auth, base URL, and the request body shape —
+    all of which are upstream of the event loop.
+    """
     from . import _get_base_model, get_provider_from_model  # fmt: skip
 
     provider = get_provider_from_model(model)
@@ -1165,7 +1175,15 @@ def _stream_responses(
     # Track function-call items: output_index -> (item_id, name, call_id)
     func_call_items: dict[int, tuple[str, str, str]] = {}
     header_emitted: set[int] = set()
+    # Guard against double-wrapping: some models emit BOTH structured
+    # reasoning deltas AND raw <thinking> tags in output_text.delta.
+    # If structured reasoning was seen, skip text-tag conversion so
+    # the output doesn't become <think><think>...</think></think>.
+    seen_reasoning_delta = False
     in_reasoning_block = False
+    # Buffer for detecting <thinking> / </thinking> tags split across
+    # SSE chunks (max tag length is ~11 characters).
+    pending = ""
     captured_metadata: MessageMetadata | None = None
 
     stream = client.responses.create(**kwargs)
@@ -1182,15 +1200,48 @@ def _stream_responses(
 
         elif event.type == "response.reasoning_text.delta":
             if not in_reasoning_block:
+                # Flush any partial-tag buffer before opening think block
+                if pending:
+                    yield pending.replace("<thinking>", "<think>").replace(
+                        "</thinking>", "</think>"
+                    )
+                    pending = ""
                 yield "<think>\n"
                 in_reasoning_block = True
+                seen_reasoning_delta = True
             yield event.delta
 
         elif event.type == "response.output_text.delta":
             if in_reasoning_block:
-                yield "\n</think>\n\n"
+                yield "\n</think>\n"
                 in_reasoning_block = False
-            yield event.delta
+
+            delta_text = event.delta
+            if delta_text:
+                # Combine with any previous partial-tag buffer
+                text = pending + delta_text
+                pending = ""
+
+                if not seen_reasoning_delta:
+                    # Hold back potential partial tag suffix to check in
+                    # next chunk. A trailing `<` is buffered because it
+                    # could be the start of either <thinking> or
+                    # </thinking>.
+                    for tag in ("<thinking>", "</thinking>"):
+                        for i in range(len(tag) - 1, 0, -1):
+                            if text.endswith(tag[:i]):
+                                pending = text[-i:]
+                                text = text[:-i]
+                                break
+                        if pending:
+                            break
+
+                    # Convert <thinking>/</thinking> to <think>/</think>
+                    text = text.replace("<thinking>", "<think>").replace(
+                        "</thinking>", "</think>"
+                    )
+                if text:
+                    yield text
 
         elif event.type == "response.function_call_arguments.delta":
             output_index = event.output_index
@@ -1204,8 +1255,13 @@ def _stream_responses(
             if event.response.usage:
                 captured_metadata = _record_usage(event.response.usage, model)
 
+    # Flush any remaining state.
     if in_reasoning_block:
         yield "\n</think>\n"
+    if pending:
+        yield pending.replace("<thinking>", "<think>").replace(
+            "</thinking>", "</think>"
+        )
 
     return captured_metadata
 
