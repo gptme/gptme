@@ -53,7 +53,7 @@ def _format_size(size_bytes: int) -> str:
 
 @click.group()
 def chats():
-    """Commands for managing chat logs."""
+    """Commands for managing chat logs and queued follow-ups."""
 
 
 @chats.command("list")
@@ -200,7 +200,11 @@ def chats_rename(id: str, name: str):
 @click.argument("id")
 @click.argument("message", nargs=-1, required=True)
 def chats_send(id: str, message: tuple[str, ...]):
-    """Queue a prompt for the next turn of a running conversation."""
+    """Queue a prompt for the next turn of a running conversation.
+
+    This is useful when another gptme process is busy in the same chat and you
+    already know the next instruction you want to send.
+    """
     logdir = get_logs_dir() / id
     if not logdir.exists():
         click.echo(f"Chat '{id}' not found")

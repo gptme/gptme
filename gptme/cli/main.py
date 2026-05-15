@@ -149,7 +149,7 @@ Utilities (gptme-util):
   gptme-util skills show NAME Show a skill or lesson by name
   gptme-util chats list       List past conversations
   gptme-util chats search Q   Search conversations for query
-  gptme-util chats send ID MSG Queue a prompt for a running chat
+  gptme-util chats send ID MSG Queue a prompt for a running chat from another terminal
   gptme-util chats rename     Rename a conversation
   gptme-util models list      List available models
   gptme-util context index    Index project files for RAG
