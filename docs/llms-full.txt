@@ -494,6 +494,20 @@ The ``-`` separator allows you to chain multiple prompts together, letting the a
 
 This is particularly useful for breaking down complex tasks into steps and creating :doc:`automation` workflows.
 
+Queue follow-up prompts
+^^^^^^^^^^^^^^^^^^^^^^^
+
+If another ``gptme`` process is already busy in a conversation, queue the next
+user turn from a second terminal instead of waiting for the current step to
+finish:
+
+.. code-block:: bash
+
+    gptme-util chats send chat-123 "once the tests finish, summarize the failures"
+
+The running conversation will drain the queued prompt on its next turn. Use
+``gptme-util chats list`` if you need to look up the conversation ID first.
+
 Tool Selection Patterns
 ^^^^^^^^^^^^^^^^^^^^^^^
 
