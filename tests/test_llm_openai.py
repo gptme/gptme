@@ -1,11 +1,21 @@
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import Mock
 
 import pytest
+from pydantic import BaseModel
 
 from gptme.config import get_config
 from gptme.llm import llm_openai
-from gptme.llm.llm_openai import _maybe_apply_verbosity, _prepare_messages_for_api
+from gptme.llm.llm_openai import (
+    ContentPart,
+    _content_to_responses_input,
+    _make_responses_text_config,
+    _maybe_apply_verbosity,
+    _messages_dicts_to_responses_input,
+    _prepare_messages_for_api,
+    _should_use_responses_api,
+)
 from gptme.llm.models import get_default_model, get_model, set_default_model
 from gptme.message import Message
 from gptme.tools import get_tool, init_tools
@@ -707,6 +717,118 @@ def test_chat_responses_api_formats_function_calls(monkeypatch):
     assert metadata is None
     responses_create.assert_called_once()
     mock_client.chat.completions.create.assert_not_called()
+
+
+def test_content_to_responses_input_preserves_images():
+    content: list[ContentPart | str] = [
+        {"type": "text", "text": "Describe this image."},
+        {
+            "type": "image_url",
+            "image_url": {"url": "data:image/png;base64,abc123"},
+        },
+    ]
+
+    assert _content_to_responses_input(content) == [
+        {"type": "input_text", "text": "Describe this image."},
+        {
+            "type": "input_image",
+            "image_url": "data:image/png;base64,abc123",
+            "detail": "auto",
+        },
+    ]
+
+
+def test_messages_dicts_to_responses_input_collects_instructions_and_tool_events():
+    instructions, items = _messages_dicts_to_responses_input(
+        [
+            {"role": "system", "content": "You are concise."},
+            {"role": "system", "content": "Prefer bullet points."},
+            {
+                "role": "assistant",
+                "content": "Saving now.",
+                "tool_calls": [
+                    {
+                        "id": "call_123",
+                        "type": "function",
+                        "function": {
+                            "name": "save",
+                            "arguments": '{"path":"note.txt","content":"hi"}',
+                        },
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "content": "Saved to note.txt",
+                "tool_call_id": "call_123",
+            },
+            {"role": "system", "content": "User edited file", "call_id": "call_123"},
+            {"role": "user", "content": "What next?"},
+        ]
+    )
+
+    assert instructions == "You are concise.\n\nPrefer bullet points."
+    assert items == [
+        {"role": "assistant", "content": "Saving now."},
+        {
+            "type": "function_call",
+            "call_id": "call_123",
+            "name": "save",
+            "arguments": '{"path":"note.txt","content":"hi"}',
+        },
+        {
+            "type": "function_call_output",
+            "call_id": "call_123",
+            "output": "Saved to note.txt",
+        },
+        {
+            "type": "function_call_output",
+            "call_id": "call_123",
+            "output": "User edited file",
+        },
+        {"role": "user", "content": "What next?"},
+    ]
+
+
+def test_should_use_responses_api_requires_direct_openai(monkeypatch):
+    monkeypatch.setenv("GPTME_OPENAI_RESPONSES_API", "1")
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+
+    client = cast(Any, SimpleNamespace())
+    assert (
+        _should_use_responses_api("openai", get_model("openai/gpt-5"), client) is True
+    )
+    assert (
+        _should_use_responses_api("openai", get_model("openai/gpt-4o"), client) is False
+    )
+    assert (
+        _should_use_responses_api("openrouter", get_model("openai/gpt-5"), client)
+        is False
+    )
+
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: True)
+    assert (
+        _should_use_responses_api("openai", get_model("openai/gpt-5"), client) is False
+    )
+
+
+def test_make_responses_text_config_includes_schema_and_verbosity(monkeypatch):
+    class OutputSchema(BaseModel):
+        answer: str
+
+    monkeypatch.setattr(llm_openai, "OPENAI_VERBOSITY", "high")
+
+    config = _make_responses_text_config(OutputSchema, get_model("openai/gpt-5"))
+
+    assert config == {
+        "format": {
+            "type": "json_schema",
+            "name": "OutputSchema",
+            "schema": OutputSchema.model_json_schema(),
+            "strict": True,
+        },
+        "verbosity": "high",
+    }
 
 
 def test_transform_msgs_for_groq():
