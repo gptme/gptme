@@ -146,8 +146,24 @@ def _get_agent_name(config: Config) -> str | None:
     return agent_config.name if agent_config and agent_config.name else None
 
 
+# OpenRouter default: 16k is enough headroom for most coding/eval responses
+# while still reducing the credit reservation from model.max_output (up to
+# 64k) to a value that works with partially-spent daily-budget keys.
+# Override with GPTME_MAX_TOKENS for larger responses.
+_OPENROUTER_DEFAULT_MAX_TOKENS = 16000
+
+
 def _resolve_max_tokens(model: str, max_tokens: int | None) -> int | None:
-    """Apply the GPTME_MAX_TOKENS env override for OpenRouter models only."""
+    """Apply the GPTME_MAX_TOKENS env override or a sane default for OpenRouter models.
+
+    When max_tokens is omitted, OpenRouter reserves model.max_output +
+    reasoning_budget credits per request. For large models like Sonnet 4.6
+    that is ~65k tokens. A partially-spent daily-budget key rejects this
+    with HTTP 402 even when the actual response would fit comfortably.
+
+    Setting a default max_tokens reduces the reservation so partial-budget
+    keys still work.
+    """
 
     if max_tokens is not None:
         return max_tokens
@@ -156,27 +172,25 @@ def _resolve_max_tokens(model: str, max_tokens: int | None) -> int | None:
         return None
 
     raw = get_config().get_env("GPTME_MAX_TOKENS")
-    if raw is None or raw == "":
-        return None
+    if raw is not None and raw != "":
+        global _max_tokens_env_warned
+        try:
+            parsed = int(raw)
+        except ValueError:
+            if not _max_tokens_env_warned:
+                logger.warning("Invalid GPTME_MAX_TOKENS value: %r, ignoring", raw)
+                _max_tokens_env_warned = True
+        else:
+            if parsed > 0:
+                return parsed
+            if not _max_tokens_env_warned:
+                logger.warning(
+                    "GPTME_MAX_TOKENS must be a positive integer, got %r; ignoring",
+                    raw,
+                )
+                _max_tokens_env_warned = True
 
-    global _max_tokens_env_warned
-    try:
-        parsed = int(raw)
-    except ValueError:
-        if not _max_tokens_env_warned:
-            logger.warning("Invalid GPTME_MAX_TOKENS value: %r, ignoring", raw)
-            _max_tokens_env_warned = True
-        return None
-
-    if parsed <= 0:
-        if not _max_tokens_env_warned:
-            logger.warning(
-                "GPTME_MAX_TOKENS must be a positive integer, got %r; ignoring", raw
-            )
-            _max_tokens_env_warned = True
-        return None
-
-    return parsed
+    return _OPENROUTER_DEFAULT_MAX_TOKENS
 
 
 @trace_function(name="llm.reply", attributes={"component": "llm"})

@@ -2010,3 +2010,93 @@ class TestOpenrouterModelToModelmeta:
             self._model_data("openrouter/anthropic/claude-sonnet-4-20250514")
         )
         assert meta.full == "openrouter/anthropic/claude-sonnet-4-20250514"
+
+
+class TestResolveMaxTokens:
+    """Tests for _resolve_max_tokens — OpenRouter default-max-tokens behavior."""
+
+    def test_explicit_max_tokens_passthrough(self, monkeypatch):
+        """Explicit max_tokens is passed through unchanged."""
+        from gptme.llm import _resolve_max_tokens
+
+        result = _resolve_max_tokens(
+            "openrouter/anthropic/claude-sonnet-4-20250514", 500
+        )
+        assert result == 500
+
+    def test_non_openrouter_returns_none(self, monkeypatch):
+        """Non-OpenRouter models return None (no default applied)."""
+        from gptme.llm import _resolve_max_tokens
+
+        result = _resolve_max_tokens("openai/gpt-5", None)
+        assert result is None
+
+    def test_openrouter_default_applied(self, monkeypatch):
+        """OpenRouter models get the 16k default when no env var or explicit max_tokens."""
+        from gptme.llm import _resolve_max_tokens
+
+        monkeypatch.delenv("GPTME_MAX_TOKENS", raising=False)
+        result = _resolve_max_tokens(
+            "openrouter/anthropic/claude-sonnet-4-20250514", None
+        )
+        assert result == 16000
+
+    def test_gptme_max_tokens_env_override(self, monkeypatch):
+        """GPTME_MAX_TOKENS env var overrides the default."""
+        from gptme.llm import _resolve_max_tokens
+
+        monkeypatch.setenv("GPTME_MAX_TOKENS", "32000")
+        result = _resolve_max_tokens(
+            "openrouter/anthropic/claude-sonnet-4-20250514", None
+        )
+        assert result == 32000
+
+    def test_explicit_beats_env(self, monkeypatch):
+        """Explicit max_tokens wins over GPTME_MAX_TOKENS env var."""
+        from gptme.llm import _resolve_max_tokens
+
+        monkeypatch.setenv("GPTME_MAX_TOKENS", "32000")
+        result = _resolve_max_tokens(
+            "openrouter/anthropic/claude-sonnet-4-20250514", 1000
+        )
+        assert result == 1000
+
+    def test_env_empty_string_falls_back_to_default(self, monkeypatch):
+        """Empty GPTME_MAX_TOKENS falls back to default, not None."""
+        from gptme.llm import _resolve_max_tokens
+
+        monkeypatch.setenv("GPTME_MAX_TOKENS", "")
+        result = _resolve_max_tokens(
+            "openrouter/anthropic/claude-sonnet-4-20250514", None
+        )
+        assert result == 16000
+
+    def test_env_invalid_string_falls_back_to_default(self, monkeypatch):
+        """Invalid GPTME_MAX_TOKENS falls back to default."""
+        from gptme.llm import _resolve_max_tokens
+
+        monkeypatch.setenv("GPTME_MAX_TOKENS", "sixteen-k")
+        result = _resolve_max_tokens(
+            "openrouter/anthropic/claude-sonnet-4-20250514", None
+        )
+        assert result == 16000
+
+    def test_env_negative_falls_back_to_default(self, monkeypatch):
+        """Negative GPTME_MAX_TOKENS falls back to default."""
+        from gptme.llm import _resolve_max_tokens
+
+        monkeypatch.setenv("GPTME_MAX_TOKENS", "-100")
+        result = _resolve_max_tokens(
+            "openrouter/anthropic/claude-sonnet-4-20250514", None
+        )
+        assert result == 16000
+
+    def test_env_zero_falls_back_to_default(self, monkeypatch):
+        """Zero GPTME_MAX_TOKENS falls back to default."""
+        from gptme.llm import _resolve_max_tokens
+
+        monkeypatch.setenv("GPTME_MAX_TOKENS", "0")
+        result = _resolve_max_tokens(
+            "openrouter/anthropic/claude-sonnet-4-20250514", None
+        )
+        assert result == 16000
