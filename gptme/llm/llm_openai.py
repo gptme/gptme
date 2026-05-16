@@ -374,6 +374,10 @@ def _chat_tool_to_responses_tool(tool: "ChatCompletionToolParam") -> dict[str, A
     }
 
 
+_VALID_VERBOSITY = {"low", "medium", "high"}
+_verbosity_warned = False  # warn at most once per process lifetime
+
+
 def _make_responses_text_config(
     output_schema, model_meta: ModelMeta
 ) -> dict[str, Any] | None:
@@ -925,10 +929,6 @@ def retry_generator_on_openai_error(max_retries: int = 5, base_delay: float = 1.
     return decorator
 
 
-_VALID_VERBOSITY = {"low", "medium", "high"}
-_verbosity_warned = False  # warn at most once per process lifetime
-
-
 def _maybe_apply_verbosity(body: dict[str, Any], model_meta: ModelMeta) -> None:
     """Add verbosity request-body field for GPT-5+ models when set.
 
@@ -1182,6 +1182,7 @@ def _stream_responses(
     model: str,
     tools: list[ToolSpec] | None,
     model_meta: ModelMeta,
+    output_schema=None,
     max_tokens: int | None = None,
 ) -> Generator[str, None, MessageMetadata | None]:
     """Stream via the OpenAI Responses API (used for GPT-5 class models).
@@ -1207,7 +1208,7 @@ def _stream_responses(
     instructions, input_items, responses_tools = _prepare_messages_for_responses_api(
         messages, model, tools
     )
-    text_config = _make_responses_text_config(None, model_meta)
+    text_config = _make_responses_text_config(output_schema, model_meta)
 
     kwargs: dict[str, Any] = {
         "model": api_model.split("@")[0],
@@ -1353,7 +1354,12 @@ def stream(
     # Dispatch to Responses API streaming when enabled for GPT-5 class models
     if _should_use_responses_api(provider, model_meta, client):
         captured_metadata = yield from _stream_responses(
-            messages, model, tools, model_meta, max_tokens=max_tokens
+            messages,
+            model,
+            tools,
+            model_meta,
+            output_schema=output_schema,
+            max_tokens=max_tokens,
         )
         return captured_metadata
 

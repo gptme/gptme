@@ -16,6 +16,7 @@ from gptme.llm.llm_openai import (
     _prepare_messages_for_api,
     _should_use_responses_api,
     _stream_responses,
+    stream,
 )
 from gptme.llm.models import get_default_model, get_model, set_default_model
 from gptme.message import Message
@@ -838,6 +839,86 @@ def test_make_responses_text_config_includes_schema_and_verbosity(monkeypatch):
             "strict": True,
         },
         "verbosity": "high",
+    }
+
+
+def test_stream_forwards_output_schema_to_responses_path(monkeypatch):
+    class OutputSchema(BaseModel):
+        answer: str
+
+    seen: dict[str, Any] = {}
+
+    def fake_stream_responses(
+        messages, model, tools, model_meta, output_schema=None, max_tokens=None
+    ):
+        seen["messages"] = messages
+        seen["model"] = model
+        seen["tools"] = tools
+        seen["model_meta"] = model_meta
+        seen["output_schema"] = output_schema
+        seen["max_tokens"] = max_tokens
+        if False:
+            yield ""
+        return None
+
+    monkeypatch.setattr(llm_openai, "get_client", lambda provider: object())
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+    monkeypatch.setattr(llm_openai, "_should_use_responses_api", lambda *args: True)
+    monkeypatch.setattr(llm_openai, "_stream_responses", fake_stream_responses)
+
+    text, metadata = _collect_stream_result(
+        stream(
+            [Message(role="user", content="Return structured output.")],
+            "openai/gpt-5",
+            None,
+            output_schema=OutputSchema,
+            max_tokens=42,
+        )
+    )
+
+    assert text == ""
+    assert metadata is None
+    assert seen["output_schema"] is OutputSchema
+    assert seen["max_tokens"] == 42
+    assert seen["model"] == "openai/gpt-5"
+
+
+def test_stream_responses_includes_output_schema_in_text_config(monkeypatch):
+    class OutputSchema(BaseModel):
+        answer: str
+
+    events = [
+        SimpleNamespace(
+            type="response.completed",
+            response=SimpleNamespace(usage=None),
+        ),
+    ]
+    responses_create = Mock(return_value=events)
+    mock_client = SimpleNamespace(responses=SimpleNamespace(create=responses_create))
+
+    monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+
+    text, metadata = _collect_stream_result(
+        _stream_responses(
+            [Message(role="user", content="Return structured output.")],
+            "openai/gpt-5",
+            None,
+            get_model("openai/gpt-5"),
+            output_schema=OutputSchema,
+        )
+    )
+
+    assert text == ""
+    assert metadata is None
+    responses_create.assert_called_once()
+    assert responses_create.call_args.kwargs["text"] == {
+        "format": {
+            "type": "json_schema",
+            "name": "OutputSchema",
+            "schema": OutputSchema.model_json_schema(),
+            "strict": True,
+        }
     }
 
 

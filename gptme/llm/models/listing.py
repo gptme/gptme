@@ -29,7 +29,7 @@ def model_to_dict(model: ModelMeta) -> dict[str, Any]:
     d["supports_streaming"] = model.supports_streaming
     d["supports_vision"] = model.supports_vision
     d["supports_reasoning"] = model.supports_reasoning
-    d["supports_responses_api"] = getattr(model, "supports_responses_api", False)
+    d["supports_responses_api"] = model.supports_responses_api
     d["supports_parallel_tool_calls"] = model.supports_parallel_tool_calls
     if model.price_input or model.price_output:
         d["price_input"] = model.price_input
