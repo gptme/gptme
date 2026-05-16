@@ -264,7 +264,7 @@ jobs:
           fi
 
       - name: Upload sidecar artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sidecar-${{ matrix.os }}
           path: tauri/bins/gptme-server-*
