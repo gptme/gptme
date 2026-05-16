@@ -1,3 +1,4 @@
+import logging
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import Mock
@@ -15,12 +16,11 @@ from gptme.llm.llm_openai import (
     _messages_dicts_to_responses_input,
     _prepare_messages_for_api,
     _should_use_responses_api,
-    _stream_responses,
-    stream,
 )
 from gptme.llm.models import get_default_model, get_model, set_default_model
+from gptme.llm.openai_responses import _tool_spec_to_responses_tool
 from gptme.message import Message
-from gptme.tools import get_tool, init_tools
+from gptme.tools import ToolSpec, get_tool, init_tools
 
 
 @pytest.fixture(autouse=True)
@@ -801,6 +801,21 @@ def test_messages_dicts_to_responses_input_collects_instructions_and_tool_events
     ]
 
 
+def test_tool_spec_to_responses_tool_warns_on_truncated_description(caplog):
+    spec = ToolSpec(name="save", desc="x" * 1100)
+
+    with caplog.at_level(logging.WARNING, logger="gptme.llm.openai_responses"):
+        tool = _tool_spec_to_responses_tool(spec)
+
+    assert tool["description"] == "x" * 1024
+    assert "Description for tool `save` is too long" in caplog.text
+
+
+def test_llm_openai_all_excludes_private_responses_helpers():
+    assert "_content_to_responses_input" not in llm_openai.__all__
+    assert "_messages_dicts_to_responses_input" not in llm_openai.__all__
+
+
 def test_should_use_responses_api_requires_direct_openai(monkeypatch):
     monkeypatch.setenv("GPTME_OPENAI_RESPONSES_API", "1")
     monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
@@ -867,7 +882,7 @@ def test_stream_forwards_output_schema_to_responses_path(monkeypatch):
     monkeypatch.setattr(llm_openai, "_stream_responses", fake_stream_responses)
 
     text, metadata = _collect_stream_result(
-        stream(
+        llm_openai.stream(
             [Message(role="user", content="Return structured output.")],
             "openai/gpt-5",
             None,
@@ -900,7 +915,7 @@ def test_stream_responses_includes_output_schema_in_text_config(monkeypatch):
     monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
 
     text, metadata = _collect_stream_result(
-        _stream_responses(
+        llm_openai._stream_responses(
             [Message(role="user", content="Return structured output.")],
             "openai/gpt-5",
             None,
@@ -964,7 +979,7 @@ def test_stream_responses_emits_function_calls_and_usage(monkeypatch):
     monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
 
     text, metadata = _collect_stream_result(
-        _stream_responses(
+        llm_openai._stream_responses(
             [Message(role="user", content="Save a note.")],
             "openai/gpt-5",
             None,
@@ -1002,7 +1017,7 @@ def test_stream_responses_removes_duplicate_thinking_text_when_reasoning_deltas_
     monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
 
     text, metadata = _collect_stream_result(
-        _stream_responses(
+        llm_openai._stream_responses(
             [Message(role="user", content="Say hello.")],
             "openai/gpt-5",
             None,
@@ -1036,7 +1051,7 @@ def test_stream_responses_converts_split_thinking_tags_without_reasoning_deltas(
     monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
 
     text, metadata = _collect_stream_result(
-        _stream_responses(
+        llm_openai._stream_responses(
             [Message(role="user", content="Think, then answer.")],
             "openai/gpt-5",
             None,

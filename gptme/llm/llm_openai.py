@@ -6,11 +6,10 @@ import re
 import time
 from collections.abc import Generator, Iterable
 from functools import lru_cache, wraps
-from typing import TYPE_CHECKING, Any, TypedDict, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import requests
 from openai import NOT_GIVEN, NotGiven
-from typing_extensions import NotRequired
 
 from ..config import Config, get_config
 from ..constants import OPENAI_VERBOSITY, TEMPERATURE, TOP_P
@@ -23,6 +22,20 @@ from .models import (
     ModelMeta,
     Provider,
     is_custom_provider,
+)
+from .openai_responses import (
+    ContentPart,
+    MessageContent,
+    MessageDict,
+    ToolCall,
+    ToolCallFunction,
+    _content_to_responses_input,  # noqa: F401
+    _extract_usage_token_counts,
+    _filter_duplicate_thinking_text,
+    _longest_suffix_prefix,
+    _messages_dicts_to_responses_input,
+    _obj_get,
+    _tool_spec_to_responses_tool,
 )
 from .utils import (
     apply_cache_control,
@@ -41,6 +54,11 @@ if TYPE_CHECKING:
 clients: dict[Provider, "OpenAI"] = {}
 logger = logging.getLogger(__name__)
 
+__all__ = [
+    "ContentPart",
+    "MessageContent",
+]
+
 
 def _get_provider_api_key(config: Config, provider: Provider, env_var: str) -> str:
     """Resolve a provider key from env/config first, then credentials.toml."""
@@ -54,63 +72,6 @@ def _get_provider_api_key(config: Config, provider: Provider, env_var: str) -> s
     )
 
 
-# Type definitions for message dictionaries used in API transformations
-class ContentPart(TypedDict):
-    """A content part in a multimodal message."""
-
-    type: str  # "text", "image_url", etc. - always required
-    text: NotRequired[str]  # For text parts
-    image_url: NotRequired[dict[str, str]]  # For image parts: {"url": "data:..."}
-
-
-# Type alias for message content (can be string, list of parts, or None)
-MessageContent = str | list[ContentPart | str] | None
-
-
-class ToolCallFunction(TypedDict):
-    """Function details in a tool call."""
-
-    name: str
-    arguments: str
-
-
-class ToolCall(TypedDict):
-    """A tool call in an assistant message."""
-
-    id: str
-    type: str  # "function"
-    function: ToolCallFunction
-
-
-class MessageDict(TypedDict):
-    """
-    Dictionary representation of a chat message for API calls.
-
-    This type covers the internal message format used when preparing
-    messages for various LLM providers. Not all fields are present
-    in all messages - the required fields vary by role.
-    """
-
-    # Core fields (always required)
-    role: str  # "system", "user", "assistant", "tool"
-    content: MessageContent
-
-    # Tool-related fields (optional)
-    tool_calls: NotRequired[list[ToolCall]]  # For assistant messages that call tools
-    tool_call_id: NotRequired[str]  # For tool response messages
-    call_id: NotRequired[
-        str
-    ]  # Legacy field for tool responses (converted to tool_call_id)
-
-    # Reasoning/thinking fields (for models with thinking/reasoning support)
-    reasoning_content: NotRequired[str]
-
-    # Multimodal fields
-    files: NotRequired[
-        list[str]
-    ]  # Image/file attachments as file paths (processed before API call)
-
-
 # OPENROUTER_APP_HEADERS canonical definition is in gptme.llm.constants;
 # re-exported here for backward compatibility with existing
 # `from gptme.llm.llm_openai import OPENROUTER_APP_HEADERS` imports.
@@ -121,37 +82,12 @@ def _record_usage(usage, model: str) -> MessageMetadata | None:
     if not usage:
         return None
 
-    # Extract token counts (OpenAI uses different field names than Anthropic)
-    prompt_tokens = getattr(usage, "prompt_tokens", None)
-    output_tokens = getattr(usage, "completion_tokens", None)
-    details = getattr(usage, "prompt_tokens_details", None)
-    if prompt_tokens is None:
-        prompt_tokens = getattr(usage, "input_tokens", None)
-        details = getattr(usage, "input_tokens_details", None)
-    if output_tokens is None:
-        output_tokens = getattr(usage, "output_tokens", None)
-    cache_read_tokens = getattr(details, "cached_tokens", None)
-    # OpenRouter currently exposes cache writes in two response shapes:
-    # 1) legacy passthrough: usage.cache_creation_input_tokens
-    # 2) current nested usage: usage.prompt_tokens_details.cache_write_tokens
-    # Keep both so telemetry survives provider/schema drift.
-    cache_creation_tokens = getattr(usage, "cache_creation_input_tokens", None)
-    if cache_creation_tokens is None:
-        cache_creation_tokens = getattr(details, "cache_write_tokens", None)
-    total_tokens = getattr(usage, "total_tokens", None)
-
-    # subtract cache_read_tokens AND cache_creation_tokens from prompt_tokens
-    # to avoid double counting — OpenRouter/Anthropic reports prompt_tokens as
-    # the inclusive total.
-    # Ensure we have actual integers, not Mock objects from tests
-    if isinstance(prompt_tokens, int):
-        cache_read = cache_read_tokens if isinstance(cache_read_tokens, int) else 0
-        cache_create = (
-            cache_creation_tokens if isinstance(cache_creation_tokens, int) else 0
-        )
-        input_tokens = prompt_tokens - cache_read - cache_create
-    else:
-        input_tokens = None
+    counts = _extract_usage_token_counts(usage)
+    input_tokens = counts.input_tokens
+    output_tokens = counts.output_tokens
+    cache_read_tokens = counts.cache_read_tokens
+    cache_creation_tokens = counts.cache_creation_tokens
+    total_tokens = counts.total_tokens
 
     # Determine the provider for telemetry
     # For OpenRouter models, detect the underlying provider from the model string
@@ -252,128 +188,6 @@ def _should_use_responses_api(
     )
 
 
-def _obj_get(obj: Any, key: str, default: Any = None) -> Any:
-    if isinstance(obj, dict):
-        return obj.get(key, default)
-    return getattr(obj, key, default)
-
-
-def _longest_suffix_prefix(text: str, pattern: str) -> str:
-    """Return the longest suffix of ``text`` that could continue ``pattern``."""
-    max_len = min(len(text), len(pattern) - 1)
-    for size in range(max_len, 0, -1):
-        suffix = text[-size:]
-        if pattern.startswith(suffix):
-            return suffix
-    return ""
-
-
-def _filter_duplicate_thinking_text(
-    text: str, *, in_thinking_block: bool
-) -> tuple[str, str, bool]:
-    """Strip raw <thinking>...</thinking> spans after structured reasoning events.
-
-    Some Responses API models emit reasoning twice while streaming:
-    - structured ``response.reasoning_text.delta`` events, and
-    - duplicate raw ``<thinking>...</thinking>`` text inside
-      ``response.output_text.delta``.
-
-    When structured reasoning was already emitted, keep only the non-thinking
-    output text and buffer partial tags across chunk boundaries.
-    """
-
-    open_tag = "<thinking>"
-    close_tag = "</thinking>"
-    output_parts: list[str] = []
-    remaining = text
-
-    while remaining:
-        if in_thinking_block:
-            close_index = remaining.find(close_tag)
-            if close_index == -1:
-                pending = _longest_suffix_prefix(remaining, close_tag)
-                return "".join(output_parts), pending, True
-            remaining = remaining[close_index + len(close_tag) :]
-            in_thinking_block = False
-            continue
-
-        open_index = remaining.find(open_tag)
-        if open_index == -1:
-            pending = _longest_suffix_prefix(remaining, open_tag)
-            if pending:
-                output_parts.append(remaining[: -len(pending)])
-            else:
-                output_parts.append(remaining)
-            return "".join(output_parts), pending, False
-
-        output_parts.append(remaining[:open_index])
-        remaining = remaining[open_index + len(open_tag) :]
-        in_thinking_block = True
-
-    return "".join(output_parts), "", in_thinking_block
-
-
-def _content_to_text(content: MessageContent) -> str:
-    if content is None:
-        return ""
-    if isinstance(content, str):
-        return content
-
-    text_parts: list[str] = []
-    for part in content:
-        if isinstance(part, str):
-            text_parts.append(part)
-        elif isinstance(part, dict) and part.get("type") == "text":
-            text_parts.append(part.get("text", ""))
-    return "".join(text_parts)
-
-
-def _content_to_responses_input(content: MessageContent) -> str | list[dict[str, Any]]:
-    if content is None:
-        return ""
-    if isinstance(content, str):
-        return content
-
-    converted: list[dict[str, Any]] = []
-    for part in content:
-        if isinstance(part, str):
-            converted.append({"type": "input_text", "text": part})
-            continue
-        if not isinstance(part, dict):
-            raise TypeError(f"Unsupported content part type: {type(part)!r}")
-
-        part_type = part.get("type")
-        if part_type == "text":
-            converted.append({"type": "input_text", "text": part.get("text", "")})
-        elif part_type == "image_url":
-            image_url = _obj_get(part.get("image_url", {}), "url")
-            if not image_url:
-                raise ValueError("image_url content part missing url")
-            converted.append(
-                {
-                    "type": "input_image",
-                    "image_url": image_url,
-                    "detail": "auto",
-                }
-            )
-        else:
-            raise ValueError(f"Unsupported responses input part type: {part_type!r}")
-
-    if all(item["type"] == "input_text" for item in converted):
-        return "".join(item["text"] for item in converted)
-    return converted
-
-
-def _chat_tool_to_responses_tool(tool: "ChatCompletionToolParam") -> dict[str, Any]:
-    function = tool["function"]
-    return {
-        "type": tool["type"],
-        "name": function["name"],
-        "description": function["description"],
-        "parameters": function["parameters"],
-    }
-
-
 _VALID_VERBOSITY = {"low", "medium", "high"}
 _verbosity_warned = False  # warn at most once per process lifetime
 
@@ -407,69 +221,6 @@ def _make_responses_text_config(
     return text_config or None
 
 
-def _messages_dicts_to_responses_input(
-    messages_dicts: list[MessageDict],
-) -> tuple[str | None, list[dict[str, Any]]]:
-    instructions_parts: list[str] = []
-    items: list[dict[str, Any]] = []
-
-    for message in messages_dicts:
-        role = message["role"]
-        tool_call_id = _obj_get(message, "tool_call_id") or _obj_get(message, "call_id")
-
-        if role == "system" and tool_call_id:
-            items.append(
-                {
-                    "type": "function_call_output",
-                    "call_id": tool_call_id,
-                    "output": _content_to_text(message["content"]),
-                }
-            )
-            continue
-
-        if role == "tool":
-            items.append(
-                {
-                    "type": "function_call_output",
-                    "call_id": tool_call_id,
-                    "output": _content_to_text(message["content"]),
-                }
-            )
-            continue
-
-        if role == "system":
-            text = _content_to_text(message["content"]).strip()
-            if text:
-                instructions_parts.append(text)
-            continue
-
-        if role == "assistant" and message.get("tool_calls"):
-            text = _content_to_text(message.get("content")).strip()
-            if text:
-                items.append({"role": "assistant", "content": text})
-            for tool_call in message["tool_calls"]:
-                function = tool_call["function"]
-                items.append(
-                    {
-                        "type": "function_call",
-                        "call_id": tool_call["id"],
-                        "name": function["name"],
-                        "arguments": function["arguments"],
-                    }
-                )
-            continue
-
-        items.append(
-            {
-                "role": role,
-                "content": _content_to_responses_input(message["content"]),
-            }
-        )
-
-    instructions = "\n\n".join(instructions_parts).strip() or None
-    return instructions, items
-
-
 def _prepare_messages_for_responses_api(
     messages: list[Message],
     model: str,
@@ -482,8 +233,7 @@ def _prepare_messages_for_responses_api(
         msgs2dicts(messages), model_meta
     )
 
-    tools_dict = [_spec2tool(tool, model_meta) for tool in tools] if tools else None
-    if tools_dict is not None:
+    if tools:
         messages_dicts = _merge_tool_results_with_same_call_id(
             _handle_tools(messages_dicts)
         )
@@ -492,9 +242,7 @@ def _prepare_messages_for_responses_api(
     messages_list = list(typed_messages)
     instructions, input_items = _messages_dicts_to_responses_input(messages_list)
     responses_tools = (
-        [_chat_tool_to_responses_tool(tool) for tool in tools_dict]
-        if tools_dict is not None
-        else None
+        [_tool_spec_to_responses_tool(tool) for tool in tools] if tools else None
     )
     return instructions, input_items, responses_tools
 

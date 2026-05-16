@@ -50,8 +50,12 @@ from uuid import uuid4
 import requests
 
 from ..message import Message
-from ..tools.base import ToolSpec
-from .utils import extract_tool_uses_from_assistant_message, parameters2dict
+from .openai_responses import (
+    _filter_duplicate_thinking_text,
+    _longest_suffix_prefix,
+    _messages_to_responses_input,
+    _tool_spec_to_responses_tool,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -443,89 +447,16 @@ def get_auth() -> SubscriptionAuth:
     )
 
 
-def _messages_to_responses_input(messages: list[Message]) -> list[dict[str, Any]]:
-    """Convert gptme Messages to Responses API input items.
-
-    Handles three cases:
-    - System messages with call_id → ``function_call_output`` items
-    - Assistant messages containing tool calls → ``function_call`` items + text message
-    - Regular messages → ``message`` items with role/content
-    """
-    items: list[dict[str, Any]] = []
-    for msg in messages:
-        # Tool result: system message with call_id
-        if msg.role == "system" and msg.call_id:
-            items.append(
-                {
-                    "type": "function_call_output",
-                    "call_id": msg.call_id,
-                    "output": msg.content,
-                }
-            )
-            continue
-
-        # Assistant message: may contain tool calls (e.g. @ipython(call_123): {...})
-        if msg.role == "assistant":
-            content_parts, tool_uses = extract_tool_uses_from_assistant_message(
-                msg.content, tool_format_override="tool"
-            )
-            # Emit function_call items for each tool use found
-            items.extend(
-                {
-                    "type": "function_call",
-                    "name": tooluse.tool,
-                    "call_id": tooluse.call_id or "",
-                    "arguments": json.dumps(tooluse.kwargs or {}),
-                }
-                for tooluse in tool_uses
-            )
-            # Emit remaining text content as a message (if any)
-            text = "".join(
-                p["text"] if isinstance(p, dict) else str(p) for p in content_parts
-            ).strip()
-            if text:
-                items.append({"role": "assistant", "content": text})
-            elif not tool_uses:
-                # No tool uses and no text — still include the message
-                items.append({"role": "assistant", "content": msg.content})
-            continue
-
-        # Regular message (user, system without call_id)
-        items.append({"role": msg.role, "content": msg.content})
-
-    return items
-
-
-def _spec2tool(spec: ToolSpec) -> dict[str, Any]:
-    """Convert a ToolSpec to Responses API function tool format.
-
-    The Responses API uses a flat structure (name/description/parameters at top level),
-    unlike Chat Completions which nests them under a ``function`` key.
-    """
-    name = spec.block_types[0] if spec.block_types else spec.name
-    description = spec.get_instructions("tool")
-    if len(description) > 1024:
-        description = description[:1024]
-    return {
-        "type": "function",
-        "name": name,
-        "description": description,
-        "parameters": parameters2dict(spec.parameters),
-    }
-
-
 def _transform_to_codex_request(
     input_items: list[dict[str, Any]],
     model: str,
+    *,
+    instructions: str | None = None,
     stream: bool = True,
     reasoning_level: str | None = None,
     max_output_tokens: int | None = None,
 ) -> dict[str, Any]:
-    """Build a Responses API request body from pre-converted input items.
-
-    Extracts system messages as ``instructions``, passes everything else
-    (messages, function_call, function_call_output) as ``input``.
-    """
+    """Build a Responses API request body from shared Responses helpers."""
     base_model = model.split(":")[0] if ":" in model else model
     if ":" in model:
         reasoning_level = model.split(":")[1]
@@ -533,23 +464,10 @@ def _transform_to_codex_request(
     if reasoning_level is None:
         reasoning_level = "medium"
 
-    # System messages (role-based, no "type") become instructions
-    system_parts = []
-    api_input = []
-    for item in input_items:
-        if item.get("role") == "system":
-            system_parts.append(item["content"])
-        else:
-            api_input.append(item)
-
-    instructions = (
-        "\n\n".join(system_parts) if system_parts else "You are a helpful assistant."
-    )
-
     body: dict[str, Any] = {
         "model": base_model,
-        "instructions": instructions,
-        "input": api_input,
+        "instructions": instructions or "You are a helpful assistant.",
+        "input": input_items,
         "stream": stream,
         "store": False,
         "reasoning": {
@@ -589,17 +507,18 @@ def stream(
     """Stream completion from ChatGPT subscription API."""
     auth = get_auth()
 
-    api_messages = _messages_to_responses_input(messages)
+    instructions, api_messages = _messages_to_responses_input(messages)
 
     request_body = _transform_to_codex_request(
         input_items=api_messages,
         model=model,
+        instructions=instructions,
         stream=True,
         max_output_tokens=max_tokens,
     )
 
     if tools:
-        request_body["tools"] = [_spec2tool(t) for t in tools]
+        request_body["tools"] = [_tool_spec_to_responses_tool(t) for t in tools]
 
     headers = {
         "Authorization": f"Bearer {auth.access_token}",
@@ -630,6 +549,7 @@ def stream(
     seen_reasoning_delta = False
     # Buffer to detect tags split across SSE chunks (max tag length is ~11 chars)
     pending = ""
+    in_duplicate_thinking_block = False
 
     for line in response.iter_lines():
         if not line:
@@ -677,22 +597,18 @@ def stream(
                 text = pending + delta_text
                 pending = ""
 
-                if not seen_reasoning_delta:
-                    # Hold back potential partial tag suffix to check in next chunk.
-                    # A trailing `<` is buffered because it could be the start of either
-                    # `<thinking>` or `</thinking>`; it will be re-evaluated on the next chunk.
-                    match_found = False
+                if seen_reasoning_delta:
+                    text, pending, in_duplicate_thinking_block = (
+                        _filter_duplicate_thinking_text(
+                            text, in_thinking_block=in_duplicate_thinking_block
+                        )
+                    )
+                else:
                     for tag in ("<thinking>", "</thinking>"):
-                        for i in range(len(tag) - 1, 0, -1):
-                            if text.endswith(tag[:i]):
-                                pending = text[-i:]
-                                text = text[:-i]
-                                match_found = True
-                                break
-                        if match_found:
+                        pending = _longest_suffix_prefix(text, tag)
+                        if pending:
+                            text = text[: -len(pending)]
                             break
-
-                    # Convert <thinking>/<\/thinking> to <think>/<\/think>
                     text = text.replace("<thinking>", "<think>").replace(
                         "</thinking>", "</think>"
                     )
@@ -704,11 +620,11 @@ def stream(
             if in_reasoning_block:
                 yield "\n</think>\n"
                 in_reasoning_block = False
-            if pending:
+            if pending and not in_duplicate_thinking_block:
                 yield pending.replace("<thinking>", "<think>").replace(
                     "</thinking>", "</think>"
                 )
-                pending = ""
+            pending = ""
             item = data.get("item", {})
             if item.get("type") == "function_call":
                 name = item.get("name", "")
@@ -730,7 +646,7 @@ def stream(
     # Close the reasoning block first so any pending text lands outside it.
     if in_reasoning_block:
         yield "\n</think>\n"
-    if pending:
+    if pending and not in_duplicate_thinking_block:
         yield pending.replace("<thinking>", "<think>").replace(
             "</thinking>", "</think>"
         )
