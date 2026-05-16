@@ -656,3 +656,203 @@ Contributions welcome! See the [contributing guide](https://gptme.org/docs/contr
 [docs-mcp]: https://gptme.org/docs/mcp.html
 [docs-acp]: https://gptme.org/docs/acp.html
 [anthropic-computer-use]: https://www.anthropic.com/news/3-5-models-and-computer-use
+## ❓ FAQ
+
+### What is gptme?
+
+gptme is a **personal AI agent that runs anywhere a terminal runs** — your laptop, SSH sessions, tmux, headless servers, CI pipelines. It's provider-agnostic, local-first, and unconstrained: ships with shell, Python, web, vision, and everything else an agent needs. Pronounced /ʤiː piː tiː miː/ like "GPT-ME".
+
+### How does gptme compare to other AI coding assistants?
+
+| Feature | gptme | Claude Code | Cursor | Warp |
+|---------|-------|-------------|--------|------|
+| **Environment** | Any terminal | Terminal | IDE | Terminal |
+| **Autonomy** | Autonomous agents | One-shot | IDE-assisted | Terminal AI |
+| **Local-first** | ✅ Full support | ❌ API required | ❌ API required | ❌ API required |
+| **MCP Support** | ✅ Built-in | ✅ Built-in | ❌ | ❌ |
+| **Plugin System** | ✅ Full plugins | ❌ | ✅ Extensions | ❌ |
+| **Web Browsing** | ✅ Playwright | ❌ | ❌ | ❌ |
+| **Vision** | ✅ Screenshots/Images | ✅ | ✅ | ❌ |
+| **Self-hosting** | ✅ Full control | ❌ | ❌ | ❌ |
+
+### How do I install gptme?
+
+**Prerequisites**: Python 3.10+ or Node.js
+
+**Installation**:
+```bash
+pip install gptme
+# or
+pipx install gptme
+```
+
+**First Run**:
+```bash
+gptme
+```
+
+### What AI providers does gptme support?
+
+gptme supports multiple AI providers:
+
+| Provider | Setup | Features |
+|----------|-------|----------|
+| **Anthropic** | `ANTHROPIC_API_KEY` | Claude 3.7 Sonnet, Opus |
+| **OpenAI** | `OPENAI_API_KEY` | GPT-4, GPT-3.5 |
+| **Google** | `GOOGLE_API_KEY` | Gemini |
+| **xAI** | `XAI_API_KEY` | Grok |
+| **DeepSeek** | `DEEPSEEK_API_KEY` | DeepSeek V3, R1 |
+| **OpenRouter** | `OPENROUTER_API_KEY` | Multi-provider gateway |
+| **llama.cpp** | Local server | Fully local, no API |
+
+### How do I use local models?
+
+Use **llama.cpp** for fully local operation:
+
+1. Start llama.cpp server:
+```bash
+llama-server --model ./models/llama-3.gguf --port 8080
+```
+
+2. Configure gptme:
+```bash
+export LLAMACPP_API_URL=http://localhost:8080
+gptme --model llama
+```
+
+### What tools does gptme have?
+
+gptme ships with comprehensive tools:
+
+- **shell**: Execute commands in terminal
+- **python**: Run Python code
+- **patch**: Make incremental file edits
+- **browser**: Browse web via Playwright
+- **vision**: Process images/screenshots
+- **tmux**: Manage tmux sessions
+- **morph**: Fast file transformations
+- **form**: Interactive forms
+- **mcp**: MCP tool discovery and use
+
+### How does the MCP integration work?
+
+gptme has **built-in MCP support**:
+
+- **MCP Discovery**: Automatically discovers MCP servers
+- **Dynamic Loading**: Loads MCP tools on demand
+- **Tool Integration**: MCP tools work like native tools
+
+Example MCP servers supported:
+- GitHub MCP
+- Puppeteer MCP
+- SQLite MCP
+- Custom MCP servers
+
+### What is the Lessons system?
+
+The **Lessons system** provides contextual guidance and best practices that are automatically included when relevant:
+
+- **Project-specific lessons**: Custom guidance for your project
+- **Best practices**: Coding patterns and conventions
+- **Context injection**: Automatic context based on situation
+
+### How do I create autonomous agents?
+
+Use **gptme-agent-template** for persistent autonomous agents:
+
+1. Clone template:
+```bash
+git clone https://github.com/gptme/gptme-agent-template
+```
+
+2. Configure agent:
+```yaml
+# config.yaml
+name: "MyAgent"
+role: "Code reviewer"
+schedule: "hourly"
+```
+
+3. Run:
+```bash
+python agent.py
+```
+
+See [Bob](https://github.com/TimeToBuildBob) for an example autonomous agent with 1700+ sessions.
+
+### What is the plugin system?
+
+gptme has a **full plugin system**:
+
+- **Skills**: Custom tools and capabilities
+- **Hooks**: Pre/post execution hooks
+- **Integrations**: External service connectors
+- **Community plugins**: [gptme-contrib](https://github.com/gptme/gptme-contrib) repository
+
+Example plugins:
+- Twitter/X bot
+- Discord bot
+- Email tools
+- Consortium (multi-agent)
+
+### How do I use gptme in CI/CD?
+
+gptme runs in **CI pipelines**:
+
+```yaml
+# GitHub Actions
+- name: Run gptme
+  run: |
+    pip install gptme
+    gptme --non-interactive "Review PR and suggest improvements"
+```
+
+### What are the use cases?
+
+gptme is general-purpose but excels at:
+
+- **Coding**: Write, refactor, debug code
+- **Research**: Web browsing, data collection
+- **Automation**: File management, CI tasks
+- **Documentation**: Generate docs, summaries
+- **Testing**: Write tests, run tests, fix failures
+- **DevOps**: Server management, deployment
+
+### How do I configure gptme?
+
+Configuration via environment variables:
+
+```bash
+# Provider selection
+export GPTME_MODEL=anthropic/claude-3-sonnet
+
+# API keys
+export ANTHROPIC_API_KEY=your-key
+
+# Logging level
+export GPTME_LOG_LEVEL=INFO
+
+# Enable/disable features
+export GPTME_ENABLE_VISION=true
+```
+
+### How do I handle errors?
+
+gptme is **self-correcting**:
+
+- Output feeds back to assistant
+- Automatic retry on errors
+- User intervention when needed
+
+### Where can I find more resources?
+
+- **Website**: [gptme.org](https://gptme.org)
+- **Documentation**: [docs.gptme.org](https://gptme.org/docs/)
+- **Examples**: [Examples](https://gptme.org/docs/examples.html)
+- **Downloads**: [Downloads](https://gptme.org/downloads/)
+- **Discord**: [Discord Community](https://discord.gg/NMaCmmkxWv)
+- **Twitter**: [@gptmeorg](https://x.com/gptmeorg)
+
+---
+
+**Happy Terminal Agent Building!** 🤖
