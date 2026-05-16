@@ -197,6 +197,25 @@ The ``--non-interactive`` flag runs gptme in a mode that terminates after comple
 
 Note: ``--non-interactive`` implies ``--no-confirm``, so you don't need to specify both.
 
+Machine-readable output
+^^^^^^^^^^^^^^^^^^^^^^^
+
+Pair ``--non-interactive`` with ``--output-format json`` when stdout needs to
+be consumed by another program. In JSON mode, gptme emits one JSON object per
+line on stdout (JSONL):
+
+.. code-block:: bash
+
+    gptme --non-interactive --output-format json 'summarize this repository'
+
+Use ``--resume`` to continue an existing automated conversation without
+supplying a new prompt. This also picks up any queued follow-up prompts for the
+current conversation before exiting:
+
+.. code-block:: bash
+
+    gptme --non-interactive --output-format json --resume
+
 .. _pre-commit:
 
 Pre-commit Integration

@@ -467,6 +467,9 @@ gptme -y 'run the test suite and fix any failing tests'
 
 # Fully non-interactive/autonomous mode (no user interaction possible, safe for scripts/CI)
 gptme -n 'run the test suite and fix any failing tests'
+
+# Machine-readable automation output (JSONL on stdout)
+gptme --non-interactive --output-format json 'summarize the current git diff'
 ```
 
 For more, see the [Getting Started][docs-getting-started] guide and the [Examples][docs-examples] in the [documentation][docs].
@@ -548,6 +551,9 @@ Options:
   -r, --resume           Load most recent conversation.
   -y, --no-confirm       Skip all confirmation prompts.
   -n, --non-interactive  Non-interactive mode. Implies --no-confirm.
+  --output-format [text|json]
+                         Output format for non-interactive mode. 'json'
+                         emits one JSON object per line on stdout.
   --system TEXT          System prompt. Options: 'full', 'short', or something
                          custom.
   -t, --tools TEXT       Tools to allow as comma-separated list. Available:
@@ -561,6 +567,11 @@ Options:
   --version              Show version and configuration information
   --help                 Show this message and exit.
 ```
+
+Pair ``--non-interactive`` with ``--output-format json`` when stdout needs to
+be machine-readable, for example in CI or a supervising process. Use
+``--resume`` to continue an existing automated conversation or pick up queued
+follow-up prompts without passing a new prompt.
 
 ## 🌍 Ecosystem
 
