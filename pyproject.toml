@@ -122,7 +122,7 @@ radon = "*"
 openapi-spec-validator = "^0.7.2"
 
 # test
-pytest = "^8.0"
+pytest = "^9.0"
 pytest-asyncio = "*"
 pytest-cov = "*"
 pytest-xdist = "^3.5.0"
