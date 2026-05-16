@@ -3,8 +3,10 @@ from collections.abc import Iterator
 from typing import Any
 from unittest.mock import patch
 
-from gptme.llm.llm_openai_subscription import SubscriptionAuth, stream
+from gptme.llm import llm_openai_subscription
+from gptme.llm.llm_openai_subscription import SubscriptionAuth
 from gptme.message import Message
+from gptme.tools import get_tool, init_tools
 
 
 def _make_auth() -> SubscriptionAuth:
@@ -35,7 +37,11 @@ def _run_stream(events: list[dict[str, Any]]) -> str:
         patch("gptme.llm.llm_openai_subscription.get_auth", return_value=auth),
         patch("gptme.llm.llm_openai_subscription.requests.post", return_value=response),
     ):
-        return "".join(stream([Message(role="user", content="hello")], "gpt-5.4"))
+        return "".join(
+            llm_openai_subscription.stream(
+                [Message(role="user", content="hello")], "gpt-5.4"
+            )
+        )
 
 
 def test_stream_wraps_reasoning_and_closes_before_text():
@@ -119,11 +125,52 @@ def test_stream_no_double_wrap_when_both_mechanisms_fire():
         ]
     )
 
-    # Should produce exactly one <think> block, not nested <think><think>
-    assert "<think><think>" not in output
-    assert output.count("<think>") == 1
-    assert output.count("</think>") == 1
-    assert "Done." in output
+    assert output == "<think>\nNeed a command\n</think>\nDone."
+
+
+def test_stream_builds_shared_responses_request_shape():
+    response = _FakeSSEStreamResponse([{"type": "response.done"}])
+    init_tools(allowlist=["save"])
+    save_tool = get_tool("save")
+    assert save_tool is not None
+
+    messages = [
+        Message(role="system", content="You are concise."),
+        Message(role="user", content="Save a note."),
+        Message(
+            role="assistant",
+            content='Saving now.\n@save(call_123): {"path": "note.txt", "content": "hi"}',
+        ),
+        Message(role="system", content="Saved to note.txt", call_id="call_123"),
+    ]
+
+    with (
+        patch("gptme.llm.llm_openai_subscription.get_auth", return_value=_make_auth()),
+        patch(
+            "gptme.llm.llm_openai_subscription.requests.post", return_value=response
+        ) as mock_post,
+    ):
+        list(llm_openai_subscription.stream(messages, "gpt-5.4", tools=[save_tool]))
+
+    request_json = mock_post.call_args.kwargs["json"]
+    assert request_json["instructions"] == "You are concise."
+    assert request_json["input"] == [
+        {"role": "user", "content": "Save a note."},
+        {"role": "assistant", "content": "Saving now."},
+        {
+            "type": "function_call",
+            "call_id": "call_123",
+            "name": "save",
+            "arguments": '{"path": "note.txt", "content": "hi"}',
+        },
+        {
+            "type": "function_call_output",
+            "call_id": "call_123",
+            "output": "Saved to note.txt",
+        },
+    ]
+    assert request_json["tools"][0]["type"] == "function"
+    assert request_json["tools"][0]["name"] == "save"
 
 
 def test_stream_forwards_max_tokens_as_max_output_tokens():
@@ -137,7 +184,11 @@ def test_stream_forwards_max_tokens_as_max_output_tokens():
         ) as mock_post,
     ):
         list(
-            stream([Message(role="user", content="hello")], "gpt-5.4", max_tokens=1000)
+            llm_openai_subscription.stream(
+                [Message(role="user", content="hello")],
+                "gpt-5.4",
+                max_tokens=1000,
+            )
         )
 
     request_json = mock_post.call_args.kwargs["json"]
@@ -154,7 +205,11 @@ def test_stream_omits_max_output_tokens_when_not_provided():
             "gptme.llm.llm_openai_subscription.requests.post", return_value=response
         ) as mock_post,
     ):
-        list(stream([Message(role="user", content="hello")], "gpt-5.4"))
+        list(
+            llm_openai_subscription.stream(
+                [Message(role="user", content="hello")], "gpt-5.4"
+            )
+        )
 
     request_json = mock_post.call_args.kwargs["json"]
     assert "max_output_tokens" not in request_json

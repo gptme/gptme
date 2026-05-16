@@ -15,8 +15,6 @@ from gptme.llm.llm_openai import (
     _messages_dicts_to_responses_input,
     _prepare_messages_for_api,
     _should_use_responses_api,
-    _stream_responses,
-    stream,
 )
 from gptme.llm.models import get_default_model, get_model, set_default_model
 from gptme.message import Message
@@ -867,7 +865,7 @@ def test_stream_forwards_output_schema_to_responses_path(monkeypatch):
     monkeypatch.setattr(llm_openai, "_stream_responses", fake_stream_responses)
 
     text, metadata = _collect_stream_result(
-        stream(
+        llm_openai.stream(
             [Message(role="user", content="Return structured output.")],
             "openai/gpt-5",
             None,
@@ -900,7 +898,7 @@ def test_stream_responses_includes_output_schema_in_text_config(monkeypatch):
     monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
 
     text, metadata = _collect_stream_result(
-        _stream_responses(
+        llm_openai._stream_responses(
             [Message(role="user", content="Return structured output.")],
             "openai/gpt-5",
             None,
@@ -964,7 +962,7 @@ def test_stream_responses_emits_function_calls_and_usage(monkeypatch):
     monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
 
     text, metadata = _collect_stream_result(
-        _stream_responses(
+        llm_openai._stream_responses(
             [Message(role="user", content="Save a note.")],
             "openai/gpt-5",
             None,
@@ -1002,7 +1000,7 @@ def test_stream_responses_removes_duplicate_thinking_text_when_reasoning_deltas_
     monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
 
     text, metadata = _collect_stream_result(
-        _stream_responses(
+        llm_openai._stream_responses(
             [Message(role="user", content="Say hello.")],
             "openai/gpt-5",
             None,
@@ -1036,7 +1034,7 @@ def test_stream_responses_converts_split_thinking_tags_without_reasoning_deltas(
     monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
 
     text, metadata = _collect_stream_result(
-        _stream_responses(
+        llm_openai._stream_responses(
             [Message(role="user", content="Think, then answer.")],
             "openai/gpt-5",
             None,
