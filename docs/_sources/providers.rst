@@ -103,6 +103,44 @@ You can still use the ``[env]`` section in the :ref:`global-config` file to stor
 - ``GROQ_API_KEY="your-api-key"``
 - ``DEEPSEEK_API_KEY="your-api-key"``
 
+.. rubric:: OpenAI Platform
+
+Use the direct OpenAI Platform provider with ``openai/<model>``:
+
+.. code-block:: sh
+
+    gptme "hello" -m openai/gpt-4o
+    gptme "hello" -m openai/gpt-5
+    gptme "fix this bug" -m openai/gpt-5.5
+
+GPT-5-class ``openai/*`` models (``gpt-5``, ``gpt-5.5``, ``gpt-5-mini``, and
+``gpt-5-nano``) support the OpenAI Responses API, but the direct OpenAI
+provider still keeps that path behind a feature gate for now.
+
+To enable the Responses API path for direct OpenAI GPT-5-class models, set
+``GPTME_OPENAI_RESPONSES_API=1``:
+
+.. code-block:: sh
+
+    export OPENAI_API_KEY="your-api-key"
+    export GPTME_OPENAI_RESPONSES_API=1
+    gptme "solve this problem" -m openai/gpt-5
+
+When that flag is enabled, gptme routes supported direct ``openai/*`` GPT-5
+models through ``/v1/responses``. Non-GPT-5 models, proxy providers such as
+OpenRouter, and other OpenAI-compatible backends continue using the legacy
+chat-completions path.
+
+Set ``GPTME_OPENAI_RESPONSES_API=0`` (or unset it) to force the legacy path
+again while debugging or comparing behavior. In addition to ``1``, the flag
+also accepts ``true``, ``yes``, and ``on`` as truthy values.
+
+.. note::
+
+    This flag only affects the direct ``openai`` provider. The
+    ``openai-subscription`` provider already uses its own Responses API path by
+    default.
+
 .. rubric:: OpenRouter
 
 `OpenRouter <https://openrouter.ai/>`_ provides access to 100+ models through a single API key. gptme applies sensible defaults for OpenRouter requests:

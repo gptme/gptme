@@ -579,6 +579,36 @@ gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span clas
 <li><p><code class="docutils literal notranslate"><span class="pre">GROQ_API_KEY=&quot;your-api-key&quot;</span></code></p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">DEEPSEEK_API_KEY=&quot;your-api-key&quot;</span></code></p></li>
 </ul>
+<p class="rubric">OpenAI Platform</p>
+<p>Use the direct OpenAI Platform provider with <code class="docutils literal notranslate"><span class="pre">openai/&lt;model&gt;</span></code>:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-4o
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-5
+gptme<span class="w"> </span><span class="s2">&quot;fix this bug&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-5.5
+</pre></div>
+</div>
+<p>GPT-5-class <code class="docutils literal notranslate"><span class="pre">openai/*</span></code> models (<code class="docutils literal notranslate"><span class="pre">gpt-5</span></code>, <code class="docutils literal notranslate"><span class="pre">gpt-5.5</span></code>, <code class="docutils literal notranslate"><span class="pre">gpt-5-mini</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">gpt-5-nano</span></code>) support the OpenAI Responses API, but the direct OpenAI
+provider still keeps that path behind a feature gate for now.</p>
+<p>To enable the Responses API path for direct OpenAI GPT-5-class models, set
+<code class="docutils literal notranslate"><span class="pre">GPTME_OPENAI_RESPONSES_API=1</span></code>:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">OPENAI_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-api-key&quot;</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_OPENAI_RESPONSES_API</span><span class="o">=</span><span class="m">1</span>
+gptme<span class="w"> </span><span class="s2">&quot;solve this problem&quot;</span><span class="w"> </span>-m<span class="w"> </span>openai/gpt-5
+</pre></div>
+</div>
+<p>When that flag is enabled, gptme routes supported direct <code class="docutils literal notranslate"><span class="pre">openai/*</span></code> GPT-5
+models through <code class="docutils literal notranslate"><span class="pre">/v1/responses</span></code>. Non-GPT-5 models, proxy providers such as
+OpenRouter, and other OpenAI-compatible backends continue using the legacy
+chat-completions path.</p>
+<p>Set <code class="docutils literal notranslate"><span class="pre">GPTME_OPENAI_RESPONSES_API=0</span></code> (or unset it) to force the legacy path
+again while debugging or comparing behavior. In addition to <code class="docutils literal notranslate"><span class="pre">1</span></code>, the flag
+also accepts <code class="docutils literal notranslate"><span class="pre">true</span></code>, <code class="docutils literal notranslate"><span class="pre">yes</span></code>, and <code class="docutils literal notranslate"><span class="pre">on</span></code> as truthy values.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This flag only affects the direct <code class="docutils literal notranslate"><span class="pre">openai</span></code> provider. The
+<code class="docutils literal notranslate"><span class="pre">openai-subscription</span></code> provider already uses its own Responses API path by
+default.</p>
+</div>
 <p class="rubric">OpenRouter</p>
 <p><a class="reference external" href="https://openrouter.ai/">OpenRouter</a> provides access to 100+ models through a single API key. gptme applies sensible defaults for OpenRouter requests:</p>
 <ul class="simple">
