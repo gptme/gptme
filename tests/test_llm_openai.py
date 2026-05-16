@@ -1,8 +1,23 @@
+from types import SimpleNamespace
+from typing import Any, cast
+from unittest.mock import Mock
+
 import pytest
+from pydantic import BaseModel
 
 from gptme.config import get_config
 from gptme.llm import llm_openai
-from gptme.llm.llm_openai import _maybe_apply_verbosity, _prepare_messages_for_api
+from gptme.llm.llm_openai import (
+    ContentPart,
+    _content_to_responses_input,
+    _make_responses_text_config,
+    _maybe_apply_verbosity,
+    _messages_dicts_to_responses_input,
+    _prepare_messages_for_api,
+    _should_use_responses_api,
+    _stream_responses,
+    stream,
+)
 from gptme.llm.models import get_default_model, get_model, set_default_model
 from gptme.message import Message
 from gptme.tools import get_tool, init_tools
@@ -14,6 +29,15 @@ def reset_default_model():
     assert default_model, "No default model set in config or environment"
     yield
     set_default_model(default_model)
+
+
+def _collect_stream_result(generator):
+    chunks: list[str] = []
+    while True:
+        try:
+            chunks.append(next(generator))
+        except StopIteration as exc:
+            return "".join(chunks), exc.value
 
 
 def test_message_conversion():
@@ -609,6 +633,420 @@ def test_message_conversion_gpt5_with_tool_results():
     first_part_3 = content_3[0]
     assert isinstance(first_part_3, dict)
     assert first_part_3["text"] == "Saved to file.txt"
+
+
+def test_chat_uses_responses_api_for_gpt5_when_enabled(monkeypatch):
+    from openai.types.responses.response_usage import ResponseUsage
+
+    monkeypatch.setenv("GPTME_OPENAI_RESPONSES_API", "1")
+
+    fake_response = SimpleNamespace(
+        output=[
+            SimpleNamespace(
+                type="reasoning",
+                summary=[SimpleNamespace(text="Need no extra tools.")],
+                content=None,
+            ),
+            SimpleNamespace(
+                type="message",
+                content=[
+                    SimpleNamespace(type="output_text", text="Hello from Responses")
+                ],
+            ),
+        ],
+        usage=ResponseUsage.model_validate(
+            {
+                "input_tokens": 120,
+                "input_tokens_details": {"cached_tokens": 20},
+                "output_tokens": 30,
+                "output_tokens_details": {"reasoning_tokens": 10},
+                "total_tokens": 150,
+            }
+        ),
+    )
+    responses_create = Mock(return_value=fake_response)
+    mock_client = SimpleNamespace(
+        responses=SimpleNamespace(create=responses_create),
+        chat=SimpleNamespace(completions=SimpleNamespace(create=Mock())),
+    )
+
+    monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+
+    result, metadata = llm_openai.chat(
+        [
+            Message(role="system", content="You are concise."),
+            Message(role="user", content="Say hello."),
+        ],
+        "openai/gpt-5",
+        None,
+    )
+
+    assert result == "Hello from Responses"
+    assert metadata is not None
+    assert metadata["usage"]["input_tokens"] == 100
+    assert metadata["usage"]["output_tokens"] == 30
+    responses_create.assert_called_once()
+    kwargs = responses_create.call_args.kwargs
+    assert kwargs["model"] == "gpt-5"
+    assert kwargs["instructions"] == "You are concise."
+    assert kwargs["input"] == [{"role": "user", "content": "Say hello."}]
+    assert kwargs["store"] is False
+    mock_client.chat.completions.create.assert_not_called()
+
+
+def test_chat_responses_api_formats_function_calls(monkeypatch):
+    monkeypatch.setenv("GPTME_OPENAI_RESPONSES_API", "1")
+
+    fake_response = SimpleNamespace(
+        output=[
+            SimpleNamespace(
+                type="function_call",
+                name="save",
+                call_id="call_123",
+                arguments='{"path":"note.txt","content":"hi"}',
+            )
+        ],
+        usage=None,
+    )
+    responses_create = Mock(return_value=fake_response)
+    mock_client = SimpleNamespace(
+        responses=SimpleNamespace(create=responses_create),
+        chat=SimpleNamespace(completions=SimpleNamespace(create=Mock())),
+    )
+
+    monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+
+    result, metadata = llm_openai.chat(
+        [Message(role="user", content="Save a note.")],
+        "openai/gpt-5",
+        None,
+    )
+
+    assert result == '@save(call_123): {"path":"note.txt","content":"hi"}'
+    assert metadata is None
+    responses_create.assert_called_once()
+    mock_client.chat.completions.create.assert_not_called()
+
+
+def test_content_to_responses_input_preserves_images():
+    content: list[ContentPart | str] = [
+        {"type": "text", "text": "Describe this image."},
+        {
+            "type": "image_url",
+            "image_url": {"url": "data:image/png;base64,abc123"},
+        },
+    ]
+
+    assert _content_to_responses_input(content) == [
+        {"type": "input_text", "text": "Describe this image."},
+        {
+            "type": "input_image",
+            "image_url": "data:image/png;base64,abc123",
+            "detail": "auto",
+        },
+    ]
+
+
+def test_messages_dicts_to_responses_input_collects_instructions_and_tool_events():
+    instructions, items = _messages_dicts_to_responses_input(
+        [
+            {"role": "system", "content": "You are concise."},
+            {"role": "system", "content": "Prefer bullet points."},
+            {
+                "role": "assistant",
+                "content": "Saving now.",
+                "tool_calls": [
+                    {
+                        "id": "call_123",
+                        "type": "function",
+                        "function": {
+                            "name": "save",
+                            "arguments": '{"path":"note.txt","content":"hi"}',
+                        },
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "content": "Saved to note.txt",
+                "tool_call_id": "call_123",
+            },
+            {"role": "system", "content": "User edited file", "call_id": "call_123"},
+            {"role": "user", "content": "What next?"},
+        ]
+    )
+
+    assert instructions == "You are concise.\n\nPrefer bullet points."
+    assert items == [
+        {"role": "assistant", "content": "Saving now."},
+        {
+            "type": "function_call",
+            "call_id": "call_123",
+            "name": "save",
+            "arguments": '{"path":"note.txt","content":"hi"}',
+        },
+        {
+            "type": "function_call_output",
+            "call_id": "call_123",
+            "output": "Saved to note.txt",
+        },
+        {
+            "type": "function_call_output",
+            "call_id": "call_123",
+            "output": "User edited file",
+        },
+        {"role": "user", "content": "What next?"},
+    ]
+
+
+def test_should_use_responses_api_requires_direct_openai(monkeypatch):
+    monkeypatch.setenv("GPTME_OPENAI_RESPONSES_API", "1")
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+
+    client = cast(Any, SimpleNamespace())
+    assert (
+        _should_use_responses_api("openai", get_model("openai/gpt-5"), client) is True
+    )
+    assert (
+        _should_use_responses_api("openai", get_model("openai/gpt-4o"), client) is False
+    )
+    assert (
+        _should_use_responses_api("openrouter", get_model("openai/gpt-5"), client)
+        is False
+    )
+
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: True)
+    assert (
+        _should_use_responses_api("openai", get_model("openai/gpt-5"), client) is False
+    )
+
+
+def test_make_responses_text_config_includes_schema_and_verbosity(monkeypatch):
+    class OutputSchema(BaseModel):
+        answer: str
+
+    monkeypatch.setattr(llm_openai, "OPENAI_VERBOSITY", "high")
+
+    config = _make_responses_text_config(OutputSchema, get_model("openai/gpt-5"))
+
+    assert config == {
+        "format": {
+            "type": "json_schema",
+            "name": "OutputSchema",
+            "schema": OutputSchema.model_json_schema(),
+            "strict": True,
+        },
+        "verbosity": "high",
+    }
+
+
+def test_stream_forwards_output_schema_to_responses_path(monkeypatch):
+    class OutputSchema(BaseModel):
+        answer: str
+
+    seen: dict[str, Any] = {}
+
+    def fake_stream_responses(
+        messages, model, tools, model_meta, output_schema=None, max_tokens=None
+    ):
+        seen["messages"] = messages
+        seen["model"] = model
+        seen["tools"] = tools
+        seen["model_meta"] = model_meta
+        seen["output_schema"] = output_schema
+        seen["max_tokens"] = max_tokens
+        if False:
+            yield ""
+        return None
+
+    monkeypatch.setattr(llm_openai, "get_client", lambda provider: object())
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+    monkeypatch.setattr(llm_openai, "_should_use_responses_api", lambda *args: True)
+    monkeypatch.setattr(llm_openai, "_stream_responses", fake_stream_responses)
+
+    text, metadata = _collect_stream_result(
+        stream(
+            [Message(role="user", content="Return structured output.")],
+            "openai/gpt-5",
+            None,
+            output_schema=OutputSchema,
+            max_tokens=42,
+        )
+    )
+
+    assert text == ""
+    assert metadata is None
+    assert seen["output_schema"] is OutputSchema
+    assert seen["max_tokens"] == 42
+    assert seen["model"] == "openai/gpt-5"
+
+
+def test_stream_responses_includes_output_schema_in_text_config(monkeypatch):
+    class OutputSchema(BaseModel):
+        answer: str
+
+    events = [
+        SimpleNamespace(
+            type="response.completed",
+            response=SimpleNamespace(usage=None),
+        ),
+    ]
+    responses_create = Mock(return_value=events)
+    mock_client = SimpleNamespace(responses=SimpleNamespace(create=responses_create))
+
+    monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+
+    text, metadata = _collect_stream_result(
+        _stream_responses(
+            [Message(role="user", content="Return structured output.")],
+            "openai/gpt-5",
+            None,
+            get_model("openai/gpt-5"),
+            output_schema=OutputSchema,
+        )
+    )
+
+    assert text == ""
+    assert metadata is None
+    responses_create.assert_called_once()
+    assert responses_create.call_args.kwargs["text"] == {
+        "format": {
+            "type": "json_schema",
+            "name": "OutputSchema",
+            "schema": OutputSchema.model_json_schema(),
+            "strict": True,
+        }
+    }
+
+
+def test_stream_responses_emits_function_calls_and_usage(monkeypatch):
+    from openai.types.responses.response_usage import ResponseUsage
+
+    usage = ResponseUsage.model_validate(
+        {
+            "input_tokens": 120,
+            "input_tokens_details": {"cached_tokens": 20},
+            "output_tokens": 30,
+            "output_tokens_details": {"reasoning_tokens": 10},
+            "total_tokens": 150,
+        }
+    )
+    events = [
+        SimpleNamespace(
+            type="response.output_item.added",
+            output_index=0,
+            item=SimpleNamespace(
+                type="function_call", id="item_1", name="save", call_id="call_123"
+            ),
+        ),
+        SimpleNamespace(
+            type="response.function_call_arguments.delta",
+            output_index=0,
+            delta='{"path":"note.txt"',
+        ),
+        SimpleNamespace(
+            type="response.function_call_arguments.delta",
+            output_index=0,
+            delta=',"content":"hi"}',
+        ),
+        SimpleNamespace(
+            type="response.completed",
+            response=SimpleNamespace(usage=usage),
+        ),
+    ]
+    responses_create = Mock(return_value=events)
+    mock_client = SimpleNamespace(responses=SimpleNamespace(create=responses_create))
+
+    monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+
+    text, metadata = _collect_stream_result(
+        _stream_responses(
+            [Message(role="user", content="Save a note.")],
+            "openai/gpt-5",
+            None,
+            get_model("openai/gpt-5"),
+        )
+    )
+
+    assert text == '\n@save(call_123): {"path":"note.txt","content":"hi"}'
+    assert metadata is not None
+    assert metadata["usage"]["input_tokens"] == 100
+    assert metadata["usage"]["output_tokens"] == 30
+    responses_create.assert_called_once()
+
+
+def test_stream_responses_removes_duplicate_thinking_text_when_reasoning_deltas_present(
+    monkeypatch,
+):
+    events = [
+        SimpleNamespace(
+            type="response.reasoning_text.delta", delta="Need no extra tools."
+        ),
+        SimpleNamespace(
+            type="response.output_text.delta",
+            delta="<thinking>Need no extra tools.</thinking>Hello from Responses",
+        ),
+        SimpleNamespace(
+            type="response.completed",
+            response=SimpleNamespace(usage=None),
+        ),
+    ]
+    responses_create = Mock(return_value=events)
+    mock_client = SimpleNamespace(responses=SimpleNamespace(create=responses_create))
+
+    monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+
+    text, metadata = _collect_stream_result(
+        _stream_responses(
+            [Message(role="user", content="Say hello.")],
+            "openai/gpt-5",
+            None,
+            get_model("openai/gpt-5"),
+        )
+    )
+
+    assert text == "<think>\nNeed no extra tools.\n</think>\nHello from Responses"
+    assert metadata is None
+    responses_create.assert_called_once()
+
+
+def test_stream_responses_converts_split_thinking_tags_without_reasoning_deltas(
+    monkeypatch,
+):
+    events = [
+        SimpleNamespace(type="response.output_text.delta", delta="Hello <thin"),
+        SimpleNamespace(
+            type="response.output_text.delta",
+            delta="king>plan</thinking> world",
+        ),
+        SimpleNamespace(
+            type="response.completed",
+            response=SimpleNamespace(usage=None),
+        ),
+    ]
+    responses_create = Mock(return_value=events)
+    mock_client = SimpleNamespace(responses=SimpleNamespace(create=responses_create))
+
+    monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+
+    text, metadata = _collect_stream_result(
+        _stream_responses(
+            [Message(role="user", content="Think, then answer.")],
+            "openai/gpt-5",
+            None,
+            get_model("openai/gpt-5"),
+        )
+    )
+
+    assert text == "Hello <think>plan</think> world"
+    assert metadata is None
+    responses_create.assert_called_once()
 
 
 def test_transform_msgs_for_groq():
@@ -1795,6 +2233,27 @@ class TestRecordUsageCacheTokens:
             raw["cache_creation_input_tokens"] = cache_creation_input_tokens
         return CompletionUsage.model_validate(raw)
 
+    @staticmethod
+    def _make_responses_usage(
+        *,
+        input_tokens,
+        output_tokens,
+        cached_tokens=None,
+        reasoning_tokens=None,
+    ):
+        from openai.types.responses.response_usage import ResponseUsage
+
+        raw: dict = {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": input_tokens + output_tokens,
+        }
+        if cached_tokens is not None:
+            raw["input_tokens_details"] = {"cached_tokens": cached_tokens}
+        if reasoning_tokens is not None:
+            raw["output_tokens_details"] = {"reasoning_tokens": reasoning_tokens}
+        return ResponseUsage.model_validate(raw)
+
     def test_openai_direct_no_cache_fields(self):
         """Direct OpenAI calls without caching — no cache tokens recorded."""
         from gptme.llm.llm_openai import _record_usage
@@ -1922,6 +2381,24 @@ class TestRecordUsageCacheTokens:
         assert metadata is not None
         assert metadata["usage"]["input_tokens"] == 900
         assert metadata["usage"]["cache_creation_tokens"] == 1600
+
+    def test_responses_usage_shape_is_supported(self):
+        """Responses API usage objects should feed the same metadata pipeline."""
+        from gptme.llm.llm_openai import _record_usage
+
+        usage = self._make_responses_usage(
+            input_tokens=900,
+            output_tokens=120,
+            cached_tokens=200,
+            reasoning_tokens=40,
+        )
+        metadata = _record_usage(usage, "openai/gpt-5")
+
+        assert metadata is not None
+        assert metadata["usage"]["input_tokens"] == 700
+        assert metadata["usage"]["output_tokens"] == 120
+        assert metadata["usage"]["cache_read_tokens"] == 200
+        assert "cache_creation_tokens" not in metadata["usage"]
 
 
 class TestMaybeApplyVerbosity:

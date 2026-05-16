@@ -100,6 +100,7 @@ class ModelMeta:
     supports_streaming: bool = True
     supports_vision: bool = False
     supports_reasoning: bool = False  # models which support reasoning do not need prompting to use <thinking> tags
+    supports_responses_api: bool = False
     supports_parallel_tool_calls: bool = (
         False  # models that can emit multiple tool calls in a single response
     )
@@ -210,6 +211,7 @@ class _ModelDictMeta(TypedDict):
     supports_streaming: NotRequired[bool]
     supports_vision: NotRequired[bool]
     supports_reasoning: NotRequired[bool]
+    supports_responses_api: NotRequired[bool]
     supports_parallel_tool_calls: NotRequired[bool]
 
     knowledge_cutoff: NotRequired[datetime]

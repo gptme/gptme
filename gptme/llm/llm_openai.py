@@ -125,6 +125,11 @@ def _record_usage(usage, model: str) -> MessageMetadata | None:
     prompt_tokens = getattr(usage, "prompt_tokens", None)
     output_tokens = getattr(usage, "completion_tokens", None)
     details = getattr(usage, "prompt_tokens_details", None)
+    if prompt_tokens is None:
+        prompt_tokens = getattr(usage, "input_tokens", None)
+        details = getattr(usage, "input_tokens_details", None)
+    if output_tokens is None:
+        output_tokens = getattr(usage, "output_tokens", None)
     cache_read_tokens = getattr(details, "cached_tokens", None)
     # OpenRouter currently exposes cache writes in two response shapes:
     # 1) legacy passthrough: usage.cache_creation_input_tokens
@@ -227,6 +232,288 @@ def _make_response_format(output_schema):
         "type": "json_schema",
         "json_schema": {"name": schema_name, "schema": json_schema, "strict": True},
     }
+
+
+def _responses_api_enabled() -> bool:
+    value = os.environ.get("GPTME_OPENAI_RESPONSES_API")
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _should_use_responses_api(
+    provider: Provider, model_meta: ModelMeta, client: "OpenAI"
+) -> bool:
+    return (
+        provider == "openai"
+        and model_meta.supports_responses_api
+        and not _is_proxy(client)
+        and _responses_api_enabled()
+    )
+
+
+def _obj_get(obj: Any, key: str, default: Any = None) -> Any:
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
+def _longest_suffix_prefix(text: str, pattern: str) -> str:
+    """Return the longest suffix of ``text`` that could continue ``pattern``."""
+    max_len = min(len(text), len(pattern) - 1)
+    for size in range(max_len, 0, -1):
+        suffix = text[-size:]
+        if pattern.startswith(suffix):
+            return suffix
+    return ""
+
+
+def _filter_duplicate_thinking_text(
+    text: str, *, in_thinking_block: bool
+) -> tuple[str, str, bool]:
+    """Strip raw <thinking>...</thinking> spans after structured reasoning events.
+
+    Some Responses API models emit reasoning twice while streaming:
+    - structured ``response.reasoning_text.delta`` events, and
+    - duplicate raw ``<thinking>...</thinking>`` text inside
+      ``response.output_text.delta``.
+
+    When structured reasoning was already emitted, keep only the non-thinking
+    output text and buffer partial tags across chunk boundaries.
+    """
+
+    open_tag = "<thinking>"
+    close_tag = "</thinking>"
+    output_parts: list[str] = []
+    remaining = text
+
+    while remaining:
+        if in_thinking_block:
+            close_index = remaining.find(close_tag)
+            if close_index == -1:
+                pending = _longest_suffix_prefix(remaining, close_tag)
+                return "".join(output_parts), pending, True
+            remaining = remaining[close_index + len(close_tag) :]
+            in_thinking_block = False
+            continue
+
+        open_index = remaining.find(open_tag)
+        if open_index == -1:
+            pending = _longest_suffix_prefix(remaining, open_tag)
+            if pending:
+                output_parts.append(remaining[: -len(pending)])
+            else:
+                output_parts.append(remaining)
+            return "".join(output_parts), pending, False
+
+        output_parts.append(remaining[:open_index])
+        remaining = remaining[open_index + len(open_tag) :]
+        in_thinking_block = True
+
+    return "".join(output_parts), "", in_thinking_block
+
+
+def _content_to_text(content: MessageContent) -> str:
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+
+    text_parts: list[str] = []
+    for part in content:
+        if isinstance(part, str):
+            text_parts.append(part)
+        elif isinstance(part, dict) and part.get("type") == "text":
+            text_parts.append(part.get("text", ""))
+    return "".join(text_parts)
+
+
+def _content_to_responses_input(content: MessageContent) -> str | list[dict[str, Any]]:
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+
+    converted: list[dict[str, Any]] = []
+    for part in content:
+        if isinstance(part, str):
+            converted.append({"type": "input_text", "text": part})
+            continue
+        if not isinstance(part, dict):
+            raise TypeError(f"Unsupported content part type: {type(part)!r}")
+
+        part_type = part.get("type")
+        if part_type == "text":
+            converted.append({"type": "input_text", "text": part.get("text", "")})
+        elif part_type == "image_url":
+            image_url = _obj_get(part.get("image_url", {}), "url")
+            if not image_url:
+                raise ValueError("image_url content part missing url")
+            converted.append(
+                {
+                    "type": "input_image",
+                    "image_url": image_url,
+                    "detail": "auto",
+                }
+            )
+        else:
+            raise ValueError(f"Unsupported responses input part type: {part_type!r}")
+
+    if all(item["type"] == "input_text" for item in converted):
+        return "".join(item["text"] for item in converted)
+    return converted
+
+
+def _chat_tool_to_responses_tool(tool: "ChatCompletionToolParam") -> dict[str, Any]:
+    function = tool["function"]
+    return {
+        "type": tool["type"],
+        "name": function["name"],
+        "description": function["description"],
+        "parameters": function["parameters"],
+    }
+
+
+_VALID_VERBOSITY = {"low", "medium", "high"}
+_verbosity_warned = False  # warn at most once per process lifetime
+
+
+def _make_responses_text_config(
+    output_schema, model_meta: ModelMeta
+) -> dict[str, Any] | None:
+    text_config: dict[str, Any] = {}
+
+    if output_schema is not None:
+        text_config["format"] = {
+            "type": "json_schema",
+            "name": output_schema.__name__,
+            "schema": output_schema.model_json_schema(),
+            "strict": True,
+        }
+
+    if OPENAI_VERBOSITY and model_meta.model.startswith("gpt-5"):
+        global _verbosity_warned
+        if OPENAI_VERBOSITY not in _VALID_VERBOSITY:
+            if not _verbosity_warned:
+                logger.warning(
+                    "OPENAI_VERBOSITY=%r is not one of %s; ignoring.",
+                    OPENAI_VERBOSITY,
+                    sorted(_VALID_VERBOSITY),
+                )
+                _verbosity_warned = True
+        else:
+            text_config["verbosity"] = OPENAI_VERBOSITY
+
+    return text_config or None
+
+
+def _messages_dicts_to_responses_input(
+    messages_dicts: list[MessageDict],
+) -> tuple[str | None, list[dict[str, Any]]]:
+    instructions_parts: list[str] = []
+    items: list[dict[str, Any]] = []
+
+    for message in messages_dicts:
+        role = message["role"]
+        tool_call_id = _obj_get(message, "tool_call_id") or _obj_get(message, "call_id")
+
+        if role == "system" and tool_call_id:
+            items.append(
+                {
+                    "type": "function_call_output",
+                    "call_id": tool_call_id,
+                    "output": _content_to_text(message["content"]),
+                }
+            )
+            continue
+
+        if role == "tool":
+            items.append(
+                {
+                    "type": "function_call_output",
+                    "call_id": tool_call_id,
+                    "output": _content_to_text(message["content"]),
+                }
+            )
+            continue
+
+        if role == "system":
+            text = _content_to_text(message["content"]).strip()
+            if text:
+                instructions_parts.append(text)
+            continue
+
+        if role == "assistant" and message.get("tool_calls"):
+            text = _content_to_text(message.get("content")).strip()
+            if text:
+                items.append({"role": "assistant", "content": text})
+            for tool_call in message["tool_calls"]:
+                function = tool_call["function"]
+                items.append(
+                    {
+                        "type": "function_call",
+                        "call_id": tool_call["id"],
+                        "name": function["name"],
+                        "arguments": function["arguments"],
+                    }
+                )
+            continue
+
+        items.append(
+            {
+                "role": role,
+                "content": _content_to_responses_input(message["content"]),
+            }
+        )
+
+    instructions = "\n\n".join(instructions_parts).strip() or None
+    return instructions, items
+
+
+def _prepare_messages_for_responses_api(
+    messages: list[Message],
+    model: str,
+    tools: list[ToolSpec] | None,
+) -> tuple[str | None, list[dict[str, Any]], list[dict[str, Any]] | None]:
+    from .models import get_model  # fmt: skip
+
+    model_meta = get_model(model)
+    messages_dicts: Iterable[dict[str, Any]] = _process_msgs(
+        msgs2dicts(messages), model_meta
+    )
+
+    tools_dict = [_spec2tool(tool, model_meta) for tool in tools] if tools else None
+    if tools_dict is not None:
+        messages_dicts = _merge_tool_results_with_same_call_id(
+            _handle_tools(messages_dicts)
+        )
+
+    typed_messages = _transform_msgs_for_special_provider(messages_dicts, model_meta)
+    messages_list = list(typed_messages)
+    instructions, input_items = _messages_dicts_to_responses_input(messages_list)
+    responses_tools = (
+        [_chat_tool_to_responses_tool(tool) for tool in tools_dict]
+        if tools_dict is not None
+        else None
+    )
+    return instructions, input_items, responses_tools
+
+
+def _log_responses_reasoning(item: Any) -> None:
+    summary = _obj_get(item, "summary") or []
+    summary_text = "\n".join(
+        part.text if hasattr(part, "text") else part.get("text", "") for part in summary
+    ).strip()
+    if summary_text:
+        logger.info("Reasoning content: %s", summary_text)
+        return
+
+    content = _obj_get(item, "content") or []
+    content_text = "\n".join(
+        part.text if hasattr(part, "text") else part.get("text", "") for part in content
+    ).strip()
+    if content_text:
+        logger.info("Reasoning content: %s", content_text)
 
 
 def _init_openai_client(
@@ -642,10 +929,6 @@ def retry_generator_on_openai_error(max_retries: int = 5, base_delay: float = 1.
     return decorator
 
 
-_VALID_VERBOSITY = {"low", "medium", "high"}
-_verbosity_warned = False  # warn at most once per process lifetime
-
-
 def _maybe_apply_verbosity(body: dict[str, Any], model_meta: ModelMeta) -> None:
     """Add verbosity request-body field for GPT-5+ models when set.
 
@@ -694,6 +977,54 @@ def chat(
 
     # make the model name prefix with the provider if using LLM_PROXY, to make proxy aware of the provider
     api_model = model if is_proxy else base_model
+
+    if _should_use_responses_api(provider, model_meta, client):
+        instructions, input_items, responses_tools = (
+            _prepare_messages_for_responses_api(messages, model, tools)
+        )
+        text_config = _make_responses_text_config(output_schema, model_meta)
+
+        response_kwargs: dict[str, Any] = {
+            "model": api_model.split("@")[0],
+            "input": input_items,
+            "store": False,
+        }
+        if instructions is not None:
+            response_kwargs["instructions"] = instructions
+        if responses_tools is not None:
+            response_kwargs["tools"] = responses_tools
+        if text_config is not None:
+            response_kwargs["text"] = text_config
+        if max_tokens is not None:
+            response_kwargs["max_output_tokens"] = max_tokens
+        if not is_reasoner:
+            response_kwargs["temperature"] = TEMPERATURE
+            response_kwargs["top_p"] = TOP_P
+
+        response = client.responses.create(**response_kwargs)
+        metadata = _record_usage(response.usage, model)
+
+        result: list[str] = []
+        for item in response.output:
+            item_type = _obj_get(item, "type")
+            if item_type == "reasoning":
+                _log_responses_reasoning(item)
+            elif item_type == "function_call":
+                name = _obj_get(item, "name", "").strip()
+                call_id = _obj_get(item, "call_id", "").strip()
+                arguments = _obj_get(item, "arguments", "")
+                result.append(f"@{name}({call_id}): {arguments}")
+            elif item_type == "message":
+                for part in _obj_get(item, "content", []) or []:
+                    part_type = _obj_get(part, "type")
+                    if part_type == "output_text":
+                        result.append(_obj_get(part, "text", ""))
+                    elif part_type == "refusal":
+                        result.append(_obj_get(part, "refusal", ""))
+
+        if not result:
+            raise ValueError("Responses API returned no usable output items")
+        return "\n".join(part for part in result if part), metadata
 
     from openai.types.chat import ChatCompletionMessageToolCall  # fmt: skip
 
@@ -846,6 +1177,155 @@ def extra_body(
     return body
 
 
+def _stream_responses(
+    messages: list[Message],
+    model: str,
+    tools: list[ToolSpec] | None,
+    model_meta: ModelMeta,
+    output_schema=None,
+    max_tokens: int | None = None,
+) -> Generator[str, None, MessageMetadata | None]:
+    """Stream via the OpenAI Responses API (used for GPT-5 class models).
+
+    Convergence note: If the reasoning/wrapping logic here and in
+    llm_openai_subscription.py grow further apart, consider merging the
+    streaming loop into a shared _stream_responses_events() helper that
+    accepts an event iterator.  Both providers use the same Responses API
+    SSE event types (output_text.delta, reasoning_text.delta,
+    function_call_arguments.delta, output_item.added, completed).  The
+    only differences are auth, base URL, and the request body shape —
+    all of which are upstream of the event loop.
+    """
+    from . import _get_base_model, get_provider_from_model  # fmt: skip
+
+    provider = get_provider_from_model(model)
+    client = get_client(provider)
+    is_proxy = _is_proxy(client)
+    base_model = _get_base_model(model)
+    api_model = model if is_proxy else base_model
+    is_reasoner = model_meta.supports_reasoning
+
+    instructions, input_items, responses_tools = _prepare_messages_for_responses_api(
+        messages, model, tools
+    )
+    text_config = _make_responses_text_config(output_schema, model_meta)
+
+    kwargs: dict[str, Any] = {
+        "model": api_model.split("@")[0],
+        "input": input_items,
+        "store": False,
+        "stream": True,
+    }
+    if instructions is not None:
+        kwargs["instructions"] = instructions
+    if responses_tools is not None:
+        kwargs["tools"] = responses_tools
+    if text_config is not None:
+        kwargs["text"] = text_config
+    if max_tokens is not None:
+        kwargs["max_output_tokens"] = max_tokens
+    if not is_reasoner:
+        kwargs["temperature"] = TEMPERATURE
+        kwargs["top_p"] = TOP_P
+
+    # Track function-call items: output_index -> (item_id, name, call_id)
+    func_call_items: dict[int, tuple[str, str, str]] = {}
+    header_emitted: set[int] = set()
+    # Guard against double-wrapping: some models emit BOTH structured
+    # reasoning deltas AND raw <thinking> tags in output_text.delta.
+    # If structured reasoning was seen, skip text-tag conversion so
+    # the output doesn't become <think><think>...</think></think>.
+    seen_reasoning_delta = False
+    in_reasoning_block = False
+    in_duplicate_thinking_block = False
+    # Buffer for detecting <thinking> / </thinking> tags split across
+    # SSE chunks (max tag length is ~11 characters).
+    pending = ""
+    captured_metadata: MessageMetadata | None = None
+
+    stream = client.responses.create(**kwargs)
+
+    for event in stream:
+        if event.type == "response.output_item.added":
+            item = event.item
+            if _obj_get(item, "type") == "function_call":
+                func_call_items[event.output_index] = (
+                    _obj_get(item, "id") or _obj_get(item, "call_id") or "",
+                    _obj_get(item, "name", ""),
+                    _obj_get(item, "call_id", ""),
+                )
+
+        elif event.type == "response.reasoning_text.delta":
+            if not in_reasoning_block:
+                # Flush any partial-tag buffer before opening think block
+                if pending:
+                    yield pending.replace("<thinking>", "<think>").replace(
+                        "</thinking>", "</think>"
+                    )
+                    pending = ""
+                yield "<think>\n"
+                in_reasoning_block = True
+                seen_reasoning_delta = True
+            yield event.delta
+
+        elif event.type == "response.output_text.delta":
+            if in_reasoning_block:
+                yield "\n</think>\n"
+                in_reasoning_block = False
+
+            delta_text = event.delta
+            if delta_text:
+                # Combine with any previous partial-tag buffer
+                text = pending + delta_text
+                pending = ""
+
+                if seen_reasoning_delta:
+                    text, pending, in_duplicate_thinking_block = (
+                        _filter_duplicate_thinking_text(
+                            text, in_thinking_block=in_duplicate_thinking_block
+                        )
+                    )
+                else:
+                    # Hold back potential partial tag suffix to check in
+                    # next chunk. A trailing `<` is buffered because it
+                    # could be the start of either <thinking> or
+                    # </thinking>.
+                    for tag in ("<thinking>", "</thinking>"):
+                        pending = _longest_suffix_prefix(text, tag)
+                        if pending:
+                            text = text[: -len(pending)]
+                            break
+
+                    # Convert <thinking>/</thinking> to <think>/</think>
+                    text = text.replace("<thinking>", "<think>").replace(
+                        "</thinking>", "</think>"
+                    )
+                if text:
+                    yield text
+
+        elif event.type == "response.function_call_arguments.delta":
+            output_index = event.output_index
+            if output_index not in header_emitted:
+                _, name, call_id = func_call_items.get(output_index, ("", "", ""))
+                yield f"\n@{name}({call_id}): "
+                header_emitted.add(output_index)
+            yield event.delta
+
+        elif event.type == "response.completed":
+            if event.response.usage:
+                captured_metadata = _record_usage(event.response.usage, model)
+
+    # Flush any remaining state.
+    if in_reasoning_block:
+        yield "\n</think>\n"
+    if pending and not in_duplicate_thinking_block:
+        yield pending.replace("<thinking>", "<think>").replace(
+            "</thinking>", "</think>"
+        )
+
+    return captured_metadata
+
+
 @retry_generator_on_openai_error()
 def stream(
     messages: list[Message],
@@ -870,6 +1350,18 @@ def stream(
 
     # make the model name prefix with the provider if using LLM_PROXY, to make proxy aware of the provider
     api_model = model if is_proxy else base_model
+
+    # Dispatch to Responses API streaming when enabled for GPT-5 class models
+    if _should_use_responses_api(provider, model_meta, client):
+        captured_metadata = yield from _stream_responses(
+            messages,
+            model,
+            tools,
+            model_meta,
+            output_schema=output_schema,
+            max_tokens=max_tokens,
+        )
+        return captured_metadata
 
     messages_dicts, tools_dict = _prepare_messages_for_api(messages, model, tools)
     response_format = _make_response_format(output_schema)
