@@ -258,6 +258,61 @@ def _obj_get(obj: Any, key: str, default: Any = None) -> Any:
     return getattr(obj, key, default)
 
 
+def _longest_suffix_prefix(text: str, pattern: str) -> str:
+    """Return the longest suffix of ``text`` that could continue ``pattern``."""
+    max_len = min(len(text), len(pattern) - 1)
+    for size in range(max_len, 0, -1):
+        suffix = text[-size:]
+        if pattern.startswith(suffix):
+            return suffix
+    return ""
+
+
+def _filter_duplicate_thinking_text(
+    text: str, *, in_thinking_block: bool
+) -> tuple[str, str, bool]:
+    """Strip raw <thinking>...</thinking> spans after structured reasoning events.
+
+    Some Responses API models emit reasoning twice while streaming:
+    - structured ``response.reasoning_text.delta`` events, and
+    - duplicate raw ``<thinking>...</thinking>`` text inside
+      ``response.output_text.delta``.
+
+    When structured reasoning was already emitted, keep only the non-thinking
+    output text and buffer partial tags across chunk boundaries.
+    """
+
+    open_tag = "<thinking>"
+    close_tag = "</thinking>"
+    output_parts: list[str] = []
+    remaining = text
+
+    while remaining:
+        if in_thinking_block:
+            close_index = remaining.find(close_tag)
+            if close_index == -1:
+                pending = _longest_suffix_prefix(remaining, close_tag)
+                return "".join(output_parts), pending, True
+            remaining = remaining[close_index + len(close_tag) :]
+            in_thinking_block = False
+            continue
+
+        open_index = remaining.find(open_tag)
+        if open_index == -1:
+            pending = _longest_suffix_prefix(remaining, open_tag)
+            if pending:
+                output_parts.append(remaining[: -len(pending)])
+            else:
+                output_parts.append(remaining)
+            return "".join(output_parts), pending, False
+
+        output_parts.append(remaining[:open_index])
+        remaining = remaining[open_index + len(open_tag) :]
+        in_thinking_block = True
+
+    return "".join(output_parts), "", in_thinking_block
+
+
 def _content_to_text(content: MessageContent) -> str:
     if content is None:
         return ""
@@ -1181,6 +1236,7 @@ def _stream_responses(
     # the output doesn't become <think><think>...</think></think>.
     seen_reasoning_delta = False
     in_reasoning_block = False
+    in_duplicate_thinking_block = False
     # Buffer for detecting <thinking> / </thinking> tags split across
     # SSE chunks (max tag length is ~11 characters).
     pending = ""
@@ -1222,18 +1278,21 @@ def _stream_responses(
                 text = pending + delta_text
                 pending = ""
 
-                if not seen_reasoning_delta:
+                if seen_reasoning_delta:
+                    text, pending, in_duplicate_thinking_block = (
+                        _filter_duplicate_thinking_text(
+                            text, in_thinking_block=in_duplicate_thinking_block
+                        )
+                    )
+                else:
                     # Hold back potential partial tag suffix to check in
                     # next chunk. A trailing `<` is buffered because it
                     # could be the start of either <thinking> or
                     # </thinking>.
                     for tag in ("<thinking>", "</thinking>"):
-                        for i in range(len(tag) - 1, 0, -1):
-                            if text.endswith(tag[:i]):
-                                pending = text[-i:]
-                                text = text[:-i]
-                                break
+                        pending = _longest_suffix_prefix(text, tag)
                         if pending:
+                            text = text[: -len(pending)]
                             break
 
                     # Convert <thinking>/</thinking> to <think>/</think>
@@ -1258,7 +1317,7 @@ def _stream_responses(
     # Flush any remaining state.
     if in_reasoning_block:
         yield "\n</think>\n"
-    if pending:
+    if pending and not in_duplicate_thinking_block:
         yield pending.replace("<thinking>", "<think>").replace(
             "</thinking>", "</think>"
         )

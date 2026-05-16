@@ -15,6 +15,7 @@ from gptme.llm.llm_openai import (
     _messages_dicts_to_responses_input,
     _prepare_messages_for_api,
     _should_use_responses_api,
+    _stream_responses,
 )
 from gptme.llm.models import get_default_model, get_model, set_default_model
 from gptme.message import Message
@@ -27,6 +28,15 @@ def reset_default_model():
     assert default_model, "No default model set in config or environment"
     yield
     set_default_model(default_model)
+
+
+def _collect_stream_result(generator):
+    chunks: list[str] = []
+    while True:
+        try:
+            chunks.append(next(generator))
+        except StopIteration as exc:
+            return "".join(chunks), exc.value
 
 
 def test_message_conversion():
@@ -829,6 +839,133 @@ def test_make_responses_text_config_includes_schema_and_verbosity(monkeypatch):
         },
         "verbosity": "high",
     }
+
+
+def test_stream_responses_emits_function_calls_and_usage(monkeypatch):
+    from openai.types.responses.response_usage import ResponseUsage
+
+    usage = ResponseUsage.model_validate(
+        {
+            "input_tokens": 120,
+            "input_tokens_details": {"cached_tokens": 20},
+            "output_tokens": 30,
+            "output_tokens_details": {"reasoning_tokens": 10},
+            "total_tokens": 150,
+        }
+    )
+    events = [
+        SimpleNamespace(
+            type="response.output_item.added",
+            output_index=0,
+            item=SimpleNamespace(
+                type="function_call", id="item_1", name="save", call_id="call_123"
+            ),
+        ),
+        SimpleNamespace(
+            type="response.function_call_arguments.delta",
+            output_index=0,
+            delta='{"path":"note.txt"',
+        ),
+        SimpleNamespace(
+            type="response.function_call_arguments.delta",
+            output_index=0,
+            delta=',"content":"hi"}',
+        ),
+        SimpleNamespace(
+            type="response.completed",
+            response=SimpleNamespace(usage=usage),
+        ),
+    ]
+    responses_create = Mock(return_value=events)
+    mock_client = SimpleNamespace(responses=SimpleNamespace(create=responses_create))
+
+    monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+
+    text, metadata = _collect_stream_result(
+        _stream_responses(
+            [Message(role="user", content="Save a note.")],
+            "openai/gpt-5",
+            None,
+            get_model("openai/gpt-5"),
+        )
+    )
+
+    assert text == '\n@save(call_123): {"path":"note.txt","content":"hi"}'
+    assert metadata is not None
+    assert metadata["usage"]["input_tokens"] == 100
+    assert metadata["usage"]["output_tokens"] == 30
+    responses_create.assert_called_once()
+
+
+def test_stream_responses_removes_duplicate_thinking_text_when_reasoning_deltas_present(
+    monkeypatch,
+):
+    events = [
+        SimpleNamespace(
+            type="response.reasoning_text.delta", delta="Need no extra tools."
+        ),
+        SimpleNamespace(
+            type="response.output_text.delta",
+            delta="<thinking>Need no extra tools.</thinking>Hello from Responses",
+        ),
+        SimpleNamespace(
+            type="response.completed",
+            response=SimpleNamespace(usage=None),
+        ),
+    ]
+    responses_create = Mock(return_value=events)
+    mock_client = SimpleNamespace(responses=SimpleNamespace(create=responses_create))
+
+    monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+
+    text, metadata = _collect_stream_result(
+        _stream_responses(
+            [Message(role="user", content="Say hello.")],
+            "openai/gpt-5",
+            None,
+            get_model("openai/gpt-5"),
+        )
+    )
+
+    assert text == "<think>\nNeed no extra tools.\n</think>\nHello from Responses"
+    assert metadata is None
+    responses_create.assert_called_once()
+
+
+def test_stream_responses_converts_split_thinking_tags_without_reasoning_deltas(
+    monkeypatch,
+):
+    events = [
+        SimpleNamespace(type="response.output_text.delta", delta="Hello <thin"),
+        SimpleNamespace(
+            type="response.output_text.delta",
+            delta="king>plan</thinking> world",
+        ),
+        SimpleNamespace(
+            type="response.completed",
+            response=SimpleNamespace(usage=None),
+        ),
+    ]
+    responses_create = Mock(return_value=events)
+    mock_client = SimpleNamespace(responses=SimpleNamespace(create=responses_create))
+
+    monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+
+    text, metadata = _collect_stream_result(
+        _stream_responses(
+            [Message(role="user", content="Think, then answer.")],
+            "openai/gpt-5",
+            None,
+            get_model("openai/gpt-5"),
+        )
+    )
+
+    assert text == "Hello <think>plan</think> world"
+    assert metadata is None
+    responses_create.assert_called_once()
 
 
 def test_transform_msgs_for_groq():
