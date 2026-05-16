@@ -1,3 +1,4 @@
+import logging
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import Mock
@@ -17,8 +18,9 @@ from gptme.llm.llm_openai import (
     _should_use_responses_api,
 )
 from gptme.llm.models import get_default_model, get_model, set_default_model
+from gptme.llm.openai_responses import _tool_spec_to_responses_tool
 from gptme.message import Message
-from gptme.tools import get_tool, init_tools
+from gptme.tools import ToolSpec, get_tool, init_tools
 
 
 @pytest.fixture(autouse=True)
@@ -797,6 +799,21 @@ def test_messages_dicts_to_responses_input_collects_instructions_and_tool_events
         },
         {"role": "user", "content": "What next?"},
     ]
+
+
+def test_tool_spec_to_responses_tool_warns_on_truncated_description(caplog):
+    spec = ToolSpec(name="save", desc="x" * 1100)
+
+    with caplog.at_level(logging.WARNING, logger="gptme.llm.openai_responses"):
+        tool = _tool_spec_to_responses_tool(spec)
+
+    assert tool["description"] == "x" * 1024
+    assert "Description for tool `save` is too long" in caplog.text
+
+
+def test_llm_openai_all_excludes_private_responses_helpers():
+    assert "_content_to_responses_input" not in llm_openai.__all__
+    assert "_messages_dicts_to_responses_input" not in llm_openai.__all__
 
 
 def test_should_use_responses_api_requires_direct_openai(monkeypatch):

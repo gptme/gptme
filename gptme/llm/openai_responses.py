@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypedDict
 
@@ -13,6 +14,8 @@ from .utils import extract_tool_uses_from_assistant_message, parameters2dict
 if TYPE_CHECKING:
     from ..message import Message
     from ..tools import ToolSpec
+
+logger = logging.getLogger(__name__)
 
 
 class ContentPart(TypedDict):
@@ -170,6 +173,11 @@ def _tool_spec_to_responses_tool(spec: ToolSpec) -> dict[str, Any]:
     name = spec.block_types[0] if spec.block_types else spec.name
     description = spec.get_instructions("tool") or spec.desc or ""
     if len(description) > 1024:
+        logger.warning(
+            "Description for tool `%s` is too long ( %d > 1024 chars). Truncating...",
+            spec.name,
+            len(description),
+        )
         description = description[:1024]
     return {
         "type": "function",

@@ -29,7 +29,7 @@ from .openai_responses import (
     MessageDict,
     ToolCall,
     ToolCallFunction,
-    _content_to_responses_input,
+    _content_to_responses_input,  # noqa: F401
     _extract_usage_token_counts,
     _filter_duplicate_thinking_text,
     _longest_suffix_prefix,
@@ -57,8 +57,6 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "ContentPart",
     "MessageContent",
-    "_content_to_responses_input",
-    "_messages_dicts_to_responses_input",
 ]
 
 
