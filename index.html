@@ -797,7 +797,10 @@ respond, using tools as needed.</p>
 <span id="cb7-20"><a href="#cb7-20" aria-hidden="true" tabindex="-1"></a><span class="ex">gptme</span> <span class="at">-y</span> <span class="st">&#39;run the test suite and fix any failing tests&#39;</span></span>
 <span id="cb7-21"><a href="#cb7-21" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb7-22"><a href="#cb7-22" aria-hidden="true" tabindex="-1"></a><span class="co"># Fully non-interactive/autonomous mode (no user interaction possible, safe for scripts/CI)</span></span>
-<span id="cb7-23"><a href="#cb7-23" aria-hidden="true" tabindex="-1"></a><span class="ex">gptme</span> <span class="at">-n</span> <span class="st">&#39;run the test suite and fix any failing tests&#39;</span></span></code></pre></div>
+<span id="cb7-23"><a href="#cb7-23" aria-hidden="true" tabindex="-1"></a><span class="ex">gptme</span> <span class="at">-n</span> <span class="st">&#39;run the test suite and fix any failing tests&#39;</span></span>
+<span id="cb7-24"><a href="#cb7-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-25"><a href="#cb7-25" aria-hidden="true" tabindex="-1"></a><span class="co"># Machine-readable automation output (JSONL on stdout)</span></span>
+<span id="cb7-26"><a href="#cb7-26" aria-hidden="true" tabindex="-1"></a><span class="ex">gptme</span> <span class="at">--non-interactive</span> <span class="at">--output-format</span> json <span class="st">&#39;summarize the current git diff&#39;</span></span></code></pre></div>
 <p>For more, see the <a
 href="https://gptme.org/docs/getting-started.html">Getting Started</a>
 guide and the <a
@@ -874,18 +877,26 @@ href="https://gptme.org/docs/config.html">configuration docs</a>.</p>
 <span id="cb9-50"><a href="#cb9-50" aria-hidden="true" tabindex="-1"></a>  <span class="ex">-r,</span> <span class="at">--resume</span>           Load most recent conversation.</span>
 <span id="cb9-51"><a href="#cb9-51" aria-hidden="true" tabindex="-1"></a>  <span class="ex">-y,</span> <span class="at">--no-confirm</span>       Skip all confirmation prompts.</span>
 <span id="cb9-52"><a href="#cb9-52" aria-hidden="true" tabindex="-1"></a>  <span class="ex">-n,</span> <span class="at">--non-interactive</span>  Non-interactive mode. Implies <span class="at">--no-confirm.</span></span>
-<span id="cb9-53"><a href="#cb9-53" aria-hidden="true" tabindex="-1"></a>  <span class="ex">--system</span> TEXT          System prompt. Options: <span class="st">&#39;full&#39;</span>, <span class="st">&#39;short&#39;</span>, or something</span>
-<span id="cb9-54"><a href="#cb9-54" aria-hidden="true" tabindex="-1"></a>                         <span class="ex">custom.</span></span>
-<span id="cb9-55"><a href="#cb9-55" aria-hidden="true" tabindex="-1"></a>  <span class="ex">-t,</span> <span class="at">--tools</span> TEXT       Tools to allow as comma-separated list. Available:</span>
-<span id="cb9-56"><a href="#cb9-56" aria-hidden="true" tabindex="-1"></a>                         <span class="ex">append,</span> browser, chats, choice, computer, gh,</span>
-<span id="cb9-57"><a href="#cb9-57" aria-hidden="true" tabindex="-1"></a>                         <span class="ex">ipython,</span> morph, patch, rag, read, save, screenshot,</span>
-<span id="cb9-58"><a href="#cb9-58" aria-hidden="true" tabindex="-1"></a>                         <span class="ex">shell,</span> subagent, tmux, vision.</span>
-<span id="cb9-59"><a href="#cb9-59" aria-hidden="true" tabindex="-1"></a>  <span class="ex">--tool-format</span> TEXT     Tool format to use. Options: markdown, xml, tool</span>
-<span id="cb9-60"><a href="#cb9-60" aria-hidden="true" tabindex="-1"></a>  <span class="ex">--no-stream</span>            Don<span class="st">&#39;t stream responses</span></span>
-<span id="cb9-61"><a href="#cb9-61" aria-hidden="true" tabindex="-1"></a><span class="st">  --show-hidden          Show hidden system messages.</span></span>
-<span id="cb9-62"><a href="#cb9-62" aria-hidden="true" tabindex="-1"></a><span class="st">  -v, --verbose          Show verbose output.</span></span>
-<span id="cb9-63"><a href="#cb9-63" aria-hidden="true" tabindex="-1"></a><span class="st">  --version              Show version and configuration information</span></span>
-<span id="cb9-64"><a href="#cb9-64" aria-hidden="true" tabindex="-1"></a><span class="st">  --help                 Show this message and exit.</span></span></code></pre></div>
+<span id="cb9-53"><a href="#cb9-53" aria-hidden="true" tabindex="-1"></a>  <span class="ex">--output-format</span> [text<span class="kw">|</span><span class="ex">json]</span></span>
+<span id="cb9-54"><a href="#cb9-54" aria-hidden="true" tabindex="-1"></a>                         <span class="ex">Output</span> format for non-interactive mode. <span class="st">&#39;json&#39;</span></span>
+<span id="cb9-55"><a href="#cb9-55" aria-hidden="true" tabindex="-1"></a>                         <span class="ex">emits</span> one JSON object per line on stdout.</span>
+<span id="cb9-56"><a href="#cb9-56" aria-hidden="true" tabindex="-1"></a>  <span class="ex">--system</span> TEXT          System prompt. Options: <span class="st">&#39;full&#39;</span>, <span class="st">&#39;short&#39;</span>, or something</span>
+<span id="cb9-57"><a href="#cb9-57" aria-hidden="true" tabindex="-1"></a>                         <span class="ex">custom.</span></span>
+<span id="cb9-58"><a href="#cb9-58" aria-hidden="true" tabindex="-1"></a>  <span class="ex">-t,</span> <span class="at">--tools</span> TEXT       Tools to allow as comma-separated list. Available:</span>
+<span id="cb9-59"><a href="#cb9-59" aria-hidden="true" tabindex="-1"></a>                         <span class="ex">append,</span> browser, chats, choice, computer, gh,</span>
+<span id="cb9-60"><a href="#cb9-60" aria-hidden="true" tabindex="-1"></a>                         <span class="ex">ipython,</span> morph, patch, rag, read, save, screenshot,</span>
+<span id="cb9-61"><a href="#cb9-61" aria-hidden="true" tabindex="-1"></a>                         <span class="ex">shell,</span> subagent, tmux, vision.</span>
+<span id="cb9-62"><a href="#cb9-62" aria-hidden="true" tabindex="-1"></a>  <span class="ex">--tool-format</span> TEXT     Tool format to use. Options: markdown, xml, tool</span>
+<span id="cb9-63"><a href="#cb9-63" aria-hidden="true" tabindex="-1"></a>  <span class="ex">--no-stream</span>            Don<span class="st">&#39;t stream responses</span></span>
+<span id="cb9-64"><a href="#cb9-64" aria-hidden="true" tabindex="-1"></a><span class="st">  --show-hidden          Show hidden system messages.</span></span>
+<span id="cb9-65"><a href="#cb9-65" aria-hidden="true" tabindex="-1"></a><span class="st">  -v, --verbose          Show verbose output.</span></span>
+<span id="cb9-66"><a href="#cb9-66" aria-hidden="true" tabindex="-1"></a><span class="st">  --version              Show version and configuration information</span></span>
+<span id="cb9-67"><a href="#cb9-67" aria-hidden="true" tabindex="-1"></a><span class="st">  --help                 Show this message and exit.</span></span></code></pre></div>
+<p>Pair <code>--non-interactive</code> with
+<code>--output-format json</code> when stdout needs to be
+machine-readable, for example in CI or a supervising process. Use
+<code>--resume</code> to continue an existing automated conversation or
+pick up queued follow-up prompts without passing a new prompt.</p>
 <h2 id="earth_africa-ecosystem">🌍 Ecosystem</h2>
 <p>gptme is more than a CLI — it's a platform with a growing
 ecosystem:</p>

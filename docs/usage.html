@@ -472,6 +472,7 @@
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-selection-patterns">Tool Selection Patterns</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#skip-confirmation-prompts">Skip confirmation prompts</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#non-interactive-mode">Non-interactive mode</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#machine-readable-output">Machine-readable output</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pre-commit-integration">Pre-commit Integration</a></li>
 </ul>
 </li>
@@ -510,7 +511,8 @@
 <li><p><a class="reference internal" href="#tool-selection-patterns" id="id9">Tool Selection Patterns</a></p></li>
 <li><p><a class="reference internal" href="#skip-confirmation-prompts" id="id10">Skip confirmation prompts</a></p></li>
 <li><p><a class="reference internal" href="#non-interactive-mode" id="id11">Non-interactive mode</a></p></li>
-<li><p><a class="reference internal" href="#pre-commit-integration" id="id12">Pre-commit Integration</a></p></li>
+<li><p><a class="reference internal" href="#machine-readable-output" id="id12">Machine-readable output</a></p></li>
+<li><p><a class="reference internal" href="#pre-commit-integration" id="id13">Pre-commit Integration</a></p></li>
 </ul>
 </li>
 </ul>
@@ -687,6 +689,21 @@ with repeated screenshots:</p>
 </div>
 <p>Note: <code class="docutils literal notranslate"><span class="pre">--non-interactive</span></code> implies <code class="docutils literal notranslate"><span class="pre">--no-confirm</span></code>, so you don’t need to specify both.</p>
 </section>
+<section id="machine-readable-output">
+<h3>Machine-readable output<a class="headerlink" href="#machine-readable-output" title="Link to this heading">#</a></h3>
+<p>Pair <code class="docutils literal notranslate"><span class="pre">--non-interactive</span></code> with <code class="docutils literal notranslate"><span class="pre">--output-format</span> <span class="pre">json</span></code> when stdout needs to
+be consumed by another program. In JSON mode, gptme emits one JSON object per
+line on stdout (JSONL):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--non-interactive<span class="w"> </span>--output-format<span class="w"> </span>json<span class="w"> </span><span class="s1">&#39;summarize this repository&#39;</span>
+</pre></div>
+</div>
+<p>Use <code class="docutils literal notranslate"><span class="pre">--resume</span></code> to continue an existing automated conversation without
+supplying a new prompt. This also picks up any queued follow-up prompts for the
+current conversation before exiting:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--non-interactive<span class="w"> </span>--output-format<span class="w"> </span>json<span class="w"> </span>--resume
+</pre></div>
+</div>
+</section>
 <section id="pre-commit-integration">
 <span id="pre-commit"></span><h3>Pre-commit Integration<a class="headerlink" href="#pre-commit-integration" title="Link to this heading">#</a></h3>
 <p>gptme integrates with <a class="reference external" href="https://pre-commit.com/">pre-commit</a> to catch code quality issues early. When enabled, it will automatically run pre-commit checks after file modifications, right before yielding control back to the user, to let the assistant address issues without human intervention.</p>
@@ -825,6 +842,7 @@ def my_function(x: int, y: int) -> int:
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-selection-patterns">Tool Selection Patterns</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#skip-confirmation-prompts">Skip confirmation prompts</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#non-interactive-mode">Non-interactive mode</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#machine-readable-output">Machine-readable output</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pre-commit-integration">Pre-commit Integration</a></li>
 </ul>
 </li>

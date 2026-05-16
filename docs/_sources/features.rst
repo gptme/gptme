@@ -262,6 +262,7 @@ gptme supports several automation modes:
 
 - ``gptme -y`` — auto-approve tool confirmations (user can still watch and interrupt)
 - ``gptme -n`` — fully non-interactive/autonomous mode (safe for scripts and CI)
+- ``gptme -n --output-format json`` — JSONL stdout for scripts, CI, and supervisor processes
 - **GitHub Bot** — request changes from PR and issue comments, runs in GitHub Actions
 - **Subagent spawning** — delegate subtasks to parallel agent instances via tmux
 
