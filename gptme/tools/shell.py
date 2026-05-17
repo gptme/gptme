@@ -130,7 +130,7 @@ These programs are available, among others:
 
 ### When to use the shell
 
-Use the shell when you need to inspect the workspace, read or search files,
+Use the shell when you need to inspect the workspace, search or examine files,
 check git state, or run existing commands and tests. Prefer the shell over
 answering from memory when the repo can tell you the answer directly.
 

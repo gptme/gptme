@@ -27,10 +27,9 @@ For directories, output shows a flat listing of immediate files and subdirectori
 
 ### When to use read
 
-Use `read` when you already know the file or directory you want and need its
-exact current contents, optionally with line numbers. Prefer `read` over
-guessing from file names, comments, or memory when the file itself is the
-source of truth.
+Reading a file directly gives you its exact, current content with line numbers —
+eliminating guesswork from memory, file names, or comments. Prefer `read` over
+those shortcuts when the file itself is the source of truth.
 
 To read multiple files in a single call, put one path per line in the code block.
 Lines beginning with '#' are treated as comments and skipped.
