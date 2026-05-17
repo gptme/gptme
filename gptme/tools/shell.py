@@ -128,6 +128,12 @@ The shell tool will respond with the output of the execution.
 These programs are available, among others:
 {shell_programs_str}
 
+### When to use the shell
+
+Use the shell when you need to inspect the workspace, read or search files,
+check git state, or run existing commands and tests. Prefer the shell over
+answering from memory when the repo can tell you the answer directly.
+
 ### Background Jobs
 
 For long-running commands (dev servers, builds, etc.), use background jobs:

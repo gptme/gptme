@@ -652,7 +652,8 @@ def execute_gh(
 
 
 instructions = """Use this tool when GitHub work needs fewer round-trips, structured CI data,
-or safer merges than a raw `gh` shell command.
+or safer merges than a raw `gh` shell command. Prefer `gh` over shell whenever
+the target is a GitHub issue, PR, run, or merge action.
 
 Refs: full URLs, `owner/repo#N`, `#N`, or bare `N` in a git repo.
 
