@@ -509,20 +509,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking import time for gptme
 time poetry run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep &quot;import time&quot; | cut -d&#39;|&#39; -f 2- | sort -n | tail -n 10
-     150556 |   gptme.tools._browser_playwright
-     175241 |         gptme.config
-     181793 |       gptme.llm
-     214104 |         mcp.client.session
-     241814 |     gptme.commands
-     272764 |   gptme.chat
-     332021 |       mcp
-     332048 |     mcp.types
-     345908 |   gptme.tools.mcp_adapter
-    1353049 | gptme.cli.main
+     170854 |   gptme.tools._browser_playwright
+     195875 |         gptme.config
+     203205 |       gptme.llm
+     239840 |         mcp.client.session
+     266824 |     gptme.commands
+     301309 |   gptme.chat
+     364245 |       mcp
+     364272 |     mcp.types
+     380309 |   gptme.tools.mcp_adapter
+    1334853 | gptme.cli.main
 
-real	0m2.044s
-user	0m1.685s
-sys	0m0.152s
+real	0m2.059s
+user	0m1.784s
+sys	0m0.203s
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -531,8 +531,8 @@ make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking startup time for gptme
 hyperfine &quot;poetry run gptme &#39;/exit&#39;&quot; -M 5 || poetry run gptme &#39;/exit&#39; || exit 1
 Benchmark 1: poetry run gptme &#39;/exit&#39;
-  Time (mean ± σ):      2.390 s ±  0.285 s    [User: 2.169 s, System: 0.385 s]
-  Range (min … max):    2.206 s …  2.890 s    5 runs
+  Time (mean ± σ):      2.606 s ±  0.238 s    [User: 2.278 s, System: 0.578 s]
+  Range (min … max):    2.443 s …  3.015 s    5 runs
  
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -2000,7 +2000,7 @@ Largest Files (&gt;300 SLOC):
 
 make[3]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Most Duplicated Files:
-npm warn exec The following package was not found and will be installed: jscpd@4.2.2
+npm warn exec The following package was not found and will be installed: jscpd@4.2.3
 Clone found (python):
  - gptme/util/_sound_sounddevice.py [103:5 - 115:71] (12 lines, 113 tokens)
    gptme/util/_sound_sounddevice.py [62:5 - 74:31]
@@ -2268,20 +2268,20 @@ Clone found (python):
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ markup     │ 2              │ 320         │ 2766         │ 0            │ 0 (0%)           │ 0 (0%)            │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ markdown   │ 7              │ 813         │ 7984         │ 0            │ 0 (0%)           │ 0 (0%)            │
+│ markdown   │ 7              │ 820         │ 8022         │ 0            │ 0 (0%)           │ 0 (0%)            │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ yaml       │ 3              │ 73          │ 231          │ 0            │ 0 (0%)           │ 0 (0%)            │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ txt        │ 1              │ 78          │ 300          │ 0            │ 0 (0%)           │ 0 (0%)            │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ bash       │ 15             │ 1243        │ 4360         │ 0            │ 0 (0%)           │ 0 (0%)            │
+│ bash       │ 15             │ 1243        │ 4358         │ 0            │ 0 (0%)           │ 0 (0%)            │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ toml       │ 1              │ 137         │ 326          │ 0            │ 0 (0%)           │ 0 (0%)            │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ Total:     │ 396            │ 102074      │ 629999       │ 64           │ 795 (0.78%)      │ 6601 (1.05%)      │
+│ Total:     │ 396            │ 102081      │ 630035       │ 64           │ 795 (0.78%)      │ 6601 (1.05%)      │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
 Found 64 clones.
-time: 4.849s
+time: 4.732s
 make[3]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>

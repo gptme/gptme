@@ -461,9 +461,10 @@
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-1-gather-the-data">Step 1: Gather the data</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-2-prepare-the-data">Step 2: Prepare the data</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-3-fine-tune-the-model">Step 3: Fine-tune the model</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#current-scope">Current scope</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#collect-local-conversations">Collect local conversations</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-is-not-maintained-here">What is not maintained here</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#training-stack-pointers">Training stack pointers</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#model-suggestions">Model suggestions</a></li>
 </ul>
             </nav>
@@ -478,68 +479,68 @@
                   
   <section id="finetuning">
 <h1>Finetuning<a class="headerlink" href="#finetuning" title="Link to this heading">#</a></h1>
-<p>NOTE: this document is a work in progress!</p>
-<p>This document aims to provide a step-by-step guide to finetuning a model on conversations from gptme.</p>
-<p>The goal of fine-tuning a model for gptme is to:</p>
+<p>This page documents the experimental fine-tuning support that still exists in
+the repository. It is not a maintained end-to-end training guide.</p>
+<section id="current-scope">
+<h2>Current scope<a class="headerlink" href="#current-scope" title="Link to this heading">#</a></h2>
+<p>Today <code class="docutils literal notranslate"><span class="pre">gptme</span></code> ships one helper for this workflow:
+<code class="docutils literal notranslate"><span class="pre">scripts/train/collect.py</span></code>.</p>
+<p>That script:</p>
 <ul class="simple">
-<li><p>Teach the tools available in gptme</p></li>
-<li><p>Update out-of-date knowledge and conventions</p></li>
-<li><p>Improve its ability to recover from errors</p></li>
+<li><p>reads local conversation logs from <code class="docutils literal notranslate"><span class="pre">~/.local/share/gptme/logs/</span></code></p></li>
+<li><p>filters out generated-name/test conversations and low-quality chats</p></li>
+<li><p>strips leading system prompts</p></li>
+<li><p>renders each conversation with the selected Hugging Face chat template</p></li>
+<li><p>writes <code class="docutils literal notranslate"><span class="pre">train.csv</span></code> and <code class="docutils literal notranslate"><span class="pre">train.jsonl</span></code></p></li>
 </ul>
-<section id="step-1-gather-the-data">
-<h2>Step 1: Gather the data<a class="headerlink" href="#step-1-gather-the-data" title="Link to this heading">#</a></h2>
-<p>To fine-tune we need something to fine-tune on.</p>
-<p>We will fine-tune on our own conversation history, combined with a subset of the [OpenAssistant dataset][oa-dataset] to extend the training data with relevant examples.</p>
-<p>We collect our own conversation history by running the following command:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>./train/collect.py<span class="w"> </span>--model<span class="w"> </span><span class="s2">&quot;HuggingFaceH4/zephyr-7b-beta&quot;</span><span class="w">  </span><span class="c1"># or whatever model you intend to fine-tune</span>
+<p>The files are written to your current working directory, not to a <code class="docutils literal notranslate"><span class="pre">train/</span></code>
+subdirectory in the repo.</p>
+</section>
+<section id="collect-local-conversations">
+<h2>Collect local conversations<a class="headerlink" href="#collect-local-conversations" title="Link to this heading">#</a></h2>
+<p>From the repository root, run:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>./scripts/train/collect.py<span class="w"> </span>--model<span class="w"> </span><span class="s2">&quot;HuggingFaceH4/zephyr-7b-beta&quot;</span>
 </pre></div>
 </div>
-<p>This will create files <code class="docutils literal notranslate"><span class="pre">train.csv</span></code> and <code class="docutils literal notranslate"><span class="pre">train.jsonl</span></code> in the <code class="docutils literal notranslate"><span class="pre">train</span></code> directory.</p>
-<p>TODO: describe how to get the OpenAssistant dataset
-TODO: describe how to use exported ChatGPT conversations</p>
+<p>Pick a model whose chat template matches the format you want in the resulting
+training data. The script uses <code class="docutils literal notranslate"><span class="pre">transformers.pipeline(...)</span></code> and
+<code class="docutils literal notranslate"><span class="pre">tokenizer.apply_chat_template(...)</span></code> to turn stored chats into prompt text.
+Run it in an environment where <code class="docutils literal notranslate"><span class="pre">torch</span></code> and <code class="docutils literal notranslate"><span class="pre">transformers</span></code> are already
+installed.</p>
 </section>
-<section id="step-2-prepare-the-data">
-<h2>Step 2: Prepare the data<a class="headerlink" href="#step-2-prepare-the-data" title="Link to this heading">#</a></h2>
-<p>We need to prepare the data for fine-tuning. This involves:</p>
+<section id="what-is-not-maintained-here">
+<h2>What is not maintained here<a class="headerlink" href="#what-is-not-maintained-here" title="Link to this heading">#</a></h2>
+<p>This page intentionally does <strong>not</strong> claim a supported workflow for:</p>
 <ul class="simple">
-<li><p>Extend the data with examples from the OpenAssistant dataset</p></li>
-<li><p>Splitting the data into train and validation sets</p>
-<ul>
-<li><p>We might want to make sure that the validation set is comprised of examples from gptme, and not from the OpenAssistant dataset.</p></li>
+<li><p>mixing in OpenAssistant or other public datasets</p></li>
+<li><p>importing exported ChatGPT conversations</p></li>
+<li><p>splitting train and validation sets</p></li>
+<li><p>training with a specific stack such as Axolotl, Transformers, or OpenPipe</p></li>
 </ul>
-</li>
-</ul>
-<p>TODO…</p>
+<p>Older revisions of this page sketched those steps, but they were incomplete and
+had drifted out of sync with the repo. Until <code class="docutils literal notranslate"><span class="pre">gptme</span></code> grows a maintained
+fine-tuning pipeline again, treat this document as a narrow note about the
+collector script rather than a full recipe.</p>
 </section>
-<section id="step-3-fine-tune-the-model">
-<h2>Step 3: Fine-tune the model<a class="headerlink" href="#step-3-fine-tune-the-model" title="Link to this heading">#</a></h2>
-<p>Options:</p>
+<section id="training-stack-pointers">
+<h2>Training stack pointers<a class="headerlink" href="#training-stack-pointers" title="Link to this heading">#</a></h2>
+<p>If you want to take the exported data further, start with upstream docs for the
+training stack you actually plan to use:</p>
 <ul class="simple">
-<li><p><a class="reference external" href="https://github.com/OpenAccess-AI-Collective/axolotl">axolotl</a></p>
-<ul>
-<li><p>Does it support Mistral? (and by extension Zephyr)</p></li>
+<li><p><a class="reference external" href="https://github.com/OpenAccess-AI-Collective/axolotl">Axolotl</a></p></li>
+<li><p><a class="reference external" href="https://huggingface.co/docs/transformers/training">Hugging Face Transformers</a></p></li>
+<li><p><a class="reference external" href="https://ai.meta.com/llama/get-started/#fine-tuning">Examples for Llama fine-tuning</a></p></li>
+<li><p><a class="reference external" href="https://openpipe.ai/">OpenPipe</a></p></li>
 </ul>
-</li>
-<li><p>[Hugging Face transformers][hf-transformers]</p>
-<ul>
-<li><p><a class="reference external" href="https://ai.meta.com/llama/get-started/#fine-tuning">Examples for Llama2</a> by Meta</p></li>
-</ul>
-</li>
-<li><p>[OpenPipe][openpipe]?</p>
-<ul>
-<li><p>Looks interesting, but not sure if it’s relevant for us.</p></li>
-</ul>
-</li>
-</ul>
-<p>TODO…</p>
 </section>
 <section id="model-suggestions">
 <h2>Model suggestions<a class="headerlink" href="#model-suggestions" title="Link to this heading">#</a></h2>
 <ul class="simple">
-<li><p>HuggingFaceH4/zephyr-7b-beta</p></li>
-<li><p>teknium/Replit-v2-CodeInstruct-3B</p>
+<li><p><code class="docutils literal notranslate"><span class="pre">HuggingFaceH4/zephyr-7b-beta</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">teknium/Replit-v2-CodeInstruct-3B</span></code></p>
 <ul>
-<li><p>I had issues with this one on M2, but would be good to have some 3B model as an example used in testing/debug.</p></li>
+<li><p>This was previously used for testing/debugging, but availability and local
+hardware support may vary.</p></li>
 </ul>
 </li>
 </ul>
@@ -592,9 +593,10 @@ TODO: describe how to use exported ChatGPT conversations</p>
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-1-gather-the-data">Step 1: Gather the data</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-2-prepare-the-data">Step 2: Prepare the data</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-3-fine-tune-the-model">Step 3: Fine-tune the model</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#current-scope">Current scope</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#collect-local-conversations">Collect local conversations</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-is-not-maintained-here">What is not maintained here</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#training-stack-pointers">Training stack pointers</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#model-suggestions">Model suggestions</a></li>
 </ul>
   </nav></div>
