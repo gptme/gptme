@@ -698,7 +698,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f88a75b6660&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f2f201fa660&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1267,7 +1267,8 @@ Use a code block with the language tag: <span class="sb">`form`</span> followed 
 <span class="gs">**Description:**</span> Interact with GitHub
 
 <span class="gs">**Instructions:**</span> Use this tool when GitHub work needs fewer round-trips, structured CI data,
-or safer merges than a raw <span class="sb">`gh`</span> shell command.
+or safer merges than a raw <span class="sb">`gh`</span> shell command. Prefer <span class="sb">`gh`</span> over shell whenever
+the target is a GitHub issue, PR, run, or merge action.
 
 Refs: full URLs, <span class="sb">`owner/repo#N`</span>, <span class="sb">`#N`</span>, or bare <span class="sb">`N`</span> in a git repo.
 
@@ -1567,6 +1568,12 @@ Paths can be relative or absolute.
 For files, output includes line numbers for easy reference.
 For directories, output shows a flat listing of immediate files and subdirectories.
 
+<span class="gu">### When to use read</span>
+
+Reading a file directly gives you its exact, current content with line numbers —
+eliminating guesswork from memory, file names, or comments. Prefer <span class="sb">`read`</span> over
+those shortcuts when the file itself is the source of truth.
+
 To read multiple files in a single call, put one path per line in the code block.
 Lines beginning with &#39;#&#39; are treated as comments and skipped.
 The line-range parameters (start_line, end_line) only apply when reading a single file.
@@ -1676,6 +1683,12 @@ These programs are available, among others:
 <span class="k">-</span><span class="w"> </span>git
 <span class="k">-</span><span class="w"> </span>hyperfine
 <span class="k">-</span><span class="w"> </span>pandoc
+
+<span class="gu">### When to use the shell</span>
+
+Use the shell when you need to inspect the workspace, search or examine files,
+check git state, or run existing commands and tests. Prefer the shell over
+answering from memory when the repo can tell you the answer directly.
 
 <span class="gu">### Background Jobs</span>
 
@@ -2264,7 +2277,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 12658</p>
+<p>Tokens: 12794</p>
 </dd></dl>
 
 <dl class="py function">

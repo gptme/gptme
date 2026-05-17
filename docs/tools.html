@@ -583,6 +583,12 @@ These programs are available, among others:
 <span class="k">-</span><span class="w"> </span>hyperfine
 <span class="k">-</span><span class="w"> </span>pandoc
 
+<span class="gu">### When to use the shell</span>
+
+Use the shell when you need to inspect the workspace, search or examine files,
+check git state, or run existing commands and tests. Prefer the shell over
+answering from memory when the repo can tell you the answer directly.
+
 <span class="gu">### Background Jobs</span>
 
 For long-running commands (dev servers, builds, etc.), use background jobs:
@@ -1925,6 +1931,12 @@ files in a single tool call, reducing roundtrips when exploring a codebase.</p>
 Paths can be relative or absolute.
 For files, output includes line numbers for easy reference.
 For directories, output shows a flat listing of immediate files and subdirectories.
+
+<span class="gu">### When to use read</span>
+
+Reading a file directly gives you its exact, current content with line numbers —
+eliminating guesswork from memory, file names, or comments. Prefer <span class="sb">`read`</span> over
+those shortcuts when the file itself is the source of truth.
 
 To read multiple files in a single call, put one path per line in the code block.
 Lines beginning with &#39;#&#39; are treated as comments and skipped.
