@@ -524,7 +524,9 @@ You can use the tmux tool to run long-lived and/or interactive applications in a
 Use tmux for interactive applications requiring ongoing keyboard input or output
 inspection: REPLs, TUIs, interactive installers, and persistent processes you
 need to revisit. Prefer tmux over the shell's `bg` command when the application
-requires send-keys interaction or repeated pane inspection.
+requires send-keys interaction or repeated pane inspection. Use `wait
+<session_id> [timeout] [stable_time]` when you need output to stabilize before
+continuing.
 """
 # TODO: change the "commands" to Python functions registered with the Python tool?
 
