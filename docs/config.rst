@@ -73,7 +73,7 @@ The ``user`` section configures user identity:
 The ``prompt`` section contains options included in both interactive and non-interactive runs:
 
 - ``files``: A list of additional files to always include in context. Supports absolute paths, ``~`` expansion, and paths relative to the config directory.
-- ``project``: A table of project descriptions, keyed by project name, included when working in the matching Git repository. The default config includes descriptions for ``activitywatch`` and ``gptme`` — when a git repository's remote matches one of these keys, the description is automatically injected into the system prompt.
+- ``project``: A table of project descriptions, keyed by project name, included when working in the matching Git repository. The default config includes descriptions for ``activitywatch`` and ``gptme`` — when the git root directory name matches one of these keys, the description is automatically injected into the system prompt.
 
 The ``env`` section contains environment variables that gptme will fall back to if they are not set in the shell environment. This is useful for setting the default model and API keys for :doc:`providers`. It can also be used to set default tool configuration options, see :doc:`custom_tool` for more information.
 
