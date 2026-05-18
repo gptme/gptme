@@ -112,6 +112,24 @@ def _run_tmux_command(cmd: list[str]) -> subprocess.CompletedProcess:
     return result
 
 
+def _run_tmux_command_with_retry(
+    cmd: list[str], retries: int = 10, delay: float = 0.1
+) -> subprocess.CompletedProcess:
+    """Retry follow-up tmux commands while a new session target becomes ready."""
+    last_error: subprocess.CalledProcessError | None = None
+    for attempt in range(retries):
+        try:
+            return _run_tmux_command(cmd)
+        except subprocess.CalledProcessError as error:
+            last_error = error
+            if attempt == retries - 1:
+                raise
+            sleep(delay)
+
+    assert last_error is not None
+    raise last_error
+
+
 def get_sessions() -> list[str]:
     try:
         output = subprocess.run(
@@ -214,10 +232,10 @@ def new_session(command: str) -> Message:
 
     # set session size
     cmd = ["tmux", "resize-window", "-t", session_id, "-x", "120", "-y", "40"]
-    _run_tmux_command(cmd)
+    _run_tmux_command_with_retry(cmd)
 
     cmd = ["tmux", "send-keys", "-t", session_id, command, "Enter"]
-    _run_tmux_command(cmd)
+    _run_tmux_command_with_retry(cmd)
 
     # sleep 1s and capture output
     sleep(1)

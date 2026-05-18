@@ -43,6 +43,41 @@ class TestExecuteParsing:
         assert "Error" in msgs[0].content
 
 
+@pytest.mark.skipif(False, reason="")  # override pytestmark — no tmux needed
+class TestNewSessionRetries:
+    """Tests for retry behavior when a new tmux session is not ready yet."""
+
+    pytestmark: list[pytest.MarkDecorator] = []  # clear module-level skipif
+
+    def test_retries_send_keys_until_session_target_exists(self, monkeypatch):
+        """Regression: retry send-keys when tmux accepts new-session before target setup."""
+        calls: list[list[str]] = []
+
+        def fake_run_tmux_command(cmd: list[str]) -> subprocess.CompletedProcess:
+            calls.append(cmd)
+            send_keys_attempts = sum(
+                1 for call in calls if call[:2] == ["tmux", "send-keys"]
+            )
+            if cmd[:2] == ["tmux", "send-keys"] and send_keys_attempts == 1:
+                raise subprocess.CalledProcessError(
+                    1, cmd, stderr="can't find session: gptme_1"
+                )
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        monkeypatch.setattr("gptme.tools.tmux.get_sessions", lambda: [])
+        monkeypatch.setattr("gptme.tools.tmux._run_tmux_command", fake_run_tmux_command)
+        monkeypatch.setattr(
+            "gptme.tools.tmux._capture_pane", lambda pane_id: "hello world"
+        )
+        monkeypatch.setattr("gptme.tools.tmux.sleep", lambda _: None)
+
+        msg = new_session("echo 'hello world'")
+
+        assert "gptme_1" in msg.content
+        send_key_calls = [call for call in calls if call[:2] == ["tmux", "send-keys"]]
+        assert len(send_key_calls) == 2
+
+
 def _get_worker_id() -> str:
     """Get a unique ID for this pytest worker to avoid session collisions."""
     # PYTEST_XDIST_WORKER is set to 'gw0', 'gw1', etc. in parallel runs
