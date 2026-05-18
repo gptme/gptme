@@ -22,6 +22,18 @@ from gptme.llm.openai_responses import _tool_spec_to_responses_tool
 from gptme.message import Message
 from gptme.tools import ToolSpec, get_tool, init_tools
 
+EXPECTED_SAVE_TOOL_DESCRIPTION = (
+    "Create or overwrite a file with the given content.\n\n"
+    "The path can be relative to the current directory, or absolute.\n"
+    "If the current directory changes, the path will be relative to the new "
+    "directory.\n\n"
+    "### When to use save vs patch\n\n"
+    "Use `save` for new files, full rewrites, or edits that touch most of a "
+    "file.\n"
+    "Use `patch` for targeted edits to existing files; it keeps surrounding "
+    "content intact."
+)
+
 
 @pytest.fixture(autouse=True)
 def reset_default_model():
@@ -143,7 +155,6 @@ def test_message_conversion_with_tools():
 
     tool_save = get_tool("save")
     assert tool_save
-    tool_save_description = tool_save.get_instructions("tool") or tool_save.desc
 
     model = get_model("openai/gpt-4o")
     messages_dicts, tools_dict = _prepare_messages_for_api(
@@ -155,7 +166,7 @@ def test_message_conversion_with_tools():
             "type": "function",
             "function": {
                 "name": "save",
-                "description": tool_save_description,
+                "description": EXPECTED_SAVE_TOOL_DESCRIPTION,
                 "parameters": {
                     "type": "object",
                     "properties": {
