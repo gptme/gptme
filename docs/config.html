@@ -502,7 +502,7 @@
 <div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[user]</span>
 <span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Erik&quot;</span>
 <span class="n">about</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;I am a curious human programmer.&quot;</span>
-<span class="n">response_preference</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Don&#39;t explain basic concepts&quot;</span>
+<span class="n">response_preference</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Basic concepts don&#39;t need to be explained.&quot;</span>
 <span class="n">avatar</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;~/Pictures/avatar.jpg&quot;</span><span class="w">  </span><span class="c1"># Path to avatar image (or URL)</span>
 
 <span class="k">[prompt]</span>
@@ -540,8 +540,8 @@
 <p>The <code class="docutils literal notranslate"><span class="pre">user</span></code> section configures user identity:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">name</span></code>: Your display name, shown at the CLI input prompt and as a tooltip on avatar in the web UI (default: <code class="docutils literal notranslate"><span class="pre">&quot;User&quot;</span></code>).</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">about</span></code>: A description of yourself, included in the system prompt so the assistant knows who it’s talking to.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">response_preference</span></code>: Preferences for how the assistant should respond (e.g. level of detail).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">about</span></code>: A description of yourself, included in the system prompt so the assistant knows who it’s talking to (default: <code class="docutils literal notranslate"><span class="pre">&quot;I</span> <span class="pre">am</span> <span class="pre">a</span> <span class="pre">curious</span> <span class="pre">human</span> <span class="pre">programmer.&quot;</span></code>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">response_preference</span></code>: Preferences for how the assistant should respond (e.g. level of detail, default: <code class="docutils literal notranslate"><span class="pre">&quot;Basic</span> <span class="pre">concepts</span> <span class="pre">don't</span> <span class="pre">need</span> <span class="pre">to</span> <span class="pre">be</span> <span class="pre">explained.&quot;</span></code>).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">avatar</span></code>: Path to your avatar image (supports <code class="docutils literal notranslate"><span class="pre">~</span></code> expansion) or URL. Displayed in the web UI next to your messages.</p></li>
 </ul>
 <div class="admonition note">
@@ -551,7 +551,7 @@
 <p>The <code class="docutils literal notranslate"><span class="pre">prompt</span></code> section contains options included in both interactive and non-interactive runs:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">files</span></code>: A list of additional files to always include in context. Supports absolute paths, <code class="docutils literal notranslate"><span class="pre">~</span></code> expansion, and paths relative to the config directory.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">project</span></code>: A table of project descriptions, keyed by project name, included when working in the matching Git repository.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">project</span></code>: A table of project descriptions, keyed by project name, included when working in the matching Git repository. The default config includes descriptions for <code class="docutils literal notranslate"><span class="pre">activitywatch</span></code> and <code class="docutils literal notranslate"><span class="pre">gptme</span></code> — when the git root directory name matches one of these keys, the description is automatically injected into the system prompt.</p></li>
 </ul>
 <p>The <code class="docutils literal notranslate"><span class="pre">env</span></code> section contains environment variables that gptme will fall back to if they are not set in the shell environment. This is useful for setting the default model and API keys for <a class="reference internal" href="providers.html"><span class="doc">Providers</span></a>. It can also be used to set default tool configuration options, see <a class="reference internal" href="custom_tool.html"><span class="doc">Custom Tools</span></a> for more information.</p>
 <p>If you want to configure MCP servers, you can do so in a <code class="docutils literal notranslate"><span class="pre">mcp</span></code> section. See <a class="reference internal" href="mcp.html#mcp"><span class="std std-ref">MCP</span></a> for more information.</p>
