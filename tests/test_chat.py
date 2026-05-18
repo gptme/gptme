@@ -590,6 +590,61 @@ def test_chained_prompts_complete_exits_when_last():
         )
 
 
+def test_chained_prompt_paths_are_read_when_executed(tmp_path, monkeypatch):
+    """Later chained prompts should expand file paths at execution time."""
+    import sys
+
+    from gptme.chat import _run_chat_loop
+    from gptme.message import Message
+
+    _chat_mod = sys.modules["gptme.chat"]
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("GPTME_DISABLE_PATH_INCLUDE", raising=False)
+
+    data_file = tmp_path / "notes.txt"
+    data_file.write_text("before")
+
+    manager = MagicMock()
+    manager.log = MagicMock()
+    manager.workspace = tmp_path
+    manager.logdir = tmp_path / "logdir"
+
+    appended_messages: list[Message] = []
+    manager.append.side_effect = appended_messages.append
+
+    call_count = 0
+
+    def mock_process(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            data_file.write_text("after")
+
+    with (
+        patch.object(
+            _chat_mod, "_process_message_conversation", side_effect=mock_process
+        ),
+        patch.object(_chat_mod, "trigger_hook", return_value=[]),
+        patch.object(_chat_mod, "execute_cmd", return_value=False),
+    ):
+        _run_chat_loop(
+            manager=manager,
+            prompt_queue=[
+                Message("user", "update the file"),
+                Message("user", "notes.txt"),
+            ],
+            stream=False,
+            tool_format="markdown",
+            model=None,
+            interactive=False,
+        )
+
+    assert len(appended_messages) == 2
+    assert "after" in appended_messages[1].content
+    assert "before" not in appended_messages[1].content
+
+
 def test_external_queued_prompts_are_drained_between_turns(tmp_path):
     """Queued prompts on disk should be picked up by the next loop iteration."""
     import sys

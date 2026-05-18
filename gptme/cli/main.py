@@ -550,7 +550,8 @@ def main(
     # join prompts, grouped by `-` if present, since that's the separator for "chained"/multiple-round prompts
     sep = "\n\n" + MULTIPROMPT_SEPARATOR
     prompts = [p.strip() for p in "\n\n".join(prompts).split(sep) if p]
-    # TODO: referenced file paths in multiprompts should be read when run, not when parsed
+    # Keep raw prompt strings here; include_paths() resolves file references
+    # when each chained prompt is executed.
     prompt_msgs = [Message("user", p) for p in prompts]
 
     def inject_stdin(prompt_msgs, piped_input: str | None) -> list[Message]:
