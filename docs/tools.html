@@ -895,7 +895,13 @@ This is the thread-safe replacement for os.chdir() in server contexts.</p>
 <p>It uses IPython to do so, and persists the IPython instance between calls to give a REPL-like experience.</p>
 <p class="rubric">Instructions</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>Use this tool to execute Python code in an interactive IPython session.
-It will respond with the output and result of the execution.
+It responds with the execution output and final result.
+
+<span class="gu">### When to use the python tool</span>
+
+Use <span class="sb">`python`</span> for computation, structured data, and file-processing automation.
+Prefer it over the shell for pure computation or when you need persistent
+state or Python libraries.
 </pre></div>
 </div>
 <p class="rubric">Examples</p>
@@ -2012,6 +2018,11 @@ goodbye.py
 
 The path can be relative to the current directory, or absolute.
 If the current directory changes, the path will be relative to the new directory.
+
+<span class="gu">### When to use save vs patch</span>
+
+Use <span class="sb">`save`</span> for new files, full rewrites, or edits that touch most of a file.
+Use <span class="sb">`patch`</span> for targeted edits to existing files; it keeps surrounding content intact.
 </pre></div>
 </div>
 <p class="rubric">Examples</p>
@@ -2143,17 +2154,18 @@ by seeing the actual file contents.</p>
 <p class="rubric">Instructions</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>To patch/modify files, we use an adapted version of git conflict markers.
 
-This can be used to edit files, without having to rewrite the whole file.
-Multiple ORIGINAL/UPDATED blocks can be included in a single patch to make several changes at once.
-Try to keep each patch as small as possible. Avoid placeholders, as they may make the patch fail.
+Multiple ORIGINAL/UPDATED blocks can make several changes in one patch.
+Keep patches small. Scope each change to a function/class. Avoid placeholders
+in ORIGINAL blocks; they must match the file exactly or the patch will fail.
 
-To keep patches small, try to scope each change to imports/function/class.
-If the total patch is large, consider using the save tool to rewrite the whole file.
+<span class="gu">### When to use patch vs save</span>
 
-Note: When patching markdown files, avoid replacing partial codeblocks (e.g., just the opening
-or closing backticks). The patch content is parsed as nested markdown, which requires complete
-codeblocks. For simple codeblock boundary changes (like modifying a language tag), use shell
-commands like <span class="sb">`sed`</span> or <span class="sb">`perl`</span> instead.
+Use <span class="sb">`patch`</span> for targeted edits to existing files.
+Use <span class="sb">`save`</span> for new files, full rewrites, or changes too large for patch markers.
+
+Note: When patching markdown, avoid replacing partial codeblocks (just the opening
+or closing backticks). The parser needs complete codeblocks. For simple
+codeblock-boundary changes (like a language tag), use <span class="sb">`sed`</span> or <span class="sb">`perl`</span> instead.
 </pre></div>
 </div>
 <p class="rubric">Examples</p>

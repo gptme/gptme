@@ -698,7 +698,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f72aaa9e660&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7ff2b4cee660&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1489,17 +1489,18 @@ DO NOT omit spans of pre-existing code without using the // ... existing code ..
 
 <span class="gs">**Instructions:**</span> To patch/modify files, we use an adapted version of git conflict markers.
 
-This can be used to edit files, without having to rewrite the whole file.
-Multiple ORIGINAL/UPDATED blocks can be included in a single patch to make several changes at once.
-Try to keep each patch as small as possible. Avoid placeholders, as they may make the patch fail.
+Multiple ORIGINAL/UPDATED blocks can make several changes in one patch.
+Keep patches small. Scope each change to a function/class. Avoid placeholders
+in ORIGINAL blocks; they must match the file exactly or the patch will fail.
 
-To keep patches small, try to scope each change to imports/function/class.
-If the total patch is large, consider using the save tool to rewrite the whole file.
+<span class="gu">### When to use patch vs save</span>
 
-Note: When patching markdown files, avoid replacing partial codeblocks (e.g., just the opening
-or closing backticks). The patch content is parsed as nested markdown, which requires complete
-codeblocks. For simple codeblock boundary changes (like modifying a language tag), use shell
-commands like <span class="sb">`sed`</span> or <span class="sb">`perl`</span> instead.
+Use <span class="sb">`patch`</span> for targeted edits to existing files.
+Use <span class="sb">`save`</span> for new files, full rewrites, or changes too large for patch markers.
+
+Note: When patching markdown, avoid replacing partial codeblocks (just the opening
+or closing backticks). The parser needs complete codeblocks. For simple
+codeblock-boundary changes (like a language tag), use <span class="sb">`sed`</span> or <span class="sb">`perl`</span> instead.
 
 <span class="gu">### Examples</span>
 
@@ -1632,6 +1633,11 @@ This tool is disabled by default and must be explicitly enabled with <span class
 
 The path can be relative to the current directory, or absolute.
 If the current directory changes, the path will be relative to the new directory.
+
+<span class="gu">### When to use save vs patch</span>
+
+Use <span class="sb">`save`</span> for new files, full rewrites, or edits that touch most of a file.
+Use <span class="sb">`patch`</span> for targeted edits to existing files; it keeps surrounding content intact.
 
 To write to a file, use a code block with the language tag: <span class="sb">`save &lt;path&gt;`</span>
 
@@ -2251,7 +2257,13 @@ The following Python functions are available using the <span class="sb">`ipython
 <span class="gs">**Description:**</span> Execute Python code
 
 <span class="gs">**Instructions:**</span> Use this tool to execute Python code in an interactive IPython session.
-It will respond with the output and result of the execution.
+It responds with the execution output and final result.
+
+<span class="gu">### When to use the python tool</span>
+
+Use <span class="sb">`python`</span> for computation, structured data, and file-processing automation.
+Prefer it over the shell for pure computation or when you need persistent
+state or Python libraries.
 
 <span class="gu">### Examples</span>
 
@@ -2277,7 +2289,7 @@ It will respond with the output and result of the execution.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 12794</p>
+<p>Tokens: 12865</p>
 </dd></dl>
 
 <dl class="py function">
