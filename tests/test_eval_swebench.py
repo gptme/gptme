@@ -3,6 +3,8 @@
 import json
 import textwrap
 
+import pytest
+
 
 def test_write_predictions_jsonl(tmp_path):
     """write_predictions_jsonl produces valid JSONL in the expected format."""
@@ -180,3 +182,66 @@ def test_info_flag_missing_instance_warns(monkeypatch):
     result = runner.invoke(main, ["--info", "-i", "nonexistent__repo-99999"])
     assert result.exit_code == 0
     assert "not found" in result.output
+
+
+def test_multi_stage_swebench_agent_act_fails_fast(tmp_path):
+    """Recovered staged runner should fail loudly instead of silently no-oping."""
+    from gptme.eval.agents.swebench import SWEBenchAgent
+
+    agent = SWEBenchAgent()
+    instance = {"instance_id": "django__django-11099"}
+
+    with pytest.raises(NotImplementedError, match="intentionally disabled"):
+        agent.act(
+            model="test-model",
+            instance=instance,
+            repo_dir="/tmp/repo",
+            log_dir=str(tmp_path),
+        )
+
+    assert not (tmp_path / "swe_bench_info.json").exists()
+
+
+def test_multi_stage_swebench_evaluate_instance_fails_before_repo_setup(monkeypatch):
+    """The disabled staged runner should stop before repo setup or harness work."""
+    from gptme.eval.agents.swebench import SWEBenchAgent
+
+    agent = SWEBenchAgent()
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("make_test_spec should not run for the disabled runner")
+
+    monkeypatch.setattr("gptme.eval.agents.swebench.make_test_spec", fail_if_called)
+
+    with pytest.raises(NotImplementedError, match="branch-aware eval logging"):
+        agent.evaluate_instance(
+            {
+                "instance_id": "django__django-11099",
+                "problem_statement": "Fix a Django bug",
+            },
+            model="test-model",
+        )
+
+
+def test_run_swe_extra_exits_with_helpful_message(monkeypatch):
+    """run_swe_extra should surface the staged-runner blocker without traceback spam."""
+    from gptme.eval.swe_extra import run_swe_extra
+
+    monkeypatch.setattr(run_swe_extra, "init_tools", lambda: None)
+    monkeypatch.setattr(
+        run_swe_extra,
+        "load_top_50_easiest_task_instances",
+        lambda: [{"instance_id": "django__django-11099"}],
+    )
+
+    def disabled_runner(self, instance, model, resume_dir=None):
+        raise NotImplementedError("staged runner unavailable")
+
+    monkeypatch.setattr(
+        run_swe_extra.SWEBenchAgent,
+        "evaluate_instance",
+        disabled_runner,
+    )
+
+    with pytest.raises(SystemExit, match="staged runner unavailable"):
+        run_swe_extra.main(model="test-model")

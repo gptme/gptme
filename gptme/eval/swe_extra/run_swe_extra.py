@@ -35,6 +35,24 @@ def clear_branch(resume_dir: Path, branch: str) -> None:
     print(f"Cleared branch {branch}")
 
 
+def evaluate_instance_or_exit(
+    agent: SWEBenchAgent,
+    instance: dict,
+    *,
+    model: str,
+    resume_dir: Path | None = None,
+) -> None:
+    """Surface staged-runner unavailability without a traceback wall."""
+
+    try:
+        if resume_dir is None:
+            agent.evaluate_instance(instance, model=model)
+        else:
+            agent.evaluate_instance(instance, model=model, resume_dir=resume_dir)
+    except NotImplementedError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
 def main(
     model: str,
     resume_dir: str | Path | None = None,
@@ -73,10 +91,15 @@ def main(
         if branch_to_clear:
             clear_branch(resume_path, branch_to_clear)
 
-        agent.evaluate_instance(instance, model=info.model_name, resume_dir=resume_path)
+        evaluate_instance_or_exit(
+            agent,
+            instance,
+            model=info.model_name,
+            resume_dir=resume_path,
+        )
     else:
         instance = load_top_50_easiest_task_instances()[0]
-        agent.evaluate_instance(instance, model=model)
+        evaluate_instance_or_exit(agent, instance, model=model)
 
 
 def cli():
