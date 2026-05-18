@@ -640,6 +640,7 @@ def test_chained_prompt_paths_are_read_when_executed(tmp_path, monkeypatch):
             interactive=False,
         )
 
+    assert call_count == 2, "Both chained prompts should have been processed"
     assert len(appended_messages) == 2
     assert "after" in appended_messages[1].content
     assert "before" not in appended_messages[1].content
