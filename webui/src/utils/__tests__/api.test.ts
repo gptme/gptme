@@ -10,8 +10,7 @@ jest.mock('@/stores/servers', () => ({
   getPrimaryClient: jest.fn(),
 }));
 
-import { ApiClient, isLikelyChromeCorsPna } from '../api';
-import type { ApiClientError } from '../api';
+import { ApiClient, ApiClientError, isLikelyChromeCorsPna } from '../api';
 
 describe('isLikelyChromeCorsPna', () => {
   const setHostname = (hostname: string) => {
@@ -98,6 +97,30 @@ describe('ApiClient error parsing', () => {
       code: 'insufficient_credits',
       type: 'payment_required',
     } satisfies Partial<ApiClientError>);
+  });
+
+  it('handles null error responses without crashing', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => ({
+        error: null,
+      }),
+    } as Response);
+
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+
+    // Should not throw TypeError; should surface a graceful error message
+    let caught: ApiClientError | undefined;
+    try {
+      await client.getServerInfo();
+    } catch (e) {
+      caught = e as ApiClientError;
+    }
+    expect(caught).toBeInstanceOf(ApiClientError);
+    expect(caught!.message).toBe('HTTP error! status: 500');
+    expect(caught!.status).toBe(500);
   });
 
   it('preserves nested API errors even when the server replies with HTTP 200', async () => {

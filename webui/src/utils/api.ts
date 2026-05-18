@@ -55,7 +55,10 @@ function isApiErrorResponse(response: unknown): response is ApiError {
   return typeof response === 'object' && response !== null && 'error' in response;
 }
 
-function normalizeApiError(response: ApiError): {
+function normalizeApiError(
+  response: ApiError,
+  httpStatus?: number
+): {
   message: string;
   status?: number;
   code?: string;
@@ -73,7 +76,23 @@ function normalizeApiError(response: ApiError): {
   const fallbackMessage =
     typeof response.status === 'number'
       ? `HTTP error! status: ${response.status}`
-      : 'Unknown API error';
+      : typeof httpStatus === 'number'
+        ? `HTTP error! status: ${httpStatus}`
+        : 'Unknown API error';
+
+  // Guard against null or non-object error details (e.g. {"error": null})
+  if (details == null || typeof details !== 'object') {
+    return {
+      message: fallbackMessage,
+      status:
+        typeof response.status === 'number'
+          ? response.status
+          : typeof httpStatus === 'number'
+            ? httpStatus
+            : undefined,
+    };
+  }
+
   const message =
     typeof details.message === 'string' && details.message.trim().length > 0
       ? details.message
@@ -85,7 +104,9 @@ function normalizeApiError(response: ApiError): {
       ? response.status
       : typeof details.status === 'number'
         ? details.status
-        : undefined;
+        : typeof httpStatus === 'number'
+          ? httpStatus
+          : undefined;
 
   return {
     message,
@@ -326,8 +347,8 @@ export class ApiClient {
     if (!response.ok) {
       // Try to extract error message from response body
       if (isApiErrorResponse(data)) {
-        const apiError = normalizeApiError(data);
-        throw new ApiClientError(apiError.message, apiError.status ?? response.status, apiError);
+        const apiError = normalizeApiError(data, response.status);
+        throw new ApiClientError(apiError.message, apiError.status, apiError);
       } else {
         throw new ApiClientError(`HTTP error! status: ${response.status}`, response.status);
       }
@@ -335,7 +356,7 @@ export class ApiClient {
 
     // Check if the response is an error (for successful HTTP status but API error)
     if (isApiErrorResponse(data)) {
-      const apiError = normalizeApiError(data);
+      const apiError = normalizeApiError(data, response.status);
       throw new ApiClientError(apiError.message, apiError.status, apiError);
     }
 
@@ -1057,8 +1078,8 @@ export class ApiClient {
     const data = await response.json();
     if (!response.ok) {
       if (isApiErrorResponse(data)) {
-        const apiError = normalizeApiError(data);
-        throw new ApiClientError(apiError.message, apiError.status ?? response.status, apiError);
+        const apiError = normalizeApiError(data, response.status);
+        throw new ApiClientError(apiError.message, apiError.status, apiError);
       }
       throw new ApiClientError(`Upload failed: ${response.status}`, response.status);
     }
