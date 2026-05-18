@@ -99,7 +99,10 @@ def _setup_completions():
                     )
                     return
             else:
-                _install_fish_completions(fish_completions_file, source_file)
+                if Confirm.ask("Install fish completions?", default=True):
+                    _install_fish_completions(fish_completions_file, source_file)
+                else:
+                    console.print("   [dim]Skipping fish completions[/dim]")
                 return
 
         except ImportError:
@@ -178,9 +181,6 @@ def _install_fish_completions(fish_completions_file: Path, source_file: Path):
         )
     )
 
-    if not Confirm.ask("Install fish completions?", default=True):
-        console.print("   [dim]Skipping fish completions[/dim]")
-        return
     try:
         fish_completions_file.symlink_to(source_file)
         console.print(
