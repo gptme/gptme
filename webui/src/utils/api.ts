@@ -1,6 +1,7 @@
 import { type CreateAgentResponse, type CreateAgentRequest } from '@/components/CreateAgentDialog';
 import type {
   ApiError,
+  ApiErrorDetails,
   ChatConfig,
   ConversationResponse,
   CreateConversationRequest,
@@ -23,10 +24,24 @@ type HeadersInit = globalThis.HeadersInit;
 // Error type for API client
 export class ApiClientError extends Error {
   status?: number;
+  code?: string;
+  type?: string;
+  details?: ApiErrorDetails;
 
-  constructor(message: string, status?: number) {
+  constructor(
+    message: string,
+    status?: number,
+    options?: {
+      code?: string;
+      type?: string;
+      details?: ApiErrorDetails;
+    }
+  ) {
     super(message);
     this.status = status;
+    this.code = options?.code;
+    this.type = options?.type;
+    this.details = options?.details;
     this.name = 'ApiClientError';
   }
 
@@ -38,6 +53,47 @@ export class ApiClientError extends Error {
 // Type guard for API error responses
 function isApiErrorResponse(response: unknown): response is ApiError {
   return typeof response === 'object' && response !== null && 'error' in response;
+}
+
+function normalizeApiError(response: ApiError): {
+  message: string;
+  status?: number;
+  code?: string;
+  type?: string;
+  details?: ApiErrorDetails;
+} {
+  if (typeof response.error === 'string') {
+    return {
+      message: response.error,
+      status: response.status,
+    };
+  }
+
+  const details = response.error;
+  const fallbackMessage =
+    typeof response.status === 'number'
+      ? `HTTP error! status: ${response.status}`
+      : 'Unknown API error';
+  const message =
+    typeof details.message === 'string' && details.message.trim().length > 0
+      ? details.message
+      : typeof details.code === 'string' && details.code.trim().length > 0
+        ? details.code
+        : fallbackMessage;
+  const status =
+    typeof response.status === 'number'
+      ? response.status
+      : typeof details.status === 'number'
+        ? details.status
+        : undefined;
+
+  return {
+    message,
+    status,
+    code: typeof details.code === 'string' ? details.code : undefined,
+    type: typeof details.type === 'string' ? details.type : undefined,
+    details,
+  };
 }
 
 /**
@@ -270,7 +326,8 @@ export class ApiClient {
     if (!response.ok) {
       // Try to extract error message from response body
       if (isApiErrorResponse(data)) {
-        throw new ApiClientError(data.error, response.status);
+        const apiError = normalizeApiError(data);
+        throw new ApiClientError(apiError.message, apiError.status ?? response.status, apiError);
       } else {
         throw new ApiClientError(`HTTP error! status: ${response.status}`, response.status);
       }
@@ -278,7 +335,8 @@ export class ApiClient {
 
     // Check if the response is an error (for successful HTTP status but API error)
     if (isApiErrorResponse(data)) {
-      throw new ApiClientError(data.error, data.status);
+      const apiError = normalizeApiError(data);
+      throw new ApiClientError(apiError.message, apiError.status, apiError);
     }
 
     return data as T;
@@ -998,10 +1056,11 @@ export class ApiClient {
 
     const data = await response.json();
     if (!response.ok) {
-      throw new ApiClientError(
-        isApiErrorResponse(data) ? data.error : `Upload failed: ${response.status}`,
-        response.status
-      );
+      if (isApiErrorResponse(data)) {
+        const apiError = normalizeApiError(data);
+        throw new ApiClientError(apiError.message, apiError.status ?? response.status, apiError);
+      }
+      throw new ApiClientError(`Upload failed: ${response.status}`, response.status);
     }
     return data;
   }

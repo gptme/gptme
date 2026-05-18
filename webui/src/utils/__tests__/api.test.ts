@@ -10,7 +10,8 @@ jest.mock('@/stores/servers', () => ({
   getPrimaryClient: jest.fn(),
 }));
 
-import { isLikelyChromeCorsPna } from '../api';
+import { ApiClient, isLikelyChromeCorsPna } from '../api';
+import type { ApiClientError } from '../api';
 
 describe('isLikelyChromeCorsPna', () => {
   const setHostname = (hostname: string) => {
@@ -49,5 +50,78 @@ describe('isLikelyChromeCorsPna', () => {
   it('returns false for invalid URL', () => {
     setHostname('chat.gptme.org');
     expect(isLikelyChromeCorsPna('not-a-url')).toBe(false);
+  });
+});
+
+describe('ApiClient error parsing', () => {
+  const originalFetch = global.fetch;
+  const originalCrypto = global.crypto;
+
+  beforeEach(() => {
+    Object.defineProperty(global, 'crypto', {
+      value: {
+        ...originalCrypto,
+        randomUUID: jest.fn(() => 'test-client-id'),
+      },
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    Object.defineProperty(global, 'crypto', {
+      value: originalCrypto,
+      configurable: true,
+    });
+    jest.restoreAllMocks();
+  });
+
+  it('preserves nested API error messages and metadata on non-OK responses', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 402,
+      json: async () => ({
+        error: {
+          message: 'Insufficient credits. Visit gptme.ai to add more.',
+          type: 'payment_required',
+          code: 'insufficient_credits',
+        },
+      }),
+    } as Response);
+
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+
+    await expect(client.getServerInfo()).rejects.toMatchObject({
+      message: 'Insufficient credits. Visit gptme.ai to add more.',
+      status: 402,
+      code: 'insufficient_credits',
+      type: 'payment_required',
+    } satisfies Partial<ApiClientError>);
+  });
+
+  it('preserves nested API errors even when the server replies with HTTP 200', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        error: {
+          message: 'No active subscription. Visit gptme.ai to subscribe.',
+          type: 'payment_required',
+          code: 'no_subscription',
+        },
+        status: 402,
+      }),
+    } as Response);
+
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+
+    await expect(client.getServerInfo()).rejects.toMatchObject({
+      message: 'No active subscription. Visit gptme.ai to subscribe.',
+      status: 402,
+      code: 'no_subscription',
+      type: 'payment_required',
+    } satisfies Partial<ApiClientError>);
   });
 });

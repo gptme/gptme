@@ -20,9 +20,17 @@ export interface ExternalSessionDetail {
   transcript: Record<string, unknown>;
 }
 
+export interface ApiErrorDetails {
+  message?: string;
+  type?: string;
+  code?: string;
+  status?: number;
+  [key: string]: unknown;
+}
+
 // Error response from any endpoint
 export interface ApiError {
-  error: string;
+  error: string | ApiErrorDetails;
   status?: number;
 }
 

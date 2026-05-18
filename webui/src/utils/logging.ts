@@ -40,9 +40,8 @@ export async function setupLogging() {
 
   try {
     // Dynamically import Tauri logging to avoid module errors in browser
-    const { warn, debug, trace, info, error, attachConsole } = await import(
-      '@tauri-apps/plugin-log'
-    );
+    const { warn, debug, trace, info, error, attachConsole } =
+      await import('@tauri-apps/plugin-log');
 
     // Attach console first to see Rust logs in browser console
     detachConsole = await attachConsole();
