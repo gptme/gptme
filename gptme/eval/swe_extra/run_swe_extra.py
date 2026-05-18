@@ -45,10 +45,7 @@ def evaluate_instance_or_exit(
     """Surface staged-runner unavailability without a traceback wall."""
 
     try:
-        if resume_dir is None:
-            agent.evaluate_instance(instance, model=model)
-        else:
-            agent.evaluate_instance(instance, model=model, resume_dir=resume_dir)
+        agent.evaluate_instance(instance, model=model, resume_dir=resume_dir)
     except NotImplementedError as exc:
         raise SystemExit(str(exc)) from exc
 

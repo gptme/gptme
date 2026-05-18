@@ -10,6 +10,7 @@ import os
 import time
 import uuid
 from pathlib import Path
+from typing import NoReturn
 
 from gptme.dirs import get_logs_dir
 from gptme.eval.swebench import SWEBenchInfo
@@ -42,7 +43,7 @@ class SWEBenchAgent:
 
     stages = ["understand", "reproduce", "fix"]
 
-    def _raise_stage_runner_unavailable(self) -> None:
+    def _raise_stage_runner_unavailable(self) -> NoReturn:
         raise NotImplementedError(MULTI_STAGE_RUNNER_UNAVAILABLE)
 
     def act(
@@ -205,6 +206,8 @@ class SWEBenchAgent:
             logger.info(
                 f"Evaluation completed for instance {instance_id}. Passed: {passed}"
             )
+        except NotImplementedError:
+            raise
         except Exception as e:
             import traceback
 

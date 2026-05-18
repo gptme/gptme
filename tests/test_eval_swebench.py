@@ -223,6 +223,52 @@ def test_multi_stage_swebench_evaluate_instance_fails_before_repo_setup(monkeypa
         )
 
 
+def test_multi_stage_swebench_evaluate_instance_reraises_stage_disable_signal(
+    monkeypatch,
+    tmp_path,
+):
+    """Execution-phase NotImplementedError should not be swallowed by the broad catch."""
+    from gptme.eval.agents.swebench import SWEBenchAgent
+
+    agent = SWEBenchAgent()
+
+    class DummyTestSpec:
+        def setup_repo(self):
+            return "/tmp/repo"
+
+        def eval_repo(self):
+            raise AssertionError("eval_repo should not run after staged runner failure")
+
+    monkeypatch.setattr(agent, "_raise_stage_runner_unavailable", lambda: None)
+    monkeypatch.setattr(
+        "gptme.eval.agents.swebench.make_test_spec",
+        lambda instance, repo_dir: DummyTestSpec(),
+    )
+    monkeypatch.setattr(
+        "gptme.eval.agents.swebench.get_logs_dir",
+        lambda: tmp_path,
+    )
+    monkeypatch.setattr(
+        "gptme.eval.agents.swebench.generate_conversation_id",
+        lambda prefix, logs_dir: "disabled-runner-test",
+    )
+    monkeypatch.setattr(
+        "gptme.eval.agents.swebench.SWEBenchAgent.act",
+        lambda self, **kwargs: (_ for _ in ()).throw(
+            NotImplementedError("staged runner unavailable")
+        ),
+    )
+
+    with pytest.raises(NotImplementedError, match="staged runner unavailable"):
+        agent.evaluate_instance(
+            {
+                "instance_id": "django__django-11099",
+                "problem_statement": "Fix a Django bug",
+            },
+            model="test-model",
+        )
+
+
 def test_run_swe_extra_exits_with_helpful_message(monkeypatch):
     """run_swe_extra should surface the staged-runner blocker without traceback spam."""
     from gptme.eval.swe_extra import run_swe_extra
