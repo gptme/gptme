@@ -89,6 +89,7 @@ active development.
 - 🌍 [Ecosystem](#-ecosystem)
 - 💬 [Community](#-community)
 - 📊 [Stats](#-stats)
+- ❓ [FAQ](#-faq)
 - 🔗 [Links](#-links)
 
 ## 📢 News
@@ -666,7 +667,7 @@ gptme is a **personal AI agent that runs anywhere a terminal runs** — your lap
 
 ### How do I install gptme?
 
-**Prerequisites**: Python 3.10+ or Node.js
+**Prerequisites**: Python 3.10+
 
 **Installation**:
 ```bash
@@ -688,7 +689,7 @@ gptme supports multiple AI providers:
 |----------|-------|----------|
 | **Anthropic** | `ANTHROPIC_API_KEY` | Claude 3.7 Sonnet, Opus |
 | **OpenAI** | `OPENAI_API_KEY` | GPT-4, GPT-3.5 |
-| **Google** | `GOOGLE_API_KEY` | Gemini |
+| **Google** | `GEMINI_API_KEY` | Gemini |
 | **xAI** | `XAI_API_KEY` | Grok |
 | **DeepSeek** | `DEEPSEEK_API_KEY` | DeepSeek V3, R1 |
 | **OpenRouter** | `OPENROUTER_API_KEY` | Multi-provider gateway |
@@ -705,8 +706,8 @@ llama-server --model ./models/llama-3.gguf --port 8080
 
 2. Configure gptme:
 ```bash
-export LLAMACPP_API_URL=http://localhost:8080
-gptme --model llama
+export OPENAI_BASE_URL=http://localhost:8080/v1
+gptme -m local/llama3.2:1b
 ```
 
 ### What tools does gptme have?
@@ -767,7 +768,7 @@ schedule: "hourly"
 python agent.py
 ```
 
-See [Bob](https://github.com/TimeToBuildBob) for an example autonomous agent with 1700+ sessions.
+See [Bob](https://github.com/TimeToBuildBob) for an example autonomous agent running continuously since late 2024.
 
 ### What is the plugin system?
 
@@ -820,9 +821,6 @@ export ANTHROPIC_API_KEY=your-key
 
 # Logging level
 export GPTME_LOG_LEVEL=INFO
-
-# Enable/disable features
-export GPTME_ENABLE_VISION=true
 ```
 
 ### How do I handle errors?
