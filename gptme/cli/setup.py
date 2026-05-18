@@ -178,7 +178,9 @@ def _install_fish_completions(fish_completions_file: Path, source_file: Path):
         )
     )
 
-    # TODO: prompt for confirmation?
+    if not Confirm.ask("Install fish completions?", default=True):
+        console.print("   [dim]Skipping fish completions[/dim]")
+        return
     try:
         fish_completions_file.symlink_to(source_file)
         console.print(
