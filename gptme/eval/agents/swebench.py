@@ -19,8 +19,6 @@ from gptme.message import print_msg
 from gptme.tools import execute_msg, init_tools
 from gptme.util.auto_naming import generate_conversation_id
 
-from ..swe_extra.swe_bench_test_spec import instance_to_trajectory_info, make_test_spec
-
 try:
     from swebench.harness.constants import SWEbenchInstance
 except ImportError:
@@ -36,6 +34,18 @@ MULTI_STAGE_RUNNER_UNAVAILABLE = (
     "conversation log. Use gptme.eval.swebench.main for single-agent runs "
     "until branch-aware eval logging and concrete stage agents land."
 )
+
+
+def instance_to_trajectory_info(*args, **kwargs):
+    from ..swe_extra.swe_bench_test_spec import instance_to_trajectory_info as impl
+
+    return impl(*args, **kwargs)
+
+
+def make_test_spec(*args, **kwargs):
+    from ..swe_extra.swe_bench_test_spec import make_test_spec as impl
+
+    return impl(*args, **kwargs)
 
 
 class SWEBenchAgent:

@@ -5,13 +5,23 @@ from pathlib import Path
 
 from gptme.dirs import get_logs_dir
 from gptme.eval.agents.swebench import SWEBenchAgent
-from gptme.eval.swe_extra.swe_bench_extra_data import (
-    load_instance_by_id,
-    load_top_50_easiest_task_instances,
-)
 from gptme.eval.swebench import SWEBenchInfo
 from gptme.logmanager import LogManager
 from gptme.tools import init_tools
+
+
+def load_instance_by_id(*args, **kwargs):
+    from gptme.eval.swe_extra.swe_bench_extra_data import load_instance_by_id as impl
+
+    return impl(*args, **kwargs)
+
+
+def load_top_50_easiest_task_instances(*args, **kwargs):
+    from gptme.eval.swe_extra.swe_bench_extra_data import (
+        load_top_50_easiest_task_instances as impl,
+    )
+
+    return impl(*args, **kwargs)
 
 
 def get_most_recent_log_dir():
