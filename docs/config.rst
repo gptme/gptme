@@ -25,7 +25,7 @@ Here is an example:
     [user]
     name = "Erik"
     about = "I am a curious human programmer."
-    response_preference = "Don't explain basic concepts"
+    response_preference = "Basic concepts don't need to be explained."
     avatar = "~/Pictures/avatar.jpg"  # Path to avatar image (or URL)
 
     [prompt]

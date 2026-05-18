@@ -55,7 +55,6 @@ ABOUT_ACTIVITYWATCH = """ActivityWatch is a free and open-source automated time-
 ABOUT_GPTME = "gptme is a CLI to interact with large language models in a Chat-style interface, enabling the assistant to execute commands and code on the local machine, letting them assist in all kinds of development and terminal-based work."
 
 
-# TODO: include this in docs
 default_config = UserConfig(
     user=UserIdentityConfig(
         name="User",
