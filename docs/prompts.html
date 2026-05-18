@@ -698,7 +698,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7ff2b4cee660&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fc5bedb2660&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -732,7 +732,13 @@ to append the code block content to the file at the given path.
 
 <span class="gs">**Description:**</span> Browse, interact with, search, or screenshot the web
 
-<span class="gs">**Instructions:**</span> The following Python functions are available using the <span class="sb">`ipython`</span> tool:
+<span class="gs">**Instructions:**</span> ### When to use browser
+
+Use browser to fetch live web content, search the web, interact with pages, or
+take screenshots. Prefer browser over memory for current information. For
+services with APIs, prefer shell or Python over scraping.
+
+The following Python functions are available using the <span class="sb">`ipython`</span> tool:
 
 <span class="sb">```txt</span>
 <span class="s">read_url(url: str, max_pages: Union[int, None]) -&gt; str: Read a webpage or PDF in a text format.</span>
@@ -2103,16 +2109,14 @@ The following Python functions are available using the <span class="sb">`ipython
 <span class="gs">**Instructions:**</span>
 You can use the tmux tool to run long-lived and/or interactive applications in a tmux session.
 
-This tool is suitable to run long-running commands or interactive applications that require user input.
-Examples of such commands are: <span class="sb">`npm run dev`</span>, <span class="sb">`npm create vue@latest`</span>, <span class="sb">`python3 server.py`</span>, <span class="sb">`python3 train.py`</span>, etc.
+<span class="gu">### When to use tmux</span>
 
-Available commands:
-<span class="k">-</span><span class="w"> </span>new-session &lt;command&gt;: Start a new tmux session with the given command
-<span class="k">-</span><span class="w"> </span>send-keys &lt;session_id&gt; &lt;keys&gt; [&lt;keys&gt;]: Send keys to the specified session
-<span class="k">-</span><span class="w"> </span>inspect-pane &lt;session_id&gt;: Show the current content of the specified pane
-<span class="k">-</span><span class="w"> </span>wait &lt;session_id&gt; [timeout] [stable_time]: Wait for output to stabilize (default: 60s timeout, 3s stable)
-<span class="k">-</span><span class="w"> </span>kill-session &lt;session_id&gt;: Terminate the specified tmux session
-<span class="k">-</span><span class="w"> </span>list-sessions: Show all active tmux sessions
+Use tmux for interactive applications requiring ongoing keyboard input or output
+inspection: REPLs, TUIs, interactive installers, and persistent processes you
+need to revisit. Prefer tmux over the shell&#39;s <span class="sb">`bg`</span> command when the application
+requires send-keys interaction or repeated pane inspection. Use `wait
+&lt;session_id&gt; [timeout] [stable_time]` when you need output to stabilize before
+continuing.
 
 
 <span class="gu">### Examples</span>
@@ -2289,7 +2293,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 12865</p>
+<p>Tokens: 12843</p>
 </dd></dl>
 
 <dl class="py function">
