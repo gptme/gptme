@@ -1014,6 +1014,11 @@ def scroll_page(direction: str = "down", amount: int = 500) -> str:
 tool = ToolSpec(
     name="browser",
     desc="Browse, interact with, search, or screenshot the web",
+    instructions="""### When to use browser
+
+Use browser to fetch live web content, search the web, interact with pages, or
+take screenshots. Prefer browser over memory for current information. For
+services with APIs, prefer shell or Python over scraping.""",
     instructions_format={
         # Compact description for OpenAI tool format (full docstrings exceed 1024 chars)
         "tool": "Browse the web: read any URL or PDF with read_url(), "

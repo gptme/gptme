@@ -519,16 +519,12 @@ def execute_tmux(
 instructions = """
 You can use the tmux tool to run long-lived and/or interactive applications in a tmux session.
 
-This tool is suitable to run long-running commands or interactive applications that require user input.
-Examples of such commands are: `npm run dev`, `npm create vue@latest`, `python3 server.py`, `python3 train.py`, etc.
+### When to use tmux
 
-Available commands:
-- new-session <command>: Start a new tmux session with the given command
-- send-keys <session_id> <keys> [<keys>]: Send keys to the specified session
-- inspect-pane <session_id>: Show the current content of the specified pane
-- wait <session_id> [timeout] [stable_time]: Wait for output to stabilize (default: 60s timeout, 3s stable)
-- kill-session <session_id>: Terminate the specified tmux session
-- list-sessions: Show all active tmux sessions
+Use tmux for interactive applications requiring ongoing keyboard input or output
+inspection: REPLs, TUIs, interactive installers, and persistent processes you
+need to revisit. Prefer tmux over the shell's `bg` command when the application
+requires send-keys interaction or repeated pane inspection.
 """
 # TODO: change the "commands" to Python functions registered with the Python tool?
 
