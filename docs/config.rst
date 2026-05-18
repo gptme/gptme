@@ -32,7 +32,8 @@ Here is an example:
     # Additional files to always include in context
     files = ["~/notes/llm-tips.md"]
 
-    # Project descriptions (optional)
+    # Built-in: gptme and activitywatch (see docs above)
+    # Override or extend with your own project descriptions:
     #[prompt.project]
     #myproject = "A description of my project."
 
@@ -74,6 +75,14 @@ The ``prompt`` section contains options included in both interactive and non-int
 
 - ``files``: A list of additional files to always include in context. Supports absolute paths, ``~`` expansion, and paths relative to the config directory.
 - ``project``: A table of project descriptions, keyed by project name, included when working in the matching Git repository.
+
+  gptme ships with built-in project descriptions for ``gptme`` and ``activitywatch``.
+  To override or add your own, set ``[prompt.project]`` in your config:
+
+  .. code-block:: toml
+
+      [prompt.project]
+      myproject = "A short description of myproject."
 
 The ``env`` section contains environment variables that gptme will fall back to if they are not set in the shell environment. This is useful for setting the default model and API keys for :doc:`providers`. It can also be used to set default tool configuration options, see :doc:`custom_tool` for more information.
 
