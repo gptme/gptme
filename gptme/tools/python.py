@@ -278,14 +278,13 @@ def get_functions():
 
 instructions = """
 Use this tool to execute Python code in an interactive IPython session.
-It will respond with the output and result of the execution.
+It responds with the execution output and final result.
 
 ### When to use the python tool
 
-Use the python tool when you need to run code, compute something, transform
-data, or automate file processing. Prefer `python` over the shell when the
-task is purely computational or involves structured data — python gives you
-iterative execution with persistent variables and access to rich libraries.
+Use `python` for computation, structured data, and file-processing automation.
+Prefer it over the shell for pure computation or when you need persistent
+state or Python libraries.
 """.strip()
 
 instructions_format = {

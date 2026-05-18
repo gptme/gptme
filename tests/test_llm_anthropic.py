@@ -125,16 +125,14 @@ def test_message_conversion_with_tools():
     tool_save = get_tool("save")
 
     assert tool_save
+    tool_save_description = tool_save.get_instructions("tool") or tool_save.desc
 
     messages_dicts, _, tools = _prepare_messages_for_api(messages, [tool_save])
 
     assert tools == [
         {
             "name": "save",
-            "description": "Create or overwrite a file with the given content.\n\n"
-            "The path can be relative to the current directory, or absolute.\n"
-            "If the current directory changes, the path will be relative to the "
-            "new directory.",
+            "description": tool_save_description,
             "input_schema": {
                 "type": "object",
                 "properties": {

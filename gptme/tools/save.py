@@ -26,10 +26,8 @@ If the current directory changes, the path will be relative to the new directory
 
 ### When to use save vs patch
 
-Use `save` when creating a new file, replacing an entire file's content, or
-when the change touches most of the file. `save` rewrites the entire file.
-For targeted edits to existing files, prefer `patch` — it preserves unchanged
-content and keeps diffs readable.
+Use `save` for new files, full rewrites, or edits that touch most of a file.
+Use `patch` for targeted edits to existing files; it keeps surrounding content intact.
 """.strip()
 
 instructions_format = {

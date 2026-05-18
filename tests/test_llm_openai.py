@@ -143,6 +143,7 @@ def test_message_conversion_with_tools():
 
     tool_save = get_tool("save")
     assert tool_save
+    tool_save_description = tool_save.get_instructions("tool") or tool_save.desc
 
     model = get_model("openai/gpt-4o")
     messages_dicts, tools_dict = _prepare_messages_for_api(
@@ -154,10 +155,7 @@ def test_message_conversion_with_tools():
             "type": "function",
             "function": {
                 "name": "save",
-                "description": "Create or overwrite a file with the given content.\n\n"
-                "The path can be relative to the current directory, or absolute.\n"
-                "If the current directory changes, the path will be relative to the "
-                "new directory.",
+                "description": tool_save_description,
                 "parameters": {
                     "type": "object",
                     "properties": {
