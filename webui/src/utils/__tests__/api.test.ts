@@ -123,6 +123,24 @@ describe('ApiClient error parsing', () => {
     expect(caught!.status).toBe(500);
   });
 
+  it('preserves HTTP status for plain-string error responses', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({
+        error: 'Not found',
+      }),
+    } as Response);
+
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+
+    await expect(client.getServerInfo()).rejects.toMatchObject({
+      message: 'Not found',
+      status: 404,
+    } satisfies Partial<ApiClientError>);
+  });
+
   it('preserves nested API errors even when the server replies with HTTP 200', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,

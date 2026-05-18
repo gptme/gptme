@@ -68,7 +68,7 @@ function normalizeApiError(
   if (typeof response.error === 'string') {
     return {
       message: response.error,
-      status: response.status,
+      status: response.status ?? httpStatus,
     };
   }
 
