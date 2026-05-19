@@ -92,8 +92,9 @@ new Vue({
     sortedConversations: function () {
       const reverse = this.sortBy[0] === "-";
       const sortBy = reverse ? this.sortBy.slice(1) : this.sortBy;
+      const direction = reverse ? -1 : 1;
       return this.conversations.sort(
-        (a, b) => b[sortBy] - a[sortBy] * (reverse ? -1 : 1)
+        (a, b) => (b[sortBy] - a[sortBy]) * direction
       );
     },
     showAutocomplete: function () {
