@@ -596,7 +596,10 @@ def _get_process_timing(pid: int) -> tuple[int | None, float | None, str | None]
         ):
             return None, None, None
     elif system == "Windows":
-        return _get_windows_process_timing(pid)
+        try:
+            return _get_windows_process_timing(pid)
+        except (AttributeError, OSError, TypeError, ValueError):
+            return None, None, None
     return None, None, None
 
 
@@ -638,7 +641,10 @@ def _get_process_memory_mb(pid: int) -> float | None:
         ):
             return None
     elif system == "Windows":
-        return _get_windows_process_memory_mb(pid)
+        try:
+            return _get_windows_process_memory_mb(pid)
+        except (AttributeError, OSError, TypeError, ValueError):
+            return None
     return None
 
 
