@@ -679,3 +679,216 @@ def test_macos_click_invalid_button():
             _macos_click(4)
         with pytest.raises(ValueError, match="Invalid button number"):
             _macos_click(0)
+
+
+# === _macos_mouse_move() tests ===
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", False)  # prevent macOS-only guard
+@mock.patch("subprocess.run")
+def test_macos_mouse_move_success(mock_run):
+    """Test _macos_mouse_move calls cliclick with correct args."""
+    from gptme.tools.computer import _macos_mouse_move
+
+    _macos_mouse_move(100, 200)
+    mock_run.assert_called_once_with(
+        ["cliclick", "m:100,200"],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", False)
+@mock.patch("subprocess.run")
+def test_macos_mouse_move_timeout(mock_run):
+    """Test _macos_mouse_move raises RuntimeError on cliclick timeout."""
+    from gptme.tools.computer import _macos_mouse_move
+
+    mock_run.side_effect = subprocess.TimeoutExpired(cmd="cliclick", timeout=10)
+    with pytest.raises(RuntimeError, match="cliclick mouse move timed out"):
+        _macos_mouse_move(100, 200)
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", False)
+@mock.patch("subprocess.run")
+def test_macos_mouse_move_file_not_found(mock_run):
+    """Test _macos_mouse_move raises RuntimeError when cliclick missing."""
+    from gptme.tools.computer import _macos_mouse_move
+
+    mock_run.side_effect = FileNotFoundError()
+    with pytest.raises(RuntimeError, match="cliclick not found"):
+        _macos_mouse_move(100, 200)
+
+
+# === _macos_drag() tests ===
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", False)
+@mock.patch("gptme.tools.computer._ensure_cliclick")
+@mock.patch("subprocess.run")
+def test_macos_drag_success(mock_run, mock_ensure):
+    """Test _macos_drag gets position then issues drag commands."""
+    from gptme.tools.computer import _macos_drag
+
+    # First subprocess.run returns cursor position, second is the drag
+    mock_run.side_effect = [
+        mock.MagicMock(stdout="500,300\n"),  # cursor position
+        mock.MagicMock(stdout=""),  # drag result
+    ]
+    _macos_drag(800, 600)
+
+    mock_ensure.assert_called_once()
+    # Two calls: position query + drag
+    assert mock_run.call_count == 2
+    # First call: position
+    assert mock_run.call_args_list[0].args[0] == ["cliclick", "p"]
+    # Second call: drag from start to dest
+    assert mock_run.call_args_list[1].args[0] == [
+        "cliclick",
+        "dd:500,300",
+        "du:800,600",
+    ]
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", False)
+@mock.patch("gptme.tools.computer._ensure_cliclick")
+@mock.patch("subprocess.run")
+def test_macos_drag_position_timeout(mock_run, mock_ensure):
+    """Test _macos_drag raises RuntimeError on position query timeout."""
+    from gptme.tools.computer import _macos_drag
+
+    mock_run.side_effect = subprocess.TimeoutExpired(cmd="cliclick", timeout=10)
+    with pytest.raises(RuntimeError, match="cliclick cursor position query timed out"):
+        _macos_drag(800, 600)
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", False)
+@mock.patch("gptme.tools.computer._ensure_cliclick")
+@mock.patch("subprocess.run")
+def test_macos_drag_position_failure(mock_run, mock_ensure):
+    """Test _macos_drag raises RuntimeError on position query failure."""
+    from gptme.tools.computer import _macos_drag
+
+    mock_run.side_effect = subprocess.CalledProcessError(
+        returncode=1, cmd=["cliclick", "p"], stderr="error"
+    )
+    with pytest.raises(RuntimeError, match="Failed to get cursor position"):
+        _macos_drag(800, 600)
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", False)
+@mock.patch("gptme.tools.computer._ensure_cliclick")
+@mock.patch("subprocess.run")
+def test_macos_drag_timeout(mock_run, mock_ensure):
+    """Test _macos_drag raises RuntimeError on drag command timeout."""
+    from gptme.tools.computer import _macos_drag
+
+    # First call succeeds (position query), second call (drag) times out
+    mock_run.side_effect = [
+        mock.MagicMock(stdout="500,300\n"),
+        subprocess.TimeoutExpired(cmd="cliclick", timeout=10),
+    ]
+    with pytest.raises(RuntimeError, match="cliclick drag command timed out"):
+        _macos_drag(800, 600)
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", False)
+@mock.patch("gptme.tools.computer._ensure_cliclick")
+@mock.patch("subprocess.run")
+def test_macos_drag_failure(mock_run, mock_ensure):
+    """Test _macos_drag raises RuntimeError on drag command failure."""
+    from gptme.tools.computer import _macos_drag
+
+    mock_run.side_effect = [
+        mock.MagicMock(stdout="500,300\n"),
+        subprocess.CalledProcessError(returncode=1, cmd=["cliclick"], stderr="err"),
+    ]
+    with pytest.raises(RuntimeError, match="Failed to drag"):
+        _macos_drag(800, 600)
+
+
+# === macOS cursor_position tests ===
+
+# Helper: create a mini _get_display_resolution mock that returns a standard res
+_MOCK_MACOS_RES = (1920, 1080)
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", True)
+@mock.patch(
+    "gptme.tools.computer._get_display_resolution", return_value=_MOCK_MACOS_RES
+)
+@mock.patch("subprocess.run")
+def test_computer_cursor_position_macos(mock_run, mock_res):
+    """Test cursor_position on macOS parses cliclick output correctly."""
+    from gptme.tools.computer import computer
+
+    mock_run.return_value = mock.MagicMock(stdout="960,540\n")
+    result = computer("cursor_position")
+    assert result is None  # prints to stdout
+    mock_run.assert_called_once_with(
+        ["cliclick", "p"],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=10,
+    )
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", True)
+@mock.patch(
+    "gptme.tools.computer._get_display_resolution", return_value=_MOCK_MACOS_RES
+)
+@mock.patch("subprocess.run")
+def test_computer_cursor_position_macos_timeout(mock_run, mock_res):
+    """Test cursor_position on macOS raises on cliclick timeout."""
+    from gptme.tools.computer import computer
+
+    mock_run.side_effect = subprocess.TimeoutExpired(cmd="cliclick", timeout=10)
+    with pytest.raises(RuntimeError, match="cliclick cursor position query timed out"):
+        computer("cursor_position")
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", True)
+@mock.patch(
+    "gptme.tools.computer._get_display_resolution", return_value=_MOCK_MACOS_RES
+)
+@mock.patch("subprocess.run")
+def test_computer_cursor_position_macos_file_not_found(mock_run, mock_res):
+    """Test cursor_position on macOS raises when cliclick is missing."""
+    from gptme.tools.computer import computer
+
+    mock_run.side_effect = FileNotFoundError()
+    with pytest.raises(RuntimeError, match="cliclick not found"):
+        computer("cursor_position")
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", True)
+@mock.patch(
+    "gptme.tools.computer._get_display_resolution", return_value=_MOCK_MACOS_RES
+)
+@mock.patch("subprocess.run")
+def test_computer_cursor_position_macos_called_process_error(mock_run, mock_res):
+    """Test cursor_position on macOS raises on cliclick error."""
+    from gptme.tools.computer import computer
+
+    mock_run.side_effect = subprocess.CalledProcessError(
+        returncode=1, cmd=["cliclick", "p"], stderr="cliclick failed"
+    )
+    with pytest.raises(RuntimeError, match="Failed to get cursor position"):
+        computer("cursor_position")
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", True)
+@mock.patch(
+    "gptme.tools.computer._get_display_resolution", return_value=_MOCK_MACOS_RES
+)
+@mock.patch("subprocess.run")
+def test_computer_cursor_position_macos_bad_output(mock_run, mock_res):
+    """Test cursor_position on macOS raises on unparseable cliclick output."""
+    from gptme.tools.computer import computer
+
+    mock_run.return_value = mock.MagicMock(stdout="not,valid,output\n")
+    with pytest.raises(RuntimeError, match="Failed to get cursor position"):
+        computer("cursor_position")

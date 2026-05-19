@@ -352,7 +352,6 @@ def _macos_key(key_sequence: str) -> None:
         raise RuntimeError(f"Failed to send key sequence: {e.stderr}") from e
 
 
-# TODO: write test for mouse move and mouse position, since it's unreliable
 def _macos_mouse_move(x: int, y: int) -> None:
     """
     Move mouse using cliclick on macOS.
