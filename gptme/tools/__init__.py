@@ -120,6 +120,8 @@ def _discover_tools(module_names: list[str]) -> list[ToolSpec]:
 
 # Global lock for thread-safe tool initialization
 _tools_init_lock = threading.Lock()
+_warned_mcp_allowlists: set[tuple[str, ...]] = set()
+_warned_mcp_allowlists_lock = threading.Lock()
 
 
 def _init_single_tool(tool: ToolSpec) -> ToolSpec:
@@ -261,11 +263,17 @@ def get_toolchain(
                 continue
         tools.append(tool)
     if skipped_mcp_tools:
-        logger.warning(
-            "Tool allowlist excluded MCP tools: %s. Add glob patterns like "
-            "'<server>.*' to include grouped MCP tools.",
-            ", ".join(sorted(skipped_mcp_tools)),
-        )
+        allowlist_key = tuple(allowlist or [])
+        with _warned_mcp_allowlists_lock:
+            should_warn = allowlist_key not in _warned_mcp_allowlists
+            if should_warn:
+                _warned_mcp_allowlists.add(allowlist_key)
+        if should_warn:
+            logger.warning(
+                "Tool allowlist excluded MCP tools: %s. Add glob patterns like "
+                "'<server>.*' to include grouped MCP tools.",
+                ", ".join(sorted(skipped_mcp_tools)),
+            )
     return tools
 
 
@@ -387,6 +395,8 @@ def clear_tools():
     """Clear all context-local tool state."""
     _set_available_tools_cache(None)
     _loaded_tools_var.set([])
+    with _warned_mcp_allowlists_lock:
+        _warned_mcp_allowlists.clear()
 
 
 def get_tools() -> list[ToolSpec]:

@@ -445,6 +445,7 @@ def test_get_toolchain_warns_when_plain_allowlist_excludes_mcp_tools(caplog):
     """Plain allowlists should warn when they filter out available MCP tools."""
     from gptme.tools.base import ToolSpec
 
+    clear_tools()
     fake_tools = [
         ToolSpec(name="discord.read_channel", desc="Read", is_mcp=True),
         ToolSpec(name="discord.send_message", desc="Send", is_mcp=True),
@@ -456,8 +457,11 @@ def test_get_toolchain_warns_when_plain_allowlist_excludes_mcp_tools(caplog):
         caplog.at_level("WARNING", logger="gptme.tools"),
     ):
         tools = get_toolchain(["save"], strict=True)
+        repeated_tools = get_toolchain(["save"], strict=True)
 
     assert [tool.name for tool in tools] == ["save"]
+    assert [tool.name for tool in repeated_tools] == ["save"]
+    assert caplog.text.count("Tool allowlist excluded MCP tools") == 1
     assert "Tool allowlist excluded MCP tools" in caplog.text
     assert "discord.read_channel" in caplog.text
     assert "discord.send_message" in caplog.text
