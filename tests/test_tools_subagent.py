@@ -1308,6 +1308,71 @@ def test_create_subagent_thread_warns_on_unknown_profile_tools(tmp_path):
     assert prompt_msgs == [Message("user", "test")]
 
 
+def test_create_subagent_thread_profile_glob_filters_tools(tmp_path):
+    """Glob tool allowlists should filter grouped MCP tools without warnings."""
+    from unittest.mock import MagicMock, patch
+
+    from gptme.message import Message
+    from gptme.profiles import Profile
+    from gptme.tools.base import ToolSpec
+    from gptme.tools.subagent.execution import _create_subagent_thread
+
+    profile = Profile(
+        name="discord-reader",
+        description="discord only",
+        tools=["discord.*"],
+    )
+    tools = [
+        ToolSpec(name="discord.read_channel", desc="", is_mcp=True),
+        ToolSpec(name="discord.send_message", desc="", is_mcp=True),
+        ToolSpec(name="shell", desc=""),
+        ToolSpec(name="complete", desc=""),
+    ]
+
+    mock_prompt = MagicMock(return_value=[])
+    mock_chat = MagicMock()
+    mock_warn = MagicMock()
+    set_tools_calls: list[list[str]] = []
+
+    def spy_set_tools(filtered_tools):
+        set_tools_calls.append([tool.name for tool in filtered_tools])
+
+    with (
+        patch("gptme.profiles.get_profile", return_value=profile),
+        patch("gptme.tools.subagent.execution.get_tools", return_value=tools),
+        patch("gptme.tools.subagent.execution.set_tools", side_effect=spy_set_tools),
+        patch("gptme.executor.prepare_execution_environment"),
+        patch("gptme.prompts.get_prompt", mock_prompt),
+        patch("gptme.chat", mock_chat),
+        patch("gptme.tools.subagent.execution.logger.warning", mock_warn),
+    ):
+        _create_subagent_thread(
+            prompt="test",
+            logdir=tmp_path,
+            model=None,
+            context_mode="full",
+            context_include=None,
+            workspace=tmp_path,
+            profile_name="discord-reader",
+        )
+
+    mock_warn.assert_not_called()
+    assert set_tools_calls == [
+        ["discord.read_channel", "discord.send_message", "complete"]
+    ]
+
+    filtered_tools = mock_prompt.call_args.args[0]
+    filtered_names = {t.name for t in filtered_tools}
+    assert filtered_names == {
+        "discord.read_channel",
+        "discord.send_message",
+        "complete",
+    }
+
+    prompt_msgs = mock_chat.call_args.args[0]
+    assert prompt_msgs == [Message("user", "test")]
+
+
 # --- ACP Mode Tests ---
 
 

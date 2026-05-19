@@ -6,6 +6,7 @@ import logging
 import pkgutil
 import threading
 from contextvars import ContextVar
+from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -129,6 +130,18 @@ def _init_single_tool(tool: ToolSpec) -> ToolSpec:
     return tool
 
 
+def _matching_allowlist_tools(pattern: str, tools: list[ToolSpec]) -> list[ToolSpec]:
+    """Return tools matched by an allowlist entry."""
+
+    return [tool for tool in tools if fnmatchcase(tool.name, pattern)]
+
+
+def _tool_matches_allowlist(tool_name: str, allowlist: list[str]) -> bool:
+    """Return True when a tool name matches any allowlist entry."""
+
+    return any(fnmatchcase(tool_name, pattern) for pattern in allowlist)
+
+
 def init_tools(
     allowlist: list[str] | None = None,
 ) -> list[ToolSpec]:
@@ -186,13 +199,19 @@ def init_tools(
             tool = _init_single_tool(tool)
             loaded_tools.append(tool)
 
+        available_tools = get_available_tools()
         for tool_name in tool_names:
-            if not has_tool(tool_name):
-                # if the tool is found but unavailable, we log a warning
-                if tool_name in [tool.name for tool in get_available_tools()]:
-                    logger.warning("Tool %s found but is unavailable", tool_name)
-                    continue
-                raise ValueError(f"Tool '{tool_name}' not found")
+            if _matching_allowlist_tools(tool_name, loaded_tools):
+                continue
+            matched_available = _matching_allowlist_tools(tool_name, available_tools)
+            if matched_available:
+                if any(tool.is_available for tool in matched_available):
+                    raise ValueError(
+                        f"Tool '{tool_name}' matched available tools but none were loaded"
+                    )
+                logger.warning("Tool %s found but is unavailable", tool_name)
+                continue
+            raise ValueError(f"Tool '{tool_name}' not found")
 
         return loaded_tools
 
@@ -209,7 +228,8 @@ def get_toolchain(
         available_tool_names = [tool.name for tool in available_tools]
 
         for tool_name in allowlist:
-            if tool_name not in available_tool_names:
+            matched_tools = _matching_allowlist_tools(tool_name, available_tools)
+            if not matched_tools:
                 if strict:
                     raise ValueError(
                         f"Tool '{tool_name}' not found. Available tools: {', '.join(sorted(available_tool_names))}"
@@ -217,9 +237,7 @@ def get_toolchain(
                 logger.warning("Tool '%s' in allowlist not found, skipping", tool_name)
                 continue
 
-            # Check if tool is available
-            tool_obj = next(tool for tool in available_tools if tool.name == tool_name)
-            if not tool_obj.is_available:
+            if not any(tool.is_available for tool in matched_tools):
                 if strict:
                     raise ValueError(
                         f"Tool '{tool_name}' is unavailable (likely missing dependencies)"
@@ -232,12 +250,15 @@ def get_toolchain(
 
     tools = []
     for tool in get_available_tools():
-        if allowlist is not None and not tool.is_mcp and tool.name not in allowlist:
+        explicitly_allowed = allowlist is not None and _tool_matches_allowlist(
+            tool.name, allowlist
+        )
+        if allowlist is not None and not explicitly_allowed:
             continue
         if not tool.is_available:
             continue
         if tool.disabled_by_default:
-            if allowlist is None or tool.name not in allowlist:
+            if not explicitly_allowed:
                 continue
         tools.append(tool)
     return tools

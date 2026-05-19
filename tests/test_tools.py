@@ -37,6 +37,25 @@ def test_init_tools_allowlist():
     assert len(get_tools()) == 2
 
 
+def test_init_tools_allowlist_glob_matches_mcp_tools():
+    from gptme.tools.base import ToolSpec
+
+    fake_tools = [
+        ToolSpec(name="discord.read_channel", desc="Read", is_mcp=True),
+        ToolSpec(name="discord.send_message", desc="Send", is_mcp=True),
+        ToolSpec(name="save", desc="Save"),
+    ]
+
+    clear_tools()
+    with patch("gptme.tools.get_available_tools", return_value=fake_tools):
+        init_tools(allowlist=["discord.*"])
+
+    assert [tool.name for tool in get_tools()] == [
+        "discord.read_channel",
+        "discord.send_message",
+    ]
+
+
 def test_init_tools_allowlist_from_env():
     clear_tools()  # ensure clean state regardless of test ordering
 
@@ -387,6 +406,25 @@ def test_get_toolchain_nonstrict_skips_missing():
     tool_names = [t.name for t in tools]
     assert "save" in tool_names
     assert "nonexistent_tool_xyz" not in tool_names
+
+
+def test_get_toolchain_glob_matches_mcp_tools():
+    """Glob allowlists should match grouped MCP tool names."""
+    from gptme.tools.base import ToolSpec
+
+    fake_tools = [
+        ToolSpec(name="discord.read_channel", desc="Read", is_mcp=True),
+        ToolSpec(name="discord.send_message", desc="Send", is_mcp=True),
+        ToolSpec(name="save", desc="Save"),
+    ]
+
+    with patch("gptme.tools.get_available_tools", return_value=fake_tools):
+        tools = get_toolchain(["discord.*"], strict=True)
+
+    assert [tool.name for tool in tools] == [
+        "discord.read_channel",
+        "discord.send_message",
+    ]
 
 
 def test_tool_descriptions_within_openai_limit():
