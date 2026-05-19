@@ -432,11 +432,15 @@ def test_subagent_wait_returns_failure_when_thread_startup_raises(
     _subagents.clear()
     _subagent_results.clear()
 
-    subagent(agent_id="test-thread-fail", prompt="Simple task")
+    try:
+        subagent(agent_id="test-thread-fail", prompt="Simple task")
 
-    result = subagent_wait("test-thread-fail", timeout=1)
-    assert result["status"] == "failure"
-    assert result["result"] == "boom"
+        result = subagent_wait("test-thread-fail", timeout=1)
+        assert result["status"] == "failure"
+        assert result["result"] == "boom"
+    finally:
+        _subagents.clear()
+        _subagent_results.clear()
 
 
 @pytest.mark.slow
