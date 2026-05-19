@@ -137,17 +137,23 @@ def _split_windows_cmdline(raw_cmdline: str) -> list[str]:
     try:
         import ctypes
 
+        shell32 = ctypes.WinDLL("shell32")  # type: ignore[attr-defined]
+        shell32.CommandLineToArgvW.restype = ctypes.POINTER(ctypes.c_wchar_p)
+        shell32.CommandLineToArgvW.argtypes = [
+            ctypes.c_wchar_p,
+            ctypes.POINTER(ctypes.c_int),
+        ]
+        kernel32 = ctypes.WinDLL("kernel32")  # type: ignore[attr-defined]
+
         argc = ctypes.c_int()
-        argv = ctypes.windll.shell32.CommandLineToArgvW(  # type: ignore[attr-defined]
-            raw_cmdline, ctypes.byref(argc)
-        )
+        argv = shell32.CommandLineToArgvW(raw_cmdline, ctypes.byref(argc))
         if not argv:
             raise OSError("CommandLineToArgvW returned null")
         try:
             return [argv[i] for i in range(argc.value)]
         finally:
-            ctypes.windll.kernel32.LocalFree(argv)  # type: ignore[attr-defined]
-    except (AttributeError, OSError, ValueError):
+            kernel32.LocalFree(argv)
+    except (AttributeError, OSError, TypeError, ValueError):
         try:
             return shlex.split(raw_cmdline)
         except ValueError:
