@@ -1184,7 +1184,7 @@ def test_profile_hard_tool_enforcement():
         patch.object(
             gptme.tools.subagent.execution, "get_tools", return_value=mock_tools
         ),
-        patch.object(gptme.chat, "chat"),
+        patch("gptme.chat.chat"),
         patch.object(
             gptme.executor,
             "prepare_execution_environment",
@@ -1241,7 +1241,7 @@ def test_profile_no_restriction_skips_set_tools():
         patch.object(
             gptme.tools.subagent.execution, "get_tools", return_value=mock_tools
         ),
-        patch.object(gptme.chat, "chat"),
+        patch("gptme.chat.chat"),
         patch.object(
             gptme.executor,
             "prepare_execution_environment",
