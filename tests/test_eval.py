@@ -3,7 +3,9 @@ import json
 import os
 import subprocess
 import sys
+from concurrent.futures import CancelledError, TimeoutError
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 from unittest.mock import patch
 
@@ -14,7 +16,7 @@ from gptme.config import get_config
 from gptme.eval import execute, tests
 from gptme.eval.agents import Agent, GPTMe
 from gptme.eval.main import main, resolve_eval_names, results_to_json
-from gptme.eval.run import ProcessError, SyncedDict, act_process
+from gptme.eval.run import ProcessError, SyncedDict, act_process, run_evals
 from gptme.eval.suites import suites, tests_map
 from gptme.eval.types import CaseResult, EvalResult, ModelConfig
 from gptme.message import Message
@@ -533,6 +535,104 @@ def test_execute_docker_mode_runs_checks_in_docker_env():
     assert result.status == "success"
     assert all(case.passed for case in result.results)
     assert result.run_stdout == "done"
+
+
+def test_run_evals_top_level_timeout_cancels_pending_futures(tmp_path):
+    class FakeFuture:
+        def __init__(self, result: EvalResult):
+            self._result = result
+            self.cancelled = False
+
+        def cancel(self):
+            self.cancelled = True
+            return True
+
+        def result(self, timeout=None):
+            if self.cancelled:
+                raise CancelledError
+            return self._result
+
+    class FakeExecutor:
+        def __init__(self, max_workers):
+            self.max_workers = max_workers
+            self.futures: list[FakeFuture] = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def submit(
+            self, fn, test, agent, timeout, parallel, use_docker, **kwargs
+        ) -> FakeFuture:
+            result = EvalResult(
+                name=test["name"],
+                status="success",
+                results=[CaseResult(name="ok", passed=True, duration=0.0)],
+                timings={"gen": 0.0, "run": 0.0, "eval": 0.0},
+                gen_stdout="",
+                gen_stderr="",
+                run_stdout="",
+                run_stderr="",
+                log_dir=agent.log_dir,
+                workspace_dir=agent.workspace_dir,
+            )
+            future = FakeFuture(result)
+            self.futures.append(future)
+            return future
+
+    agent_counter = {"value": 0}
+    observed_timeout: dict[str, float] = {}
+
+    def fake_agent(*args, **kwargs):
+        agent_counter["value"] += 1
+        idx = agent_counter["value"]
+        log_dir = tmp_path / f"log-{idx}"
+        workspace_dir = tmp_path / f"workspace-{idx}"
+        log_dir.mkdir()
+        workspace_dir.mkdir()
+        return SimpleNamespace(log_dir=log_dir, workspace_dir=workspace_dir)
+
+    def fake_as_completed(futures, timeout):
+        observed_timeout["value"] = timeout
+        yield futures[0]
+        raise TimeoutError
+
+    evals: list[EvalSpec] = [
+        {"name": "first", "files": {}, "run": "", "prompt": "", "expect": {}},
+        {"name": "second", "files": {}, "run": "", "prompt": "", "expect": {}},
+    ]
+    model_config = ModelConfig(model="fake/model", tool_format="markdown")
+
+    with (
+        patch("gptme.eval.run.ProcessPoolExecutor", FakeExecutor),
+        patch("gptme.eval.run.as_completed", side_effect=fake_as_completed),
+        patch("gptme.eval.run.tqdm", side_effect=lambda iterable, **kwargs: iterable),
+        patch("gptme.eval.run.GPTMe", side_effect=fake_agent),
+        patch("gptme.eval.run.is_claude_code_model", return_value=False),
+        patch("gptme.eval.run.load_pass_rate_data", return_value=None),
+        patch(
+            "gptme.eval.run.apply_gate",
+            side_effect=lambda model, eval_name, no_lessons, data: (
+                no_lessons,
+                "default",
+            ),
+        ),
+        patch("gptme.eval.run.multiprocessing.active_children", return_value=[]),
+    ):
+        results = run_evals(
+            evals=evals,
+            model_configs=[model_config],
+            timeout=1,
+            parallel=2,
+        )
+
+    model_results = results[model_config]
+    assert observed_timeout["value"] == 11
+    assert [result.name for result in model_results] == ["first", "second"]
+    assert [result.status for result in model_results] == ["success", "timeout"]
+    assert model_results[1].gen_stderr == "Process-level CancelledError"
 
 
 def test_apply_adversarial_framing_prepends_text():

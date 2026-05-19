@@ -238,12 +238,14 @@ def run_evals(
                 )
             model_results[config][test_name] = result
 
-        # worse-case run time, with some buffer to account for overhead
-        # n_runs accounts for all model×eval combinations, not just evals
+        # Worst-case batch runtime, with buffer for executor overhead.
+        # `execute()` already owns per-eval process termination; this is a
+        # coarse fallback in case the future-drain path itself stalls, so the
+        # eval runner can still synthesize results for every model×eval pair.
+        # `n_runs` accounts for all model×eval combinations, not just evals.
         max_timeout = timeout * n_runs / parallel + 10
         completed = set()
         try:
-            # TODO: can we do better than this? handle timeouts within futures instead?
             for future in tqdm(
                 as_completed(futures, timeout=max_timeout),
                 total=n_runs,
@@ -255,9 +257,9 @@ def run_evals(
                 _handle_future(future)
                 completed.add(future)
         except TimeoutError:
-            # NOTE: this should rarely happen, as `execute` should handle timeouts
             logger.warning(
-                "Timeout reached in top-level (shouldnt happen). Cancelling remaining futures..."
+                "Top-level future drain timeout reached after per-eval timeouts; "
+                "cancelling remaining futures..."
             )
 
             # Cancel any remaining futures
