@@ -94,7 +94,7 @@ active development.
 ## 📢 News
 
 - **Coming soon** - [gptme.ai](https://gptme.ai) service for running agents in the cloud; [gptme desktop](https://github.com/gptme/gptme-tauri) app for easy local use.
-- **2026-01** - [gptme-agent-template](https://github.com/gptme/gptme-agent-template) v0.4: [Bob](https://github.com/TimeToBuildBob) reaches 1700+ autonomous sessions, autonomous run loops, enhanced context generation
+- **2026-01** - [gptme-agent-template](https://github.com/gptme/gptme-agent-template) v0.4: [Bob](https://github.com/TimeToBuildBob) has run extensively as an autonomous agent, autonomous run loops, enhanced context generation
 - **2025-12** - [v0.31.0](https://github.com/gptme/gptme/releases/tag/v0.31.0): Background jobs, form tool, cost tracking, content-addressable storage
 - **2025-11** - [v0.30.0](https://github.com/gptme/gptme/releases/tag/v0.30.0): Plugin system, context compression, subagent planner mode
 - **2025-10** - [v0.29.0](https://github.com/gptme/gptme/releases/tag/v0.29.0): Lessons system for contextual guidance, MCP discovery & dynamic loading, token awareness; [Bob](https://github.com/TimeToBuildBob) begins autonomous runs with GitHub monitoring
@@ -499,7 +499,7 @@ For all options, see the [configuration docs][docs-config].
 $ gptme --help
 Usage: gptme [OPTIONS] [PROMPTS]...
 
-  gptme is a chat-CLI for LLMs, empowering them with tools to run shell
+gptme is a chat-CLI for LLMs, empowering them with tools to run shell
   commands, execute code, read and manipulate files, and more.
 
   If PROMPTS are provided, a new conversation will be started with it. PROMPTS
@@ -645,6 +645,7 @@ Contributions welcome! See the [contributing guide](https://gptme.org/docs/contr
 [docs-mcp]: https://gptme.org/docs/mcp.html
 [docs-acp]: https://gptme.org/docs/acp.html
 [anthropic-computer-use]: https://www.anthropic.com/news/3-5-models-and-computer-use
+
 ## ❓ FAQ
 
 ### What is gptme?
@@ -666,7 +667,7 @@ gptme is a **personal AI agent that runs anywhere a terminal runs** — your lap
 
 ### How do I install gptme?
 
-**Prerequisites**: Python 3.10+ or Node.js
+**Prerequisites**: Python 3.10+
 
 **Installation**:
 ```bash
@@ -688,7 +689,7 @@ gptme supports multiple AI providers:
 |----------|-------|----------|
 | **Anthropic** | `ANTHROPIC_API_KEY` | Claude 3.7 Sonnet, Opus |
 | **OpenAI** | `OPENAI_API_KEY` | GPT-4, GPT-3.5 |
-| **Google** | `GOOGLE_API_KEY` | Gemini |
+| **Google** | `GEMINI_API_KEY` | Gemini |
 | **xAI** | `XAI_API_KEY` | Grok |
 | **DeepSeek** | `DEEPSEEK_API_KEY` | DeepSeek V3, R1 |
 | **OpenRouter** | `OPENROUTER_API_KEY` | Multi-provider gateway |
@@ -705,8 +706,8 @@ llama-server --model ./models/llama-3.gguf --port 8080
 
 2. Configure gptme:
 ```bash
-export LLAMACPP_API_URL=http://localhost:8080
-gptme --model llama
+export OPENAI_BASE_URL=http://localhost:8080
+gptme -m local/llama
 ```
 
 ### What tools does gptme have?
@@ -767,7 +768,7 @@ schedule: "hourly"
 python agent.py
 ```
 
-See [Bob](https://github.com/TimeToBuildBob) for an example autonomous agent with 1700+ sessions.
+See [Bob](https://github.com/TimeToBuildBob) for an example autonomous agent that has been running continuously since late 2024.
 
 ### What is the plugin system?
 
@@ -793,7 +794,7 @@ gptme runs in **CI pipelines**:
 - name: Run gptme
   run: |
     pip install gptme
-    gptme --non-interactive "Review PR and suggest improvements"
+  gptme --non-interactive "Review PR and suggest improvements"
 ```
 
 ### What are the use cases?
@@ -822,7 +823,6 @@ export ANTHROPIC_API_KEY=your-key
 export GPTME_LOG_LEVEL=INFO
 
 # Enable/disable features
-export GPTME_ENABLE_VISION=true
 ```
 
 ### How do I handle errors?
