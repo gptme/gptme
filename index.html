@@ -202,9 +202,9 @@ cloud; <a href="https://github.com/gptme/gptme-tauri">gptme desktop</a>
 app for easy local use.</li>
 <li><strong>2026-01</strong> - <a
 href="https://github.com/gptme/gptme-agent-template">gptme-agent-template</a>
-v0.4: <a href="https://github.com/TimeToBuildBob">Bob</a> reaches 1700+
-autonomous sessions, autonomous run loops, enhanced context
-generation</li>
+v0.4: <a href="https://github.com/TimeToBuildBob">Bob</a> has run
+extensively as an autonomous agent, autonomous run loops, enhanced
+context generation</li>
 <li><strong>2025-12</strong> - <a
 href="https://github.com/gptme/gptme/releases/tag/v0.31.0">v0.31.0</a>:
 Background jobs, form tool, cost tracking, content-addressable
@@ -981,6 +981,294 @@ alt="Stargazers over time" /></a></p>
 <li><a href="https://discord.gg/NMaCmmkxWv">Discord</a></li>
 </ul>
 <!-- links -->
+
+<h2 id="question-faq">❓ FAQ</h2>
+<h3 id="what-is-gptme">What is gptme?</h3>
+<p>gptme is a <strong>personal AI agent that runs anywhere a terminal
+runs</strong> — your laptop, SSH sessions, tmux, headless servers, CI
+pipelines. It's provider-agnostic, local-first, and unconstrained: ships
+with shell, Python, web, vision, and everything else an agent needs.
+Pronounced /ʤiː piː tiː miː/ like "GPT-ME".</p>
+<h3 id="how-does-gptme-compare-to-other-ai-coding-assistants">How does
+gptme compare to other AI coding assistants?</h3>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>gptme</th>
+<th>Claude Code</th>
+<th>Cursor</th>
+<th>Warp</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Environment</strong></td>
+<td>Any terminal</td>
+<td>Terminal</td>
+<td>IDE</td>
+<td>Terminal</td>
+</tr>
+<tr>
+<td><strong>Autonomy</strong></td>
+<td>Autonomous agents</td>
+<td>One-shot</td>
+<td>IDE-assisted</td>
+<td>Terminal AI</td>
+</tr>
+<tr>
+<td><strong>Local-first</strong></td>
+<td>✅ Full support</td>
+<td>❌ API required</td>
+<td>❌ API required</td>
+<td>❌ API required</td>
+</tr>
+<tr>
+<td><strong>MCP Support</strong></td>
+<td>✅ Built-in</td>
+<td>✅ Built-in</td>
+<td>❌</td>
+<td>❌</td>
+</tr>
+<tr>
+<td><strong>Plugin System</strong></td>
+<td>✅ Full plugins</td>
+<td>❌</td>
+<td>✅ Extensions</td>
+<td>❌</td>
+</tr>
+<tr>
+<td><strong>Web Browsing</strong></td>
+<td>✅ Playwright</td>
+<td>❌</td>
+<td>❌</td>
+<td>❌</td>
+</tr>
+<tr>
+<td><strong>Vision</strong></td>
+<td>✅ Screenshots/Images</td>
+<td>✅</td>
+<td>✅</td>
+<td>❌</td>
+</tr>
+<tr>
+<td><strong>Self-hosting</strong></td>
+<td>✅ Full control</td>
+<td>❌</td>
+<td>❌</td>
+<td>❌</td>
+</tr>
+</tbody>
+</table>
+<h3 id="how-do-i-install-gptme">How do I install gptme?</h3>
+<p><strong>Prerequisites</strong>: Python 3.10+</p>
+<p><strong>Installation</strong>:</p>
+<div class="sourceCode" id="cb10"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install gptme</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="co"># or</span></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a><span class="ex">pipx</span> install gptme</span></code></pre></div>
+<p><strong>First Run</strong>:</p>
+<div class="sourceCode" id="cb11"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="ex">gptme</span></span></code></pre></div>
+<h3 id="what-ai-providers-does-gptme-support">What AI providers does
+gptme support?</h3>
+<p>gptme supports multiple AI providers:</p>
+<table>
+<thead>
+<tr>
+<th>Provider</th>
+<th>Setup</th>
+<th>Features</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Anthropic</strong></td>
+<td><code>ANTHROPIC_API_KEY</code></td>
+<td>Claude models</td>
+</tr>
+<tr>
+<td><strong>OpenAI</strong></td>
+<td><code>OPENAI_API_KEY</code></td>
+<td>GPT models</td>
+</tr>
+<tr>
+<td><strong>Google</strong></td>
+<td><code>GEMINI_API_KEY</code></td>
+<td>Gemini models</td>
+</tr>
+<tr>
+<td><strong>xAI</strong></td>
+<td><code>XAI_API_KEY</code></td>
+<td>Grok models</td>
+</tr>
+<tr>
+<td><strong>DeepSeek</strong></td>
+<td><code>DEEPSEEK_API_KEY</code></td>
+<td>DeepSeek models</td>
+</tr>
+<tr>
+<td><strong>OpenRouter</strong></td>
+<td><code>OPENROUTER_API_KEY</code></td>
+<td>Multi-provider gateway</td>
+</tr>
+<tr>
+<td><strong>llama.cpp</strong></td>
+<td>Local server</td>
+<td>OpenAI-compatible local models</td>
+</tr>
+</tbody>
+</table>
+<h3 id="how-do-i-use-local-models">How do I use local models?</h3>
+<p>Use <strong>llama.cpp</strong> for fully local operation:</p>
+<ol type="1">
+<li>Start llama.cpp server:</li>
+</ol>
+<div class="sourceCode" id="cb12"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="ex">llama-server</span> <span class="at">--model</span> ./models/llama-3.gguf <span class="at">--port</span> 8080</span></code></pre></div>
+<ol start="2" type="1">
+<li>Configure gptme:</li>
+</ol>
+<div class="sourceCode" id="cb13"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="bu">export</span> <span class="va">OPENAI_BASE_URL</span><span class="op">=</span>http://localhost:8080/v1</span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a><span class="ex">gptme</span> <span class="at">-m</span> local/<span class="op">&lt;</span>model-name<span class="op">&gt;</span></span></code></pre></div>
+<h3 id="what-tools-does-gptme-have">What tools does gptme have?</h3>
+<p>gptme ships with comprehensive tools:</p>
+<ul>
+<li><strong>shell</strong>: Execute commands in terminal</li>
+<li><strong>python</strong>: Run Python code</li>
+<li><strong>patch</strong>: Make incremental file edits</li>
+<li><strong>browser</strong>: Browse web via Playwright</li>
+<li><strong>vision</strong>: Process images/screenshots</li>
+<li><strong>tmux</strong>: Manage tmux sessions</li>
+<li><strong>morph</strong>: Fast file transformations</li>
+<li><strong>form</strong>: Interactive forms</li>
+<li><strong>mcp</strong>: MCP tool discovery and use</li>
+</ul>
+<h3 id="how-does-the-mcp-integration-work">How does the MCP integration
+work?</h3>
+<p>gptme has <strong>built-in MCP support</strong>:</p>
+<ul>
+<li><strong>MCP Discovery</strong>: Automatically discovers MCP
+servers</li>
+<li><strong>Dynamic Loading</strong>: Loads MCP tools on demand</li>
+<li><strong>Tool Integration</strong>: MCP tools work like native
+tools</li>
+</ul>
+<p>Example MCP servers supported:</p>
+<ul>
+<li>GitHub MCP</li>
+<li>Puppeteer MCP</li>
+<li>SQLite MCP</li>
+<li>Custom MCP servers</li>
+</ul>
+<h3 id="what-is-the-lessons-system">What is the Lessons system?</h3>
+<p>The <strong>Lessons system</strong> provides contextual guidance and
+best practices that are automatically included when relevant:</p>
+<ul>
+<li><strong>Project-specific lessons</strong>: Custom guidance for your
+project</li>
+<li><strong>Best practices</strong>: Coding patterns and
+conventions</li>
+<li><strong>Context injection</strong>: Automatic context based on
+situation</li>
+</ul>
+<h3 id="how-do-i-create-autonomous-agents">How do I create autonomous
+agents?</h3>
+<p>Use <strong>gptme-agent-template</strong> for persistent autonomous
+agents:</p>
+<ol type="1">
+<li>Clone template:</li>
+</ol>
+<div class="sourceCode" id="cb14"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> clone https://github.com/gptme/gptme-agent-template</span></code></pre></div>
+<ol start="2" type="1">
+<li>Configure agent:</li>
+</ol>
+<div class="sourceCode" id="cb15"><pre
+class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="co"># config.yaml</span></span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a><span class="fu">name</span><span class="kw">:</span><span class="at"> </span><span class="st">&quot;MyAgent&quot;</span></span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a><span class="fu">role</span><span class="kw">:</span><span class="at"> </span><span class="st">&quot;Code reviewer&quot;</span></span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a><span class="fu">schedule</span><span class="kw">:</span><span class="at"> </span><span class="st">&quot;hourly&quot;</span></span></code></pre></div>
+<ol start="3" type="1">
+<li>Run:</li>
+</ol>
+<div class="sourceCode" id="cb16"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> agent.py</span></code></pre></div>
+<p>See <a href="https://github.com/TimeToBuildBob">Bob</a> for an
+example autonomous agent that has been running continuously since late
+2024.</p>
+<h3 id="what-is-the-plugin-system">What is the plugin system?</h3>
+<p>gptme has a <strong>full plugin system</strong>:</p>
+<ul>
+<li><strong>Skills</strong>: Custom tools and capabilities</li>
+<li><strong>Hooks</strong>: Pre/post execution hooks</li>
+<li><strong>Integrations</strong>: External service connectors</li>
+<li><strong>Community plugins</strong>: <a
+href="https://github.com/gptme/gptme-contrib">gptme-contrib</a>
+repository</li>
+</ul>
+<p>Example plugins:</p>
+<ul>
+<li>Twitter/X bot</li>
+<li>Discord bot</li>
+<li>Email tools</li>
+<li>Consortium (multi-agent)</li>
+</ul>
+<h3 id="how-do-i-use-gptme-in-cicd">How do I use gptme in CI/CD?</h3>
+<p>gptme runs in <strong>CI pipelines</strong>:</p>
+<div class="sourceCode" id="cb17"><pre
+class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="co"># GitHub Actions</span></span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a><span class="kw">-</span><span class="at"> </span><span class="fu">name</span><span class="kw">:</span><span class="at"> Run gptme</span></span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a><span class="fu">  run</span><span class="kw">: </span><span class="ch">|</span></span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a>    pip install gptme</span>
+<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a>    gptme --non-interactive &quot;Review PR and suggest improvements&quot;</span></code></pre></div>
+<h3 id="what-are-the-use-cases">What are the use cases?</h3>
+<p>gptme is general-purpose but excels at:</p>
+<ul>
+<li><strong>Coding</strong>: Write, refactor, debug code</li>
+<li><strong>Research</strong>: Web browsing, data collection</li>
+<li><strong>Automation</strong>: File management, CI tasks</li>
+<li><strong>Documentation</strong>: Generate docs, summaries</li>
+<li><strong>Testing</strong>: Write tests, run tests, fix failures</li>
+<li><strong>DevOps</strong>: Server management, deployment</li>
+</ul>
+<h3 id="how-do-i-configure-gptme">How do I configure gptme?</h3>
+<p>Configuration via environment variables:</p>
+<div class="sourceCode" id="cb18"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Provider selection</span></span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a><span class="bu">export</span> <span class="va">GPTME_MODEL</span><span class="op">=</span>anthropic/claude-sonnet-4-6</span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a><span class="co"># API keys</span></span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a><span class="bu">export</span> <span class="va">ANTHROPIC_API_KEY</span><span class="op">=</span>your-key</span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a><span class="co"># Logging level</span></span>
+<span id="cb18-8"><a href="#cb18-8" aria-hidden="true" tabindex="-1"></a><span class="bu">export</span> <span class="va">GPTME_LOG_LEVEL</span><span class="op">=</span>INFO</span></code></pre></div>
+<h3 id="how-do-i-handle-errors">How do I handle errors?</h3>
+<p>gptme is <strong>self-correcting</strong>:</p>
+<ul>
+<li>Output feeds back to assistant</li>
+<li>Automatic retry on errors</li>
+<li>User intervention when needed</li>
+</ul>
+<h3 id="where-can-i-find-more-resources">Where can I find more
+resources?</h3>
+<ul>
+<li><strong>Website</strong>: <a
+href="https://gptme.org">gptme.org</a></li>
+<li><strong>Documentation</strong>: <a
+href="https://gptme.org/docs/">docs.gptme.org</a></li>
+<li><strong>Examples</strong>: <a
+href="https://gptme.org/docs/examples.html">Examples</a></li>
+<li><strong>Downloads</strong>: <a
+href="https://gptme.org/downloads/">Downloads</a></li>
+<li><strong>Discord</strong>: <a
+href="https://discord.gg/NMaCmmkxWv">Discord Community</a></li>
+<li><strong>Twitter</strong>: <a
+href="https://x.com/gptmeorg">@gptmeorg</a></li>
+</ul>
+<hr />
+<p><strong>Happy Terminal Agent Building!</strong> 🤖</p>
 </div>
 </body>
 </html>
