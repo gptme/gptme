@@ -79,3 +79,75 @@ def test_pushgateway_periodic_push(monkeypatch):
 
         # Cleanup
         shutdown_telemetry()
+
+
+def test_record_hook_call_records_span():
+    """Hook spans should preserve timing and attributes for tracing."""
+    from gptme.telemetry import record_hook_call
+
+    class FakeSpan:
+        def __init__(self, name, start_time=None):
+            self.name = name
+            self.start_time = start_time
+            self.attributes = {}
+            self.events = []
+            self.end_time = None
+
+        def set_attribute(self, key, value):
+            self.attributes[key] = value
+
+        def add_event(self, name, attributes=None):
+            self.events.append((name, attributes))
+
+        def end(self, end_time=None):
+            self.end_time = end_time
+
+    class FakeTracer:
+        def __init__(self):
+            self.spans = []
+
+        def start_span(self, name, **kwargs):
+            span = FakeSpan(name, kwargs.get("start_time"))
+            self.spans.append(span)
+            return span
+
+    tracer = FakeTracer()
+
+    with (
+        patch("gptme.telemetry.is_telemetry_enabled", return_value=True),
+        patch("gptme.telemetry.get_telemetry_objects", return_value={"tracer": tracer}),
+        patch("gptme.telemetry.enrich_span_with_context"),
+    ):
+        record_hook_call(
+            hook_name="hook-a",
+            hook_type="step.pre",
+            async_mode=False,
+            duration=1.25,
+            success=False,
+            error_type="ValueError",
+            error_message="bad hook",
+            start_time_ns=123,
+        )
+
+    assert len(tracer.spans) == 1
+    span = tracer.spans[0]
+    assert span.name == "hook.step.pre.hook-a"
+    assert span.start_time == 123
+    assert span.end_time == 1_250_000_123
+    assert span.attributes["hook.name"] == "hook-a"
+    assert span.attributes["hook.type"] == "step.pre"
+    assert span.attributes["hook.async_mode"] is False
+    assert span.attributes["hook.success"] is False
+    assert span.attributes["hook.duration_seconds"] == 1.25
+    assert span.attributes["hook.error.type"] == "ValueError"
+    assert span.attributes["hook.error.message"] == "bad hook"
+    assert span.events == [
+        (
+            "hook_failed",
+            {
+                "hook": "hook-a",
+                "hook_type": "step.pre",
+                "error_type": "ValueError",
+            },
+        )
+    ]

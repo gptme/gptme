@@ -409,6 +409,71 @@ class TestTriggerSync:
         assert "from hook 1" in contents
         assert "from hook 2" in contents
 
+    def test_trigger_records_hook_telemetry_for_generator_runtime(self):
+        registry = HookRegistry()
+        msg = Message("system", "hello from hook")
+        registry.register("telemetry-hook", HookType.STEP_PRE, _make_hook_func([msg]))
+
+        with (
+            unittest.mock.patch(
+                "gptme.hooks.registry.time",
+                side_effect=[10.0, 10.1, 10.2, 10.8, 11.0, 11.3],
+            ),
+            unittest.mock.patch("gptme.telemetry.record_hook_call") as mock_record,
+        ):
+            messages = list(registry.trigger(HookType.STEP_PRE))
+
+        assert len(messages) == 1
+        mock_record.assert_called_once()
+        kwargs = mock_record.call_args.kwargs
+        assert kwargs["hook_name"] == "telemetry-hook"
+        assert kwargs["hook_type"] == HookType.STEP_PRE.value
+        assert kwargs["async_mode"] is False
+        assert kwargs["success"] is True
+        assert kwargs["duration"] == pytest.approx(1.0)
+        assert kwargs["start_time_ns"] == 10_000_000_000
+
+    def test_trigger_records_hook_telemetry_for_errors(self):
+        registry = HookRegistry()
+        tracker: list[str] = []
+
+        registry.register(
+            "error-hook",
+            HookType.STEP_PRE,
+            _make_error_hook(ValueError("test error")),
+            priority=10,
+        )
+        registry.register(
+            "good-hook",
+            HookType.STEP_PRE,
+            _make_tracking_hook(tracker, "good"),
+            priority=1,
+        )
+
+        with (
+            unittest.mock.patch(
+                "gptme.hooks.registry.time",
+                side_effect=[20.0, 20.4, 30.0, 30.2],
+            ),
+            unittest.mock.patch("gptme.telemetry.record_hook_call") as mock_record,
+        ):
+            list(registry.trigger(HookType.STEP_PRE))
+
+        assert "good" in tracker
+        assert mock_record.call_count == 2
+
+        error_call = mock_record.call_args_list[0].kwargs
+        assert error_call["hook_name"] == "error-hook"
+        assert error_call["success"] is False
+        assert error_call["error_type"] == "ValueError"
+        assert error_call["error_message"] == "test error"
+        assert error_call["duration"] == pytest.approx(0.4)
+
+        success_call = mock_record.call_args_list[1].kwargs
+        assert success_call["hook_name"] == "good-hook"
+        assert success_call["success"] is True
+        assert success_call["duration"] == pytest.approx(0.2)
+
 
 # ── HookRegistry: StopPropagation ────────────────────────────────────
 

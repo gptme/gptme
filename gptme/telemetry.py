@@ -40,6 +40,7 @@ __all__ = [
     "record_tokens",
     "record_request_duration",
     "record_tool_call",
+    "record_hook_call",
     "record_conversation_change",
     "record_llm_request",
     "measure_tokens_per_second",
@@ -233,6 +234,64 @@ def record_tool_call(
 
     if duration is not None and tool_duration_histogram is not None:
         tool_duration_histogram.record(duration, attributes)
+
+
+def record_hook_call(
+    hook_name: str,
+    hook_type: str,
+    async_mode: bool,
+    duration: float,
+    success: bool = True,
+    error_type: str | None = None,
+    error_message: str | None = None,
+    start_time_ns: int | None = None,
+) -> None:
+    """Record hook execution spans for Jaeger analysis."""
+    if not is_telemetry_enabled():
+        return
+
+    telemetry_objects = get_telemetry_objects()
+    tracer = telemetry_objects["tracer"]
+
+    if tracer is None:
+        return
+
+    span_kwargs: dict[str, Any] = {}
+    if start_time_ns is not None:
+        span_kwargs["start_time"] = start_time_ns
+
+    span = tracer.start_span(f"hook.{hook_type}.{hook_name}", **span_kwargs)
+    try:
+        enrich_span_with_context(span)
+        span.set_attribute("hook.name", hook_name)
+        span.set_attribute("hook.type", hook_type)
+        span.set_attribute("hook.async_mode", async_mode)
+        span.set_attribute("hook.success", success)
+        span.set_attribute("hook.duration_seconds", duration)
+        if error_type:
+            span.set_attribute("hook.error.type", error_type)
+        if error_message:
+            span.set_attribute("hook.error.message", error_message[:200])
+
+        if success:
+            span.add_event(
+                "hook_completed",
+                attributes={"hook": hook_name, "hook_type": hook_type},
+            )
+        else:
+            span.add_event(
+                "hook_failed",
+                attributes={
+                    "hook": hook_name,
+                    "hook_type": hook_type,
+                    "error_type": error_type or "unknown",
+                },
+            )
+    finally:
+        if start_time_ns is None:
+            span.end()
+        else:
+            span.end(end_time=start_time_ns + int(duration * 1_000_000_000))
 
 
 def record_conversation_change(delta: int) -> None:

@@ -40,6 +40,34 @@ from .types import (
 logger = logging.getLogger(__name__)
 
 
+def _record_sync_hook_call(
+    hook: Hook,
+    duration: float,
+    *,
+    success: bool,
+    error: Exception | None = None,
+    start_time_ns: int | None = None,
+) -> None:
+    """Record hook telemetry without letting tracing failures break hook execution."""
+    try:
+        from ..telemetry import record_hook_call
+
+        record_hook_call(
+            hook_name=hook.name,
+            hook_type=hook.hook_type.value,
+            async_mode=hook.async_mode,
+            duration=duration,
+            success=success,
+            error_type=type(error).__name__ if error else None,
+            error_message=str(error) if error else None,
+            start_time_ns=start_time_ns,
+        )
+    except Exception:
+        logger.debug(
+            "Failed to record telemetry for hook '%s'", hook.name, exc_info=True
+        )
+
+
 class HookRegistry:
     """Registry for managing hooks."""
 
@@ -153,17 +181,12 @@ class HookRegistry:
 
         # Process sync hooks as before (yielding messages)
         for hook in sync_hooks:
+            t_start = time()
+            start_time_ns = int(t_start * 1_000_000_000)
+            t_delta = 0.0
             try:
-                # TODO: emit span for tracing
-                t_start = time()
                 result = hook.func(*args, **kwargs)
-                t_end = time()
-                t_delta = t_end - t_start
-                logger.debug(f"Hook '{hook.name}' took {t_delta:.4f}s")
-                if t_delta > 5.0:
-                    logger.warning(
-                        f"Hook '{hook.name}' is taking a long time ({t_delta:.4f}s)"
-                    )
+                t_delta = time() - t_start
 
                 # If hook returns a generator, yield from it
                 # Note: ToolConfirmHooks may return None (fall-through) or ConfirmationResult
@@ -173,9 +196,32 @@ class HookRegistry:
                     and not isinstance(result, str | bytes)
                 ):
                     try:
-                        for msg in result:
+                        iterator = iter(result)
+                        while True:
+                            t_next_start = time()
+                            try:
+                                msg = next(iterator)
+                            except StopIteration:
+                                t_delta += time() - t_next_start
+                                break
+                            except Exception:
+                                t_delta += time() - t_next_start
+                                raise
+
+                            t_delta += time() - t_next_start
                             if isinstance(msg, StopPropagation):
                                 logger.debug(f"Hook '{hook.name}' stopped propagation")
+                                logger.debug(f"Hook '{hook.name}' took {t_delta:.4f}s")
+                                if t_delta > 5.0:
+                                    logger.warning(
+                                        f"Hook '{hook.name}' is taking a long time ({t_delta:.4f}s)"
+                                    )
+                                _record_sync_hook_call(
+                                    hook,
+                                    t_delta,
+                                    success=True,
+                                    start_time_ns=start_time_ns,
+                                )
                                 return  # Stop processing remaining hooks
                             elif isinstance(msg, Message):
                                 yield msg
@@ -188,9 +234,41 @@ class HookRegistry:
                 # If hook returns StopPropagation, stop
                 elif isinstance(result, StopPropagation):
                     logger.debug(f"Hook '{hook.name}' stopped propagation")
+                    logger.debug(f"Hook '{hook.name}' took {t_delta:.4f}s")
+                    if t_delta > 5.0:
+                        logger.warning(
+                            f"Hook '{hook.name}' is taking a long time ({t_delta:.4f}s)"
+                        )
+                    _record_sync_hook_call(
+                        hook,
+                        t_delta,
+                        success=True,
+                        start_time_ns=start_time_ns,
+                    )
                     return
 
+                logger.debug(f"Hook '{hook.name}' took {t_delta:.4f}s")
+                if t_delta > 5.0:
+                    logger.warning(
+                        f"Hook '{hook.name}' is taking a long time ({t_delta:.4f}s)"
+                    )
+                _record_sync_hook_call(
+                    hook,
+                    t_delta,
+                    success=True,
+                    start_time_ns=start_time_ns,
+                )
+
             except Exception as e:
+                if t_delta == 0.0:
+                    t_delta = time() - t_start
+                _record_sync_hook_call(
+                    hook,
+                    t_delta,
+                    success=False,
+                    error=e,
+                    start_time_ns=start_time_ns,
+                )
                 # Special handling for session termination
                 if e.__class__.__name__ == "SessionCompleteException":
                     logger.info(f"Hook '{hook.name}' signaled session completion")
