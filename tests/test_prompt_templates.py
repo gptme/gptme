@@ -527,6 +527,33 @@ class TestPromptComposition:
         assert "### Examples" not in combined
         assert "example usage" not in combined
 
+    def test_prompt_short_uses_compact_base_guidance(self):
+        """Short prompt should trim redundant base instructions to stay within budget."""
+        from gptme.prompts.templates import prompt_gptme, prompt_short
+
+        full_base = list(prompt_gptme(interactive=True))[0].content
+        short_msgs = list(
+            prompt_short(
+                interactive=True,
+                tools=[self._make_tool()],
+                tool_format="markdown",
+            )
+        )
+        short_content = "\n".join(m.content for m in short_msgs)
+
+        assert (
+            "Always prioritize using the provided tools over suggesting manual actions."
+            in full_base
+        )
+        assert (
+            "Always prioritize using the provided tools over suggesting manual actions."
+            not in short_content
+        )
+        assert (
+            "Use available tools proactively instead of suggesting manual actions."
+            in short_content
+        )
+
     def test_prompt_short_passes_model_for_tool_enforcement(self):
         """prompt_short propagates `model` so GPT/Gemini/Grok get enforcement guidance."""
         from gptme.prompts.templates import prompt_short

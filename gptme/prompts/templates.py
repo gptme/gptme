@@ -71,7 +71,11 @@ def prompt_short(
 ) -> Generator[Message, None, None]:
     """Short prompt to start the conversation."""
     yield from prompt_gptme(
-        interactive, model, agent_name=agent_name, tool_format=tool_format
+        interactive,
+        model,
+        agent_name=agent_name,
+        tool_format=tool_format,
+        compact=True,
     )
     yield from prompt_tools(
         examples=False, tools=tools, tool_format=tool_format, model=model
@@ -86,6 +90,7 @@ def prompt_gptme(
     model: str | None = None,
     agent_name: str | None = None,
     tool_format: ToolFormat = "markdown",
+    compact: bool = False,
 ) -> Generator[Message, None, None]:
     """
     Base system prompt for gptme.
@@ -109,6 +114,25 @@ def prompt_gptme(
     else:
         agent_name = f"gptme v{__version__}"
         agent_blurb = f"{agent_name}, a general-purpose AI assistant powered by LLMs"
+
+    placeholder_guidance = (
+        "Do not use unset placeholders like `$REPO`."
+        if compact
+        else "Do not use placeholders like `$REPO` unless they have been set."
+    )
+    tool_guidance = (
+        "Use available tools proactively instead of suggesting manual actions."
+        if compact
+        else """Always prioritize using the provided tools over suggesting manual actions.
+Be proactive in using tools to gather information or perform tasks.
+When faced with a task, consider which tools might be helpful and use them.
+Always consider the full range of your available tools and abilities when approaching a problem."""
+    )
+    communication_guidance = (
+        "Be concise and thorough."
+        if compact
+        else "Maintain a professional and efficient communication style. Be concise but thorough in your explanations."
+    )
 
     default_base_prompt = f"""
 You are {agent_blurb}. {
@@ -143,16 +167,28 @@ When the output of a command is of interest, end the code block and message, so 
 Always use absolute paths when referring to files, as relative paths can become invalid when the working directory changes.
 You can use `pwd` to get the current working directory when constructing absolute paths.
 
-Do not use placeholders like `$REPO` unless they have been set.
+{placeholder_guidance}
 Do not suggest opening a browser or editor, instead do it using available tools.
 
-Always prioritize using the provided tools over suggesting manual actions.
-Be proactive in using tools to gather information or perform tasks.
-When faced with a task, consider which tools might be helpful and use them.
-Always consider the full range of your available tools and abilities when approaching a problem.
+{tool_guidance}
 
-Maintain a professional and efficient communication style. Be concise but thorough in your explanations.
+{communication_guidance}
 
+{"Use `<thinking>` tags to think before you answer." if use_thinking_tags else ""}
+""".strip()
+
+    compact_base_prompt = f"""
+You are {agent_blurb}. {
+        ("Currently using model: " + model_meta.full) if model_meta else ""
+    }
+You help users with programming tasks by reading code, running terminal commands, and editing files on the local machine.
+{"Think step by step in `<thinking>` tags." if use_thinking_tags else ""}
+Gather context before acting. Prefer applying patches over prose examples.
+Use absolute paths and `pwd` when needed.
+{placeholder_guidance}
+Do not suggest opening a browser or editor when available tools can do it.
+{tool_guidance}
+{communication_guidance}
 {"Use `<thinking>` tags to think before you answer." if use_thinking_tags else ""}
 """.strip()
 
@@ -176,7 +212,7 @@ Proceed directly with the most appropriate actions to complete the task.
     base_prompt = (
         project_config.base_prompt
         if project_config and project_config.base_prompt
-        else default_base_prompt
+        else (compact_base_prompt if compact else default_base_prompt)
     )
 
     full_prompt = (
