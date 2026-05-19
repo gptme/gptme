@@ -794,7 +794,7 @@ gptme runs in **CI pipelines**:
 - name: Run gptme
   run: |
     pip install gptme
-  gptme --non-interactive "Review PR and suggest improvements"
+    gptme --non-interactive "Review PR and suggest improvements"
 ```
 
 ### What are the use cases?
