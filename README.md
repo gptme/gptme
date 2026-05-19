@@ -499,7 +499,7 @@ For all options, see the [configuration docs][docs-config].
 $ gptme --help
 Usage: gptme [OPTIONS] [PROMPTS]...
 
-gptme is a chat-CLI for LLMs, empowering them with tools to run shell
+  gptme is a chat-CLI for LLMs, empowering them with tools to run shell
   commands, execute code, read and manipulate files, and more.
 
   If PROMPTS are provided, a new conversation will be started with it. PROMPTS
@@ -687,13 +687,13 @@ gptme supports multiple AI providers:
 
 | Provider | Setup | Features |
 |----------|-------|----------|
-| **Anthropic** | `ANTHROPIC_API_KEY` | Claude 3.7 Sonnet, Opus |
-| **OpenAI** | `OPENAI_API_KEY` | GPT-4, GPT-3.5 |
-| **Google** | `GEMINI_API_KEY` | Gemini |
-| **xAI** | `XAI_API_KEY` | Grok |
-| **DeepSeek** | `DEEPSEEK_API_KEY` | DeepSeek V3, R1 |
+| **Anthropic** | `ANTHROPIC_API_KEY` | Claude models |
+| **OpenAI** | `OPENAI_API_KEY` | GPT models |
+| **Google** | `GEMINI_API_KEY` | Gemini models |
+| **xAI** | `XAI_API_KEY` | Grok models |
+| **DeepSeek** | `DEEPSEEK_API_KEY` | DeepSeek models |
 | **OpenRouter** | `OPENROUTER_API_KEY` | Multi-provider gateway |
-| **llama.cpp** | Local server | Fully local, no API |
+| **llama.cpp** | Local server | OpenAI-compatible local models |
 
 ### How do I use local models?
 
@@ -706,8 +706,8 @@ llama-server --model ./models/llama-3.gguf --port 8080
 
 2. Configure gptme:
 ```bash
-export OPENAI_BASE_URL=http://localhost:8080
-gptme -m local/llama
+export OPENAI_BASE_URL=http://localhost:8080/v1
+gptme -m local/<model-name>
 ```
 
 ### What tools does gptme have?
@@ -814,15 +814,13 @@ Configuration via environment variables:
 
 ```bash
 # Provider selection
-export GPTME_MODEL=anthropic/claude-3-sonnet
+export GPTME_MODEL=anthropic/claude-sonnet-4-6
 
 # API keys
 export ANTHROPIC_API_KEY=your-key
 
 # Logging level
 export GPTME_LOG_LEVEL=INFO
-
-# Enable/disable features
 ```
 
 ### How do I handle errors?
