@@ -550,8 +550,9 @@ def main(
     # join prompts, grouped by `-` if present, since that's the separator for "chained"/multiple-round prompts
     sep = "\n\n" + MULTIPROMPT_SEPARATOR
     prompts = [p.strip() for p in "\n\n".join(prompts).split(sep) if p]
-    # Keep raw prompt strings here; include_paths() resolves file references
-    # when each chained prompt is executed.
+    # File paths in multiprompts are expanded at runtime by include_paths() in
+    # _run_chat_loop (gptme/chat.py:194), not at parse time. Each prompt from the
+    # queue goes through include_paths when popped, ensuring fresh content.
     prompt_msgs = [Message("user", p) for p in prompts]
 
     def inject_stdin(prompt_msgs, piped_input: str | None) -> list[Message]:
