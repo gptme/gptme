@@ -160,6 +160,20 @@ def _split_windows_cmdline(raw_cmdline: str) -> list[str]:
             return [raw_cmdline]
 
 
+def _configure_windows_kernel32_process_functions(
+    kernel32: Any, ctypes_module: Any, wintypes_module: Any
+) -> None:
+    """Set Win32 function signatures used for process handles."""
+    kernel32.OpenProcess.argtypes = [
+        wintypes_module.DWORD,
+        wintypes_module.BOOL,
+        wintypes_module.DWORD,
+    ]
+    kernel32.OpenProcess.restype = wintypes_module.HANDLE
+    kernel32.CloseHandle.argtypes = [wintypes_module.HANDLE]
+    kernel32.CloseHandle.restype = wintypes_module.BOOL
+
+
 def _get_windows_process_strings(pid: int) -> tuple[str | None, str | None]:
     """Return ``(cwd, command_line)`` for a Windows process."""
     try:
@@ -228,6 +242,7 @@ def _get_windows_process_strings(pid: int) -> tuple[str | None, str | None]:
 
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
     ntdll = ctypes.WinDLL("ntdll")  # type: ignore[attr-defined]
+    _configure_windows_kernel32_process_functions(kernel32, ctypes, wintypes)
 
     handle = None
     for access in process_query_access:
@@ -342,6 +357,7 @@ def _get_windows_process_timing(
     access = PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_QUERY_INFORMATION
 
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+    _configure_windows_kernel32_process_functions(kernel32, ctypes, wintypes)
     handle = kernel32.OpenProcess(access, False, pid)
     if not handle:
         return None, None, None
@@ -407,6 +423,7 @@ def _get_windows_process_memory_mb(pid: int) -> float | None:
 
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
     psapi = ctypes.WinDLL("psapi")  # type: ignore[attr-defined]
+    _configure_windows_kernel32_process_functions(kernel32, ctypes, wintypes)
     handle = kernel32.OpenProcess(access, False, pid)
     if not handle:
         return None
@@ -452,8 +469,11 @@ def _get_process_cwd(pid: int) -> str | None:
         ):
             return None
     elif system == "Windows":
-        cwd, _ = _get_windows_process_strings(pid)
-        return cwd
+        try:
+            cwd, _ = _get_windows_process_strings(pid)
+            return cwd
+        except (AttributeError, OSError, TypeError, ValueError):
+            return None
     return None
 
 
@@ -483,7 +503,10 @@ def _get_process_cmdline(pid: int) -> list[str]:
         ):
             return []
     elif system == "Windows":
-        _, raw_cmdline = _get_windows_process_strings(pid)
+        try:
+            _, raw_cmdline = _get_windows_process_strings(pid)
+        except (AttributeError, OSError, TypeError, ValueError):
+            return []
         if not raw_cmdline:
             return []
         return _split_windows_cmdline(raw_cmdline)
