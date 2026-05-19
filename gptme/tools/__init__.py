@@ -6,7 +6,6 @@ import logging
 import pkgutil
 import threading
 from contextvars import ContextVar
-from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -16,6 +15,11 @@ from ..plugins import get_plugin_tool_modules
 from ..telemetry import trace_function
 from ..util.interrupt import clear_interruptible
 from ..util.terminal import terminal_state_title
+from ._allowlist import (
+    allowlist_contains_glob,
+    matching_allowlist_tools,
+    tool_matches_allowlist,
+)
 from .base import (
     Parameter,
     ToolFormat,
@@ -130,18 +134,6 @@ def _init_single_tool(tool: ToolSpec) -> ToolSpec:
     return tool
 
 
-def _matching_allowlist_tools(pattern: str, tools: list[ToolSpec]) -> list[ToolSpec]:
-    """Return tools matched by an allowlist entry."""
-
-    return [tool for tool in tools if fnmatchcase(tool.name, pattern)]
-
-
-def _tool_matches_allowlist(tool_name: str, allowlist: list[str]) -> bool:
-    """Return True when a tool name matches any allowlist entry."""
-
-    return any(fnmatchcase(tool_name, pattern) for pattern in allowlist)
-
-
 def init_tools(
     allowlist: list[str] | None = None,
 ) -> list[ToolSpec]:
@@ -201,13 +193,14 @@ def init_tools(
 
         available_tools = get_available_tools()
         for tool_name in tool_names:
-            if _matching_allowlist_tools(tool_name, loaded_tools):
+            if matching_allowlist_tools(tool_name, loaded_tools):
                 continue
-            matched_available = _matching_allowlist_tools(tool_name, available_tools)
+            matched_available = matching_allowlist_tools(tool_name, available_tools)
             if matched_available:
                 if any(tool.is_available for tool in matched_available):
                     raise ValueError(
-                        f"Tool '{tool_name}' matched available tools but none were loaded"
+                        f"Tool '{tool_name}' matched available tools that should "
+                        "have been loaded but were not found in loaded_tools"
                     )
                 logger.warning("Tool %s found but is unavailable", tool_name)
                 continue
@@ -228,7 +221,7 @@ def get_toolchain(
         available_tool_names = [tool.name for tool in available_tools]
 
         for tool_name in allowlist:
-            matched_tools = _matching_allowlist_tools(tool_name, available_tools)
+            matched_tools = matching_allowlist_tools(tool_name, available_tools)
             if not matched_tools:
                 if strict:
                     raise ValueError(
@@ -249,11 +242,17 @@ def get_toolchain(
                 continue
 
     tools = []
+    warn_on_skipped_mcp = False
+    if allowlist:
+        warn_on_skipped_mcp = not allowlist_contains_glob(allowlist)
+    skipped_mcp_tools = []
     for tool in get_available_tools():
-        explicitly_allowed = allowlist is not None and _tool_matches_allowlist(
+        explicitly_allowed = allowlist is not None and tool_matches_allowlist(
             tool.name, allowlist
         )
         if allowlist is not None and not explicitly_allowed:
+            if warn_on_skipped_mcp and tool.is_mcp and tool.is_available:
+                skipped_mcp_tools.append(tool.name)
             continue
         if not tool.is_available:
             continue
@@ -261,6 +260,12 @@ def get_toolchain(
             if not explicitly_allowed:
                 continue
         tools.append(tool)
+    if skipped_mcp_tools:
+        logger.warning(
+            "Tool allowlist excluded MCP tools: %s. Add glob patterns like "
+            "'<server>.*' to include grouped MCP tools.",
+            ", ".join(sorted(skipped_mcp_tools)),
+        )
     return tools
 
 

@@ -18,7 +18,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from ...message import Message
-from .. import _matching_allowlist_tools, _tool_matches_allowlist, get_tools, set_tools
+from .. import get_tools, set_tools
+from .._allowlist import matching_allowlist_tools, tool_matches_allowlist
 
 if TYPE_CHECKING:
     from .types import ReturnType, Status, Subagent, SubtaskDef
@@ -150,7 +151,7 @@ def _create_subagent_thread(
         unknown = {
             pattern
             for pattern in tool_allowlist
-            if not _matching_allowlist_tools(pattern, loaded_tools)
+            if not matching_allowlist_tools(pattern, loaded_tools)
         }
         if unknown:
             logger.warning(
@@ -162,7 +163,7 @@ def _create_subagent_thread(
         available_tools = [
             tool
             for tool in loaded_tools
-            if _tool_matches_allowlist(tool.name, tool_allowlist)
+            if tool_matches_allowlist(tool.name, tool_allowlist)
         ]
         # Always include the complete tool so subagent can signal completion
         complete_tools = [t for t in loaded_tools if t.name == "complete"]
