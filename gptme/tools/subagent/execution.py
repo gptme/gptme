@@ -119,7 +119,7 @@ def _create_subagent_thread(
         profile_name: Optional agent profile to apply (system prompt + hard tool enforcement)
     """
     # noreorder
-    from gptme import chat  # fmt: skip
+    from gptme.chat import chat  # fmt: skip
     from gptme.executor import prepare_execution_environment  # fmt: skip
     from gptme.llm.models import set_default_model  # fmt: skip
 

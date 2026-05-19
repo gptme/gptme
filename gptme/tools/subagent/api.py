@@ -433,6 +433,8 @@ def subagent(
             except Exception as e:
                 # If subagent creation fails, notify with error status
                 logger.error(f"Subagent {agent_id} failed during execution: {e}")
+                with _subagent_results_lock:
+                    _subagent_results[agent_id] = ReturnType("failure", str(e))
                 try:
                     notify_completion(agent_id, "failure", f"Execution failed: {e}")
                 except Exception as notify_err:

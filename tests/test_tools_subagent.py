@@ -397,6 +397,48 @@ def test_subagent_status_unknown_agent():
         subagent_status("nonexistent-agent-xyz")
 
 
+def test_subagent_status_missing_log_returns_failure():
+    """Finished subagents without a log should fail cleanly instead of raising."""
+    from gptme.tools.subagent import Subagent
+
+    sa = Subagent(
+        agent_id="test-missing-log",
+        prompt="test prompt",
+        thread=None,
+        logdir=Path("/tmp/does-not-exist"),
+        model=None,
+    )
+
+    with patch.object(
+        Subagent, "get_log", side_effect=FileNotFoundError("missing log")
+    ):
+        result = sa.status()
+
+    assert result.status == "failure"
+    assert "conversation log" in (result.result or "")
+
+
+@patch("gptme.tools.subagent.api.notify_completion")
+@patch(
+    "gptme.tools.subagent.execution._create_subagent_thread",
+    side_effect=RuntimeError("boom"),
+)
+def test_subagent_wait_returns_failure_when_thread_startup_raises(
+    _mock_create_thread: MagicMock, _mock_notify_completion: MagicMock
+):
+    """Thread-mode startup failures should be cached for subagent_wait/status."""
+    from gptme.tools.subagent import _subagent_results, subagent_wait
+
+    _subagents.clear()
+    _subagent_results.clear()
+
+    subagent(agent_id="test-thread-fail", prompt="Simple task")
+
+    result = subagent_wait("test-thread-fail", timeout=1)
+    assert result["status"] == "failure"
+    assert result["result"] == "boom"
+
+
 @pytest.mark.slow
 @pytest.mark.eval
 def test_subagent_wait_basic():
@@ -587,7 +629,6 @@ def test_subprocess_actual_process_creation():
 def test_subprocess_command_includes_required_flags():
     """Test that subprocess command includes all required gptme flags."""
     import subprocess
-    import sys
     import tempfile
     from pathlib import Path
 
@@ -1139,7 +1180,7 @@ def test_profile_hard_tool_enforcement():
         patch.object(
             gptme.tools.subagent.execution, "get_tools", return_value=mock_tools
         ),
-        patch.object(sys.modules["gptme"], "chat"),
+        patch.object(gptme.chat, "chat"),
         patch.object(
             gptme.executor,
             "prepare_execution_environment",
@@ -1196,7 +1237,7 @@ def test_profile_no_restriction_skips_set_tools():
         patch.object(
             gptme.tools.subagent.execution, "get_tools", return_value=mock_tools
         ),
-        patch.object(sys.modules["gptme"], "chat"),
+        patch.object(gptme.chat, "chat"),
         patch.object(
             gptme.executor,
             "prepare_execution_environment",
@@ -1281,7 +1322,7 @@ def test_create_subagent_thread_warns_on_unknown_profile_tools(tmp_path):
         patch("gptme.tools.subagent.execution.get_tools", return_value=tools),
         patch("gptme.executor.prepare_execution_environment"),
         patch("gptme.prompts.get_prompt", mock_prompt),
-        patch("gptme.chat", mock_chat),
+        patch("gptme.chat.chat", mock_chat),
         patch("gptme.tools.subagent.execution.logger.warning", mock_warn),
     ):
         _create_subagent_thread(
@@ -1343,7 +1384,7 @@ def test_create_subagent_thread_profile_glob_filters_tools(tmp_path):
         patch("gptme.tools.subagent.execution.set_tools", side_effect=spy_set_tools),
         patch("gptme.executor.prepare_execution_environment"),
         patch("gptme.prompts.get_prompt", mock_prompt),
-        patch("gptme.chat", mock_chat),
+        patch("gptme.chat.chat", mock_chat),
         patch("gptme.tools.subagent.execution.logger.warning", mock_warn),
     ):
         _create_subagent_thread(

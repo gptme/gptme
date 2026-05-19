@@ -186,7 +186,13 @@ class Subagent:
             return ReturnType("running")
 
         # Check if executor used the complete tool
-        log = self.get_log().log
+        try:
+            log = self.get_log().log
+        except FileNotFoundError:
+            return ReturnType(
+                "failure",
+                f"Subagent exited before creating a conversation log: {self.logdir}",
+            )
         if not log:
             return ReturnType("failure", "No messages in log")
 
