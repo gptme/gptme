@@ -27,7 +27,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from ..hooks import HookType, StopPropagation, register_hook
 from ..message import Message
@@ -132,6 +132,294 @@ class AgentInfo:
 # ---------------------------------------------------------------------------
 
 
+def _split_windows_cmdline(raw_cmdline: str) -> list[str]:
+    """Split a Windows command-line string into argv."""
+    try:
+        import ctypes
+
+        argc = ctypes.c_int()
+        argv = ctypes.windll.shell32.CommandLineToArgvW(  # type: ignore[attr-defined]
+            raw_cmdline, ctypes.byref(argc)
+        )
+        if not argv:
+            raise OSError("CommandLineToArgvW returned null")
+        try:
+            return [argv[i] for i in range(argc.value)]
+        finally:
+            ctypes.windll.kernel32.LocalFree(argv)  # type: ignore[attr-defined]
+    except (AttributeError, OSError, ValueError):
+        try:
+            return shlex.split(raw_cmdline)
+        except ValueError:
+            return [raw_cmdline]
+
+
+def _get_windows_process_strings(pid: int) -> tuple[str | None, str | None]:
+    """Return ``(cwd, command_line)`` for a Windows process."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+    except ImportError:
+        return None, None
+
+    PROCESS_QUERY_INFORMATION = 0x0400
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    PROCESS_VM_READ = 0x0010
+    process_query_access = (
+        PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
+        PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
+    )
+
+    class PROCESS_BASIC_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("Reserved1", ctypes.c_void_p),
+            ("PebBaseAddress", ctypes.c_void_p),
+            ("Reserved2_0", ctypes.c_void_p),
+            ("Reserved2_1", ctypes.c_void_p),
+            ("UniqueProcessId", ctypes.c_void_p),
+            ("Reserved3", ctypes.c_void_p),
+        ]
+
+    class UNICODE_STRING(ctypes.Structure):
+        _fields_ = [
+            ("Length", wintypes.USHORT),
+            ("MaximumLength", wintypes.USHORT),
+            ("Buffer", ctypes.c_void_p),
+        ]
+
+    class CURDIR(ctypes.Structure):
+        _fields_ = [
+            ("DosPath", UNICODE_STRING),
+            ("Handle", ctypes.c_void_p),
+        ]
+
+    class RTL_USER_PROCESS_PARAMETERS(ctypes.Structure):
+        _fields_ = [
+            ("MaximumLength", wintypes.ULONG),
+            ("Length", wintypes.ULONG),
+            ("Flags", wintypes.ULONG),
+            ("DebugFlags", wintypes.ULONG),
+            ("ConsoleHandle", ctypes.c_void_p),
+            ("ConsoleFlags", wintypes.ULONG),
+            ("StandardInput", ctypes.c_void_p),
+            ("StandardOutput", ctypes.c_void_p),
+            ("StandardError", ctypes.c_void_p),
+            ("CurrentDirectory", CURDIR),
+            ("DllPath", UNICODE_STRING),
+            ("ImagePathName", UNICODE_STRING),
+            ("CommandLine", UNICODE_STRING),
+        ]
+
+    class PEB(ctypes.Structure):
+        _fields_ = [
+            ("Reserved1", ctypes.c_ubyte * 2),
+            ("BeingDebugged", ctypes.c_ubyte),
+            ("Reserved2", ctypes.c_ubyte),
+            ("Reserved3", ctypes.c_void_p * 2),
+            ("Ldr", ctypes.c_void_p),
+            ("ProcessParameters", ctypes.c_void_p),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+    ntdll = ctypes.WinDLL("ntdll")  # type: ignore[attr-defined]
+
+    handle = None
+    for access in process_query_access:
+        handle = kernel32.OpenProcess(access, False, pid)
+        if handle:
+            break
+    if not handle:
+        return None, None
+
+    def _read_process_bytes(address: int, size: int) -> bytes | None:
+        if not address or size <= 0:
+            return None
+        buffer = ctypes.create_string_buffer(size)
+        bytes_read = ctypes.c_size_t()
+        ok = kernel32.ReadProcessMemory(
+            handle,
+            ctypes.c_void_p(address),
+            buffer,
+            size,
+            ctypes.byref(bytes_read),
+        )
+        if not ok:
+            return None
+        return buffer.raw[: bytes_read.value]
+
+    def _read_process_struct(address: int, struct_type: type[Any]) -> Any | None:
+        raw = _read_process_bytes(address, ctypes.sizeof(struct_type))
+        if raw is None or len(raw) < ctypes.sizeof(struct_type):
+            return None
+        return struct_type.from_buffer_copy(raw)
+
+    def _read_process_unicode(value: UNICODE_STRING) -> str | None:
+        if not value.Buffer or value.Length == 0:
+            return None
+        raw = _read_process_bytes(int(value.Buffer), int(value.Length))
+        if raw is None:
+            return None
+        return raw.decode("utf-16-le", errors="replace").rstrip("\x00")
+
+    try:
+        pbi = PROCESS_BASIC_INFORMATION()
+        return_length = wintypes.ULONG()
+        status = ntdll.NtQueryInformationProcess(
+            handle,
+            0,  # ProcessBasicInformation
+            ctypes.byref(pbi),
+            ctypes.sizeof(pbi),
+            ctypes.byref(return_length),
+        )
+        if status != 0 or not pbi.PebBaseAddress:
+            return None, None
+
+        peb = cast(PEB | None, _read_process_struct(int(pbi.PebBaseAddress), PEB))
+        if peb is None or not peb.ProcessParameters:
+            return None, None
+
+        proc_params = cast(
+            RTL_USER_PROCESS_PARAMETERS | None,
+            _read_process_struct(
+                int(peb.ProcessParameters), RTL_USER_PROCESS_PARAMETERS
+            ),
+        )
+        if proc_params is None:
+            return None, None
+
+        cwd = _read_process_unicode(proc_params.CurrentDirectory.DosPath)
+        cmdline = _read_process_unicode(proc_params.CommandLine)
+        return cwd, cmdline
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _get_windows_pids() -> list[int]:
+    """Enumerate process IDs on Windows."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+    except ImportError:
+        return []
+
+    psapi = ctypes.WinDLL("psapi")  # type: ignore[attr-defined]
+    capacity = 1024
+
+    while True:
+        buffer = (wintypes.DWORD * capacity)()
+        bytes_needed = wintypes.DWORD()
+        ok = psapi.EnumProcesses(
+            ctypes.byref(buffer),
+            ctypes.sizeof(buffer),
+            ctypes.byref(bytes_needed),
+        )
+        if not ok:
+            return []
+        count = bytes_needed.value // ctypes.sizeof(wintypes.DWORD)
+        if count < capacity:
+            return [pid for pid in buffer[:count] if pid]
+        capacity *= 2
+
+
+def _get_windows_process_timing(
+    pid: int,
+) -> tuple[int | None, float | None, str | None]:
+    """Get Windows process uptime and CPU time."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+    except ImportError:
+        return None, None, None
+
+    PROCESS_QUERY_INFORMATION = 0x0400
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    access = PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_QUERY_INFORMATION
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+    handle = kernel32.OpenProcess(access, False, pid)
+    if not handle:
+        return None, None, None
+
+    def _filetime_to_seconds(filetime: wintypes.FILETIME) -> float:
+        ticks = (filetime.dwHighDateTime << 32) | filetime.dwLowDateTime
+        return ticks / 10_000_000.0
+
+    def _filetime_to_unix(filetime: wintypes.FILETIME) -> float:
+        return _filetime_to_seconds(filetime) - 11_644_473_600.0
+
+    try:
+        creation = wintypes.FILETIME()
+        exit_time = wintypes.FILETIME()
+        kernel_time = wintypes.FILETIME()
+        user_time = wintypes.FILETIME()
+        ok = kernel32.GetProcessTimes(
+            handle,
+            ctypes.byref(creation),
+            ctypes.byref(exit_time),
+            ctypes.byref(kernel_time),
+            ctypes.byref(user_time),
+        )
+        if not ok:
+            return None, None, None
+
+        creation_unix = _filetime_to_unix(creation)
+        uptime = max(0, int(time.time() - creation_unix))
+        cpu = _filetime_to_seconds(kernel_time) + _filetime_to_seconds(user_time)
+        return uptime, cpu, None
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _get_windows_process_memory_mb(pid: int) -> float | None:
+    """Get Windows process resident memory in MB."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+    except ImportError:
+        return None
+
+    PROCESS_QUERY_INFORMATION = 0x0400
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    PROCESS_VM_READ = 0x0010
+    access = (
+        PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_QUERY_INFORMATION | PROCESS_VM_READ
+    )
+
+    class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+        _fields_ = [
+            ("cb", wintypes.DWORD),
+            ("PageFaultCount", wintypes.DWORD),
+            ("PeakWorkingSetSize", ctypes.c_size_t),
+            ("WorkingSetSize", ctypes.c_size_t),
+            ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+            ("QuotaPagedPoolUsage", ctypes.c_size_t),
+            ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+            ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+            ("PagefileUsage", ctypes.c_size_t),
+            ("PeakPagefileUsage", ctypes.c_size_t),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+    psapi = ctypes.WinDLL("psapi")  # type: ignore[attr-defined]
+    handle = kernel32.OpenProcess(access, False, pid)
+    if not handle:
+        return None
+
+    try:
+        counters = PROCESS_MEMORY_COUNTERS()
+        counters.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS)
+        ok = psapi.GetProcessMemoryInfo(
+            handle,
+            ctypes.byref(counters),
+            counters.cb,
+        )
+        if not ok:
+            return None
+        return counters.WorkingSetSize / (1024.0 * 1024.0)
+    finally:
+        kernel32.CloseHandle(handle)
+
+
 def _get_process_cwd(pid: int) -> str | None:
     """Get process CWD, cross-platform."""
     system = platform.system()
@@ -157,7 +445,9 @@ def _get_process_cwd(pid: int) -> str | None:
             FileNotFoundError,
         ):
             return None
-    # TODO: Windows — use wmic or ctypes
+    elif system == "Windows":
+        cwd, _ = _get_windows_process_strings(pid)
+        return cwd
     return None
 
 
@@ -186,7 +476,11 @@ def _get_process_cmdline(pid: int) -> list[str]:
             ValueError,
         ):
             return []
-    # TODO: Windows — use wmic
+    elif system == "Windows":
+        _, raw_cmdline = _get_windows_process_strings(pid)
+        if not raw_cmdline:
+            return []
+        return _split_windows_cmdline(raw_cmdline)
     return []
 
 
@@ -207,7 +501,8 @@ def _get_all_pids() -> list[int]:
             FileNotFoundError,
         ):
             return []
-    # TODO: Windows — use tasklist or ctypes
+    if system == "Windows":
+        return _get_windows_pids()
     return []
 
 
@@ -271,6 +566,8 @@ def _get_process_timing(pid: int) -> tuple[int | None, float | None, str | None]
             FileNotFoundError,
         ):
             return None, None, None
+    elif system == "Windows":
+        return _get_windows_process_timing(pid)
     return None, None, None
 
 
@@ -311,7 +608,8 @@ def _get_process_memory_mb(pid: int) -> float | None:
             ValueError,
         ):
             return None
-    # TODO: Windows
+    elif system == "Windows":
+        return _get_windows_process_memory_mb(pid)
     return None
 
 

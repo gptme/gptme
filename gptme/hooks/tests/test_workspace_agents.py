@@ -17,7 +17,11 @@ from gptme.hooks.workspace_agents import (
     _extract_flag,
     _format_agent_line,
     _format_duration,
+    _get_all_pids,
+    _get_process_cmdline,
+    _get_process_cwd,
     _get_process_memory_mb,
+    _get_process_timing,
     _has_flag,
     _init_tracking,
     _parse_etime,
@@ -219,6 +223,76 @@ class TestGetProcessMemoryMb:
     def test_missing_pid_returns_none(self) -> None:
         # PID 2**31 - 1 is effectively guaranteed not to exist.
         assert _get_process_memory_mb(2**31 - 1) is None
+
+
+class TestWindowsProcessIntrospection:
+    def test_get_process_cwd_windows_dispatch(self) -> None:
+        with (
+            patch(
+                "gptme.hooks.workspace_agents.platform.system", return_value="Windows"
+            ),
+            patch(
+                "gptme.hooks.workspace_agents._get_windows_process_strings",
+                return_value=(r"C:\\workspace", "codex exec"),
+            ),
+        ):
+            assert _get_process_cwd(123) == r"C:\\workspace"
+
+    def test_get_process_cmdline_windows_dispatch(self) -> None:
+        raw_cmdline = 'codex exec --model "gpt-5" "Run tests"'
+        expected = ["codex", "exec", "--model", "gpt-5", "Run tests"]
+        with (
+            patch(
+                "gptme.hooks.workspace_agents.platform.system", return_value="Windows"
+            ),
+            patch(
+                "gptme.hooks.workspace_agents._get_windows_process_strings",
+                return_value=(r"C:\\workspace", raw_cmdline),
+            ),
+            patch(
+                "gptme.hooks.workspace_agents._split_windows_cmdline",
+                return_value=expected,
+            ) as mock_split,
+        ):
+            assert _get_process_cmdline(123) == expected
+        mock_split.assert_called_once_with(raw_cmdline)
+
+    def test_get_all_pids_windows_dispatch(self) -> None:
+        with (
+            patch(
+                "gptme.hooks.workspace_agents.platform.system", return_value="Windows"
+            ),
+            patch(
+                "gptme.hooks.workspace_agents._get_windows_pids",
+                return_value=[101, 202],
+            ),
+        ):
+            assert _get_all_pids() == [101, 202]
+
+    def test_get_process_timing_windows_dispatch(self) -> None:
+        expected = (120, 4.5, None)
+        with (
+            patch(
+                "gptme.hooks.workspace_agents.platform.system", return_value="Windows"
+            ),
+            patch(
+                "gptme.hooks.workspace_agents._get_windows_process_timing",
+                return_value=expected,
+            ),
+        ):
+            assert _get_process_timing(123) == expected
+
+    def test_get_process_memory_windows_dispatch(self) -> None:
+        with (
+            patch(
+                "gptme.hooks.workspace_agents.platform.system", return_value="Windows"
+            ),
+            patch(
+                "gptme.hooks.workspace_agents._get_windows_process_memory_mb",
+                return_value=64.0,
+            ),
+        ):
+            assert _get_process_memory_mb(123) == 64.0
 
 
 class TestFormatAgentLineMemory:
