@@ -1168,6 +1168,26 @@ def test_set_config_value_creates_intermediate_sections(tmp_path, monkeypatch):
     assert result["user"]["name"] == "Alice"
 
 
+def test_chat_config_save_transition_empty_dir_to_symlink(tmp_path):
+    """Test that save() replaces an empty from_logdir workspace directory with a symlink."""
+    logdir = tmp_path / "conversation-save-transition"
+
+    # Simulate from_logdir creating workspace dir
+    config = ChatConfig.from_logdir(logdir)
+    assert (logdir / "workspace").is_dir()
+    assert not (logdir / "workspace").is_symlink()
+
+    # Now save() with a workspace change — the empty dir should become a symlink
+    custom_workspace = tmp_path / "custom-workspace"
+    custom_workspace.mkdir()
+    config = replace(config, workspace=custom_workspace)
+    config._logdir = logdir
+    config.save()
+
+    assert (logdir / "workspace").is_symlink()
+    assert (logdir / "workspace").resolve() == custom_workspace
+
+
 def test_get_env_required_checks_gptme_prefix(monkeypatch):
     """Test that get_env_required checks GPTME_ prefixed env vars like get_env does."""
     from gptme.config.models import UserConfig
@@ -1180,3 +1200,34 @@ def test_get_env_required_checks_gptme_prefix(monkeypatch):
 
     result = config.get_env_required("OPENAI_API_KEY")
     assert result == "test-key-123"
+
+
+def test_chat_config_from_logdir_creates_workspace(tmp_path):
+    """Test that from_logdir creates a per-conversation workspace directory."""
+    logdir = tmp_path / "conversation-abc"
+    workspace = logdir / "workspace"
+
+    assert not logdir.exists()
+    assert not workspace.exists()
+
+    config = ChatConfig.from_logdir(logdir)
+
+    assert workspace.is_dir()
+    assert config.workspace.resolve() == workspace.resolve()
+    assert config._logdir == logdir
+
+
+def test_chat_config_from_logdir_uses_existing_workspace(tmp_path):
+    """Test that from_logdir reuses an existing workspace directory."""
+    logdir = tmp_path / "conversation-existing"
+    workspace = logdir / "workspace"
+    workspace.mkdir(parents=True)
+    (workspace / "existing_file.txt").write_text("hello")
+
+    assert logdir.is_dir()
+    assert workspace.is_dir()
+
+    config = ChatConfig.from_logdir(logdir)
+
+    assert config.workspace.resolve() == workspace.resolve()
+    assert (workspace / "existing_file.txt").exists()

@@ -108,13 +108,13 @@ class ChatConfig:
         """Load ChatConfig from a log directory."""
         chat_config_path = path / "config.toml"
         if not chat_config_path.exists():
-            if (path / "workspace").exists():
-                workspace = (path / "workspace").resolve()
-                return cls(_logdir=path, workspace=workspace)
-            logger.debug(
-                f"No existing config found at {path}, using default config for new conversation."
-            )
-            return cls(_logdir=path)
+            # For new conversations without a saved config, use a
+            # per-conversation workspace directory under the logdir.
+            # This ensures server sessions get isolated workspaces
+            # instead of sharing the server process's cwd.
+            workspace = path / "workspace"
+            workspace.mkdir(parents=True, exist_ok=True)
+            return cls(_logdir=path, workspace=workspace.resolve())
         try:
             with open(chat_config_path) as f:
                 config_data = tomlkit.load(f).unwrap()
@@ -191,16 +191,26 @@ class ChatConfig:
         if self.workspace != workspace_path:
             if workspace_path.exists():
                 if workspace_path.is_dir() and not workspace_path.is_symlink():
-                    # It's a directory with potential user content, don't delete it
-                    raise ValueError(
-                        f"Workspace directory '{workspace_path}' already exists and contains data. "
-                        "Cannot change workspace when directory is in use. "
-                        "Please move or rename the existing directory first."
-                    )
-                # It's a file or symlink, safe to remove
-                workspace_path.unlink()
+                    try:
+                        # If it's an empty directory (e.g., auto-created by
+                        # from_logdir for a new conversation), it's safe to
+                        # remove and replace with a symlink.
+                        workspace_path.rmdir()
+                    except OSError:
+                        raise ValueError(
+                            f"Workspace directory '{workspace_path}' already exists and contains data. "
+                            "Cannot change workspace when directory is in use. "
+                            "Please move or rename the existing directory first."
+                        ) from None
+                else:
+                    # It's a file or symlink, safe to remove
+                    workspace_path.unlink()
             workspace_path.symlink_to(self.workspace)
-        # If workspace IS the log workspace, no symlink needed - directory already exists
+        else:
+            # Workspace IS the log workspace — ensure the directory exists
+            # (from_logdir creates it for new conversations, but callers
+            # constructing ChatConfig directly may not have)
+            self.workspace.mkdir(parents=True, exist_ok=True)
 
         return self
 
