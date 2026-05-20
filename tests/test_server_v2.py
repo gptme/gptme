@@ -874,8 +874,9 @@ def test_v2_create_conversation_default_system_prompt(
     client: FlaskClient, tmp_path, monkeypatch
 ):
     """Test creating a V2 conversation with a default system prompt."""
-    # Use tmp_path as workspace to avoid workspace context message
-    monkeypatch.chdir(tmp_path)
+    # Explicitly set tmp_path as workspace to avoid workspace context message.
+    # New conversations now default to an isolated logdir/workspace directory,
+    # so this test must not rely on cwd fallback behavior.
     # Explicitly disable chat history for this test
     monkeypatch.setenv("GPTME_CHAT_HISTORY", "false")
     # Pin env var so test is deterministic regardless of caller's environment
@@ -900,13 +901,14 @@ def test_v2_create_conversation_default_system_prompt(
     response = client.put(
         f"/api/v2/conversations/{convname}",
         json={
+            "config": {"chat": {"workspace": str(tmp_path)}},
             "messages": [
                 {
                     "role": "user",
                     "content": "Hello, this is a test message.",
                     "timestamp": datetime.now(tz=timezone.utc).isoformat(),
                 }
-            ]
+            ],
         },
     )
     assert response.status_code == 200
