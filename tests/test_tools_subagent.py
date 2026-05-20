@@ -1184,7 +1184,7 @@ def test_profile_hard_tool_enforcement():
         patch.object(
             gptme.tools.subagent.execution, "get_tools", return_value=mock_tools
         ),
-        patch("gptme.chat.chat"),
+        patch.object(sys.modules["gptme.chat"], "chat"),
         patch.object(
             gptme.executor,
             "prepare_execution_environment",
@@ -1241,7 +1241,7 @@ def test_profile_no_restriction_skips_set_tools():
         patch.object(
             gptme.tools.subagent.execution, "get_tools", return_value=mock_tools
         ),
-        patch("gptme.chat.chat"),
+        patch.object(sys.modules["gptme.chat"], "chat"),
         patch.object(
             gptme.executor,
             "prepare_execution_environment",
@@ -1326,7 +1326,7 @@ def test_create_subagent_thread_warns_on_unknown_profile_tools(tmp_path):
         patch("gptme.tools.subagent.execution.get_tools", return_value=tools),
         patch("gptme.executor.prepare_execution_environment"),
         patch("gptme.prompts.get_prompt", mock_prompt),
-        patch("gptme.chat.chat", mock_chat),
+        patch.object(sys.modules["gptme.chat"], "chat", mock_chat),
         patch("gptme.tools.subagent.execution.logger.warning", mock_warn),
     ):
         _create_subagent_thread(
@@ -1388,7 +1388,7 @@ def test_create_subagent_thread_profile_glob_filters_tools(tmp_path):
         patch("gptme.tools.subagent.execution.set_tools", side_effect=spy_set_tools),
         patch("gptme.executor.prepare_execution_environment"),
         patch("gptme.prompts.get_prompt", mock_prompt),
-        patch("gptme.chat.chat", mock_chat),
+        patch.object(sys.modules["gptme.chat"], "chat", mock_chat),
         patch("gptme.tools.subagent.execution.logger.warning", mock_warn),
     ):
         _create_subagent_thread(
