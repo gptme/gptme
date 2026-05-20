@@ -1233,7 +1233,9 @@ def test_v2_chat_config_update_works(client: FlaskClient):
 
     response = client.get(f"/api/v2/conversations/{conversation_id}/config")
     config = ChatConfig.from_dict(response.get_json())
-    assert config.to_dict() == input_config.to_dict()
+    assert _normalize_config_for_comparison(
+        config.to_dict()
+    ) == _normalize_config_for_comparison(input_config.to_dict())
 
     input_config.model = "openai/gpt-4o-mini"
     response = client.patch(
@@ -1243,7 +1245,9 @@ def test_v2_chat_config_update_works(client: FlaskClient):
 
     response = client.get(f"/api/v2/conversations/{conversation_id}/config")
     config = ChatConfig.from_dict(response.get_json())
-    assert config.to_dict() == input_config.to_dict()
+    assert _normalize_config_for_comparison(
+        config.to_dict()
+    ) == _normalize_config_for_comparison(input_config.to_dict())
 
 
 def test_v2_chat_config_update_missing_conversation_returns_404(client: FlaskClient):

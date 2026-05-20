@@ -8,6 +8,7 @@ Tests browse_workspace and preview_file endpoints, including:
 - Error handling
 """
 
+import shutil
 from pathlib import Path
 from uuid import uuid4
 
@@ -35,7 +36,7 @@ def _replace_workspace_link(workspace_link: Path, target: Path) -> None:
     if workspace_link.is_symlink() or workspace_link.is_file():
         workspace_link.unlink()
     elif workspace_link.is_dir():
-        workspace_link.rmdir()
+        shutil.rmtree(workspace_link)
     workspace_link.symlink_to(target)
 
 
