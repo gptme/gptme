@@ -12,8 +12,13 @@ if TYPE_CHECKING:
 
 
 def check_pipeline_tests_pass(ctx):
-    """All pipeline tests should pass after the fix."""
-    return ctx.exit_code == 0 and "failed" not in ctx.stdout.lower()
+    """The post-fix verification command should succeed cleanly."""
+    stdout = ctx.stdout.lower()
+    return (
+        ctx.exit_code == 0
+        and "failed" not in stdout
+        and ("passed" in stdout or "checks passed" in stdout)
+    )
 
 
 def check_root_cause_fixed(ctx):
@@ -176,12 +181,52 @@ def test_pipeline_missing_amount(tmp_path):
     assert result["count"] == 2
     assert result["average"] == 75.0
 """,
+        "verify_pipeline.py": """\
+import json
+
+from pipeline import run_pipeline
+
+
+def main() -> None:
+    normal = [
+        {"id": 1, "name": "Widget A", "amount": 100.0},
+        {"id": 2, "name": "Widget B", "amount": 50.0},
+        {"id": 3, "name": "Widget C", "amount": 25.0},
+        {"id": 4, "name": "Setup Fee", "amount": 200.0},
+    ]
+    with open("verify-normal.json", "w") as f:
+        json.dump(normal, f)
+
+    normal_result = run_pipeline("verify-normal.json")
+    assert normal_result["total"] == 375.0
+    assert normal_result["count"] == 4
+    assert normal_result["average"] == 93.75
+
+    missing_amount = [
+        {"id": 1, "name": "Item A", "amount": 50.0},
+        {"id": 2, "name": "Item B"},
+        {"id": 3, "name": "Item C", "amount": 100.0},
+    ]
+    with open("verify-missing.json", "w") as f:
+        json.dump(missing_amount, f)
+
+    missing_result = run_pipeline("verify-missing.json")
+    assert missing_result["total"] == 150.0
+    assert missing_result["count"] == 2
+    assert missing_result["average"] == 75.0
+
+    print("2 checks passed")
+
+
+if __name__ == "__main__":
+    main()
+""",
     },
-    "run": "python3 -m pytest test_pipeline.py -v --tb=short 2>&1",
+    "run": "python3 verify_pipeline.py 2>&1",
     "prompt": (
         "The pipeline in `pipeline.py` is producing wrong report results "
         "when some transaction records are missing the `amount` field. "
-        "Run the tests to see the failure, then trace the data flow "
+        "Verify the failure with `python3 verify_pipeline.py`, then trace the data flow "
         "through each stage (`load_transactions` → `normalize` → "
         "`generate_report`) to find where the value corruption occurs. "
         "Fix the root cause so all tests pass and add one targeted "

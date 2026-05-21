@@ -661,6 +661,7 @@ def test_check_extract_tests_pass():
 
 def test_check_pipeline_tests_pass():
     assert check_pipeline_tests_pass(_ctx(exit_code=0, stdout="3 passed"))
+    assert check_pipeline_tests_pass(_ctx(exit_code=0, stdout="2 checks passed"))
     assert not check_pipeline_tests_pass(_ctx(exit_code=1, stdout="1 failed"))
 
 
