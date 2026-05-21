@@ -698,7 +698,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f09bd81eac0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fec71bf6ac0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1681,7 +1681,17 @@ To write to a file, use a code block with the language tag: <span class="sb">`sa
 
 <span class="gs">**Description:**</span> Take a screenshot
 
-<span class="gs">**Instructions:**</span> The following Python functions are available using the <span class="sb">`ipython`</span> tool:
+<span class="gs">**Instructions:**</span> ### When to use screenshot
+
+Use screenshot to capture the current state of the desktop or a running
+application — to verify a UI change, observe what the user sees, or document
+visual output before and after an action.
+
+Do <span class="gs">**not**</span> use screenshot for:
+<span class="k">-</span><span class="w"> </span>Viewing an already-saved image file — use the <span class="sb">`vision`</span> tool instead
+<span class="k">-</span><span class="w"> </span>Capturing a specific webpage — use <span class="sb">`browser`</span> with a screenshot action instead
+
+The following Python functions are available using the <span class="sb">`ipython`</span> tool:
 
 <span class="sb">```txt</span>
 <span class="s">screenshot(path: Union[Path, None]) -&gt; Path:</span>
@@ -2265,7 +2275,17 @@ to restore your todo list state.
 
 <span class="gs">**Description:**</span> Viewing images
 
-<span class="gs">**Instructions:**</span> Use the <span class="sb">`view_image`</span> Python function with <span class="sb">`ipython`</span> tool to view an image file.
+<span class="gs">**Instructions:**</span> ### When to use vision
+
+Use vision when you have a local image file (screenshot, photo, diagram, chart,
+or plot) that needs visual inspection or analysis. Prefer vision over guessing
+from filenames — pass the actual pixels to the model.
+
+Do <span class="gs">**not**</span> use vision for:
+<span class="k">-</span><span class="w"> </span>Images at a URL — fetch with <span class="sb">`read`</span> or visit with <span class="sb">`browser`</span> instead
+<span class="k">-</span><span class="w"> </span>Taking a new screenshot — use the <span class="sb">`screenshot`</span> tool, then pass the path to vision
+
+Use the <span class="sb">`view_image`</span> Python function with <span class="sb">`ipython`</span> tool to view an image file.
 
 The following Python functions are available using the <span class="sb">`ipython`</span> tool:
 
@@ -2310,7 +2330,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 13045</p>
+<p>Tokens: 13245</p>
 </dd></dl>
 
 <dl class="py function">
