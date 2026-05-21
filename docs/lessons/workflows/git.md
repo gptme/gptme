@@ -59,8 +59,11 @@ gh pr create --title 'Title' --body 'Description'
 
 ### Reading PRs with full context
 ```shell
-# Use the enhanced PR viewer
-~/Programming/gptme/scripts/gh-pr-view-with-pr-comments.sh $PR_URL
+# Canonical path inside gptme: native gh tool surface
+gh pr view $PR_URL
+
+# Compatibility wrapper for terminal use outside the tool surface
+./scripts/gh-pr-view-with-pr-comments.sh $PR_URL
 ```
 
 ### Checking PR status
