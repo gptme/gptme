@@ -2638,3 +2638,262 @@ def test_check_compute_stats_all_documented_true():
 def test_check_compute_stats_all_documented_false():
     content = 'def compute_stats(numbers):\n    """Compute stats."""\n    return {}\n'
     assert not check_compute_stats_all_documented(_ctx(files={"utils.py": content}))
+
+
+# --- root_cause_pipeline_debug checker tests ---
+
+TEST_PIPELINE_ORIGINAL = """\
+import json
+import pytest
+from pipeline import load_data, run_pipeline
+
+def test_pipeline_normal_case(tmp_path):
+    data = [{"name": "alice", "score": "95"}, {"name": "bob", "score": "80"}]
+    p = tmp_path / "data.json"
+    p.write_text(json.dumps(data))
+    result = run_pipeline(str(p))
+    assert result == {"count": 2, "average": 87.5}
+
+def test_pipeline_empty_input(tmp_path):
+    p = tmp_path / "empty.json"
+    p.write_text(json.dumps([]))
+    result = run_pipeline(str(p))
+    assert result == {"count": 0, "average": 0.0}
+"""
+
+
+# ── Root cause pipeline debug scenario tests ──────────────────────────────────
+
+_ROOT_NORMAL_CONTENT = """\
+def normalize_amounts(transactions):
+    result = []
+    for t in transactions:
+        amount = t.get("amount")
+        if amount is None:
+            continue  # fixed: filter out instead of silently defaulting to 0.0
+        t["amount"] = float(t["amount"])
+        result.append(t)
+    return result
+
+
+def normalize(transactions):
+    return normalize_amounts(transactions)
+"""
+
+_ROOT_BUGGY_CONTENT = """\
+def normalize_amounts(transactions):
+    result = []
+    for t in transactions:
+        amount = t.get("amount")
+        if amount is None:
+            t["amount"] = 0.0
+        else:
+            t["amount"] = float(t["amount"])
+        result.append(t)
+    return result
+
+
+def normalize(transactions):
+    return normalize_amounts(transactions)
+"""
+
+_ROOT_BARE_EXCEPT_CONTENT = """\
+def normalize_amounts(transactions):
+    result = []
+    for t in transactions:
+        try:
+            t["amount"] = float(t["amount"])
+        except:
+            continue
+        result.append(t)
+    return result
+
+
+def normalize(transactions):
+    return normalize_amounts(transactions)
+"""
+
+_ROOT_STDOUT_PASS = """test_pipeline.py::test_pipeline_normal PASSED
+test_pipeline.py::test_pipeline_missing_amount PASSED
+
+=========================
+2 passed in 0.12s
+=========================
+"""
+
+_ROOT_STDOUT_FAIL = """test_pipeline.py::test_pipeline_normal PASSED
+test_pipeline.py::test_pipeline_missing_amount FAILED
+
+=========================
+1 failed in 0.12s
+=========================
+"""
+
+_ROOT_REPORT_ORIGINAL = """\
+def generate_report(transactions):
+    amounts = [t["amount"] for t in transactions]
+    total = sum(amounts)
+    count = len(amounts)
+    avg = total / count if count > 0 else 0.0
+    return {"total": total, "count": count, "average": avg}
+"""
+
+_ROOT_REPORT_MODIFIED = """\
+def generate_report(transactions):
+    # workaround for missing amounts
+    valid = [t for t in transactions if t.get("amount") is not None]
+    amounts = [t["amount"] for t in valid]
+    total = sum(amounts)
+    count = len(amounts)
+    avg = total / count if count > 0 else 0.0
+    return {"total": total, "count": count, "average": avg}
+"""
+
+_ROOT_TESTS_WITH_NEW = """\
+import json
+import pytest
+from pipeline import run_pipeline
+
+@pytest.fixture
+def sample_data(tmp_path):
+    data = [{"id": 1, "name": "A", "amount": 100.0}]
+    p = tmp_path / "data.json"
+    p.write_text(json.dumps(data))
+    return str(p)
+
+def test_pipeline_normal(sample_data):
+    result = run_pipeline(sample_data)
+    assert result["total"] == 100.0
+
+def test_pipeline_missing_amount(tmp_path):
+    data = [{"id": 1, "name": "A", "amount": 50.0}, {"id": 2, "name": "B"}]
+    p = tmp_path / "test.json"
+    p.write_text(json.dumps(data))
+    result = run_pipeline(str(p))
+    assert result["total"] == 50.0
+
+def test_normalize_drops_none(tmp_path):
+    data = [{"id": 1, "name": "A"}, {"id": 2, "name": "B", "amount": 30.0}]
+    p = tmp_path / "drop.json"
+    p.write_text(json.dumps(data))
+    result = run_pipeline(str(p))
+    assert result["count"] == 1
+"""
+
+_ROOT_TESTS_ORIGINAL = """\
+import json
+import pytest
+from pipeline import run_pipeline
+
+@pytest.fixture
+def sample_data(tmp_path):
+    data = [{"id": 1, "name": "A", "amount": 100.0}]
+    p = tmp_path / "data.json"
+    p.write_text(json.dumps(data))
+    return str(p)
+
+def test_pipeline_normal(sample_data):
+    result = run_pipeline(sample_data)
+    assert result["total"] == 100.0
+
+def test_pipeline_missing_amount(tmp_path):
+    data = [{"id": 1, "name": "A", "amount": 50.0}, {"id": 2, "name": "B"}]
+    p = tmp_path / "test.json"
+    p.write_text(json.dumps(data))
+    result = run_pipeline(str(p))
+    assert result["total"] == 50.0
+"""
+
+
+def test_check_root_cause_tests_pass_with_passed():
+    from gptme.eval.suites.behavioral.root_cause_pipeline_debug import (
+        check_pipeline_tests_pass,
+    )
+
+    assert check_pipeline_tests_pass(_ctx(stdout=_ROOT_STDOUT_PASS, exit_code=0))
+
+
+def test_check_root_cause_tests_pass_with_failed():
+    from gptme.eval.suites.behavioral.root_cause_pipeline_debug import (
+        check_pipeline_tests_pass,
+    )
+
+    assert not check_pipeline_tests_pass(_ctx(stdout=_ROOT_STDOUT_FAIL, exit_code=1))
+
+
+def test_check_root_cause_tests_pass_with_bad_exit_code():
+    from gptme.eval.suites.behavioral.root_cause_pipeline_debug import (
+        check_pipeline_tests_pass,
+    )
+
+    assert not check_pipeline_tests_pass(_ctx(stdout=_ROOT_STDOUT_PASS, exit_code=1))
+
+
+def test_check_root_cause_normalize_repaired():
+    from gptme.eval.suites.behavioral.root_cause_pipeline_debug import (
+        check_root_cause_fixed,
+    )
+
+    assert check_root_cause_fixed(_ctx(files={"normalize.py": _ROOT_NORMAL_CONTENT}))
+
+
+def test_check_root_cause_normalize_repaired_only_sink():
+    from gptme.eval.suites.behavioral.root_cause_pipeline_debug import (
+        check_root_cause_fixed,
+    )
+
+    assert not check_root_cause_fixed(_ctx(files={"normalize.py": _ROOT_BUGGY_CONTENT}))
+
+
+def test_check_root_cause_no_bare_except():
+    from gptme.eval.suites.behavioral.root_cause_pipeline_debug import (
+        check_no_blanket_except,
+    )
+
+    assert check_no_blanket_except(_ctx(files={"normalize.py": _ROOT_NORMAL_CONTENT}))
+
+
+def test_check_root_cause_no_bare_except_has_bare():
+    from gptme.eval.suites.behavioral.root_cause_pipeline_debug import (
+        check_no_blanket_except,
+    )
+
+    assert not check_no_blanket_except(
+        _ctx(files={"normalize.py": _ROOT_BARE_EXCEPT_CONTENT})
+    )
+
+
+def test_check_root_cause_regression_test_added_has_new():
+    from gptme.eval.suites.behavioral.root_cause_pipeline_debug import (
+        check_regression_test_added,
+    )
+
+    assert check_regression_test_added(
+        _ctx(files={"test_pipeline.py": _ROOT_TESTS_WITH_NEW})
+    )
+
+
+def test_check_root_cause_regression_test_added_no_new():
+    from gptme.eval.suites.behavioral.root_cause_pipeline_debug import (
+        check_regression_test_added,
+    )
+
+    assert not check_regression_test_added(
+        _ctx(files={"test_pipeline.py": _ROOT_TESTS_ORIGINAL})
+    )
+
+
+def test_check_root_cause_sink_unchanged():
+    from gptme.eval.suites.behavioral.root_cause_pipeline_debug import (
+        check_sink_unchanged,
+    )
+
+    assert check_sink_unchanged(_ctx(files={"report.py": _ROOT_REPORT_ORIGINAL}))
+
+
+def test_check_root_cause_sink_modified():
+    from gptme.eval.suites.behavioral.root_cause_pipeline_debug import (
+        check_sink_unchanged,
+    )
+
+    assert not check_sink_unchanged(_ctx(files={"report.py": _ROOT_REPORT_MODIFIED}))

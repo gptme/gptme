@@ -179,6 +179,17 @@ from .retry_with_backoff import (  # noqa: F401
     check_retry_imported,
     check_retry_tests_pass,
 )
+from .root_cause_pipeline_debug import (  # noqa: F401
+    check_no_blanket_except,
+    check_root_cause_fixed,
+    check_sink_unchanged,
+)
+from .root_cause_pipeline_debug import (  # noqa: F401
+    check_pipeline_tests_pass as check_root_cause_pipeline_tests_pass,
+)
+from .root_cause_pipeline_debug import (  # noqa: F401
+    check_regression_test_added as check_root_cause_regression_test_added,
+)
 from .scope_discipline_bugfix import (  # noqa: F401
     check_scope_mean_fixed,
     check_scope_median_preserved,
