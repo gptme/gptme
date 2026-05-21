@@ -321,6 +321,16 @@ def _convert_with_vips(
     return output_files
 
 
+# Check for Tavily availability
+try:
+    _tavily_mod = importlib.import_module("._browser_tavily", __package__)
+    has_tavily_key = _tavily_mod.has_tavily_key
+    search_tavily = _tavily_mod.search_tavily
+    has_tavily = has_tavily_key()
+except (ImportError, AttributeError):
+    has_tavily = False
+    search_tavily = None
+
 # Check for Perplexity availability
 try:
     _perplexity_mod = importlib.import_module("._browser_perplexity", __package__)
@@ -351,7 +361,7 @@ elif browser == "lynx":
 logger = logging.getLogger(__name__)
 
 # Always include all engine types in the type definition
-EngineType = Literal["google", "duckduckgo", "perplexity"]
+EngineType = Literal["tavily", "google", "duckduckgo", "perplexity"]
 
 SEARCH_ENGINE_ERROR_PREFIX = "Error:"
 
@@ -359,6 +369,9 @@ SEARCH_ENGINE_ERROR_PREFIX = "Error:"
 def _available_search_engines() -> list[EngineType]:
     """Return usable search backends in priority order."""
     engines: list[EngineType] = []
+
+    if has_tavily:
+        engines.append("tavily")
 
     if has_perplexity:
         engines.append("perplexity")
@@ -381,6 +394,15 @@ def _search_with_engine(query: str, engine: EngineType) -> str:
     here so _search_with_engine can be called directly (e.g. in tests) without the
     availability gate.
     """
+    if engine == "tavily":
+        if has_tavily:
+            assert search_tavily is not None
+            return search_tavily(query)
+        return (
+            "Error: Tavily search not available. Set TAVILY_API_KEY "
+            "environment variable or add it to ~/.config/gptme/config.toml"
+        )
+
     if engine == "perplexity":
         if has_perplexity:
             assert search_perplexity is not None
@@ -850,7 +872,7 @@ def search(query: str, engine: EngineType | None = None) -> str:
     if not engines_to_try:
         return (
             "Error: No search backends are currently available. "
-            "Set PERPLEXITY_API_KEY or OPENROUTER_API_KEY, or install a supported browser backend."
+            "Set TAVILY_API_KEY, PERPLEXITY_API_KEY, or OPENROUTER_API_KEY, or install a supported browser backend."
         )
 
     errors: list[str] = []
