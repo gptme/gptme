@@ -65,7 +65,9 @@ def check_no_blanket_except(ctx):
         content = content.decode()
     if not content:
         return False
-    return "except:" not in content and "except Exception:" not in content
+    return not re.search(r"except\s*:", content) and not re.search(
+        r"except\s+Exception\b", content
+    )
 
 
 def check_regression_test_added(ctx):

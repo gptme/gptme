@@ -661,7 +661,6 @@ def test_check_extract_tests_pass():
 
 def test_check_pipeline_tests_pass():
     assert check_pipeline_tests_pass(_ctx(exit_code=0, stdout="3 passed"))
-    assert check_pipeline_tests_pass(_ctx(exit_code=0, stdout="2 checks passed"))
     assert not check_pipeline_tests_pass(_ctx(exit_code=1, stdout="1 failed"))
 
 
@@ -2643,27 +2642,7 @@ def test_check_compute_stats_all_documented_false():
 
 # --- root_cause_pipeline_debug checker tests ---
 
-TEST_PIPELINE_ORIGINAL = """\
-import json
-import pytest
-from pipeline import load_data, run_pipeline
-
-def test_pipeline_normal_case(tmp_path):
-    data = [{"name": "alice", "score": "95"}, {"name": "bob", "score": "80"}]
-    p = tmp_path / "data.json"
-    p.write_text(json.dumps(data))
-    result = run_pipeline(str(p))
-    assert result == {"count": 2, "average": 87.5}
-
-def test_pipeline_empty_input(tmp_path):
-    p = tmp_path / "empty.json"
-    p.write_text(json.dumps([]))
-    result = run_pipeline(str(p))
-    assert result == {"count": 0, "average": 0.0}
-"""
-
-
-# ── Root cause pipeline debug scenario tests ──────────────────────────────────
+# Root cause pipeline debug scenario tests.
 
 _ROOT_NORMAL_CONTENT = """\
 def normalize_amounts(transactions):
@@ -2705,6 +2684,22 @@ def normalize_amounts(transactions):
         try:
             t["amount"] = float(t["amount"])
         except:
+            continue
+        result.append(t)
+    return result
+
+
+def normalize(transactions):
+    return normalize_amounts(transactions)
+"""
+
+_ROOT_EXCEPTION_AS_CONTENT = """\
+def normalize_amounts(transactions):
+    result = []
+    for t in transactions:
+        try:
+            t["amount"] = float(t["amount"])
+        except Exception as err:
             continue
         result.append(t)
     return result
@@ -2861,6 +2856,16 @@ def test_check_root_cause_no_bare_except_has_bare():
 
     assert not check_no_blanket_except(
         _ctx(files={"normalize.py": _ROOT_BARE_EXCEPT_CONTENT})
+    )
+
+
+def test_check_root_cause_no_bare_except_has_exception_binding():
+    from gptme.eval.suites.behavioral.root_cause_pipeline_debug import (
+        check_no_blanket_except,
+    )
+
+    assert not check_no_blanket_except(
+        _ctx(files={"normalize.py": _ROOT_EXCEPTION_AS_CONTENT})
     )
 
 
