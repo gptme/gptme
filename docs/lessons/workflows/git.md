@@ -59,10 +59,10 @@ gh pr create --title 'Title' --body 'Description'
 
 ### Reading PRs with full context
 ```shell
-# Canonical path inside gptme: native gh tool surface
-gh pr view $PR_URL
+# Canonical path inside gptme: native gh tool surface plus conversation comments
+gh pr view $PR_URL --comments
 
-# Compatibility wrapper for terminal use outside the tool surface
+# Compatibility wrapper from a checkout: also includes inline review threads
 ./scripts/gh-pr-view-with-pr-comments.sh $PR_URL
 ```
 

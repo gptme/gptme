@@ -28,7 +28,16 @@ repo_root="$(cd -- "$script_dir/.." && pwd)"
 PYTHONPATH="$repo_root${PYTHONPATH:+:$PYTHONPATH}" python3 - "$url" <<'PY'
 import sys
 
-from gptme.util.gh import get_github_pr_content
+try:
+    from gptme.util.gh import get_github_pr_content
+except ImportError as exc:
+    print(
+        "Error: Could not import gptme. Run this from a gptme checkout with dependencies installed "
+        "(for example `uv sync`) or use `gh pr view <ref>` directly.",
+        file=sys.stderr,
+    )
+    print(f"Import error: {exc}", file=sys.stderr)
+    raise SystemExit(1) from exc
 
 url = sys.argv[1]
 content = get_github_pr_content(url)
