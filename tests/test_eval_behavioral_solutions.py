@@ -9,7 +9,7 @@ This is critical infrastructure for idea #19 (eval-to-lesson feedback loop):
 before running expensive baseline experiments with real models, we need
 confidence that the checkers correctly identify good work.
 
-Covers all 32 behavioral scenarios:
+Covers all 33 behavioral scenarios:
   git-selective-commit, multi-file-rename, iterative-debug,
   stage-new-files, write-test-suite, test-driven-error-handling,
   merge-conflict-resolution, extract-function-refactor, debug-data-pipeline,
@@ -19,7 +19,8 @@ Covers all 32 behavioral scenarios:
   noisy-worktree-fix, fix-data-mutation, optimize-n-squared, remove-dead-code,
   fix-mutable-default, add-deprecation-warning, add-docstrings, retry-with-backoff,
   validate-user-input, rate-limiting, circuit-breaker, implement-lru-cache,
-  implement-event-emitter, implement-priority-queue, implement-memoization
+  implement-event-emitter, implement-priority-queue, implement-memoization,
+  root-cause-pipeline-debug
 """
 
 import subprocess
@@ -1258,6 +1259,51 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
                 def is_empty(self) -> bool:
                     \"\"\"Return True if the queue contains no items.\"\"\"
                     return len(self._data) == 0
+            """)
+        )
+
+    elif scenario_name == "root-cause-pipeline-debug":
+        (workspace / "normalize.py").write_text(
+            textwrap.dedent("""\
+            \"\"\"Normalizes transaction records for reporting.\"\"\"
+
+
+            def normalize_amounts(transactions):
+                \"\"\"Convert amount fields to float and drop incomplete records.\"\"\"
+                result = []
+                for t in transactions:
+                    amount = t.get("amount")
+                    if amount is None:
+                        continue
+                    t["amount"] = float(amount)
+                    result.append(t)
+                return result
+
+
+            def normalize(transactions):
+                \"\"\"Apply all normalization steps.\"\"\"
+                return normalize_amounts(transactions)
+            """)
+        )
+
+        tests_path = workspace / "test_pipeline.py"
+        tests_path.write_text(
+            tests_path.read_text()
+            + textwrap.dedent("""\
+
+
+            def test_pipeline_filters_missing_amounts_regression(tmp_path):
+                data = [
+                    {"id": 1, "name": "Item A", "amount": 10.0},
+                    {"id": 2, "name": "Item B"},
+                    {"id": 3, "name": "Item C", "amount": 20.0},
+                ]
+                p = tmp_path / "regression.json"
+                p.write_text(json.dumps(data))
+                result = run_pipeline(str(p))
+                assert result["total"] == 30.0
+                assert result["count"] == 2
+                assert result["average"] == 15.0
             """)
         )
 
