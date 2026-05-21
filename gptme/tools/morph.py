@@ -27,6 +27,14 @@ from .base import (
 instructions = """
 Use this tool to propose an edit to an existing file.
 
+### When to use morph vs patch
+
+Use morph for large or complex edits where the changed lines are scattered across
+a file and the standard patch context markers would be verbose. Morph handles the
+diff internally via a specialized fast-apply model, so it is better at edits that
+touch many non-adjacent sections. Prefer patch for small, targeted changes where
+exact context markers are easy to write. Morph requires OPENROUTER_API_KEY.
+
 This will be read by a less intelligent model, which will quickly apply the edit. You should make it clear what the edit is, while also minimizing the unchanged code you write.
 
 When writing the edit, you should specify each edit in sequence, with the special comment // ... existing code ... to represent unchanged code in between edited lines.

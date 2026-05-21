@@ -891,6 +891,15 @@ instructions = """
 You can interact with the computer through the `computer` Python function.
 Works on both Linux (X11) and macOS.
 
+### When to use the computer tool
+
+Use computer for GUI interactions that cannot be done through the shell: clicking
+elements in running applications, typing into GUI windows, taking screenshots to
+verify visual state, and keyboard shortcuts in desktop apps. Prefer the shell or
+tmux over computer for anything that has a CLI equivalent. Use computer when the
+task requires direct screen interaction — for example, operating a browser UI,
+a desktop app, or an interactive installer that has no headless mode.
+
 The key input syntax works consistently across platforms with:
 
 Available actions:
