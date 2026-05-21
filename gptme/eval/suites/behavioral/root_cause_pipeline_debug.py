@@ -4,6 +4,7 @@ Agent must trace a data-flow bug across multiple files and fix the upstream
 root cause instead of patching the downstream symptom.
 """
 
+import ast
 import re
 from typing import TYPE_CHECKING
 
@@ -29,15 +30,21 @@ def check_root_cause_fixed(ctx):
     # Verify the original fixture file exists (agent worked in correct repo)
     if not content:
         return False
-    # The bug assigned t["amount"] = 0.0 when amount is None
-    # Acceptable fixes: filter the record, raise ValueError, or any
-    # other transformation that removes the 0.0 default.
-    has_zero_default = (
-        't["amount"] = 0.0' in content
-        or "t['amount'] = 0.0" in content
-        or '["amount"] = 0.0' in content
-    )
-    return not has_zero_default
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return False
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and _is_zero_amount_assignment(
+            node.targets, node.value
+        ):
+            return False
+        if isinstance(node, ast.AnnAssign) and _is_zero_amount_assignment(
+            [node.target], node.value
+        ):
+            return False
+    return True
 
 
 def check_sink_unchanged(ctx):
@@ -45,17 +52,7 @@ def check_sink_unchanged(ctx):
     content = ctx.files.get("report.py", "")
     if isinstance(content, bytes):
         content = content.decode()
-    # Verify original report.py structure is preserved
-    # Reject modifications that add workarounds for missing amounts
-    # (that would be patching the symptom instead of the root cause)
-    return (
-        "def generate_report" in content
-        and "sum(" in content
-        and '"count"' in content
-        and '"average"' in content
-        and 't.get("amount")' not in content
-        and "t.get('amount')" not in content
-    )
+    return content == test["files"]["report.py"]
 
 
 def check_no_blanket_except(ctx):
@@ -67,6 +64,30 @@ def check_no_blanket_except(ctx):
         return False
     return not re.search(r"except\s*:", content) and not re.search(
         r"except\s+Exception\b", content
+    )
+
+
+def _is_zero_amount_assignment(targets, value):
+    """Detect `something["amount"] = 0` / `0.0` in executable code."""
+    return _is_zero_numeric_constant(value) and any(
+        _is_amount_subscript(target) for target in targets
+    )
+
+
+def _is_zero_numeric_constant(node):
+    return (
+        isinstance(node, ast.Constant)
+        and isinstance(node.value, int | float)
+        and not isinstance(node.value, bool)
+        and node.value == 0
+    )
+
+
+def _is_amount_subscript(node):
+    return (
+        isinstance(node, ast.Subscript)
+        and isinstance(node.slice, ast.Constant)
+        and node.slice.value == "amount"
     )
 
 

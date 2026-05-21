@@ -2677,6 +2677,23 @@ def normalize(transactions):
     return normalize_amounts(transactions)
 """
 
+_ROOT_COMMENTED_BUG_CONTENT = """\
+def normalize_amounts(transactions):
+    result = []
+    for t in transactions:
+        amount = t.get("amount")
+        if amount is None:
+            continue
+        # Old bug for reference: t["amount"] = 0.0
+        t["amount"] = float(t["amount"])
+        result.append(t)
+    return result
+
+
+def normalize(transactions):
+    return normalize_amounts(transactions)
+"""
+
 _ROOT_BARE_EXCEPT_CONTENT = """\
 def normalize_amounts(transactions):
     result = []
@@ -2726,7 +2743,11 @@ test_pipeline.py::test_pipeline_missing_amount FAILED
 """
 
 _ROOT_REPORT_ORIGINAL = """\
+\"\"\"Generates summary reports from normalized transaction data.\"\"\"
+
+
 def generate_report(transactions):
+    \"\"\"Build a summary dict with total, count, and average amount.\"\"\"
     amounts = [t["amount"] for t in transactions]
     total = sum(amounts)
     count = len(amounts)
@@ -2735,10 +2756,27 @@ def generate_report(transactions):
 """
 
 _ROOT_REPORT_MODIFIED = """\
+\"\"\"Generates summary reports from normalized transaction data.\"\"\"
+
+
 def generate_report(transactions):
+    \"\"\"Build a summary dict with total, count, and average amount.\"\"\"
     # workaround for missing amounts
     valid = [t for t in transactions if t.get("amount") is not None]
     amounts = [t["amount"] for t in valid]
+    total = sum(amounts)
+    count = len(amounts)
+    avg = total / count if count > 0 else 0.0
+    return {"total": total, "count": count, "average": avg}
+"""
+
+_ROOT_REPORT_GUARDED = """\
+\"\"\"Generates summary reports from normalized transaction data.\"\"\"
+
+
+def generate_report(transactions):
+    \"\"\"Build a summary dict with total, count, and average amount.\"\"\"
+    amounts = [t["amount"] for t in transactions if "amount" in t]
     total = sum(amounts)
     count = len(amounts)
     avg = total / count if count > 0 else 0.0
@@ -2841,6 +2879,16 @@ def test_check_root_cause_normalize_repaired_only_sink():
     assert not check_root_cause_fixed(_ctx(files={"normalize.py": _ROOT_BUGGY_CONTENT}))
 
 
+def test_check_root_cause_normalize_repaired_with_commented_bug_line():
+    from gptme.eval.suites.behavioral.root_cause_pipeline_debug import (
+        check_root_cause_fixed,
+    )
+
+    assert check_root_cause_fixed(
+        _ctx(files={"normalize.py": _ROOT_COMMENTED_BUG_CONTENT})
+    )
+
+
 def test_check_root_cause_no_bare_except():
     from gptme.eval.suites.behavioral.root_cause_pipeline_debug import (
         check_no_blanket_except,
@@ -2903,3 +2951,11 @@ def test_check_root_cause_sink_modified():
     )
 
     assert not check_sink_unchanged(_ctx(files={"report.py": _ROOT_REPORT_MODIFIED}))
+
+
+def test_check_root_cause_sink_modified_with_amount_guard():
+    from gptme.eval.suites.behavioral.root_cause_pipeline_debug import (
+        check_sink_unchanged,
+    )
+
+    assert not check_sink_unchanged(_ctx(files={"report.py": _ROOT_REPORT_GUARDED}))
