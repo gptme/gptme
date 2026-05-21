@@ -3064,6 +3064,15 @@ with LLM vision capabilities.</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>You can interact with the computer through the <span class="sb">`computer`</span> Python function.
 Works on both Linux (X11) and macOS.
 
+<span class="gu">### When to use the computer tool</span>
+
+Use computer for GUI interactions that cannot be done through the shell: clicking
+elements in running applications, typing into GUI windows, taking screenshots to
+verify visual state, and keyboard shortcuts in desktop apps. Prefer the shell or
+tmux over computer for anything that has a CLI equivalent. Use computer when the
+task requires direct screen interaction — for example, operating a browser UI,
+a desktop app, or an interactive installer that has no headless mode.
+
 The key input syntax works consistently across platforms with:
 
 Available actions:

@@ -698,7 +698,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fa1fca1eac0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f09bd81eac0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1084,6 +1084,15 @@ Make sure you have actually completely finished before calling this tool.
 You can interact with the computer through the <span class="sb">`computer`</span> Python function.
 Works on both Linux (X11) and macOS.
 
+<span class="gu">### When to use the computer tool</span>
+
+Use computer for GUI interactions that cannot be done through the shell: clicking
+elements in running applications, typing into GUI windows, taking screenshots to
+verify visual state, and keyboard shortcuts in desktop apps. Prefer the shell or
+tmux over computer for anything that has a CLI equivalent. Use computer when the
+task requires direct screen interaction — for example, operating a browser UI,
+a desktop app, or an interactive installer that has no headless mode.
+
 The key input syntax works consistently across platforms with:
 
 Available actions:
@@ -1466,6 +1475,14 @@ Roots are advisory URIs (file paths, HTTP URLs) defining workspace boundaries.
 
 <span class="gs">**Instructions:**</span>
 Use this tool to propose an edit to an existing file.
+
+<span class="gu">### When to use morph vs patch</span>
+
+Use morph for large or complex edits where the changed lines are scattered across
+a file and the standard patch context markers would be verbose. Morph handles the
+diff internally via a specialized fast-apply model, so it is better at edits that
+touch many non-adjacent sections. Prefer patch for small, targeted changes where
+exact context markers are easy to write. Morph requires OPENROUTER_API_KEY.
 
 This will be read by a less intelligent model, which will quickly apply the edit. You should make it clear what the edit is, while also minimizing the unchanged code you write.
 
@@ -2293,7 +2310,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 12843</p>
+<p>Tokens: 13045</p>
 </dd></dl>
 
 <dl class="py function">
