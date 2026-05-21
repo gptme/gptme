@@ -16,11 +16,25 @@ IS_MACOS = platform.system() == "Darwin"
 IS_WAYLAND = os.environ.get("XDG_SESSION_TYPE") == "wayland"
 
 # TODO: check for screen recording permissions instead of prompting the llm
-INSTRUCTIONS = (
+_MACOS_HINT = (
     "If all you see is a wallpaper, the user may have to allow screen capture in `System Preferences -> Security & Privacy -> Screen Recording`."
     if IS_MACOS
     else ""
 )
+
+INSTRUCTIONS = f"""
+### When to use screenshot
+
+Use screenshot to capture the current state of the desktop or a running
+application — to verify a UI change, observe what the user sees, or document
+visual output before and after an action.
+
+Do **not** use screenshot for:
+- Viewing an already-saved image file — use the `vision` tool instead
+- Capturing a specific webpage — use `browser` with a screenshot action instead
+
+{_MACOS_HINT}
+""".strip()
 
 
 def _is_available() -> bool:

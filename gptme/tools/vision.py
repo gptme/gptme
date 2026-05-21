@@ -102,6 +102,16 @@ def view_image(image_path: "Path | str | Image.Image") -> Message:
 
 instructions = """
 Use the `view_image` Python function with `ipython` tool to view an image file.
+
+### When to use vision
+
+Use vision when you have a local image file (screenshot, photo, diagram, chart,
+or plot) that needs visual inspection or analysis. Prefer vision over guessing
+from filenames — pass the actual pixels to the model.
+
+Do **not** use vision for:
+- Images at a URL — fetch with `read` or visit with `browser` instead
+- Taking a new screenshot — use the `screenshot` tool, then pass the path to vision
 """.strip()
 
 tool = ToolSpec(
