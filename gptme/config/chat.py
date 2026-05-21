@@ -38,9 +38,9 @@ class ChatConfig:
     tool_format: "ToolFormat | None" = None
     stream: bool = True
     interactive: bool = True
-    workspace: Path = field(
-        default_factory=Path.cwd
-    )  # TODO: Is default value cwd ok for server?
+    # CLI sessions default to the current directory. Server sessions load
+    # through from_logdir/load_or_create to get per-conversation workspaces.
+    workspace: Path = field(default_factory=Path.cwd)
     agent: Path | None = None
 
     env: dict = field(default_factory=dict)

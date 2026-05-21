@@ -1231,3 +1231,19 @@ def test_chat_config_from_logdir_uses_existing_workspace(tmp_path):
 
     assert config.workspace.resolve() == workspace.resolve()
     assert (workspace / "existing_file.txt").exists()
+
+
+def test_chat_config_load_or_create_keeps_log_workspace_for_default_cli_config(
+    tmp_path, monkeypatch
+):
+    """Default CLI config must not override a new conversation workspace."""
+    logdir = tmp_path / "conversation-default-cli"
+    server_cwd = tmp_path / "server-cwd"
+    server_cwd.mkdir()
+    monkeypatch.chdir(server_cwd)
+
+    config = ChatConfig.load_or_create(logdir, ChatConfig())
+
+    expected_workspace = logdir / "workspace"
+    assert expected_workspace.is_dir()
+    assert config.workspace.resolve() == expected_workspace.resolve()
