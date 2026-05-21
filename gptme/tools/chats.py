@@ -555,9 +555,26 @@ Assistant: Certainly! I'll search our past conversations for mentions of "python
 """
 
 
+instructions = """
+### When to use chats
+
+Use chats when the user asks about or wants to reference a past conversation:
+- "remember when we discussed X?" → search_chats('X')
+- "find our earlier chat about Y" → search_chats('Y')
+- "what did we say about Z last week?" → search_chats('Z')
+- Listing recent sessions to give the user an overview → list_chats()
+- Reading a specific prior conversation by ID → read_chat(id)
+
+Do **not** use chats for:
+- The current conversation — its content is already in the context window.
+- Searching files or code — use the shell or read tool instead.
+- Web or documentation search — use the browser tool.
+""".strip()
+
 tool = ToolSpec(
     name="chats",
     desc="List, search, and summarize past conversation logs",
+    instructions=instructions,
     instructions_format={
         # Compact description for OpenAI tool format (full docstrings exceed 1024 chars)
         "tool": "Access past conversations: list recent chats with list_chats(), "
