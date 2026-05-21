@@ -33,16 +33,29 @@ from .base import (
 logger = logging.getLogger(__name__)
 
 instructions = """
-Request structured input from the user. Supports these types:
+### When to use elicit
+
+Use elicit when you need structured user input that a plain text reply cannot
+cleanly provide:
+- **secret** — API keys, passwords, tokens. The value is returned to you but
+  NOT added to conversation history, preventing credential leaks.
+- **choice / multi_choice** — present a fixed set of options so the user
+  selects rather than types a free-form answer that you then have to parse.
+- **confirmation** — ask yes/no before a destructive or irreversible action.
+- **form** — collect several related fields in one interaction instead of a
+  back-and-forth sequence.
+
+Do **not** use elicit for simple open-ended questions that read naturally in
+chat — a plain assistant message is clearer and less disruptive in those cases.
+
+### Input types
+
 - text: Free-form text input
 - choice: Single selection from a list (specify options)
 - multi_choice: Multiple selections from a list (specify options)
 - secret: Hidden input for API keys/passwords (NOT stored in conversation)
 - confirmation: Yes/No question
 - form: Multiple fields at once (specify JSON field definitions)
-
-For secrets: the value is returned to you but NOT added to conversation history.
-Use the secret type when asking for API keys, passwords, or other credentials.
 """.strip()
 
 instructions_format = {

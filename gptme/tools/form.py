@@ -17,7 +17,21 @@ from .base import (
 )
 
 instructions = """
-Present a form with multiple fields for user input.
+### When to use the form tool
+
+Use the form tool when you need to collect multiple related fields from the
+user in a single interaction. It is well suited for structured data collection
+where field types are text, select (choose from a list), boolean (yes/no), or
+number.
+
+For **secrets** (API keys, passwords) use the ``elicit`` tool instead — form
+does not have a secret type, so credentials would appear in the conversation
+history.
+
+For a single question or free-form input, a plain assistant message is simpler.
+Prefer form when collecting two or more related fields at once.
+
+### Form syntax
 
 Each field is specified on a separate line with the format:
   field_name: Prompt text [options]
