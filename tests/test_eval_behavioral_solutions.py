@@ -9,11 +9,11 @@ This is critical infrastructure for idea #19 (eval-to-lesson feedback loop):
 before running expensive baseline experiments with real models, we need
 confidence that the checkers correctly identify good work.
 
-Covers all 31 behavioral scenarios:
+Covers all 32 behavioral scenarios:
   git-selective-commit, multi-file-rename, iterative-debug,
   stage-new-files, write-test-suite, test-driven-error-handling,
   merge-conflict-resolution, extract-function-refactor, debug-data-pipeline,
-  scope-discipline-bugfix, add-logging, use-existing-helper,
+  scope-discipline-bugfix, bounded-bugfix-with-decoys, add-logging, use-existing-helper,
   add-feature-preserve-default, handle-specific-exception,
   fix-security-path-traversal, refactor-for-testability, add-type-hints,
   noisy-worktree-fix, fix-data-mutation, optimize-n-squared, remove-dead-code,
@@ -266,6 +266,51 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
                 "return total / len(numbers) + 1  # BUG: spurious +1",
                 "return total / len(numbers)",
             )
+        )
+
+    elif scenario_name == "bounded-bugfix-with-decoys":
+        (workspace / "pricing.py").write_text(
+            textwrap.dedent("""\
+            \"\"\"Pricing helpers.\"\"\"
+
+
+            def calculate_total(
+                subtotal_cents: int, *, customer_tier: str = "standard", coupon_pct: int = 0
+            ) -> int:
+                \"\"\"Return the final checkout total in cents.\"\"\"
+                if subtotal_cents < 0:
+                    raise ValueError("subtotal must be non-negative")
+                if not 0 <= coupon_pct <= 100:
+                    raise ValueError("coupon_pct must be between 0 and 100")
+                fee_cents = 0 if customer_tier == "premium" else 199
+                discounted_subtotal = subtotal_cents * (100 - coupon_pct) // 100
+                return discounted_subtotal + fee_cents
+
+
+            def describe_tier(customer_tier: str) -> str:
+                \"\"\"Return a short human label for the tier.\"\"\"
+                return f"{customer_tier} checkout"
+
+
+            def format_receipt(total_cents: int) -> str:
+                \"\"\"Render a cents total as a dollar string.\"\"\"
+                return f"${total_cents / 100:.2f}"
+            """)
+        )
+        tests_path = workspace / "tests/test_pricing.py"
+        tests_path.write_text(
+            tests_path.read_text()
+            + textwrap.dedent("""\
+
+
+            def test_coupon_does_not_discount_service_fee_regression():
+                assert calculate_total(2500, customer_tier="standard", coupon_pct=25) == 2074
+            """)
+        )
+        _run("git add pricing.py tests/test_pricing.py", cwd=workspace)
+        _run(
+            'git commit -m "fix(pricing): keep service fee outside coupon discount"',
+            cwd=workspace,
         )
 
     elif scenario_name == "add-logging":

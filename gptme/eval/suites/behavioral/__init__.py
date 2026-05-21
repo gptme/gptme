@@ -71,6 +71,13 @@ from .add_type_hints import (  # noqa: F401
     check_typehints_mypy_passes,
     check_typehints_uses_generic_collection,
 )
+from .bounded_bugfix_with_decoys import (  # noqa: F401
+    check_bounded_bugfix_only_relevant_files_committed,
+    check_bounded_bugfix_pricing_fixed,
+    check_bounded_bugfix_regression_test_added,
+    check_bounded_bugfix_scope_preserved,
+    check_bounded_bugfix_tests_pass,
+)
 from .debug_data_pipeline import (  # noqa: F401
     check_pipeline_extract_emails_fixed,
     check_pipeline_source_unchanged,

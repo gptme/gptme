@@ -408,6 +408,16 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_vision": True,
             "preferred_edit_format": "diff",
         },
+        "google/gemini-3.5-flash": {
+            "context": 1_048_576,
+            "max_output": 65_536,
+            # Pricing via OpenRouter (2026-05-20 launch)
+            "price_input": 1.5,
+            "price_output": 9,
+            "supports_vision": True,
+            "supports_reasoning": True,
+            "preferred_edit_format": "diff",
+        },
         "moonshotai/kimi-k2": {
             "context": 262_144,
             "max_output": 262_144,
