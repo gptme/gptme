@@ -52,7 +52,12 @@ from .base import ToolSpec, ToolUse
 logger = logging.getLogger(__name__)
 
 instructions = """
-Use RAG to index and semantically search through text files such as documentation and code.
+### When to use RAG
+
+Use RAG for semantic search across indexed documents when you do not know the
+exact file location or keyword. Prefer `shell` with grep/ripgrep for exact
+string or pattern matching. Use `read` when you already know the file path.
+Index first with `rag_index`, then search with `rag_search`.
 """
 
 

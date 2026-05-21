@@ -389,6 +389,14 @@ todo = ToolSpec(
     desc="Manage an in-session todo list (ephemeral, not persisted across conversations)",
     block_types=["todo"],
     instructions="""
+### When to use the todo tool
+
+Use todo to track progress through complex multi-step tasks within the current
+conversation — it acts as working memory. Reach for it when a task has 3+ steps
+or when you need to make your work plan visible. For tasks that must persist
+across conversations or sessions, use the persistent task management system
+(`gptodo` / task files) instead.
+
 Use this tool to manage todos in the current conversation context.
 
 Subcommands:
