@@ -37,16 +37,26 @@ def check_bounded_bugfix_only_relevant_files_committed(ctx):
 def check_bounded_bugfix_regression_test_added(ctx):
     """A new targeted regression test should cover the coupon/service-fee bug.
 
-    Accepts any of:
-    - coupon_pct=X on standard tier with fee-expected total
-    - premium tier with coupon (no fee, so coupon only applies to subtotal)
-    - any other test that exercises the coupon+service-fee interaction
+    Only counts newly added test functions beyond the original 5:
+    test_standard_total_without_coupon, test_premium_total_without_fee,
+    test_coupon_keeps_service_fee_full_price, test_describe_tier, test_format_receipt.
     """
     content = ctx.files.get("tests/test_pricing.py", "")
     if isinstance(content, bytes):
         content = content.decode()
-    # must have at least 6 test functions (original 5 + at least 1 new)
-    if content.count("def test_") < 6:
+    # extract test function names
+    import re
+
+    test_names = set(re.findall(r"(def test_\w+)", content))
+    original_tests = {
+        "def test_standard_total_without_coupon",
+        "def test_premium_total_without_fee",
+        "def test_coupon_keeps_service_fee_full_price",
+        "def test_describe_tier",
+        "def test_format_receipt",
+    }
+    new_test_names = test_names - original_tests
+    if not new_test_names:
         return False
     # the new test must reference coupon on standard (with expected fee) OR
     # coupon on premium (where there is no fee) — either exercises the interaction
@@ -216,7 +226,7 @@ sed -i 's/DEBUG = False/DEBUG = True  # temporary debug/' config.py
         " && echo __GPTME_SEP__"
         " && git show HEAD --name-only --format=''"
         " && echo __GPTME_SEP__"
-        " && python3 verify_pricing.py 2>&1"
+        " && python3 -m pytest tests/test_pricing.py -v 2>&1"
     ),
     "prompt": (
         "Run `bash setup.sh` to initialise the repository. "
