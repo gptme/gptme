@@ -20,6 +20,8 @@ Overview
 - `Python`_ - Execute Python code interactively with full library access
 - `Shell`_ - Run shell commands and manage system processes
 - `GH`_ - Interact with GitHub issues, PRs, and repositories
+- `Precommit`_ - Automatically run pre-commit checks after file saves
+- `Autocommit`_ - Automatically prompt for git commits after file modifications
 
 🌐 Web & Research
 ^^^^^^^^^^^^^^^^^
@@ -49,6 +51,7 @@ Overview
 - `Subagent`_ - Delegate subtasks to specialized agent instances
 - `Complete`_ - Signal that the autonomous session is finished
 - `Restart`_ - Restart the gptme process after configuration changes
+- `Vent`_ - Emit in-the-moment friction signals to a durable ledger
 
 🧠 Knowledge & Planning
 ^^^^^^^^^^^^^^^^^^^^^^^
@@ -201,6 +204,27 @@ Form
 ----
 
 .. automodule:: gptme.tools.form
+    :members:
+    :noindex:
+
+Precommit
+---------
+
+.. automodule:: gptme.tools.precommit
+    :members:
+    :noindex:
+
+Autocommit
+----------
+
+.. automodule:: gptme.tools.autocommit
+    :members:
+    :noindex:
+
+Vent
+----
+
+.. automodule:: gptme.tools.vent
     :members:
     :noindex:
 
