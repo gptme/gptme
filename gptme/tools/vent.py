@@ -103,9 +103,8 @@ optionally classify the type:
 - **Type 2a** — solvable with a tool, permission, or config change
 - **Type 2b** — not solvable in the current stack
 
-Rate-limited to **one vent per turn** to prevent recursive venting spirals.
-Signals are written to the friction ledger for offline analysis and
-can be triaged to produce targeted fixes or lessons.
+Using this tool creates a durable record so recurring blockers can be
+identified and fixed, improving your future performance on similar tasks.
 """.strip(),
     examples="""
 > User: fix the failing test
