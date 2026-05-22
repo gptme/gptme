@@ -3317,7 +3317,12 @@ Common modifiers (ctrl, alt, cmd/super, shift) work consistently across platform
 </li>
 </ol>
 <p class="rubric">Instructions</p>
-<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>Use RAG to index and semantically search through text files such as documentation and code.
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gu">### When to use RAG</span>
+
+Use RAG for semantic search across indexed documents when you do not know the
+exact file location or keyword. Prefer <span class="sb">`shell`</span> with grep/ripgrep for exact
+string or pattern matching. Use <span class="sb">`read`</span> when you already know the file path.
+Index first with <span class="sb">`rag_index`</span>, then search with <span class="sb">`rag_search`</span>.
 </pre></div>
 </div>
 <p class="rubric">Examples</p>

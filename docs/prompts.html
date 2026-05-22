@@ -698,7 +698,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f00e9622ac0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fc5b6996ac0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1520,20 +1520,14 @@ Use this tool to propose an edit to an existing file.
 
 <span class="gu">### When to use morph vs patch</span>
 
-Use morph for large or complex edits where the changed lines are scattered across
-a file and the standard patch context markers would be verbose. Morph handles the
-diff internally via a specialized fast-apply model, so it is better at edits that
-touch many non-adjacent sections. Prefer patch for small, targeted changes where
-exact context markers are easy to write. Morph requires OPENROUTER_API_KEY.
+Use morph for large or complex edits where the changed lines are scattered
+across a file and patch context markers would be verbose. Prefer patch for
+small, targeted edits with clear context. Morph requires OPENROUTER_API_KEY.
 
-This will be read by a less intelligent model, which will quickly apply the edit. You should make it clear what the edit is, while also minimizing the unchanged code you write.
-
-When writing the edit, you should specify each edit in sequence, with the special comment // ... existing code ... to represent unchanged code in between edited lines.
-
-You should bias towards repeating as few lines of the original file as possible to convey the change.
-NEVER show unmodified code in the edit, unless sufficient context of unchanged lines around the code you&#39;re editing is needed to resolve ambiguity.
-If you plan on deleting a section, you must provide surrounding context to indicate the deletion.
-DO NOT omit spans of pre-existing code without using the // ... existing code ... comment to indicate its absence.
+Write a clear edit while minimizing unchanged code.
+List each edit in sequence, using <span class="sb">`// ... existing code ...`</span> for untouched spans.
+Repeat only enough original context to disambiguate the change.
+If you delete a section, include surrounding context to show what is removed.
 
 
 <span class="gu">### Examples</span>
@@ -1596,7 +1590,12 @@ if <span class="gs">__name__</span> == &quot;<span class="gs">__main__</span>&qu
 <span class="gs">**Description:**</span> RAG (Retrieval-Augmented Generation) for context-aware assistance
 
 <span class="gs">**Instructions:**</span>
-Use RAG to index and semantically search through text files such as documentation and code.
+<span class="gu">### When to use RAG</span>
+
+Use RAG for semantic search across indexed documents when you do not know the
+exact file location or keyword. Prefer <span class="sb">`shell`</span> with grep/ripgrep for exact
+string or pattern matching. Use <span class="sb">`read`</span> when you already know the file path.
+Index first with <span class="sb">`rag_index`</span>, then search with <span class="sb">`rag_search`</span>.
 
 
 The following Python functions are available using the <span class="sb">`ipython`</span> tool:
@@ -2256,33 +2255,28 @@ continuing.
 
 <span class="gs">**Description:**</span> Manage an in-session todo list (ephemeral, not persisted across conversations)
 
-<span class="gs">**Instructions:**</span> Use this tool to manage todos in the current conversation context.
+<span class="gs">**Instructions:**</span> ### When to use the todo tool
+
+Use todo as working memory for 3+ step tasks in the current conversation.
+For persistent cross-session tracking, use <span class="sb">`gptodo`</span> or task files instead.
+
+Manage todos for the current conversation.
 
 Subcommands:
-<span class="k">-</span><span class="w"> </span><span class="sb">`todo read`</span> - Display the current todo list
-<span class="k">-</span><span class="w"> </span><span class="sb">`todo write`</span> - Modify todos (with operations in content block)
+<span class="k">-</span><span class="w"> </span><span class="sb">`todo read`</span> - Show the current todo list
+<span class="k">-</span><span class="w"> </span><span class="sb">`todo write`</span> - Edit todos
 
-Write operations (in content block):
-<span class="k">-</span><span class="w"> </span>add &quot;todo text&quot; - Add a new todo item
-<span class="k">-</span><span class="w"> </span>update ID state - Update todo state (pending/in_progress/completed/paused)
-<span class="k">-</span><span class="w"> </span>update ID &quot;new text&quot; - Update todo text
-<span class="k">-</span><span class="w"> </span>remove ID - Remove a todo item
+Write operations:
+<span class="k">-</span><span class="w"> </span>add &quot;todo text&quot; - Add an item
+<span class="k">-</span><span class="w"> </span>update ID state - Set state (pending/in_progress/completed/paused)
+<span class="k">-</span><span class="w"> </span>update ID &quot;new text&quot; - Rename an item
+<span class="k">-</span><span class="w"> </span>remove ID - Remove an item
 <span class="k">-</span><span class="w"> </span>clear - Clear all todos
-<span class="k">-</span><span class="w"> </span>clear completed - Clear only completed todos
+<span class="k">-</span><span class="w"> </span>clear completed - Clear completed todos
 
 States: pending, in_progress, completed, paused
 
-Use this tool frequently for complex multi-step tasks to:
-<span class="k">-</span><span class="w"> </span>Break down large tasks into smaller steps
-<span class="k">-</span><span class="w"> </span>Track progress through complex workflows
-<span class="k">-</span><span class="w"> </span>Provide visibility into your work plan
-<span class="k">-</span><span class="w"> </span>Stay organized during long conversations
-
-The todo list is ephemeral and conversation-scoped.
-For persistent cross-conversation tasks, use the task management system.
-
-Auto-replay: Todo operations are automatically replayed when resuming conversations
-to restore your todo list state.
+Todo state is auto-replayed when resuming the conversation.
 
 <span class="gu">### Examples</span>
 
@@ -2372,7 +2366,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 13707</p>
+<p>Tokens: 13568</p>
 </dd></dl>
 
 <dl class="py function">
