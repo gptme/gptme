@@ -493,6 +493,16 @@ tool = ToolSpec(
     name="mcp",
     desc="Search, discover, and manage MCP servers",
     instructions="""
+### When to use the mcp tool
+
+Use the mcp tool when you need to extend gptme's capabilities beyond its built-in tools:
+- Discover new tools with `/mcp search <capability>` when a built-in doesn't exist
+- Load an MCP server with `/mcp load <server-name>` to make its tools available
+- Check what's running with `/mcp list` before searching or loading duplicates
+
+Do NOT use the mcp tool to call tools that are already loaded — invoke loaded
+server tools directly as `<server-name>.<tool-name>` instead.
+
 Search, load, and manage MCP servers. Loaded server tools available as `<server-name>.<tool-name>`. Search queries the Official MCP Registry (registry.modelcontextprotocol.io).
 
 **Resource Commands:**

@@ -453,6 +453,17 @@ tool = ToolSpec(
     name="lessons",
     desc="Lesson system for structured guidance",
     instructions="""
+### When to use the lessons tool
+
+Lessons are **automatically injected** when relevant keywords match — you rarely
+need to call the lessons tool explicitly. Use it only when:
+- Searching for guidance that wasn't auto-injected: `/lesson search <topic>`
+- Browsing available patterns: `/lesson list`
+- Refreshing after lesson files changed: `/lesson refresh`
+
+Do NOT call the lessons tool to re-read lessons already in context, or to
+"apply" lessons — just act on the guidance that was auto-included.
+
 Use lessons to learn and remember skills/tools/workflows, improve your performance, and avoid known failure modes.
 
 How lessons help you:
