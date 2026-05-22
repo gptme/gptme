@@ -77,7 +77,7 @@ runs:
           SCRIPT_URL="https://raw.githubusercontent.com/gptme/gptme/ba3c0233f5f047ef210c732fb59d0c52b9bdd9e5/scripts/github_bot.py"
           curl -fsL "$SCRIPT_URL" > /tmp/github_bot.py
         fi
-        python /tmp/github_bot.py --mode ${{ inputs.mode }} --workspace .
+        python /tmp/github_bot.py --mode "${{ inputs.mode }}" --workspace .
 
     - name: Report error
       if: failure()

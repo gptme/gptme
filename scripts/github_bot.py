@@ -631,7 +631,8 @@ Examples:
         context = get_context(event.repository, event.issue_number, False, token)
         print(f"Context directory: {context['dir']}")
 
-        success = run_gptme(command, context["dir"], workspace, model)
+        # Allow up to 14 minutes — the resolve workflow has a 15-minute job timeout
+        success = run_gptme(command, context["dir"], workspace, model, timeout=840)
         if not success:
             print("gptme execution failed in resolve mode")
             # Still push the branch so the failed attempt is preserved
