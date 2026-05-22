@@ -698,7 +698,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fc5b6996ac0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f2fb59eeac0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1323,13 +1323,15 @@ Use a code block with the language tag: <span class="sb">`form`</span> followed 
 
 <span class="gs">**Description:**</span> Interact with GitHub
 
-<span class="gs">**Instructions:**</span> Use this tool when GitHub work needs fewer round-trips, structured CI data,
-or safer merges than a raw <span class="sb">`gh`</span> shell command. Prefer <span class="sb">`gh`</span> over shell whenever
-the target is a GitHub issue, PR, run, or merge action.
+<span class="gs">**Instructions:**</span> ### When to use
 
-Refs: full URLs, <span class="sb">`owner/repo#N`</span>, <span class="sb">`#N`</span>, or bare <span class="sb">`N`</span> in a git repo.
+Use <span class="sb">`gh`</span> instead of shell for GitHub issues, PRs, CI runs, and merges.
+Native paths collapse API calls, keep CI state structured, and add merge
+safety guards easy to miss with raw shell commands.
 
-Native paths help the agent finish GitHub tasks with less hallucination risk:
+Refs: full URLs, <span class="sb">`owner/repo#N`</span>, <span class="sb">`#N`</span>, or bare <span class="sb">`N`</span>.
+
+Native paths help avoid hallucination:
 <span class="k">-</span><span class="w"> </span><span class="sb">`gh issue view &lt;ref&gt;`</span> gets issue body and comments in one result
 <span class="k">-</span><span class="w"> </span><span class="sb">`gh pr view &lt;ref&gt;`</span> gets PR body, comments, review threads, CI, and mergeability in one result
 <span class="k">-</span><span class="w"> </span><span class="sb">`gh pr status &lt;ref&gt; [commit_sha]`</span> returns structured CI state with run IDs
@@ -1337,7 +1339,7 @@ Native paths help the agent finish GitHub tasks with less hallucination risk:
 <span class="k">-</span><span class="w"> </span><span class="sb">`gh pr merge &lt;ref&gt; ...`</span> adds squash-by-default and optional head-commit protection
 <span class="k">-</span><span class="w"> </span><span class="sb">`gh run view &lt;run-id&gt;`</span> extracts failed-job logs
 
-All other valid <span class="sb">`gh`</span> subcommands pass through unchanged.
+All other <span class="sb">`gh`</span> subcommands pass through unchanged.
 
 <span class="gu">### Examples</span>
 
@@ -2366,7 +2368,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 13568</p>
+<p>Tokens: 13555</p>
 </dd></dl>
 
 <dl class="py function">
