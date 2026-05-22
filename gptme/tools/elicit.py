@@ -9,9 +9,10 @@ Elicitation supports multiple input types:
 - ``confirmation``: Yes/No question
 - ``form``: Multiple fields collected at once
 
-Secret values are handled specially: they are stored/used as directed by the
-agent but are NEVER added to the conversation history, ensuring credentials
-don't leak into the LLM context.
+Secret values are handled specially: the value is hidden from the chat display
+(``hide=True``) so it does not appear on screen, but it is passed to the LLM
+in-context so the agent can act on it (e.g. set it as an env var). The value
+is stored in the on-disk conversation log.
 """
 
 import json
@@ -37,8 +38,10 @@ instructions = """
 
 Use elicit when you need structured user input that a plain text reply cannot
 cleanly provide:
-- **secret** — API keys, passwords, tokens. The value is returned to you but
-  NOT added to conversation history, preventing credential leaks.
+- **secret** — API keys, passwords, tokens. The value is hidden from the chat
+  display so it does not appear over someone's shoulder; the LLM still receives
+  it in-context so it can act on it (e.g. export as an env var or pass to a
+  command). The conversation log on disk will contain the value.
 - **choice / multi_choice** — present a fixed set of options so the user
   selects rather than types a free-form answer that you then have to parse.
 - **confirmation** — ask yes/no before a destructive or irreversible action.
@@ -53,7 +56,7 @@ chat — a plain assistant message is clearer and less disruptive in those cases
 - text: Free-form text input
 - choice: Single selection from a list (specify options)
 - multi_choice: Multiple selections from a list (specify options)
-- secret: Hidden input for API keys/passwords (NOT stored in conversation)
+- secret: Hidden from display; LLM receives the value in-context to act on it
 - confirmation: Yes/No question
 - form: Multiple fields at once (specify JSON field definitions)
 """.strip()

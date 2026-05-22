@@ -25,8 +25,7 @@ where field types are text, select (choose from a list), boolean (yes/no), or
 number.
 
 For **secrets** (API keys, passwords) use the ``elicit`` tool instead — form
-does not have a secret type, so credentials would appear in the conversation
-history.
+does not have a secret type, so credentials would appear in the chat display.
 
 For a single question or free-form input, a plain assistant message is simpler.
 Prefer form when collecting two or more related fields at once.
