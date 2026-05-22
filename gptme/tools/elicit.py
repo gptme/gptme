@@ -5,7 +5,7 @@ Elicitation supports multiple input types:
 - ``text``: Free-form text input
 - ``choice``: Single selection from options
 - ``multi_choice``: Multiple selections from options
-- ``secret``: Hidden input (API keys, passwords) - NOT added to LLM context
+- ``secret``: Hidden input (API keys, passwords) with UI redaction
 - ``confirmation``: Yes/No question
 - ``form``: Multiple fields collected at once
 
@@ -71,7 +71,7 @@ def examples(tool_format):
 ### Ask for a secret API key
 
 > User: Set up the OpenAI integration
-> Assistant: I need your OpenAI API key to proceed. It will not be stored in the conversation.
+> Assistant: I need your OpenAI API key to proceed. It will be hidden from normal chat display.
 {
         ToolUse(
             "elicit",
@@ -80,7 +80,7 @@ def examples(tool_format):
                 {
                     "type": "secret",
                     "prompt": "Enter your OpenAI API key:",
-                    "description": "Required for the OpenAI integration. Will not be logged.",
+                    "description": "Required for the OpenAI integration. Hidden from normal chat display.",
                 },
                 indent=2,
             ),
@@ -206,8 +206,7 @@ def execute_elicit(
 ) -> Generator[Message, None, None]:
     """Execute elicitation and return user's response.
 
-    For secret types, the value is returned to the agent but a redacted
-    message is stored in conversation history (to avoid leaking credentials).
+    For secret types, the value is returned to the agent with UI redaction.
     """
     if not code:
         yield Message("system", "No elicitation spec provided")
