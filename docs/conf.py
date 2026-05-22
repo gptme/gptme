@@ -162,6 +162,10 @@ nitpick_ignore = [
     ("py:class", "gptme.hooks.elicitation.ElicitationHook"),
     # computer transport abstraction types
     ("py:class", "Action"),
+    # hook/command types referenced in new tool docstrings
+    ("py:class", "gptme.hooks.elicitation.ElicitationRequest"),
+    ("py:class", "gptme.hooks.types.StopPropagation"),
+    ("py:class", "gptme.commands.base.CommandContext"),
 ]
 
 # -- Options for HTML output -------------------------------------------------

@@ -321,10 +321,15 @@ class ToolSpec:
 
 {indent(self.instructions, "    ")}\n\n"""
         if self.get_examples():
+            examples_raw = self.get_examples()
+            examples_rst = transform_examples_to_chat_directives(examples_raw)
+            if ".. chat::" not in examples_rst:
+                # examples not in conversation format; render as literal code block
+                examples_rst = ".. code-block:: text\n\n" + indent(examples_raw, "   ")
             doc += f"""
 .. rubric:: Examples
 
-{transform_examples_to_chat_directives(self.get_examples())}\n\n
+{examples_rst}\n\n
 """
         # doc += """.. rubric:: Members"""
         return doc.strip()

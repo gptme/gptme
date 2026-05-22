@@ -232,8 +232,6 @@ Todo
     :members:
     :noindex:
 
-.. _mcp:
-
 MCP
 ---
 
