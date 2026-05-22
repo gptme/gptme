@@ -466,7 +466,10 @@
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#code-development">💻 Code &amp; Development</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#web-research">🌐 Web &amp; Research</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#visual-interactive">👁️ Visual &amp; Interactive</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#user-interaction">🤝 User Interaction</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#advanced-workflows">⚡ Advanced Workflows</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#knowledge-planning">🧠 Knowledge &amp; Planning</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#extensions">🔌 Extensions</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#combinations">Combinations</a></li>
 </ul>
 </li>
@@ -483,6 +486,18 @@
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#chats">Chats</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#computer">Computer</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#rag">RAG</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#morph">Morph</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gh">GH</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#adding-a-new-native-wrapper">Adding a new native wrapper</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#choice">Choice</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#elicit">Elicit</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#form">Form</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#complete">Complete</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#restart">Restart</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#lessons">Lessons</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#todo">Todo</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mcp">MCP</a></li>
 </ul>
             </nav>
@@ -506,6 +521,7 @@
 <li><p><a class="reference internal" href="#read">Read</a> - Read files in any format</p></li>
 <li><p><a class="reference internal" href="#save">Save</a> - Create and overwrite files</p></li>
 <li><p><a class="reference internal" href="#patch">Patch</a> - Apply precise changes to existing files</p></li>
+<li><p><a class="reference internal" href="#morph">Morph</a> - Apply fast targeted edits using Morph Fast Apply</p></li>
 </ul>
 </section>
 <section id="code-development">
@@ -513,6 +529,7 @@
 <ul class="simple">
 <li><p><a class="reference internal" href="#python">Python</a> - Execute Python code interactively with full library access</p></li>
 <li><p><a class="reference internal" href="#shell">Shell</a> - Run shell commands and manage system processes</p></li>
+<li><p><a class="reference internal" href="#gh">GH</a> - Interact with GitHub issues, PRs, and repositories</p></li>
 </ul>
 </section>
 <section id="web-research">
@@ -531,11 +548,34 @@
 <li><p><a class="reference internal" href="#computer">Computer</a> - Control desktop applications through visual interface</p></li>
 </ul>
 </section>
+<section id="user-interaction">
+<h3>🤝 User Interaction<a class="headerlink" href="#user-interaction" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p><a class="reference internal" href="#choice">Choice</a> - Present multiple-choice options to the user</p></li>
+<li><p><a class="reference internal" href="#elicit">Elicit</a> - Request structured single-field input from the user</p></li>
+<li><p><a class="reference internal" href="#form">Form</a> - Present a multi-field form for structured user input</p></li>
+</ul>
+</section>
 <section id="advanced-workflows">
 <h3>⚡ Advanced Workflows<a class="headerlink" href="#advanced-workflows" title="Link to this heading">#</a></h3>
 <ul class="simple">
 <li><p><a class="reference internal" href="#tmux">Tmux</a> - Manage long-running processes in terminal sessions</p></li>
 <li><p><a class="reference internal" href="#subagent">Subagent</a> - Delegate subtasks to specialized agent instances</p></li>
+<li><p><a class="reference internal" href="#complete">Complete</a> - Signal that the autonomous session is finished</p></li>
+<li><p><a class="reference internal" href="#restart">Restart</a> - Restart the gptme process after configuration changes</p></li>
+</ul>
+</section>
+<section id="knowledge-planning">
+<h3>🧠 Knowledge &amp; Planning<a class="headerlink" href="#knowledge-planning" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p><a class="reference internal" href="#lessons">Lessons</a> - Access contextual lessons and behavioral guidance</p></li>
+<li><p><a class="reference internal" href="#todo">Todo</a> - Manage a conversation-scoped working memory task list</p></li>
+</ul>
+</section>
+<section id="extensions">
+<h3>🔌 Extensions<a class="headerlink" href="#extensions" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p><a class="reference internal" href="#mcp">MCP</a> - Discover and connect Model Context Protocol servers</p></li>
 </ul>
 </section>
 <section id="combinations">
@@ -3424,10 +3464,739 @@ Functions are documented using docstrings...</pre>
 </dd></dl>
 
 </section>
+<section id="morph">
+<h2>Morph<a class="headerlink" href="#morph" title="Link to this heading">#</a></h2>
+<p>Gives the LLM agent the ability to edit files using Morph Fast Apply v2.</p>
+<p>Morph is a specialized code-patching LLM that applies edits at 4000+ tokens per second.
+It uses a different format than the patch tool: &lt;code&gt;original&lt;/code&gt;&lt;update&gt;changes&lt;/update&gt;</p>
+<dl class="simple">
+<dt>Environment Variables:</dt><dd><p>OPENROUTER_API_KEY: Required for accessing Morph via OpenRouter</p>
+</dd>
+</dl>
+<p class="rubric">Instructions</p>
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>Use this tool to propose an edit to an existing file.
+
+<span class="gu">### When to use morph vs patch</span>
+
+Use morph for large or complex edits where the changed lines are scattered
+across a file and patch context markers would be verbose. Prefer patch for
+small, targeted edits with clear context. Morph requires OPENROUTER_API_KEY.
+
+Write a clear edit while minimizing unchanged code.
+List each edit in sequence, using <span class="sb">`// ... existing code ...`</span> for untouched spans.
+Repeat only enough original context to disambiguate the change.
+If you delete a section, include surrounding context to show what is removed.
+</pre></div>
+</div>
+<p class="rubric">Examples</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>```morph example.py
+// ... existing code ...
+FIRST_EDIT
+// ... existing code ...
+SECOND_EDIT
+// ... existing code ...
+THIRD_EDIT
+// ... existing code ...
+```
+</pre></div>
+</div>
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.morph.</span></span><span class="sig-name descname"><span class="pre">execute_morph</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">code</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">args</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.14)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span></dt>
+<dd><p>Applies the morph edit.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.morph.</span></span><span class="sig-name descname"><span class="pre">execute_morph_impl</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">content</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">path</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.14)"><span class="pre">Path</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">expected_original_content</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.14)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span></dt>
+<dd><p>Actual morph implementation - writes the edited content to file.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.morph.</span></span><span class="sig-name descname"><span class="pre">is_openrouter_available</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span></span></dt>
+<dd><p>Check if OpenRouter is available for Morph tool.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.morph.</span></span><span class="sig-name descname"><span class="pre">preview_morph</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">content</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">path</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.14)"><span class="pre">Path</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span></dt>
+<dd><p>Prepare preview content for morph operation.</p>
+</dd></dl>
+
+</section>
+<section id="gh">
+<span id="id2"></span><h2>GH<a class="headerlink" href="#gh" title="Link to this heading">#</a></h2>
+<p>GitHub integration tool.</p>
+<p>Use native handlers only when they help the assistant succeed more reliably
+than a raw <code class="docutils literal notranslate"><span class="pre">gh</span></code> command in the shell tool.  The native path is worth it when
+it collapses several API calls into one response, keeps CI state structured and
+actionable, or adds merge safety guards that are easy to miss in ad-hoc CLI use.</p>
+<p>Native operations that materially help:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">issue</span> <span class="pre">view</span></code> — combines issue body and comments in one call</p></li>
+<li><dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">pr</span> <span class="pre">view</span></code>    — combines PR body, comments, review-thread resolution, CI,</dt><dd><p>and mergeability in one call</p>
+</dd>
+</dl>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pr</span> <span class="pre">status</span></code>  — structured check-run summary with actionable run IDs</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pr</span> <span class="pre">checks</span></code>  — polls CI until completion with live progress updates</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pr</span> <span class="pre">merge</span></code>   — squash default, <code class="docutils literal notranslate"><span class="pre">--match-head-commit</span></code> guard, auto-merge</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">run</span> <span class="pre">view</span></code>   — extracts and structures failed log sections from CI runs</p></li>
+</ul>
+<section id="adding-a-new-native-wrapper">
+<h3>Adding a new native wrapper<a class="headerlink" href="#adding-a-new-native-wrapper" title="Link to this heading">#</a></h3>
+<p>Before wrapping a <code class="docutils literal notranslate"><span class="pre">gh</span></code> subcommand, ask: “Will this help the assistant do
+better than a single <code class="docutils literal notranslate"><span class="pre">gh</span></code> command in the shell tool?”  If not, don’t add it
+— the pass-through already covers it without bloating instructions.</p>
+<p>Good candidates combine multiple API calls into one response, add safety
+guards, or poll/wait for completion.</p>
+</section>
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.gh.</span></span><span class="sig-name descname"><span class="pre">execute_gh</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">code</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">args</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.14)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span></dt>
+<dd><p>Execute GitHub operations.</p>
+<p>Native handlers for high-value operations (issue view, pr view/status/checks/merge,
+run view).  Everything else passes through to the gh CLI unchanged.</p>
+</dd></dl>
+
+</section>
+<section id="choice">
+<h2>Choice<a class="headerlink" href="#choice" title="Link to this heading">#</a></h2>
+<p>Gives the assistant the ability to present multiple-choice options to the user for selection.</p>
+<p class="rubric">Instructions</p>
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>The options can be provided as a question on the first line and each option on a separate line.
+
+The tool will present an interactive menu allowing the user to select an option using arrow keys and Enter, or by typing the number of the option.
+
+<span class="gu">### When to use choice</span>
+
+Use when you need to present the user with a discrete set of named alternatives and free-text input would be ambiguous. Don&#39;t use for simple yes/no confirmations; don&#39;t use when the next step is already clear from context.
+</pre></div>
+</div>
+<p class="rubric">Examples</p>
+<p>Basic usage with options</p>
+<table style="width: 100%; margin-bottom: 1em">
+  
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">What should we do next?</pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Let me present you with some options:<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">choice</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">What would you like to do next?
+Write documentation
+Fix bugs
+Add new features
+Run tests
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">User selected: Add new features</pre>
+  </td>
+</tr>
+</table><table style="width: 100%; margin-bottom: 1em">
+  
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">What should we do next?</pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Let me present you with some options:<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">choice</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">Example question?
+1. Option one
+2. Option two
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">User selected: Option two</pre>
+  </td>
+</tr>
+</table><dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.choice.</span></span><span class="sig-name descname"><span class="pre">execute_choice</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">code</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">args</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.14)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span></dt>
+<dd><p>Present multiple-choice options to the user and return their selection.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.choice.</span></span><span class="sig-name descname"><span class="pre">parse_options_from_content</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">content</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></span></dt>
+<dd><p>Parse options from content, returning (question, options).</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.choice.</span></span><span class="sig-name descname"><span class="pre">parse_options_from_kwargs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></span></dt>
+<dd><p>Parse options from args and kwargs, returning (question, options).</p>
+</dd></dl>
+
+</section>
+<section id="elicit">
+<h2>Elicit<a class="headerlink" href="#elicit" title="Link to this heading">#</a></h2>
+<p>Gives the assistant the ability to request structured input from the user.</p>
+<p>Elicitation supports multiple input types:
+- <code class="docutils literal notranslate"><span class="pre">text</span></code>: Free-form text input
+- <code class="docutils literal notranslate"><span class="pre">choice</span></code>: Single selection from options
+- <code class="docutils literal notranslate"><span class="pre">multi_choice</span></code>: Multiple selections from options
+- <code class="docutils literal notranslate"><span class="pre">secret</span></code>: Hidden input (API keys, passwords) with UI redaction
+- <code class="docutils literal notranslate"><span class="pre">confirmation</span></code>: Yes/No question
+- <code class="docutils literal notranslate"><span class="pre">form</span></code>: Multiple fields collected at once</p>
+<p>Secret values are handled specially: the value is hidden from the chat display
+(<code class="docutils literal notranslate"><span class="pre">hide=True</span></code>) so it does not appear on screen, but it is passed to the LLM
+in-context so the agent can act on it (e.g. set it as an env var). The value
+is stored in the on-disk conversation log.</p>
+<p class="rubric">Instructions</p>
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gu">### When to use elicit</span>
+
+Use elicit when you need structured user input that a plain text reply cannot
+cleanly provide:
+<span class="k">-</span><span class="w"> </span><span class="gs">**secret**</span> — API keys, passwords, tokens. The value is hidden from the chat
+  display so it does not appear over someone&#39;s shoulder; the LLM still receives
+  it in-context so it can act on it (e.g. export as an env var or pass to a
+  command). The conversation log on disk will contain the value.
+<span class="k">-</span><span class="w"> </span><span class="gs">**choice / multi_choice**</span> — present a fixed set of options so the user
+  selects rather than types a free-form answer that you then have to parse.
+<span class="k">-</span><span class="w"> </span><span class="gs">**confirmation**</span> — ask yes/no before a destructive or irreversible action.
+<span class="k">-</span><span class="w"> </span><span class="gs">**form**</span> — collect several related fields in one interaction instead of a
+  back-and-forth sequence.
+
+Do <span class="gs">**not**</span> use elicit for simple open-ended questions that read naturally in
+chat — a plain assistant message is clearer and less disruptive in those cases.
+
+<span class="gu">### Input types</span>
+
+<span class="k">-</span><span class="w"> </span>text: Free-form text input
+<span class="k">-</span><span class="w"> </span>choice: Single selection from a list (specify options)
+<span class="k">-</span><span class="w"> </span>multi_choice: Multiple selections from a list (specify options)
+<span class="k">-</span><span class="w"> </span>secret: Hidden from display; LLM receives the value in-context to act on it
+<span class="k">-</span><span class="w"> </span>confirmation: Yes/No question
+<span class="k">-</span><span class="w"> </span>form: Multiple fields at once (specify JSON field definitions)
+</pre></div>
+</div>
+<p class="rubric">Examples</p>
+<p>Ask for a secret API key</p>
+<table style="width: 100%; margin-bottom: 1em">
+  
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Set up the OpenAI integration</pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">I need your OpenAI API key to proceed. It will be hidden from normal chat display.<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">elicit</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">{
+  "type": "secret",
+  "prompt": "Enter your OpenAI API key:",
+  "description": "Required for the OpenAI integration. Hidden from normal chat display."
+}
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">User provided secret value (not shown)</pre>
+  </td>
+</tr>
+</table><p>Ask user to choose an option</p>
+<table style="width: 100%; margin-bottom: 1em">
+  
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Which database should we use?</pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Let me ask the user their preference.<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">elicit</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">{
+  "type": "choice",
+  "prompt": "Which database should we use?",
+  "options": [
+    "PostgreSQL",
+    "SQLite",
+    "MySQL",
+    "MongoDB"
+  ]
+}
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">User selected: PostgreSQL</pre>
+  </td>
+</tr>
+</table><p>Collect project setup information via form</p>
+<table style="width: 100%; margin-bottom: 1em">
+  
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Set up a new project</pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Let me gather some details about the project.<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">elicit</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">{
+  "type": "form",
+  "prompt": "New project setup:",
+  "fields": [
+    {
+      "name": "name",
+      "prompt": "Project name?",
+      "type": "text"
+    },
+    {
+      "name": "language",
+      "prompt": "Primary language?",
+      "type": "choice",
+      "options": [
+        "python",
+        "typescript",
+        "rust"
+      ]
+    },
+    {
+      "name": "tests",
+      "prompt": "Include tests?",
+      "type": "boolean"
+    }
+  ]
+}
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Form submitted: {"name": "my-project", "language": "python", "tests": true}</pre>
+  </td>
+</tr>
+</table><dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.elicit.</span></span><span class="sig-name descname"><span class="pre">execute_elicit</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">code</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">args</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.14)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span></dt>
+<dd><p>Execute elicitation and return user’s response.</p>
+<p>For secret types, the value is returned to the agent with UI redaction.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.elicit.</span></span><span class="sig-name descname"><span class="pre">parse_elicitation_spec</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">code</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">ElicitationRequest</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span></dt>
+<dd><p>Parse an elicitation spec from JSON.</p>
+</dd></dl>
+
+</section>
+<section id="form">
+<h2>Form<a class="headerlink" href="#form" title="Link to this heading">#</a></h2>
+<p>Gives the assistant the ability to present a form with multiple fields for user input.</p>
+<p>This tool enables structured data collection from users through an interactive form
+with support for different field types: text, select, boolean, and number.</p>
+<p class="rubric">Instructions</p>
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gu">### When to use the form tool</span>
+
+Use the form tool when you need to collect multiple related fields from the
+user in a single interaction. It is well suited for structured data collection
+where field types are text, select (choose from a list), boolean (yes/no), or
+number.
+
+For <span class="gs">**secrets**</span> (API keys, passwords) use the ``elicit`` tool instead — form
+does not have a secret type, so credentials would appear in the chat display.
+
+For a single question or free-form input, a plain assistant message is simpler.
+Prefer form when collecting two or more related fields at once.
+
+<span class="gu">### Form syntax</span>
+
+Each field is specified on a separate line with the format:
+  field_name: Prompt text [options]
+
+Field types are inferred from the prompt:
+<span class="k">-</span><span class="w"> </span>Text field (default): <span class="sb">`name: What&#39;s your name?`</span>
+<span class="k">-</span><span class="w"> </span>Select field: <span class="sb">`priority: Priority level [low, medium, high]`</span>
+<span class="k">-</span><span class="w"> </span>Boolean field: <span class="sb">`confirm: Are you sure? [yes/no]`</span>
+<span class="k">-</span><span class="w"> </span>Number field: <span class="sb">`count: How many? (number)`</span>
+
+The tool will present an interactive form and return the collected data as JSON.
+</pre></div>
+</div>
+<p class="rubric">Examples</p>
+<p>Collect project information</p>
+<table style="width: 100%; margin-bottom: 1em">
+  
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">I want to start a new project</pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Let me gather some information about your project:<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">form</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">name: Project name?
+description: Brief description?
+language: Primary language [python, javascript, rust, go, other]
+priority: Priority level [low, medium, high]
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Form submitted:<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">json</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">{"name": "my-awesome-project", "description": "A CLI tool for productivity", "language": "python", "priority": "high"}
+</pre></div></pre>
+  </td>
+</tr>
+</table><p>Simple confirmation form</p>
+<table style="width: 100%; margin-bottom: 1em">
+  
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Deploy to production</pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Please confirm the deployment details:<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">form</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">environment: Target environment [staging, production]
+confirm: Proceed with deployment? [yes/no]
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Form submitted:<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">json</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">{"environment": "production", "confirm": true}
+</pre></div></pre>
+  </td>
+</tr>
+</table><dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.form.</span></span><span class="sig-name descname"><span class="pre">execute_form</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">code</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">args</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.14)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span></dt>
+<dd><p>Present a form to the user and collect their responses.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.form.</span></span><span class="sig-name descname"><span class="pre">parse_field</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">line</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span></dt>
+<dd><p>Parse a field definition line into a field specification.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.form.</span></span><span class="sig-name descname"><span class="pre">parse_form_content</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">content</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="p"><span class="pre">]</span></span></span></span></dt>
+<dd><p>Parse form content into a list of field specifications.</p>
+</dd></dl>
+
+</section>
+<section id="complete">
+<h2>Complete<a class="headerlink" href="#complete" title="Link to this heading">#</a></h2>
+<p>Complete tool - signals that the autonomous session is finished.</p>
+<dl class="py exception">
+<dt class="sig sig-object py">
+<em class="property"><span class="pre">exception</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.tools.complete.</span></span><span class="sig-name descname"><span class="pre">SessionCompleteException</span></span></dt>
+<dd><p>Exception raised to signal that the session should end.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.complete.</span></span><span class="sig-name descname"><span class="pre">auto_reply_hook</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">manager</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="api.html#gptme.logmanager.LogManager" title="gptme.logmanager.LogManager"><span class="pre">LogManager</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">interactive</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">prompt_queue</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.14)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">StopPropagation</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span></dt>
+<dd><p>Hook that implements auto-reply mechanism for autonomous operation.</p>
+<p>If in non-interactive mode and last assistant message had no tools,
+inject an auto-reply to ensure the assistant does work.</p>
+<p>This is called via LOOP_CONTINUE hook, which receives interactive and prompt_queue.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>manager</strong> – Conversation manager with log and workspace</p></li>
+<li><p><strong>interactive</strong> – Whether in interactive mode</p></li>
+<li><p><strong>prompt_queue</strong> – Queue of pending prompts</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.complete.</span></span><span class="sig-name descname"><span class="pre">complete_hook</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">messages</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.14)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">StopPropagation</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span></dt>
+<dd><p>Hook that detects complete tool call and prevents next generation.</p>
+<p>Runs at GENERATION_PRE (before generating response) to stop the session
+immediately after complete tool is called.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>messages</strong> – List of conversation messages</p></li>
+<li><p><strong>**kwargs</strong> – Additional arguments (workspace, manager - currently unused)</p></li>
+</ul>
+</dd>
+</dl>
+<p>Note: GENERATION_PRE hooks are called with messages as first positional arg,
+not manager as the Protocol suggests. This is a known type safety issue.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.complete.</span></span><span class="sig-name descname"><span class="pre">execute_complete</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">code</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">args</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a></span></span></dt>
+<dd><p>Signal that the autonomous session is complete and ready to exit.</p>
+</dd></dl>
+
+</section>
+<section id="restart">
+<h2>Restart<a class="headerlink" href="#restart" title="Link to this heading">#</a></h2>
+<p>Restart the gptme process.</p>
+<p>This tool allows restarting gptme from within a conversation, which can be useful
+for applying configuration changes, reloading tools, or recovering from state issues.</p>
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.restart.</span></span><span class="sig-name descname"><span class="pre">execute_restart</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">code</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">args</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.14)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span></dt>
+<dd><p>Execute restart by confirming intent.</p>
+<p>The actual restart happens in the restart_hook (GENERATION_PRE),
+after all messages have been saved to the log.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.restart.</span></span><span class="sig-name descname"><span class="pre">restart_hook</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">messages</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.14)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span></dt>
+<dd><p>Hook that detects restart tool call and performs the restart.</p>
+<p>Runs at GENERATION_PRE (before generating response) to restart
+immediately after the restart tool is called.</p>
+<p>By this point, all messages (including the assistant’s restart message
+and the system confirmation) have been saved to the log.</p>
+</dd></dl>
+
+</section>
+<section id="lessons">
+<h2>Lessons<a class="headerlink" href="#lessons" title="Link to this heading">#</a></h2>
+<p>Lesson system tool for gptme.</p>
+<p>Provides structured lessons with metadata that can be automatically included in context.
+Similar to .cursorrules or “Claude Skills”. Has keyword-based triggering.</p>
+<p>Commands provided:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">/lesson</span> <span class="pre">list</span></code> - View all available lessons</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/lesson</span> <span class="pre">search</span> <span class="pre">&lt;query&gt;</span></code> - Find lessons matching query</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/lesson</span> <span class="pre">show</span> <span class="pre">&lt;id&gt;</span></code> - Display a specific lesson</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/lesson</span> <span class="pre">refresh</span></code> - Reload lessons from disk</p></li>
+</ul>
+<dl class="py class">
+<dt class="sig sig-object py">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">gptme.tools.lessons.</span></span><span class="sig-name descname"><span class="pre">LessonSessionStats</span></span></dt>
+<dd><p>Statistics about lessons matched during a session.</p>
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">total_matched:</span> <span class="pre">int</span> <span class="pre">=</span> <span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">unique_lessons:</span> <span class="pre">set[str]</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lesson_titles:</span> <span class="pre">dict[str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">str]</span> <span class="pre">=</span> <span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.lessons.</span></span><span class="sig-name descname"><span class="pre">auto_include_lessons_hook</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">manager</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="api.html#gptme.logmanager.LogManager" title="gptme.logmanager.LogManager"><span class="pre">LogManager</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.14)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">StopPropagation</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span></dt>
+<dd><p>Hook to automatically include relevant lessons in context.</p>
+<p>Extracts keywords from both user and assistant messages to trigger lessons.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>manager</strong> – Conversation manager with log and workspace</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Generator of messages to prepend (lessons as system message)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.lessons.</span></span><span class="sig-name descname"><span class="pre">handle_lesson_command</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ctx</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">CommandContext</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.14)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span></dt>
+<dd><p>Handle /lesson command.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.lessons.</span></span><span class="sig-name descname"><span class="pre">session_end_lessons_hook</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">manager</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="api.html#gptme.logmanager.LogManager" title="gptme.logmanager.LogManager"><span class="pre">LogManager</span></a></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.14)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">StopPropagation</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span></dt>
+<dd><p>Hook to print lesson statistics at end of session.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>manager</strong> – Conversation manager with log and workspace</p></li>
+<li><p><strong>**kwargs</strong> – Additional arguments (e.g., logdir)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Yields<span class="colon">:</span></dt>
+<dd class="field-even"><p>Nothing (just logs statistics)</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="todo">
+<h2>Todo<a class="headerlink" href="#todo" title="Link to this heading">#</a></h2>
+<p>A working memory todo tool for conversation-scoped task planning.</p>
+<p>This tool provides a lightweight todo list that exists within the current conversation context,
+complementing the existing persistent task management system in gptme-agent-template.</p>
+<p>Key principles:
+- Working Memory Layer: Ephemeral todos for current conversation context
+- Complements Persistent Tasks: Works alongside existing task files without conflicts
+- Simple State Model: pending, in_progress, completed, paused
+- Conversation Scoped: Resets between conversations, doesn’t persist to disk
+- Auto-replay: Automatically restores todo state when resuming conversations</p>
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.todo.</span></span><span class="sig-name descname"><span class="pre">get_incomplete_todos_summary</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></span></dt>
+<dd><p>Get a summary of incomplete todos for continuation prompts.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>A formatted string listing incomplete todos, or empty string if none.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.todo.</span></span><span class="sig-name descname"><span class="pre">has_incomplete_todos</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span></span></dt>
+<dd><p>Check if there are any incomplete todos in working memory.</p>
+<p>Used by auto_reply_hook to determine if the agent should continue
+working instead of being asked about completion.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>True if there are any pending or in_progress todos.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
 <section id="mcp">
 <h2>MCP<a class="headerlink" href="#mcp" title="Link to this heading">#</a></h2>
 <p>The Model Context Protocol (MCP) allows you to extend gptme with custom tools through external servers.
 See <a class="reference internal" href="mcp.html"><span class="doc">MCP</span></a> for configuration and usage details.</p>
+<p>MCP server discovery and management tool.</p>
+<p>Allows searching for MCP servers in registries and dynamically loading/unloading them.</p>
+<p>Available Commands:
+- <code class="docutils literal notranslate"><span class="pre">/mcp</span> <span class="pre">search</span> <span class="pre">[query]</span></code> - Search for MCP servers across all registries
+- <code class="docutils literal notranslate"><span class="pre">/mcp</span> <span class="pre">info</span> <span class="pre">&lt;server-name&gt;</span></code> - Get detailed information about a specific server
+- <code class="docutils literal notranslate"><span class="pre">/mcp</span> <span class="pre">load</span> <span class="pre">&lt;server-name&gt;</span> <span class="pre">[config-json]</span></code> - Dynamically load an MCP server into the current session
+- <code class="docutils literal notranslate"><span class="pre">/mcp</span> <span class="pre">unload</span> <span class="pre">&lt;server-name&gt;</span></code> - Unload a previously loaded MCP server
+- <code class="docutils literal notranslate"><span class="pre">/mcp</span> <span class="pre">list</span></code> - List all currently configured and loaded MCP servers</p>
+<p>The search command queries the Official MCP Registry (registry.modelcontextprotocol.io).
+Once loaded, server tools are available as <code class="docutils literal notranslate"><span class="pre">&lt;server-name&gt;.&lt;tool-name&gt;</span></code>.</p>
+<p class="rubric">Instructions</p>
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gu">### When to use the mcp tool</span>
+
+Use mcp to discover, load, inspect, and manage MCP servers:
+<span class="k">-</span><span class="w"> </span><span class="sb">`/mcp search &lt;capability&gt;`</span> finds new servers
+<span class="k">-</span><span class="w"> </span><span class="sb">`/mcp load &lt;server-name&gt;`</span> loads one
+<span class="k">-</span><span class="w"> </span><span class="sb">`/mcp list`</span> shows what is already loaded
+
+Do not use mcp to call loaded tools; invoke them directly as
+<span class="sb">`&lt;server-name&gt;.&lt;tool-name&gt;`</span>.
+
+Search uses the Official MCP Registry (registry.modelcontextprotocol.io).
+
+Other commands:
+<span class="k">-</span><span class="w"> </span><span class="sb">`info &lt;server&gt;`</span> shows server details
+<span class="k">-</span><span class="w"> </span><span class="sb">`resources list/read`</span> browses server resources
+<span class="k">-</span><span class="w"> </span><span class="sb">`templates list`</span> lists resource templates
+<span class="k">-</span><span class="w"> </span><span class="sb">`prompts list/get`</span> lists or fetches prompts
+<span class="k">-</span><span class="w"> </span><span class="sb">`roots list/add/remove`</span> manages advisory workspace roots
+</pre></div>
+</div>
+<p class="rubric">Examples</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>```mcp
+search sqlite
+```
+
+```mcp
+info sqlite
+```
+
+```mcp
+load sqlite
+```
+
+```mcp
+list
+```
+
+```mcp
+unload sqlite
+```
+
+```mcp
+load my-server
+{&quot;command&quot;: &quot;uvx&quot;, &quot;args&quot;: [&quot;my-mcp-server&quot;, &quot;--option&quot;]}
+```
+
+```mcp
+resources list sqlite
+```
+
+```mcp
+resources read sqlite db://main/users
+```
+
+```mcp
+templates list sqlite
+```
+
+```mcp
+prompts list sqlite
+```
+
+```mcp
+prompts get sqlite create-query {&quot;table&quot;: &quot;users&quot;}
+```
+
+```mcp
+roots list
+```
+
+```mcp
+roots add filesystem file:///home/user/project Project
+```
+
+```mcp
+roots remove filesystem file:///home/user/project
+```
+</pre></div>
+</div>
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.mcp.</span></span><span class="sig-name descname"><span class="pre">examples</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tool_format</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></span></dt>
+<dd><p>Return example usage.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.mcp.</span></span><span class="sig-name descname"><span class="pre">execute_mcp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">code</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">args</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.14)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span></dt>
+<dd><p>Execute MCP management commands.</p>
+</dd></dl>
+
 </section>
 </section>
 
@@ -3482,7 +4251,10 @@ See <a class="reference internal" href="mcp.html"><span class="doc">MCP</span></
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#code-development">💻 Code &amp; Development</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#web-research">🌐 Web &amp; Research</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#visual-interactive">👁️ Visual &amp; Interactive</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#user-interaction">🤝 User Interaction</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#advanced-workflows">⚡ Advanced Workflows</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#knowledge-planning">🧠 Knowledge &amp; Planning</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#extensions">🔌 Extensions</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#combinations">Combinations</a></li>
 </ul>
 </li>
@@ -3499,6 +4271,18 @@ See <a class="reference internal" href="mcp.html"><span class="doc">MCP</span></
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#chats">Chats</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#computer">Computer</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#rag">RAG</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#morph">Morph</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gh">GH</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#adding-a-new-native-wrapper">Adding a new native wrapper</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#choice">Choice</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#elicit">Elicit</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#form">Form</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#complete">Complete</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#restart">Restart</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#lessons">Lessons</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#todo">Todo</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mcp">MCP</a></li>
 </ul>
   </nav></div>

@@ -1065,12 +1065,14 @@ Overview
 - `Read`_ - Read files in any format
 - `Save`_ - Create and overwrite files
 - `Patch`_ - Apply precise changes to existing files
+- `Morph`_ - Apply fast targeted edits using Morph Fast Apply
 
 💻 Code & Development
 ^^^^^^^^^^^^^^^^^^^^^
 
 - `Python`_ - Execute Python code interactively with full library access
 - `Shell`_ - Run shell commands and manage system processes
+- `GH`_ - Interact with GitHub issues, PRs, and repositories
 
 🌐 Web & Research
 ^^^^^^^^^^^^^^^^^
@@ -1086,11 +1088,31 @@ Overview
 - `Screenshot`_ - Capture your screen for visual context
 - `Computer`_ - Control desktop applications through visual interface
 
+🤝 User Interaction
+^^^^^^^^^^^^^^^^^^^
+
+- `Choice`_ - Present multiple-choice options to the user
+- `Elicit`_ - Request structured single-field input from the user
+- `Form`_ - Present a multi-field form for structured user input
+
 ⚡ Advanced Workflows
 ^^^^^^^^^^^^^^^^^^^^^
 
 - `Tmux`_ - Manage long-running processes in terminal sessions
 - `Subagent`_ - Delegate subtasks to specialized agent instances
+- `Complete`_ - Signal that the autonomous session is finished
+- `Restart`_ - Restart the gptme process after configuration changes
+
+🧠 Knowledge & Planning
+^^^^^^^^^^^^^^^^^^^^^^^
+
+- `Lessons`_ - Access contextual lessons and behavioral guidance
+- `Todo`_ - Manage a conversation-scoped working memory task list
+
+🔌 Extensions
+^^^^^^^^^^^^^
+
+- `MCP`_ - Discover and connect Model Context Protocol servers
 
 Combinations
 ^^^^^^^^^^^^
@@ -1201,11 +1223,80 @@ RAG
     :members:
     :noindex:
 
+Morph
+-----
+
+.. automodule:: gptme.tools.morph
+    :members:
+    :noindex:
+
+.. _gh:
+
+GH
+--
+
+.. automodule:: gptme.tools.gh
+    :members:
+    :noindex:
+
+Choice
+------
+
+.. automodule:: gptme.tools.choice
+    :members:
+    :noindex:
+
+Elicit
+------
+
+.. automodule:: gptme.tools.elicit
+    :members:
+    :noindex:
+
+Form
+----
+
+.. automodule:: gptme.tools.form
+    :members:
+    :noindex:
+
+Complete
+--------
+
+.. automodule:: gptme.tools.complete
+    :members:
+    :noindex:
+
+Restart
+-------
+
+.. automodule:: gptme.tools.restart
+    :members:
+    :noindex:
+
+Lessons
+-------
+
+.. automodule:: gptme.tools.lessons
+    :members:
+    :noindex:
+
+Todo
+----
+
+.. automodule:: gptme.tools.todo
+    :members:
+    :noindex:
+
 MCP
 ---
 
 The Model Context Protocol (MCP) allows you to extend gptme with custom tools through external servers.
 See :doc:`mcp` for configuration and usage details.
+
+.. automodule:: gptme.tools.mcp
+    :members:
+    :noindex:
 
 
 Commands
