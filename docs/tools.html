@@ -494,6 +494,9 @@
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#choice">Choice</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#elicit">Elicit</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#form">Form</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#precommit">Precommit</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#autocommit">Autocommit</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#vent">Vent</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#complete">Complete</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#restart">Restart</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#lessons">Lessons</a></li>
@@ -530,6 +533,8 @@
 <li><p><a class="reference internal" href="#python">Python</a> - Execute Python code interactively with full library access</p></li>
 <li><p><a class="reference internal" href="#shell">Shell</a> - Run shell commands and manage system processes</p></li>
 <li><p><a class="reference internal" href="#gh">GH</a> - Interact with GitHub issues, PRs, and repositories</p></li>
+<li><p><a class="reference internal" href="#precommit">Precommit</a> - Automatically run pre-commit checks after file saves</p></li>
+<li><p><a class="reference internal" href="#autocommit">Autocommit</a> - Automatically prompt for git commits after file modifications</p></li>
 </ul>
 </section>
 <section id="web-research">
@@ -563,6 +568,7 @@
 <li><p><a class="reference internal" href="#subagent">Subagent</a> - Delegate subtasks to specialized agent instances</p></li>
 <li><p><a class="reference internal" href="#complete">Complete</a> - Signal that the autonomous session is finished</p></li>
 <li><p><a class="reference internal" href="#restart">Restart</a> - Restart the gptme process after configuration changes</p></li>
+<li><p><a class="reference internal" href="#vent">Vent</a> - Emit in-the-moment friction signals to a durable ledger</p></li>
 </ul>
 </section>
 <section id="knowledge-planning">
@@ -3917,6 +3923,72 @@ confirm: Proceed with deployment? [yes/no]
 </dd></dl>
 
 </section>
+<section id="precommit">
+<h2>Precommit<a class="headerlink" href="#precommit" title="Link to this heading">#</a></h2>
+<p>Pre-commit hook tool that automatically runs pre-commit checks after file saves.</p>
+<p>This tool automatically runs pre-commit checks in two scenarios:</p>
+<ol class="arabic simple">
+<li><p><strong>Per-file checks (FILE_SAVE_POST (file.save.post))</strong>: After each file is saved
+- Runs pre-commit on the specific saved file
+- Provides immediate feedback on formatting/linting issues</p></li>
+<li><p><strong>Full checks (TURN_POST (turn.post))</strong>: After message processing completes
+- Runs pre-commit on all modified files
+- Ensures all changes pass checks before auto-commit</p></li>
+</ol>
+<p>Commands:
+- /pre-commit: Manually run pre-commit checks</p>
+<p>Pre-commit checks include:
+- Code formatting (black, prettier, etc.)
+- Linting (ruff, eslint, etc.)
+- Type checking (mypy, etc.)
+- Other configured hooks</p>
+<p>The tool will report any failures and suggest fixes.</p>
+<p>Enable with: –tools precommit
+Or configure pre-commit checks via: GPTME_CHECK=true</p>
+</section>
+<section id="autocommit">
+<h2>Autocommit<a class="headerlink" href="#autocommit" title="Link to this heading">#</a></h2>
+<p>Autocommit hook tool that automatically provides hints for committing changes after message processing.</p>
+<p>When GPTME_AUTOCOMMIT=true is set, after each message is processed:
+1. Checks if there are file modifications
+2. If modifications exist, returns a message asking the LLM to review and commit</p>
+<p>The tool hooks into TURN_POST (turn.post) and runs with low priority
+(after pre-commit checks and other validation).</p>
+<p>To enable autocommit:
+<code class="docutils literal notranslate"><span class="pre">`bash</span>
+<span class="pre">export</span> <span class="pre">GPTME_AUTOCOMMIT=true</span>
+<span class="pre">`</span></code></p>
+</section>
+<section id="vent">
+<h2>Vent<a class="headerlink" href="#vent" title="Link to this heading">#</a></h2>
+<p>Vent/feedback tool — emits in-the-moment friction signals to a durable ledger.</p>
+<dl class="simple">
+<dt>The agent calls this when stuck or frustrated. Signals are written to:</dt><dd><p>~/.local/share/gptme/friction-ledger.jsonl</p>
+</dd>
+</dl>
+<p>Rate-limited to one vent per turn to prevent recursive venting spirals
+(Lovable found agents can spiral into 43+ vents without this guard).</p>
+<p>Usage:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>```vent
+Stuck on import order: uv run pytest exits 0 with &quot;no tests found&quot;
+even though tests/test_vent.py exists. Tried --co and explicit path.
+Type: Type2a (config/permission)
+```
+</pre></div>
+</div>
+<dl class="simple">
+<dt>Friction types (from Lovable’s taxonomy):</dt><dd><p>Type 1  — solvable with better prompting / context
+Type 2a — solvable with a tool, permission, or config change
+Type 2b — not solvable in the current stack</p>
+</dd>
+</dl>
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.vent.</span></span><span class="sig-name descname"><span class="pre">execute_vent</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">code</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">args</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a></span></span></dt>
+<dd><p>Append a friction entry to the ledger.</p>
+</dd></dl>
+
+</section>
 <section id="complete">
 <h2>Complete<a class="headerlink" href="#complete" title="Link to this heading">#</a></h2>
 <p>Complete tool - signals that the autonomous session is finished.</p>
@@ -4279,6 +4351,9 @@ roots remove filesystem file:///home/user/project
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#choice">Choice</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#elicit">Elicit</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#form">Form</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#precommit">Precommit</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#autocommit">Autocommit</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#vent">Vent</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#complete">Complete</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#restart">Restart</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#lessons">Lessons</a></li>
