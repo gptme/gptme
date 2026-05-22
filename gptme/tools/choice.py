@@ -18,7 +18,7 @@ The tool will present an interactive menu allowing the user to select an option 
 
 ### When to use choice
 
-Use when the user needs to select from a discrete set of named alternatives and free-text input would be ambiguous. Don't use for simple yes/no confirmations; don't use when the next step is already clear from context.
+Use when you need to present the user with a discrete set of named alternatives and free-text input would be ambiguous. Don't use for simple yes/no confirmations; don't use when the next step is already clear from context.
 """.strip()
 
 instructions_format = {
