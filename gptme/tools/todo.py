@@ -391,39 +391,26 @@ todo = ToolSpec(
     instructions="""
 ### When to use the todo tool
 
-Use todo to track progress through complex multi-step tasks within the current
-conversation — it acts as working memory. Reach for it when a task has 3+ steps
-or when you need to make your work plan visible. For tasks that must persist
-across conversations or sessions, use the persistent task management system
-(`gptodo` / task files) instead.
+Use todo as working memory for 3+ step tasks in the current conversation.
+For persistent cross-session tracking, use `gptodo` or task files instead.
 
-Use this tool to manage todos in the current conversation context.
+Manage todos for the current conversation.
 
 Subcommands:
-- `todo read` - Display the current todo list
-- `todo write` - Modify todos (with operations in content block)
+- `todo read` - Show the current todo list
+- `todo write` - Edit todos
 
-Write operations (in content block):
-- add "todo text" - Add a new todo item
-- update ID state - Update todo state (pending/in_progress/completed/paused)
-- update ID "new text" - Update todo text
-- remove ID - Remove a todo item
+Write operations:
+- add "todo text" - Add an item
+- update ID state - Set state (pending/in_progress/completed/paused)
+- update ID "new text" - Rename an item
+- remove ID - Remove an item
 - clear - Clear all todos
-- clear completed - Clear only completed todos
+- clear completed - Clear completed todos
 
 States: pending, in_progress, completed, paused
 
-Use this tool frequently for complex multi-step tasks to:
-- Break down large tasks into smaller steps
-- Track progress through complex workflows
-- Provide visibility into your work plan
-- Stay organized during long conversations
-
-The todo list is ephemeral and conversation-scoped.
-For persistent cross-conversation tasks, use the task management system.
-
-Auto-replay: Todo operations are automatically replayed when resuming conversations
-to restore your todo list state.
+Todo state is auto-replayed when resuming the conversation.
     """.strip(),
     examples=examples_todo,
     execute=execute_todo,

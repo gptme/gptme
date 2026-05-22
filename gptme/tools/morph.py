@@ -29,20 +29,14 @@ Use this tool to propose an edit to an existing file.
 
 ### When to use morph vs patch
 
-Use morph for large or complex edits where the changed lines are scattered across
-a file and the standard patch context markers would be verbose. Morph handles the
-diff internally via a specialized fast-apply model, so it is better at edits that
-touch many non-adjacent sections. Prefer patch for small, targeted changes where
-exact context markers are easy to write. Morph requires OPENROUTER_API_KEY.
+Use morph for large or complex edits where the changed lines are scattered
+across a file and patch context markers would be verbose. Prefer patch for
+small, targeted edits with clear context. Morph requires OPENROUTER_API_KEY.
 
-This will be read by a less intelligent model, which will quickly apply the edit. You should make it clear what the edit is, while also minimizing the unchanged code you write.
-
-When writing the edit, you should specify each edit in sequence, with the special comment // ... existing code ... to represent unchanged code in between edited lines.
-
-You should bias towards repeating as few lines of the original file as possible to convey the change.
-NEVER show unmodified code in the edit, unless sufficient context of unchanged lines around the code you're editing is needed to resolve ambiguity.
-If you plan on deleting a section, you must provide surrounding context to indicate the deletion.
-DO NOT omit spans of pre-existing code without using the // ... existing code ... comment to indicate its absence.
+Write a clear edit while minimizing unchanged code.
+List each edit in sequence, using `// ... existing code ...` for untouched spans.
+Repeat only enough original context to disambiguate the change.
+If you delete a section, include surrounding context to show what is removed.
 """
 
 
