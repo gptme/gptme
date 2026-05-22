@@ -8,6 +8,13 @@ const freshStorageState = {
 test.describe('Setup wizard', () => {
   test.use({ storageState: freshStorageState });
 
+  test.beforeEach(async ({ page }) => {
+    // Block outbound calls to the gptme-server so isConnected stays false and
+    // the wizard remains on the welcome step regardless of whether a local
+    // server is running on port 5700.
+    await page.route('http://127.0.0.1:5700/**', (route) => route.abort());
+  });
+
   test('shows the first-run flow and lets the user switch setup modes', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
