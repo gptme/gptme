@@ -80,7 +80,7 @@ runs:
         python /tmp/github_bot.py --mode "${{ inputs.mode }}" --workspace .
 
     - name: Report error
-      if: failure()
+      if: failure() && env.GPTME_BOT_HANDLED_FAILURE != '1'
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}

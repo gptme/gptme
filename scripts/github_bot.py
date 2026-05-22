@@ -74,6 +74,15 @@ def get_env(name: str, default: str | None = None, required: bool = False) -> st
     return value or ""
 
 
+def set_github_env(name: str, value: str) -> None:
+    """Expose state to subsequent GitHub Actions steps when available."""
+    github_env = os.environ.get("GITHUB_ENV")
+    if not github_env:
+        return
+    with Path(github_env).open("a", encoding="utf-8") as f:
+        f.write(f"{name}={value}\n")
+
+
 def run_command(
     cmd: list[str],
     check: bool = True,
@@ -223,6 +232,8 @@ def post_resolve_failure_comment(
             message,
         ]
     )
+    # Tell the composite action its generic fallback comment is no longer needed.
+    set_github_env("GPTME_BOT_HANDLED_FAILURE", "1")
 
 
 def check_allowlist(author: str, allowlist: str) -> bool:
