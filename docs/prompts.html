@@ -698,7 +698,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f4e2ffdaac0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f18974caac0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1050,6 +1050,10 @@ The following Python functions are available using the <span class="sb">`ipython
 
 The tool will present an interactive menu allowing the user to select an option using arrow keys and Enter, or by typing the number of the option.
 
+<span class="gu">### When to use choice</span>
+
+Use when you need to present the user with a discrete set of named alternatives and free-text input would be ambiguous. Don&#39;t use for simple yes/no confirmations; don&#39;t use when the next step is already clear from context.
+
 Use a code block with the language tag: <span class="sb">`choice`</span> followed by question and each option on a separate line.
 
 <span class="gu">### Examples</span>
@@ -1081,6 +1085,10 @@ Use a code block with the language tag: <span class="sb">`choice`</span> followe
 Use this tool to signal that you have completed your work and the autonomous session should end.
 
 Make sure you have actually completely finished before calling this tool.
+
+<span class="gu">### When to use complete</span>
+
+Use only after all requested work is done and committed. Do not call it mid-task or while blocked on something fixable — only call when work is genuinely finished or you have hit a hard blocker requiring human intervention.
 
 
 <span class="gu">### Examples</span>
@@ -1686,6 +1694,10 @@ The restart preserves the current conversation by reloading it from disk.
 All command-line arguments are preserved in the new process.
 
 This tool is disabled by default and must be explicitly enabled with <span class="sb">`--tools restart`</span>.
+
+<span class="gu">### When to use restart</span>
+
+Use after modifying gptme configuration or tool files when a fresh process is needed to apply changes. Don&#39;t use as a workaround for unrelated errors — diagnose and fix the root cause instead.
 
 
 <span class="gu">### Examples</span>
@@ -2378,7 +2390,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 13578</p>
+<p>Tokens: 13728</p>
 </dd></dl>
 
 <dl class="py function">
