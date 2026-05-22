@@ -622,7 +622,10 @@ Examples:
         branch_name = (
             f"gptme/resolve-{event.issue_number}-{resolve_label.replace(':', '-')}"
         )
-        run_command(["git", "checkout", "-b", branch_name], check=False)
+        result = run_command(["git", "checkout", "-b", branch_name], check=False)
+        if result.returncode != 0:
+            print(f"[ERROR] Failed to create branch {branch_name!r}", file=sys.stderr)
+            return 1
 
         # Notify issue that we're working on it
         post_resolve_start_comment(event.repository, event.issue_number, token, dry_run)
