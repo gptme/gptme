@@ -199,6 +199,32 @@ def post_resolve_start_comment(
     )
 
 
+def post_resolve_failure_comment(
+    repository: str,
+    issue_number: int,
+    reason: str,
+    token: str,
+    dry_run: bool = False,
+) -> None:
+    """Post a comment indicating the resolver could not resolve the issue."""
+    if dry_run:
+        print(f"[DRY RUN] Would post resolve-failure comment on issue {issue_number}")
+        return
+    message = f"🤖 **gptme-bot** was unable to resolve this issue. {reason}"
+    run_command(
+        [
+            "gh",
+            "issue",
+            "comment",
+            str(issue_number),
+            "--repo",
+            repository,
+            "--body",
+            message,
+        ]
+    )
+
+
 def check_allowlist(author: str, allowlist: str) -> bool:
     """Check if the comment author is on the allowlist."""
     allowed_users = [u.strip() for u in allowlist.split(",")]
@@ -410,8 +436,8 @@ def commit_and_push(
     is_pr: bool,
     dry_run: bool = False,
     draft: bool = False,
-) -> None:
-    """Commit changes and push to the branch."""
+) -> bool:
+    """Commit changes and push to the branch. Returns True if changes were pushed, False if nothing to commit."""
     # Stage all changes
     run_command(["git", "add", "-A"], check=False)
 
@@ -422,12 +448,12 @@ def commit_and_push(
     )
     if result.returncode == 0:
         print("No changes to commit")
-        return
+        return False
 
     if dry_run:
         print("[DRY RUN] Would commit and push changes")
         run_command(["git", "diff", "--staged", "--stat"])
-        return
+        return True
 
     # Generate commit message using gptme
     run_command(
@@ -502,6 +528,7 @@ def commit_and_push(
                 f"A pull request has been created: {pr_url}",
             ]
         )
+    return True
 
 
 def validate_workspace(workspace: str) -> bool:
@@ -650,9 +677,16 @@ Examples:
                 ["git", "push", "-u", "origin", f"{branch_name}:{branch_name}"],
                 check=False,
             )
+            post_resolve_failure_comment(
+                event.repository,
+                event.issue_number,
+                "The gptme run failed or timed out. The in-progress branch has been pushed for inspection.",
+                token,
+                dry_run,
+            )
             return 1
 
-        commit_and_push(
+        changed = commit_and_push(
             event.repository,
             event.issue_number,
             command,
@@ -663,6 +697,14 @@ Examples:
             dry_run=dry_run,
             draft=True,
         )
+        if not changed:
+            post_resolve_failure_comment(
+                event.repository,
+                event.issue_number,
+                "No file changes were produced. The issue may need manual attention.",
+                token,
+                dry_run,
+            )
         return 0
 
     # ── COMMENT MODE (default) ────────────────────────────────────────────────
