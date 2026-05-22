@@ -1262,6 +1262,45 @@ def _apply_solution(workspace: Path, scenario_name: str) -> None:
             """)
         )
 
+    elif scenario_name == "minimal-feature-preserve-default-with-decoys":
+        # Identical to add-feature-preserve-default: add include_chars param
+        # and append new tests. Decoys should not be touched.
+        (workspace / "text_stats.py").write_text(
+            textwrap.dedent("""\
+            def summarize(text, include_chars=False):
+                \"\"\"Return a dict with word and line counts for the given text.\"\"\"
+                if not text:
+                    result = {"words": 0, "lines": 0}
+                else:
+                    words = len(text.split())
+                    lines = len(text.splitlines())
+                    result = {"words": words, "lines": lines}
+                if include_chars:
+                    result["chars"] = len(text) if text else 0
+                return result
+            """)
+        )
+        original = (workspace / "test_text_stats.py").read_text()
+        (workspace / "test_text_stats.py").write_text(
+            original
+            + textwrap.dedent("""\
+
+            def test_include_chars_true():
+                result = summarize("hello world", include_chars=True)
+                assert result == {"words": 2, "lines": 1, "chars": 11}
+
+
+            def test_include_chars_empty():
+                result = summarize("", include_chars=True)
+                assert result == {"words": 0, "lines": 0, "chars": 0}
+
+
+            def test_include_chars_false_explicit():
+                result = summarize("hello", include_chars=False)
+                assert set(result.keys()) == {"words", "lines"}
+            """)
+        )
+
     elif scenario_name == "root-cause-pipeline-debug":
         (workspace / "normalize.py").write_text(
             textwrap.dedent("""\
