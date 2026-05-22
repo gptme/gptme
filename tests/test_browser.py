@@ -197,6 +197,22 @@ def test_available_search_engines_prioritize_perplexity(monkeypatch):
     assert _available_search_engines() == ["perplexity", "google", "duckduckgo"]
 
 
+# Error patterns from Perplexity/OpenRouter that indicate quota or auth issues.
+# Tests that hit these should skip, not fail (same philosophy as conftest _QUOTA_ERROR_PATTERNS).
+_PERPLEXITY_SKIP_PATTERNS = [
+    "insufficient_quota",
+    "authentication_error",
+    "invalid x-api-key",
+    "invalid_api_key",
+]
+
+
+def _check_perplexity_skip(results: str, source: str = "Perplexity") -> None:
+    """Skip the test if results contain a quota or auth error."""
+    if any(p in results.lower() for p in _PERPLEXITY_SKIP_PATTERNS):
+        pytest.skip(f"{source} API quota/key issue: {results[:120]}")
+
+
 @pytest.mark.slow
 def test_search_perplexity(monkeypatch):
     """Test Perplexity search with both API types."""
@@ -212,9 +228,8 @@ def test_search_perplexity(monkeypatch):
     # Test the search works
     results = search("what is gptme", "perplexity")
     assert results, "Should get results from Perplexity"
-    assert "error" not in results.lower() or "Error" not in results, (
-        f"Got error: {results}"
-    )
+    _check_perplexity_skip(results)
+    assert "error" not in results.lower(), f"Got error: {results}"
 
     # If we have OpenRouter key, test that it works too
     if has_openrouter and not has_perplexity:
@@ -222,9 +237,8 @@ def test_search_perplexity(monkeypatch):
         monkeypatch.delenv("PERPLEXITY_API_KEY", raising=False)
         results2 = search("what is gptme", "perplexity")
         assert results2, "Should get results from OpenRouter"
-        assert "error" not in results2.lower() or "Error" not in results2, (
-            f"Got error: {results2}"
-        )
+        _check_perplexity_skip(results2, source="OpenRouter/Perplexity")
+        assert "error" not in results2.lower(), f"Got error: {results2}"
 
 
 @pytest.mark.slow
