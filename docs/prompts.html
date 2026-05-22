@@ -698,7 +698,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fec71bf6ac0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f5d6f6e6ac0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -984,7 +984,21 @@ To read more pages, use: <span class="sb">`read_url(&#39;...&#39;, max_pages=N)`
 
 <span class="gs">**Description:**</span> List, search, and summarize past conversation logs
 
-<span class="gs">**Instructions:**</span> The following Python functions are available using the <span class="sb">`ipython`</span> tool:
+<span class="gs">**Instructions:**</span> ### When to use chats
+
+Use chats when the user asks about or wants to reference a past conversation:
+<span class="k">-</span><span class="w"> </span>&quot;remember when we discussed X?&quot; → search_chats(&#39;X&#39;)
+<span class="k">-</span><span class="w"> </span>&quot;find our earlier chat about Y&quot; → search_chats(&#39;Y&#39;)
+<span class="k">-</span><span class="w"> </span>&quot;what did we say about Z last week?&quot; → search_chats(&#39;Z&#39;)
+<span class="k">-</span><span class="w"> </span>Listing recent sessions to give the user an overview → list_chats()
+<span class="k">-</span><span class="w"> </span>Reading a specific prior conversation by ID → read_chat(id)
+
+Do <span class="gs">**not**</span> use chats for:
+<span class="k">-</span><span class="w"> </span>The current conversation — its content is already in the context window.
+<span class="k">-</span><span class="w"> </span>Searching files or code — use the shell or read tool instead.
+<span class="k">-</span><span class="w"> </span>Web or documentation search — use the browser tool.
+
+The following Python functions are available using the <span class="sb">`ipython`</span> tool:
 
 <span class="sb">```txt</span>
 <span class="s">list_chats(max_results: int, include_summary: bool):</span>
@@ -1162,16 +1176,31 @@ The following Python functions are available using the <span class="sb">`ipython
 
 <span class="gs">**Description:**</span> Request structured input from the user (text, choice, secret, form, etc.)
 
-<span class="gs">**Instructions:**</span> Request structured input from the user. Supports these types:
+<span class="gs">**Instructions:**</span> ### When to use elicit
+
+Use elicit when you need structured user input that a plain text reply cannot
+cleanly provide:
+<span class="k">-</span><span class="w"> </span><span class="gs">**secret**</span> — API keys, passwords, tokens. The value is hidden from the chat
+  display so it does not appear over someone&#39;s shoulder; the LLM still receives
+  it in-context so it can act on it (e.g. export as an env var or pass to a
+  command). The conversation log on disk will contain the value.
+<span class="k">-</span><span class="w"> </span><span class="gs">**choice / multi_choice**</span> — present a fixed set of options so the user
+  selects rather than types a free-form answer that you then have to parse.
+<span class="k">-</span><span class="w"> </span><span class="gs">**confirmation**</span> — ask yes/no before a destructive or irreversible action.
+<span class="k">-</span><span class="w"> </span><span class="gs">**form**</span> — collect several related fields in one interaction instead of a
+  back-and-forth sequence.
+
+Do <span class="gs">**not**</span> use elicit for simple open-ended questions that read naturally in
+chat — a plain assistant message is clearer and less disruptive in those cases.
+
+<span class="gu">### Input types</span>
+
 <span class="k">-</span><span class="w"> </span>text: Free-form text input
 <span class="k">-</span><span class="w"> </span>choice: Single selection from a list (specify options)
 <span class="k">-</span><span class="w"> </span>multi_choice: Multiple selections from a list (specify options)
-<span class="k">-</span><span class="w"> </span>secret: Hidden input for API keys/passwords (NOT stored in conversation)
+<span class="k">-</span><span class="w"> </span>secret: Hidden from display; LLM receives the value in-context to act on it
 <span class="k">-</span><span class="w"> </span>confirmation: Yes/No question
 <span class="k">-</span><span class="w"> </span>form: Multiple fields at once (specify JSON field definitions)
-
-For secrets: the value is returned to you but NOT added to conversation history.
-Use the secret type when asking for API keys, passwords, or other credentials.
 
 Use a code block with the language tag: <span class="sb">`elicit`</span> followed by the elicitation spec as JSON.
 
@@ -1180,12 +1209,12 @@ Use a code block with the language tag: <span class="sb">`elicit`</span> followe
 <span class="gu">### Ask for a secret API key</span>
 
 <span class="k">&gt; </span><span class="ge">User: Set up the OpenAI integration</span>
-<span class="k">&gt; </span><span class="ge">Assistant: I need your OpenAI API key to proceed. It will not be stored in the conversation.</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I need your OpenAI API key to proceed. It will be hidden from normal chat display.</span>
 <span class="sb">```elicit</span>
 <span class="s">{</span>
 <span class="s">  &quot;type&quot;: &quot;secret&quot;,</span>
 <span class="s">  &quot;prompt&quot;: &quot;Enter your OpenAI API key:&quot;,</span>
-<span class="s">  &quot;description&quot;: &quot;Required for the OpenAI integration. Will not be logged.&quot;</span>
+<span class="s">  &quot;description&quot;: &quot;Required for the OpenAI integration. Hidden from normal chat display.&quot;</span>
 <span class="s">}</span>
 <span class="sb">```</span>
 <span class="gu">### Ask user to choose an option</span>
@@ -1241,7 +1270,20 @@ Use a code block with the language tag: <span class="sb">`elicit`</span> followe
 
 <span class="gs">**Description:**</span> Present a form with multiple fields for user input
 
-<span class="gs">**Instructions:**</span> Present a form with multiple fields for user input.
+<span class="gs">**Instructions:**</span> ### When to use the form tool
+
+Use the form tool when you need to collect multiple related fields from the
+user in a single interaction. It is well suited for structured data collection
+where field types are text, select (choose from a list), boolean (yes/no), or
+number.
+
+For <span class="gs">**secrets**</span> (API keys, passwords) use the ``elicit`` tool instead — form
+does not have a secret type, so credentials would appear in the chat display.
+
+For a single question or free-form input, a plain assistant message is simpler.
+Prefer form when collecting two or more related fields at once.
+
+<span class="gu">### Form syntax</span>
 
 Each field is specified on a separate line with the format:
   field_name: Prompt text [options]
@@ -2330,7 +2372,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 13245</p>
+<p>Tokens: 13707</p>
 </dd></dl>
 
 <dl class="py function">

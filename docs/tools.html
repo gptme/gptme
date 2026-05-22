@@ -2886,6 +2886,22 @@ Useful for understanding page structure and finding elements to interact with.</
 <section id="chats">
 <h2>Chats<a class="headerlink" href="#chats" title="Link to this heading">#</a></h2>
 <p>List, search, and summarize past conversation logs.</p>
+<p class="rubric">Instructions</p>
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gu">### When to use chats</span>
+
+Use chats when the user asks about or wants to reference a past conversation:
+<span class="k">-</span><span class="w"> </span>&quot;remember when we discussed X?&quot; → search_chats(&#39;X&#39;)
+<span class="k">-</span><span class="w"> </span>&quot;find our earlier chat about Y&quot; → search_chats(&#39;Y&#39;)
+<span class="k">-</span><span class="w"> </span>&quot;what did we say about Z last week?&quot; → search_chats(&#39;Z&#39;)
+<span class="k">-</span><span class="w"> </span>Listing recent sessions to give the user an overview → list_chats()
+<span class="k">-</span><span class="w"> </span>Reading a specific prior conversation by ID → read_chat(id)
+
+Do <span class="gs">**not**</span> use chats for:
+<span class="k">-</span><span class="w"> </span>The current conversation — its content is already in the context window.
+<span class="k">-</span><span class="w"> </span>Searching files or code — use the shell or read tool instead.
+<span class="k">-</span><span class="w"> </span>Web or documentation search — use the browser tool.
+</pre></div>
+</div>
 <p class="rubric">Examples</p>
 <p>Search for a specific topic in past conversations</p>
 <table style="width: 100%; margin-bottom: 1em">
