@@ -23,6 +23,5 @@ dist-ssr
 *.sln
 *.sw?
 
-src-tauri/icons/*
 bins
 gptme/build

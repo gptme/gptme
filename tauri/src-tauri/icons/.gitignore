@@ -1,0 +1,2 @@
+# Allow PNG icon files despite root .gitignore/*.png exclusion
+!*.png
