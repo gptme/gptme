@@ -698,7 +698,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f1bc8502ac0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f4e2ffdaac0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1421,26 +1421,24 @@ gh<span class="w"> </span>issue<span class="w"> </span>comment<span class="w"> <
 
 <span class="gs">**Instructions:**</span> ### When to use the lessons tool
 
-Lessons are <span class="gs">**automatically injected**</span> when relevant keywords match — you rarely
-need to call the lessons tool explicitly. Use it only when:
-<span class="k">-</span><span class="w"> </span>Searching for guidance that wasn&#39;t auto-injected: <span class="sb">`/lesson search &lt;topic&gt;`</span>
-<span class="k">-</span><span class="w"> </span>Browsing available patterns: <span class="sb">`/lesson list`</span>
-<span class="k">-</span><span class="w"> </span>Refreshing after lesson files changed: <span class="sb">`/lesson refresh`</span>
+Lessons are auto-injected on keyword and tool matches. Use <span class="sb">`/lesson`</span> only to
+search for missing guidance (<span class="sb">`/lesson search &lt;topic&gt;`</span>), browse patterns
+(<span class="sb">`/lesson list`</span>), or refresh after lesson files change (<span class="sb">`/lesson refresh`</span>).
 
-Do NOT call the lessons tool to re-read lessons already in context, or to
-&quot;apply&quot; lessons — just act on the guidance that was auto-included.
+Do not re-read or &quot;apply&quot; lessons explicitly; follow the ones already in
+context.
 
-Use lessons to learn and remember skills/tools/workflows, improve your performance, and avoid known failure modes.
+Use lessons to remember useful patterns and avoid known failure modes.
 
-How lessons help you:
-<span class="k">-</span><span class="w"> </span>Automatically included when relevant keywords or tools match
-<span class="k">-</span><span class="w"> </span>Extracted from both user and assistant messages in the conversation
-<span class="k">-</span><span class="w"> </span>Session-wide limit (default 20) prevents context bloat
+How lessons help:
+<span class="k">-</span><span class="w"> </span>Auto-included when relevant keywords or tools match
+<span class="k">-</span><span class="w"> </span>Extracted from user and assistant messages
+<span class="k">-</span><span class="w"> </span>Session limit (default 20) prevents context bloat
 
-Leverage lessons for self-improvement:
-<span class="k">-</span><span class="w"> </span>Pay attention to lessons included in context
+For self-improvement:
+<span class="k">-</span><span class="w"> </span>Pay attention to included lessons
 <span class="k">-</span><span class="w"> </span>Apply patterns and avoid anti-patterns
-<span class="k">-</span><span class="w"> </span>Reference lessons when making decisions
+<span class="k">-</span><span class="w"> </span>Reference lessons in decisions
 <span class="k">-</span><span class="w"> </span>Learn from past failures documented in lessons
 
 <span class="gu">## mcp</span>
@@ -1449,31 +1447,22 @@ Leverage lessons for self-improvement:
 
 <span class="gs">**Instructions:**</span> ### When to use the mcp tool
 
-Use the mcp tool when you need to extend gptme&#39;s capabilities beyond its built-in tools:
-<span class="k">-</span><span class="w"> </span>Discover new tools with <span class="sb">`/mcp search &lt;capability&gt;`</span> when a built-in doesn&#39;t exist
-<span class="k">-</span><span class="w"> </span>Load an MCP server with <span class="sb">`/mcp load &lt;server-name&gt;`</span> to make its tools available
-<span class="k">-</span><span class="w"> </span>Check what&#39;s running with <span class="sb">`/mcp list`</span> before searching or loading duplicates
+Use mcp to discover, load, inspect, and manage MCP servers:
+<span class="k">-</span><span class="w"> </span><span class="sb">`/mcp search &lt;capability&gt;`</span> finds new servers
+<span class="k">-</span><span class="w"> </span><span class="sb">`/mcp load &lt;server-name&gt;`</span> loads one
+<span class="k">-</span><span class="w"> </span><span class="sb">`/mcp list`</span> shows what is already loaded
 
-Do NOT use the mcp tool to call tools that are already loaded — invoke loaded
-server tools directly as <span class="sb">`&lt;server-name&gt;.&lt;tool-name&gt;`</span> instead.
+Do not use mcp to call loaded tools; invoke them directly as
+<span class="sb">`&lt;server-name&gt;.&lt;tool-name&gt;`</span>.
 
-Search, load, and manage MCP servers. Loaded server tools available as <span class="sb">`&lt;server-name&gt;.&lt;tool-name&gt;`</span>. Search queries the Official MCP Registry (registry.modelcontextprotocol.io).
+Search uses the Official MCP Registry (registry.modelcontextprotocol.io).
 
-<span class="gs">**Resource Commands:**</span>
-<span class="k">-</span><span class="w"> </span><span class="sb">`resources list &lt;server&gt;`</span> - List available resources
-<span class="k">-</span><span class="w"> </span><span class="sb">`resources read &lt;server&gt; &lt;uri&gt;`</span> - Read a resource by URI
-<span class="k">-</span><span class="w"> </span><span class="sb">`templates list &lt;server&gt;`</span> - List resource templates
-
-<span class="gs">**Prompt Commands:**</span>
-<span class="k">-</span><span class="w"> </span><span class="sb">`prompts list &lt;server&gt;`</span> - List available prompts
-<span class="k">-</span><span class="w"> </span><span class="sb">`prompts get &lt;server&gt; &lt;name&gt; [args]`</span> - Get a prompt with optional args
-
-<span class="gs">**Roots Commands**</span> (operational boundaries):
-<span class="k">-</span><span class="w"> </span><span class="sb">`roots list [server]`</span> - List configured roots
-<span class="k">-</span><span class="w"> </span><span class="sb">`roots add &lt;server&gt; &lt;uri&gt; [name]`</span> - Add a root URI
-<span class="k">-</span><span class="w"> </span><span class="sb">`roots remove &lt;server&gt; &lt;uri&gt;`</span> - Remove a root
-
-Roots are advisory URIs (file paths, HTTP URLs) defining workspace boundaries.
+Other commands:
+<span class="k">-</span><span class="w"> </span><span class="sb">`info &lt;server&gt;`</span> shows server details
+<span class="k">-</span><span class="w"> </span><span class="sb">`resources list/read`</span> browses server resources
+<span class="k">-</span><span class="w"> </span><span class="sb">`templates list`</span> lists resource templates
+<span class="k">-</span><span class="w"> </span><span class="sb">`prompts list/get`</span> lists or fetches prompts
+<span class="k">-</span><span class="w"> </span><span class="sb">`roots list/add/remove`</span> manages advisory workspace roots
 
 <span class="gu">### Examples</span>
 
@@ -2389,7 +2378,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 13797</p>
+<p>Tokens: 13578</p>
 </dd></dl>
 
 <dl class="py function">
