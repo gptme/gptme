@@ -335,6 +335,7 @@ def run_gptme(
     workspace: str,
     model: str,
     timeout: int = 120,
+    write_response: bool = True,
 ) -> bool:
     """Run gptme with the given command and context."""
     # Build the context file list
@@ -352,9 +353,12 @@ def run_gptme(
         "Here is the context:",
         *context_args,
         "</system>",
-        "-",
-        "Write the response to 'response.md', it will be posted as a comment.",
     ]
+    if write_response:
+        cmd += [
+            "-",
+            "Write the response to 'response.md', it will be posted as a comment.",
+        ]
 
     try:
         result = subprocess.run(
@@ -635,7 +639,10 @@ Examples:
         print(f"Context directory: {context['dir']}")
 
         # Allow up to 14 minutes — the resolve workflow has a 15-minute job timeout
-        success = run_gptme(command, context["dir"], workspace, model, timeout=840)
+        # write_response=False: resolve mode makes code changes, not response.md files
+        success = run_gptme(
+            command, context["dir"], workspace, model, timeout=840, write_response=False
+        )
         if not success:
             print("gptme execution failed in resolve mode")
             # Still push the branch so the failed attempt is preserved
