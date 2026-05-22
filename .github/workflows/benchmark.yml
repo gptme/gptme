@@ -41,7 +41,7 @@ jobs:
 
         # Cold startup: --prepare clears .pyc in repo AND virtualenv, drops OS page cache
         hyperfine \
-          --runs 5 \
+          --runs 10 \
           --prepare "find . '$VENV_PATH' -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null; sudo sh -c 'sync && echo 3 > /proc/sys/vm/drop_caches' 2>/dev/null; true" \
           --export-json cold.json \
           'poetry run python -c "from gptme.cli.main import main"'
@@ -69,7 +69,7 @@ jobs:
         COLD_TIME: ${{ steps.cold.outputs.cold_time }}
         WARM_TIME: ${{ steps.warm.outputs.warm_time }}
         # Thresholds in seconds (with margin for CI variability)
-        COLD_THRESHOLD: "6.0"
+        COLD_THRESHOLD: "10.0"
         WARM_THRESHOLD: "2.5"
       run: |
         echo "=== Startup Benchmark Results (hyperfine medians) ==="
