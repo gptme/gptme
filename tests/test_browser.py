@@ -204,6 +204,11 @@ _PERPLEXITY_SKIP_PATTERNS = [
     "authentication_error",
     "invalid x-api-key",
     "invalid_api_key",
+    "rate limit",
+    "quota exceeded",
+    "billing hard limit",
+    "exceeded your current quota",
+    "spending limit",
 ]
 
 
@@ -227,8 +232,8 @@ def test_search_perplexity(monkeypatch):
 
     # Test the search works
     results = search("what is gptme", "perplexity")
-    assert results, "Should get results from Perplexity"
     _check_perplexity_skip(results)
+    assert results, "Should get results from Perplexity"
     assert "error" not in results.lower(), f"Got error: {results}"
 
     # If we have OpenRouter key, test that it works too
@@ -236,8 +241,8 @@ def test_search_perplexity(monkeypatch):
         # Clear Perplexity key to force OpenRouter usage
         monkeypatch.delenv("PERPLEXITY_API_KEY", raising=False)
         results2 = search("what is gptme", "perplexity")
-        assert results2, "Should get results from OpenRouter"
         _check_perplexity_skip(results2, source="OpenRouter/Perplexity")
+        assert results2, "Should get results from OpenRouter"
         assert "error" not in results2.lower(), f"Got error: {results2}"
 
 
