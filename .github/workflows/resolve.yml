@@ -1,7 +1,7 @@
 name: gptme-resolve
 
 # Triggered when the "bot:resolve" label is added to an issue, or when a
-# trusted user posts a "/gptme-resolve" comment macro.
+# trusted user posts a "/gptme-resolve" comment macro on an issue (not a PR).
 # gptme tries to fix the issue and opens a draft PR with the changes.
 
 on:
@@ -21,7 +21,8 @@ jobs:
       (github.event_name == 'issues' && github.event.label.name == 'bot:resolve')
       || (github.event_name == 'issue_comment'
           && startsWith(github.event.comment.body, '/gptme-resolve')
-          && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association))
+          && !github.event.issue.pull_request
+          && github.event.comment.author_association == 'OWNER')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
