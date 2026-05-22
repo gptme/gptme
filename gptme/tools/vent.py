@@ -70,8 +70,6 @@ def execute_vent(
             quiet=True,
         )
 
-    _vent_this_turn.set(True)
-
     entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "workspace": str(Path.cwd()),
@@ -82,6 +80,7 @@ def execute_vent(
     with ledger_path.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(entry) + "\n")
 
+    _vent_this_turn.set(True)
     logger.info("Vent recorded to %s", ledger_path)
     return Message("system", f"Friction signal recorded to {ledger_path}", quiet=True)
 
@@ -104,8 +103,9 @@ optionally classify the type:
 - **Type 2a** — solvable with a tool, permission, or config change
 - **Type 2b** — not solvable in the current stack
 
-Rate-limited to **one vent per turn** to prevent recursive venting.
-Signals are written to the friction ledger for offline analysis.
+Rate-limited to **one vent per turn** to prevent recursive venting spirals.
+Signals are written to the friction ledger for offline analysis and
+can be triaged to produce targeted fixes or lessons.
 """.strip(),
     examples="""
 > User: fix the failing test
