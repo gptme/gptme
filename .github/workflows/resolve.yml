@@ -1,12 +1,14 @@
 name: gptme-resolve
 
-# Triggered when a label is added to an issue.
-# When the "bot:resolve" label is applied, gptme tries to fix the issue
-# and opens a draft PR with the changes.
+# Triggered when the "bot:resolve" label is added to an issue, or when a
+# trusted user posts a "/gptme-resolve" comment macro.
+# gptme tries to fix the issue and opens a draft PR with the changes.
 
 on:
   issues:
     types: [labeled]
+  issue_comment:
+    types: [created]
 
 permissions:
   contents: write
@@ -15,8 +17,11 @@ permissions:
 
 jobs:
   resolve:
-    # Only run when the resolve label is added
-    if: github.event.label.name == 'bot:resolve'
+    if: |
+      (github.event_name == 'issues' && github.event.label.name == 'bot:resolve')
+      || (github.event_name == 'issue_comment'
+          && startsWith(github.event.comment.body, '/gptme-resolve')
+          && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
