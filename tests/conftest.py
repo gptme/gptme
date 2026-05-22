@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # Set at session start if Anthropic API quota is exhausted
 _anthropic_quota_exhausted = False
 
-# Error patterns that indicate API quota/rate-limit exhaustion
+# Error patterns that indicate API quota/rate-limit exhaustion or invalid credentials
 _QUOTA_ERROR_PATTERNS = [
     "usage limits",
     "rate limit",
@@ -36,6 +36,10 @@ _QUOTA_ERROR_PATTERNS = [
     "insufficient_quota",
     "exceeded your current quota",
     "spending limit",
+    # Authentication failures — treat as "can't run API tests"
+    "authentication_error",
+    "invalid x-api-key",
+    "invalid api key",
 ]
 
 
@@ -81,6 +85,11 @@ def _check_anthropic_quota_exhausted() -> bool:
         return False
     except anthropic.RateLimitError as e:
         logger.warning(f"Anthropic API rate limited: {e}")
+        return True
+    except anthropic.AuthenticationError as e:
+        logger.warning(
+            f"Anthropic API key invalid — requires_api tests will be skipped: {e}"
+        )
         return True
     except Exception:
         return False
