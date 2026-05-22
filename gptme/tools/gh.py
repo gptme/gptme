@@ -651,9 +651,16 @@ def execute_gh(
         yield from _passthrough_gh(args, code)
 
 
-instructions = """Use this tool when GitHub work needs fewer round-trips, structured CI data,
-or safer merges than a raw `gh` shell command. Prefer `gh` over shell whenever
-the target is a GitHub issue, PR, run, or merge action.
+instructions = """### When to use the gh tool
+
+Use the gh tool when working with GitHub issues, pull requests, CI runs, or
+merges — it collapses multiple API calls into one response, keeps CI state
+structured, and adds merge safety guards that are easy to miss with raw
+shell commands.
+
+Prefer `gh` over `shell` whenever the target is a GitHub issue, PR, run, or
+merge action. It reduces hallucination risk and token waste compared to reading
+raw JSON from `gh api` calls in the shell tool.
 
 Refs: full URLs, `owner/repo#N`, `#N`, or bare `N` in a git repo.
 
