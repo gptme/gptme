@@ -252,6 +252,10 @@ The restart preserves the current conversation by reloading it from disk.
 All command-line arguments are preserved in the new process.
 
 This tool is disabled by default and must be explicitly enabled with `--tools restart`.
+
+### When to use restart
+
+Use after modifying gptme configuration or tool files when a fresh process is needed to apply changes. Don't use as a workaround for unrelated errors — diagnose and fix the root cause instead.
 """,
     examples="""
 > User: restart gptme to apply the config changes

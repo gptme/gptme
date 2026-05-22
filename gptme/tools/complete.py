@@ -178,6 +178,10 @@ tool = ToolSpec(
 Use this tool to signal that you have completed your work and the autonomous session should end.
 
 Make sure you have actually completely finished before calling this tool.
+
+### When to use complete
+
+Use only after all requested work is done and committed. Do not call it mid-task or while blocked on something fixable — only call when work is genuinely finished or you have hit a hard blocker requiring human intervention.
 """,
     examples="""
 > User: Everything done, just complete
