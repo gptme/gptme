@@ -495,31 +495,22 @@ tool = ToolSpec(
     instructions="""
 ### When to use the mcp tool
 
-Use the mcp tool when you need to extend gptme's capabilities beyond its built-in tools:
-- Discover new tools with `/mcp search <capability>` when a built-in doesn't exist
-- Load an MCP server with `/mcp load <server-name>` to make its tools available
-- Check what's running with `/mcp list` before searching or loading duplicates
+Use mcp to discover, load, inspect, and manage MCP servers:
+- `/mcp search <capability>` finds new servers
+- `/mcp load <server-name>` loads one
+- `/mcp list` shows what is already loaded
 
-Do NOT use the mcp tool to call tools that are already loaded — invoke loaded
-server tools directly as `<server-name>.<tool-name>` instead.
+Do not use mcp to call loaded tools; invoke them directly as
+`<server-name>.<tool-name>`.
 
-Search, load, and manage MCP servers. Loaded server tools available as `<server-name>.<tool-name>`. Search queries the Official MCP Registry (registry.modelcontextprotocol.io).
+Search uses the Official MCP Registry (registry.modelcontextprotocol.io).
 
-**Resource Commands:**
-- `resources list <server>` - List available resources
-- `resources read <server> <uri>` - Read a resource by URI
-- `templates list <server>` - List resource templates
-
-**Prompt Commands:**
-- `prompts list <server>` - List available prompts
-- `prompts get <server> <name> [args]` - Get a prompt with optional args
-
-**Roots Commands** (operational boundaries):
-- `roots list [server]` - List configured roots
-- `roots add <server> <uri> [name]` - Add a root URI
-- `roots remove <server> <uri>` - Remove a root
-
-Roots are advisory URIs (file paths, HTTP URLs) defining workspace boundaries.
+Other commands:
+- `info <server>` shows server details
+- `resources list/read` browses server resources
+- `templates list` lists resource templates
+- `prompts list/get` lists or fetches prompts
+- `roots list/add/remove` manages advisory workspace roots
 """.strip(),
     examples=examples,
     execute=execute_mcp,
