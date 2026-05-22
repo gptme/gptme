@@ -698,7 +698,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f5c79e22ac0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f05bc7f6ac0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -2331,6 +2331,31 @@ Todo state is auto-replayed when resuming the conversation.
 <span class="s">clear completed</span>
 <span class="sb">```</span>
 
+<span class="gu">## vent</span>
+
+<span class="gs">**Description:**</span> Emit a real-time friction signal when stuck or frustrated
+
+<span class="gs">**Instructions:**</span> Use when you are stuck, frustrated, or hitting a repeated failure. Write a
+brief description of what you&#39;re trying to do, what&#39;s blocking you, and
+optionally classify the type:
+
+<span class="k">-</span><span class="w"> </span><span class="gs">**Type 1**</span> — solvable with better prompting or context
+<span class="k">-</span><span class="w"> </span><span class="gs">**Type 2a**</span> — solvable with a tool, permission, or config change
+<span class="k">-</span><span class="w"> </span><span class="gs">**Type 2b**</span> — not solvable in the current stack
+
+Using this tool creates a durable record so recurring blockers can be
+identified and fixed, improving your future performance on similar tasks.
+
+<span class="gu">### Examples</span>
+
+<span class="k">&gt; </span><span class="ge">User: fix the failing test</span>
+<span class="k">&gt; </span><span class="ge">Assistant:</span>
+<span class="sb">```vent</span>
+<span class="s">&gt; Stuck: test expects a dict but execute returns a plain string.</span>
+<span class="s">No kwarg to change the return shape; need to rethink the API.</span>
+<span class="s">&gt; Type: Type1 (need better spec)</span>
+<span class="sb">```</span>
+
 <span class="gu">## vision</span>
 
 <span class="gs">**Description:**</span> Viewing images
@@ -2390,7 +2415,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 13728</p>
+<p>Tokens: 13940</p>
 </dd></dl>
 
 <dl class="py function">
