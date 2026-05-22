@@ -37,9 +37,9 @@ _QUOTA_ERROR_PATTERNS = [
     "exceeded your current quota",
     "spending limit",
     # Authentication failures — treat as "can't run API tests"
-    "authentication_error",
-    "invalid x-api-key",
-    "invalid api key",
+    # Use provider-specific strings to avoid false-positive skips from other providers
+    "authentication_error",  # Anthropic error type
+    "invalid x-api-key",  # Anthropic HTTP header name
 ]
 
 
