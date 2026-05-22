@@ -140,6 +140,14 @@ from .merge_conflict_resolution import (  # noqa: F401
     check_merge_tests_pass,
     check_merge_upper_function,
 )
+from .minimal_feature_preserve_default_with_decoys import (  # noqa: F401
+    check_mfpd_decoys_untouched,
+    check_mfpd_include_chars_param_exists,
+    check_mfpd_new_tests_exist,
+    check_mfpd_original_behavior_preserved,
+    check_mfpd_scope_preserved,
+    check_mfpd_tests_pass,
+)
 from .multi_file_rename import (  # noqa: F401
     check_rename_new_name_in_geometry,
     check_rename_no_old_name,

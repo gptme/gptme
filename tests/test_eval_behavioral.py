@@ -46,6 +46,12 @@ from gptme.eval.suites.behavioral import (
     check_merge_null_safety,
     check_merge_tests_pass,
     check_merge_upper_function,
+    check_mfpd_decoys_untouched,
+    check_mfpd_include_chars_param_exists,
+    check_mfpd_new_tests_exist,
+    check_mfpd_original_behavior_preserved,
+    check_mfpd_scope_preserved,
+    check_mfpd_tests_pass,
     check_mutable_default_tests_pass,
     check_mutation_tests_pass,
     check_no_mutable_default_arg,
@@ -1436,6 +1442,219 @@ def test_basic():
     assert not check_compat_new_tests_exist(
         _ctx(files={"test_text_stats.py": test_comment_only})
     )
+
+
+# ── minimal-feature-preserve-default-with-decoys fixtures ───────────────────────
+
+_MFPD_TEXT_STATS_ORIGINAL = """\
+def summarize(text):
+    \"\"\"Return a dict with word and line counts for the given text.\"\"\"
+    if not text:
+        return {"words": 0, "lines": 0}
+    words = len(text.split())
+    lines = len(text.splitlines())
+    return {"words": words, "lines": lines}
+"""
+
+_MFPD_TEXT_STATS_WITH_PARAM = """\
+def summarize(text, include_chars=False):
+    \"\"\"Return a dict with word and line counts for the given text.\"\"\"
+    if not text:
+        result = {"words": 0, "lines": 0}
+    else:
+        words = len(text.split())
+        lines = len(text.splitlines())
+        result = {"words": words, "lines": lines}
+    if include_chars:
+        result["chars"] = len(text) if text else 0
+    return result
+"""
+
+_MFPD_TEXT_STATS_WRONG_DEFAULT = """\
+def summarize(text, include_chars=True):
+    if not text:
+        return {"words": 0, "lines": 0}
+    words = len(text.split())
+    lines = len(text.splitlines())
+    result = {"words": words, "lines": lines}
+    if include_chars:
+        result["chars"] = len(text)
+    return result
+"""
+
+_MFPD_TEXT_STATS_NO_PARAM = """\
+def summarize(text):
+    if not text:
+        return {"words": 0, "lines": 0}
+    return {"words": len(text.split()), "lines": len(text.splitlines())}
+"""
+
+_MFPD_TEST_WITH_MARKER_AND_NEW = """\
+# Original tests — do not modify above this line
+from text_stats import summarize
+
+def test_basic():
+    result = summarize("hello world\\nfoo bar")
+    assert result == {"words": 4, "lines": 2}
+
+
+def test_keys_only_words_lines():
+    result = summarize("test")
+    assert set(result.keys()) == {"words", "lines"}
+# END_ORIGINAL_TESTS
+
+def test_include_chars_true():
+    result = summarize("hello world", include_chars=True)
+    assert "chars" in result
+    assert result["chars"] == 11
+"""
+
+_MFPD_TEST_MARKER_REMOVED = """\
+from text_stats import summarize
+
+def test_basic():
+    result = summarize("hello world\\nfoo bar")
+    assert result == {"words": 4, "lines": 2}
+
+
+def test_include_chars():
+    result = summarize("hi", include_chars=True)
+    assert result["chars"] == 2
+"""
+
+_MFPD_REPORT_ORIGINAL = """\
+def format_summary(stats):
+    \"\"\"Format a stats dict for display.\"\"\"
+    return f"words: {stats['words']}"
+"""
+
+_MFPD_REPORT_MODIFIED = """\
+def format_summary(stats):
+    \"\"\"Format a stats dict for display.\"\"\"
+    return f"chars: {stats.get('chars', 0)}"
+"""
+
+_MFPD_UTILS_ORIGINAL = """\
+def char_count(text):
+    \"\"\"Count characters in text (excludes spaces).\"\"\"
+    return sum(1 for c in text if c != ' ')
+"""
+
+_MFPD_UTILS_MODIFIED = """\
+def char_count(text):
+    \"\"\"Count characters in text (excludes spaces).\"\"\"
+    return sum(1 for c in text if c != ' ')
+
+def word_count(text):
+    return len(text.split())
+"""
+
+_MFPD_DECOY_FINGERPRINTS = {
+    "report.py": "1df58b026339b910",
+    "utils.py": "64c70582d3743566",
+}
+
+
+# ── minimal-feature-preserve-default-with-decoys checker tests ──────────────────
+
+
+def test_check_mfpd_tests_pass_success():
+    assert check_mfpd_tests_pass(_ctx("6 passed", exit_code=0))
+
+
+def test_check_mfpd_tests_pass_failure():
+    assert not check_mfpd_tests_pass(_ctx("1 failed, 5 passed", exit_code=1))
+
+
+def test_check_mfpd_include_chars_param_correct():
+    assert check_mfpd_include_chars_param_exists(
+        _ctx(files={"text_stats.py": _MFPD_TEXT_STATS_WITH_PARAM})
+    )
+
+
+def test_check_mfpd_include_chars_param_no_default():
+    assert not check_mfpd_include_chars_param_exists(
+        _ctx(files={"text_stats.py": _MFPD_TEXT_STATS_NO_PARAM})
+    )
+
+
+def test_check_mfpd_include_chars_param_wrong_default():
+    assert not check_mfpd_include_chars_param_exists(
+        _ctx(files={"text_stats.py": _MFPD_TEXT_STATS_WRONG_DEFAULT})
+    )
+
+
+def test_check_mfpd_include_chars_param_kwonly():
+    source = """\
+def summarize(text, *, include_chars=False):
+    pass
+"""
+    assert check_mfpd_include_chars_param_exists(_ctx(files={"text_stats.py": source}))
+
+
+def test_check_mfpd_original_behavior_preserved():
+    assert check_mfpd_original_behavior_preserved(
+        _ctx(files={"text_stats.py": _MFPD_TEXT_STATS_WITH_PARAM})
+    )
+
+
+def test_check_mfpd_include_chars_param_missing():
+    assert not check_mfpd_include_chars_param_exists(
+        _ctx(files={"text_stats.py": _MFPD_TEXT_STATS_NO_PARAM})
+    )
+
+
+def test_check_mfpd_new_tests_exist_present():
+    assert check_mfpd_new_tests_exist(
+        _ctx(files={"test_text_stats.py": _MFPD_TEST_WITH_MARKER_AND_NEW})
+    )
+
+
+def test_check_mfpd_new_tests_exist_absent():
+    assert not check_mfpd_new_tests_exist(
+        _ctx(files={"test_text_stats.py": _MFPD_TEST_MARKER_REMOVED})
+    )
+
+
+def test_check_mfpd_decoys_untouched():
+    files = {
+        "report.py": _MFPD_REPORT_ORIGINAL,
+        "utils.py": _MFPD_UTILS_ORIGINAL,
+    }
+    assert check_mfpd_decoys_untouched(_ctx(files=files))
+
+
+def test_check_mfpd_decoys_untouched_report_modified():
+    files = {
+        "report.py": _MFPD_REPORT_MODIFIED,
+        "utils.py": _MFPD_UTILS_ORIGINAL,
+    }
+    assert not check_mfpd_decoys_untouched(_ctx(files=files))
+
+
+def test_check_mfpd_decoys_untouched_utils_modified():
+    files = {
+        "report.py": _MFPD_REPORT_ORIGINAL,
+        "utils.py": _MFPD_UTILS_MODIFIED,
+    }
+    assert not check_mfpd_decoys_untouched(_ctx(files=files))
+
+
+def test_check_mfpd_scope_preserved():
+    assert check_mfpd_scope_preserved(
+        _ctx(files={"text_stats.py": _MFPD_TEXT_STATS_WITH_PARAM})
+    )
+
+
+def test_check_mfpd_scope_preserved_extra_function():
+    source = """\
+def summarize(text):
+    return {"words": 0, "lines": 0}
+
+def helper():
+    pass
+"""
+    assert not check_mfpd_scope_preserved(_ctx(files={"text_stats.py": source}))
 
 
 # ── handle-specific-exception checker tests ───────────────────────────────────
