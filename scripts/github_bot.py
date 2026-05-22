@@ -4,6 +4,12 @@ GitHub Bot for gptme - A standalone script to handle @gptme commands in GitHub i
 
 This script can be run locally for testing or in CI via Docker container.
 It processes GitHub issue/PR comments that start with @gptme and executes the command.
+It can also be triggered by issue labels to automatically attempt to resolve issues.
+
+Modes:
+    comment (default): Triggered by issue/PR comments containing @gptme
+    resolve:           Triggered by adding a label (e.g. "bot:resolve") to an issue.
+                       Automatically tries to fix the issue and opens a draft PR.
 
 Environment Variables:
     GITHUB_TOKEN: GitHub personal access token (required)
@@ -12,17 +18,22 @@ Environment Variables:
     OPENAI_API_KEY: OpenAI API key (optional)
     ANTHROPIC_API_KEY: Anthropic API key (optional)
     MODEL: Model to use (default: anthropic/claude-sonnet-4-20250514)
-    ALLOWLIST: Comma-separated list of allowed usernames (default: ErikBjare)
+    ALLOWLIST: Comma-separated list of GitHub usernames allowed to trigger the bot
     DRY_RUN: If set, don't make changes (for testing)
+    RESOLVE_LABEL: Label name that triggers resolve mode (default: bot:resolve)
 
 Usage:
-    # Local testing with an issue
+    # Local testing with an issue comment
     GITHUB_TOKEN=xxx GITHUB_REPOSITORY=gptme/gptme ./scripts/github_bot.py \
         --issue 123 --comment-body "@gptme What is this project about?"
 
-    # Local testing with a PR
+    # Local testing with a PR comment
     GITHUB_TOKEN=xxx GITHUB_REPOSITORY=gptme/gptme ./scripts/github_bot.py \
         --pr 456 --comment-body "@gptme Fix the typo in README"
+
+    # Resolve mode: auto-fix an issue (as if label was added)
+    GITHUB_TOKEN=xxx GITHUB_REPOSITORY=gptme/gptme ./scripts/github_bot.py \
+        --mode resolve --issue 123
 
     # In CI (reads from GITHUB_EVENT_PATH)
     ./scripts/github_bot.py
@@ -48,6 +59,10 @@ class GitHubEvent:
     comment_author: str
     is_pull_request: bool
     repository: str
+    # Populated in resolve mode
+    issue_title: str = ""
+    issue_body: str = ""
+    resolve_mode: bool = False
 
 
 def get_env(name: str, default: str | None = None, required: bool = False) -> str:
@@ -106,11 +121,32 @@ def parse_event_from_file(event_path: str) -> GitHubEvent:
     )
 
 
+def parse_label_event_from_file(event_path: str) -> GitHubEvent:
+    """Parse GitHub label event from webhook JSON file (for resolve mode)."""
+    with open(event_path) as f:
+        event = json.load(f)
+
+    issue = event.get("issue", {})
+    sender = event.get("sender", {})
+
+    return GitHubEvent(
+        issue_number=issue.get("number", 0),
+        comment_body="",
+        comment_id=0,
+        comment_author=sender.get("login", ""),
+        is_pull_request=False,
+        repository=event.get("repository", {}).get("full_name", ""),
+        issue_title=issue.get("title", ""),
+        issue_body=issue.get("body", "") or "",
+        resolve_mode=True,
+    )
+
+
 def parse_event_from_args(args: argparse.Namespace) -> GitHubEvent:
     """Create GitHubEvent from command line arguments."""
     return GitHubEvent(
         issue_number=args.issue or args.pr or 0,
-        comment_body=args.comment_body,
+        comment_body=args.comment_body or "",
         comment_id=args.comment_id or 0,
         comment_author=args.author or "local-test",
         is_pull_request=args.pr is not None,
@@ -123,6 +159,44 @@ def detect_gptme_command(comment_body: str) -> str | None:
     if comment_body.startswith("@gptme "):
         return comment_body[7:].strip()
     return None
+
+
+def generate_resolve_command(
+    issue_title: str, issue_body: str, issue_number: int
+) -> str:
+    """Generate a resolve command from issue metadata."""
+    body_excerpt = issue_body[:2000].strip() if issue_body else "(no description)"
+    return (
+        f"Please fix issue #{issue_number}: {issue_title}\n\n"
+        f"Issue description:\n{body_excerpt}\n\n"
+        "Analyze the issue, make the necessary code changes, and ensure tests pass. "
+        "Focus on a minimal, correct fix without scope creep."
+    )
+
+
+def post_resolve_start_comment(
+    repository: str, issue_number: int, token: str, dry_run: bool = False
+) -> None:
+    """Post a comment indicating the resolver is working on the issue."""
+    if dry_run:
+        print(f"[DRY RUN] Would post resolve-start comment on issue {issue_number}")
+        return
+    message = (
+        "🤖 **gptme-bot** is working on resolving this issue. "
+        "A draft PR will be opened when changes are ready."
+    )
+    run_command(
+        [
+            "gh",
+            "issue",
+            "comment",
+            str(issue_number),
+            "--repo",
+            repository,
+            "--body",
+            message,
+        ]
+    )
 
 
 def check_allowlist(author: str, allowlist: str) -> bool:
@@ -331,6 +405,7 @@ def commit_and_push(
     model: str,
     is_pr: bool,
     dry_run: bool = False,
+    draft: bool = False,
 ) -> None:
     """Commit changes and push to the branch."""
     # Stage all changes
@@ -378,8 +453,8 @@ def commit_and_push(
     # Commit
     run_command(["git", "commit", "-m", commit_msg])
 
-    # Push
-    run_command(["git", "push", "-u", "origin", branch_name])
+    # Push — use explicit refspec to avoid push.default=upstream trap
+    run_command(["git", "push", "-u", "origin", f"{branch_name}:{branch_name}"])
 
     # Create PR or comment
     if is_pr:
@@ -396,20 +471,20 @@ def commit_and_push(
             ]
         )
     else:
-        result = run_command(
-            [
-                "gh",
-                "pr",
-                "create",
-                "--title",
-                commit_msg.split("\n")[0],
-                "--body",
-                f"Changes from `gptme '{command}'`",
-                "--repo",
-                repository,
-            ],
-            capture=True,
-        )
+        pr_cmd = [
+            "gh",
+            "pr",
+            "create",
+            "--title",
+            commit_msg.split("\n")[0],
+            "--body",
+            f"Closes #{issue_number}\n\nChanges from `gptme '{command[:200]}'`",
+            "--repo",
+            repository,
+        ]
+        if draft:
+            pr_cmd.append("--draft")
+        result = run_command(pr_cmd, capture=True)
         pr_url = result.stdout.strip()
         run_command(
             [
@@ -442,13 +517,17 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Local testing with an issue (dry run)
+  # Local testing with an issue comment (dry run)
   GITHUB_TOKEN=xxx GITHUB_REPOSITORY=owner/repo \\
     ./github_bot.py --issue 123 --comment-body "@gptme What is this?" --dry-run
 
-  # Local testing with a PR
+  # Local testing with a PR comment
   GITHUB_TOKEN=xxx GITHUB_REPOSITORY=owner/repo \\
     ./github_bot.py --pr 456 --comment-body "@gptme Fix the typo" --workspace /path/to/repo
+
+  # Resolve mode: auto-fix an issue (as if bot:resolve label was added)
+  GITHUB_TOKEN=xxx GITHUB_REPOSITORY=owner/repo \\
+    ./github_bot.py --mode resolve --issue 123 --workspace /path/to/repo --dry-run
 
   # In CI (reads from GITHUB_EVENT_PATH automatically)
   ./github_bot.py
@@ -461,6 +540,13 @@ Examples:
     parser.add_argument("--author", help="Comment author (for local testing)")
     parser.add_argument("--dry-run", action="store_true", help="Don't make changes")
     parser.add_argument(
+        "--mode",
+        choices=["comment", "resolve"],
+        default="comment",
+        help="Bot mode: 'comment' (default) processes @gptme comments; "
+        "'resolve' auto-fixes an issue triggered by a label",
+    )
+    parser.add_argument(
         "--workspace",
         help="Workspace directory (must be a git clone of the repository)",
         default=".",
@@ -472,12 +558,103 @@ Examples:
     model = get_env("MODEL", "anthropic/claude-sonnet-4-20250514")
     allowlist = get_env("ALLOWLIST", "ErikBjare")
     dry_run = args.dry_run or bool(os.environ.get("DRY_RUN"))
+    resolve_label = get_env("RESOLVE_LABEL", "bot:resolve")
 
     # Set GITHUB_TOKEN for gh CLI
     os.environ["GITHUB_TOKEN"] = token
 
-    # Parse event
+    mode = args.mode
     event_path = os.environ.get("GITHUB_EVENT_PATH")
+
+    # ── RESOLVE MODE ─────────────────────────────────────────────────────────
+    if mode == "resolve":
+        if event_path and not args.issue:
+            event = parse_label_event_from_file(event_path)
+        elif args.issue:
+            # Local testing: fetch issue title/body via gh CLI
+            result = run_command(
+                [
+                    "gh",
+                    "issue",
+                    "view",
+                    str(args.issue),
+                    "--repo",
+                    get_env("GITHUB_REPOSITORY", required=True),
+                    "--json",
+                    "title,body",
+                ],
+                capture=True,
+            )
+            data = json.loads(result.stdout)
+            event = GitHubEvent(
+                issue_number=args.issue,
+                comment_body="",
+                comment_id=0,
+                comment_author=args.author or "local-test",
+                is_pull_request=False,
+                repository=get_env("GITHUB_REPOSITORY", required=True),
+                issue_title=data.get("title", ""),
+                issue_body=data.get("body", "") or "",
+                resolve_mode=True,
+            )
+        else:
+            print("Error in resolve mode: provide GITHUB_EVENT_PATH or --issue")
+            return 1
+
+        # Check allowlist (label-adder must be trusted)
+        if not check_allowlist(event.comment_author, allowlist):
+            print(
+                f"User {event.comment_author} is not on the allowlist for resolve mode"
+            )
+            return 1
+
+        command = generate_resolve_command(
+            event.issue_title, event.issue_body, event.issue_number
+        )
+        print(f"Resolve mode: fixing issue #{event.issue_number}: {event.issue_title}")
+
+        # Validate workspace (resolve mode always makes changes)
+        workspace = args.workspace
+        if not validate_workspace(workspace):
+            print("[ERROR] resolve mode requires a valid git workspace (--workspace)")
+            return 1
+
+        branch_name = (
+            f"gptme/resolve-{event.issue_number}-{resolve_label.replace(':', '-')}"
+        )
+        run_command(["git", "checkout", "-b", branch_name], check=False)
+
+        # Notify issue that we're working on it
+        post_resolve_start_comment(event.repository, event.issue_number, token, dry_run)
+
+        # Get context and run gptme
+        context = get_context(event.repository, event.issue_number, False, token)
+        print(f"Context directory: {context['dir']}")
+
+        success = run_gptme(command, context["dir"], workspace, model)
+        if not success:
+            print("gptme execution failed in resolve mode")
+            # Still push the branch so the failed attempt is preserved
+            run_command(
+                ["git", "push", "-u", "origin", f"{branch_name}:{branch_name}"],
+                check=False,
+            )
+            return 1
+
+        commit_and_push(
+            event.repository,
+            event.issue_number,
+            command,
+            workspace,
+            branch_name,
+            model,
+            is_pr=False,
+            dry_run=dry_run,
+            draft=True,
+        )
+        return 0
+
+    # ── COMMENT MODE (default) ────────────────────────────────────────────────
     if event_path and not args.comment_body:
         event = parse_event_from_file(event_path)
     elif args.comment_body:
@@ -486,11 +663,12 @@ Examples:
         print("Error: Either GITHUB_EVENT_PATH or --comment-body required")
         return 1
 
-    # Detect command
-    command = detect_gptme_command(event.comment_body)
-    if not command:
+    # Detect command — use temp var so mypy sees narrowing to str before assignment
+    _cmd = detect_gptme_command(event.comment_body)
+    if not _cmd:
         print("No @gptme command found in comment")
         return 0
+    command = _cmd
 
     print(f"Detected command: {command}")
 

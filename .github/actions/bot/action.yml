@@ -18,6 +18,10 @@ inputs:
     description: 'Comma-separated list of GitHub usernames allowed to trigger the bot'
     required: true
     default: 'ErikBjare'
+  mode:
+    description: 'Bot mode: "comment" (default) or "resolve" (label-triggered issue resolution)'
+    required: false
+    default: 'comment'
 
 runs:
   using: "composite"
@@ -39,11 +43,19 @@ runs:
       shell: bash
       run: |
         mkdir -p ~/.config/gptme
-        cat > ~/.config/gptme/config.toml << EOF
+        if [ "${{ inputs.mode }}" = "resolve" ]; then
+          cat > ~/.config/gptme/config.toml << EOF
+        [prompt]
+        about_user = "You are the gptme-bot operating in issue-resolver mode. You have been triggered by a label on a GitHub issue. Your task is to read the issue, understand what fix is needed, implement the changes, and create a draft PR."
+        response_preference = "Don't explain basic concepts. Focus on making the minimal correct fix."
+        EOF
+        else
+          cat > ~/.config/gptme/config.toml << EOF
         [prompt]
         about_user = "The user is talking to the gptme bot through GitHub comments. They have initiated conversation by pinging it with @gptme, triggering a GitHub Action in which gptme now runs."
         response_preference = "Don't explain basic concepts"
         EOF
+        fi
 
     - name: Run GitHub Bot
       shell: bash
@@ -56,11 +68,16 @@ runs:
         GITHUB_REPOSITORY: ${{ github.repository }}
         GITHUB_EVENT_PATH: ${{ github.event_path }}
       run: |
-        # Download github_bot.py from gptme repo (enables use as reusable action)
+        # Prefer the local script when running inside the gptme repo itself.
+        # Fall back to downloading a pinned version for use as a reusable external action.
         # Pin to specific commit for supply chain security (ba3c0233)
-        SCRIPT_URL="https://raw.githubusercontent.com/gptme/gptme/ba3c0233f5f047ef210c732fb59d0c52b9bdd9e5/scripts/github_bot.py"
-        curl -fsL "$SCRIPT_URL" > /tmp/github_bot.py
-        python /tmp/github_bot.py
+        if [ -f "scripts/github_bot.py" ]; then
+          cp scripts/github_bot.py /tmp/github_bot.py
+        else
+          SCRIPT_URL="https://raw.githubusercontent.com/gptme/gptme/ba3c0233f5f047ef210c732fb59d0c52b9bdd9e5/scripts/github_bot.py"
+          curl -fsL "$SCRIPT_URL" > /tmp/github_bot.py
+        fi
+        python /tmp/github_bot.py --mode ${{ inputs.mode }} --workspace .
 
     - name: Report error
       if: failure()

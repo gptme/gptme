@@ -1,0 +1,30 @@
+name: gptme-resolve
+
+# Triggered when a label is added to an issue.
+# When the "bot:resolve" label is applied, gptme tries to fix the issue
+# and opens a draft PR with the changes.
+
+on:
+  issues:
+    types: [labeled]
+
+permissions: write-all
+
+jobs:
+  resolve:
+    # Only run when the resolve label is added
+    if: github.event.label.name == 'bot:resolve'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run gptme-resolver
+        uses: ./.github/actions/bot
+        with:
+          model: 'anthropic/claude-sonnet-4-6'
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          allowlist: "ErikBjare"
+          mode: resolve
