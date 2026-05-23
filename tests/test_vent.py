@@ -135,6 +135,23 @@ class TestParseResolutionOwner:
         assert msg == "Need a key"
         assert owner == "tooling"
 
+    @pytest.mark.parametrize(
+        "trailer", ["tooling.", "tooling!", "operator,", "self;", "upstream?"]
+    )
+    def test_trailing_punctuation_tolerated(self, trailer):
+        # Agents often end the tag line with sentence punctuation; the owner
+        # should still be captured rather than silently dropped.
+        expected = trailer.rstrip(".,;:!?")
+        msg, owner = _parse_resolution_owner(f"Blocked on X\nOwner: {trailer}")
+        assert msg == "Blocked on X"
+        assert owner == expected
+
+    def test_internal_hyphen_not_misparsed(self):
+        # Stripping terminal punctuation must not turn "self-evident" into "self".
+        msg, owner = _parse_resolution_owner("Stuck\nOwner: self-evident")
+        assert msg == "Stuck\nOwner: self-evident"
+        assert owner is None
+
     def test_resolution_keyword_and_equals_separator(self):
         msg, owner = _parse_resolution_owner("Stuck\nResolution = upstream")
         assert msg == "Stuck"

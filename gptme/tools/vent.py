@@ -99,6 +99,10 @@ def _parse_resolution_owner(code: str) -> tuple[str, str | None]:
     raw = match.group(1).strip()
     before_paren = raw.split("(", 1)[0]
     token = before_paren.split()[0].lower() if before_paren.split() else ""
+    # Tolerate trailing sentence punctuation, e.g. "tooling." or "self!".
+    # Only strips the ends, so internal characters like the hyphen in
+    # "self-evident" are preserved (and stay an unrecognized token).
+    token = token.strip(".,;:!?")
     owner = _DEPRECATED_TYPE_MAP.get(token, token)
     if owner not in VALID_OWNERS:
         return code.strip(), None
