@@ -698,7 +698,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fde0dfeaac0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f9152bceac0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1047,6 +1047,7 @@ The following Python functions are available using the <span class="sb">`ipython
 <span class="gs">**Description:**</span> Present multiple-choice options to the user for selection
 
 <span class="gs">**Instructions:**</span> The options can be provided as a question on the first line and each option on a separate line.
+When using the ``options`` keyword argument, options may also be comma-separated.
 
 The tool will present an interactive menu allowing the user to select an option using arrow keys and Enter, or by typing the number of the option.
 
@@ -2419,7 +2420,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 14020</p>
+<p>Tokens: 14037</p>
 </dd></dl>
 
 <dl class="py function">
