@@ -196,4 +196,20 @@ describe('getApiErrorPresentation', () => {
       description: 'Boom',
     });
   });
+
+  it('elevates authentication errors to an authentication-failed title', () => {
+    const error = new ApiClientError('Invalid or expired token.', 401, {
+      type: 'authentication_error',
+    });
+
+    expect(
+      getApiErrorPresentation(error, {
+        fallbackTitle: 'Failed to send',
+        fallbackDescription: 'Failed to send message',
+      })
+    ).toEqual({
+      title: 'Authentication failed',
+      description: 'Invalid or expired token.',
+    });
+  });
 });

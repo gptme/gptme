@@ -515,13 +515,18 @@ export function useConversation(conversationId: string, serverId?: string) {
           setPendingTool(conversationId, null, null);
         }
 
+        const fallbackDescription =
+          attempt > 1
+            ? `Failed to confirm tool after ${attempt} attempts`
+            : 'Failed to confirm tool';
+        const { title, description } = getApiErrorPresentation(error, {
+          fallbackTitle: 'Error',
+          fallbackDescription,
+        });
         toast({
           variant: 'destructive',
-          title: 'Error',
-          description:
-            attempt > 1
-              ? `Failed to confirm tool after ${attempt} attempts`
-              : 'Failed to confirm tool',
+          title,
+          description,
         });
 
         throw error;
