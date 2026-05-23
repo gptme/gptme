@@ -119,10 +119,9 @@ site: site/dist/index.html site/dist/docs site/dist/downloads/index.html
 .PHONY: site/dist/index.html
 site/dist/index.html: README.md site/dist/style.css site/template.html
 	mkdir -p site/dist
-	sed '1s/Website/GitHub/;1s|https://gptme.org/|https://github.com/gptme/gptme|' README.md | \
-	cat README.md \
+	awk 'BEGIN { skip=0 } /^## .*Table of Contents$$/ { skip=1; next } skip && /^## / { skip=0 } !skip { print }' README.md \
 		| sed '0,/Website/{s/Website/GitHub/}' - \
-		| sed '0,/gptme.org\/\"/{s/gptme.org\/\"/github.com\/ErikBjare\/gptme\"/}' - \
+		| sed '0,/gptme.org\/\"/{s/gptme.org\/\"/github.com\/gptme\/gptme\"/}' - \
 		| pandoc -s -f gfm -t html5 -o $@ --metadata title="gptme - agent in your terminal" --css style.css --template=site/template.html
 	cp -r media site/dist
 
