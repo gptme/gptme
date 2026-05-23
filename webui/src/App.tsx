@@ -7,16 +7,18 @@ import { ThemeProvider } from 'next-themes';
 import { ApiProvider } from './contexts/ApiContext';
 import { EmbeddedContextProvider } from './contexts/EmbeddedContext';
 import { SettingsProvider } from './contexts/SettingsContext';
-import Index from './pages/Index';
-import Tasks from './pages/Tasks';
-import Workspace from './pages/Workspace';
-import Agents from './pages/Agents';
-import Workspaces from './pages/Workspaces';
-import History from './pages/History';
-import ExternalSessions from './pages/ExternalSessions';
+import { lazy, Suspense } from 'react';
 import { CommandPalette } from './components/CommandPalette';
 import { SetupWizard } from './components/SetupWizard';
-import type { FC } from 'react';
+
+// Lazy-loaded route pages — code-split at route boundaries for smaller initial bundle
+const Index = lazy(() => import('./pages/Index'));
+const Tasks = lazy(() => import('./pages/Tasks'));
+const Workspace = lazy(() => import('./pages/Workspace'));
+const Agents = lazy(() => import('./pages/Agents'));
+const Workspaces = lazy(() => import('./pages/Workspaces'));
+const History = lazy(() => import('./pages/History'));
+const ExternalSessions = lazy(() => import('./pages/ExternalSessions'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -41,7 +43,14 @@ const queryClient = new QueryClient({
   },
 });
 
-const App: FC = () => {
+/** Lightweight fallback shown while a lazy-route chunk is loading. */
+const RouteLoader: React.FC = () => (
+  <div className="flex h-64 items-center justify-center">
+    <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary" />
+  </div>
+);
+
+const App: React.FC = () => {
   return (
     <EmbeddedContextProvider>
       <SettingsProvider>
@@ -61,18 +70,20 @@ const App: FC = () => {
                     v7_relativeSplatPath: true,
                   }}
                 >
-                  <Routes>
-                    <Route path="/" element={<Index />} />
-                    <Route path="/chat" element={<Index />} />
-                    <Route path="/chat/:id" element={<Index />} />
-                    <Route path="/tasks" element={<Tasks />} />
-                    <Route path="/tasks/:id" element={<Tasks />} />
-                    <Route path="/agents" element={<Agents />} />
-                    <Route path="/workspaces" element={<Workspaces />} />
-                    <Route path="/history" element={<History />} />
-                    <Route path="/external-sessions" element={<ExternalSessions />} />
-                    <Route path="/workspace/:id" element={<Workspace />} />
-                  </Routes>
+                  <Suspense fallback={<RouteLoader />}>
+                    <Routes>
+                      <Route path="/" element={<Index />} />
+                      <Route path="/chat" element={<Index />} />
+                      <Route path="/chat/:id" element={<Index />} />
+                      <Route path="/tasks" element={<Tasks />} />
+                      <Route path="/tasks/:id" element={<Tasks />} />
+                      <Route path="/agents" element={<Agents />} />
+                      <Route path="/workspaces" element={<Workspaces />} />
+                      <Route path="/history" element={<History />} />
+                      <Route path="/external-sessions" element={<ExternalSessions />} />
+                      <Route path="/workspace/:id" element={<Workspace />} />
+                    </Routes>
+                  </Suspense>
                   <SetupWizard />
                   <CommandPalette />
                   <Toaster />
