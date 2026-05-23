@@ -361,8 +361,10 @@ class HybridLessonMatcher(LessonMatcher):
 
         # Use description field for semantic matching — it encodes "when to use" in prose,
         # which is more informative than raw body text for retrieval.
-        # Prefer explicit frontmatter description, fall back to extracted first-paragraph.
-        desc = lesson.metadata.description or lesson.description
+        # Prefer explicit frontmatter description, fall back to extracted first-paragraph,
+        # then fall back to body[:500] so title-only embedding never silently degrades
+        # lessons that have no description field.
+        desc = lesson.metadata.description or lesson.description or lesson.body[:500]
         lesson_text = f"{lesson.title}\n{desc}"
         lesson_embed = self.embedder.encode(lesson_text, convert_to_numpy=True)
 

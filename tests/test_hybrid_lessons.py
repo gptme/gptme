@@ -444,6 +444,22 @@ def test_semantic_score_uses_description_field():
     assert "Extracted paragraph" in encoded_text
     assert "## Rule" not in encoded_text
 
+    # Fallback to body[:500] when both descriptions are absent — prevents title-only embedding
+    mock_embedder.reset_mock()
+    mock_embedder.encode.return_value = np.ones(384) / np.sqrt(384)
+    lesson_no_desc = Lesson(
+        path=Path("/tmp/lessons/no-desc.md"),
+        metadata=LessonMetadata(),  # no frontmatter description
+        title="No Description Lesson",
+        description="",  # extracted description also empty
+        category="tools",
+        body="## Rule\nDo the right thing.\n\n```bash\necho ok\n```",
+    )
+    matcher._semantic_score(query_embed, lesson_no_desc, context)
+    encoded_text = mock_embedder.encode.call_args[0][0]
+    assert "## Rule" in encoded_text  # body content must appear as last resort
+    assert "No Description Lesson" in encoded_text  # title still present
+
 
 @pytest.mark.timeout(30)
 def test_hybrid_matcher_does_not_eagerly_import_sentence_transformers():
