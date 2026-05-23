@@ -35,7 +35,7 @@ test.describe('Setup wizard', () => {
     await expect(
       page.getByRole('heading', { name: /local setup|remote server setup/i })
     ).toBeVisible();
-    await expect(page.getByRole('button', { name: /connect/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Connect' })).toBeVisible();
   });
 
   test('skip persists setup completion', async ({ page }) => {
