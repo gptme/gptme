@@ -70,12 +70,15 @@ runs:
       run: |
         # Prefer the local script when running inside the gptme repo itself.
         # Fall back to downloading a pinned version for use as a reusable external action.
-        # Pin to specific commit for supply chain security (248aac98)
+        # Pin to specific commit for supply chain security (248aac98).
+        # When bumping the pin, update SCRIPT_SHA256 to match the new commit's script.
+        SCRIPT_SHA256="331d70f7c3e77544a2a4d017e2e243324726a2043de39f73ff0e5ed0f6a7ca16"
         if [ -f "scripts/github_bot.py" ]; then
           cp scripts/github_bot.py /tmp/github_bot.py
         else
           SCRIPT_URL="https://raw.githubusercontent.com/gptme/gptme/248aac98c02113009837c4b582dd72ed0604dd63/scripts/github_bot.py"
           curl -fsL "$SCRIPT_URL" > /tmp/github_bot.py
+          echo "${SCRIPT_SHA256}  /tmp/github_bot.py" | sha256sum -c -
         fi
         python /tmp/github_bot.py --mode "${{ inputs.mode }}" --workspace .
 
