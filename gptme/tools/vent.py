@@ -25,8 +25,9 @@ at analysis time, so keep the capture label thin:
   upstream      Needs a fix in a dependency we don't own
   architectural Not solvable in the current stack design
 
-The deprecated ``Type`` labels are still accepted as aliases
-(Type1->self, Type2a->tooling, Type2b->architectural, Type0->operator).
+The ``Type`` keyword accepts both deprecated legacy aliases
+(Type1->self, Type2a->tooling, Type2b->architectural, Type0->operator) and
+current taxonomy values (e.g. ``Type: self``, ``Type: tooling``).
 """
 
 from __future__ import annotations
@@ -96,9 +97,8 @@ def _parse_resolution_owner(code: str) -> tuple[str, str | None]:
 
     # Drop any parenthetical note, e.g. "tooling (need API key)" -> "tooling".
     raw = match.group(1).strip()
-    token = (
-        raw.split("(", 1)[0].split()[0].lower() if raw.split("(", 1)[0].split() else ""
-    )
+    before_paren = raw.split("(", 1)[0]
+    token = before_paren.split()[0].lower() if before_paren.split() else ""
     owner = _DEPRECATED_TYPE_MAP.get(token, token)
     if owner not in VALID_OWNERS:
         return code.strip(), None
@@ -164,10 +164,10 @@ optionally tag who/what would unblock it on a final line (``Owner: <owner>``):
 - **upstream** — needs a fix in a dependency we don't own
 - **architectural** — not solvable in the current stack design
 
-The owner tag is optional and intentionally small; richer cause analysis
-happens later over the ledger. Using this tool creates a durable record so
-recurring blockers can be identified and fixed, improving your future
-performance on similar tasks.
+Tag it when you know who would unblock you — the tag is optional, and an
+imprecise guess is more useful than none. Using this tool creates a durable
+record so recurring blockers can be identified and fixed, improving your
+future performance on similar tasks.
 """.strip(),
     examples="""
 > User: fix the failing test
