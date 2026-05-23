@@ -13,6 +13,7 @@ from .base import (
 
 instructions = """
 The options can be provided as a question on the first line and each option on a separate line.
+When using the ``options`` keyword argument, options may also be comma-separated.
 
 The tool will present an interactive menu allowing the user to select an option using arrow keys and Enter, or by typing the number of the option.
 
