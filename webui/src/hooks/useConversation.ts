@@ -26,7 +26,7 @@ import {
 import { playChime } from '@/utils/audio';
 import { findLatestAssistantIndexForError } from '@/utils/conversationErrorHandling';
 import { notifyGenerationComplete, notifyToolConfirmation } from '@/utils/notifications';
-import { ApiClientError } from '@/utils/api';
+import { ApiClientError, getApiErrorPresentation } from '@/utils/api';
 import { toastStepStartError } from '@/utils/stepErrorHandling';
 
 const MAX_CONNECTED_CONVERSATIONS = 3;
@@ -460,12 +460,15 @@ export function useConversation(conversationId: string, serverId?: string) {
       await api.step(conversationId, options?.model, options?.stream);
     } catch (error) {
       console.error('Error sending message:', error);
-      const errorMsg = error instanceof Error ? error.message : 'Failed to send message';
-      setMessageStatus(conversationId, userMessage.timestamp!, 'failed', errorMsg);
+      const { title, description } = getApiErrorPresentation(error, {
+        fallbackTitle: 'Failed to send',
+        fallbackDescription: 'Failed to send message',
+      });
+      setMessageStatus(conversationId, userMessage.timestamp!, 'failed', description);
       toast({
         variant: 'destructive',
-        title: 'Failed to send',
-        description: errorMsg,
+        title,
+        description,
       });
     }
   };

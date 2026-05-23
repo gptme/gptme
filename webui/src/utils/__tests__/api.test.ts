@@ -10,7 +10,7 @@ jest.mock('@/stores/servers', () => ({
   getPrimaryClient: jest.fn(),
 }));
 
-import { ApiClient, ApiClientError, isLikelyChromeCorsPna } from '../api';
+import { ApiClient, ApiClientError, getApiErrorPresentation, isLikelyChromeCorsPna } from '../api';
 
 describe('isLikelyChromeCorsPna', () => {
   const setHostname = (hostname: string) => {
@@ -164,5 +164,36 @@ describe('ApiClient error parsing', () => {
       code: 'no_subscription',
       type: 'payment_required',
     } satisfies Partial<ApiClientError>);
+  });
+});
+
+describe('getApiErrorPresentation', () => {
+  it('elevates payment errors to a payment-required title', () => {
+    const error = new ApiClientError('Insufficient credits. Visit gptme.ai to add more.', 402, {
+      type: 'payment_required',
+      code: 'insufficient_credits',
+    });
+
+    expect(
+      getApiErrorPresentation(error, {
+        fallbackTitle: 'Failed to send',
+        fallbackDescription: 'Failed to send message',
+      })
+    ).toEqual({
+      title: 'Payment required',
+      description: 'Insufficient credits. Visit gptme.ai to add more.',
+    });
+  });
+
+  it('preserves fallback title for generic errors while surfacing the message', () => {
+    expect(
+      getApiErrorPresentation(new Error('Boom'), {
+        fallbackTitle: 'Failed to send',
+        fallbackDescription: 'Failed to send message',
+      })
+    ).toEqual({
+      title: 'Failed to send',
+      description: 'Boom',
+    });
   });
 });

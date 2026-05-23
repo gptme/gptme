@@ -50,6 +50,36 @@ export class ApiClientError extends Error {
   }
 }
 
+export function getApiErrorPresentation(
+  error: unknown,
+  options?: {
+    fallbackTitle?: string;
+    fallbackDescription?: string;
+  }
+): { title: string; description: string } {
+  let title = options?.fallbackTitle ?? 'Error';
+  let description = options?.fallbackDescription ?? 'Something went wrong';
+
+  if (ApiClientError.isApiError(error)) {
+    description = error.message || description;
+
+    if (
+      error.status === 402 ||
+      error.type === 'payment_required' ||
+      error.code === 'insufficient_credits' ||
+      error.code === 'no_subscription'
+    ) {
+      title = 'Payment required';
+    } else if (error.status === 401 || error.type === 'authentication_error') {
+      title = 'Authentication failed';
+    }
+  } else if (error instanceof Error && error.message) {
+    description = error.message;
+  }
+
+  return { title, description };
+}
+
 // Type guard for API error responses
 function isApiErrorResponse(response: unknown): response is ApiError {
   return typeof response === 'object' && response !== null && 'error' in response;
