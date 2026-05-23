@@ -611,7 +611,7 @@ def _handle_openai_transient_error(e, attempt, max_retries, base_delay):
                     for hint in (
                         "insufficient credit",
                         "out of credit",
-                        "no credit",
+                        "no credits",
                         "insufficient_quota",
                         "insufficient funds",
                         "insufficient balance",
