@@ -418,14 +418,7 @@ fn handle_deep_link_urls(app: &tauri::AppHandle, urls: Vec<url::Url>) {
 }
 
 #[cfg(desktop)]
-fn show_port_conflict_dialog(app: &tauri::AppHandle) {
-    let message = format!(
-        "Cannot start gptme-server because port {} is already in use.\n\n\
-         This usually means another gptme-server instance is already running.\n\n\
-         Please stop the existing gptme-server process and restart this application.",
-        GPTME_SERVER_PORT
-    );
-
+fn show_port_conflict_dialog(app: &tauri::AppHandle, message: String) {
     MessageDialogBuilder::new(app.dialog().clone(), "Port Conflict", message)
         .kind(MessageDialogKind::Error)
         .buttons(MessageDialogButtons::Ok)
@@ -524,7 +517,25 @@ pub fn run() {
                     {
                         log::error!("Failed to start gptme-server: {}", err);
                         if err.contains("already in use") {
-                            show_port_conflict_dialog(&app_handle);
+                            show_port_conflict_dialog(
+                                &app_handle,
+                                format!(
+                                    "Cannot start gptme-server because port {} is already in use.\n\n\
+                                     This usually means another gptme-server instance is already running.\n\n\
+                                     Please stop the existing gptme-server process and restart this application.",
+                                    GPTME_SERVER_PORT
+                                ),
+                            );
+                        } else if err.contains("requires authentication") {
+                            show_port_conflict_dialog(
+                                &app_handle,
+                                format!(
+                                    "Cannot start gptme-server because port {} is occupied by another \
+                                     gptme-server that requires authentication this app doesn't have.\n\n\
+                                     Stop that server (or restart it without a token) and restart this application.",
+                                    GPTME_SERVER_PORT
+                                ),
+                            );
                         }
                     }
                 });
