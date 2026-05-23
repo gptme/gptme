@@ -3970,18 +3970,25 @@ Or configure pre-commit checks via: GPTME_CHECK=true</p>
 (Lovable found agents can spiral into 43+ vents without this guard).</p>
 <p>Usage:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span>```vent
-Stuck on import order: uv run pytest exits 0 with &quot;no tests found&quot;
-even though tests/test_vent.py exists. Tried --co and explicit path.
-Type: Type2a (config/permission)
+pytest exits 0 with &quot;no tests found&quot; even though tests/test_vent.py
+exists. Tried --co and an explicit path; the discovery config is wrong.
+Owner: tooling
 ```
 </pre></div>
 </div>
-<dl class="simple">
-<dt>Friction types (from Lovable’s taxonomy):</dt><dd><p>Type 1  — solvable with better prompting / context
-Type 2a — solvable with a tool, permission, or config change
-Type 2b — not solvable in the current stack</p>
-</dd>
-</dl>
+<p>Resolution owner (axis 1 — who/what unblocks this) is an optional, small,
+stable enum captured at vent time. Richer theme/cause clustering happens later
+at analysis time, so keep the capture label thin:</p>
+<blockquote>
+<div><p>self          Solvable now with better prompting / context / reasoning
+tooling       Needs a tool / permission / config / env change
+operator      Needs a human (decision, credential, approval, account action)
+upstream      Needs a fix in a dependency we don’t own
+architectural Not solvable in the current stack design</p>
+</div></blockquote>
+<p>The <code class="docutils literal notranslate"><span class="pre">Type</span></code> keyword accepts both deprecated legacy aliases
+(Type1-&gt;self, Type2a-&gt;tooling, Type2b-&gt;architectural, Type0-&gt;operator) and
+current taxonomy values (e.g. <code class="docutils literal notranslate"><span class="pre">Type:</span> <span class="pre">self</span></code>, <code class="docutils literal notranslate"><span class="pre">Type:</span> <span class="pre">tooling</span></code>).</p>
 <dl class="py function">
 <dt class="sig sig-object py">
 <span class="sig-prename descclassname"><span class="pre">gptme.tools.vent.</span></span><span class="sig-name descname"><span class="pre">execute_vent</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">code</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">args</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a></span></span></dt>

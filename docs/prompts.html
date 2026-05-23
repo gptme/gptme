@@ -698,7 +698,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fafe1806ac0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fd22f4baac0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -2336,15 +2336,19 @@ Todo state is auto-replayed when resuming the conversation.
 <span class="gs">**Description:**</span> Emit a real-time friction signal when stuck or frustrated
 
 <span class="gs">**Instructions:**</span> Use when you are stuck, frustrated, or hitting a repeated failure. Write a
-brief description of what you&#39;re trying to do, what&#39;s blocking you, and
-optionally classify the type:
+brief description of what you&#39;re trying to do and what&#39;s blocking you, then
+optionally tag who/what would unblock it on a final line (``Owner: &lt;owner&gt;``):
 
-<span class="k">-</span><span class="w"> </span><span class="gs">**Type 1**</span> — solvable with better prompting or context
-<span class="k">-</span><span class="w"> </span><span class="gs">**Type 2a**</span> — solvable with a tool, permission, or config change
-<span class="k">-</span><span class="w"> </span><span class="gs">**Type 2b**</span> — not solvable in the current stack
+<span class="k">-</span><span class="w"> </span><span class="gs">**self**</span> — solvable now with better prompting / context / reasoning
+<span class="k">-</span><span class="w"> </span><span class="gs">**tooling**</span> — needs a tool, permission, config, or env change
+<span class="k">-</span><span class="w"> </span><span class="gs">**operator**</span> — needs a human (decision, credential, approval, account action)
+<span class="k">-</span><span class="w"> </span><span class="gs">**upstream**</span> — needs a fix in a dependency we don&#39;t own
+<span class="k">-</span><span class="w"> </span><span class="gs">**architectural**</span> — not solvable in the current stack design
 
-Using this tool creates a durable record so recurring blockers can be
-identified and fixed, improving your future performance on similar tasks.
+Tag it when you know who would unblock you — the tag is optional, and an
+imprecise guess is more useful than none. Using this tool creates a durable
+record so recurring blockers can be identified and fixed, improving your
+future performance on similar tasks.
 
 <span class="gu">### Examples</span>
 
@@ -2353,7 +2357,7 @@ identified and fixed, improving your future performance on similar tasks.
 <span class="sb">```vent</span>
 <span class="s">&gt; Stuck: test expects a dict but execute returns a plain string.</span>
 <span class="s">No kwarg to change the return shape; need to rethink the API.</span>
-<span class="s">&gt; Type: Type1 (need better spec)</span>
+<span class="s">&gt; Owner: self</span>
 <span class="sb">```</span>
 
 <span class="gu">## vision</span>
@@ -2415,7 +2419,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 13940</p>
+<p>Tokens: 14020</p>
 </dd></dl>
 
 <dl class="py function">
