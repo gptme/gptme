@@ -10,21 +10,30 @@ Rate-limited to one vent per turn to prevent recursive venting spirals
 Usage::
 
     ```vent
-    Stuck on import order: uv run pytest exits 0 with "no tests found"
-    even though tests/test_vent.py exists. Tried --co and explicit path.
-    Type: Type2a (config/permission)
+    pytest exits 0 with "no tests found" even though tests/test_vent.py
+    exists. Tried --co and an explicit path; the discovery config is wrong.
+    Owner: tooling
     ```
 
-Friction types (from Lovable's taxonomy):
-  Type 1  — solvable with better prompting / context
-  Type 2a — solvable with a tool, permission, or config change
-  Type 2b — not solvable in the current stack
+Resolution owner (axis 1 — who/what unblocks this) is an optional, small,
+stable enum captured at vent time. Richer theme/cause clustering happens later
+at analysis time, so keep the capture label thin:
+
+  self          Solvable now with better prompting / context / reasoning
+  tooling       Needs a tool / permission / config / env change
+  operator      Needs a human (decision, credential, approval, account action)
+  upstream      Needs a fix in a dependency we don't own
+  architectural Not solvable in the current stack design
+
+The deprecated ``Type`` labels are still accepted as aliases
+(Type1->self, Type2a->tooling, Type2b->architectural, Type0->operator).
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import re
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
@@ -44,6 +53,20 @@ logger = logging.getLogger(__name__)
 # Per-turn rate-limit: blocks a second vent within the same agent turn.
 _vent_this_turn: ContextVar[bool] = ContextVar("vent_this_turn", default=False)
 
+# Axis 1: who/what unblocks this. Small, stable, captured at vent time.
+VALID_OWNERS = ("self", "tooling", "operator", "upstream", "architectural")
+
+# Deprecated Lovable-style type labels -> resolution owner.
+_DEPRECATED_TYPE_MAP = {
+    "type0": "operator",
+    "type1": "self",
+    "type2a": "tooling",
+    "type2b": "architectural",
+}
+
+# A trailing "Owner: X" / "Type: X" / "Resolution: X" line (case-insensitive).
+_OWNER_LINE_RE = re.compile(r"^(?:owner|type|resolution)\s*[:=]\s*(.+)$", re.IGNORECASE)
+
 
 def _get_ledger_path() -> Path:
     """Return the friction ledger path, creating parent dirs if needed."""
@@ -52,6 +75,36 @@ def _get_ledger_path() -> Path:
     path = get_data_dir() / "friction-ledger.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def _parse_resolution_owner(code: str) -> tuple[str, str | None]:
+    """Split an optional trailing owner tag off a vent message.
+
+    Recognizes a final line like ``Owner: tooling``, ``Type: Type2a``, or
+    ``Resolution: operator`` (case-insensitive). Returns the message with that
+    line removed and the normalized resolution owner, or the original message
+    and ``None`` when no valid tag is present (an unrecognized value is left
+    as part of the message rather than silently dropped).
+    """
+    lines = code.rstrip().splitlines()
+    if not lines:
+        return code.strip(), None
+
+    match = _OWNER_LINE_RE.match(lines[-1].strip())
+    if not match:
+        return code.strip(), None
+
+    # Drop any parenthetical note, e.g. "tooling (need API key)" -> "tooling".
+    raw = match.group(1).strip()
+    token = (
+        raw.split("(", 1)[0].split()[0].lower() if raw.split("(", 1)[0].split() else ""
+    )
+    owner = _DEPRECATED_TYPE_MAP.get(token, token)
+    if owner not in VALID_OWNERS:
+        return code.strip(), None
+
+    message = "\n".join(lines[:-1]).strip()
+    return message, owner
 
 
 def execute_vent(
@@ -70,11 +123,17 @@ def execute_vent(
             quiet=True,
         )
 
-    entry = {
+    message, resolution_owner = _parse_resolution_owner(code)
+    if not message:
+        return Message("system", "vent: no message — nothing recorded.", quiet=True)
+
+    entry: dict[str, str] = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "workspace": str(Path.cwd()),
-        "message": code.strip(),
+        "message": message,
     }
+    if resolution_owner:
+        entry["resolution_owner"] = resolution_owner
 
     ledger_path = _get_ledger_path()
     with ledger_path.open("a", encoding="utf-8") as fh:
@@ -96,15 +155,19 @@ tool = ToolSpec(
     desc="Emit a real-time friction signal when stuck or frustrated",
     instructions="""
 Use when you are stuck, frustrated, or hitting a repeated failure. Write a
-brief description of what you're trying to do, what's blocking you, and
-optionally classify the type:
+brief description of what you're trying to do and what's blocking you, then
+optionally tag who/what would unblock it on a final line (``Owner: <owner>``):
 
-- **Type 1** — solvable with better prompting or context
-- **Type 2a** — solvable with a tool, permission, or config change
-- **Type 2b** — not solvable in the current stack
+- **self** — solvable now with better prompting / context / reasoning
+- **tooling** — needs a tool, permission, config, or env change
+- **operator** — needs a human (decision, credential, approval, account action)
+- **upstream** — needs a fix in a dependency we don't own
+- **architectural** — not solvable in the current stack design
 
-Using this tool creates a durable record so recurring blockers can be
-identified and fixed, improving your future performance on similar tasks.
+The owner tag is optional and intentionally small; richer cause analysis
+happens later over the ledger. Using this tool creates a durable record so
+recurring blockers can be identified and fixed, improving your future
+performance on similar tasks.
 """.strip(),
     examples="""
 > User: fix the failing test
@@ -112,7 +175,7 @@ identified and fixed, improving your future performance on similar tasks.
 ```vent
 Stuck: test expects a dict but execute returns a plain string.
 No kwarg to change the return shape; need to rethink the API.
-Type: Type1 (need better spec)
+Owner: self
 ```
 > System: Friction signal recorded to /home/user/.local/share/gptme/friction-ledger.jsonl
 """.strip(),
