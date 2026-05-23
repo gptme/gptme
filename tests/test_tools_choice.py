@@ -125,6 +125,24 @@ def test_parse_kwargs_strips_option_whitespace():
     assert options == ["A", "B", "C"]
 
 
+def test_parse_kwargs_comma_separated_options():
+    """Single-line comma-separated options are split."""
+    question, options = parse_options_from_kwargs(
+        {"question": "Pick one:", "options": "Alpha, Beta, Gamma"}
+    )
+    assert question == "Pick one:"
+    assert options == ["Alpha", "Beta", "Gamma"]
+
+
+def test_parse_kwargs_comma_separated_question_in_options():
+    """Comma-separated options can include the question as the first item."""
+    question, options = parse_options_from_kwargs(
+        {"options": "What to pick?, Foo, Bar"}
+    )
+    assert question == "What to pick?"
+    assert options == ["Foo", "Bar"]
+
+
 # --- execute_choice ---
 
 

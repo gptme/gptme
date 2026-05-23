@@ -82,7 +82,8 @@ def parse_options_from_kwargs(kwargs: dict[str, str]) -> tuple[str | None, list[
     """Parse options from args and kwargs, returning (question, options)."""
     question = kwargs.get("question")
     options_str = kwargs.get("options", "")
-    options = [opt.strip() for opt in options_str.split("\n") if opt.strip()]
+    separator = "\n" if "\n" in options_str else ","
+    options = [opt.strip() for opt in options_str.split(separator) if opt.strip()]
     if not question:
         if options and options[0].endswith("?"):
             question = options[0]
@@ -168,7 +169,7 @@ tool_choice = ToolSpec(
         Parameter(
             name="options",
             type="string",
-            description="The question to ask and a comma-separated list of options to choose from",
+            description="The question to ask and a newline- or comma-separated list of options to choose from",
             required=True,
         ),
     ],
