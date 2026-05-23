@@ -103,8 +103,7 @@ docs: docs/conf.py docs/*.rst docs/.clean check-rst
 		if [ -e eval-results/eval_results ]; then \
 			ln -s eval-results/eval_results .; \
 		else \
-			git fetch origin eval-results; \
-			git checkout origin/eval-results -- eval_results; \
+			git fetch origin eval-results --depth=1 && git checkout origin/eval-results -- eval_results || echo "No eval results available; building docs without leaderboard data"; \
 		fi \
 	fi
 	poetry run make -C docs html SPHINXOPTS="-W --keep-going"
