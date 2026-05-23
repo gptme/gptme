@@ -4,11 +4,11 @@ import json
 import logging
 import os
 import queue
-import random
 import socket
 import tempfile
 import threading
 import time
+import uuid
 from contextlib import contextmanager
 
 import pytest
@@ -385,7 +385,8 @@ def client():
 def setup_conversation(server_thread):
     """Create a conversation and return its ID, session ID, and port."""
     port = server_thread
-    conversation_id = f"test-tools-{int(time.time())}-{random.randint(1000, 9999)}"
+    worker_id = os.environ.get("PYTEST_XDIST_WORKER", "gw0")
+    conversation_id = f"test-tools-{worker_id}-{uuid.uuid4().hex}"
 
     # Create conversation with custom system prompt
     # Use "@log" to create workspace in the conversation's log directory

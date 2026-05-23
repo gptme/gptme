@@ -11,7 +11,7 @@ from gptme.tools import ToolUse
 logger = logging.getLogger(__name__)
 
 
-@pytest.mark.timeout(30)
+@pytest.mark.timeout(60)
 def test_tool_confirmation_flow(
     init_, setup_conversation, event_listener, mock_generation, wait_for_event
 ):
@@ -70,8 +70,12 @@ def test_tool_confirmation_flow(
         assert wait_for_event(event_listener, "tool_executing")
         assert wait_for_event(event_listener, "message_added")
 
-        # Wait for assistant final response
+        # Wait for assistant final response and completion before leaving the
+        # mock context; otherwise the background continuation thread may fall
+        # through to the real LLM stream.
+        assert wait_for_event(event_listener, "generation_started")
         assert wait_for_event(event_listener, "message_added")
+        assert wait_for_event(event_listener, "generation_complete")
 
     # Verify conversation state
     resp = requests.get(
@@ -119,7 +123,7 @@ def test_tool_confirmation_flow(
     assert "Done" in messages[-1]["content"]
 
 
-@pytest.mark.timeout(20)
+@pytest.mark.timeout(60)
 def test_tool_confirmation_without_session_id(
     init_, setup_conversation, event_listener, mock_generation, wait_for_event
 ):
@@ -178,6 +182,9 @@ def test_tool_confirmation_without_session_id(
         # Wait for tool execution
         assert wait_for_event(event_listener, "tool_executing")
         assert wait_for_event(event_listener, "message_added")
+        assert wait_for_event(event_listener, "generation_started")
+        assert wait_for_event(event_listener, "message_added")
+        assert wait_for_event(event_listener, "generation_complete")
 
 
 @pytest.mark.timeout(10)
