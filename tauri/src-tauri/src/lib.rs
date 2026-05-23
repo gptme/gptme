@@ -39,6 +39,77 @@ async fn is_server_responsive(port: u16) -> bool {
         .unwrap_or(false)
 }
 
+/// Outcome of probing an existing gptme-server to decide whether this app can
+/// reuse it.
+#[cfg(desktop)]
+#[derive(Debug, PartialEq, Eq)]
+enum ServerProbe {
+    /// No TCP connection / no parseable HTTP response — not a usable server
+    /// (nothing there, or a non-responsive foreign process).
+    Unreachable,
+    /// Responded in a way the app can use (2xx, or any non-auth status such as
+    /// 404 from a healthy but differently-routed server).
+    Usable,
+    /// Responded but rejected the request as unauthenticated (401/403). The app
+    /// has no token for it, so silently reusing it would 401 every API call.
+    AuthRequired,
+}
+
+/// Parse the numeric status code from an HTTP/1.x status line, e.g.
+/// `"HTTP/1.1 401 Unauthorized"`. Returns `None` if the bytes don't begin with
+/// a recognizable HTTP status line.
+#[cfg(desktop)]
+fn parse_http_status(bytes: &[u8]) -> Option<u16> {
+    let head = std::str::from_utf8(bytes).ok()?;
+    let line = head.lines().next()?;
+    let mut parts = line.split_whitespace();
+    let version = parts.next()?;
+    if !version.starts_with("HTTP/") {
+        return None;
+    }
+    parts.next()?.parse::<u16>().ok()
+}
+
+/// Probe an occupied port with a real HTTP request to decide whether this app
+/// can reuse the server there. A bare TCP connect (`is_server_responsive`)
+/// cannot distinguish a usable server from a leftover auth-gated one that 401s
+/// every API call, leaving the app silently degraded (gptme/gptme#2457,
+/// finding F2). Uses a minimal raw HTTP/1.1 request over the existing tokio
+/// `TcpStream` so we don't pull in a full HTTP client dependency. `/api/v2/models`
+/// is auth-gated, so it cleanly separates 2xx (usable) from 401/403 (auth-gated).
+#[cfg(desktop)]
+async fn probe_server(port: u16) -> ServerProbe {
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpStream;
+    use tokio::time::timeout;
+
+    let addr = format!("127.0.0.1:{}", port);
+    let probe = async {
+        let mut stream = TcpStream::connect(&addr).await.ok()?;
+        let request = format!(
+            "GET /api/v2/models HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n",
+            port
+        );
+        stream.write_all(request.as_bytes()).await.ok()?;
+        let mut buf = [0u8; 256];
+        let n = stream.read(&mut buf).await.ok()?;
+        if n == 0 {
+            return None;
+        }
+        parse_http_status(&buf[..n])
+    };
+
+    match timeout(Duration::from_millis(750), probe).await {
+        Ok(Some(401)) | Ok(Some(403)) => ServerProbe::AuthRequired,
+        Ok(Some(_)) => ServerProbe::Usable,
+        // Connect/read failed, response wasn't HTTP, or the probe timed out:
+        // treat as not-reusable so we never silently adopt a port held by
+        // something that isn't a working gptme-server.
+        Ok(None) | Err(_) => ServerProbe::Unreachable,
+    }
+}
+
 #[cfg(desktop)]
 struct ServerProcess {
     child: Arc<Mutex<Option<CommandChild>>>,
@@ -169,24 +240,47 @@ async fn spawn_server_sidecar(
     owns_port: Arc<AtomicBool>,
 ) -> Result<(), String> {
     if !is_port_available(GPTME_SERVER_PORT) {
-        // Port is occupied — check if a server is already responding there.
-        // This is the common crash-recovery case: the gptme-server sidecar
-        // outlived the Tauri process and is still listening on the port.
-        // Reuse it silently rather than showing a blocking error dialog.
-        if is_server_responsive(GPTME_SERVER_PORT).await {
-            log::info!(
-                "Port {} is occupied and a server is already responding — \
-                 reusing existing gptme-server (likely a leftover from a previous session)",
-                GPTME_SERVER_PORT
-            );
-            // Mark that we own (reuse) this port so cleanup_server_process
-            // knows it should kill it on exit.
-            owns_port.store(true, Ordering::Relaxed);
-            return Ok(());
+        // Port is occupied — probe whether we can actually use the server there.
+        // A bare TCP connect isn't enough: a leftover auth-gated gptme-server
+        // accepts connections but 401s every API call, leaving the app silently
+        // degraded (gptme/gptme#2457, finding F2). Only reuse a server we can
+        // actually talk to.
+        match probe_server(GPTME_SERVER_PORT).await {
+            ServerProbe::Usable => {
+                // Common crash-recovery case: the gptme-server sidecar outlived
+                // the Tauri process and is still serving. Reuse it silently
+                // rather than showing a blocking error dialog.
+                log::info!(
+                    "Port {} is occupied and a usable server is responding — \
+                     reusing existing gptme-server (likely a leftover from a previous session)",
+                    GPTME_SERVER_PORT
+                );
+                // Mark that we own (reuse) this port so cleanup_server_process
+                // knows it should kill it on exit.
+                owns_port.store(true, Ordering::Relaxed);
+                return Ok(());
+            }
+            ServerProbe::AuthRequired => {
+                // Responsive but rejects us as unauthenticated. Reusing it would
+                // 401 every request; do NOT set owns_port (we didn't start it).
+                log::warn!(
+                    "Port {} is occupied by a gptme-server that requires authentication \
+                     this app doesn't have — refusing to reuse it",
+                    GPTME_SERVER_PORT
+                );
+                return Err(format!(
+                    "Another gptme-server is already running on port {} and requires \
+                     authentication this app doesn't have. Stop that server (or restart \
+                     it without a token) and try again.",
+                    GPTME_SERVER_PORT
+                ));
+            }
+            ServerProbe::Unreachable => {
+                // Port is occupied by a non-responsive / non-HTTP foreign process —
+                // do NOT set owns_port; cleanup must not kill a process we never started.
+                return Err(format!("Port {} is already in use", GPTME_SERVER_PORT));
+            }
         }
-        // Port is occupied by a non-responsive foreign process — do NOT set
-        // owns_port; cleanup must not kill a process we never started.
-        return Err(format!("Port {} is already in use", GPTME_SERVER_PORT));
     }
 
     let cors_origin = desktop_cors_origin();
@@ -674,6 +768,63 @@ mod tests {
         assert!(is_server_responsive(port).await);
         drop(listener);
         assert!(!is_server_responsive(port).await);
+    }
+
+    #[test]
+    #[cfg(desktop)]
+    fn test_parse_http_status() {
+        assert_eq!(parse_http_status(b"HTTP/1.1 200 OK\r\n\r\n"), Some(200));
+        assert_eq!(
+            parse_http_status(b"HTTP/1.1 401 Unauthorized\r\n"),
+            Some(401)
+        );
+        assert_eq!(parse_http_status(b"HTTP/1.0 403 Forbidden\r\n"), Some(403));
+        assert_eq!(parse_http_status(b"not http at all"), None);
+        assert_eq!(parse_http_status(b""), None);
+    }
+
+    /// Spawn a one-shot TCP server that returns `response` to the first
+    /// connection, and return the port it's listening on.
+    #[cfg(desktop)]
+    async fn spawn_canned_http_server(response: &'static str) -> u16 {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            if let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = [0u8; 1024];
+                let _ = socket.read(&mut buf).await;
+                let _ = socket.write_all(response.as_bytes()).await;
+            }
+        });
+        port
+    }
+
+    #[tokio::test]
+    #[cfg(desktop)]
+    async fn test_probe_server_usable_on_2xx() {
+        let port = spawn_canned_http_server("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n").await;
+        assert_eq!(probe_server(port).await, ServerProbe::Usable);
+    }
+
+    #[tokio::test]
+    #[cfg(desktop)]
+    async fn test_probe_server_auth_required_on_401() {
+        let port =
+            spawn_canned_http_server("HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n")
+                .await;
+        assert_eq!(probe_server(port).await, ServerProbe::AuthRequired);
+    }
+
+    #[tokio::test]
+    #[cfg(desktop)]
+    async fn test_probe_server_unreachable_when_nothing_listening() {
+        // Bind then drop to obtain a port nothing is listening on.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        assert_eq!(probe_server(port).await, ServerProbe::Unreachable);
     }
 
     #[test]
