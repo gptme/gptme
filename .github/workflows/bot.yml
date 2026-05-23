@@ -4,7 +4,10 @@ on:
   issue_comment:
     types: [created]
 
-permissions: write-all
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
 
 jobs:
   run-bot:
@@ -16,7 +19,7 @@ jobs:
     steps:
       # needed to run the action in the same repo
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Run gptme-bot action
         uses: ./.github/actions/bot

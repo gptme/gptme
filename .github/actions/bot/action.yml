@@ -10,7 +10,7 @@ inputs:
   model:
     description: 'Model to use'
     required: false
-    default: 'anthropic/claude-sonnet-4-20250514'
+    default: 'anthropic/claude-sonnet-4-6'
   github_token:
     description: 'GitHub Token'
     required: true
@@ -70,11 +70,11 @@ runs:
       run: |
         # Prefer the local script when running inside the gptme repo itself.
         # Fall back to downloading a pinned version for use as a reusable external action.
-        # Pin to specific commit for supply chain security (ba3c0233)
+        # Pin to specific commit for supply chain security (248aac98)
         if [ -f "scripts/github_bot.py" ]; then
           cp scripts/github_bot.py /tmp/github_bot.py
         else
-          SCRIPT_URL="https://raw.githubusercontent.com/gptme/gptme/ba3c0233f5f047ef210c732fb59d0c52b9bdd9e5/scripts/github_bot.py"
+          SCRIPT_URL="https://raw.githubusercontent.com/gptme/gptme/248aac98c02113009837c4b582dd72ed0604dd63/scripts/github_bot.py"
           curl -fsL "$SCRIPT_URL" > /tmp/github_bot.py
         fi
         python /tmp/github_bot.py --mode "${{ inputs.mode }}" --workspace .
