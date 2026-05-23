@@ -90,14 +90,21 @@ def test_tool_confirmation_flow(
     assert messages[0]["role"] == "system" and "testing" in messages[0]["content"]
 
     # Find the user message and verify the assistant/tool flow follows it.
-    user_msg_idx = next(i for i, m in enumerate(messages) if m["role"] == "user")
+    user_msg_idx = next(
+        (i for i, m in enumerate(messages) if m["role"] == "user"), None
+    )
+    assert user_msg_idx is not None, "No user message found in conversation"
     assert "List files" in messages[user_msg_idx]["content"]
 
     assistant_tool_idx = next(
-        i
-        for i, m in enumerate(messages)
-        if m["role"] == "assistant" and "ls -la" in m["content"]
+        (
+            i
+            for i, m in enumerate(messages)
+            if m["role"] == "assistant" and "ls -la" in m["content"]
+        ),
+        None,
     )
+    assert assistant_tool_idx is not None, "No assistant tool message (ls -la) found"
     assert user_msg_idx < assistant_tool_idx
 
     # Verify TOKEN_BUDGET message exists
@@ -141,7 +148,12 @@ def test_tool_confirmation_without_session_id(
     )
 
     # Start generation with mocked response
-    with unittest.mock.patch("gptme.server.session_step._stream", mock_stream):
+    with (
+        unittest.mock.patch("gptme.server.session_step._stream", mock_stream),
+        unittest.mock.patch(
+            "gptme.server.session_step._try_auto_name_and_notify", return_value=None
+        ),
+    ):
         # Request a step
         requests.post(
             f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
