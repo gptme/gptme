@@ -461,6 +461,56 @@ def test_semantic_score_uses_description_field():
     assert "No Description Lesson" in encoded_text  # title still present
 
 
+def test_semantic_score_caches_lesson_embeddings():
+    """A lesson's embedding is encoded once and reused across turns.
+
+    Matching runs every turn, but lesson text is static, so re-encoding the same
+    candidate each turn is wasted compute. The cache must avoid that while still
+    returning the correct score.
+    """
+    np = pytest.importorskip("numpy")
+    from unittest.mock import MagicMock
+
+    config = HybridConfig(enable_semantic=True)
+    matcher = HybridLessonMatcher(config=config)
+
+    mock_embedder = MagicMock()
+    lesson_vec = np.ones(384) / np.sqrt(384)
+    mock_embedder.encode.return_value = lesson_vec
+    matcher.embedder = mock_embedder
+
+    lesson = Lesson(
+        path=Path("/tmp/lessons/cached.md"),
+        metadata=LessonMetadata(description="Use when caching matters"),
+        title="Cached Lesson",
+        description="",
+        category="tools",
+        body="## Rule\nCache it.",
+    )
+    query_embed = np.ones(384) / np.sqrt(384)
+    context = MatchContext(message="caching question")
+
+    first = matcher._semantic_score(query_embed, lesson, context)
+    second = matcher._semantic_score(query_embed, lesson, context)
+
+    # Same score both turns, but only encoded once (query embedding is supplied,
+    # so every encode call here is for the lesson text).
+    assert first == second
+    assert mock_embedder.encode.call_count == 1
+
+    # A different lesson text is a cache miss and triggers a fresh encode.
+    other = Lesson(
+        path=Path("/tmp/lessons/other.md"),
+        metadata=LessonMetadata(description="A different purpose entirely"),
+        title="Other Lesson",
+        description="",
+        category="tools",
+        body="## Rule\nDo other.",
+    )
+    matcher._semantic_score(query_embed, other, context)
+    assert mock_embedder.encode.call_count == 2
+
+
 @pytest.mark.timeout(30)
 def test_hybrid_matcher_does_not_eagerly_import_sentence_transformers():
     """Importing hybrid_matcher must not trigger a sentence_transformers import.
