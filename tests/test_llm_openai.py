@@ -1472,6 +1472,57 @@ class TestOpenAIRetryLogic:
             f"Generic 402 should NOT trigger credits diagnostic, got: {warning_messages}"
         )
 
+    def test_handle_openai_transient_error_gateway_out_of_credits_402(self, caplog):
+        """A gateway/proxy 402 reporting out-of-credits (e.g. the gptme.ai LLM
+        gateway) surfaces an actionable diagnostic and re-raises without retry.
+
+        This is distinct from the OpenRouter reservation case: the body has no
+        "more credits / max_tokens" hints, just a plain out-of-credits message.
+        See: https://github.com/gptme/gptme-cloud/issues/61
+        """
+        import logging
+        from unittest.mock import MagicMock
+
+        import pytest
+        from openai import APIStatusError
+
+        from gptme.llm.llm_openai import _handle_openai_transient_error
+
+        mock_response = MagicMock()
+        mock_response.status_code = 402
+        error = APIStatusError(
+            "Payment required",
+            response=mock_response,
+            body={
+                "error": {
+                    "message": "Insufficient credits remaining on your account.",
+                    "code": 402,
+                }
+            },
+        )
+
+        # 402 is non-transient → must raise immediately even on attempt 0
+        with (
+            caplog.at_level(logging.WARNING, logger="gptme.llm.llm_openai"),
+            pytest.raises(APIStatusError),
+        ):
+            _handle_openai_transient_error(
+                error, attempt=0, max_retries=3, base_delay=0.1
+            )
+
+        warning_messages = [
+            r.message for r in caplog.records if r.levelno >= logging.WARNING
+        ]
+        # Diagnostic should name the cause (credits) without claiming it's the
+        # OpenRouter max_tokens reservation case.
+        assert any(
+            "credit" in msg.lower() and "402" in msg for msg in warning_messages
+        ), f"Expected an out-of-credits 402 diagnostic, got: {warning_messages}"
+        assert not any("max_tokens" in msg.lower() for msg in warning_messages), (
+            f"Gateway out-of-credits 402 should not claim the OpenRouter "
+            f"reservation cause, got: {warning_messages}"
+        )
+
     def test_retry_decorator_retries_on_transient_error(self, monkeypatch):
         """Test that the retry decorator properly retries on transient errors."""
         from unittest.mock import MagicMock, patch

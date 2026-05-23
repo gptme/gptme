@@ -581,25 +581,53 @@ def _handle_openai_transient_error(e, attempt, max_retries, base_delay):
                 for keyword in ["overload", "internal", "timeout"]
             ):
                 should_retry = True
-            elif e.status_code == 402 and any(
-                hint in combined_error
-                for hint in ("affordable", "more credits", "fewer max_tokens")
-            ):
-                # OpenRouter reserves model.max_output + reasoning_budget worth
-                # of credits when max_tokens is omitted. A partially-spent key
-                # then rejects requests as 402 even with plenty of room for the
-                # actual response. Eval callers silently swallow the resulting
-                # APIStatusError as gen_stderr and write empty conversation.jsonl,
-                # so we surface an actionable diagnostic before re-raising.
-                # See: https://github.com/gptme/gptme/issues/2383
-                logger.warning(
-                    "OpenAI/OpenRouter 402 insufficient credits — the request "
-                    "reservation exceeds available key budget. Lower the "
-                    "reservation by setting --max-tokens (or GPTME_MAX_TOKENS) "
-                    "to a value such as 16000, or top up / switch the key. "
-                    "Detail: %s",
-                    combined_error[:500],
-                )
+            elif e.status_code == 402:
+                # 402 Payment Required is non-transient (we never retry it),
+                # but the bare APIStatusError is opaque. Surface an actionable
+                # diagnostic when the body identifies a credits/budget cause.
+                # A generic 402 (e.g. "Unauthorized") gets no diagnostic so we
+                # don't mislabel auth failures as out-of-credits.
+                if any(
+                    hint in combined_error
+                    for hint in ("affordable", "more credits", "fewer max_tokens")
+                ):
+                    # OpenRouter reserves model.max_output + reasoning_budget
+                    # worth of credits when max_tokens is omitted. A partially-
+                    # spent key then rejects requests as 402 even with plenty of
+                    # room for the actual response. Eval callers silently swallow
+                    # the resulting APIStatusError as gen_stderr and write empty
+                    # conversation.jsonl, so surface guidance before re-raising.
+                    # See: https://github.com/gptme/gptme/issues/2383
+                    logger.warning(
+                        "OpenAI/OpenRouter 402 insufficient credits — the request "
+                        "reservation exceeds available key budget. Lower the "
+                        "reservation by setting --max-tokens (or GPTME_MAX_TOKENS) "
+                        "to a value such as 16000, or top up / switch the key. "
+                        "Detail: %s",
+                        combined_error[:500],
+                    )
+                elif any(
+                    hint in combined_error
+                    for hint in (
+                        "insufficient credit",
+                        "out of credit",
+                        "no credit",
+                        "insufficient_quota",
+                        "insufficient funds",
+                        "insufficient balance",
+                        "credit balance",
+                    )
+                ):
+                    # Generic out-of-credits / payment-required from a provider
+                    # or gateway (e.g. the gptme.ai LLM gateway). Non-transient:
+                    # the account/key needs a top-up or switch, retrying will not
+                    # help. See: https://github.com/gptme/gptme-cloud/issues/61
+                    logger.warning(
+                        "402 payment required — the provider or gateway reports "
+                        "the account is out of credits. Top up or switch the API "
+                        "key / account; gptme will not retry. Detail: %s",
+                        combined_error[:500],
+                    )
 
     # Re-raise if not transient or max retries reached
     if not should_retry or attempt == max_retries - 1:
