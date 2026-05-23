@@ -141,7 +141,7 @@ class TestParseResolutionOwner:
     def test_trailing_punctuation_tolerated(self, trailer):
         # Agents often end the tag line with sentence punctuation; the owner
         # should still be captured rather than silently dropped.
-        expected = trailer.rstrip(".,;:!?")
+        expected = trailer.strip(".,;:!?")
         msg, owner = _parse_resolution_owner(f"Blocked on X\nOwner: {trailer}")
         assert msg == "Blocked on X"
         assert owner == expected
