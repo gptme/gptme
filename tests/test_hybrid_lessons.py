@@ -397,6 +397,54 @@ def test_semantic_score_zero_norm_returns_zero():
     assert not np.isinf(score)
 
 
+def test_semantic_score_uses_description_field():
+    """_semantic_score must encode the description field, not body, for retrieval precision."""
+    np = pytest.importorskip("numpy")
+    from unittest.mock import MagicMock
+
+    config = HybridConfig(enable_semantic=True)
+    matcher = HybridLessonMatcher(config=config)
+
+    mock_embedder = MagicMock()
+    mock_embedder.encode.return_value = np.ones(384) / np.sqrt(384)
+    matcher.embedder = mock_embedder
+
+    frontmatter_desc = "Use when saving insights so they persist across sessions"
+    lesson_with_frontmatter_desc = Lesson(
+        path=Path("/tmp/lessons/persistent-learning.md"),
+        metadata=LessonMetadata(description=frontmatter_desc),
+        title="Persistent Learning",
+        description="Extracted first paragraph description",
+        category="patterns",
+        body="## Rule\nAlways persist insights.\n\n```python\n# code example\n```",
+    )
+
+    query_embed = np.ones(384) / np.sqrt(384)
+    context = MatchContext(message="I should save this as a lesson")
+    matcher._semantic_score(query_embed, lesson_with_frontmatter_desc, context)
+
+    # Must encode frontmatter description (not body content)
+    encoded_text = mock_embedder.encode.call_args[0][0]
+    assert frontmatter_desc in encoded_text
+    assert "## Rule" not in encoded_text  # body content must NOT appear
+
+    # Fallback to extracted description when frontmatter description is absent
+    mock_embedder.reset_mock()
+    mock_embedder.encode.return_value = np.ones(384) / np.sqrt(384)
+    lesson_no_frontmatter_desc = Lesson(
+        path=Path("/tmp/lessons/other.md"),
+        metadata=LessonMetadata(),  # no description in frontmatter
+        title="Other Lesson",
+        description="Extracted paragraph: use when doing X",
+        category="tools",
+        body="## Rule\nDo this.\n\n```bash\ncode\n```",
+    )
+    matcher._semantic_score(query_embed, lesson_no_frontmatter_desc, context)
+    encoded_text = mock_embedder.encode.call_args[0][0]
+    assert "Extracted paragraph" in encoded_text
+    assert "## Rule" not in encoded_text
+
+
 @pytest.mark.timeout(30)
 def test_hybrid_matcher_does_not_eagerly_import_sentence_transformers():
     """Importing hybrid_matcher must not trigger a sentence_transformers import.
