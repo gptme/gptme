@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useApi } from '@/contexts/ApiContext';
+import { buildModelsFetchError } from '@/utils/modelsError';
 
 export interface ModelInfo {
   id: string;
@@ -47,7 +48,7 @@ export function useModels() {
         });
 
         if (!response.ok) {
-          throw new Error(`Failed to fetch models: ${response.statusText}`);
+          throw await buildModelsFetchError(response);
         }
 
         const data: ModelsResponse = await response.json();
