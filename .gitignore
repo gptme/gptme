@@ -52,6 +52,7 @@ __pycache__
 *.gif
 *.cast
 *.png
+*.tmp
 .aider*
 .clean
 

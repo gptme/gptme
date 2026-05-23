@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 
+# Playwright local test output
+test-results/
+playwright-report/
+blob-report/
+
 # bun is not a supported install path for webui (see #2277).
 # Cloudflare Pages prefers bun when bun.lockb exists, which resolves
 # different package versions than package-lock.json and breaks the
