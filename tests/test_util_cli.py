@@ -152,6 +152,23 @@ def test_chats_read_nonexistent_exits_nonzero(tmp_path, monkeypatch):
     assert "Traceback" not in result.output
 
 
+def test_chats_read_too_long_id_exits_cleanly(tmp_path, monkeypatch):
+    """``chats read`` with a >255-byte ID must exit non-zero without an OSError traceback.
+
+    Passing a 300-character ID previously caused ``OSError: [Errno 36] File name too long``
+    to bubble up unhandled from ``Path.exists()`` inside the command.
+    """
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+    runner = CliRunner()
+
+    long_id = "a" * 300
+    result = runner.invoke(main, ["chats", "read", long_id])
+    assert result.exit_code != 0
+    assert "not found" in result.output
+    assert "Traceback" not in result.output
+    assert "OSError" not in result.output
+
+
 def test_chats_read_finds_conversation_beyond_recent_limit(tmp_path, monkeypatch):
     """`chats read` must find any conversation, not just the 20 most recent.
 

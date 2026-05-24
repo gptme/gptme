@@ -14,6 +14,19 @@ from ..prompt_queue import queue_prompt
 from ..tools import get_tools, init_tools
 from ..tools.chats import find_empty_conversations, list_chats, search_chats
 
+_MAX_ID_LEN = 255  # Linux NAME_MAX: max UTF-8 bytes for one path component
+
+
+def _is_valid_id(id: str) -> bool:
+    """Return True if id is a plausible conversation identifier.
+
+    Rejects IDs that are too long for the filesystem (Linux NAME_MAX is 255
+    UTF-8 bytes per path component) or contain path-traversal sequences.
+    These would otherwise raise ``OSError: [Errno 36] File name too long``
+    deep inside ``Path.exists()`` or ``os.stat()``.
+    """
+    return len(id.encode()) <= _MAX_ID_LEN and "/" not in id and ".." not in id
+
 
 def _ensure_tools():
     """Lazily initialize tools only when needed."""
@@ -187,7 +200,10 @@ def chats_read(id: str, limit: int, system: bool, context: int, start: int | Non
 
     from ..tools.chats import read_chat  # fmt: skip
 
-    if not (get_logs_dir() / id / "conversation.jsonl").exists():
+    if (
+        not _is_valid_id(id)
+        or not (get_logs_dir() / id / "conversation.jsonl").exists()
+    ):
         click.echo(f"Conversation '{id}' not found.")
         raise SystemExit(1)
 
@@ -211,11 +227,11 @@ def chats_rename(id: str, name: str):
     """
     from ..logmanager import rename_conversation  # fmt: skip
 
-    if rename_conversation(id, name):
-        print(f"Renamed '{id}' to '{name}'")
-    else:
+    if not _is_valid_id(id) or not rename_conversation(id, name):
         print(f"Chat '{id}' not found")
         sys.exit(1)
+    else:
+        print(f"Renamed '{id}' to '{name}'")
 
 
 @chats.command("send")
@@ -227,6 +243,9 @@ def chats_send(id: str, message: tuple[str, ...]):
     This is useful when another gptme process is busy in the same chat and you
     already know the next instruction you want to send.
     """
+    if not _is_valid_id(id):
+        click.echo(f"Chat '{id}' not found")
+        raise SystemExit(1)
     logdir = get_logs_dir() / id
     if not logdir.exists():
         click.echo(f"Chat '{id}' not found")
