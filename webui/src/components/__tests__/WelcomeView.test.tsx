@@ -62,7 +62,15 @@ jest.mock('../ExamplesSection', () => ({
 }));
 
 describe('WelcomeView', () => {
+  // Returning users (who have completed the setup wizard) see the efficient
+  // raw install/settings path; first-time users get the guided "Get started" CTA.
+  const seedReturningUser = () => {
+    localStorage.setItem('gptme-settings', JSON.stringify({ hasCompletedSetup: true }));
+  };
+
   beforeEach(() => {
+    // Default to a first-time user (no stored settings → hasCompletedSetup=false).
+    localStorage.clear();
     isConnected$.set(true);
     mockBaseUrl = 'http://localhost:5700';
     setupWizard$.step.set('welcome');
@@ -98,6 +106,7 @@ describe('WelcomeView', () => {
   });
 
   it('shows an actionable disconnected-state banner when no server is connected', () => {
+    seedReturningUser();
     isConnected$.set(false);
 
     render(
@@ -128,6 +137,7 @@ describe('WelcomeView', () => {
   });
 
   it('opens the setup wizard at the cloud step from the disconnected banner', async () => {
+    seedReturningUser();
     isConnected$.set(false);
 
     render(
@@ -140,6 +150,45 @@ describe('WelcomeView', () => {
 
     await waitFor(() => {
       expect(setupWizard$.get()).toMatchObject({ open: true, step: 'cloud' });
+    });
+  });
+
+  it('shows a guided "Get started" CTA for first-time users on the default local server', () => {
+    // No seeded settings → first-time user (hasCompletedSetup=false).
+    isConnected$.set(false);
+
+    render(
+      <SettingsProvider>
+        <WelcomeView />
+      </SettingsProvider>
+    );
+
+    expect(screen.getByText('No gptme server connected')).toBeInTheDocument();
+    // Guided path: a "Get started" CTA and a wizard-oriented intro line
+    expect(screen.getByRole('button', { name: /get started/i })).toBeInTheDocument();
+    expect(screen.getByText(/The setup guide walks you through/i)).toBeInTheDocument();
+    // Returning-user clutter is hidden for first-timers
+    expect(screen.queryByText("pipx install 'gptme[server]'")).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /copy start command/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /server settings/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /use gptme\.ai/i })).not.toBeInTheDocument();
+    // Retry connection stays available regardless of onboarding state
+    expect(screen.getByRole('button', { name: /retry connection/i })).toBeInTheDocument();
+  });
+
+  it('opens the setup wizard at the welcome step from the first-visit "Get started" CTA', async () => {
+    isConnected$.set(false);
+
+    render(
+      <SettingsProvider>
+        <WelcomeView />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+
+    await waitFor(() => {
+      expect(setupWizard$.get()).toMatchObject({ open: true, step: 'welcome' });
     });
   });
 

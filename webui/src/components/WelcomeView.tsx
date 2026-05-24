@@ -163,6 +163,12 @@ export const WelcomeView = () => {
   }, [api.authHeader, connectionConfig.baseUrl, isConnected, providerStatusVersion]);
 
   const { settings } = useSettings();
+  // First-time users on the default local server (typically chat.gptme.org) get a
+  // guided "Get started" CTA into the setup wizard instead of the raw install/
+  // settings path. Users on a custom server have already chosen their setup, so
+  // their disconnected banner is left unchanged.
+  const isFirstVisit = !settings.hasCompletedSetup;
+  const showGuidedSetup = isDefaultLocalServer && isFirstVisit;
   const bg = settings.welcomeBackground;
   // Determine if the background is an image URL or a CSS gradient/color
   const isImageBg = bg && (bg.startsWith('http') || bg.startsWith('/') || bg.startsWith('data:'));
@@ -219,7 +225,13 @@ export const WelcomeView = () => {
                       <code>--cors-origin</code> flag alone is not enough.
                     </p>
                   )}
-                  {isDefaultLocalServer && (
+                  {showGuidedSetup && (
+                    <p className="text-sm text-muted-foreground">
+                      New to gptme? The setup guide walks you through installing a local server or
+                      using the managed gptme.ai option — no copy-pasting required.
+                    </p>
+                  )}
+                  {isDefaultLocalServer && !isFirstVisit && (
                     <div className="space-y-2">
                       <p className="text-xs text-muted-foreground">
                         New to gptme? Install it, then start a server:
@@ -243,6 +255,18 @@ export const WelcomeView = () => {
                     </div>
                   )}
                   <div className="flex flex-wrap gap-2">
+                    {showGuidedSetup && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => {
+                          setupWizard$.step.set('welcome');
+                          setupWizard$.open.set(true);
+                        }}
+                      >
+                        Get started
+                      </Button>
+                    )}
                     <Button
                       type="button"
                       size="sm"
@@ -253,7 +277,7 @@ export const WelcomeView = () => {
                       <RotateCcw className="mr-2 h-4 w-4" />
                       {isRetryingConnection ? 'Retrying...' : 'Retry connection'}
                     </Button>
-                    {isDefaultLocalServer && (
+                    {isDefaultLocalServer && !isFirstVisit && (
                       <Button
                         type="button"
                         size="sm"
@@ -264,16 +288,18 @@ export const WelcomeView = () => {
                         Copy start command
                       </Button>
                     )}
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => settingsModal$.set({ open: true, category: 'servers' })}
-                    >
-                      Server settings
-                    </Button>
+                    {!showGuidedSetup && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => settingsModal$.set({ open: true, category: 'servers' })}
+                      >
+                        Server settings
+                      </Button>
+                    )}
                   </div>
-                  {isDefaultLocalServer && (
+                  {isDefaultLocalServer && !isFirstVisit && (
                     <p className="text-sm text-muted-foreground">
                       Prefer not to run a local server?{' '}
                       <Button
