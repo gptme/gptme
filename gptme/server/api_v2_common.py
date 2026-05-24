@@ -13,6 +13,9 @@ from ..message import Message
 from ..util.uri import URI, is_uri
 
 _MAX_ID_LENGTH = 255  # Linux NAME_MAX: 255 UTF-8 bytes for a single path component
+_BRANCH_SUFFIX_LEN = len(
+    ".jsonl"
+)  # branches/{name}.jsonl on disk — suffix counts against NAME_MAX
 
 
 def _validate_conversation_id(
@@ -46,11 +49,15 @@ def _validate_branch(branch: object) -> tuple[flask.Response, int] | None:
     Branch names are used to construct file paths like ``branches/{branch}.jsonl``,
     so they must not contain path separators or traversal sequences.
 
+    The effective byte limit is ``NAME_MAX - len(".jsonl")`` because the on-disk
+    filename is ``{branch}.jsonl``; a branch name filling all 255 bytes would
+    produce a 261-byte filename, still triggering ``OSError: [Errno 36]``.
+
     Returns None if valid, or (error_response, status_code) if invalid.
     """
     if not isinstance(branch, str):
         return flask.jsonify({"error": "Invalid branch name"}), 400
-    if len(branch.encode()) > _MAX_ID_LENGTH:
+    if len(branch.encode()) > _MAX_ID_LENGTH - _BRANCH_SUFFIX_LEN:
         return flask.jsonify({"error": "branch name too long"}), 400
     if "/" in branch or ".." in branch or "\\" in branch:
         return flask.jsonify({"error": "Invalid branch name"}), 400

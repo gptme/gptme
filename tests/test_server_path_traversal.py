@@ -569,49 +569,71 @@ class TestBranchLengthValidation:
     """Branch names longer than NAME_MAX must return 400, not 500."""
 
     def test_too_long_branch_unit(self):
-        """Unit test: _validate_branch returns error for over-limit names."""
+        """Unit test: _validate_branch returns error for over-limit names.
+
+        Effective limit is NAME_MAX - len(".jsonl") = 249 bytes because the
+        on-disk filename is ``{branch}.jsonl``.
+        """
         from gptme.server.api_v2_common import _validate_branch
         from gptme.server.app import create_app
 
         app = create_app()
         with app.app_context():
-            result = _validate_branch("b" * 256)
+            result = _validate_branch("b" * 250)
             assert result is not None
             _response, status_code = result
             assert status_code == 400
 
-    def test_255_char_branch_passes_unit(self):
-        """Unit test: _validate_branch accepts names up to 255 chars."""
+    def test_249_char_branch_passes_unit(self):
+        """Unit test: _validate_branch accepts names up to 249 bytes.
+
+        249 bytes is the effective limit: NAME_MAX (255) minus the 6-byte
+        ``.jsonl`` suffix that is appended when the branch is stored on disk.
+        """
         from gptme.server.api_v2_common import _validate_branch
         from gptme.server.app import create_app
 
         app = create_app()
         with app.app_context():
-            assert _validate_branch("b" * 255) is None
+            # 249 bytes: at the effective limit — must pass
+            assert _validate_branch("b" * 249) is None
+            # 250 bytes: one over the limit — must be rejected
+            result = _validate_branch("b" * 250)
+            assert result is not None
+            _response, status_code = result
+            assert status_code == 400
 
     def test_multibyte_branch_over_limit_rejected(self):
-        """Multi-byte branch names counted by UTF-8 bytes, not code points."""
+        """Multi-byte branch names counted by UTF-8 bytes, not code points.
+
+        Effective limit is 249 bytes (NAME_MAX - len(".jsonl")).
+        Each CJK char is 3 UTF-8 bytes, so 83 chars = 249 bytes (OK),
+        84 chars = 252 bytes (over limit).
+        """
         from gptme.server.api_v2_common import _validate_branch
         from gptme.server.app import create_app
 
         app = create_app()
         with app.app_context():
-            # 85 CJK chars = 255 bytes (at limit, OK)
-            assert _validate_branch("あ" * 85) is None
-            # 86 CJK chars = 258 bytes (over limit, must reject)
-            result = _validate_branch("あ" * 86)
+            # 83 CJK chars = 249 bytes (at effective limit, OK)
+            assert _validate_branch("あ" * 83) is None
+            # 84 CJK chars = 252 bytes (over effective limit, must reject)
+            result = _validate_branch("あ" * 84)
             assert result is not None
             _response, status_code = result
             assert status_code == 400
 
     def test_too_long_branch_via_endpoint(self, client: FlaskClient):
-        """Over-limit branch name in generate request must return 400."""
+        """Over-limit branch name in generate request must return 400.
+
+        Effective limit is 249 bytes; 250 bytes must be rejected.
+        """
         response = client.post(
             "/api/v2/conversations/test-conv",
             json={
                 "role": "user",
                 "content": "hello",
-                "branch": "b" * 256,
+                "branch": "b" * 250,
             },
         )
         assert response.status_code == 400
