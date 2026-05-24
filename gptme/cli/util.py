@@ -710,6 +710,25 @@ def models_info(model_name: str, as_json: bool):
         print(f"Error getting model info: {e}")
         sys.exit(1)
 
+    # Warn (on stderr, so it never corrupts stdout/JSON) when the provider
+    # prefix isn't recognized — get_model() returns generic fallback metadata
+    # for unknown providers, so a typo like 'anthropc/...' silently shows fake
+    # values. Mirror the provider check that `models test` performs. Only
+    # applies to fully-qualified 'provider/model' names; bare names and known
+    # custom providers (e.g. lmstudio/...) don't trigger the warning.
+    if "/" in model_name:
+        from ..llm import get_provider_from_model  # fmt: skip
+
+        try:
+            get_provider_from_model(model_name)
+        except Exception:
+            click.echo(
+                f"⚠️  Unrecognized provider in '{model_name}'; showing generic "
+                "fallback metadata. Run 'gptme-util models list --available' "
+                "to see known models.",
+                err=True,
+            )
+
     if as_json:
         print(json.dumps(model_to_dict(model), indent=2))
         return

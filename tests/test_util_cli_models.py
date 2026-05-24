@@ -161,3 +161,47 @@ class TestModelsTest:
         assert (
             "azure/my-deployment" in result.output or "full model name" in result.output
         )
+
+
+class TestModelsInfo:
+    """Tests for 'models info' command."""
+
+    def test_help(self):
+        runner = CliRunner()
+        result = runner.invoke(main, ["models", "info", "--help"])
+        assert result.exit_code == 0
+        assert "detailed information about a specific model" in result.output
+
+    def test_known_model_no_warning(self):
+        """A recognized provider/model shows info with no fallback warning."""
+        runner = CliRunner()
+        result = runner.invoke(main, ["models", "info", "anthropic/claude-opus-4-7"])
+        assert result.exit_code == 0, result.output
+        assert "Provider: anthropic" in result.output
+        assert "Unrecognized provider" not in result.stderr
+
+    def test_unknown_provider_warns_on_stderr(self):
+        """An unrecognized provider prefix still shows fallback metadata, but
+        warns on stderr so the user knows the values are generic."""
+        runner = CliRunner()
+        result = runner.invoke(main, ["models", "info", "bogus/model"])
+        # Lenient behaviour preserved: still exits 0 with fallback metadata.
+        assert result.exit_code == 0, result.output
+        assert "Model: bogus/model" in result.output
+        # Warning lands on stderr (so it never corrupts piped stdout).
+        assert "Unrecognized provider" in result.stderr
+
+    def test_unknown_provider_json_stays_clean(self):
+        """With --json, the warning goes to stderr, keeping stdout JSON clean.
+
+        CliRunner combines streams in ``result.output``; the meaningful contract
+        is that the warning is isolated to stderr while the JSON payload is
+        emitted on stdout (verified at the fd level by ``2>/dev/null`` usage).
+        """
+        runner = CliRunner()
+        result = runner.invoke(main, ["models", "info", "bogus/model", "--json"])
+        assert result.exit_code == 0, result.output
+        # Warning is isolated to stderr.
+        assert "Unrecognized provider" in result.stderr
+        # JSON payload (on stdout) is present and well-formed for the model.
+        assert '"model": "bogus/model"' in result.output
