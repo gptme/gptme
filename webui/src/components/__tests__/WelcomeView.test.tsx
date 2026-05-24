@@ -118,11 +118,29 @@ describe('WelcomeView', () => {
     expect(screen.getByRole('button', { name: /retry connection/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /copy start command/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /server settings/i })).toBeInTheDocument();
+    // Cloud alternative completes the two-path onboarding story (#2485)
+    expect(screen.getByRole('button', { name: /use gptme\.ai/i })).toBeInTheDocument();
     // Setup-guide link points at the canonical server/CORS docs (#2479, #2478)
     expect(screen.getByRole('link', { name: /server setup guide/i })).toHaveAttribute(
       'href',
       'https://gptme.org/docs/server.html'
     );
+  });
+
+  it('opens the setup wizard at the cloud step from the disconnected banner', async () => {
+    isConnected$.set(false);
+
+    render(
+      <SettingsProvider>
+        <WelcomeView />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /use gptme\.ai/i }));
+
+    await waitFor(() => {
+      expect(setupWizard$.get()).toMatchObject({ open: true, step: 'cloud' });
+    });
   });
 
   it('shows docs link (but not install step) when a non-default server is disconnected', () => {
@@ -141,6 +159,8 @@ describe('WelcomeView', () => {
     // Install step is only for new users on the default local server
     expect(screen.queryByText("pipx install 'gptme[server]'")).not.toBeInTheDocument();
     expect(screen.queryByText(/New to gptme\?/i)).not.toBeInTheDocument();
+    // Cloud CTA is local-server-only; a custom server user already chose their path
+    expect(screen.queryByRole('button', { name: /use gptme\.ai/i })).not.toBeInTheDocument();
     // Docs link is always shown for any disconnected state (CORS/auth help applies too)
     expect(screen.getByRole('link', { name: /server setup guide/i })).toHaveAttribute(
       'href',

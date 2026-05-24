@@ -273,6 +273,24 @@ export const WelcomeView = () => {
                       Server settings
                     </Button>
                   </div>
+                  {isDefaultLocalServer && (
+                    <p className="text-sm text-muted-foreground">
+                      Prefer not to run a local server?{' '}
+                      <Button
+                        type="button"
+                        variant="link"
+                        size="sm"
+                        className="h-auto p-0 text-sm"
+                        onClick={() => {
+                          setupWizard$.step.set('cloud');
+                          setupWizard$.open.set(true);
+                        }}
+                      >
+                        Use gptme.ai
+                      </Button>{' '}
+                      for a managed option — no install required.
+                    </p>
+                  )}
                   <p className="text-xs text-muted-foreground">
                     Need help connecting?{' '}
                     <a
