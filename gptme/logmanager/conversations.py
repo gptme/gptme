@@ -335,7 +335,10 @@ def list_conversations(
             If False, uses fast tail-only scan.
     """
     conversation_iter = get_conversations(detail=detail, include_test=include_test)
-    return list(islice(conversation_iter, limit))
+    # islice() raises ValueError on negative stop values; clamp so a negative
+    # limit yields an empty result instead of crashing. The CLI rejects
+    # negatives earlier, but this also guards non-CLI callers (webui/server).
+    return list(islice(conversation_iter, max(limit, 0)))
 
 
 def get_conversation_by_id(conv_id: str) -> ConversationMeta | None:

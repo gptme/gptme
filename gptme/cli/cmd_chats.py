@@ -57,7 +57,13 @@ def chats():
 
 
 @chats.command("list")
-@click.option("-n", "--limit", default=20, help="Maximum number of chats to show.")
+@click.option(
+    "-n",
+    "--limit",
+    default=20,
+    type=click.IntRange(min=1),
+    help="Maximum number of chats to show.",
+)
 @click.option(
     "--summarize", is_flag=True, help="Generate LLM-based summaries for chats"
 )
@@ -88,7 +94,13 @@ def chats_list(limit: int, summarize: bool, output_json: bool):
 
 @chats.command("search")
 @click.argument("query")
-@click.option("-n", "--limit", default=20, help="Maximum number of chats to show.")
+@click.option(
+    "-n",
+    "--limit",
+    default=20,
+    type=click.IntRange(min=1),
+    help="Maximum number of chats to show.",
+)
 @click.option(
     "--summarize", is_flag=True, help="Generate LLM-based summaries for chats"
 )

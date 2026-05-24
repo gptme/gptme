@@ -10,6 +10,7 @@ from gptme.logmanager.conversations import (
     ConversationMeta,
     get_conversations,
     get_user_conversations,
+    list_conversations,
 )
 
 
@@ -339,3 +340,22 @@ def test_get_user_conversations_skips_test_logs_before_scanning(logs_dir, monkey
     convs = list(get_user_conversations())
     assert [conv.id for conv in convs] == ["real-conversation"]
     assert scanned == ["real-conversation"]
+
+
+@pytest.mark.parametrize(("limit", "expected"), [(-5, 0), (0, 0), (1, 1), (10, 2)])
+def test_list_conversations_limit_bounds(logs_dir, limit, expected):
+    """list_conversations clamps non-positive limits instead of crashing islice()."""
+    _make_conversation(
+        logs_dir,
+        "conv-one",
+        [{"role": "user", "content": "hi", "timestamp": "2025-01-01T00:00:00Z"}],
+    )
+    _make_conversation(
+        logs_dir,
+        "conv-two",
+        [{"role": "user", "content": "yo", "timestamp": "2025-01-02T00:00:00Z"}],
+    )
+
+    # Previously list_conversations(-5) raised ValueError from islice().
+    convs = list_conversations(limit)
+    assert len(convs) == expected

@@ -118,6 +118,20 @@ def test_chats_list(tmp_path, mocker):
     assert "Messages: 2" in result.output  # Second chat has 2 messages
 
 
+def test_chats_list_negative_limit():
+    """A negative --limit should be rejected cleanly, not crash islice()."""
+    runner = CliRunner()
+
+    # Both plain and --json paths funnel through list_conversations(limit),
+    # which previously passed a negative limit straight to islice() (ValueError).
+    for extra in ([], ["--json"]):
+        result = runner.invoke(main, ["chats", "list", "--limit", "-5", *extra])
+        assert result.exit_code != 0
+        assert "Traceback" not in result.output
+        # click.IntRange emits a clear range-violation message
+        assert "-5" in result.output
+
+
 def test_context_index_and_retrieve(tmp_path):
     """Test the context index and retrieve commands."""
     # Skip if gptme-rag not available
