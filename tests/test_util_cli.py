@@ -42,6 +42,14 @@ def test_tokens_count(tmp_path):
     assert result.exit_code != 0
     assert "No text provided" in result.output
 
+    # Test stdin via "-" argument (Unix convention: "-" means read from stdin)
+    result = runner.invoke(main, ["tokens", "count", "-"], input="Hello, world!")
+    assert result.exit_code == 0
+    assert "Token count" in result.output
+    # Should count actual tokens, not 1 (the dash character)
+    count = int(result.output.split(": ")[1].strip())
+    assert count > 1
+
 
 def test_chats_list(tmp_path, mocker):
     """Test the chats list command."""
