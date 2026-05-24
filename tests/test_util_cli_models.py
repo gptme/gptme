@@ -192,16 +192,12 @@ class TestModelsInfo:
         assert "Unrecognized provider" in result.stderr
 
     def test_unknown_provider_json_stays_clean(self):
-        """With --json, the warning goes to stderr, keeping stdout JSON clean.
-
-        CliRunner combines streams in ``result.output``; the meaningful contract
-        is that the warning is isolated to stderr while the JSON payload is
-        emitted on stdout (verified at the fd level by ``2>/dev/null`` usage).
-        """
+        """With --json, the warning goes to stderr, keeping stdout JSON clean."""
         runner = CliRunner()
         result = runner.invoke(main, ["models", "info", "bogus/model", "--json"])
         assert result.exit_code == 0, result.output
         # Warning is isolated to stderr.
         assert "Unrecognized provider" in result.stderr
-        # JSON payload (on stdout) is present and well-formed for the model.
-        assert '"model": "bogus/model"' in result.output
+        # stdout is valid JSON and contains the expected model field.
+        data = json.loads(result.stdout)
+        assert data["model"] == "bogus/model"

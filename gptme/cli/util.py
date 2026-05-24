@@ -721,7 +721,7 @@ def models_info(model_name: str, as_json: bool):
 
         try:
             get_provider_from_model(model_name)
-        except Exception:
+        except ValueError:
             click.echo(
                 f"⚠️  Unrecognized provider in '{model_name}'; showing generic "
                 "fallback metadata. Run 'gptme-util models list --available' "
