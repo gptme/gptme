@@ -59,6 +59,12 @@ export const WelcomeView = () => {
   const isDefaultLocalServer = DEFAULT_LOCAL_SERVER_URLS.has(activeServerBaseUrl);
   const installCommand = `pipx install 'gptme[server]'`;
   const serverCommand = `gptme-server --cors-origin='${window.location.origin}'`;
+  // Chrome 142+ Local Network Access only gates requests from a non-local page
+  // origin to a loopback/local server, so the permission hint below is only
+  // relevant when the web UI itself is served from a hosted (non-local) origin.
+  const isHostedOrigin = !/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])([:/]|$)/.test(
+    window.location.origin
+  );
 
   // Create observables that ChatInput expects
   const autoFocus$ = observable(true);
@@ -210,6 +216,16 @@ export const WelcomeView = () => {
                       <code className="block rounded-md border border-amber-500/20 bg-background/80 px-3 py-2 font-mono text-xs">
                         {serverCommand}
                       </code>
+                      {isHostedOrigin && (
+                        <p className="text-xs text-muted-foreground">
+                          On Chrome 142+ (and other Chromium browsers), the first connection to a
+                          local server also triggers a{' '}
+                          <span className="font-medium">Local Network Access</span> permission
+                          prompt. Click <span className="font-medium">Allow</span> so this page can
+                          reach <code>localhost</code> — the <code>--cors-origin</code> flag alone
+                          is not enough.
+                        </p>
+                      )}
                     </div>
                   )}
                   <div className="flex flex-wrap gap-2">
