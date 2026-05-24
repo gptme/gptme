@@ -21,7 +21,12 @@ test.describe('Setup wizard', () => {
 
     await expect(page.getByRole('heading', { name: /welcome to gptme/i })).toBeVisible();
 
-    await page.getByRole('button', { name: /get started/i }).click();
+    // Scope to the dialog — the disconnected banner also has a "Get started"
+    // button on first visit, so a global role query would hit two elements.
+    await page
+      .getByRole('dialog')
+      .getByRole('button', { name: /get started/i })
+      .click();
     await expect(page.getByRole('heading', { name: /choose your setup/i })).toBeVisible();
 
     await page.getByRole('button', { name: /cloud\s/i }).click();
