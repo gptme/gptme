@@ -1,6 +1,7 @@
 """Tests for the gptme-util CLI."""
 
 import json
+import os
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -130,6 +131,51 @@ def test_chats_list_negative_limit():
         assert "Traceback" not in result.output
         # click.IntRange emits a clear range-violation message
         assert "-5" in result.output
+
+
+def test_chats_read_nonexistent_exits_nonzero(tmp_path, monkeypatch):
+    """Reading a missing conversation should fail (exit!=0), like rename/send/export.
+
+    Previously `chats read` delegated to read_chat() which only printed
+    "not found" and returned, so the CLI exited 0 on an error.
+    """
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+    runner = CliRunner()
+
+    result = runner.invoke(main, ["chats", "read", "no-such-conversation"])
+    assert result.exit_code != 0
+    assert "not found" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_chats_read_finds_conversation_beyond_recent_limit(tmp_path, monkeypatch):
+    """`chats read` must find any conversation, not just the 20 most recent.
+
+    read_chat() used list_conversations() (default limit 20), so reading an
+    older conversation by id reported it as "not found" even though it existed.
+    """
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+    runner = CliRunner()
+
+    # Create 25 conversations with strictly increasing mtimes so recency order
+    # is deterministic; the oldest sits well outside the old 20-conversation window.
+    target_id = "0000-01-01-oldest-chat"
+    base = time.time() - 10_000
+    for i in range(25):
+        conv_id = "0000-01-01-oldest-chat" if i == 0 else f"2026-01-01-chat-{i:02d}"
+        conv_dir = tmp_path / conv_id
+        conv_dir.mkdir()
+        jsonl = conv_dir / "conversation.jsonl"
+        jsonl.write_text(
+            '{"role": "user", "content": "hello", "timestamp": "2026-01-01T00:00:00+00:00"}\n'
+        )
+        # i=0 (target) is the oldest, i=24 the newest.
+        os.utime(jsonl, (base + i, base + i))
+
+    result = runner.invoke(main, ["chats", "read", target_id])
+    assert result.exit_code == 0, result.output
+    assert "not found" not in result.output
+    assert target_id in result.output
 
 
 def test_context_index_and_retrieve(tmp_path):

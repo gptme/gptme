@@ -215,25 +215,26 @@ def read_chat(
         context_messages (int): Number of messages to show before start_message.
         start_message (int | None): Start from this message number (1-indexed), if specified.
     """
-    from ..logmanager import LogManager, list_conversations  # fmt: skip
+    from ..logmanager import LogManager, get_conversation_by_id  # fmt: skip
 
-    for conv in list_conversations():
-        if conv.id == id:
-            log_path = Path(conv.path)
-            logmanager = LogManager.load(log_path, lock=False)
-            print(f"Reading conversation: {conv.name} ({conv.id})")
-            messages = [
-                msg for msg in logmanager.log if msg.role != "system" or incl_system
-            ]
-            start_idx = 0
-            if start_message is not None:
-                start_idx = max(0, start_message - 1 - context_messages)
-                messages = messages[start_idx:]
-            for i, msg in enumerate(messages[:max_results]):
-                print(f"{start_idx + i + 1}. {msg.format(max_length=100)}")
-            break
-    else:
+    # Look up by id across ALL conversations. Using list_conversations() here
+    # would only scan the 20 most recent, so any older conversation was reported
+    # as "not found" even though it exists.
+    conv = get_conversation_by_id(id)
+    if conv is None:
         print(f"Conversation '{id}' not found.")
+        return
+
+    log_path = Path(conv.path)
+    logmanager = LogManager.load(log_path, lock=False)
+    print(f"Reading conversation: {conv.name} ({conv.id})")
+    messages = [msg for msg in logmanager.log if msg.role != "system" or incl_system]
+    start_idx = 0
+    if start_message is not None:
+        start_idx = max(0, start_message - 1 - context_messages)
+        messages = messages[start_idx:]
+    for i, msg in enumerate(messages[:max_results]):
+        print(f"{start_idx + i + 1}. {msg.format(max_length=100)}")
 
 
 def find_empty_conversations(
