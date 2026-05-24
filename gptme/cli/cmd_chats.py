@@ -164,7 +164,13 @@ def chats_search(
 
 @chats.command("read")
 @click.argument("id")
-@click.option("-n", "--limit", default=20, help="Maximum number of messages to show.")
+@click.option(
+    "-n",
+    "--limit",
+    default=20,
+    type=click.IntRange(min=1),
+    help="Maximum number of messages to show.",
+)
 @click.option("--system", is_flag=True, help="Include system messages.")
 @click.option(
     "-c", "--context", default=0, help="Messages of context before start message."
