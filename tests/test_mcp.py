@@ -26,9 +26,9 @@ def test_mcp_cli_commands(monkeypatch):
     # Test with mock data - this would normally use the config system
     runner = CliRunner()
 
-    # Test info command with non-existent server
+    # Test info command with non-existent server - should exit 1 (server not found anywhere)
     result = runner.invoke(mcp_info, ["nonexistent"])
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     # Updated to match improved error message that searches registries
     assert "not configured locally" in result.output
     assert "not found in registries either" in result.output
