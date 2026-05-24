@@ -15,6 +15,7 @@ from .llm import guess_provider_from_config, init_llm, is_custom_provider
 from .llm.models import (
     PROVIDERS,
     CustomProvider,
+    ModelMeta,
     Provider,
     get_model,
     get_recommended_model,
@@ -136,6 +137,10 @@ def init_model(
             "Full guide: https://gptme.org/docs/getting-started.html"
         )
 
+    # Holds a pre-resolved ModelMeta when the resolution step already fetched it,
+    # so the final get_model(model_full) call below can be skipped.
+    _resolved_meta: ModelMeta | None = None
+
     # Check if model has provider/model format
     if "/" in model:
         provider_part = model.split("/")[0]
@@ -161,6 +166,7 @@ def init_model(
                 )
             provider = resolved.provider
             model_name = resolved.model
+            _resolved_meta = resolved  # reuse below; avoids a redundant second lookup
     else:
         # No slash - check if it's a custom provider with default model
         if is_custom_provider(model):
@@ -180,7 +186,7 @@ def init_model(
     console.log(f"Using model: [green]{model_full}[/green]")
     init_llm(provider)
 
-    model_meta = get_model(model_full)
+    model_meta = _resolved_meta or get_model(model_full)
 
     # Apply GPTME_CONTEXT_LENGTH override (useful for local models with non-standard context)
     context_length_str = os.environ.get("GPTME_CONTEXT_LENGTH")
