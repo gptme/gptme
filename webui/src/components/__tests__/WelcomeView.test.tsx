@@ -108,9 +108,19 @@ describe('WelcomeView', () => {
     expect(
       screen.getByText(/Start a local gptme server or point the app at another server/i)
     ).toBeInTheDocument();
+    // Brand-new users need the install step before the server command (#2479)
+    expect(screen.getByText("pipx install 'gptme[server]'")).toBeInTheDocument();
+    expect(
+      screen.getByText(/New to gptme\? Install it, then start a server:/i)
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /retry connection/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /copy start command/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /server settings/i })).toBeInTheDocument();
+    // Setup-guide link points at the canonical server/CORS docs (#2479, #2478)
+    expect(screen.getByRole('link', { name: /server setup guide/i })).toHaveAttribute(
+      'href',
+      'https://gptme.org/docs/server.html'
+    );
   });
 
   it('shows a finish-setup banner when the server has no provider configured', async () => {

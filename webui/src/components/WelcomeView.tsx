@@ -57,6 +57,7 @@ export const WelcomeView = () => {
     ''
   );
   const isDefaultLocalServer = DEFAULT_LOCAL_SERVER_URLS.has(activeServerBaseUrl);
+  const installCommand = `pipx install 'gptme[server]'`;
   const serverCommand = `gptme-server --cors-origin='${window.location.origin}'`;
 
   // Create observables that ChatInput expects
@@ -199,9 +200,17 @@ export const WelcomeView = () => {
                       : 'Check the server URL and auth token, then retry the connection.'}
                   </p>
                   {isDefaultLocalServer && (
-                    <code className="block rounded-md border border-amber-500/20 bg-background/80 px-3 py-2 font-mono text-xs">
-                      {serverCommand}
-                    </code>
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground">
+                        New to gptme? Install it, then start a server:
+                      </p>
+                      <code className="block rounded-md border border-amber-500/20 bg-background/80 px-3 py-2 font-mono text-xs">
+                        {installCommand}
+                      </code>
+                      <code className="block rounded-md border border-amber-500/20 bg-background/80 px-3 py-2 font-mono text-xs">
+                        {serverCommand}
+                      </code>
+                    </div>
                   )}
                   <div className="flex flex-wrap gap-2">
                     <Button
@@ -234,6 +243,18 @@ export const WelcomeView = () => {
                       Server settings
                     </Button>
                   </div>
+                  <p className="text-xs text-muted-foreground">
+                    Need help connecting?{' '}
+                    <a
+                      href="https://gptme.org/docs/server.html"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium underline underline-offset-2 hover:text-foreground"
+                    >
+                      Read the server setup guide
+                    </a>
+                    .
+                  </p>
                 </AlertDescription>
               </Alert>
             )}
