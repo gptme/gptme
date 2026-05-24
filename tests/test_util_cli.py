@@ -37,6 +37,11 @@ def test_tokens_count(tmp_path):
     assert result.exit_code == 0
     assert "Token count" in result.output
 
+    # Test no input: should exit nonzero (error), not silently succeed
+    result = runner.invoke(main, ["tokens", "count"], input="")
+    assert result.exit_code != 0
+    assert "No text provided" in result.output
+
 
 def test_chats_list(tmp_path, mocker):
     """Test the chats list command."""

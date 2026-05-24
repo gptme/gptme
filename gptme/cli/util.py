@@ -262,7 +262,7 @@ def tokens_count(text: str | None, model: str, file: str | None):
 
     if not text:
         print("Error: No text provided. Use --file or pipe text to stdin.")
-        return
+        sys.exit(1)
 
     # Validate model
     try:
