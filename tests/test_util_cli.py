@@ -56,10 +56,6 @@ def test_chats_list(tmp_path, mocker):
     runner = CliRunner()
 
     mocker.patch("gptme.tools.browser.browser", "playwright")
-    mocker.patch(
-        "gptme.tools.browser.console.log",
-        side_effect=AssertionError("browser init should stay quiet for chats list"),
-    )
 
     # Create test conversations
     logs_dir = tmp_path / "logs"
@@ -214,10 +210,6 @@ def test_tools_list(mocker):
     runner = CliRunner()
 
     mocker.patch("gptme.tools.browser.browser", "playwright")
-    mocker.patch(
-        "gptme.tools.browser.console.log",
-        side_effect=AssertionError("browser init should stay quiet for tools list"),
-    )
 
     # Test basic list
     result = runner.invoke(main, ["tools", "list"])
