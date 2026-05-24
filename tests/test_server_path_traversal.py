@@ -497,6 +497,94 @@ class TestAgentCreationPathValidation:
         assert "alphanumeric" in data["error"].lower()
 
 
+class TestConversationIdLengthValidation:
+    """conversation_id values longer than NAME_MAX must return 400, not 500.
+
+    Linux filesystems (ext4, xfs) raise OSError ENAMETOOLONG for path components
+    longer than NAME_MAX (typically 255).  The server used to catch only
+    FileNotFoundError, so an over-long ID triggered an unhandled 500.
+    """
+
+    def test_too_long_id_returns_400_not_500(self, client: FlaskClient):
+        """A 256-char conversation_id must return 400, not 500 (OSError)."""
+        long_id = "a" * 256
+        response = client.get(f"/api/v2/conversations/{long_id}")
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert "too long" in data["error"]
+
+    def test_exactly_255_chars_is_accepted(self, client: FlaskClient):
+        """A 255-char ID is at the limit and must not be rejected by length check."""
+        ok_id = "a" * 255
+        response = client.get(f"/api/v2/conversations/{ok_id}")
+        # Should not be rejected for length — may be 404 (not found) but not 400 length
+        if response.status_code == 400:
+            data = response.get_json()
+            assert data is None or "too long" not in data.get("error", "")
+
+    def test_very_long_id_unit(self):
+        """Unit test: _validate_conversation_id returns error for over-limit IDs."""
+        from gptme.server.api_v2_common import _validate_conversation_id
+        from gptme.server.app import create_app
+
+        app = create_app()
+        with app.app_context():
+            result = _validate_conversation_id("a" * 256)
+            assert result is not None
+            _response, status_code = result
+            assert status_code == 400
+
+    def test_255_char_id_passes_unit(self):
+        """Unit test: _validate_conversation_id accepts IDs up to 255 chars."""
+        from gptme.server.api_v2_common import _validate_conversation_id
+        from gptme.server.app import create_app
+
+        app = create_app()
+        with app.app_context():
+            assert _validate_conversation_id("a" * 255) is None
+
+
+class TestBranchLengthValidation:
+    """Branch names longer than NAME_MAX must return 400, not 500."""
+
+    def test_too_long_branch_unit(self):
+        """Unit test: _validate_branch returns error for over-limit names."""
+        from gptme.server.api_v2_common import _validate_branch
+        from gptme.server.app import create_app
+
+        app = create_app()
+        with app.app_context():
+            result = _validate_branch("b" * 256)
+            assert result is not None
+            _response, status_code = result
+            assert status_code == 400
+
+    def test_255_char_branch_passes_unit(self):
+        """Unit test: _validate_branch accepts names up to 255 chars."""
+        from gptme.server.api_v2_common import _validate_branch
+        from gptme.server.app import create_app
+
+        app = create_app()
+        with app.app_context():
+            assert _validate_branch("b" * 255) is None
+
+    def test_too_long_branch_via_endpoint(self, client: FlaskClient):
+        """Over-limit branch name in generate request must return 400."""
+        response = client.post(
+            "/api/v2/conversations/test-conv",
+            json={
+                "role": "user",
+                "content": "hello",
+                "branch": "b" * 256,
+            },
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert "too long" in data["error"]
+
+
 class TestValidateBranchUnit:
     """Unit tests for _validate_branch function (requires Flask app context)."""
 

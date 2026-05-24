@@ -12,11 +12,13 @@ from typing_extensions import NotRequired
 from ..message import Message
 from ..util.uri import URI, is_uri
 
+_MAX_ID_LENGTH = 255  # Linux ENAMETOOLONG limit for a single path component
+
 
 def _validate_conversation_id(
     conversation_id: str,
 ) -> tuple[flask.Response, int] | None:
-    """Validate conversation_id to prevent path traversal attacks.
+    """Validate conversation_id to prevent path traversal attacks and OS errors.
 
     Returns None if valid, or (error_response, status_code) if invalid.
 
@@ -26,14 +28,20 @@ def _validate_conversation_id(
     single-component form is a bare ``..``, but substring matching is simpler
     and the false-positive risk (rejecting ``..`` in a real conversation name)
     is negligible in practice.
+
+    The length check prevents ``OSError: [Errno 36] File name too long`` which
+    would otherwise bubble up as an unhandled 500 for IDs longer than the
+    filesystem's NAME_MAX (typically 255 on Linux ext4/xfs).
     """
+    if len(conversation_id) > _MAX_ID_LENGTH:
+        return flask.jsonify({"error": "conversation_id too long"}), 400
     if "/" in conversation_id or ".." in conversation_id or "\\" in conversation_id:
         return flask.jsonify({"error": "Invalid conversation_id"}), 400
     return None
 
 
 def _validate_branch(branch: object) -> tuple[flask.Response, int] | None:
-    """Validate branch name to prevent path traversal attacks (CWE-22).
+    """Validate branch name to prevent path traversal attacks and OS errors.
 
     Branch names are used to construct file paths like ``branches/{branch}.jsonl``,
     so they must not contain path separators or traversal sequences.
@@ -42,6 +50,8 @@ def _validate_branch(branch: object) -> tuple[flask.Response, int] | None:
     """
     if not isinstance(branch, str):
         return flask.jsonify({"error": "Invalid branch name"}), 400
+    if len(branch) > _MAX_ID_LENGTH:
+        return flask.jsonify({"error": "branch name too long"}), 400
     if "/" in branch or ".." in branch or "\\" in branch:
         return flask.jsonify({"error": "Invalid branch name"}), 400
     return None
