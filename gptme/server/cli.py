@@ -121,7 +121,9 @@ def main():
     help=(
         "CORS origin(s) to allow. Use '*' to allow all origins. Pass a "
         "comma-separated list to allow multiple origins, e.g. "
-        "'tauri://localhost,http://tauri.localhost'."
+        "'https://chat.gptme.org,tauri://localhost,http://tauri.localhost'. "
+        "Set this to the origin of the web UI you load (for the hosted UI, "
+        "'https://chat.gptme.org')."
     ),
 )
 @click.option(
