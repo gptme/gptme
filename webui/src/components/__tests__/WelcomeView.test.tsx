@@ -11,6 +11,7 @@ const mockInvalidateQueries = jest.fn();
 const mockConnect = jest.fn();
 const mockFetch = jest.fn();
 const isConnected$ = observable(true);
+let mockBaseUrl = 'http://localhost:5700';
 
 jest.mock('react-router-dom', () => {
   const actual = jest.requireActual('react-router-dom');
@@ -29,7 +30,7 @@ jest.mock('@/contexts/ApiContext', () => {
       },
       isConnected$,
       connect: mockConnect,
-      connectionConfig: { baseUrl: 'http://localhost:5700' },
+      connectionConfig: { baseUrl: mockBaseUrl },
       switchServer: jest.fn(),
     }),
   };
@@ -63,6 +64,7 @@ jest.mock('../ExamplesSection', () => ({
 describe('WelcomeView', () => {
   beforeEach(() => {
     isConnected$.set(true);
+    mockBaseUrl = 'http://localhost:5700';
     setupWizard$.step.set('welcome');
     setupWizard$.open.set(false);
     setupWizard$.providerStatusVersion.set(0);
@@ -117,6 +119,29 @@ describe('WelcomeView', () => {
     expect(screen.getByRole('button', { name: /copy start command/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /server settings/i })).toBeInTheDocument();
     // Setup-guide link points at the canonical server/CORS docs (#2479, #2478)
+    expect(screen.getByRole('link', { name: /server setup guide/i })).toHaveAttribute(
+      'href',
+      'https://gptme.org/docs/server.html'
+    );
+  });
+
+  it('shows docs link (but not install step) when a non-default server is disconnected', () => {
+    mockBaseUrl = 'http://my-server.example.com:5700';
+    isConnected$.set(false);
+
+    render(
+      <SettingsProvider>
+        <WelcomeView />
+      </SettingsProvider>
+    );
+
+    // Non-default path: different title and description
+    expect(screen.getByText(/Cannot reach/i)).toBeInTheDocument();
+    expect(screen.getByText(/Check the server URL and auth token/i)).toBeInTheDocument();
+    // Install step is only for new users on the default local server
+    expect(screen.queryByText("pipx install 'gptme[server]'")).not.toBeInTheDocument();
+    expect(screen.queryByText(/New to gptme\?/i)).not.toBeInTheDocument();
+    // Docs link is always shown for any disconnected state (CORS/auth help applies too)
     expect(screen.getByRole('link', { name: /server setup guide/i })).toHaveAttribute(
       'href',
       'https://gptme.org/docs/server.html'
