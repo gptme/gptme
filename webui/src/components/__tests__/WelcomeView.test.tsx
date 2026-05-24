@@ -14,7 +14,7 @@ const isConnected$ = observable(true);
 const lastConnectionResult$ = observable<null | {
   ok: false;
   url: string;
-  reason: string;
+  reason: 'network' | 'http_error' | 'parse_error' | 'timeout' | 'cors';
   message: string;
 }>(null);
 let mockBaseUrl = 'http://localhost:5700';
@@ -379,6 +379,30 @@ describe('WelcomeView', () => {
     expect(screen.getByText(/rejected cross-origin requests/i)).toBeInTheDocument();
     // The serverCommand code block contains the full gptme-server invocation
     expect(screen.getByText(/gptme-server --cors-origin/i)).toBeInTheDocument();
+  });
+
+  it('shows PNA guidance when Chrome Local Network Access blocks the connection', () => {
+    mockIsLikelyChromeCorsPna.mockReturnValue(true);
+    isConnected$.set(false);
+    lastConnectionResult$.set({
+      ok: false,
+      url: 'http://localhost:5700/api/v2',
+      reason: 'cors',
+      message: 'CORS error',
+    });
+
+    render(
+      <SettingsProvider>
+        <WelcomeView />
+      </SettingsProvider>
+    );
+
+    expect(
+      screen.getByText(/Chrome blocked this connection.*Local Network Access/i)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/rejected cross-origin requests/i)).not.toBeInTheDocument();
+
+    mockIsLikelyChromeCorsPna.mockReturnValue(false);
   });
 
   it('shows timeout guidance for a timeout error', () => {

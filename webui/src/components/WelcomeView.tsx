@@ -266,7 +266,7 @@ export const WelcomeView = () => {
                       using the managed gptme.ai option — no copy-pasting required.
                     </p>
                   )}
-                  {isDefaultLocalServer && !isFirstVisit && (
+                  {isDefaultLocalServer && !isFirstVisit && errorBucket !== 'cors' && (
                     <div className="space-y-2">
                       <p className="text-xs text-muted-foreground">
                         New to gptme? Install it, then start a server:
