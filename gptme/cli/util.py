@@ -530,15 +530,22 @@ def tools_info(
 )
 def tools_call(tool_name: str, function_name: str, arg: list[str]):
     """Call a tool with the given arguments."""
-    from ..tools import get_tool, get_tools, init_tools  # fmt: skip
+    from ..tools import get_available_tools, get_tool, init_tools  # fmt: skip
 
-    # Initialize tools
-    init_tools()
+    # Load the requested tool even if it is not part of the default toolchain.
+    # Some tools (e.g. computer, rag, subagent) expose callable functions but
+    # are not loaded by default, so a bare init_tools() would leave them
+    # uncallable. Fall back to a default init for unknown names so the
+    # not-found branch can still list the full set of available tools.
+    try:
+        init_tools(allowlist=[tool_name])
+    except ValueError:
+        init_tools()
 
     tool = get_tool(tool_name)
     if not tool:
         print(f"Tool '{tool_name}' not found. Available tools:")
-        for t in get_tools():
+        for t in sorted(get_available_tools(), key=lambda t: t.name):
             print(f"- {t.name}")
         sys.exit(1)
 

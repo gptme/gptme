@@ -271,6 +271,37 @@ def test_tools_info():
     assert isinstance(data["is_mcp"], bool)
 
 
+def test_tools_call_non_default_tool():
+    """Non-default tools that expose functions must be callable.
+
+    Tools like ``subagent`` are not loaded by default, but they expose
+    callable functions and ``tools call`` should still reach them instead of
+    reporting the tool as missing. Regression test for the bare ``init_tools()``
+    that left non-default tools uncallable.
+    """
+    runner = CliRunner()
+
+    # subagent is not in the default toolchain but exposes functions.
+    # Calling without the required arg should reach the function (and fail on
+    # the missing argument), NOT report the tool as not found.
+    result = runner.invoke(main, ["tools", "call", "subagent", "subagent_status"])
+    assert result.exit_code != 0
+    assert "Tool 'subagent' not found" not in result.output
+    assert "Error calling function" in result.output
+
+    # Unknown function on a loaded non-default tool lists its functions.
+    result = runner.invoke(main, ["tools", "call", "subagent", "nosuchfn"])
+    assert result.exit_code != 0
+    assert "not found in tool 'subagent'" in result.output
+    assert "Available functions" in result.output
+
+    # Genuinely unknown tool still errors and lists available tools.
+    result = runner.invoke(main, ["tools", "call", "definitely-not-a-tool", "fn"])
+    assert result.exit_code != 0
+    assert "not found" in result.output
+    assert "Available tools" in result.output
+
+
 def test_models_list():
     """Test the models list command."""
     import json
