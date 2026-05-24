@@ -1,6 +1,8 @@
 """Tests for the models-related gptme-util CLI commands."""
 
 import json
+import subprocess
+import sys
 from unittest.mock import Mock, patch
 
 from click.testing import CliRunner
@@ -172,30 +174,45 @@ class TestModelsInfo:
         assert result.exit_code == 0
         assert "detailed information about a specific model" in result.output
 
+    @staticmethod
+    def _run_models_info(*args: str) -> "subprocess.CompletedProcess[str]":
+        """Invoke 'gptme-util models info' as a subprocess for separate stdout/stderr."""
+        return subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import sys; sys.argv=['gptme-util'] + sys.argv[1:];"
+                "from gptme.cli.util import main; main()",
+                "models",
+                "info",
+                *args,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
     def test_known_model_no_warning(self):
         """A recognized provider/model shows info with no fallback warning."""
-        runner = CliRunner()
-        result = runner.invoke(main, ["models", "info", "anthropic/claude-opus-4-7"])
-        assert result.exit_code == 0, result.output
-        assert "Provider: anthropic" in result.output
+        result = self._run_models_info("anthropic/claude-opus-4-7")
+        assert result.returncode == 0, result.stderr
+        assert "Provider: anthropic" in result.stdout
         assert "Unrecognized provider" not in result.stderr
 
     def test_unknown_provider_warns_on_stderr(self):
         """An unrecognized provider prefix still shows fallback metadata, but
         warns on stderr so the user knows the values are generic."""
-        runner = CliRunner()
-        result = runner.invoke(main, ["models", "info", "bogus/model"])
+        result = self._run_models_info("bogus/model")
         # Lenient behaviour preserved: still exits 0 with fallback metadata.
-        assert result.exit_code == 0, result.output
-        assert "Model: bogus/model" in result.output
+        assert result.returncode == 0, result.stderr
+        assert "Model: bogus/model" in result.stdout
         # Warning lands on stderr (so it never corrupts piped stdout).
         assert "Unrecognized provider" in result.stderr
 
     def test_unknown_provider_json_stays_clean(self):
         """With --json, the warning goes to stderr, keeping stdout JSON clean."""
-        runner = CliRunner()
-        result = runner.invoke(main, ["models", "info", "bogus/model", "--json"])
-        assert result.exit_code == 0, result.output
+        result = self._run_models_info("bogus/model", "--json")
+        assert result.returncode == 0, result.stderr
         # Warning is isolated to stderr.
         assert "Unrecognized provider" in result.stderr
         # stdout is valid JSON and contains the expected model field.
