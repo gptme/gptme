@@ -12,7 +12,7 @@ import type {
 } from '@/types/api';
 import type { ConversationSummary, Message, ToolUse } from '@/types/conversation';
 import { getApiBaseUrl } from '@/utils/connectionConfig';
-import { withLocalAddressSpace } from '@/utils/addressSpace';
+import { isLocalUrl, withLocalAddressSpace } from '@/utils/addressSpace';
 import { type Observable } from '@legendapp/state';
 import { observable } from '@legendapp/state';
 import { initConversation } from '@/stores/conversations';
@@ -157,12 +157,8 @@ function normalizeApiError(
  */
 export function isLikelyChromeCorsPna(targetUrl: string): boolean {
   try {
-    const target = new URL(targetUrl);
-    const privatePattern = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)/i;
-    const isTargetPrivate = privatePattern.test(target.hostname);
-    const isPublicOrigin =
-      typeof window !== 'undefined' && !privatePattern.test(window.location.hostname);
-    return isTargetPrivate && isPublicOrigin;
+    const isPublicOrigin = typeof window !== 'undefined' && !isLocalUrl(window.location.href);
+    return isLocalUrl(targetUrl) && isPublicOrigin;
   } catch {
     return false;
   }
