@@ -542,8 +542,11 @@ def tools_call(tool_name: str, function_name: str, arg: list[str]):
     #       loaded_tools after init — internal consistency failure, must not be
     #       swallowed.
     # Pre-flighting against get_available_tools() separates the two cases
-    # without needing to parse error message text.
-    available_names = {t.name for t in get_available_tools()}
+    # without needing to parse error message text. Only route to targeted init
+    # when the tool is available (has its runtime deps installed); tools that
+    # are discovered but unavailable (is_available=False) fall through to the
+    # default init so get_toolchain's strict-mode dep check is never hit.
+    available_names = {t.name for t in get_available_tools() if t.is_available}
     if tool_name in available_names:
         init_tools(allowlist=[tool_name])
     else:
