@@ -336,3 +336,19 @@ def test_read_jsonl_malformed(tmp_path):
     assert len(log.messages) == 2
     assert log.messages[0].content == "hello"
     assert log.messages[1].content == "world"
+
+
+def test_read_jsonl_unknown_field(tmp_path):
+    """Unknown message fields (e.g. from a newer gptme version) should be
+    dropped rather than crashing the whole read with a TypeError."""
+    jsonl_file = tmp_path / "test.jsonl"
+    jsonl_file.write_text(
+        '{"role": "user", "content": "hello", "timestamp": "2025-01-01T00:00:00Z", '
+        '"some_future_field": 42}\n'
+        '{"role": "assistant", "content": "world", "timestamp": "2025-01-01T00:00:01Z"}\n'
+    )
+    log = Log.read_jsonl(jsonl_file)
+    # Both messages must survive; the unknown key is just ignored.
+    assert len(log.messages) == 2
+    assert log.messages[0].content == "hello"
+    assert log.messages[1].content == "world"
