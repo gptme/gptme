@@ -22,6 +22,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { isLikelyChromeCorsPna } from '@/utils/api';
 
 const DEFAULT_LOCAL_SERVER_URLS = new Set(['http://127.0.0.1:5700', 'http://localhost:5700']);
 
@@ -46,6 +47,7 @@ export const WelcomeView = () => {
   const { api, isConnected$, connectionConfig, switchServer, connect } = useApi();
   const queryClient = useQueryClient();
   const isConnected = use$(isConnected$);
+  const lastConnectionResult = use$(api.lastConnectionResult$);
   const providerStatusVersion = use$(setupWizard$.providerStatusVersion);
   const registry = use$(serverRegistry$);
   const connectedServers = getConnectedServers();
@@ -169,6 +171,35 @@ export const WelcomeView = () => {
   // their disconnected banner is left unchanged.
   const isFirstVisit = !settings.hasCompletedSetup;
   const showGuidedSetup = isDefaultLocalServer && isFirstVisit;
+
+  // Classify the last connection failure into actionable buckets for targeted guidance.
+  const errorBucket = (() => {
+    if (!lastConnectionResult || lastConnectionResult.ok) return 'unknown';
+    const { reason, url } = lastConnectionResult;
+    if (reason === 'cors') return isLikelyChromeCorsPna(url) ? 'pna' : 'cors';
+    return reason; // 'network' | 'timeout' | 'http_error' | 'parse_error'
+  })();
+
+  const disconnectedDesc = (() => {
+    if (errorBucket === 'network') {
+      return isDefaultLocalServer
+        ? 'The gptme server is not running. Start one with the command below.'
+        : 'Connection refused — check that the server is running and the URL is correct.';
+    }
+    if (errorBucket === 'pna') {
+      return `Chrome blocked this connection (Local Network Access). Click Allow if a permission prompt appeared, then retry. If no prompt appeared, try opening ${activeServerBaseUrl} directly in your browser first.`;
+    }
+    if (errorBucket === 'cors') {
+      return `The server rejected cross-origin requests from ${window.location.origin}. Restart it with --cors-origin to allow this page.`;
+    }
+    if (errorBucket === 'timeout') {
+      return 'The connection timed out — the server may be starting up or unreachable. Retry in a moment.';
+    }
+    return isDefaultLocalServer
+      ? 'Start a local gptme server or point the app at another server before starting a chat.'
+      : 'Check the server URL and auth token, then retry the connection.';
+  })();
+
   const bg = settings.welcomeBackground;
   // Determine if the background is an image URL or a CSS gradient/color
   const isImageBg = bg && (bg.startsWith('http') || bg.startsWith('/') || bg.startsWith('data:'));
@@ -211,20 +242,24 @@ export const WelcomeView = () => {
                     : `Cannot reach ${activeServer?.name || 'the configured server'}`}
                 </AlertTitle>
                 <AlertDescription className="space-y-3">
-                  <p>
-                    {isDefaultLocalServer
-                      ? 'Start a local gptme server or point the app at another server before starting a chat.'
-                      : 'Check the server URL and auth token, then retry the connection.'}
-                  </p>
-                  {!isDefaultLocalServer && isHostedOrigin && isActiveServerLoopback && (
-                    <p className="text-xs text-muted-foreground">
-                      On Chrome 142+ (and other Chromium browsers), connecting from a hosted page to
-                      a local server triggers a{' '}
-                      <span className="font-medium">Local Network Access</span> permission prompt —
-                      click <span className="font-medium">Allow</span> if you see one. The{' '}
-                      <code>--cors-origin</code> flag alone is not enough.
-                    </p>
+                  <p>{disconnectedDesc}</p>
+                  {errorBucket === 'cors' && (
+                    <code className="block rounded-md border border-amber-500/20 bg-background/80 px-3 py-2 font-mono text-xs">
+                      {serverCommand}
+                    </code>
                   )}
+                  {errorBucket !== 'pna' &&
+                    !isDefaultLocalServer &&
+                    isHostedOrigin &&
+                    isActiveServerLoopback && (
+                      <p className="text-xs text-muted-foreground">
+                        On Chrome 142+ (and other Chromium browsers), connecting from a hosted page
+                        to a local server triggers a{' '}
+                        <span className="font-medium">Local Network Access</span> permission prompt
+                        — click <span className="font-medium">Allow</span> if you see one. The{' '}
+                        <code>--cors-origin</code> flag alone is not enough.
+                      </p>
+                    )}
                   {showGuidedSetup && (
                     <p className="text-sm text-muted-foreground">
                       New to gptme? The setup guide walks you through installing a local server or

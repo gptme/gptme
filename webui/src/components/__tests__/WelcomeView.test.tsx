@@ -11,7 +11,19 @@ const mockInvalidateQueries = jest.fn();
 const mockConnect = jest.fn();
 const mockFetch = jest.fn();
 const isConnected$ = observable(true);
+const lastConnectionResult$ = observable<null | {
+  ok: false;
+  url: string;
+  reason: string;
+  message: string;
+}>(null);
 let mockBaseUrl = 'http://localhost:5700';
+// Controls whether isLikelyChromeCorsPna() classifies the last probe URL as PNA.
+const mockIsLikelyChromeCorsPna = jest.fn().mockReturnValue(false);
+
+jest.mock('@/utils/api', () => ({
+  isLikelyChromeCorsPna: (...args: unknown[]) => mockIsLikelyChromeCorsPna(...args),
+}));
 
 jest.mock('react-router-dom', () => {
   const actual = jest.requireActual('react-router-dom');
@@ -27,6 +39,7 @@ jest.mock('@/contexts/ApiContext', () => {
       api: {
         createConversationWithPlaceholder: jest.fn(),
         authHeader: null,
+        lastConnectionResult$,
       },
       isConnected$,
       connect: mockConnect,
@@ -72,6 +85,7 @@ describe('WelcomeView', () => {
     // Default to a first-time user (no stored settings → hasCompletedSetup=false).
     localStorage.clear();
     isConnected$.set(true);
+    lastConnectionResult$.set(null);
     mockBaseUrl = 'http://localhost:5700';
     setupWizard$.step.set('welcome');
     setupWizard$.open.set(false);
@@ -81,6 +95,7 @@ describe('WelcomeView', () => {
     mockNavigate.mockClear();
     mockInvalidateQueries.mockClear();
     mockFetch.mockReset();
+    mockIsLikelyChromeCorsPna.mockReturnValue(false);
     mockFetch.mockImplementation(() => new Promise(() => {}));
     Object.defineProperty(window, 'fetch', {
       writable: true,
@@ -301,5 +316,88 @@ describe('WelcomeView', () => {
     await waitFor(() => {
       expect(screen.queryByText('Provider setup required')).not.toBeInTheDocument();
     });
+  });
+
+  it('shows "server not running" guidance for a network/refused error on the default local server', () => {
+    seedReturningUser();
+    isConnected$.set(false);
+    lastConnectionResult$.set({
+      ok: false,
+      url: 'http://localhost:5700/api/v2',
+      reason: 'network',
+      message: 'Could not reach server (connection refused or no DNS)',
+    });
+
+    render(
+      <SettingsProvider>
+        <WelcomeView />
+      </SettingsProvider>
+    );
+
+    expect(screen.getByText(/The gptme server is not running/i)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Start a local gptme server or point the app/i)
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows "connection refused" guidance for a network error on a custom server', () => {
+    mockBaseUrl = 'http://my-server.example.com:5700';
+    isConnected$.set(false);
+    lastConnectionResult$.set({
+      ok: false,
+      url: 'http://my-server.example.com:5700/api/v2',
+      reason: 'network',
+      message: 'Could not reach server',
+    });
+
+    render(
+      <SettingsProvider>
+        <WelcomeView />
+      </SettingsProvider>
+    );
+
+    expect(screen.getByText(/Connection refused/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Check the server URL and auth token/i)).not.toBeInTheDocument();
+  });
+
+  it('shows CORS guidance and the cors-origin command for a cors error on a custom server', () => {
+    mockBaseUrl = 'http://my-server.example.com:5700';
+    isConnected$.set(false);
+    lastConnectionResult$.set({
+      ok: false,
+      url: 'http://my-server.example.com:5700/api/v2',
+      reason: 'cors',
+      message: 'CORS error',
+    });
+
+    render(
+      <SettingsProvider>
+        <WelcomeView />
+      </SettingsProvider>
+    );
+
+    expect(screen.getByText(/rejected cross-origin requests/i)).toBeInTheDocument();
+    // The serverCommand code block contains the full gptme-server invocation
+    expect(screen.getByText(/gptme-server --cors-origin/i)).toBeInTheDocument();
+  });
+
+  it('shows timeout guidance for a timeout error', () => {
+    seedReturningUser();
+    isConnected$.set(false);
+    lastConnectionResult$.set({
+      ok: false,
+      url: 'http://localhost:5700/api/v2',
+      reason: 'timeout',
+      message: 'Request timed out after 3s',
+    });
+
+    render(
+      <SettingsProvider>
+        <WelcomeView />
+      </SettingsProvider>
+    );
+
+    expect(screen.getByText(/connection timed out/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Start a local gptme server/i)).not.toBeInTheDocument();
   });
 });
