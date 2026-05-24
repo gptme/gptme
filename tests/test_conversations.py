@@ -5,7 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from gptme.logmanager.conversations import ConversationMeta, get_conversations
+import gptme.logmanager.conversations as conversations_mod
+from gptme.logmanager.conversations import (
+    ConversationMeta,
+    get_conversations,
+    get_user_conversations,
+)
 
 
 def _make_conversation(
@@ -293,3 +298,44 @@ def test_detail_false_multi_model_consistency(logs_dir):
     assert full[0].model == "model-late"
     assert fast[0].model == "model-late"
     assert fast[0].model == full[0].model
+
+
+def test_get_user_conversations_skips_test_logs_before_scanning(logs_dir, monkeypatch):
+    """User conversation listing must not scan test/eval logs at all."""
+    _make_conversation(
+        logs_dir,
+        "real-conversation",
+        [
+            {
+                "role": "user",
+                "content": "hello",
+                "timestamp": "2025-01-01T00:00:00Z",
+            },
+        ],
+    )
+    _make_conversation(
+        logs_dir,
+        "test-fixture-conversation",
+        [
+            {
+                "role": "user",
+                "content": "should be skipped",
+                "timestamp": "2025-01-01T00:00:00Z",
+            },
+        ],
+    )
+
+    scanned: list[str] = []
+    original_full_scan = conversations_mod._full_scan
+
+    def wrapped_full_scan(conv_fn: Path):
+        scanned.append(conv_fn.parent.name)
+        if conv_fn.parent.name.startswith("test-"):
+            raise AssertionError("test conversation was scanned on user path")
+        return original_full_scan(conv_fn)
+
+    monkeypatch.setattr("gptme.logmanager.conversations._full_scan", wrapped_full_scan)
+
+    convs = list(get_user_conversations())
+    assert [conv.id for conv in convs] == ["real-conversation"]
+    assert scanned == ["real-conversation"]

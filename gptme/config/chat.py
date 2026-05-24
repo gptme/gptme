@@ -6,6 +6,7 @@ tool configuration, workspace paths, and agent settings.
 
 import logging
 import os
+import sys
 import tempfile
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
@@ -14,6 +15,15 @@ from typing import TYPE_CHECKING
 import tomlkit
 from tomlkit.exceptions import TOMLKitError
 from typing_extensions import Self
+
+if sys.version_info >= (3, 11):
+    import tomllib
+
+    _CHAT_CONFIG_LOAD_ERRORS = (OSError, TOMLKitError, tomllib.TOMLDecodeError)
+else:
+    tomllib = None
+
+    _CHAT_CONFIG_LOAD_ERRORS = (OSError, TOMLKitError)
 
 from ..util import path_with_tilde
 from .models import AgentConfig, MCPConfig
@@ -116,11 +126,15 @@ class ChatConfig:
             workspace.mkdir(parents=True, exist_ok=True)
             return cls(_logdir=path, workspace=workspace.resolve())
         try:
-            with open(chat_config_path) as f:
-                config_data = tomlkit.load(f).unwrap()
+            if tomllib is not None:
+                with open(chat_config_path, "rb") as f:
+                    config_data = tomllib.load(f)
+            else:
+                with open(chat_config_path) as f:
+                    config_data = tomlkit.load(f).unwrap()
             config_data["_logdir"] = path
             return cls.from_dict(config_data)
-        except (OSError, TOMLKitError) as e:
+        except _CHAT_CONFIG_LOAD_ERRORS as e:
             logger.warning(f"Failed to load chat config from {chat_config_path}: {e}")
             return cls()
 

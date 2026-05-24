@@ -32,6 +32,11 @@ def _conversation_files() -> list[Path]:
     )
 
 
+def _is_test_conversation_id(conv_id: str) -> bool:
+    """Return True when a conversation ID belongs to test/eval output."""
+    return conv_id.startswith(("tmp", "test-")) or "gptme-evals-" in conv_id
+
+
 @dataclass(frozen=True)
 class ConversationMeta:
     """Metadata about a conversation."""
@@ -212,7 +217,7 @@ def _full_scan(
 
 
 def get_conversations(
-    *, detail: bool = True
+    *, detail: bool = True, include_test: bool = True
 ) -> Generator[ConversationMeta, None, None]:
     """Returns all conversations, excluding ones used for testing, evals, etc.
 
@@ -221,8 +226,14 @@ def get_conversations(
             costs, token counts, and model info. If False, reads only the tail
             of each file for a faster scan — suitable for list/search endpoints
             where cost/token aggregates are not displayed.
+        include_test: If False, skip test/eval conversations before scanning any
+            files or loading per-conversation config.
     """
     for conv_fn in _conversation_files():
+        conv_id = conv_fn.parent.name
+        if not include_test and _is_test_conversation_id(conv_id):
+            continue
+
         log = Log.read_jsonl(conv_fn, limit=1)
 
         file_size = conv_fn.stat().st_size
@@ -254,7 +265,6 @@ def get_conversations(
         modified = conv_fn.stat().st_mtime
         first_timestamp = log[0].timestamp.timestamp() if log else modified
         # Try to get display name from ChatConfig, fallback to folder name
-        conv_id = conv_fn.parent.name
         chat_config = ChatConfig.from_logdir(conv_fn.parent)
         display_name = chat_config.name or conv_id
 
@@ -305,12 +315,7 @@ def get_user_conversations(
     *, detail: bool = True
 ) -> Generator[ConversationMeta, None, None]:
     """Returns all user conversations, excluding ones used for testing, evals, etc."""
-    for conv in get_conversations(detail=detail):
-        if any(conv.id.startswith(prefix) for prefix in ["tmp", "test-"]) or any(
-            substr in conv.id for substr in ["gptme-evals-"]
-        ):
-            continue
-        yield conv
+    yield from get_conversations(detail=detail, include_test=False)
 
 
 def list_conversations(
@@ -328,11 +333,7 @@ def list_conversations(
         detail: If True, performs full JSONL scan for costs/tokens.
             If False, uses fast tail-only scan.
     """
-    conversation_iter = (
-        get_conversations(detail=detail)
-        if include_test
-        else get_user_conversations(detail=detail)
-    )
+    conversation_iter = get_conversations(detail=detail, include_test=include_test)
     return list(islice(conversation_iter, limit))
 
 
