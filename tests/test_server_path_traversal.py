@@ -518,7 +518,8 @@ class TestConversationIdLengthValidation:
         """A 255-char ID is at the limit and must not be rejected by length check."""
         ok_id = "a" * 255
         response = client.get(f"/api/v2/conversations/{ok_id}")
-        # Should not be rejected for length — may be 404 (not found) but not 400 length
+        # Must not crash (500) and must not be rejected for length
+        assert response.status_code != 500
         if response.status_code == 400:
             data = response.get_json()
             assert data is None or "too long" not in data.get("error", "")
@@ -544,6 +545,25 @@ class TestConversationIdLengthValidation:
         with app.app_context():
             assert _validate_conversation_id("a" * 255) is None
 
+    def test_multibyte_over_limit_rejected(self):
+        """Multi-byte chars counted by UTF-8 bytes, not code points.
+
+        255 CJK chars = 765 bytes > NAME_MAX and must be rejected even though
+        len() == 255 (code points).
+        """
+        from gptme.server.api_v2_common import _validate_conversation_id
+        from gptme.server.app import create_app
+
+        app = create_app()
+        with app.app_context():
+            # Each CJK char is 3 UTF-8 bytes; 85 * 3 = 255 bytes (at limit, OK)
+            assert _validate_conversation_id("あ" * 85) is None
+            # 86 * 3 = 258 bytes (over limit, must reject)
+            result = _validate_conversation_id("あ" * 86)
+            assert result is not None
+            _response, status_code = result
+            assert status_code == 400
+
 
 class TestBranchLengthValidation:
     """Branch names longer than NAME_MAX must return 400, not 500."""
@@ -568,6 +588,21 @@ class TestBranchLengthValidation:
         app = create_app()
         with app.app_context():
             assert _validate_branch("b" * 255) is None
+
+    def test_multibyte_branch_over_limit_rejected(self):
+        """Multi-byte branch names counted by UTF-8 bytes, not code points."""
+        from gptme.server.api_v2_common import _validate_branch
+        from gptme.server.app import create_app
+
+        app = create_app()
+        with app.app_context():
+            # 85 CJK chars = 255 bytes (at limit, OK)
+            assert _validate_branch("あ" * 85) is None
+            # 86 CJK chars = 258 bytes (over limit, must reject)
+            result = _validate_branch("あ" * 86)
+            assert result is not None
+            _response, status_code = result
+            assert status_code == 400
 
     def test_too_long_branch_via_endpoint(self, client: FlaskClient):
         """Over-limit branch name in generate request must return 400."""

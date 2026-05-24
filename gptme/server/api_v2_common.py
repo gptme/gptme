@@ -12,7 +12,7 @@ from typing_extensions import NotRequired
 from ..message import Message
 from ..util.uri import URI, is_uri
 
-_MAX_ID_LENGTH = 255  # Linux ENAMETOOLONG limit for a single path component
+_MAX_ID_LENGTH = 255  # Linux NAME_MAX: 255 UTF-8 bytes for a single path component
 
 
 def _validate_conversation_id(
@@ -33,7 +33,7 @@ def _validate_conversation_id(
     would otherwise bubble up as an unhandled 500 for IDs longer than the
     filesystem's NAME_MAX (typically 255 on Linux ext4/xfs).
     """
-    if len(conversation_id) > _MAX_ID_LENGTH:
+    if len(conversation_id.encode()) > _MAX_ID_LENGTH:
         return flask.jsonify({"error": "conversation_id too long"}), 400
     if "/" in conversation_id or ".." in conversation_id or "\\" in conversation_id:
         return flask.jsonify({"error": "Invalid conversation_id"}), 400
@@ -50,7 +50,7 @@ def _validate_branch(branch: object) -> tuple[flask.Response, int] | None:
     """
     if not isinstance(branch, str):
         return flask.jsonify({"error": "Invalid branch name"}), 400
-    if len(branch) > _MAX_ID_LENGTH:
+    if len(branch.encode()) > _MAX_ID_LENGTH:
         return flask.jsonify({"error": "branch name too long"}), 400
     if "/" in branch or ".." in branch or "\\" in branch:
         return flask.jsonify({"error": "Invalid branch name"}), 400
