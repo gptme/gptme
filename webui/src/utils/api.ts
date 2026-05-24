@@ -157,7 +157,8 @@ function normalizeApiError(
  */
 export function isLikelyChromeCorsPna(targetUrl: string): boolean {
   try {
-    const isPublicOrigin = typeof window !== 'undefined' && !isLocalUrl(window.location.href);
+    const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+    const isPublicOrigin = !isLocalUrl(`http://${hostname}`);
     return isLocalUrl(targetUrl) && isPublicOrigin;
   } catch {
     return false;
