@@ -187,7 +187,7 @@ def chats_read(id: str, limit: int, system: bool, context: int, start: int | Non
 
     from ..tools.chats import read_chat  # fmt: skip
 
-    if not (get_logs_dir() / id).exists():
+    if not (get_logs_dir() / id / "conversation.jsonl").exists():
         click.echo(f"Conversation '{id}' not found.")
         raise SystemExit(1)
 
