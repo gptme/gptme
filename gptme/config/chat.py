@@ -19,7 +19,7 @@ from typing_extensions import Self
 if sys.version_info >= (3, 11):
     import tomllib
 
-    _CHAT_CONFIG_LOAD_ERRORS = (OSError, TOMLKitError, tomllib.TOMLDecodeError)
+    _CHAT_CONFIG_LOAD_ERRORS = (OSError, tomllib.TOMLDecodeError)
 else:
     tomllib = None
 

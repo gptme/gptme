@@ -219,15 +219,16 @@ def _full_scan(
 def get_conversations(
     *, detail: bool = True, include_test: bool = True
 ) -> Generator[ConversationMeta, None, None]:
-    """Returns all conversations, excluding ones used for testing, evals, etc.
+    """Returns all conversations.
 
     Args:
         detail: If True (default), performs a full JSONL scan to compute exact
             costs, token counts, and model info. If False, reads only the tail
             of each file for a faster scan — suitable for list/search endpoints
             where cost/token aggregates are not displayed.
-        include_test: If False, skip test/eval conversations before scanning any
-            files or loading per-conversation config.
+        include_test: If True (default), includes test/eval conversations.
+            If False, skips them before scanning any files or loading
+            per-conversation config.
     """
     for conv_fn in _conversation_files():
         conv_id = conv_fn.parent.name
