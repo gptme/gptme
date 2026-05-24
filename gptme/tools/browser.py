@@ -70,7 +70,6 @@ from typing import Literal
 
 import requests
 
-from ..util import console
 from ..util.context import md_codeblock
 from ..util.gh import (
     get_github_issue_content,
@@ -566,10 +565,6 @@ def _tool_instructions() -> str:
 
 
 def init() -> ToolSpec:
-    if browser == "playwright":
-        console.log("Using browser tool with playwright")
-    elif browser == "lynx":
-        console.log("Using browser tool with lynx")
     # Note: _tool_instructions() is evaluated once at init time, so the
     # "available now:" list reflects backend availability at startup.
     # search() itself always re-evaluates _available_search_engines() at call time.

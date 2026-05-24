@@ -55,6 +55,12 @@ def test_chats_list(tmp_path, mocker):
     """Test the chats list command."""
     runner = CliRunner()
 
+    mocker.patch("gptme.tools.browser.browser", "playwright")
+    mocker.patch(
+        "gptme.tools.browser.console.log",
+        side_effect=AssertionError("browser init should stay quiet for chats list"),
+    )
+
     # Create test conversations
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir()
@@ -66,6 +72,7 @@ def test_chats_list(tmp_path, mocker):
     result = runner.invoke(main, ["chats", "list"])
     assert result.exit_code == 0
     assert "No conversations found" in result.output
+    assert "Using browser tool with" not in result.output
 
     # Create test conversation files with names that won't be filtered
     conv1_dir = logs_dir / "2024-01-01-chat-one"
@@ -116,6 +123,7 @@ def test_chats_list(tmp_path, mocker):
     assert "2024-01-01-chat-two" in result.output
     assert "Messages: 1" in result.output  # First chat has 1 message
     assert "Messages: 2" in result.output  # Second chat has 2 messages
+    assert "Using browser tool with" not in result.output
 
 
 def test_chats_list_negative_limit():
@@ -199,16 +207,23 @@ def test_chats_send_help_mentions_queued_follow_up_flow():
     assert re.search(r"running conversation|gptme process.*busy", help_text)
 
 
-def test_tools_list():
+def test_tools_list(mocker):
     """Test the tools list command."""
     import json
 
     runner = CliRunner()
 
+    mocker.patch("gptme.tools.browser.browser", "playwright")
+    mocker.patch(
+        "gptme.tools.browser.console.log",
+        side_effect=AssertionError("browser init should stay quiet for tools list"),
+    )
+
     # Test basic list
     result = runner.invoke(main, ["tools", "list"])
     assert "Available tools" in result.output
     assert result.exit_code == 0
+    assert "Using browser tool with" not in result.output
 
     # Test langtags
     result = runner.invoke(main, ["tools", "list", "--langtags"])
