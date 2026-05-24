@@ -47,7 +47,7 @@ def test_tokens_count(tmp_path):
     assert result.exit_code == 0
     assert "Token count" in result.output
     # Should count actual tokens, not 1 (the dash character)
-    count = int(result.output.split(": ")[1].strip())
+    count = int(result.output.split(": ", 1)[1].strip())
     assert count > 1
 
 
