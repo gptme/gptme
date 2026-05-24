@@ -566,7 +566,7 @@ class TestInitModelParsing:
     @patch("gptme.init.is_custom_provider", return_value=False)
     @patch("gptme.init.get_config")
     @patch("gptme.init.console")
-    def test_unknown_provider_treated_as_provider_only(
+    def test_bare_provider_less_model_resolved_via_get_model(
         self,
         mock_console,
         mock_config_fn,
@@ -577,20 +577,63 @@ class TestInitModelParsing:
         mock_set_default,
         dummy_model_meta,
     ):
-        """'unknownprov/model' where unknownprov is neither builtin nor custom
-        should treat the entire string as provider, model=None."""
+        """A provider-less model name with a slash (e.g. OpenRouter's
+        'meta-llama/llama-3.1-405b-instruct') should be resolved via get_model(),
+        not mistaken for a provider name. Regression test: the CLI previously
+        crashed on model names that get_model() resolves fine."""
         from gptme.init import init_model
 
         mock_config_fn.return_value = MagicMock(
             chat=MagicMock(model=None), get_env=MagicMock(return_value=None)
         )
-        mock_recommend.return_value = "default-model"
-        mock_get_model.return_value = dummy_model_meta
+        # get_model resolves the bare OpenRouter-style name to provider=openrouter
+        mock_get_model.return_value = ModelMeta(
+            provider="openrouter",
+            model="meta-llama/llama-3.1-405b-instruct",
+            context=128_000,
+        )
 
-        init_model(model="unknownprov/some-model")
+        init_model(model="meta-llama/llama-3.1-405b-instruct")
 
-        # Should have called get_recommended_model since model_name was None
-        mock_recommend.assert_called_once()
+        # Provider resolved from get_model, not from treating the whole string
+        # as a provider; model_name was resolved so get_recommended_model is unused.
+        mock_init_llm.assert_called_once_with("openrouter")
+        mock_recommend.assert_not_called()
+
+    @patch("gptme.init.set_default_model")
+    @patch("gptme.init.get_model")
+    @patch("gptme.init.init_llm")
+    @patch("gptme.init.get_recommended_model")
+    @patch("gptme.init.is_custom_provider", return_value=False)
+    @patch("gptme.init.get_config")
+    @patch("gptme.init.console")
+    def test_unresolvable_model_raises_clear_error(
+        self,
+        mock_console,
+        mock_config_fn,
+        mock_custom,
+        mock_recommend,
+        mock_init_llm,
+        mock_get_model,
+        mock_set_default,
+        dummy_model_meta,
+    ):
+        """A genuinely unresolvable 'a/b' model (get_model falls back to
+        provider='unknown') should raise a clear error, not the misleading
+        'provider requires a model' crash from get_recommended_model()."""
+        from gptme.init import init_model
+
+        mock_config_fn.return_value = MagicMock(
+            chat=MagicMock(model=None), get_env=MagicMock(return_value=None)
+        )
+        mock_get_model.return_value = ModelMeta(
+            provider="unknown",
+            model="totally/nonexistent-model",
+            context=128_000,
+        )
+
+        with pytest.raises(ValueError, match="Unknown model"):
+            init_model(model="totally/nonexistent-model")
 
     @patch("gptme.init.set_default_model")
     @patch("gptme.init.get_model")
