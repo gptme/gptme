@@ -669,7 +669,9 @@ gptme is a **personal AI agent that runs anywhere a terminal runs** — your lap
 |---------|-------|-------------|--------|------|
 | **Environment** | Any terminal | Terminal | IDE | Terminal |
 | **Autonomy** | Autonomous agents | One-shot | IDE-assisted | Terminal AI |
+| **Multi-agent** | ✅ Concurrent agents | ❌ | ❌ | ❌ |
 | **Local-first** | ✅ Full support | ❌ API required | ❌ API required | ❌ API required |
+| **Provider support** | 100+ models | Anthropic | Anthropic/OpenAI/Google | OpenAI (built-in) |
 | **MCP Support** | ✅ Built-in | ✅ Built-in | ❌ | ❌ |
 | **Plugin System** | ✅ Full plugins | ❌ | ✅ Extensions | ❌ |
 | **Web Browsing** | ✅ Playwright | ❌ | ❌ | ❌ |
