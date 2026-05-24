@@ -535,11 +535,18 @@ def tools_call(tool_name: str, function_name: str, arg: list[str]):
     # Load the requested tool even if it is not part of the default toolchain.
     # Some tools (e.g. computer, rag, subagent) expose callable functions but
     # are not loaded by default, so a bare init_tools() would leave them
-    # uncallable. Fall back to a default init for unknown names so the
-    # not-found branch can still list the full set of available tools.
-    try:
+    # uncallable. init_tools raises ValueError for two distinct reasons:
+    #   (1) tool name is genuinely unknown — safe to fall back to default init
+    #       so the not-found branch can enumerate the full tool list.
+    #   (2) tool matched get_available_tools() but was inexplicably absent from
+    #       loaded_tools after init — internal consistency failure, must not be
+    #       swallowed.
+    # Pre-flighting against get_available_tools() separates the two cases
+    # without needing to parse error message text.
+    available_names = {t.name for t in get_available_tools()}
+    if tool_name in available_names:
         init_tools(allowlist=[tool_name])
-    except ValueError:
+    else:
         init_tools()
 
     tool = get_tool(tool_name)
