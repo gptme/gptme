@@ -12,6 +12,7 @@ import type {
 } from '@/types/api';
 import type { ConversationSummary, Message, ToolUse } from '@/types/conversation';
 import { getApiBaseUrl } from '@/utils/connectionConfig';
+import { withLocalAddressSpace } from '@/utils/addressSpace';
 import { type Observable } from '@legendapp/state';
 import { observable } from '@legendapp/state';
 import { initConversation } from '@/stores/conversations';
@@ -264,11 +265,15 @@ export class ApiClient {
     if (this.authCookieSet || !this.authHeader) return;
 
     try {
-      const response = await fetch(`${this.baseUrl}/api/v2/auth/cookie`, {
-        method: 'POST',
-        headers: { Authorization: this.authHeader },
-        credentials: 'include',
-      });
+      const cookieUrl = `${this.baseUrl}/api/v2/auth/cookie`;
+      const response = await fetch(
+        cookieUrl,
+        withLocalAddressSpace(cookieUrl, {
+          method: 'POST',
+          headers: { Authorization: this.authHeader },
+          credentials: 'include',
+        })
+      );
       if (response.ok) {
         this.authCookieSet = true;
         this.authCookieSetAt = Date.now();
@@ -311,11 +316,14 @@ export class ApiClient {
       }
 
       try {
-        const response = await fetch(url, {
-          ...options,
-          headers,
-          signal: controller.signal,
-        });
+        const response = await fetch(
+          url,
+          withLocalAddressSpace(url, {
+            ...options,
+            headers,
+            signal: controller.signal,
+          })
+        );
         console.log('[ApiClient] Fetch completed, clearing timeout');
         clearTimeout(timeoutId);
         return response;
@@ -367,10 +375,13 @@ export class ApiClient {
       (headers as Record<string, string>)['Authorization'] = this.authHeader;
     }
 
-    const response = await fetch(url, {
-      ...options,
-      headers,
-    });
+    const response = await fetch(
+      url,
+      withLocalAddressSpace(url, {
+        ...options,
+        headers,
+      })
+    );
 
     const data = await response.json();
 
@@ -1100,9 +1111,10 @@ export class ApiClient {
     }
     // Note: do NOT set Content-Type — browser sets it with boundary for multipart
 
+    const uploadUrl = `${this.baseUrl}/api/v2/conversations/${conversationId}/workspace/upload`;
     const response = await fetch(
-      `${this.baseUrl}/api/v2/conversations/${conversationId}/workspace/upload`,
-      { method: 'POST', headers, body: formData }
+      uploadUrl,
+      withLocalAddressSpace(uploadUrl, { method: 'POST', headers, body: formData })
     );
 
     const data = await response.json();

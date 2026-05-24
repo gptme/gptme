@@ -1,8 +1,11 @@
 import type { Task, CreateTaskRequest, TaskAction } from '@/types/task';
 import { getApiBaseUrl, getAuthHeader } from '@/utils/connectionConfig';
+import { withLocalAddressSpace } from '@/utils/addressSpace';
 
 /**
- * Helper function to add auth headers to fetch options
+ * Helper function to add auth headers to fetch options.
+ * Also opts into Chrome LNA (`targetAddressSpace: 'local'`) when the active
+ * server is a local address, so a hosted page can reach a loopback gptme-server.
  */
 const getFetchOptions = (options: RequestInit = {}): RequestInit => {
   const authHeader = getAuthHeader();
@@ -14,10 +17,10 @@ const getFetchOptions = (options: RequestInit = {}): RequestInit => {
     (headers as Record<string, string>)['Authorization'] = authHeader;
   }
 
-  return {
+  return withLocalAddressSpace(getApiBaseUrl(), {
     ...options,
     headers,
-  };
+  });
 };
 
 /**
