@@ -191,7 +191,7 @@ class TestMCPTest:
         mock_config.mcp.enabled = False
         runner = CliRunner()
         result = runner.invoke(main, ["mcp", "test", "test-server"])
-        assert result.exit_code == 0
+        assert result.exit_code == 1
         assert "MCP is disabled" in result.output
 
     def test_server_not_found(self, mock_config):
@@ -199,7 +199,7 @@ class TestMCPTest:
         mock_config.mcp.servers = []
         runner = CliRunner()
         result = runner.invoke(main, ["mcp", "test", "nonexistent"])
-        assert result.exit_code == 0
+        assert result.exit_code == 1
         assert "not found in config" in result.output
 
     def test_server_disabled(self, mock_config):
@@ -211,7 +211,7 @@ class TestMCPTest:
 
         runner = CliRunner()
         result = runner.invoke(main, ["mcp", "test", "test-server"])
-        assert result.exit_code == 0
+        assert result.exit_code == 1
         assert "is disabled" in result.output
 
     def test_successful_connection(self, mock_config, mock_mcp_client):
@@ -254,7 +254,7 @@ class TestMCPTest:
 
         runner = CliRunner()
         result = runner.invoke(main, ["mcp", "test", "test-server"])
-        assert result.exit_code == 0
+        assert result.exit_code == 1
         assert "Connection failed" in result.output
         assert "Connection timeout" in result.output
 
@@ -395,7 +395,7 @@ class TestMCPInfo:
 
         runner = CliRunner()
         result = runner.invoke(main, ["mcp", "info", "nonexistent"])
-        assert result.exit_code == 0
+        assert result.exit_code == 1
         assert "not found in registries either" in result.output
         assert "Try searching" in result.output
 
@@ -406,7 +406,7 @@ class TestMCPInfo:
 
         runner = CliRunner()
         result = runner.invoke(main, ["mcp", "info", "test"])
-        assert result.exit_code == 0
+        assert result.exit_code == 1
         assert "Registry search failed" in result.output
 
 
@@ -509,6 +509,6 @@ class TestMCPSearch:
 
         runner = CliRunner()
         result = runner.invoke(main, ["mcp", "search", "test"])
-        assert result.exit_code == 0
+        assert result.exit_code == 1
         assert "Search failed" in result.output
         assert "Network timeout" in result.output

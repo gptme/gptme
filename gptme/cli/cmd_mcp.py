@@ -1,5 +1,7 @@
 """CLI commands for MCP (Model Context Protocol) server management."""
 
+import sys
+
 import click
 
 from ..config import get_config
@@ -67,16 +69,16 @@ def mcp_test(server_name: str):
 
     if not config.mcp.enabled:
         click.echo("❌ MCP is disabled in config")
-        return
+        sys.exit(1)
 
     server = next((s for s in config.mcp.servers if s.name == server_name), None)
     if not server:
         click.echo(f"❌ Server '{server_name}' not found in config")
-        return
+        sys.exit(1)
 
     if not server.enabled:
         click.echo(f"❌ Server '{server_name}' is disabled")
-        return
+        sys.exit(1)
 
     server_type = "HTTP" if server.is_http else "stdio"
     click.echo(f"🔌 Testing {server_name} ({server_type})...")
@@ -92,6 +94,7 @@ def mcp_test(server_name: str):
 
     except Exception as e:
         click.echo(f"❌ Connection failed: {e}")
+        sys.exit(1)
 
 
 @mcp.command("info")
@@ -150,8 +153,10 @@ def mcp_info(server_name: str):
             else:
                 click.echo(f"❌ Server '{server_name}' not found in registries either.")
                 click.echo("\nTry searching: gptme-util mcp search <query>")
+                sys.exit(1)
         except Exception as e:
             click.echo(f"❌ Registry search failed: {e}")
+            sys.exit(1)
 
 
 @mcp.command("search")
@@ -185,7 +190,7 @@ def mcp_search(query: str, registry: str, limit: int):
             results = reg.search_mcp_so(query, limit)
         else:
             click.echo(f"❌ Unknown registry: {registry}")
-            return
+            sys.exit(1)
 
         if results:
             click.echo(format_server_list(results))
@@ -193,3 +198,4 @@ def mcp_search(query: str, registry: str, limit: int):
             click.echo("No servers found.")
     except Exception as e:
         click.echo(f"❌ Search failed: {e}")
+        sys.exit(1)
