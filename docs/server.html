@@ -519,6 +519,19 @@ For self-hosting and local development, see the <a class="reference external" hr
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-server<span class="w"> </span>--cors-origin<span class="w"> </span><span class="s1">&#39;http://localhost:5701&#39;</span>
 </pre></div>
 </div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>Connecting the hosted web UI to a local server (Chrome 142+).</strong>
+When you use the hosted web UI at <a class="reference external" href="https://chat.gptme.org">chat.gptme.org</a>
+with a <code class="docutils literal notranslate"><span class="pre">gptme-server</span></code> running on <code class="docutils literal notranslate"><span class="pre">localhost</span></code>, recent Chromium browsers
+(Chrome 142+) gate the connection behind a <em>Local Network Access</em> permission
+prompt. This check runs <em>before</em> CORS headers are evaluated, so the
+<code class="docutils literal notranslate"><span class="pre">--cors-origin</span></code> flag is necessary but no longer sufficient — you must also
+click <strong>Allow</strong> on the permission prompt for the page to reach your local
+server. Serving the web UI from a local origin (for example
+<code class="docutils literal notranslate"><span class="pre">http://localhost:5701</span></code>) avoids the prompt entirely, since that is a
+local-to-local request.</p>
+</div>
 </section>
 <section id="basic-web-ui">
 <h2>Basic Web UI<a class="headerlink" href="#basic-web-ui" title="Link to this heading">#</a></h2>

@@ -52,6 +52,19 @@ To use the server with a locally hosted gptme-webui, configure the CORS origin w
 
     gptme-server --cors-origin 'http://localhost:5701'
 
+.. note::
+
+    **Connecting the hosted web UI to a local server (Chrome 142+).**
+    When you use the hosted web UI at `chat.gptme.org <https://chat.gptme.org>`_
+    with a ``gptme-server`` running on ``localhost``, recent Chromium browsers
+    (Chrome 142+) gate the connection behind a *Local Network Access* permission
+    prompt. This check runs *before* CORS headers are evaluated, so the
+    ``--cors-origin`` flag is necessary but no longer sufficient — you must also
+    click **Allow** on the permission prompt for the page to reach your local
+    server. Serving the web UI from a local origin (for example
+    ``http://localhost:5701``) avoids the prompt entirely, since that is a
+    local-to-local request.
+
 Basic Web UI
 ------------
 
