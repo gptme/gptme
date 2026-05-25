@@ -4,6 +4,7 @@ import importlib
 import logging
 import os
 import pstats
+import select
 import signal
 import sys
 import traceback
@@ -51,6 +52,7 @@ logger = logging.getLogger(__name__)
 
 script_path = Path(os.path.realpath(__file__))
 _MAX_CONVERSATION_NAME_BYTES = 255  # Linux NAME_MAX for a single path component
+_STDIN_POLL_TIMEOUT = 0.1
 
 
 class CommaSeparatedChoice(click.ParamType):
@@ -955,6 +957,18 @@ def get_logdir_resume(name: str = "random") -> Path:
 
 
 def _read_stdin() -> str:
+    # In automation, stdin is often an open pipe with no bytes pending yet.
+    # Wait briefly for readability so we don't block forever on read-until-EOF.
+    try:
+        readable, _, _ = select.select(
+            [sys.stdin.fileno()], [], [], _STDIN_POLL_TIMEOUT
+        )
+    except (AttributeError, OSError, ValueError):
+        readable = [True]
+
+    if not readable:
+        return ""
+
     chunk_size = 1024  # 1 KB
     all_data = ""
 

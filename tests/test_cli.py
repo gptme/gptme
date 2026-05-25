@@ -1,5 +1,6 @@
 import os
 import random
+import signal
 import tempfile
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -78,6 +79,41 @@ def test_version(runner: CliRunner):
     result = runner.invoke(cli.main, ["--version"])
     assert result.exit_code == 0
     assert "gptme" in result.output
+
+
+@pytest.mark.skipif(os.name == "nt", reason="SIGALRM-based pipe guard is POSIX-only")
+def test_read_stdin_open_pipe_without_data_returns_empty(monkeypatch):
+    """An idle pipe should not block forever waiting for stdin bytes."""
+    read_fd, write_fd = os.pipe()
+    read_file = os.fdopen(read_fd)
+    monkeypatch.setattr(cli.sys, "stdin", read_file)
+
+    def _timeout(_signum, _frame):
+        raise TimeoutError("stdin read blocked on an idle pipe")
+
+    previous_handler = signal.signal(signal.SIGALRM, _timeout)
+    signal.setitimer(signal.ITIMER_REAL, 0.5)
+    try:
+        assert cli._read_stdin() == ""
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
+        read_file.close()
+        os.close(write_fd)
+
+
+def test_read_stdin_pipe_with_data_reads_all(monkeypatch):
+    """Actual piped stdin should still be consumed fully."""
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, b"hello from pipe")
+    os.close(write_fd)
+    read_file = os.fdopen(read_fd)
+    monkeypatch.setattr(cli.sys, "stdin", read_file)
+
+    try:
+        assert cli._read_stdin() == "hello from pipe"
+    finally:
+        read_file.close()
 
 
 @pytest.mark.parametrize("bad_name", ["../bad-name", ".", "..", "foo/bar", "foo\\bar"])
