@@ -28,7 +28,7 @@ def _get_matching_messages(
     return [
         (i, msg)
         for i, msg in enumerate(log_manager.log)
-        if query.lower() in msg.content.lower()
+        if isinstance(msg.content, str) and query.lower() in msg.content.lower()
         if msg.role != "system" or system
     ]
 
@@ -139,7 +139,7 @@ def search_chats(
 
 
 def _format_message_with_context(
-    content: str, query: str, context_size: int = 50, max_matches: int = 1
+    content: object, query: str, context_size: int = 50, max_matches: int = 1
 ) -> str:
     """Format a message with context around matching query parts.
 
@@ -152,6 +152,8 @@ def _format_message_with_context(
     Returns:
         Formatted string with highlighted matches and context
     """
+    if not isinstance(content, str):
+        return "[non-string content]"
     content_lower = content.lower()
     query_lower = query.lower()
 
