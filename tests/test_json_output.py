@@ -80,7 +80,11 @@ class TestOutputFormatValidation:
 
     def test_json_resume_error_keeps_stdout_clean(self, monkeypatch, tmp_path):
         """JSON mode must not leak Rich logs onto stdout on early resume errors."""
-        runner = CliRunner()
+        runner_cls: Any = CliRunner
+        try:
+            runner = runner_cls(mix_stderr=False)
+        except TypeError:
+            runner = runner_cls()
         result = runner.invoke(
             cli.main,
             ["--output-format", "json", "--non-interactive", "--resume"],
