@@ -255,6 +255,20 @@ def test_v2_user_default_model_rejects_unqualified_model(client: FlaskClient):
     assert data == {"error": "model must be fully qualified as provider/model"}
 
 
+@pytest.mark.parametrize(
+    "endpoint", ["/api/v2/user/api-key", "/api/v2/user/default-model"]
+)
+@pytest.mark.parametrize("body", [[], [1, 2, 3], "string", 42])
+def test_v2_user_endpoints_reject_non_object_json(
+    client: FlaskClient, endpoint: str, body: object
+):
+    """User-setting endpoints should reject non-object JSON bodies with 400."""
+    response = client.post(endpoint, json=body)
+
+    assert response.status_code == 400
+    assert "object" in response.get_json()["error"].lower()
+
+
 class _FakeExternalSessionItem:
     def __init__(self):
         self.id = "abc123"
@@ -1426,6 +1440,20 @@ def test_v2_post_message_rejects_invalid_files_payload(
     )
     assert response.status_code == 400
     assert response.get_json() == {"error": "files must be a list of strings"}
+
+
+@pytest.mark.parametrize("body", [[], [1, 2, 3], "string", 42])
+def test_v2_post_message_rejects_non_object_json(client: FlaskClient, body: object):
+    """POST /conversations/<id> should reject non-object JSON bodies with 400."""
+    conversation_id = create_conversation(client)["conversation_id"]
+
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json=body,
+    )
+
+    assert response.status_code == 400
+    assert "object" in response.get_json()["error"].lower()
 
 
 def test_v2_edit_message_preserves_uri_files(client: FlaskClient):
