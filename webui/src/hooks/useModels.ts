@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { use$ } from '@legendapp/state/react';
 import { useApi } from '@/contexts/ApiContext';
 import { buildModelsFetchError } from '@/utils/modelsError';
 
@@ -22,7 +23,8 @@ export interface ModelsResponse {
 }
 
 export function useModels() {
-  const { api } = useApi();
+  const { api, isConnected$ } = useApi();
+  const isConnected = use$(isConnected$);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [defaultModel, setDefaultModel] = useState<string | null>(null);
   const [recommendedModels, setRecommendedModels] = useState<string[]>([]);
@@ -30,6 +32,8 @@ export function useModels() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!isConnected) return;
+
     const fetchModels = async () => {
       try {
         setIsLoading(true);
@@ -68,7 +72,7 @@ export function useModels() {
     };
 
     fetchModels();
-  }, [api.baseUrl, api.authHeader]);
+  }, [api.baseUrl, api.authHeader, isConnected]);
 
   const availableModels = models.map((model) => model.id);
 
