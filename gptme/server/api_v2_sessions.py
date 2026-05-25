@@ -128,6 +128,13 @@ def api_conversation_events(conversation_id: str):
     """Subscribe to conversation events."""
     if error := _validate_conversation_id(conversation_id):
         return error
+    # Validate conversation exists before creating a session
+    try:
+        LogManager.load(conversation_id, lock=False)
+    except FileNotFoundError:
+        return flask.jsonify(
+            {"error": f"Conversation not found: {conversation_id}"}
+        ), 404
     session_id = request.args.get("session_id")
     if not session_id:
         # Create a new session if none provided
