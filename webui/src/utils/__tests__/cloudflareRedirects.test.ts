@@ -9,12 +9,21 @@ describe('Cloudflare Pages redirect rules', () => {
       .split('\n')
       .map((line) => line.trim())
       .filter((line) => line && !line.startsWith('#'));
-    const apiRuleIndex = rules.indexOf('/api/* /404.html 404');
-    const spaFallbackIndex = rules.indexOf('/* /index.html 200');
+    const expectedSpaRules = [
+      '/chat / 200',
+      '/chat/* / 200',
+      '/tasks / 200',
+      '/tasks/* / 200',
+      '/agents / 200',
+      '/workspaces / 200',
+      '/history / 200',
+      '/external-sessions / 200',
+      '/workspace/* / 200',
+    ];
 
-    expect(apiRuleIndex).toBeGreaterThanOrEqual(0);
-    expect(spaFallbackIndex).toBeGreaterThanOrEqual(0);
-    expect(apiRuleIndex).toBeLessThan(spaFallbackIndex);
+    expect(rules).toEqual(expect.arrayContaining(expectedSpaRules));
+    expect(rules.some((rule) => rule.startsWith('/* '))).toBe(false);
+    expect(rules.some((rule) => rule.startsWith('/api'))).toBe(false);
   });
 
   it('ships a dedicated 404 page for non-SPA misses', () => {

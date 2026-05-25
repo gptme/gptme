@@ -41,6 +41,7 @@ def test_webui_cloudflare_pages_redirects_cover_spa_deep_links():
 def test_webui_redirects_do_not_swallow_unknown_api_paths():
     rules = _load_redirect_rules()
     assert ("/*", "/index.html", "200") not in rules
+    assert ("/*", "/", "200") not in rules
     assert all(not source.startswith("/api") for source, _, _ in rules), (
         "API routes should fall through to the hosted 404 page"
     )
