@@ -451,7 +451,9 @@ def init_telemetry(
 
         otlp_exporter = OTLPSpanExporter(
             endpoint=trace_endpoint,
-            timeout=int(export_timeout),
+            # round() returns int (SDK requires int); max(1, ...) avoids truncating
+            # sub-second values to 0 (which causes immediate timeout).
+            timeout=max(1, round(export_timeout)),
         )
         span_processor = BatchSpanProcessor(
             otlp_exporter,
@@ -471,7 +473,9 @@ def init_telemetry(
 
             otlp_metric_exporter = OTLPMetricExporter(
                 endpoint=metric_endpoint,
-                timeout=int(export_timeout),
+                # round() returns int (SDK requires int); max(1, ...) avoids truncating
+                # sub-second values to 0 (which causes immediate timeout).
+                timeout=max(1, round(export_timeout)),
             )
             metric_reader = PeriodicExportingMetricReader(
                 otlp_metric_exporter,
