@@ -247,7 +247,10 @@ def tokens():
 @click.argument("text", required=False)
 @click.option("-m", "--model", default="gpt-4", help="Model to use for token counting.")
 @click.option(
-    "-f", "--file", type=click.Path(exists=True), help="File to count tokens in."
+    "-f",
+    "--file",
+    type=click.Path(exists=True, dir_okay=False),
+    help="File to count tokens in.",
 )
 def tokens_count(text: str | None, model: str, file: str | None):
     """Count tokens in text or file."""

@@ -51,6 +51,13 @@ def test_tokens_count(tmp_path):
     count = int(result.output.split(": ", 1)[1].strip())
     assert count > 1
 
+    # Test directory passed to --file: should fail cleanly, not raise
+    # IsADirectoryError as an uncaught traceback.
+    result = runner.invoke(main, ["tokens", "count", "-f", str(tmp_path)])
+    assert result.exit_code == 2
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "is a directory" in result.output.lower()
+
 
 def test_chats_list(tmp_path, mocker):
     """Test the chats list command."""
