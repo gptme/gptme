@@ -89,6 +89,59 @@ def test_format_server_details():
     assert "[[mcp.servers]]" in result
 
 
+def test_mcp_registry_search_all_deduplication():
+    """search_all must not return the same server twice when it appears in both registries."""
+    registry = MCPRegistry()
+
+    duplicate = MCPServerInfo(
+        name="dup-server", description="Appears in both", registry="official"
+    )
+    official_results = [
+        duplicate,
+        MCPServerInfo(
+            name="only-official", description="Only in official", registry="official"
+        ),
+    ]
+    mcp_so_results = [
+        MCPServerInfo(
+            name="dup-server", description="Appears in both", registry="mcp.so"
+        ),
+        MCPServerInfo(
+            name="only-mcp-so", description="Only in mcp.so", registry="mcp.so"
+        ),
+    ]
+
+    with (
+        patch.object(
+            registry, "search_official_registry", return_value=official_results
+        ),
+        patch.object(registry, "search_mcp_so", return_value=mcp_so_results),
+    ):
+        results = registry.search_all("", limit=10)
+
+    names = [r.name for r in results]
+    assert names.count("dup-server") == 1, f"Duplicate found: {names}"
+    assert len(results) == 3
+
+
+def test_mcp_registry_search_all_respects_limit():
+    """search_all must not return more than `limit` results."""
+    registry = MCPRegistry()
+
+    many = [
+        MCPServerInfo(name=f"server-{i}", description="x", registry="official")
+        for i in range(8)
+    ]
+
+    with (
+        patch.object(registry, "search_official_registry", return_value=many[:5]),
+        patch.object(registry, "search_mcp_so", return_value=many[5:]),
+    ):
+        results = registry.search_all("", limit=4)
+
+    assert len(results) == 4
+
+
 @pytest.mark.slow
 def test_mcp_registry_search_all():
     """Test searching all registries (may fail if registries are down)."""

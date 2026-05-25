@@ -193,14 +193,22 @@ class MCPRegistry:
 
         Args:
             query: Search query
-            limit: Maximum number of results per registry
+            limit: Maximum number of results total (deduplicated by name)
 
         Returns:
-            Combined list of MCPServerInfo objects from all registries
+            Combined, deduplicated list of MCPServerInfo objects from all registries
         """
-        results = []
-        results.extend(self.search_official_registry(query, limit))
-        results.extend(self.search_mcp_so(query, limit))
+        seen: set[str] = set()
+        results: list[MCPServerInfo] = []
+        for server in [
+            *self.search_official_registry(query, limit),
+            *self.search_mcp_so(query, limit),
+        ]:
+            if server.name not in seen:
+                seen.add(server.name)
+                results.append(server)
+                if len(results) >= limit:
+                    break
         return results
 
     def get_server_details(self, name: str) -> MCPServerInfo | None:
