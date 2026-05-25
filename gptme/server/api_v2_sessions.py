@@ -886,6 +886,9 @@ def api_conversation_transcript(conversation_id: str):
     for i, turn in enumerate(turns):
         if not isinstance(turn, dict):
             return flask.jsonify({"error": f"turns[{i}] must be an object"}), 400
+        text = turn.get("text")
+        if text is not None and not isinstance(text, str):
+            return flask.jsonify({"error": f"turns[{i}].text must be a string"}), 400
     if not call_metadata or not isinstance(call_metadata, dict):
         return flask.jsonify({"error": "call_metadata (object) is required"}), 400
 
@@ -911,7 +914,7 @@ def api_conversation_transcript(conversation_id: str):
         # Append each turn as a Message
         for turn in turns:
             role = turn.get("role")
-            text = turn.get("text", "").strip()
+            text = (turn.get("text") or "").strip()
 
             # Skip empty/whitespace-only turns
             if not text:

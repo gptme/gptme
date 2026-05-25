@@ -887,3 +887,63 @@ class TestConversationGetSessionState:
         assert response.status_code == 200
         data = response.get_json()
         assert "session" not in data
+
+
+class TestTranscriptEndpointInputValidation:
+    """Test that /transcript rejects invalid turn field types with 400, not 500."""
+
+    @pytest.mark.parametrize(
+        "bad_text",
+        [12345, True, {"nested": "obj"}, [1, 2, 3]],
+        ids=["integer", "bool", "object", "array"],
+    )
+    def test_transcript_non_string_text_returns_400(
+        self, bad_text, client: FlaskClient
+    ):
+        """turns[i].text must be a string; non-strings must return 400, not 500."""
+        convname = f"test-transcript-{uuid.uuid4().hex[:8]}"
+        response = client.post(
+            f"/api/v2/conversations/{convname}/transcript",
+            json={
+                "turns": [{"role": "user", "text": bad_text}],
+                "call_metadata": {"call_sid": "CA-test-text-type"},
+            },
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert "text" in data["error"]
+
+    def test_transcript_null_text_is_skipped(self, client: FlaskClient):
+        """turns with null text are silently skipped (treated as empty)."""
+        convname = f"test-transcript-{uuid.uuid4().hex[:8]}"
+        response = client.post(
+            f"/api/v2/conversations/{convname}/transcript",
+            json={
+                "turns": [
+                    {"role": "user", "text": None},
+                    {"role": "user", "text": "hello"},
+                ],
+                "call_metadata": {"call_sid": "CA-test-null-text"},
+            },
+        )
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data["messages_added"] == 1
+
+    def test_transcript_valid_turns_succeed(self, client: FlaskClient):
+        """Baseline: valid turns with string text return 200."""
+        convname = f"test-transcript-{uuid.uuid4().hex[:8]}"
+        response = client.post(
+            f"/api/v2/conversations/{convname}/transcript",
+            json={
+                "turns": [
+                    {"role": "user", "text": "hello"},
+                    {"role": "assistant", "text": "hi there"},
+                ],
+                "call_metadata": {"call_sid": "CA-test-valid"},
+            },
+        )
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data["messages_added"] == 2
