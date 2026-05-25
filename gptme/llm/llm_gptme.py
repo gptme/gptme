@@ -36,6 +36,11 @@ DEFAULT_BASE_URL = "https://fleet.gptme.ai/v1"
 # Default service URL (for auth endpoints, without /v1)
 DEFAULT_SERVICE_URL = "https://fleet.gptme.ai"
 
+# Device auth has moved off fleet-operator and onto Supabase edge functions.
+# The CLI polls these two endpoints during the RFC 8628 device authorization flow.
+_SUPABASE_URL = "https://kpkxgnfpyntahyhckhgm.supabase.co"
+DEFAULT_DEVICE_AUTH_URL = f"{_SUPABASE_URL}/functions/v1/device-auth"
+
 # Token storage directory
 _TOKEN_DIR = (
     Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "gptme" / "auth"
@@ -132,24 +137,30 @@ def get_base_url(config: Config) -> str:
     return DEFAULT_BASE_URL
 
 
-def device_flow_authenticate(server_url: str = DEFAULT_SERVICE_URL) -> dict:
+def device_flow_authenticate(
+    server_url: str = DEFAULT_SERVICE_URL,
+    device_auth_url: str = DEFAULT_DEVICE_AUTH_URL,
+) -> dict:
     """Perform RFC 8628 Device Flow authentication.
 
     Args:
-        server_url: Base URL of the gptme service (without /v1 suffix).
+        server_url: Base URL of the gptme LLM service (without /v1 suffix).
+            Used only for token storage keying, not for auth endpoints.
+        device_auth_url: Base URL of the device-auth edge function.
+            Defaults to the Supabase edge function that replaced the fleet-operator
+            auth endpoints (gptme-cloud#287).
 
     Returns:
         Token data dict with access_token, expires_at, server_url.
     """
     import requests
 
-    # Strip /v1 suffix for auth endpoints
-    auth_base = server_url.rstrip("/")
-    auth_base = auth_base.removesuffix("/v1")
+    auth_base = device_auth_url.rstrip("/")
+    service_base = server_url.rstrip("/").removesuffix("/v1")
 
     # Step 1: Request device authorization
     resp = requests.post(
-        f"{auth_base}/api/v1/auth/device/authorize",
+        f"{auth_base}/authorize",
         json={"client_id": "gptme-cli"},
         timeout=30,
     )
@@ -176,7 +187,7 @@ def device_flow_authenticate(server_url: str = DEFAULT_SERVICE_URL) -> dict:
 
         try:
             poll_resp = requests.post(
-                f"{auth_base}/api/v1/auth/device/token",
+                f"{auth_base}/token",
                 json={
                     "device_code": device_code,
                     "client_id": "gptme-cli",
@@ -194,13 +205,13 @@ def device_flow_authenticate(server_url: str = DEFAULT_SERVICE_URL) -> dict:
             except (json.JSONDecodeError, KeyError) as e:
                 raise RuntimeError(f"Invalid token response: {e}") from e
 
-            # Save token
+            # Save token; keyed by service URL (fleet), not auth URL (supabase)
             result = {
                 "access_token": access_token,
                 "expires_at": time.time() + token_data.get("expires_in", 86400),
-                "server_url": auth_base,
+                "server_url": service_base,
             }
-            _save_token(result, auth_base)
+            _save_token(result, service_base)
             return result
 
         if poll_resp.status_code == 428:
