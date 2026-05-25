@@ -306,7 +306,7 @@ def _otlp_timeout_seconds(default: float) -> float:
     if not raw:
         return default
     try:
-        seconds = int(raw) / 1000.0
+        seconds = int(float(raw)) / 1000.0
     except ValueError:
         logger.warning(
             "Invalid OTEL_EXPORTER_OTLP_TIMEOUT=%r (expected integer milliseconds); "
@@ -628,6 +628,12 @@ def shutdown_telemetry() -> None:
 
     # Flush timeout (ms). Defaults to 5s but honors OTEL_EXPORTER_OTLP_TIMEOUT so
     # a wedged collector doesn't block session shutdown for the full default.
+    # Note: OTEL_EXPORTER_OTLP_TIMEOUT is technically a per-request HTTP timeout,
+    # but we reuse it here for the overall flush window too. Setting it short
+    # (e.g. 2000 for 2s) caps the entire force_flush, not just a single export —
+    # if the collector is slow the flush may abort before a batch completes.
+    # This is intentional: fast-fail is the point, and a separate env var would
+    # add complexity with little gain for gptme's single-batch shutdown pattern.
     flush_timeout_millis = int(_otlp_timeout_seconds(default=5.0) * 1000)
 
     try:
