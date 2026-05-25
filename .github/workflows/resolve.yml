@@ -27,7 +27,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Run gptme-resolver
         uses: ./.github/actions/bot
