@@ -35,6 +35,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _coerce_config_path(value: object, field_name: str) -> Path:
+    """Convert a JSON-provided path value to a resolved Path."""
+    if not isinstance(value, (str, os.PathLike)):
+        raise ValueError(f"chat.{field_name} must be a string path")
+    return Path(value).expanduser().resolve()
+
+
 @dataclass
 class ChatConfig:
     """Configuration for a chat session."""
@@ -73,6 +80,8 @@ class ChatConfig:
 
         # Extract chat settings
         chat_data = config_data.pop("chat", {})
+        if not isinstance(chat_data, dict):
+            raise ValueError("chat must be an object")
 
         # Convert workspace to Path if present and resolve to absolute path
         if "workspace" in chat_data:
@@ -85,21 +94,28 @@ class ChatConfig:
                 # Ensure the workspace directory exists
                 chat_data["workspace"].mkdir(parents=True, exist_ok=True)
             else:
-                chat_data["workspace"] = Path(workspace_value).expanduser().resolve()
+                chat_data["workspace"] = _coerce_config_path(
+                    workspace_value, "workspace"
+                )
         # For old-style config, check if workspace is in the logdir
         elif _logdir and (_logdir / "workspace").exists():
             chat_data["workspace"] = (_logdir / "workspace").resolve()
 
         # Extract agent
-        agent_path = chat_data.pop("agent", None)
-        agent = Path(agent_path).expanduser().resolve() if agent_path else None
+        _missing = object()
+        agent_path = chat_data.pop("agent", _missing)
+        if agent_path is _missing or agent_path is None or agent_path == "":
+            agent = None
+        else:
+            agent = _coerce_config_path(agent_path, "agent")
 
         env = config_data.pop("env", {})
-        mcp = (
-            MCPConfig.from_dict(config_data.pop("mcp", {}))
-            if "mcp" in config_data
-            else None
-        )
+        if not isinstance(env, dict):
+            raise ValueError("env must be an object")
+        mcp_data = config_data.pop("mcp", None)
+        if mcp_data is not None and not isinstance(mcp_data, dict):
+            raise ValueError("mcp must be an object")
+        mcp = MCPConfig.from_dict(mcp_data) if mcp_data is not None else None
 
         # Check for unknown keys
         if config_data:

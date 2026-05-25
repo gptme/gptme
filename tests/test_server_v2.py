@@ -1380,6 +1380,23 @@ def test_v2_chat_config_patch_rejects_non_object_json(
     assert response.get_json() == {"error": "JSON body must be an object"}
 
 
+@pytest.mark.parametrize("bad_workspace", [[], 42, {"path": "~/tmp"}])
+def test_v2_chat_config_patch_rejects_invalid_workspace_type(
+    client: FlaskClient, bad_workspace: object
+):
+    """Config PATCH should reject non-string workspace paths with 400."""
+    conv = create_conversation(client)
+    conversation_id = conv["conversation_id"]
+
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config",
+        json={"chat": {"workspace": bad_workspace}},
+    )
+
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "chat.workspace must be a string path"}
+
+
 def test_v2_chat_config_patch_rejected_during_generation(client: FlaskClient):
     """Config PATCH should return 409 when a session is actively generating."""
     conv = create_conversation(client)
@@ -1823,6 +1840,23 @@ def test_v2_create_conversation_messages_not_list(
     data = response.get_json()
     assert data is not None
     assert "messages" in data["error"].lower()
+
+
+@pytest.mark.parametrize("bad_agent", [[], 42, {"path": "~/agent"}])
+def test_v2_create_conversation_rejects_invalid_agent_type(
+    client: FlaskClient, bad_agent: object
+):
+    """PUT /conversations/<id> should reject non-string config.chat.agent values."""
+    import uuid
+
+    conv_id = f"test-bad-agent-{uuid.uuid4().hex[:8]}"
+    response = client.put(
+        f"/api/v2/conversations/{conv_id}",
+        json={"config": {"chat": {"agent": bad_agent}}},
+    )
+
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "chat.agent must be a string path"}
 
 
 def test_v2_create_conversation_message_not_object(client: FlaskClient):

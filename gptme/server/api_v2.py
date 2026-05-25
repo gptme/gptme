@@ -533,7 +533,10 @@ def api_conversation_put(conversation_id: str):
     # Load or create the chat config, overriding values from request config if provided
     config_dict = dict(config_raw)
     config_dict["_logdir"] = logdir  # Pass logdir for "@log" workspace resolution
-    request_config = ChatConfig.from_dict(config_dict)
+    try:
+        request_config = ChatConfig.from_dict(config_dict)
+    except ValueError as exc:
+        return flask.jsonify({"error": str(exc)}), 400
     chat_config = ChatConfig.load_or_create(logdir, request_config)
     prompt = req_json.get("prompt", "full")
 
@@ -1177,8 +1180,11 @@ def api_conversation_config_patch(conversation_id: str):
 
     # Create and set config
     req_json["_logdir"] = logdir  # Pass logdir for "@log" workspace resolution
-    request_config = ChatConfig.from_dict(req_json)
-    chat_config = ChatConfig.load_or_create(logdir, request_config).save()
+    try:
+        request_config = ChatConfig.from_dict(req_json)
+        chat_config = ChatConfig.load_or_create(logdir, request_config).save()
+    except ValueError as exc:
+        return flask.jsonify({"error": str(exc)}), 400
     config = Config.from_workspace(workspace=chat_config.workspace)
     config.chat = chat_config
     set_config(config)
