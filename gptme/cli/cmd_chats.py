@@ -288,7 +288,7 @@ def chats_export(id: str, fmt: str, output: str | None):
     from ..util.export import export_chat_to_html, export_chat_to_markdown  # fmt: skip
 
     logdir = get_logs_dir() / id
-    if not logdir.exists():
+    if not _is_valid_id(id) or not logdir.exists():
         click.echo(f"Chat '{id}' not found")
         raise SystemExit(1)
 
