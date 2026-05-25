@@ -249,6 +249,20 @@ class TestStepEndpoint:
         )
         assert response.status_code == 404
 
+    @pytest.mark.parametrize("bad_session_id", [["boom"], {"boom": 1}, 0, False])
+    def test_non_string_session_id(
+        self, conv, client: FlaskClient, bad_session_id: object
+    ):
+        """Truthy/falsy non-string session_id values must return 400, not 500."""
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/step",
+            json={"session_id": bad_session_id},
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert data["error"] == "session_id must be a string"
+
     def test_invalid_use_acp_type(self, conv, client: FlaskClient):
         """Step with non-boolean use_acp returns 400."""
         response = client.post(
@@ -397,6 +411,20 @@ class TestInterruptEndpoint:
         )
         assert response.status_code == 404
 
+    @pytest.mark.parametrize("bad_session_id", [["boom"], {"boom": 1}, 0, False])
+    def test_non_string_session_id(
+        self, conv, client: FlaskClient, bad_session_id: object
+    ):
+        """Interrupt must reject non-string session_id values with 400."""
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/interrupt",
+            json={"session_id": bad_session_id},
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert data["error"] == "session_id must be a string"
+
     def test_interrupt_when_not_generating(self, conv, client: FlaskClient):
         """Interrupt when not generating is idempotent (returns 200)."""
         response = client.post(
@@ -455,6 +483,51 @@ class TestToolConfirmEndpoint:
             },
         )
         assert response.status_code == 400
+
+    @pytest.mark.parametrize("bad_session_id", [["boom"], {"boom": 1}, 0, False])
+    def test_non_string_session_id(
+        self, conv, client: FlaskClient, bad_session_id: object
+    ):
+        """Optional session_id must still be a string when provided."""
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        tool_id = str(uuid.uuid4())
+        session.pending_tools[tool_id] = ToolExecution(
+            tool_id=tool_id,
+            tooluse=ToolUse("bash", [], "echo test"),
+        )
+
+        try:
+            response = client.post(
+                f"/api/v2/conversations/{conv['conversation_id']}/tool/confirm",
+                json={
+                    "session_id": bad_session_id,
+                    "tool_id": tool_id,
+                    "action": "skip",
+                },
+            )
+            assert response.status_code == 400
+            data = response.get_json()
+            assert data is not None
+            assert data["error"] == "session_id must be a string"
+        finally:
+            session.pending_tools.pop(tool_id, None)
+
+    @pytest.mark.parametrize("bad_tool_id", [["boom"], {"boom": 1}, 0, False])
+    def test_non_string_tool_id(self, conv, client: FlaskClient, bad_tool_id: object):
+        """tool_id must be a string before pending-tool lookup."""
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/tool/confirm",
+            json={
+                "session_id": conv["session_id"],
+                "tool_id": bad_tool_id,
+                "action": "skip",
+            },
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert data["error"] == "tool_id must be a string"
 
     def test_tool_not_found_in_session(self, conv, client: FlaskClient):
         """Confirm with unknown tool_id in specific session returns 404."""
@@ -650,6 +723,20 @@ class TestRerunEndpoint:
             json={"session_id": "nonexistent"},
         )
         assert response.status_code == 404
+
+    @pytest.mark.parametrize("bad_session_id", [["boom"], {"boom": 1}, 0, False])
+    def test_non_string_session_id(
+        self, conv, client: FlaskClient, bad_session_id: object
+    ):
+        """Rerun must reject non-string session_id values with 400."""
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/rerun",
+            json={"session_id": bad_session_id},
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert data["error"] == "session_id must be a string"
 
     def test_rerun_while_generating(self, conv, client: FlaskClient):
         """Rerun while generation in progress returns 409."""

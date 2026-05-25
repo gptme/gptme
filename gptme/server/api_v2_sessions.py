@@ -76,6 +76,32 @@ def _get_request_json_object() -> dict | tuple[flask.Response, int]:
     return req_json
 
 
+def _get_required_string_field(
+    req_json: dict, field: str
+) -> str | tuple[flask.Response, int]:
+    """Return a required non-empty string field or a 400 response."""
+    value = req_json.get(field)
+    if value is None:
+        return flask.jsonify({"error": f"{field} is required"}), 400
+    if not isinstance(value, str):
+        return flask.jsonify({"error": f"{field} must be a string"}), 400
+    if not value:
+        return flask.jsonify({"error": f"{field} is required"}), 400
+    return value
+
+
+def _get_optional_string_field(
+    req_json: dict, field: str
+) -> str | None | tuple[flask.Response, int]:
+    """Return an optional string field or a 400 response."""
+    value = req_json.get(field)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        return flask.jsonify({"error": f"{field} must be a string"}), 400
+    return value
+
+
 # Re-export step-level symbols that other modules may import from here.
 # This preserves backward compatibility after the split.
 __all__ = [
@@ -263,10 +289,9 @@ def api_conversation_step(conversation_id: str):
     req_json = _get_request_json_object()
     if not isinstance(req_json, dict):
         return req_json
-    session_id = req_json.get("session_id")
-
-    if not session_id:
-        return flask.jsonify({"error": "session_id is required"}), 400
+    session_id = _get_required_string_field(req_json, "session_id")
+    if not isinstance(session_id, str):
+        return session_id
 
     session = SessionManager.get_session(session_id)
     if session is None:
@@ -524,11 +549,15 @@ def api_conversation_tool_confirm(conversation_id: str):
     req_json = _get_request_json_object()
     if not isinstance(req_json, dict):
         return req_json
-    session_id = req_json.get("session_id")
-    tool_id = req_json.get("tool_id")
+    session_id = _get_optional_string_field(req_json, "session_id")
+    if isinstance(session_id, tuple):
+        return session_id
+    tool_id = _get_required_string_field(req_json, "tool_id")
+    if not isinstance(tool_id, str):
+        return tool_id
     action = req_json.get("action")
 
-    if not tool_id or not action:
+    if not action:
         return (
             flask.jsonify({"error": "tool_id and action are required"}),
             400,
@@ -688,10 +717,9 @@ def api_conversation_rerun(conversation_id: str):
     req_json = _get_request_json_object()
     if not isinstance(req_json, dict):
         return req_json
-    session_id = req_json.get("session_id")
-
-    if not session_id:
-        return flask.jsonify({"error": "session_id is required"}), 400
+    session_id = _get_required_string_field(req_json, "session_id")
+    if not isinstance(session_id, str):
+        return session_id
 
     session = SessionManager.get_session(session_id)
     if not session:
@@ -968,10 +996,9 @@ def api_conversation_interrupt(conversation_id: str):
     req_json = _get_request_json_object()
     if not isinstance(req_json, dict):
         return req_json
-    session_id = req_json.get("session_id")
-
-    if not session_id:
-        return flask.jsonify({"error": "session_id is required"}), 400
+    session_id = _get_required_string_field(req_json, "session_id")
+    if not isinstance(session_id, str):
+        return session_id
 
     session = SessionManager.get_session(session_id)
     if session is None:
