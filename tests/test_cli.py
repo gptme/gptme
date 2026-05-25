@@ -172,6 +172,32 @@ def test_resume_named_missing_conversation_does_not_fallback_to_latest(
     assert f"No conversation named '{missing}' to resume" in result.output
 
 
+def test_missing_custom_tool_path_is_reported_as_usage_error(
+    runner: CliRunner, tmp_path: Path
+):
+    missing_tool = tmp_path / "missing_tool.py"
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--name",
+            "missing-custom-tool",
+            "-t",
+            str(missing_tool),
+            "hello",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "Tool" in result.output
+    assert str(missing_tool) in result.output
+    assert "Traceback" not in result.output
+    assert (
+        "Goodbye! (resume with: gptme --name missing-custom-tool)" not in result.output
+    )
+
+
 def test_command_exit(args: list[str], runner: CliRunner):
     args.append("/exit")
     result = runner.invoke(cli.main, args)

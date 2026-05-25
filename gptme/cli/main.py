@@ -624,7 +624,11 @@ def main(
 
     # Register atexit handler to show conversation ID on exit
     def goodbye_handler():
-        if output_format != "json":
+        if output_format == "json":
+            return
+
+        log_file = logdir / "conversation.jsonl"
+        if log_file.exists() and log_file.stat().st_size > 0:
             print(f"\nGoodbye! (resume with: gptme --name {logdir.name})")
 
     atexit.register(goodbye_handler)
@@ -637,16 +641,19 @@ def main(
         workspace_path = Path(workspace) if workspace else Path.cwd()
 
     # Setup complete configuration from CLI arguments and workspace
-    config = setup_config_from_cli(
-        workspace=workspace_path,
-        logdir=logdir,
-        model=model,
-        tool_allowlist=tool_allowlist_str,
-        tool_format=tool_format,
-        stream=stream,
-        interactive=interactive,
-        agent_path=Path(agent_path) if agent_path else None,
-    )
+    try:
+        config = setup_config_from_cli(
+            workspace=workspace_path,
+            logdir=logdir,
+            model=model,
+            tool_allowlist=tool_allowlist_str,
+            tool_format=tool_format,
+            stream=stream,
+            interactive=interactive,
+            agent_path=Path(agent_path) if agent_path else None,
+        )
+    except ValueError as e:
+        raise click.UsageError(str(e)) from e
     assert config.chat and config.chat.tool_format
 
     # init telemetry with agent name and interactive mode
