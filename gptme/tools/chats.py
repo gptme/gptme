@@ -25,12 +25,18 @@ def _get_matching_messages(
     """Get messages matching the query."""
     if not query.strip():
         return []
-    return [
-        (i, msg)
-        for i, msg in enumerate(log_manager.log)
-        if isinstance(msg.content, str) and query.lower() in msg.content.lower()
-        if msg.role != "system" or system
-    ]
+    matching = []
+    for i, msg in enumerate(log_manager.log):
+        if msg.role == "system" and not system:
+            continue
+        if not isinstance(msg.content, str):
+            logger.warning(
+                f"Skipping message with non-string content: {type(msg.content).__name__}"
+            )
+            continue
+        if query.lower() in msg.content.lower():
+            matching.append((i, msg))
+    return matching
 
 
 def list_chats(
@@ -139,7 +145,7 @@ def search_chats(
 
 
 def _format_message_with_context(
-    content: object, query: str, context_size: int = 50, max_matches: int = 1
+    content: str | object, query: str, context_size: int = 50, max_matches: int = 1
 ) -> str:
     """Format a message with context around matching query parts.
 
