@@ -33,6 +33,46 @@ def _get_model_default_tool_format(model: str | None) -> str | None:
         return None
 
 
+def _is_tool_file_path(value: str) -> bool:
+    return value.endswith(".py") or "/" in value or "\\" in value
+
+
+def _normalize_tool_allowlist(allowlist: list[str] | None) -> list[str] | None:
+    """Normalize an allowlist while preserving custom tool file paths.
+
+    ``get_toolchain()`` validates and expands named tools, but custom tool files
+    are loaded later by ``init_tools()`` and must remain as file paths.
+    """
+    if allowlist is None:
+        return None
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+
+    for item in allowlist:
+        if _is_tool_file_path(item):
+            resolved = Path(item).expanduser().resolve()
+            if not resolved.exists():
+                raise ValueError(f"Tool file does not exist: {item}")
+            if not resolved.is_file():
+                raise ValueError(f"Tool path is not a file: {item}")
+            if resolved.suffix != ".py":
+                raise ValueError(f"Tool file must be a .py file: {item}")
+            normalized_item = str(resolved)
+            if normalized_item not in seen:
+                normalized.append(normalized_item)
+                seen.add(normalized_item)
+            continue
+
+        for tool in get_toolchain([item]):
+            if tool.name in seen:
+                continue
+            normalized.append(tool.name)
+            seen.add(tool.name)
+
+    return normalized
+
+
 def setup_config_from_cli(
     workspace: Path,
     logdir: Path,
@@ -176,9 +216,7 @@ def setup_config_from_cli(
 
     # Set tools if not already set or if CLI override provided
     if config.chat.tools is None or tool_allowlist is not None:
-        config.chat.tools = [
-            tool.name for tool in get_toolchain(resolved_tool_allowlist)
-        ]
+        config.chat.tools = _normalize_tool_allowlist(resolved_tool_allowlist)
 
     # Save and set the final config
     config.chat.save()

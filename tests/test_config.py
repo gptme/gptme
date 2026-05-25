@@ -1146,6 +1146,33 @@ def test_tool_exclusion_multiple(tmp_path):
         )
 
 
+def test_custom_tool_file_allowlist_preserved(tmp_path):
+    """Custom .py tool paths should survive CLI config setup unchanged."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    logdir = tmp_path / "logs"
+    logdir.mkdir()
+    tool_file = tmp_path / "custom_tool.py"
+    tool_file.write_text(
+        "from gptme.tools.base import ToolSpec\n\n"
+        "custom_tool = ToolSpec(name='custom_tool', desc='Custom tool')\n"
+    )
+
+    config = setup_config_from_cli(
+        workspace=workspace,
+        logdir=logdir,
+        model=None,
+        tool_allowlist=str(tool_file),
+        tool_format=None,
+        stream=True,
+        interactive=True,
+        agent_path=None,
+    )
+
+    assert config.chat is not None
+    assert config.chat.tools == [str(tool_file.resolve())]
+
+
 def test_set_config_value_creates_intermediate_sections(tmp_path, monkeypatch):
     """Test that set_config_value creates missing intermediate TOML sections.
 
