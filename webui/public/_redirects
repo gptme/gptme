@@ -1,5 +1,15 @@
-# Keep same-origin API misses as real 404s instead of rewriting them to the SPA shell.
-/api/* /404.html 404
-
-# Let client-side routes resolve through the React app.
-/* /index.html 200
+# Cloudflare Pages SPA deep-link fallback for chat.gptme.org.
+#
+# Pages does not support 404 rewrites in `_redirects`, and rewriting wildcard
+# routes to `/index.html` loops because Pages canonicalizes that file back to
+# `/`. Keep the route list explicit and rewrite to `/` so bogus `/api/*` paths
+# still fall through to the hosted 404 page.
+/chat / 200
+/chat/* / 200
+/tasks / 200
+/tasks/* / 200
+/agents / 200
+/workspaces / 200
+/history / 200
+/external-sessions / 200
+/workspace/* / 200
