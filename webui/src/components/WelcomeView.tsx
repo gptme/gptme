@@ -277,7 +277,7 @@ export const WelcomeView = () => {
                       <code className="block rounded-md border border-amber-500/20 bg-background/80 px-3 py-2 font-mono text-xs">
                         {serverCommand}
                       </code>
-                      {isHostedOrigin && (
+                      {errorBucket !== 'pna' && isHostedOrigin && (
                         <p className="text-xs text-muted-foreground">
                           On Chrome 142+ (and other Chromium browsers), the first connection to a
                           local server also triggers a{' '}
