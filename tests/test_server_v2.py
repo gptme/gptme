@@ -1993,3 +1993,73 @@ def test_v2_conversation_transcript_rejects_non_dict_turns(client: FlaskClient):
         assert response.status_code == 400
         data = response.get_json()
         assert "turns[" in data["error"] and "must be an object" in data["error"]
+
+
+# --- Tasks and Agents malformed-JSON regression tests ---
+
+
+@pytest.mark.parametrize("body", [[1, 2, 3], "string", 42])
+def test_v2_tasks_post_rejects_non_object_json(client: FlaskClient, body: object):
+    """Task POST should reject non-object JSON bodies with 400."""
+    response = client.post("/api/v2/tasks", json=body)
+    assert response.status_code == 400
+    assert "object" in response.get_json()["error"].lower()
+
+
+def test_v2_tasks_post_rejects_malformed_json(client: FlaskClient):
+    """Task POST should return 400 (not 400 Werkzeug HTML) on truly malformed JSON."""
+    response = client.post(
+        "/api/v2/tasks",
+        data=b"{bad:",
+        content_type="application/json",
+    )
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data is not None, (
+        "Response must be valid JSON, not a raw Werkzeug error page"
+    )
+    assert "error" in data
+
+
+def test_v2_tasks_put_rejects_malformed_json(client: FlaskClient):
+    """Task PUT should return clean JSON 400 on truly malformed JSON body."""
+    create_resp = client.post(
+        "/api/v2/tasks", json={"content": "task for put malformed"}
+    )
+    assert create_resp.status_code == 201
+    task_id = create_resp.get_json()["id"]
+
+    response = client.put(
+        f"/api/v2/tasks/{task_id}",
+        data=b"{bad:",
+        content_type="application/json",
+    )
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data is not None, (
+        "Response must be valid JSON, not a raw Werkzeug error page"
+    )
+    assert "error" in data
+
+
+@pytest.mark.parametrize("body", [[1, 2, 3], "string", 42])
+def test_v2_agents_put_rejects_non_object_json(client: FlaskClient, body: object):
+    """Agents PUT should reject non-object JSON bodies with 400."""
+    response = client.put("/api/v2/agents", json=body)
+    assert response.status_code == 400
+    assert "object" in response.get_json()["error"].lower()
+
+
+def test_v2_agents_put_rejects_malformed_json(client: FlaskClient):
+    """Agents PUT should return clean JSON 400 on truly malformed JSON body."""
+    response = client.put(
+        "/api/v2/agents",
+        data=b"{bad:",
+        content_type="application/json",
+    )
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data is not None, (
+        "Response must be valid JSON, not a raw Werkzeug error page"
+    )
+    assert "error" in data

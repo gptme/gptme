@@ -714,9 +714,11 @@ def api_tasks_create():
     Create a new task with the specified content and configuration.
     A conversation will be automatically created for the task.
     """
-    req_json = flask.request.json
-    if not req_json or not isinstance(req_json, dict):
+    req_json = flask.request.get_json(silent=True)
+    if req_json is None:
         return flask.jsonify({"error": "No JSON data provided"}), 400
+    if not isinstance(req_json, dict):
+        return flask.jsonify({"error": "Request body must be a JSON object"}), 400
 
     if "content" not in req_json:
         return flask.jsonify({"error": "Missing required field: content"}), 400
@@ -830,8 +832,10 @@ def api_tasks_update(task_id: str):
     if not task:
         return flask.jsonify({"error": f"Task not found: {task_id}"}), 404
 
-    req_json = flask.request.json
-    if not req_json or not isinstance(req_json, dict):
+    req_json = flask.request.get_json(silent=True)
+    if req_json is None:
+        return flask.jsonify({"error": "No JSON data provided"}), 400
+    if not isinstance(req_json, dict):
         return flask.jsonify({"error": "Request body must be a JSON object"}), 400
 
     # Validate field types before applying
