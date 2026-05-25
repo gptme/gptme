@@ -6,6 +6,7 @@ import json as json_mod
 import logging
 import re
 import statistics
+import sys
 import textwrap
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -89,7 +90,7 @@ def search_chats(
         max_matches (int): Maximum number of matches to show per conversation.
     """
     if not query.strip():
-        print("Error: search query cannot be empty.")
+        print("Error: search query cannot be empty.", file=sys.stderr)
         return
 
     from ..logmanager import LogManager, list_conversations  # fmt: skip

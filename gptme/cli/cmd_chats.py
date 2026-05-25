@@ -134,8 +134,7 @@ def chats_search(
 ):
     """Search conversation logs."""
     if not query.strip():
-        click.echo("Error: search query cannot be empty.", err=True)
-        raise SystemExit(1)
+        raise click.UsageError("search query cannot be empty")
     _ensure_tools()
 
     if output_json:
