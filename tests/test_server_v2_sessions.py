@@ -796,6 +796,18 @@ class TestElicitRespondEndpoint:
         assert data is not None
         assert data["error"] == "elicit_id must be a string"
 
+    @pytest.mark.parametrize("elicit_id", [0, False, []])
+    def test_falsy_non_string_elicit_id(self, conv, client: FlaskClient, elicit_id):
+        """Falsy non-string elicit_id values must return the type error, not the required-fields error."""
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/elicit/respond",
+            json={"elicit_id": elicit_id, "action": "accept"},
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert data["error"] == "elicit_id must be a string"
+
     @patch("gptme.server.api_v2_sessions.resolve_hook_elicitation")
     def test_accept_action(self, mock_resolve, conv, client: FlaskClient):
         """Accept action calls resolve_hook_elicitation correctly."""
