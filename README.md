@@ -261,6 +261,8 @@ You can find more [Demos][docs-demos] and [Examples][docs-examples] in the [docu
   - Standalone executable builds available with PyInstaller.
 - 💻 **[Computer use][docs-tools-computer]** (see [#216](https://github.com/gptme/gptme/issues/216))
   - Give the assistant access to a full desktop, allowing it to interact with GUI applications.
+- 🧠 **Code intelligence**
+  - Structural code understanding with [gptme-codegraph]: call graphs, symbol extraction, and impact analysis powered by Tree-sitter. Nine MCP tools for codebase navigation.
 - 🔊 **Tool sounds** — pleasant notification sounds for different tool operations.
   - Enable with `GPTME_TOOL_SOUNDS=true`.
 
