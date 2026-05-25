@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from ..logmanager import LogManager
     from ..message import Message
 
+from ..util.conversation_ids import conversation_id_error
 from .base import CommandContext, command
 
 

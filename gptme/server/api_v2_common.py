@@ -10,6 +10,7 @@ import flask
 from typing_extensions import NotRequired
 
 from ..message import Message
+from ..util.conversation_ids import conversation_id_error
 from ..util.uri import URI, is_uri
 
 _MAX_ID_LENGTH = 255  # Linux NAME_MAX: 255 UTF-8 bytes for a single path component
@@ -25,20 +26,12 @@ def _validate_conversation_id(
 
     Returns None if valid, or (error_response, status_code) if invalid.
 
-    The ``..`` check is intentionally conservative: it rejects any ID containing
-    two consecutive dots, including names like ``my..project`` that aren't true
-    traversals. Since ``/`` and ``\\`` are already blocked, the only dangerous
-    single-component form is a bare ``..``, but substring matching is simpler
-    and the false-positive risk (rejecting ``..`` in a real conversation name)
-    is negligible in practice.
-
-    The length check prevents ``OSError: [Errno 36] File name too long`` which
-    would otherwise bubble up as an unhandled 500 for IDs longer than the
-    filesystem's NAME_MAX (typically 255 on Linux ext4/xfs).
+    The shared validator owns the exact filesystem-safety rules. This wrapper
+    keeps the server API's historical response strings stable.
     """
-    if len(conversation_id.encode()) > _MAX_ID_LENGTH:
-        return flask.jsonify({"error": "conversation_id too long"}), 400
-    if "/" in conversation_id or ".." in conversation_id or "\\" in conversation_id:
+    if error := conversation_id_error(conversation_id):
+        if "too long" in error:
+            return flask.jsonify({"error": "conversation_id too long"}), 400
         return flask.jsonify({"error": "Invalid conversation_id"}), 400
     return None
 

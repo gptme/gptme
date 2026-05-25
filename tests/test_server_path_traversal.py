@@ -25,9 +25,10 @@ from flask.testing import FlaskClient  # fmt: skip
 pytestmark = [pytest.mark.timeout(10)]
 
 
-# Payloads that bypass Flask's URL routing (no '/' so <string:> matches them)
-# Payloads with '/' are already blocked by Flask routing (<string:> doesn't match '/')
+# Payloads that bypass Flask's URL routing (no '/' so <string:> matches them).
+# Payloads with '/' are already blocked by Flask routing (<string:> doesn't match '/').
 TRAVERSAL_PAYLOADS = [
+    ".",
     "..",
     "test\\..\\..\\secret",
     "..\\..\\etc\\passwd",
