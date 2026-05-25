@@ -2144,3 +2144,93 @@ def test_v2_agents_put_rejects_malformed_json(client: FlaskClient):
         "Response must be valid JSON, not a raw Werkzeug error page"
     )
     assert "error" in data
+
+
+@pytest.mark.parametrize(
+    ("body", "expected_error"),
+    [
+        (
+            {
+                "name": ["bob"],
+                "template_repo": "https://example.com/repo.git",
+                "template_branch": "master",
+                "fork_command": "echo ok",
+            },
+            "name must be a string",
+        ),
+        (
+            {
+                "name": "bob2",
+                "template_repo": 123,
+                "template_branch": "master",
+                "fork_command": "echo ok",
+            },
+            "template_repo must be a string",
+        ),
+        (
+            {
+                "name": "bob2",
+                "template_repo": "https://example.com/repo.git",
+                "template_branch": ["master"],
+                "fork_command": "echo ok",
+            },
+            "template_branch must be a string",
+        ),
+        (
+            {
+                "name": "bob2",
+                "template_repo": "https://example.com/repo.git",
+                "template_branch": "master",
+                "fork_command": {"cmd": "echo ok"},
+            },
+            "fork_command must be a string",
+        ),
+        (
+            {
+                "name": "bob2",
+                "template_repo": "https://example.com/repo.git",
+                "template_branch": "master",
+                "fork_command": "echo ok",
+                "path": 123,
+            },
+            "path must be a string",
+        ),
+        (
+            {
+                "name": "bob2",
+                "template_repo": "https://example.com/repo.git",
+                "template_branch": "master",
+                "fork_command": "echo ok",
+                "project_config": "bad",
+            },
+            "project_config must be an object",
+        ),
+    ],
+)
+def test_v2_agents_put_rejects_invalid_field_types(
+    client: FlaskClient,
+    monkeypatch: pytest.MonkeyPatch,
+    body: dict,
+    expected_error: str,
+):
+    """Agents PUT should reject invalid field types before any side effects start."""
+
+    def fail_workspace(*args, **kwargs):
+        pytest.fail("create_workspace_from_template should not run for invalid input")
+
+    def fail_project_config(*args, **kwargs):
+        pytest.fail("ProjectConfig.from_dict should not run for invalid input")
+
+    monkeypatch.setattr(
+        "gptme.server.api_v2_agents.create_workspace_from_template", fail_workspace
+    )
+    monkeypatch.setattr(
+        "gptme.server.api_v2_agents.ProjectConfig.from_dict", fail_project_config
+    )
+
+    response = client.put("/api/v2/agents", json=body)
+
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data is not None
+    assert data["error"] == expected_error
