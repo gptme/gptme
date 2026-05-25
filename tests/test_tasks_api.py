@@ -612,6 +612,27 @@ class TestTasksUpdateAPI:
         )
         assert resp.status_code == 400
 
+    def test_update_invalid_json_body(self, client, sample_task):
+        # Malformed JSON body must return a JSON error, not an HTML 400 page
+        resp = client.put(
+            f"/api/v2/tasks/{sample_task.id}",
+            data="this is not json",
+            content_type="application/json",
+        )
+        assert resp.status_code == 400
+        assert resp.is_json
+        assert "error" in resp.json
+
+    def test_update_array_json_body(self, client, sample_task):
+        # Array body must return "JSON body must be an object"
+        resp = client.put(
+            f"/api/v2/tasks/{sample_task.id}",
+            json=[{"content": "task"}],
+        )
+        assert resp.status_code == 400
+        assert resp.is_json
+        assert "object" in resp.json["error"]
+
 
 class TestTasksArchiveAPI:
     """Tests for POST /api/v2/tasks/<task_id>/archive and /unarchive."""
@@ -669,6 +690,27 @@ class TestTasksCreateAPI:
         # Sending application/json content-type with no body → 400
         resp = client.post("/api/v2/tasks", content_type="application/json")
         assert resp.status_code == 400
+
+    def test_create_invalid_json_body(self, client):
+        # Malformed JSON body must return a JSON error, not an HTML 400 page
+        resp = client.post(
+            "/api/v2/tasks",
+            data="this is not json",
+            content_type="application/json",
+        )
+        assert resp.status_code == 400
+        assert resp.is_json
+        assert "error" in resp.json
+
+    def test_create_array_json_body(self, client):
+        # Array body must return "JSON body must be an object"
+        resp = client.post(
+            "/api/v2/tasks",
+            json=[{"content": "task"}],
+        )
+        assert resp.status_code == 400
+        assert resp.is_json
+        assert "object" in resp.json["error"]
 
     def test_create_happy_path(self, client):
         # Mock create_task_conversation to avoid real logdir/workspace creation.
