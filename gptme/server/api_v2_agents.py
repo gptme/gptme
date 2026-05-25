@@ -61,25 +61,25 @@ def api_agents_put():
         return flask.jsonify({"error": "Request body must be a JSON object"}), 400
 
     agent_name = req_json.get("name")
-    if not agent_name:
+    if agent_name is None or agent_name == "":
         return flask.jsonify({"error": "name is required"}), 400
     if not isinstance(agent_name, str):
         return flask.jsonify({"error": "name must be a string"}), 400
 
     template_repo = req_json.get("template_repo")
-    if not template_repo:
+    if template_repo is None or template_repo == "":
         return flask.jsonify({"error": "template_repo is required"}), 400
     if not isinstance(template_repo, str):
         return flask.jsonify({"error": "template_repo must be a string"}), 400
 
     template_branch = req_json.get("template_branch")
-    if not template_branch:
+    if template_branch is None or template_branch == "":
         return flask.jsonify({"error": "template_branch is required"}), 400
     if not isinstance(template_branch, str):
         return flask.jsonify({"error": "template_branch must be a string"}), 400
 
     fork_command = req_json.get("fork_command")
-    if not fork_command:
+    if fork_command is None or fork_command == "":
         return flask.jsonify({"error": "fork_command is required"}), 400
     if not isinstance(fork_command, str):
         return flask.jsonify({"error": "fork_command must be a string"}), 400

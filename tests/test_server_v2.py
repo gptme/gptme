@@ -2160,8 +2160,26 @@ def test_v2_agents_put_rejects_malformed_json(client: FlaskClient):
         ),
         (
             {
+                "name": False,
+                "template_repo": "https://example.com/repo.git",
+                "template_branch": "master",
+                "fork_command": "echo ok",
+            },
+            "name must be a string",
+        ),
+        (
+            {
                 "name": "bob2",
                 "template_repo": 123,
+                "template_branch": "master",
+                "fork_command": "echo ok",
+            },
+            "template_repo must be a string",
+        ),
+        (
+            {
+                "name": "bob2",
+                "template_repo": 0,
                 "template_branch": "master",
                 "fork_command": "echo ok",
             },
@@ -2180,8 +2198,26 @@ def test_v2_agents_put_rejects_malformed_json(client: FlaskClient):
             {
                 "name": "bob2",
                 "template_repo": "https://example.com/repo.git",
+                "template_branch": [],
+                "fork_command": "echo ok",
+            },
+            "template_branch must be a string",
+        ),
+        (
+            {
+                "name": "bob2",
+                "template_repo": "https://example.com/repo.git",
                 "template_branch": "master",
                 "fork_command": {"cmd": "echo ok"},
+            },
+            "fork_command must be a string",
+        ),
+        (
+            {
+                "name": "bob2",
+                "template_repo": "https://example.com/repo.git",
+                "template_branch": "master",
+                "fork_command": False,
             },
             "fork_command must be a string",
         ),
@@ -2234,3 +2270,56 @@ def test_v2_agents_put_rejects_invalid_field_types(
     data = response.get_json()
     assert data is not None
     assert data["error"] == expected_error
+
+
+def test_v2_agents_put_parses_project_config_object(
+    client: FlaskClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Agents PUT should parse a valid project_config object before workspace creation."""
+
+    parsed_project_config = object()
+    called: dict[str, Any] = {}
+
+    def fake_project_config_from_dict(raw_config: dict[str, Any], workspace: Path):
+        called["project_config_raw"] = raw_config
+        called["project_config_workspace"] = workspace
+        return parsed_project_config
+
+    def fake_create_workspace_from_template(**kwargs):
+        called["workspace_kwargs"] = kwargs
+
+    def fake_init_conversation(workspace: Path):
+        called["conversation_workspace"] = workspace
+        return "conv-test"
+
+    monkeypatch.setattr(
+        "gptme.server.api_v2_agents.ProjectConfig.from_dict",
+        fake_project_config_from_dict,
+    )
+    monkeypatch.setattr(
+        "gptme.server.api_v2_agents.create_workspace_from_template",
+        fake_create_workspace_from_template,
+    )
+    monkeypatch.setattr(
+        "gptme.server.api_v2_agents.init_conversation", fake_init_conversation
+    )
+
+    body = {
+        "name": "bob2",
+        "template_repo": "https://example.com/repo.git",
+        "template_branch": "master",
+        "fork_command": "echo ok",
+        "project_config": {"models": {"default": "openai/gpt-4o-mini"}},
+    }
+
+    response = client.put("/api/v2/agents", json=body)
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data is not None
+    assert data["status"] == "ok"
+    assert data["initial_conversation_id"] == "conv-test"
+    assert called["project_config_raw"] == body["project_config"]
+    assert called["project_config_workspace"] == called["workspace_kwargs"]["path"]
+    assert called["workspace_kwargs"]["project_config"] is parsed_project_config
+    assert called["conversation_workspace"] == called["workspace_kwargs"]["path"]
