@@ -545,7 +545,7 @@ def main(
         interactive = False
 
     # init logging
-    init_logging(verbose, stderr=output_format == "json")
+    init_logging(verbose)
 
     if not interactive:
         no_confirm = True

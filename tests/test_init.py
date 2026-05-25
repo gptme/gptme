@@ -1425,6 +1425,18 @@ class TestInitLogging:
         handlers = logging.getLogger().handlers
         assert any(isinstance(h, _RichHandler) for h in handlers)
 
+    def test_rich_handler_defaults_to_stderr(self):
+        """Default logging should preserve RichHandler's stderr behavior."""
+        from rich.logging import RichHandler as _RichHandler
+
+        from gptme.init import init_logging
+
+        init_logging(verbose=False)
+        handler = next(
+            h for h in logging.getLogger().handlers if isinstance(h, _RichHandler)
+        )
+        assert handler.console.stderr is True
+
     def test_atexit_cleanup_registered(self):
         """An atexit cleanup handler should be registered."""
         from gptme.init import init_logging

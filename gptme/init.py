@@ -205,7 +205,7 @@ def init_model(
     set_default_model(model_meta)
 
 
-def init_logging(verbose, *, stderr: bool = False):
+def init_logging(verbose, *, stderr: bool = True):
     handler = RichHandler(
         console=Console(stderr=stderr, log_path=False)
     )  # show_time=False

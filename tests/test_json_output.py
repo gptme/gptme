@@ -99,6 +99,7 @@ class TestOutputFormatValidation:
             ],
             cwd=project_root,
             env=env,
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             check=False,
