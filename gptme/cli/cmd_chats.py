@@ -25,7 +25,7 @@ def _is_valid_id(id: str) -> bool:
     These would otherwise raise ``OSError: [Errno 36] File name too long``
     deep inside ``Path.exists()`` or ``os.stat()``.
     """
-    return len(id.encode()) <= _MAX_ID_LEN and "/" not in id and ".." not in id
+    return len(id.encode()) <= _MAX_ID_LEN and "/" not in id and id != ".."
 
 
 def _ensure_tools():
