@@ -307,7 +307,7 @@ def _otlp_timeout_seconds(default: float) -> float:
         return default
     try:
         seconds = int(float(raw)) / 1000.0
-    except ValueError:
+    except (ValueError, OverflowError):
         logger.warning(
             "Invalid OTEL_EXPORTER_OTLP_TIMEOUT=%r (expected integer milliseconds); "
             "using %ss",
@@ -451,7 +451,7 @@ def init_telemetry(
 
         otlp_exporter = OTLPSpanExporter(
             endpoint=trace_endpoint,
-            timeout=export_timeout,
+            timeout=int(export_timeout),
         )
         span_processor = BatchSpanProcessor(
             otlp_exporter,
@@ -471,7 +471,7 @@ def init_telemetry(
 
             otlp_metric_exporter = OTLPMetricExporter(
                 endpoint=metric_endpoint,
-                timeout=export_timeout,
+                timeout=int(export_timeout),
             )
             metric_reader = PeriodicExportingMetricReader(
                 otlp_metric_exporter,

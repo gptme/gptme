@@ -244,3 +244,11 @@ def test_otlp_timeout_seconds_clamps_to_minimum(monkeypatch):
 
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_TIMEOUT", "0")
     assert _otlp_timeout_seconds(default=10.0) == 0.001
+
+
+def test_otlp_timeout_seconds_overflow_falls_back(monkeypatch):
+    """An 'inf' value triggers OverflowError on int() and falls back to the default."""
+    from gptme.util._telemetry import _otlp_timeout_seconds
+
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_TIMEOUT", "inf")
+    assert _otlp_timeout_seconds(default=10.0) == 10.0
