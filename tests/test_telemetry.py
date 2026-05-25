@@ -209,3 +209,38 @@ def test_record_hook_call_records_span():
             },
         )
     ]
+
+
+def test_otlp_timeout_seconds_default_when_unset(monkeypatch):
+    """Unset OTEL_EXPORTER_OTLP_TIMEOUT falls back to the provided default."""
+    from gptme.util._telemetry import _otlp_timeout_seconds
+
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_TIMEOUT", raising=False)
+    assert _otlp_timeout_seconds(default=10.0) == 10.0
+    assert _otlp_timeout_seconds(default=5.0) == 5.0
+
+
+def test_otlp_timeout_seconds_honors_env_milliseconds(monkeypatch):
+    """OTEL_EXPORTER_OTLP_TIMEOUT is read in milliseconds and converted to seconds."""
+    from gptme.util._telemetry import _otlp_timeout_seconds
+
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_TIMEOUT", "1000")
+    assert _otlp_timeout_seconds(default=10.0) == 1.0
+    # Same env value applies regardless of the default (fast-fail override).
+    assert _otlp_timeout_seconds(default=5.0) == 1.0
+
+
+def test_otlp_timeout_seconds_invalid_falls_back(monkeypatch):
+    """A non-integer env value falls back to the default instead of raising."""
+    from gptme.util._telemetry import _otlp_timeout_seconds
+
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_TIMEOUT", "not-a-number")
+    assert _otlp_timeout_seconds(default=10.0) == 10.0
+
+
+def test_otlp_timeout_seconds_clamps_to_minimum(monkeypatch):
+    """A zero/negative timeout is clamped to a small positive value."""
+    from gptme.util._telemetry import _otlp_timeout_seconds
+
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_TIMEOUT", "0")
+    assert _otlp_timeout_seconds(default=10.0) == 0.001

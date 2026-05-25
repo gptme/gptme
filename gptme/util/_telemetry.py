@@ -289,6 +289,35 @@ def enrich_span_with_llm_metrics(
         span.set_attribute("llm.cost.usd", cost)
 
 
+def _otlp_timeout_seconds(default: float) -> float:
+    """OTLP export timeout in seconds, honoring the standard OTel env var.
+
+    gptme previously hardcoded the OTLP export and force-flush timeouts. When a
+    collector accepts the TCP connection but stalls on the HTTP request (a
+    half-wedged collector), every session then blocks for the full timeout on
+    shutdown, with no way to fast-fail.
+
+    This honors the standard ``OTEL_EXPORTER_OTLP_TIMEOUT`` env var (milliseconds,
+    per the OpenTelemetry spec) so operators can fast-fail an unreachable
+    collector, e.g. ``OTEL_EXPORTER_OTLP_TIMEOUT=1000`` for a 1s timeout. Falls
+    back to ``default`` seconds when unset or invalid.
+    """
+    raw = os.getenv("OTEL_EXPORTER_OTLP_TIMEOUT")
+    if not raw:
+        return default
+    try:
+        seconds = int(raw) / 1000.0
+    except ValueError:
+        logger.warning(
+            "Invalid OTEL_EXPORTER_OTLP_TIMEOUT=%r (expected integer milliseconds); "
+            "using %ss",
+            raw,
+            default,
+        )
+        return default
+    return max(0.001, seconds)
+
+
 def init_telemetry(
     service_name: str = "gptme",
     enable_flask_instrumentation: bool = True,
@@ -416,9 +445,13 @@ def init_telemetry(
         if not trace_endpoint.endswith("/v1/traces"):
             trace_endpoint = trace_endpoint.rstrip("/") + "/v1/traces"
 
+        # Export timeout (seconds). Defaults to 10s but honors
+        # OTEL_EXPORTER_OTLP_TIMEOUT so operators can fast-fail a wedged collector.
+        export_timeout = _otlp_timeout_seconds(default=10.0)
+
         otlp_exporter = OTLPSpanExporter(
             endpoint=trace_endpoint,
-            timeout=10,  # 10 second timeout for exports
+            timeout=export_timeout,
         )
         span_processor = BatchSpanProcessor(
             otlp_exporter,
@@ -438,12 +471,12 @@ def init_telemetry(
 
             otlp_metric_exporter = OTLPMetricExporter(
                 endpoint=metric_endpoint,
-                timeout=10,  # 10 second timeout for exports
+                timeout=export_timeout,
             )
             metric_reader = PeriodicExportingMetricReader(
                 otlp_metric_exporter,
                 export_interval_millis=10000,  # Export every 10 seconds (faster feedback)
-                export_timeout_millis=10000,  # 10 second timeout for export
+                export_timeout_millis=int(export_timeout * 1000),
             )
             # Configure custom histogram buckets for different metrics
             # Tool durations: 0.1s to 5min (most tools: 0.1-30s)
@@ -593,12 +626,16 @@ def shutdown_telemetry() -> None:
         logger.warning("Cannot shut down telemetry: %s", e)
         return
 
+    # Flush timeout (ms). Defaults to 5s but honors OTEL_EXPORTER_OTLP_TIMEOUT so
+    # a wedged collector doesn't block session shutdown for the full default.
+    flush_timeout_millis = int(_otlp_timeout_seconds(default=5.0) * 1000)
+
     try:
         # Force flush any pending spans before shutdown
         tracer_provider = trace.get_tracer_provider()
         if hasattr(tracer_provider, "force_flush"):
             logger.debug("Flushing pending traces...")
-            tracer_provider.force_flush(timeout_millis=5000)  # 5 second timeout
+            tracer_provider.force_flush(timeout_millis=flush_timeout_millis)
 
         # Shutdown tracer provider
         if hasattr(tracer_provider, "shutdown"):
@@ -608,7 +645,7 @@ def shutdown_telemetry() -> None:
         meter_provider = metrics.get_meter_provider()
         if hasattr(meter_provider, "force_flush"):
             logger.debug("Flushing pending metrics...")
-            meter_provider.force_flush(timeout_millis=5000)  # 5 second timeout
+            meter_provider.force_flush(timeout_millis=flush_timeout_millis)
         if hasattr(meter_provider, "shutdown"):
             logger.debug("Shutting down meter provider...")
             meter_provider.shutdown()
