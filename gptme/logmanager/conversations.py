@@ -8,6 +8,7 @@ import json
 import logging
 import re
 import shutil
+import sys
 from collections.abc import Generator
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -335,10 +336,13 @@ def list_conversations(
             If False, uses fast tail-only scan.
     """
     conversation_iter = get_conversations(detail=detail, include_test=include_test)
-    # islice() raises ValueError on negative stop values; clamp so a negative
-    # limit yields an empty result instead of crashing. The CLI rejects
-    # negatives earlier, but this also guards non-CLI callers (webui/server).
-    return list(islice(conversation_iter, max(limit, 0)))
+    # islice() raises ValueError when the stop value is negative OR greater than
+    # sys.maxsize, so clamp into the valid [0, sys.maxsize] range. A negative
+    # limit yields an empty result, and an over-large limit (e.g. ?limit=10**30
+    # or `chats list --limit 999...`) returns everything instead of crashing.
+    # The CLI rejects negatives earlier, but this also guards non-CLI callers
+    # (webui/server) and over-large values that pass the CLI's IntRange(min=1).
+    return list(islice(conversation_iter, min(max(limit, 0), sys.maxsize)))
 
 
 def get_conversation_by_id(

@@ -1,6 +1,7 @@
 """Tests for conversation metadata, including last message preview."""
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -342,9 +343,17 @@ def test_get_user_conversations_skips_test_logs_before_scanning(logs_dir, monkey
     assert scanned == ["real-conversation"]
 
 
-@pytest.mark.parametrize(("limit", "expected"), [(-5, 0), (0, 0), (1, 1), (10, 2)])
+@pytest.mark.parametrize(
+    ("limit", "expected"),
+    [(-5, 0), (0, 0), (1, 1), (10, 2), (sys.maxsize + 1, 2), (10**30, 2)],
+)
 def test_list_conversations_limit_bounds(logs_dir, limit, expected):
-    """list_conversations clamps non-positive limits instead of crashing islice()."""
+    """list_conversations clamps out-of-range limits instead of crashing islice().
+
+    islice() rejects stop values outside [0, sys.maxsize], so both negative
+    limits and limits larger than sys.maxsize (e.g. `chats list --limit 10**30`)
+    previously raised ValueError. Clamping returns an empty/full list instead.
+    """
     _make_conversation(
         logs_dir,
         "conv-one",
