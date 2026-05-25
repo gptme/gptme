@@ -306,7 +306,7 @@ def _otlp_timeout_seconds(default: float) -> float:
     if not raw:
         return default
     try:
-        seconds = int(float(raw)) / 1000.0
+        ms = int(float(raw))
     except (ValueError, OverflowError):
         logger.warning(
             "Invalid OTEL_EXPORTER_OTLP_TIMEOUT=%r (expected integer milliseconds); "
@@ -315,7 +315,15 @@ def _otlp_timeout_seconds(default: float) -> float:
             default,
         )
         return default
-    return max(0.001, seconds)
+    if ms <= 0:
+        logger.warning(
+            "Invalid OTEL_EXPORTER_OTLP_TIMEOUT=%r (must be a positive integer); "
+            "using %ss",
+            raw,
+            default,
+        )
+        return default
+    return max(0.001, ms / 1000.0)
 
 
 def init_telemetry(

@@ -238,12 +238,20 @@ def test_otlp_timeout_seconds_invalid_falls_back(monkeypatch):
     assert _otlp_timeout_seconds(default=10.0) == 10.0
 
 
-def test_otlp_timeout_seconds_clamps_to_minimum(monkeypatch):
-    """A zero/negative timeout is clamped to a small positive value."""
+def test_otlp_timeout_seconds_zero_falls_back(monkeypatch):
+    """A zero timeout is spec-invalid (must be positive) and falls back to default."""
     from gptme.util._telemetry import _otlp_timeout_seconds
 
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_TIMEOUT", "0")
-    assert _otlp_timeout_seconds(default=10.0) == 0.001
+    assert _otlp_timeout_seconds(default=10.0) == 10.0
+
+
+def test_otlp_timeout_seconds_negative_falls_back(monkeypatch):
+    """A negative timeout is spec-invalid and falls back to default with a warning."""
+    from gptme.util._telemetry import _otlp_timeout_seconds
+
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_TIMEOUT", "-1000")
+    assert _otlp_timeout_seconds(default=10.0) == 10.0
 
 
 def test_otlp_timeout_seconds_overflow_falls_back(monkeypatch):
