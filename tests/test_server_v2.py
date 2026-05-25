@@ -1738,7 +1738,7 @@ def test_v2_create_conversation_non_string_timestamp(client: FlaskClient):
     assert "timestamp" in data["error"].lower()
 
 
-@pytest.mark.parametrize("body", [[], "string", 42])
+@pytest.mark.parametrize("body", [[], [1, 2, 3], "string", 42])
 def test_v2_create_conversation_non_object_body(client: FlaskClient, body: object):
     """PUT /conversations/<id> with a non-object JSON body returns 400 (not 500)."""
     import uuid
@@ -1752,6 +1752,28 @@ def test_v2_create_conversation_non_object_body(client: FlaskClient, body: objec
     data = response.get_json()
     assert data is not None
     assert "object" in data["error"].lower()
+
+
+def test_v2_create_conversation_malformed_json_body(client: FlaskClient):
+    """PUT /conversations/<id> with malformed JSON returns 400 (not Werkzeug 400).
+
+    When get_json(silent=True) encounters malformed JSON (e.g. {bad:),
+    it returns None rather than raising BadRequest.  The endpoint should
+    surface a structured "No JSON data provided" error instead of the
+    raw Werkzeug 400 that flask.request.json would have produced.
+    """
+    import uuid
+
+    conv_id = f"test-malformed-json-{uuid.uuid4().hex[:8]}"
+    response = client.put(
+        f"/api/v2/conversations/{conv_id}",
+        data="{bad:",  # malformed JSON: unclosed brace
+        content_type="application/json",
+    )
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data is not None
+    assert "No JSON data" in data["error"]
 
 
 @pytest.mark.parametrize("messages", ["not-a-list", 42, {"key": "val"}])

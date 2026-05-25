@@ -456,10 +456,11 @@ def api_conversation_put(conversation_id: str):
 
     logdir = get_logs_dir() / conversation_id
 
-    req_json = flask.request.json
-    if req_json is not None and not isinstance(req_json, dict):
+    req_json = request.get_json(silent=True)
+    if req_json is None:
+        return flask.jsonify({"error": "No JSON data provided"}), 400
+    if not isinstance(req_json, dict):
         return flask.jsonify({"error": "JSON body must be an object"}), 400
-    req_json = req_json or {}
 
     # Validate auto_confirm type before any side effects (CWE-20: truthy coercion).
     # "false" (string) is truthy in Python — must reject non-bool/int values.
