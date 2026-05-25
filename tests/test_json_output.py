@@ -487,3 +487,28 @@ class TestJSONOutputIntegration:
         assert objects[0]["content"] == "/tokens"
         assert objects[-1]["role"] == "assistant"
         assert "No cost data available" in objects[-1]["content"]
+
+    def test_impersonate_command_stdout_stays_jsonl(self, tmp_path: Path):
+        """Commands that yield Messages must still emit those messages directly in JSON mode."""
+        result = self._invoke_real_json_cli(tmp_path, "/impersonate hello")
+
+        assert result.exit_code == 0, result.stderr
+        objects = self._assert_pure_jsonl(result.stdout, min_lines=2)
+        assert len(objects) == 2
+        assert objects[0]["content"] == "/impersonate hello"
+        assert objects[1]["role"] == "assistant"
+        assert objects[1]["content"] == "hello"
+
+    def test_unknown_command_stdout_stays_jsonl(self, tmp_path: Path):
+        """Unknown commands should also stay on the JSONL rail."""
+        result = self._invoke_real_json_cli(tmp_path, "/definitely-not-a-command")
+
+        assert result.exit_code == 0, result.stderr
+        objects = self._assert_pure_jsonl(result.stdout, min_lines=2)
+        assert len(objects) == 2
+        assert objects[0]["content"] == "/definitely-not-a-command"
+        assert objects[1]["role"] == "assistant"
+        assert (
+            objects[1]["content"]
+            == "Unknown command. Use /help to see available commands."
+        )

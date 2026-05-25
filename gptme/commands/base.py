@@ -179,13 +179,59 @@ def _emit_json_command_output(content: str) -> None:
         print_msg(Message("assistant", content))
 
 
+def _collect_command_outputs(*captured_outputs: str) -> list[str]:
+    """Collect distinct captured outputs while preserving order."""
+    outputs: list[str] = []
+    seen: set[str] = set()
+    for output in captured_outputs:
+        output = output.rstrip("\n")
+        if output and output not in seen:
+            outputs.append(output)
+            seen.add(output)
+    return outputs
+
+
+def _yield_json_command_output(
+    handler: CommandHandler,
+    ctx: CommandContext,
+) -> Generator["Message", None, None]:
+    """Capture command stdout per generator step without hijacking yielded messages."""
+    from ..util import console  # fmt: skip
+
+    command_iter = iter(handler(ctx))
+    while True:
+        stdout_buffer = io.StringIO()
+        next_msg = None
+        completed = False
+        error = None
+        with console.capture() as console_capture, redirect_stdout(stdout_buffer):
+            try:
+                next_msg = next(command_iter)
+            except StopIteration:
+                completed = True
+            except Exception as exc:  # pragma: no cover - passthrough
+                error = exc
+
+        outputs = _collect_command_outputs(
+            stdout_buffer.getvalue(),
+            console_capture.get(),
+        )
+        if outputs:
+            _emit_json_command_output("\n".join(outputs))
+        if error is not None:
+            raise error
+        if completed:
+            return
+        assert next_msg is not None
+        yield next_msg
+
+
 def handle_cmd(
     cmd: str,
     manager: "LogManager",
 ) -> Generator["Message", None, None]:
     """Handles a command."""
     from ..message import is_output_json  # fmt: skip
-    from ..util import console  # fmt: skip
 
     cmd = cmd.lstrip("/")
     logger.debug(f"Executing command: {cmd}")
@@ -194,23 +240,12 @@ def handle_cmd(
 
     # Check if command is registered
     if name in _command_registry:
+        handler = _command_registry[name]
         ctx = CommandContext(args=args, full_args=full_args, manager=manager)
         if is_output_json():
-            stdout_buffer = io.StringIO()
-            with console.capture() as console_capture, redirect_stdout(stdout_buffer):
-                yield from _command_registry[name](ctx)
-
-            outputs = []
-            stdout_output = stdout_buffer.getvalue().rstrip("\n")
-            console_output = console_capture.get().rstrip("\n")
-            if stdout_output:
-                outputs.append(stdout_output)
-            if console_output and console_output not in outputs:
-                outputs.append(console_output)
-            if outputs:
-                _emit_json_command_output("\n".join(outputs))
+            yield from _yield_json_command_output(handler, ctx)
             return
-        yield from _command_registry[name](ctx)
+        yield from handler(ctx)
         return
 
     # Fallback to tool execution
