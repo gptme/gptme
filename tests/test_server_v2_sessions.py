@@ -46,6 +46,184 @@ def conv(client: FlaskClient):
     return create_conversation(client)
 
 
+@pytest.fixture
+def conv_pair(client: FlaskClient):
+    """Create two conversations with sessions for cross-conversation tests."""
+    conv1 = create_conversation(client)
+    conv2 = create_conversation(client)
+    return conv1, conv2
+
+
+# --- Cross-conversation ownership tests ---
+
+
+class TestCrossConversationOwnership:
+    """Session from conversation A must be rejected on conversation B's endpoints."""
+
+    def test_step_cross_conversation_rejected(self, conv_pair, client: FlaskClient):
+        """Using a session from conv A on conv B's step endpoint returns 403."""
+        conv1, conv2 = conv_pair
+        response = client.post(
+            f"/api/v2/conversations/{conv2['conversation_id']}/step",
+            json={"session_id": conv1["session_id"]},
+        )
+        assert response.status_code == 403
+        assert "does not belong to conversation" in response.get_json()["error"]
+
+    def test_events_cross_conversation_rejected(self, conv_pair, client: FlaskClient):
+        """Using a session from conv A on conv B's events endpoint returns 403."""
+        conv1, conv2 = conv_pair
+        response = client.get(
+            f"/api/v2/conversations/{conv2['conversation_id']}/events"
+            f"?session_id={conv1['session_id']}"
+        )
+        assert response.status_code == 403
+        assert "does not belong to conversation" in response.get_json()["error"]
+
+    def test_tool_confirm_cross_conversation_rejected(
+        self, conv_pair, client: FlaskClient
+    ):
+        """Using a session from conv A on conv B's tool/confirm returns 403."""
+        conv1, conv2 = conv_pair
+        response = client.post(
+            f"/api/v2/conversations/{conv2['conversation_id']}/tool/confirm",
+            json={
+                "session_id": conv1["session_id"],
+                "tool_id": "some-id",
+                "action": "confirm",
+            },
+        )
+        assert response.status_code == 403
+        assert "does not belong to conversation" in response.get_json()["error"]
+
+    def test_rerun_cross_conversation_rejected(self, conv_pair, client: FlaskClient):
+        """Using a session from conv A on conv B's rerun endpoint returns 403."""
+        conv1, conv2 = conv_pair
+        response = client.post(
+            f"/api/v2/conversations/{conv2['conversation_id']}/rerun",
+            json={"session_id": conv1["session_id"]},
+        )
+        assert response.status_code == 403
+        assert "does not belong to conversation" in response.get_json()["error"]
+
+    def test_interrupt_cross_conversation_rejected(
+        self, conv_pair, client: FlaskClient
+    ):
+        """Using a session from conv A on conv B's interrupt returns 403."""
+        conv1, conv2 = conv_pair
+        response = client.post(
+            f"/api/v2/conversations/{conv2['conversation_id']}/interrupt",
+            json={"session_id": conv1["session_id"]},
+        )
+        assert response.status_code == 403
+        assert "does not belong to conversation" in response.get_json()["error"]
+
+    def test_step_nonexistent_conversation_404(self, conv_pair, client: FlaskClient):
+        """Valid session + nonexistent conversation path returns 404, not 403."""
+        conv1, _ = conv_pair
+        response = client.post(
+            "/api/v2/conversations/nonexistent-conv-id/step",
+            json={"session_id": conv1["session_id"]},
+        )
+        assert response.status_code == 404
+
+    def test_events_nonexistent_conversation_404(self, conv_pair, client: FlaskClient):
+        """Valid session + nonexistent conversation path returns 404, not 403."""
+        conv1, _ = conv_pair
+        response = client.get(
+            "/api/v2/conversations/nonexistent-conv-id/events"
+            f"?session_id={conv1['session_id']}"
+        )
+        assert response.status_code == 404
+
+    def test_tool_confirm_nonexistent_conversation_404(
+        self, conv_pair, client: FlaskClient
+    ):
+        """Valid session + nonexistent conversation path returns 404, not 403."""
+        conv1, _ = conv_pair
+        response = client.post(
+            "/api/v2/conversations/nonexistent-conv-id/tool/confirm",
+            json={
+                "session_id": conv1["session_id"],
+                "tool_id": "some-id",
+                "action": "confirm",
+            },
+        )
+        assert response.status_code == 404
+
+    def test_interrupt_nonexistent_conversation_404(
+        self, conv_pair, client: FlaskClient
+    ):
+        """Valid session + nonexistent conversation path returns 404, not 403."""
+        conv1, _ = conv_pair
+        response = client.post(
+            "/api/v2/conversations/nonexistent-conv-id/interrupt",
+            json={"session_id": conv1["session_id"]},
+        )
+        assert response.status_code == 404
+
+
+# --- Nonexistent conversation tests for endpoints missing coverage ---
+
+
+class TestStepNonexistentConversation:
+    """Step endpoint: nonexistent conversation returns 404."""
+
+    def test_step_nonexistent_conversation_returns_404(self, conv, client: FlaskClient):
+        """Step on nonexistent conversation returns 404."""
+        response = client.post(
+            "/api/v2/conversations/nonexistent-conv-id/step",
+            json={"session_id": conv["session_id"]},
+        )
+        assert response.status_code == 404
+
+
+class TestEventsNonexistentConversation:
+    """Events endpoint: nonexistent conversation returns 404."""
+
+    def test_events_nonexistent_conversation_returns_404(
+        self, conv, client: FlaskClient
+    ):
+        """Events on nonexistent conversation returns 404."""
+        response = client.get(
+            "/api/v2/conversations/nonexistent-conv-id/events"
+            f"?session_id={conv['session_id']}"
+        )
+        assert response.status_code == 404
+
+
+class TestToolConfirmNonexistentConversation:
+    """Tool/confirm endpoint: nonexistent conversation returns 404."""
+
+    def test_tool_confirm_nonexistent_conversation_returns_404(
+        self, conv, client: FlaskClient
+    ):
+        """Tool/confirm on nonexistent conversation returns 404."""
+        response = client.post(
+            "/api/v2/conversations/nonexistent-conv-id/tool/confirm",
+            json={
+                "session_id": conv["session_id"],
+                "tool_id": "some-id",
+                "action": "confirm",
+            },
+        )
+        assert response.status_code == 404
+
+
+class TestInterruptNonexistentConversation:
+    """Interrupt endpoint: nonexistent conversation returns 404."""
+
+    def test_interrupt_nonexistent_conversation_returns_404(
+        self, conv, client: FlaskClient
+    ):
+        """Interrupt on nonexistent conversation returns 404."""
+        response = client.post(
+            "/api/v2/conversations/nonexistent-conv-id/interrupt",
+            json={"session_id": conv["session_id"]},
+        )
+        assert response.status_code == 404
+
+
 # --- Step endpoint tests ---
 
 
