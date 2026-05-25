@@ -493,6 +493,8 @@ def api_conversation_put(conversation_id: str):
             return flask.jsonify(
                 {"error": "Message missing required 'content' field"}
             ), 400
+        if not isinstance(msg["content"], str):
+            return flask.jsonify({"error": "Message 'content' must be a string"}), 400
         if "timestamp" in msg:
             try:
                 ts: datetime = isoparse(msg["timestamp"])
