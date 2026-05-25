@@ -6,6 +6,7 @@ import sys
 from contextlib import redirect_stdout
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
@@ -45,11 +46,15 @@ def _invoke_cli_with_captured_goodbye(monkeypatch, tmp_path: Path, args: list[st
 class TestOutputFormatValidation:
     """Tests for CLI flag validation."""
 
-    def test_json_requires_noninteractive(self):
+    def test_json_requires_noninteractive(self, monkeypatch):
         """--output-format json should error without --non-interactive."""
         runner = CliRunner()
-        # Simulate an interactive TTY so the auto-switch doesn't trigger
-        with runner.isolated_filesystem():
+        monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+        # Simulate a real interactive TTY so the auto-switch path stays off.
+        with (
+            patch("click.testing._NamedTextIOWrapper.isatty", return_value=True),
+            runner.isolated_filesystem(),
+        ):
             result = runner.invoke(
                 cli.main,
                 ["--output-format", "json", "/exit"],
@@ -77,6 +82,65 @@ class TestOutputFormatValidation:
         assert "output-format" not in exc_str, (
             f"Unexpected output-format error in exception: {result.exception}"
         )
+
+    def test_json_auto_switched_headless_prompt_is_allowed(
+        self, monkeypatch, tmp_path: Path
+    ):
+        """A prompt on non-TTY stdin auto-switches to headless mode and should allow JSON."""
+        received: list[tuple[bool, str]] = []
+
+        fake_config = SimpleNamespace(
+            chat=SimpleNamespace(
+                agent_config=None,
+                tools=[],
+                interactive=False,
+                tool_format="markdown",
+                model="local/test",
+                workspace=tmp_path,
+                stream=False,
+                agent=None,
+            ),
+            project=None,
+        )
+
+        def fake_chat(
+            prompt_msgs,
+            initial_msgs,
+            logdir,
+            workspace,
+            model,
+            stream=True,
+            no_confirm=False,
+            interactive=True,
+            show_hidden=False,
+            tool_allowlist=None,
+            tool_format=None,
+            output_schema=None,
+            output_format="text",
+        ):
+            received.append((interactive, output_format))
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+        monkeypatch.setattr(cli, "setup_config_from_cli", lambda **_: fake_config)
+        monkeypatch.setattr(cli, "init_tools", lambda _: [])
+        monkeypatch.setattr(cli, "get_prompt", lambda **_: [])
+        monkeypatch.setattr(cli, "init_telemetry", lambda **_: None)
+        monkeypatch.setattr(cli, "set_interruptible", lambda: None)
+        monkeypatch.setattr(cli.signal, "signal", lambda *args, **kwargs: None)
+
+        runner = CliRunner()
+        with patch("gptme.cli.main.chat", new=fake_chat):
+            result = runner.invoke(
+                cli.main,
+                ["--output-format", "json", "hello"],
+                catch_exceptions=False,
+            )
+
+        assert result.exit_code == 0
+        assert received == [(False, "json")]
 
     def test_json_resume_error_keeps_stdout_clean(self, monkeypatch, tmp_path):
         """JSON mode must not leak Rich logs onto stdout on early resume errors."""

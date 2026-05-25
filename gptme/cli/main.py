@@ -535,6 +535,7 @@ def main(
         atexit.register(save_profile)
 
     interactive = not non_interactive
+    auto_switched_noninteractive = False
     if version or version_json:
         from ..info import format_version_info
 
@@ -579,6 +580,7 @@ def main(
                 )
                 interactive = False
                 no_confirm = True
+                auto_switched_noninteractive = True
 
     # add prompts to prompt-toolkit history
     for prompt in prompts:
@@ -681,7 +683,9 @@ def main(
     # Validate --output-format json and --non-interactive requirements early,
     # before the expensive get_prompt() call (which can take 10+ seconds).
     # This avoids CI timeouts when the CLI will just exit with usage error.
-    if output_format == "json" and not non_interactive:
+    if output_format == "json" and not (
+        non_interactive or auto_switched_noninteractive
+    ):
         logger.error("--output-format json is only allowed with --non-interactive.")
         sys.exit(1)
 
