@@ -1754,6 +1754,20 @@ def test_v2_create_conversation_non_object_body(client: FlaskClient, body: objec
     assert "object" in data["error"].lower()
 
 
+def test_v2_create_conversation_empty_body_defaults(client: FlaskClient):
+    """PUT /conversations/<id> with no body creates a default conversation."""
+    import uuid
+
+    conv_id = f"test-empty-body-{uuid.uuid4().hex[:8]}"
+    response = client.put(f"/api/v2/conversations/{conv_id}")
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data is not None
+    assert data["conversation_id"] == conv_id
+    assert "session_id" in data
+
+
 def test_v2_create_conversation_malformed_json_body(client: FlaskClient):
     """PUT /conversations/<id> with malformed JSON returns 400 (not Werkzeug 400).
 

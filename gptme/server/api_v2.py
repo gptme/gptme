@@ -458,7 +458,9 @@ def api_conversation_put(conversation_id: str):
 
     req_json = request.get_json(silent=True)
     if req_json is None:
-        return flask.jsonify({"error": "No JSON data provided"}), 400
+        if request.get_data(cache=True):
+            return flask.jsonify({"error": "No JSON data provided"}), 400
+        req_json = {}
     if not isinstance(req_json, dict):
         return flask.jsonify({"error": "JSON body must be an object"}), 400
 
