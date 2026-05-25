@@ -92,4 +92,20 @@ describe('processConnectionFromHash', () => {
       useAuthToken: true,
     });
   });
+
+  it('rejects with error when exchange fails (non-2xx response)', async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 405,
+      text: async () => '',
+    } as Response);
+
+    await expect(processConnectionFromHash('code=expired-token')).rejects.toThrow(
+      'Auth code exchange failed: HTTP 405'
+    );
+
+    // Registry should not be mutated on failed exchange
+    expect(mockFindOrCreateServerByUrl).not.toHaveBeenCalled();
+    expect(mockSetActiveServer).not.toHaveBeenCalled();
+  });
 });

@@ -13,12 +13,20 @@ function trimTrailingSlash(url: string): string {
   return url.replace(/\/+$/, '');
 }
 
-// Use a small runtime helper so Jest can import this module without choking on
-// raw import.meta syntax.
+// Vite statically replaces `import.meta.env.VITE_*` at build time for browser
+// bundles. Jest can't parse import.meta syntax (it's ESM-only), so we wrap it
+// in a Function() body to defer evaluation, then fall back to process.env
+// shimmed by jest.setup.ts. All three env vars (CLOUD_BASE_URL, FLEET_BASE_URL,
+// API_URL) will silently fall through to hardcoded defaults in browsers — a
+// known limitation also present in SetupWizard.tsx.
 function getEnvVar(name: string): string | undefined {
   try {
     return Function(`return import.meta.env.${name}`)() as string | undefined;
   } catch {
+    // Jest / Node runtime (import.meta not available)
+    if (typeof process !== 'undefined' && process.env) {
+      return process.env[name];
+    }
     return undefined;
   }
 }

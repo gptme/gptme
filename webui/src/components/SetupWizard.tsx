@@ -40,7 +40,10 @@ type SetupModelsResponse = {
 };
 
 // The gptme cloud service is hosted on gptme.ai (the cloud.gptme.ai domain
-// is a planned alias). Use a small runtime helper so Jest doesn't choke on import.meta.
+// is a planned alias). Use Function() so Jest doesn't choke on import.meta
+// syntax, with process.env fallback (shimmed by jest.setup.ts). Known
+// limitation: VITE_GPTME_CLOUD_BASE_URL is silently ignored in browsers
+// (same as connectionConfig.ts — tracked as a known issue).
 function getCloudAuthUrl(): string {
   let cloudBaseUrl: string | undefined;
 
@@ -49,7 +52,10 @@ function getCloudAuthUrl(): string {
       | string
       | undefined;
   } catch {
-    cloudBaseUrl = undefined;
+    // Jest / Node runtime (import.meta not available)
+    if (typeof process !== 'undefined' && process.env) {
+      cloudBaseUrl = process.env['VITE_GPTME_CLOUD_BASE_URL'];
+    }
   }
 
   return `${cloudBaseUrl || 'https://gptme.ai'}/authorize`;

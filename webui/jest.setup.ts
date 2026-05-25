@@ -1,1 +1,9 @@
 import '@testing-library/jest-dom';
+
+// Shim Vite import.meta.env for Jest.
+// connectionConfig.ts and SetupWizard.tsx wrap import.meta.env accesses in
+// Function() and fall back to process.env when that throws.
+// Keep these in sync with the hardcoded defaults in connectionConfig.ts.
+process.env.VITE_GPTME_CLOUD_BASE_URL = 'https://gptme.ai';
+process.env.VITE_GPTME_FLEET_BASE_URL = 'https://fleet.gptme.ai';
+process.env.VITE_GPTME_API_URL = 'http://127.0.0.1:5700';
