@@ -113,6 +113,12 @@ class TestOutputFormatValidation:
 
         assert "resume with: gptme --name resume-test" in goodbye_output.getvalue()
 
+    def test_should_print_resume_hint_handles_missing_conversation_log(
+        self, tmp_path: Path
+    ):
+        """A missing conversation log should be treated as no resumable chat."""
+        assert cli._should_print_resume_hint(tmp_path, "text") is False
+
     def test_output_format_default(self):
         """Default output_format should be 'text'."""
         runner = CliRunner()

@@ -964,7 +964,10 @@ def _should_print_resume_hint(logdir: Path, output_format: str) -> bool:
         return False
 
     log_file = logdir / "conversation.jsonl"
-    return log_file.exists() and log_file.stat().st_size > 0
+    try:
+        return log_file.stat().st_size > 0
+    except OSError:
+        return False
 
 
 def _read_stdin() -> str:
