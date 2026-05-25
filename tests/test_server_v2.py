@@ -1710,7 +1710,7 @@ def test_v2_create_conversation_non_string_timestamp(client: FlaskClient):
     assert "timestamp" in data["error"].lower()
 
 
-@pytest.mark.parametrize("body", ["string", 42])
+@pytest.mark.parametrize("body", [[], "string", 42])
 def test_v2_create_conversation_non_object_body(client: FlaskClient, body: object):
     """PUT /conversations/<id> with a non-object JSON body returns 400 (not 500)."""
     import uuid
