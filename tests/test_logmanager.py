@@ -52,6 +52,21 @@ def test_branch():
     assert "dev" in d["branches"]
 
 
+def test_fork_rejects_path_traversal(tmp_path: Path, monkeypatch):
+    """Fork names must stay within the logs directory."""
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
+    log = LogManager(logdir=get_logs_dir() / "seed")
+    log.append(Message("user", "hello"))
+    log.write()
+
+    with pytest.raises(
+        ValueError, match="conversation name must be a single path component"
+    ):
+        log.fork("../escape")
+
+    assert not (tmp_path / "escape").exists()
+
+
 def test_write_persists_main_branch_when_on_other_branch(tmp_path: Path, monkeypatch):
     """Regression test: writing while on a non-main branch should also persist
     the main branch to conversation.jsonl."""

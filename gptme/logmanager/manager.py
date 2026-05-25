@@ -54,9 +54,25 @@ logger = logging.getLogger(__name__)
 
 RoleLiteral = Literal["user", "assistant", "system"]
 
+_MAX_CONVERSATION_NAME_BYTES = 255  # Linux NAME_MAX for a single path component
+
 # Field names accepted by Message.__init__, used to drop unknown keys when
 # reading stored logs (forward-compatibility with logs from newer versions).
 _MESSAGE_FIELD_NAMES = frozenset(f.name for f in fields(Message))
+
+
+def conversation_name_error(value: str) -> str | None:
+    """Return a validation error for unsafe conversation names, if any."""
+    if not value:
+        return "conversation name cannot be empty."
+    if len(value.encode()) > _MAX_CONVERSATION_NAME_BYTES:
+        return "conversation name too long."
+    if value == "." or "/" in value or "\\" in value or ".." in value:
+        return (
+            "conversation name must be a single path component "
+            "(no '.', '/', '\\\\', or '..')."
+        )
+    return None
 
 
 @dataclass(frozen=True, repr=False)
@@ -656,6 +672,8 @@ class LogManager:
         """
         Copy the conversation folder to a new name.
         """
+        if error := conversation_name_error(name):
+            raise ValueError(error)
         self.write()
         logsdir = get_logs_dir()
         shutil.copytree(self.logfile.parent, logsdir / name, symlinks=True)

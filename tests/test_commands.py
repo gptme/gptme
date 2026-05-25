@@ -522,6 +522,17 @@ class TestBuiltinCommands:
         list(handle_cmd("/fork test-fork-name", mock_manager))
         mock_manager.fork.assert_called_once_with("test-fork-name")
 
+    def test_fork_command_rejects_path_traversal(self, mock_manager, capsys):
+        """The /fork command should reject unsafe conversation names."""
+        mock_manager.fork.side_effect = ValueError(
+            "conversation name must be a single path component (no '.', '/', '\\\\', or '..')."
+        )
+
+        list(handle_cmd("/fork ../escape", mock_manager))
+
+        captured = capsys.readouterr()
+        assert "conversation name must be a single path component" in captured.out
+
     def test_export_command(self, mock_manager):
         """The /export command should call export_chat_to_html."""
         with patch("gptme.util.export.export_chat_to_html") as mock_export:

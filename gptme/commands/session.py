@@ -66,7 +66,11 @@ def _complete_fork(partial: str, _prev_args: list[str]) -> list[tuple[str, str]]
 def cmd_fork(ctx: CommandContext) -> None:
     """Fork the conversation."""
     new_name = ctx.args[0] if ctx.args else input("New name: ")
-    ctx.manager.fork(new_name)
+    try:
+        ctx.manager.fork(new_name)
+    except ValueError as exc:
+        print(f"❌ {exc}")
+        return
     print(f"✅ Forked conversation to: {ctx.manager.logdir}")
 
 

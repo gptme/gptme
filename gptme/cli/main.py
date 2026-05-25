@@ -35,6 +35,7 @@ from ..logmanager import (
     ConversationMeta,
     get_user_conversations,
 )
+from ..logmanager.manager import conversation_name_error
 from ..message import Message
 from ..profiles import get_profile
 from ..prompts import ContextMode, get_prompt
@@ -50,7 +51,6 @@ logger = logging.getLogger(__name__)
 
 
 script_path = Path(os.path.realpath(__file__))
-_MAX_CONVERSATION_NAME_BYTES = 255  # Linux NAME_MAX for a single path component
 _STDIN_PIPE_GRACE_PERIOD = 1.0
 
 
@@ -137,20 +137,6 @@ class WorkspacePath(click.ParamType):
         return str(path.resolve())
 
 
-def _conversation_name_error(value: str) -> str | None:
-    """Return a validation error for unsafe conversation names, if any."""
-    if not value:
-        return "conversation name cannot be empty."
-    if len(value.encode()) > _MAX_CONVERSATION_NAME_BYTES:
-        return "conversation name too long."
-    if value == "." or "/" in value or "\\" in value or ".." in value:
-        return (
-            "conversation name must be a single path component "
-            "(no '.', '/', '\\\\', or '..')."
-        )
-    return None
-
-
 class ConversationName(click.ParamType):
     """Click type for conversation names stored under the logs directory."""
 
@@ -159,7 +145,7 @@ class ConversationName(click.ParamType):
     def convert(self, value, param, ctx):
         if value == "random":
             return value
-        if error := _conversation_name_error(value):
+        if error := conversation_name_error(value):
             self.fail(error, param, ctx)
         return value
 
@@ -959,7 +945,7 @@ def get_logdir(logdir: Path | str | Literal["random"]) -> Path:
     if logdir == "random":
         logdir = logs_dir / generate_conversation_id(name="random", logs_dir=logs_dir)
     elif isinstance(logdir, str):
-        error = _conversation_name_error(logdir)
+        error = conversation_name_error(logdir)
         if error:
             raise ValueError(error)
         logdir = logs_dir / logdir
