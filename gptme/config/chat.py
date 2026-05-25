@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 def _coerce_config_path(value: object, field_name: str) -> Path:
     """Convert a JSON-provided path value to a resolved Path."""
-    if not isinstance(value, (str, os.PathLike)):
+    if not isinstance(value, str | os.PathLike):
         raise ValueError(f"chat.{field_name} must be a string path")
     return Path(value).expanduser().resolve()
 
@@ -74,7 +74,7 @@ class ChatConfig:
         return None
 
     @classmethod
-    def from_dict(cls, config_data: dict) -> Self:
+    def from_dict(cls, config_data: dict, *, create_workspace: bool = True) -> Self:
         """Create a ChatConfig instance from a dictionary. Warns about unknown keys."""
         _logdir = config_data.pop("_logdir", None)
 
@@ -91,8 +91,8 @@ class ChatConfig:
                 if not _logdir:
                     raise ValueError("Cannot use '@log' workspace without logdir")
                 chat_data["workspace"] = (_logdir / "workspace").resolve()
-                # Ensure the workspace directory exists
-                chat_data["workspace"].mkdir(parents=True, exist_ok=True)
+                if create_workspace:
+                    chat_data["workspace"].mkdir(parents=True, exist_ok=True)
             else:
                 chat_data["workspace"] = _coerce_config_path(
                     workspace_value, "workspace"

@@ -1071,6 +1071,22 @@ def test_v2_create_conversation_rejects_non_object_config_without_side_effects(
     assert not (logs_dir / conversation_id).exists()
 
 
+def test_v2_create_conversation_accepts_log_workspace(
+    client: FlaskClient, tmp_path, monkeypatch
+):
+    logs_dir = tmp_path / "logs"
+    conversation_id = "test-server-v2-log-workspace"
+    monkeypatch.setattr("gptme.server.api_v2.get_logs_dir", lambda: logs_dir)
+
+    response = client.put(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"prompt": "none", "config": {"chat": {"workspace": "@log"}}},
+    )
+
+    assert response.status_code == 200
+    assert (logs_dir / conversation_id / "workspace").is_dir()
+
+
 def test_v2_conversation_post(v2_conv, client: FlaskClient):
     """Test posting a message to a V2 conversation."""
     conversation_id = v2_conv["conversation_id"]
@@ -1844,11 +1860,13 @@ def test_v2_create_conversation_messages_not_list(
 
 @pytest.mark.parametrize("bad_agent", [[], 42, {"path": "~/agent"}])
 def test_v2_create_conversation_rejects_invalid_agent_type(
-    client: FlaskClient, bad_agent: object
+    client: FlaskClient, tmp_path, monkeypatch, bad_agent: object
 ):
     """PUT /conversations/<id> should reject non-string config.chat.agent values."""
     import uuid
 
+    logs_dir = tmp_path / "logs"
+    monkeypatch.setattr("gptme.server.api_v2.get_logs_dir", lambda: logs_dir)
     conv_id = f"test-bad-agent-{uuid.uuid4().hex[:8]}"
     response = client.put(
         f"/api/v2/conversations/{conv_id}",
@@ -1857,6 +1875,10 @@ def test_v2_create_conversation_rejects_invalid_agent_type(
 
     assert response.status_code == 400
     assert response.get_json() == {"error": "chat.agent must be a string path"}
+    assert not (logs_dir / conv_id).exists()
+
+    retry = client.put(f"/api/v2/conversations/{conv_id}", json={"prompt": "none"})
+    assert retry.status_code == 200
 
 
 def test_v2_create_conversation_message_not_object(client: FlaskClient):
