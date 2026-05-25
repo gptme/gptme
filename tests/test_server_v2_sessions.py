@@ -277,6 +277,27 @@ class TestStepEndpoint:
         assert data is not None
         assert "auto_confirm" in data["error"]
 
+    @pytest.mark.parametrize("bad_model", [["bad-model"], {"bad": "model"}, 123])
+    def test_invalid_model_type(self, conv, client: FlaskClient, bad_model: object):
+        """Step with non-string model returns 400 without starting generation."""
+        session = SessionManager.get_session(conv["session_id"])
+        assert session is not None
+        assert session.generating is False
+
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/step",
+            json={
+                "session_id": conv["session_id"],
+                "model": bad_model,
+            },
+        )
+
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert "model" in data["error"]
+        assert session.generating is False
+
     def test_no_model_returns_400(self, conv, client: FlaskClient):
         """Step without model when no default model set returns 400."""
         with (

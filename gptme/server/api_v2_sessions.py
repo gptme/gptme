@@ -290,6 +290,10 @@ def api_conversation_step(conversation_id: str):
     logdir = get_logs_dir() / conversation_id
     chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
 
+    model = req_json.get("model")
+    if model is not None and not isinstance(model, str):
+        return flask.jsonify({"error": "model must be a string"}), 400
+
     stream = req_json.get("stream", chat_config.stream)
 
     # ACP opt-in: sticky once enabled for a session.
@@ -371,7 +375,6 @@ def api_conversation_step(conversation_id: str):
         # Get model from request, config, or default (in that order).
         # The frontend only sends model when the user explicitly selected one
         # (hasExplicitModelSelection), so any value here is a genuine choice.
-        model = req_json.get("model")
         if model and model != chat_config.model:
             chat_config.model = model
             chat_config.save()
