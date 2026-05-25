@@ -22,6 +22,7 @@ from .manager import (
     _current_log_var,
     _gen_read_jsonl,
     check_for_modifications,
+    conversation_name_error,
     ephemeral_cache_boundary,
     prepare_messages,
     prune_ephemeral_messages,
@@ -41,6 +42,7 @@ __all__ = [
     "ephemeral_cache_boundary",
     "check_for_modifications",
     "_gen_read_jsonl",
+    "conversation_name_error",
     # Conversation management
     "ConversationMeta",
     "get_conversations",

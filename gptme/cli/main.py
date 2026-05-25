@@ -33,9 +33,9 @@ from ..llm import reply as llm_reply
 from ..llm.models import get_recommended_model
 from ..logmanager import (
     ConversationMeta,
+    conversation_name_error,
     get_user_conversations,
 )
-from ..logmanager.manager import conversation_name_error
 from ..message import Message
 from ..profiles import get_profile
 from ..prompts import ContextMode, get_prompt
