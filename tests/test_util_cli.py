@@ -254,6 +254,26 @@ def test_context_index_and_retrieve(tmp_path):
     # assert result.output.count("Hello, world!") == 1
 
 
+def test_prompts_expand_ignores_disable_path_include(tmp_path, monkeypatch):
+    """`prompts expand` should still show path expansion under disabled include env.
+
+    The command is an inspection/debugging surface for path expansion itself, so
+    it must not inherit the ambient automation env that disables expansion in
+    normal chat prompts.
+    """
+    runner = CliRunner()
+    test_file = tmp_path / "hello.txt"
+    test_file.write_text("hello\n")
+
+    monkeypatch.setenv("GPTME_DISABLE_PATH_INCLUDE", "1")
+    result = runner.invoke(main, ["prompts", "expand", str(test_file)])
+
+    assert result.exit_code == 0
+    assert "hello" in result.output
+    assert str(test_file) in result.output
+    assert os.environ["GPTME_DISABLE_PATH_INCLUDE"] == "1"
+
+
 def test_chats_send(tmp_path, monkeypatch):
     """Test queueing a prompt for an existing conversation."""
     runner = CliRunner()

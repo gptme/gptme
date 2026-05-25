@@ -621,7 +621,14 @@ def prompts_expand(prompt: tuple[str, ...]):
     from ..util.context import include_paths  # fmt: skip
 
     original_msg = Message("user", full_prompt)
-    expanded_msg = include_paths(original_msg, workspace=Path.cwd())
+    # This utility is for inspecting path expansion itself, so it must ignore
+    # the ambient GPTME_DISABLE_PATH_INCLUDE setting used by automation.
+    disabled_path_include = os.environ.pop("GPTME_DISABLE_PATH_INCLUDE", None)
+    try:
+        expanded_msg = include_paths(original_msg, workspace=Path.cwd())
+    finally:
+        if disabled_path_include is not None:
+            os.environ["GPTME_DISABLE_PATH_INCLUDE"] = disabled_path_include
 
     # Print the expanded content exactly as it would be sent to the LLM
     print(expanded_msg.content)
