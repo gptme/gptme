@@ -223,6 +223,30 @@ def test_missing_custom_tool_path_is_reported_as_usage_error(
     assert "Traceback" not in result.output
 
 
+def test_noninteractive_missing_prompt_does_not_leave_orphan_logdir(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+
+    runner = CliRunner()
+
+    named = runner.invoke(
+        cli.main,
+        ["--non-interactive", "--name", "missing-prompt"],
+        input="",
+    )
+    assert named.exit_code != 0
+    assert not (cli.get_logs_dir() / "missing-prompt").exists()
+
+    random = runner.invoke(cli.main, ["--non-interactive"], input="")
+    assert random.exit_code != 0
+    logs_dir = cli.get_logs_dir()
+    assert not logs_dir.exists() or not any(logs_dir.iterdir())
+
+
 def test_should_print_resume_hint_requires_nonempty_conversation_log(tmp_path: Path):
     logdir = tmp_path / "resume-hint"
     logdir.mkdir()

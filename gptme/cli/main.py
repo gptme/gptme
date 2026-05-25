@@ -5,6 +5,7 @@ import logging
 import os
 import pstats
 import select
+import shutil
 import signal
 import sys
 import traceback
@@ -610,6 +611,8 @@ def main(
             )
         return prompt_msgs
 
+    logdir_preexisting = True
+
     if resume:
         try:
             logdir = get_logdir_resume(name)
@@ -626,6 +629,7 @@ def main(
     ):
         logdir = pick_log()
     else:
+        logdir_preexisting = name != "random" and (get_logs_dir() / name).exists()
         logdir = get_logdir(name)
         prompt_msgs = inject_stdin(prompt_msgs, piped_input)
 
@@ -686,10 +690,12 @@ def main(
     if output_format == "json" and not (
         non_interactive or auto_switched_noninteractive
     ):
+        _cleanup_aborted_new_logdir(logdir, preexisting=logdir_preexisting)
         logger.error("--output-format json is only allowed with --non-interactive.")
         sys.exit(1)
 
     if not interactive and not prompt_msgs and not is_existing_conversation:
+        _cleanup_aborted_new_logdir(logdir, preexisting=logdir_preexisting)
         logger.error(
             "Non-interactive mode requires a prompt. Provide a prompt as an argument, "
             "use --resume to continue an existing conversation, or pipe input via stdin.\n\n"
@@ -978,6 +984,24 @@ def _should_print_resume_hint(logdir: Path, output_format: str) -> bool:
         return log_file.stat().st_size > 0
     except OSError:
         return False
+
+
+def _cleanup_aborted_new_logdir(logdir: Path, *, preexisting: bool) -> None:
+    """Remove logdirs created for a conversation that never actually started."""
+    if preexisting:
+        return
+
+    log_file = logdir / "conversation.jsonl"
+    try:
+        if log_file.exists() and log_file.stat().st_size > 0:
+            return
+    except OSError:
+        return
+
+    try:
+        shutil.rmtree(logdir)
+    except OSError:
+        pass
 
 
 def _read_stdin() -> str:
