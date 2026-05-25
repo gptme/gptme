@@ -785,6 +785,17 @@ class TestElicitRespondEndpoint:
         assert data is not None
         assert "unknown action" in data["error"].lower()
 
+    def test_non_string_elicit_id(self, conv, client: FlaskClient):
+        """Truthy non-string elicit_id values must return 400, not crash the registry lookup."""
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/elicit/respond",
+            json={"elicit_id": ["boom"], "action": "accept"},
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert data["error"] == "elicit_id must be a string"
+
     @patch("gptme.server.api_v2_sessions.resolve_hook_elicitation")
     def test_accept_action(self, mock_resolve, conv, client: FlaskClient):
         """Accept action calls resolve_hook_elicitation correctly."""

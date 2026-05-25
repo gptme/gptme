@@ -834,6 +834,8 @@ def api_conversation_elicit_respond(conversation_id: str):
             flask.jsonify({"error": "elicit_id and action are required"}),
             400,
         )
+    if not isinstance(elicit_id, str):
+        return flask.jsonify({"error": "elicit_id must be a string"}), 400
 
     if action not in ("accept", "decline", "cancel"):
         return (
