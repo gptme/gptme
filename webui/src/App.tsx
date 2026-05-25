@@ -19,6 +19,7 @@ const Agents = lazy(() => import('./pages/Agents'));
 const Workspaces = lazy(() => import('./pages/Workspaces'));
 const History = lazy(() => import('./pages/History'));
 const ExternalSessions = lazy(() => import('./pages/ExternalSessions'));
+const NotFound = lazy(() => import('./pages/NotFound'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -82,6 +83,7 @@ const App: FC = () => {
                       <Route path="/history" element={<History />} />
                       <Route path="/external-sessions" element={<ExternalSessions />} />
                       <Route path="/workspace/:id" element={<Workspace />} />
+                      <Route path="*" element={<NotFound />} />
                     </Routes>
                   </Suspense>
                   <SetupWizard />
