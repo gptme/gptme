@@ -136,7 +136,6 @@ class WorkspacePath(click.ParamType):
             self.fail(f"'{value}' is not a directory.", param, ctx)
         return str(path.resolve())
 
-
 class ConversationName(click.ParamType):
     """Click type for conversation names stored under the logs directory."""
 

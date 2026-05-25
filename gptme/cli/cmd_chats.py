@@ -13,8 +13,7 @@ from ..logmanager.conversations import ConversationMeta
 from ..prompt_queue import queue_prompt
 from ..tools import get_tools, init_tools
 from ..tools.chats import find_empty_conversations, list_chats, search_chats
-
-_MAX_ID_LEN = 255  # Linux NAME_MAX: max UTF-8 bytes for one path component
+from ..util.conversation_ids import is_valid_conversation_id
 
 
 def _is_valid_id(id: str) -> bool:
@@ -25,7 +24,7 @@ def _is_valid_id(id: str) -> bool:
     These would otherwise raise ``OSError: [Errno 36] File name too long``
     deep inside ``Path.exists()`` or ``os.stat()``.
     """
-    return len(id.encode()) <= _MAX_ID_LEN and "/" not in id and id not in {".", ".."}
+    return is_valid_conversation_id(id)
 
 
 def _ensure_tools():

@@ -45,6 +45,7 @@ from ..dirs import get_logs_dir
 from ..message import Message, _migrate_metadata, len_tokens, print_msg
 from ..tools import ToolUse
 from ..util.context import enrich_messages_with_context
+from ..util.conversation_ids import validate_conversation_id
 from ..util.reduce import limit_log, reduce_log
 from ..util.uri import URI
 
@@ -672,8 +673,7 @@ class LogManager:
         """
         Copy the conversation folder to a new name.
         """
-        if error := conversation_name_error(name):
-            raise ValueError(error)
+        validate_conversation_id(name)
         self.write()
         logsdir = get_logs_dir()
         shutil.copytree(self.logfile.parent, logsdir / name, symlinks=True)

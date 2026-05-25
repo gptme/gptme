@@ -148,6 +148,20 @@ def test_name_rejects_path_traversal(bad_name: str, runner: CliRunner):
     assert "conversation name must be a single path component" in result.output
 
 
+def test_command_fork_rejects_path_traversal(runner: CliRunner, runid: int, name: str):
+    escape_name = f"../escape-{runid}"
+    escape_path = cli.get_logs_dir().parent / f"escape-{runid}"
+
+    result = runner.invoke(
+        cli.main,
+        ["--name", name, "--non-interactive", f"/fork {escape_name}"],
+    )
+
+    assert result.exit_code == 0
+    assert "conversation name must be a single path component" in result.output
+    assert not escape_path.exists()
+
+
 def test_get_logdir_resume_named_conversation_prefers_explicit_name(runid: int):
     target_dir = _write_conversation(f"resume-target-{runid}", content="target")
     recent_dir = _write_conversation(f"resume-recent-{runid}", content="recent")
