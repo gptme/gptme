@@ -1,0 +1,5 @@
+# Keep same-origin API misses as real 404s instead of rewriting them to the SPA shell.
+/api/* /404.html 404
+
+# Let client-side routes resolve through the React app.
+/* /index.html 200
