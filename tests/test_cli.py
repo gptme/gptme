@@ -172,6 +172,20 @@ def test_resume_named_missing_conversation_does_not_fallback_to_latest(
     assert f"No conversation named '{missing}' to resume" in result.output
 
 
+def test_get_logdir_resume_named_conversation_skips_conversation_scan(
+    monkeypatch, runid: int
+):
+    conv_id = f"resume-fast-{runid}"
+    conv_dir = _write_conversation(conv_id, content="fast")
+
+    def fail_get_conversation_by_id(*args, **kwargs):
+        raise AssertionError("named resume should not scan conversation metadata")
+
+    monkeypatch.setattr(cli, "get_conversation_by_id", fail_get_conversation_by_id)
+
+    assert cli.get_logdir_resume(conv_id) == conv_dir
+
+
 def test_missing_custom_tool_path_is_reported_as_usage_error(
     runner: CliRunner, tmp_path: Path
 ):

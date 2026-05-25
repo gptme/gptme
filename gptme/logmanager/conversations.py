@@ -341,7 +341,9 @@ def list_conversations(
     return list(islice(conversation_iter, max(limit, 0)))
 
 
-def get_conversation_by_id(conv_id: str) -> ConversationMeta | None:
+def get_conversation_by_id(
+    conv_id: str, *, detail: bool = True
+) -> ConversationMeta | None:
     """
     Get a conversation by its ID.
 
@@ -351,7 +353,7 @@ def get_conversation_by_id(conv_id: str) -> ConversationMeta | None:
     Returns:
         ConversationMeta if found, None otherwise
     """
-    for conv in get_conversations():
+    for conv in get_conversations(detail=detail):
         if conv.id == conv_id:
             return conv
     return None

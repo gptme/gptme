@@ -33,7 +33,6 @@ from ..llm import reply as llm_reply
 from ..llm.models import get_recommended_model
 from ..logmanager import (
     ConversationMeta,
-    get_conversation_by_id,
     get_user_conversations,
 )
 from ..message import Message
@@ -971,11 +970,12 @@ def get_logdir(logdir: Path | str | Literal["random"]) -> Path:
 
 def get_logdir_resume(name: str = "random") -> Path:
     if name != "random":
-        if conv := get_conversation_by_id(name):
-            return Path(conv.path).parent
+        logdir = get_logs_dir() / name
+        if (logdir / "conversation.jsonl").exists():
+            return logdir
         raise ValueError(f"No conversation named '{name}' to resume")
 
-    if conv := next(get_user_conversations(), None):
+    if conv := next(get_user_conversations(detail=False), None):
         return Path(conv.path).parent
     raise ValueError("No previous conversations to resume")
 
