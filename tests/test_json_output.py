@@ -385,6 +385,23 @@ class TestJSONOutputIntegration:
             objects.append(obj)
         return objects
 
+    def _invoke_real_json_cli(self, tmp_path: Path, prompt: str):
+        """Invoke the real CLI in JSON mode with isolated data dirs and split stdout/stderr."""
+        runner_cls: Any = CliRunner
+        try:
+            runner = runner_cls(mix_stderr=False)
+        except TypeError:
+            runner = runner_cls()
+        return runner.invoke(
+            cli.main,
+            ["--output-format", "json", "--non-interactive", prompt],
+            env={
+                "HOME": str(tmp_path),
+                "XDG_DATA_HOME": str(tmp_path),
+                "XDG_STATE_HOME": str(tmp_path / "state"),
+            },
+        )
+
     def test_stdout_is_pure_jsonl(self):
         """Core invariant: stdout contains ONLY valid JSON objects, zero non-JSON lines."""
         messages = [
@@ -448,3 +465,25 @@ class TestJSONOutputIntegration:
         assert received_format == ["json"], (
             f"CLI must pass output_format='json' to chat(); got {received_format}"
         )
+
+    def test_help_command_stdout_stays_jsonl(self, tmp_path: Path):
+        """Slash commands must not leak plain text onto stdout in JSON mode."""
+        result = self._invoke_real_json_cli(tmp_path, "/help")
+
+        assert result.exit_code == 0, result.stderr
+        objects = self._assert_pure_jsonl(result.stdout, min_lines=2)
+        assert objects[0]["role"] == "user"
+        assert objects[0]["content"] == "/help"
+        assert objects[-1]["role"] == "assistant"
+        assert "Available commands:" in objects[-1]["content"]
+        assert "Keyboard shortcuts:" in objects[-1]["content"]
+
+    def test_tokens_command_stdout_stays_jsonl(self, tmp_path: Path):
+        """Rich console command output must also stay on the JSONL rail."""
+        result = self._invoke_real_json_cli(tmp_path, "/tokens")
+
+        assert result.exit_code == 0, result.stderr
+        objects = self._assert_pure_jsonl(result.stdout, min_lines=2)
+        assert objects[0]["content"] == "/tokens"
+        assert objects[-1]["role"] == "assistant"
+        assert "No cost data available" in objects[-1]["content"]

@@ -2,9 +2,11 @@
 Core command registry, decorator, and base types.
 """
 
+import io
 import logging
 import re
 from collections.abc import Callable, Generator
+from contextlib import redirect_stdout
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -168,11 +170,23 @@ def execute_cmd(msg: "Message", log: "LogManager") -> bool:
     return False
 
 
+def _emit_json_command_output(content: str) -> None:
+    """Emit captured command output as a JSON-mode assistant message."""
+    from ..message import Message, print_msg  # fmt: skip
+
+    content = content.rstrip("\n")
+    if content:
+        print_msg(Message("assistant", content))
+
+
 def handle_cmd(
     cmd: str,
     manager: "LogManager",
 ) -> Generator["Message", None, None]:
     """Handles a command."""
+    from ..message import is_output_json  # fmt: skip
+    from ..util import console  # fmt: skip
+
     cmd = cmd.lstrip("/")
     logger.debug(f"Executing command: {cmd}")
     name, *args = [s for s in re.split(r"[\n\s]", cmd) if s]
@@ -181,6 +195,21 @@ def handle_cmd(
     # Check if command is registered
     if name in _command_registry:
         ctx = CommandContext(args=args, full_args=full_args, manager=manager)
+        if is_output_json():
+            stdout_buffer = io.StringIO()
+            with console.capture() as console_capture, redirect_stdout(stdout_buffer):
+                yield from _command_registry[name](ctx)
+
+            outputs = []
+            stdout_output = stdout_buffer.getvalue().rstrip("\n")
+            console_output = console_capture.get().rstrip("\n")
+            if stdout_output:
+                outputs.append(stdout_output)
+            if console_output and console_output not in outputs:
+                outputs.append(console_output)
+            if outputs:
+                _emit_json_command_output("\n".join(outputs))
+            return
         yield from _command_registry[name](ctx)
         return
 
@@ -192,7 +221,12 @@ def handle_cmd(
         yield from tooluse.execute(log=manager.log, workspace=manager.workspace)
     else:
         manager.undo(1, quiet=True)
-        print("Unknown command. Use /help to see available commands.")
+        if is_output_json():
+            _emit_json_command_output(
+                "Unknown command. Use /help to see available commands."
+            )
+        else:
+            print("Unknown command. Use /help to see available commands.")
 
 
 def get_commands_with_descriptions() -> list[tuple[str, str]]:
