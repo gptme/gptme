@@ -178,10 +178,10 @@ def test_get_logdir_resume_named_conversation_skips_conversation_scan(
     conv_id = f"resume-fast-{runid}"
     conv_dir = _write_conversation(conv_id, content="fast")
 
-    def fail_get_conversation_by_id(*args, **kwargs):
+    def fail_get_user_conversations(*args, **kwargs):
         raise AssertionError("named resume should not scan conversation metadata")
 
-    monkeypatch.setattr(cli, "get_conversation_by_id", fail_get_conversation_by_id)
+    monkeypatch.setattr(cli, "get_user_conversations", fail_get_user_conversations)
 
     assert cli.get_logdir_resume(conv_id) == conv_dir
 
