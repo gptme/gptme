@@ -1710,6 +1710,55 @@ def test_v2_create_conversation_non_string_timestamp(client: FlaskClient):
     assert "timestamp" in data["error"].lower()
 
 
+@pytest.mark.parametrize("body", ["string", 42])
+def test_v2_create_conversation_non_object_body(client: FlaskClient, body: object):
+    """PUT /conversations/<id> with a non-object JSON body returns 400 (not 500)."""
+    import uuid
+
+    conv_id = f"test-non-object-body-{uuid.uuid4().hex[:8]}"
+    response = client.put(
+        f"/api/v2/conversations/{conv_id}",
+        json=body,
+    )
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data is not None
+    assert "object" in data["error"].lower()
+
+
+@pytest.mark.parametrize("messages", ["not-a-list", 42, {"key": "val"}])
+def test_v2_create_conversation_messages_not_list(
+    client: FlaskClient, messages: object
+):
+    """PUT /conversations/<id> with non-list 'messages' returns 400 (not 500)."""
+    import uuid
+
+    conv_id = f"test-msgs-not-list-{uuid.uuid4().hex[:8]}"
+    response = client.put(
+        f"/api/v2/conversations/{conv_id}",
+        json={"messages": messages},
+    )
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data is not None
+    assert "messages" in data["error"].lower()
+
+
+def test_v2_create_conversation_message_not_object(client: FlaskClient):
+    """PUT /conversations/<id> with a non-object message item returns 400 (not 500)."""
+    import uuid
+
+    conv_id = f"test-msg-not-obj-{uuid.uuid4().hex[:8]}"
+    response = client.put(
+        f"/api/v2/conversations/{conv_id}",
+        json={"messages": [1, 2, 3]},
+    )
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data is not None
+    assert "object" in data["error"].lower()
+
+
 @pytest.mark.parametrize("body", [[], [1, 2, 3], "string", 42])
 def test_v2_tasks_put_rejects_non_object_json(client: FlaskClient, body: object):
     """Task PUT should reject non-object JSON bodies with 400."""

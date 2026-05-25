@@ -457,6 +457,8 @@ def api_conversation_put(conversation_id: str):
     logdir = get_logs_dir() / conversation_id
 
     req_json = flask.request.json or {}
+    if not isinstance(req_json, dict):
+        return flask.jsonify({"error": "JSON body must be an object"}), 400
 
     # Validate auto_confirm type before any side effects (CWE-20: truthy coercion).
     # "false" (string) is truthy in Python — must reject non-bool/int values.
@@ -476,10 +478,15 @@ def api_conversation_put(conversation_id: str):
     # Validate all messages before creating any side effects (directories).
     # This prevents orphaned directories when validation fails: if logdir.mkdir()
     # runs before a 400 is returned, the same conversation_id gets a 409 on retry.
+    messages_raw = req_json.get("messages", [])
+    if not isinstance(messages_raw, list):
+        return flask.jsonify({"error": "'messages' must be a list"}), 400
     _RoleType = Literal["system", "user", "assistant"]
     valid_roles = ("system", "user", "assistant")
     validated_msgs: list[tuple[_RoleType, str, datetime]] = []
-    for msg in req_json.get("messages", []):
+    for msg in messages_raw:
+        if not isinstance(msg, dict):
+            return flask.jsonify({"error": "Each message must be an object"}), 400
         if msg.get("role") not in valid_roles:
             return (
                 flask.jsonify(
