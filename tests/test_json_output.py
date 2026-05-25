@@ -2,6 +2,8 @@
 
 import io
 import json
+import os
+import subprocess
 import sys
 from contextlib import redirect_stdout
 from datetime import datetime, timezone
@@ -77,6 +79,37 @@ class TestOutputFormatValidation:
         assert "output-format" not in exc_str, (
             f"Unexpected output-format error in exception: {result.exception}"
         )
+
+    def test_json_resume_error_keeps_stdout_clean(self, monkeypatch, tmp_path):
+        """JSON mode must not leak Rich logs onto stdout on early resume errors."""
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+        project_root = Path(__file__).resolve().parent.parent
+        env = os.environ.copy()
+        env["XDG_DATA_HOME"] = str(tmp_path)
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "gptme",
+                "--output-format",
+                "json",
+                "--non-interactive",
+                "--resume",
+            ],
+            cwd=project_root,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 2
+        assert result.stdout.strip() == "", (
+            "stdout must stay empty on early JSON-mode errors so supervisors don't "
+            "see non-JSON bytes before the process exits"
+        )
+        assert "No previous conversations to resume" in result.stderr
 
     def test_noninteractive_missing_prompt_has_no_fake_resume_hint(
         self, monkeypatch, tmp_path: Path

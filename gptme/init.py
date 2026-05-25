@@ -5,6 +5,7 @@ from dataclasses import replace
 from typing import cast
 
 from dotenv import load_dotenv
+from rich.console import Console
 from rich.logging import RichHandler
 
 from .cli.setup import ask_for_api_key
@@ -204,8 +205,10 @@ def init_model(
     set_default_model(model_meta)
 
 
-def init_logging(verbose):
-    handler = RichHandler()  # show_time=False
+def init_logging(verbose, *, stderr: bool = False):
+    handler = RichHandler(
+        console=Console(stderr=stderr, log_path=False)
+    )  # show_time=False
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(message)s",
