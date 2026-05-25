@@ -58,6 +58,15 @@ def runner():
         yield runner
 
 
+def _write_conversation(conv_id: str, content: str = "hello") -> Path:
+    conv_dir = cli.get_logs_dir() / conv_id
+    conv_dir.mkdir(parents=True, exist_ok=True)
+    (conv_dir / "conversation.jsonl").write_text(
+        f'{{"role":"user","content":"{content}"}}\n'
+    )
+    return conv_dir
+
+
 def test_help(runner: CliRunner):
     result = runner.invoke(cli.main, ["--help"])
     assert result.exit_code == 0
@@ -79,6 +88,30 @@ def test_name_rejects_path_traversal(bad_name: str, runner: CliRunner):
     )
     assert result.exit_code == 2
     assert "conversation name must be a single path component" in result.output
+
+
+def test_get_logdir_resume_named_conversation_prefers_explicit_name(runid: int):
+    target_dir = _write_conversation(f"resume-target-{runid}", content="target")
+    recent_dir = _write_conversation(f"resume-recent-{runid}", content="recent")
+    os.utime(target_dir / "conversation.jsonl", (1, 1))
+    os.utime(recent_dir / "conversation.jsonl", (2, 2))
+
+    assert cli.get_logdir_resume(f"resume-target-{runid}") == target_dir
+
+
+def test_resume_named_missing_conversation_does_not_fallback_to_latest(
+    runner: CliRunner, runid: int
+):
+    _write_conversation(f"resume-recent-{runid}", content="recent")
+    missing = f"resume-missing-{runid}"
+
+    result = runner.invoke(
+        cli.main,
+        ["--resume", "--name", missing, "--non-interactive"],
+    )
+
+    assert result.exit_code == 2
+    assert f"No conversation named '{missing}' to resume" in result.output
 
 
 def test_command_exit(args: list[str], runner: CliRunner):

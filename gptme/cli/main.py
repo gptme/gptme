@@ -30,7 +30,11 @@ from ..dirs import get_logs_dir
 from ..init import init_logging
 from ..llm import reply as llm_reply
 from ..llm.models import get_recommended_model
-from ..logmanager import ConversationMeta, get_user_conversations
+from ..logmanager import (
+    ConversationMeta,
+    get_conversation_by_id,
+    get_user_conversations,
+)
 from ..message import Message
 from ..profiles import get_profile
 from ..prompts import ContextMode, get_prompt
@@ -598,7 +602,10 @@ def main(
         return prompt_msgs
 
     if resume:
-        logdir = get_logdir_resume()
+        try:
+            logdir = get_logdir_resume(name)
+        except ValueError as e:
+            raise click.UsageError(str(e)) from e
         prompt_msgs = inject_stdin(prompt_msgs, piped_input)
     # don't run pick in tests/non-interactive mode, or if the user specifies a name
     elif (
@@ -936,7 +943,12 @@ def get_logdir(logdir: Path | str | Literal["random"]) -> Path:
     return logdir
 
 
-def get_logdir_resume() -> Path:
+def get_logdir_resume(name: str = "random") -> Path:
+    if name != "random":
+        if conv := get_conversation_by_id(name):
+            return Path(conv.path).parent
+        raise ValueError(f"No conversation named '{name}' to resume")
+
     if conv := next(get_user_conversations(), None):
         return Path(conv.path).parent
     raise ValueError("No previous conversations to resume")
