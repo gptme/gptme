@@ -40,7 +40,7 @@ describe('resolveCloudExchangeBaseUrl', () => {
 
 describe('processConnectionFromHash', () => {
   const originalFetch = global.fetch;
-  const mockFetch = jest.fn();
+  const mockFetch = jest.fn<typeof fetch>();
 
   beforeEach(() => {
     mockFindOrCreateServerByUrl.mockClear();
@@ -50,7 +50,7 @@ describe('processConnectionFromHash', () => {
 
     mockFetch.mockReset();
     mockFetch.mockImplementation(
-      async () =>
+      async (_input, _init) =>
         ({
           ok: true,
           json: async () => ({
@@ -60,7 +60,7 @@ describe('processConnectionFromHash', () => {
           }),
         }) as Response
     );
-    global.fetch = mockFetch as unknown as typeof fetch;
+    global.fetch = mockFetch;
   });
 
   afterEach(() => {
