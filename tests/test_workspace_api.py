@@ -53,6 +53,13 @@ class TestAllocateAttachmentPath:
 
         assert result == tmp_path / "report-1.pdf"
 
+    def test_raises_when_name_space_exhausted(self, tmp_path: Path) -> None:
+        reserved_names = {"report.pdf"}
+        reserved_names.update(f"report-{i}.pdf" for i in range(1, 10001))
+
+        with pytest.raises(ValueError, match="Could not allocate unique name"):
+            allocate_attachment_path(tmp_path, "report.pdf", reserved_names)
+
 
 @pytest.fixture
 def app():
@@ -297,6 +304,31 @@ class TestUploadEndpoint:
         assert result["files"][0]["name"] == "report-1.pdf"
         assert (attachments_dir / "report.pdf").read_text() == "existing"
         assert (attachments_dir / "report-1.pdf").read_text() == "new"
+
+    def test_upload_returns_409_when_name_space_exhausted(
+        self, app, mock_logmanager, mock_auth
+    ) -> None:
+        _, logdir = mock_logmanager
+        attachments_dir = logdir / "attachments"
+        attachments_dir.mkdir()
+        (attachments_dir / "report.pdf").write_text("existing")
+        for i in range(1, 10001):
+            (attachments_dir / f"report-{i}.pdf").write_text("existing")
+
+        with app.test_client() as client:
+            data = {"file": (io.BytesIO(b"new"), "report.pdf")}
+            resp = client.post(
+                "/api/v2/conversations/test-conv/workspace/upload",
+                data=data,
+                content_type="multipart/form-data",
+            )
+
+        assert resp.status_code == 409
+        assert resp.get_json() == {
+            "error": "Could not allocate unique name for report.pdf"
+        }
+        assert (attachments_dir / "report.pdf").read_text() == "existing"
+        assert not (attachments_dir / "report-10001.pdf").exists()
 
 
 @pytest.fixture

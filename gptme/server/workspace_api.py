@@ -316,6 +316,7 @@ def browse_workspace(conversation_id: str, subpath: str | None = None):
         200: UploadFileResponse,
         400: ErrorResponse,
         404: ErrorResponse,
+        409: ErrorResponse,
         413: ErrorResponse,
         500: ErrorResponse,
     },
@@ -379,7 +380,7 @@ def upload_files(conversation_id: str):
                     attachments_dir, filename, reserved_names
                 )
             except ValueError as e:
-                return flask.jsonify({"error": str(e)}), 500
+                return flask.jsonify({"error": str(e)}), 409
             reserved_names.add(file_path.name)
             validated.append((file_path, content))
 
