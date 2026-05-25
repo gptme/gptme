@@ -624,11 +624,7 @@ def main(
 
     # Register atexit handler to show conversation ID on exit
     def goodbye_handler():
-        if output_format == "json":
-            return
-
-        log_file = logdir / "conversation.jsonl"
-        if log_file.exists() and log_file.stat().st_size > 0:
+        if _should_print_resume_hint(logdir, output_format):
             print(f"\nGoodbye! (resume with: gptme --name {logdir.name})")
 
     atexit.register(goodbye_handler)
@@ -961,6 +957,14 @@ def get_logdir_resume(name: str = "random") -> Path:
     if conv := next(get_user_conversations(), None):
         return Path(conv.path).parent
     raise ValueError("No previous conversations to resume")
+
+
+def _should_print_resume_hint(logdir: Path, output_format: str) -> bool:
+    if output_format == "json":
+        return False
+
+    log_file = logdir / "conversation.jsonl"
+    return log_file.exists() and log_file.stat().st_size > 0
 
 
 def _read_stdin() -> str:
