@@ -1,5 +1,6 @@
 """Tests for telemetry functionality."""
 
+import logging
 import subprocess
 import sys
 from unittest.mock import patch
@@ -79,6 +80,63 @@ def test_pushgateway_periodic_push(monkeypatch):
 
         # Cleanup
         shutdown_telemetry()
+
+
+def test_connection_error_filter_truncates_read_timeout_traceback():
+    """Timeout-style OTLP export errors should be reduced to one-line noise."""
+    from gptme.util._telemetry import TelemetryConnectionErrorFilter
+
+    class ReadTimeout(Exception):
+        pass
+
+    record = logging.LogRecord(
+        name="opentelemetry.sdk._shared_internal",
+        level=logging.ERROR,
+        pathname=__file__,
+        lineno=1,
+        msg="Exception while exporting Span.",
+        args=("stale-format-arg",),
+        exc_info=(ReadTimeout, ReadTimeout("read timed out"), None),
+    )
+
+    filter_ = TelemetryConnectionErrorFilter(cooldown_seconds=300.0)
+
+    assert filter_.filter(record) is True
+    assert record.exc_info is None
+    assert record.exc_text is None
+    assert record.args == ()
+    assert record.msg == "Telemetry export failed: read timed out"
+
+
+def test_connection_error_filter_debounces_repeated_timeouts():
+    """Repeated OTLP timeout errors should be suppressed inside the cooldown."""
+    from gptme.util._telemetry import TelemetryConnectionErrorFilter
+
+    class ReadTimeout(Exception):
+        pass
+
+    filter_ = TelemetryConnectionErrorFilter(cooldown_seconds=300.0)
+    first = logging.LogRecord(
+        name="opentelemetry.sdk._shared_internal",
+        level=logging.ERROR,
+        pathname=__file__,
+        lineno=1,
+        msg="Exception while exporting Span.",
+        args=("stale-format-arg",),
+        exc_info=(ReadTimeout, ReadTimeout("read timed out"), None),
+    )
+    second = logging.LogRecord(
+        name="opentelemetry.sdk._shared_internal",
+        level=logging.ERROR,
+        pathname=__file__,
+        lineno=2,
+        msg="Exception while exporting Span.",
+        args=("stale-format-arg",),
+        exc_info=(ReadTimeout, ReadTimeout("read timed out"), None),
+    )
+
+    assert filter_.filter(first) is True
+    assert filter_.filter(second) is False
 
 
 def test_record_hook_call_records_span():

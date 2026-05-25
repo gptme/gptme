@@ -26,7 +26,7 @@ _session_id: ContextVar[str | None] = ContextVar("session_id", default=None)
 
 
 class TelemetryConnectionErrorFilter(logging.Filter):
-    """Filter to debounce and truncate verbose connection error traces from OpenTelemetry.
+    """Filter to debounce and truncate verbose network/export traces from OpenTelemetry.
 
     This filter:
     1. Simplifies verbose stack traces to single-line messages
@@ -34,8 +34,17 @@ class TelemetryConnectionErrorFilter(logging.Filter):
     3. Periodically shows a count of suppressed errors
 
     The filter ensures users see at least one error message when telemetry fails,
-    but prevents spam from repeated connection failures.
+    but prevents spam from repeated exporter network failures.
     """
+
+    _NETWORK_ERROR_NAME_FRAGMENTS = (
+        "ConnectionError",
+        "NewConnectionError",
+        "MaxRetryError",
+        "ReadTimeout",
+        "ConnectTimeout",
+        "TimeoutError",
+    )
 
     def __init__(self, cooldown_seconds: float = 300.0):
         super().__init__()
@@ -55,14 +64,12 @@ class TelemetryConnectionErrorFilter(logging.Filter):
         ):
             return True
 
-        # Check if this is a connection error
+        # Check if this is a connection/export error
         if record.levelno == logging.ERROR and record.exc_info:
             exc_type, exc_value, _ = record.exc_info
-            # Check if it's a connection-related error
-            if exc_type and (
-                "ConnectionError" in exc_type.__name__
-                or "NewConnectionError" in exc_type.__name__
-                or "MaxRetryError" in exc_type.__name__
+            if exc_type and any(
+                fragment in exc_type.__name__
+                for fragment in self._NETWORK_ERROR_NAME_FRAGMENTS
             ):
                 # Create error key for deduplication (type + truncated message)
                 error_key = f"{exc_type.__name__}"
@@ -82,13 +89,14 @@ class TelemetryConnectionErrorFilter(logging.Filter):
                     # Replace verbose stack trace with simple message
                     record.exc_info = None
                     record.exc_text = None
+                    record.args = ()
 
                     if count == 1:
-                        record.msg = f"Telemetry connection failed: {exc_value}"
+                        record.msg = f"Telemetry export failed: {exc_value}"
                     else:
                         # Show count of suppressed errors
                         record.msg = (
-                            f"Telemetry connection still failing "
+                            f"Telemetry export still failing "
                             f"({count} occurrences): {exc_value}"
                         )
                     return True
