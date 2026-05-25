@@ -271,6 +271,15 @@ def api_conversation_step(conversation_id: str):
     session = SessionManager.get_session(session_id)
     if session is None:
         return flask.jsonify({"error": f"Session not found: {session_id}"}), 404
+    # Validate conversation exists before checking ownership: a nonexistent URL
+    # conversation should return 404, not 403 (mismatch is ambiguous until we
+    # know both sides exist).
+    try:
+        LogManager.load(conversation_id, lock=False)
+    except FileNotFoundError:
+        return flask.jsonify(
+            {"error": f"Conversation not found: {conversation_id}"}
+        ), 404
     if session.conversation_id != conversation_id:
         return flask.jsonify(
             {
@@ -529,6 +538,13 @@ def api_conversation_tool_confirm(conversation_id: str):
         session = SessionManager.get_session(session_id)
         if session is None:
             return flask.jsonify({"error": f"Session not found: {session_id}"}), 404
+        # Validate conversation exists before checking ownership (same as step).
+        try:
+            LogManager.load(conversation_id, lock=False)
+        except FileNotFoundError:
+            return flask.jsonify(
+                {"error": f"Conversation not found: {conversation_id}"}
+            ), 404
         if session.conversation_id != conversation_id:
             return flask.jsonify(
                 {
@@ -677,6 +693,13 @@ def api_conversation_rerun(conversation_id: str):
     session = SessionManager.get_session(session_id)
     if not session:
         return flask.jsonify({"error": f"Session not found: {session_id}"}), 404
+    # Validate conversation exists before checking ownership (same as step).
+    try:
+        LogManager.load(conversation_id, lock=False)
+    except FileNotFoundError:
+        return flask.jsonify(
+            {"error": f"Conversation not found: {conversation_id}"}
+        ), 404
     if session.conversation_id != conversation_id:
         return flask.jsonify(
             {
@@ -940,6 +963,13 @@ def api_conversation_interrupt(conversation_id: str):
     session = SessionManager.get_session(session_id)
     if session is None:
         return flask.jsonify({"error": f"Session not found: {session_id}"}), 404
+    # Validate conversation exists before checking ownership (same as step).
+    try:
+        LogManager.load(conversation_id, lock=False)
+    except FileNotFoundError:
+        return flask.jsonify(
+            {"error": f"Conversation not found: {conversation_id}"}
+        ), 404
     if session.conversation_id != conversation_id:
         return flask.jsonify(
             {
