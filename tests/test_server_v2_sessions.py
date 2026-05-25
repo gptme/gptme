@@ -483,6 +483,9 @@ class TestToolConfirmEndpoint:
             },
         )
         assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert data["error"] == "action is required"
 
     @pytest.mark.parametrize("bad_session_id", [["boom"], {"boom": 1}, 0, False])
     def test_non_string_session_id(

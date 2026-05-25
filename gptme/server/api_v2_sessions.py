@@ -559,7 +559,7 @@ def api_conversation_tool_confirm(conversation_id: str):
 
     if not action:
         return (
-            flask.jsonify({"error": "tool_id and action are required"}),
+            flask.jsonify({"error": "action is required"}),
             400,
         )
 
