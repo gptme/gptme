@@ -32,7 +32,10 @@ export function useModels() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isConnected) return;
+    if (!isConnected) {
+      setIsLoading(false);
+      return;
+    }
 
     const fetchModels = async () => {
       try {
