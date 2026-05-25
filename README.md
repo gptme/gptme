@@ -308,8 +308,9 @@ enabled = ["my_plugin"]
 
 **[gptme-contrib][gptme-contrib]** — community-contributed plugins, packages, scripts, and lessons:
 
-| Plugin | Description |
+| Plugin / Package | Description |
 |--------|-------------|
+| [gptme-codegraph](https://github.com/gptme/gptme-contrib/tree/master/packages/gptme-codegraph) | Structural code retrieval with tree-sitter: 9 MCP tools for parse, call graph, blast/impact analysis |
 | [gptme-consortium](https://github.com/gptme/gptme-contrib/tree/master/plugins/gptme-consortium) | Multi-model consensus decision-making |
 | [gptme-imagen](https://github.com/gptme/gptme-contrib/tree/master/plugins/gptme-imagen) | Multi-provider image generation |
 | [gptme-lsp](https://github.com/gptme/gptme-contrib/tree/master/plugins/gptme-lsp) | Language Server Protocol integration |
@@ -581,6 +582,7 @@ gptme is more than a CLI — it's a platform with a growing ecosystem:
 |---------|-------------|
 | [gptme-webui] | Modern React web interface, available at [chat.gptme.org](https://chat.gptme.org) |
 | [gptme-contrib] | Community plugins, packages, scripts, and lessons |
+| [gptme-codegraph] | Structural code retrieval with tree-sitter (9 MCP tools for code graph analysis) |
 | [gptme-agent-template][agent-template] | Template for building persistent autonomous agents |
 | [gptme-rag] | RAG integration for semantic search over local files |
 | [gptme.vim] | Vim plugin for in-editor gptme integration |
@@ -629,6 +631,7 @@ Contributions welcome! See the [contributing guide](https://gptme.org/docs/contr
 [gptme-webui]: https://github.com/gptme/gptme/tree/master/webui
 [gptme-rag]: https://github.com/gptme/gptme-rag
 [gptme-contrib]: https://github.com/gptme/gptme-contrib
+[gptme-codegraph]: https://github.com/gptme/gptme-contrib/tree/master/packages/gptme-codegraph
 [gptme-tauri]: https://github.com/gptme/gptme-tauri
 [agent-template]: https://github.com/gptme/gptme-agent-template
 [bob]: https://github.com/TimeToBuildBob
@@ -746,6 +749,7 @@ gptme has **built-in MCP support**:
 - **Tool Integration**: MCP tools work like native tools
 
 Example MCP servers supported:
+- [gptme-codegraph] — structural code graph analysis with tree-sitter (9 tools)
 - GitHub MCP
 - Puppeteer MCP
 - SQLite MCP
