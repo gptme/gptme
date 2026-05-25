@@ -654,7 +654,23 @@ def test_comma_separated_choice_strips_short_option_equals_prefix():
     with pytest.raises(click.exceptions.BadParameter):
         csc.convert("=", None, None)
 
+def test_comma_separated_choice_allows_excluding_unavailable_tools():
+    """Allow `-tool` exclusions even when that tool is unavailable locally."""
+    from gptme.cli.main import CommaSeparatedChoice
 
+    csc = CommaSeparatedChoice(
+        ["shell", "save", "read"],
+        allow_prefixes=["+", "-"],
+        extra_choices_for_prefix={"-": ["browser"]},
+    )
+
+    assert csc.convert("-browser", None, None) == "-browser"
+
+    with pytest.raises(click.exceptions.BadParameter):
+        csc.convert("browser", None, None)
+
+    with pytest.raises(click.exceptions.BadParameter):
+        csc.convert("+browser", None, None)
 def test_tool_exclusion_mixed_bare_and_minus_raises():
     """Test that mixing bare tool names with '-' exclusion syntax raises UsageError."""
     from click.testing import CliRunner

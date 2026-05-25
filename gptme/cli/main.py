@@ -65,9 +65,11 @@ class CommaSeparatedChoice(click.ParamType):
         choices: list[str],
         allow_prefix: str | None = None,
         allow_prefixes: list[str] | None = None,
+        extra_choices_for_prefix: dict[str, list[str]] | None = None,
         metavar: str | None = None,
     ):
         self.choices = choices
+        self._choice_set = set(choices)
         # Support both single prefix and multiple prefixes
         if allow_prefixes:
             self.allow_prefixes = allow_prefixes
@@ -75,6 +77,10 @@ class CommaSeparatedChoice(click.ParamType):
             self.allow_prefixes = [allow_prefix]
         else:
             self.allow_prefixes = []
+        self.extra_choices_for_prefix = {
+            prefix: set(prefix_choices)
+            for prefix, prefix_choices in (extra_choices_for_prefix or {}).items()
+        }
         self._metavar = metavar
 
     def convert(self, value, param, ctx):
@@ -86,14 +92,21 @@ class CommaSeparatedChoice(click.ParamType):
             self.fail("value cannot be empty.", param, ctx)
         for part in parts:
             check = part
+            matched_prefix = None
             for prefix in self.allow_prefixes:
                 if check.startswith(prefix):
                     check = check[len(prefix) :]
+                    matched_prefix = prefix
                     break
             # Allow file paths (e.g. path/to/tool.py) to pass through
             if check.endswith(".py") or "/" in check or "\\" in check:
                 continue
-            if check not in self.choices:
+            extra_choices = (
+                self.extra_choices_for_prefix.get(matched_prefix, set())
+                if matched_prefix is not None
+                else set()
+            )
+            if check not in self._choice_set and check not in extra_choices:
                 self.fail(
                     f"invalid choice: {part}. (choose from {', '.join(self.choices)})",
                     param,
@@ -153,9 +166,9 @@ class ConversationName(click.ParamType):
 
 
 commands_help = "\n".join(_gen_help(incl_langtags=False))
-_available_tools = sorted(
-    tool.name for tool in get_available_tools(include_mcp=False) if tool.is_available
-)
+_builtin_tools = get_available_tools(include_mcp=False)
+_known_tool_names = sorted(tool.name for tool in _builtin_tools)
+_available_tools = sorted(tool.name for tool in _builtin_tools if tool.is_available)
 available_tool_names = ", ".join(_available_tools)
 
 
@@ -271,7 +284,10 @@ Run 'gptme-util --help' for all utility commands."""
     default=None,
     multiple=True,
     type=CommaSeparatedChoice(
-        _available_tools + ["none"], allow_prefixes=["+", "-"], metavar="TOOL"
+        _available_tools + ["none"],
+        allow_prefixes=["+", "-"],
+        extra_choices_for_prefix={"-": _known_tool_names},
+        metavar="TOOL",
     ),
     help=f"Tools to allow. Comma-separated or repeated. Use '+tool' to add to defaults (e.g., '-t +subagent'). Use '-tool' to exclude from defaults (e.g., '-t=-browser'). Use 'none' to disable all tools. Supports .py file paths for custom tools (e.g., '-t path/to/tool.py'). Available: {available_tool_names}.",
 )
