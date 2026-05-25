@@ -1054,6 +1054,23 @@ def test_v2_create_conversation_webui_html_hint_disabled(
     )
 
 
+def test_v2_create_conversation_rejects_non_object_config_without_side_effects(
+    client: FlaskClient, tmp_path, monkeypatch
+):
+    logs_dir = tmp_path / "logs"
+    conversation_id = "test-server-v2-bad-config"
+    monkeypatch.setattr("gptme.server.api_v2.get_logs_dir", lambda: logs_dir)
+
+    response = client.put(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"config": []},
+    )
+
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "'config' must be an object"}
+    assert not (logs_dir / conversation_id).exists()
+
+
 def test_v2_conversation_post(v2_conv, client: FlaskClient):
     """Test posting a message to a V2 conversation."""
     conversation_id = v2_conv["conversation_id"]

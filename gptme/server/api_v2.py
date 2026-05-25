@@ -517,6 +517,10 @@ def api_conversation_put(conversation_id: str):
             ts = datetime.now(tz=timezone.utc)
         validated_msgs.append((cast(_RoleType, msg["role"]), msg["content"], ts))
 
+    config_raw = req_json.get("config", {})
+    if not isinstance(config_raw, dict):
+        return flask.jsonify({"error": "'config' must be an object"}), 400
+
     # Create the log directory atomically to avoid TOCTOU race
     try:
         logdir.mkdir(parents=True)
@@ -527,7 +531,7 @@ def api_conversation_put(conversation_id: str):
         )
 
     # Load or create the chat config, overriding values from request config if provided
-    config_dict = req_json.get("config", {})
+    config_dict = dict(config_raw)
     config_dict["_logdir"] = logdir  # Pass logdir for "@log" workspace resolution
     request_config = ChatConfig.from_dict(config_dict)
     chat_config = ChatConfig.load_or_create(logdir, request_config)
