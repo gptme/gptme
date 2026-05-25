@@ -640,6 +640,21 @@ def test_comma_separated_choice_minus_prefix():
         csc.convert("-nonexistent", None, None)
 
 
+def test_comma_separated_choice_strips_short_option_equals_prefix():
+    """Accept Click's `-x=value` short-option form for comma-separated choices."""
+    from gptme.cli.main import CommaSeparatedChoice
+
+    csc = CommaSeparatedChoice(
+        ["shell", "browser", "save", "read"], allow_prefixes=["+", "-"]
+    )
+
+    assert csc.convert("=browser", None, None) == "browser"
+    assert csc.convert("=-browser,-save", None, None) == "-browser,-save"
+
+    with pytest.raises(click.exceptions.BadParameter):
+        csc.convert("=", None, None)
+
+
 def test_tool_exclusion_mixed_bare_and_minus_raises():
     """Test that mixing bare tool names with '-' exclusion syntax raises UsageError."""
     from click.testing import CliRunner
@@ -654,3 +669,10 @@ def test_tool_exclusion_mixed_bare_and_minus_raises():
     assert "Cannot mix bare tool names" in error_text, (
         f"Expected 'Cannot mix bare tool names' in output, got: {error_text!r}"
     )
+
+
+def test_tools_short_option_equals_syntax_works(runner: CliRunner):
+    """The documented `-t=-browser` short form should parse successfully."""
+    result = runner.invoke(cli.main, ["-t=-browser", "--version"])
+    assert result.exit_code == 0, result.output
+    assert "gptme v" in result.output

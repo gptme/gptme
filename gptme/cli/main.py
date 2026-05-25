@@ -78,7 +78,12 @@ class CommaSeparatedChoice(click.ParamType):
         self._metavar = metavar
 
     def convert(self, value, param, ctx):
+        # Click keeps the leading "=" for short options passed as `-x=value`.
+        # Normalize that form so documented examples like `-t=-browser` work.
+        value = value.removeprefix("=")
         parts = [v.strip() for v in value.split(",") if v.strip()]
+        if not parts:
+            self.fail("value cannot be empty.", param, ctx)
         for part in parts:
             check = part
             for prefix in self.allow_prefixes:
