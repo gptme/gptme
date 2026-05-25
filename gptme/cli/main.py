@@ -46,6 +46,7 @@ logger = logging.getLogger(__name__)
 
 
 script_path = Path(os.path.realpath(__file__))
+_MAX_CONVERSATION_NAME_BYTES = 255  # Linux NAME_MAX for a single path component
 
 
 class CommaSeparatedChoice(click.ParamType):
@@ -113,6 +114,33 @@ class WorkspacePath(click.ParamType):
         return str(path.resolve())
 
 
+def _conversation_name_error(value: str) -> str | None:
+    """Return a validation error for unsafe conversation names, if any."""
+    if not value:
+        return "conversation name cannot be empty."
+    if len(value.encode()) > _MAX_CONVERSATION_NAME_BYTES:
+        return "conversation name too long."
+    if "/" in value or "\\" in value or ".." in value:
+        return (
+            "conversation name must be a single path component "
+            "(no '/', '\\\\', or '..')."
+        )
+    return None
+
+
+class ConversationName(click.ParamType):
+    """Click type for conversation names stored under the logs directory."""
+
+    name = "TEXT"
+
+    def convert(self, value, param, ctx):
+        if value == "random":
+            return value
+        if error := _conversation_name_error(value):
+            self.fail(error, param, ctx)
+        return value
+
+
 commands_help = "\n".join(_gen_help(incl_langtags=False))
 _available_tools = sorted(
     tool.name for tool in get_available_tools(include_mcp=False) if tool.is_available
@@ -169,6 +197,7 @@ Run 'gptme-util --help' for all utility commands."""
 @click.option(
     "--name",
     default="random",
+    type=ConversationName(),
     help="Conversation ID (used to resume). Defaults to a random name.",
 )
 @click.option(
@@ -898,6 +927,9 @@ def get_logdir(logdir: Path | str | Literal["random"]) -> Path:
     if logdir == "random":
         logdir = logs_dir / generate_conversation_id(name="random", logs_dir=logs_dir)
     elif isinstance(logdir, str):
+        error = _conversation_name_error(logdir)
+        if error:
+            raise ValueError(error)
         logdir = logs_dir / logdir
 
     logdir.mkdir(parents=True, exist_ok=True)

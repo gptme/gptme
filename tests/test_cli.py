@@ -71,6 +71,15 @@ def test_version(runner: CliRunner):
     assert "gptme" in result.output
 
 
+def test_name_rejects_path_traversal(runner: CliRunner):
+    result = runner.invoke(
+        cli.main,
+        ["--name", "../bad-name", "--non-interactive", "hello"],
+    )
+    assert result.exit_code == 2
+    assert "conversation name must be a single path component" in result.output
+
+
 def test_command_exit(args: list[str], runner: CliRunner):
     args.append("/exit")
     result = runner.invoke(cli.main, args)
