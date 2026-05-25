@@ -3,7 +3,10 @@
 import io
 import json
 import sys
+from contextlib import redirect_stdout
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -18,6 +21,25 @@ def reset_output_format():
     """Guarantee _output_format is reset to 'text' after every test, even on failure."""
     yield
     set_output_format("text")
+
+
+def _invoke_cli_with_captured_goodbye(monkeypatch, tmp_path: Path, args: list[str]):
+    """Run the CLI while capturing the registered goodbye handler."""
+    handlers: list[Any] = []
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setattr(cli.atexit, "register", handlers.append)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, args, input="")
+    goodbye_handler = next(
+        handler
+        for handler in handlers
+        if getattr(handler, "__name__", "") == "goodbye_handler"
+    )
+    return result, goodbye_handler
 
 
 class TestOutputFormatValidation:
@@ -55,6 +77,41 @@ class TestOutputFormatValidation:
         assert "output-format" not in exc_str, (
             f"Unexpected output-format error in exception: {result.exception}"
         )
+
+    def test_noninteractive_missing_prompt_has_no_fake_resume_hint(
+        self, monkeypatch, tmp_path: Path
+    ):
+        """A validation error before chat start must not print a bogus resume hint."""
+        result, goodbye_handler = _invoke_cli_with_captured_goodbye(
+            monkeypatch, tmp_path, ["--non-interactive", "--name", "missing-prompt"]
+        )
+
+        goodbye_output = io.StringIO()
+        with redirect_stdout(goodbye_output):
+            goodbye_handler()
+
+        output = (result.output or "").lower()
+        goodbye_text = goodbye_output.getvalue().lower()
+        assert result.exit_code != 0
+        assert "requires a prompt" in output
+        assert "resume with:" not in goodbye_text
+        assert "goodbye!" not in goodbye_text
+
+    def test_goodbye_handler_prints_resume_hint_for_existing_conversation(
+        self, monkeypatch, tmp_path: Path
+    ):
+        """The goodbye handler should print once a conversation log exists."""
+        _, goodbye_handler = _invoke_cli_with_captured_goodbye(
+            monkeypatch, tmp_path, ["--non-interactive", "--name", "resume-test"]
+        )
+        log_file = cli.get_logdir("resume-test") / "conversation.jsonl"
+        log_file.write_text('{"role":"user","content":"hello"}\n')
+
+        goodbye_output = io.StringIO()
+        with redirect_stdout(goodbye_output):
+            goodbye_handler()
+
+        assert "resume with: gptme --name resume-test" in goodbye_output.getvalue()
 
     def test_output_format_default(self):
         """Default output_format should be 'text'."""
