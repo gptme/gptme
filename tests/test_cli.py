@@ -2,6 +2,8 @@ import os
 import random
 import signal
 import tempfile
+import threading
+import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -92,7 +94,7 @@ def test_read_stdin_open_pipe_without_data_returns_empty(monkeypatch):
         raise TimeoutError("stdin read blocked on an idle pipe")
 
     previous_handler = signal.signal(signal.SIGALRM, _timeout)
-    signal.setitimer(signal.ITIMER_REAL, 0.5)
+    signal.setitimer(signal.ITIMER_REAL, 1.5)
     try:
         assert cli._read_stdin() == ""
     finally:
@@ -113,6 +115,26 @@ def test_read_stdin_pipe_with_data_reads_all(monkeypatch):
     try:
         assert cli._read_stdin() == "hello from pipe"
     finally:
+        read_file.close()
+
+
+def test_read_stdin_waits_briefly_for_slow_pipe_writer(monkeypatch):
+    """A slightly slow producer should still count as piped stdin."""
+    read_fd, write_fd = os.pipe()
+    read_file = os.fdopen(read_fd)
+    monkeypatch.setattr(cli.sys, "stdin", read_file)
+
+    def _writer():
+        time.sleep(0.2)
+        os.write(write_fd, b"hello after delay")
+        os.close(write_fd)
+
+    writer = threading.Thread(target=_writer)
+    writer.start()
+    try:
+        assert cli._read_stdin() == "hello after delay"
+    finally:
+        writer.join()
         read_file.close()
 
 
