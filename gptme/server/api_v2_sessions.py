@@ -144,6 +144,12 @@ def api_conversation_events(conversation_id: str):
         session_obj = SessionManager.get_session(session_id)
         if session_obj is None:
             return flask.jsonify({"error": f"Session not found: {session_id}"}), 404
+        if session_obj.conversation_id != conversation_id:
+            return flask.jsonify(
+                {
+                    "error": f"Session {session_id} does not belong to conversation {conversation_id}"
+                }
+            ), 400
         session = session_obj
 
     # Generate event stream
@@ -265,6 +271,12 @@ def api_conversation_step(conversation_id: str):
     session = SessionManager.get_session(session_id)
     if session is None:
         return flask.jsonify({"error": f"Session not found: {session_id}"}), 404
+    if session.conversation_id != conversation_id:
+        return flask.jsonify(
+            {
+                "error": f"Session {session_id} does not belong to conversation {conversation_id}"
+            }
+        ), 400
 
     logdir = get_logs_dir() / conversation_id
     chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
@@ -517,6 +529,12 @@ def api_conversation_tool_confirm(conversation_id: str):
         session = SessionManager.get_session(session_id)
         if session is None:
             return flask.jsonify({"error": f"Session not found: {session_id}"}), 404
+        if session.conversation_id != conversation_id:
+            return flask.jsonify(
+                {
+                    "error": f"Session {session_id} does not belong to conversation {conversation_id}"
+                }
+            ), 400
         if tool_id not in session.pending_tools:
             return flask.jsonify({"error": f"Tool not found: {tool_id}"}), 404
     else:
@@ -659,6 +677,12 @@ def api_conversation_rerun(conversation_id: str):
     session = SessionManager.get_session(session_id)
     if not session:
         return flask.jsonify({"error": f"Session not found: {session_id}"}), 404
+    if session.conversation_id != conversation_id:
+        return flask.jsonify(
+            {
+                "error": f"Session {session_id} does not belong to conversation {conversation_id}"
+            }
+        ), 400
 
     if session.generating:
         return flask.jsonify(
@@ -916,6 +940,12 @@ def api_conversation_interrupt(conversation_id: str):
     session = SessionManager.get_session(session_id)
     if session is None:
         return flask.jsonify({"error": f"Session not found: {session_id}"}), 404
+    if session.conversation_id != conversation_id:
+        return flask.jsonify(
+            {
+                "error": f"Session {session_id} does not belong to conversation {conversation_id}"
+            }
+        ), 400
 
     if not session.generating and not session.pending_tools:
         # Idempotent: if nothing is generating, treat as already interrupted
