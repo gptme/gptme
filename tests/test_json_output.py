@@ -14,6 +14,8 @@ import pytest
 from click.testing import CliRunner
 
 import gptme.cli.main as cli
+import gptme.init as gptme_init
+import gptme.llm as llm
 from gptme.message import Message, get_output_format, print_msg, set_output_format
 
 
@@ -213,6 +215,85 @@ class TestOutputFormatValidation:
         result = runner.invoke(cli.main, ["--help"])
         assert result.exit_code == 0
         assert "--output--format" in result.output or "--output-format" in result.output
+
+
+class TestJSONRuntimeSuppression:
+    """Runtime output in JSON mode must stay off the human-readable stdout rail."""
+
+    def test_init_model_suppresses_model_banner_in_json_mode(self, monkeypatch, capsys):
+        set_output_format("json")
+        monkeypatch.setattr(gptme_init, "init_llm", lambda _provider: None)
+        monkeypatch.setattr(gptme_init, "set_default_model", lambda _model: None)
+
+        gptme_init.init_model("openai/gpt-4o-mini", interactive=False)
+
+        captured = capsys.readouterr()
+        assert captured.out == ""
+
+    def test_guess_provider_suppresses_banner_in_json_mode(self, monkeypatch, capsys):
+        set_output_format("json")
+        monkeypatch.setattr(
+            llm,
+            "list_available_providers",
+            lambda: [("openai", "OPENAI_API_KEY")],
+        )
+
+        provider = llm.guess_provider_from_config()
+
+        captured = capsys.readouterr()
+        assert provider == "openai"
+        assert captured.out == ""
+
+    def test_streaming_reply_suppresses_progress_in_json_mode(
+        self, monkeypatch, capsys
+    ):
+        set_output_format("json")
+
+        def fake_stream():
+            yield "OK"
+            return {"model": "openai/gpt-4o-mini"}
+
+        monkeypatch.setattr(
+            llm,
+            "_stream",
+            lambda *args, **kwargs: llm._StreamWithMetadata(
+                fake_stream(), "openai/gpt-4o-mini"
+            ),
+        )
+
+        msg = llm._reply_stream(
+            [Message("user", "hello")],
+            "openai/gpt-4o-mini",
+            tools=None,
+            break_on_tooluse=False,
+            agent_name="bob",
+        )
+
+        captured = capsys.readouterr()
+        assert msg.content == "OK"
+        assert captured.out == ""
+
+    def test_nonstream_reply_suppresses_progress_in_json_mode(
+        self, monkeypatch, capsys
+    ):
+        set_output_format("json")
+        monkeypatch.setattr(llm, "init_llm", lambda _provider: None)
+        monkeypatch.setattr(
+            llm,
+            "_chat_complete",
+            lambda *args, **kwargs: ("OK", {"model": "openai/gpt-4o-mini"}),
+        )
+
+        msg = llm.reply(
+            [Message("user", "hello")],
+            model="openai/gpt-4o-mini",
+            tools=None,
+            stream=False,
+        )
+
+        captured = capsys.readouterr()
+        assert msg.content == "OK"
+        assert captured.out == ""
 
 
 class TestJSONRendering:
