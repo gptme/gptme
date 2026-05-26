@@ -655,6 +655,10 @@ It is used to store the model, toolset, tool format, and streaming/interactive m
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">LLM_API_TIMEOUT</span></code> - Set the timeout in seconds for LLM API requests (default: 600). Must be a valid numeric string (e.g., “600”, “1800”). Useful for local LLMs that may take longer to respond.</p></li>
 </ul>
+<p class="rubric">Browser Configuration</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">GPTME_BROWSER_CDP_URL</span></code> - Connect the Playwright browser backend to an existing Chromium-compatible browser over Chrome DevTools Protocol instead of launching Playwright’s bundled Chromium. Example: <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:9222</span></code>. Start Chrome/Chromium with <code class="docutils literal notranslate"><span class="pre">--remote-debugging-port=9222</span></code> to enable this.</p></li>
+</ul>
 <p class="rubric">Paths</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_LOGS_HOME</span></code> - Override the default logs folder location</p></li>

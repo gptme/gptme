@@ -2339,6 +2339,14 @@ pipx<span class="w"> </span>run<span class="w"> </span><span class="nv">playwrig
 </pre></div>
 </div>
 </li>
+<li><p>To use an existing Chromium-compatible browser over Chrome DevTools Protocol
+instead of launching Playwright’s bundled Chromium, start it with remote
+debugging enabled and set GPTME_BROWSER_CDP_URL:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>chromium<span class="w"> </span>--remote-debugging-port<span class="o">=</span><span class="m">9222</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_BROWSER_CDP_URL</span><span class="o">=</span>http://127.0.0.1:9222
+</pre></div>
+</div>
+</li>
 </ul>
 </dd>
 <dt>Lynx backend:</dt><dd><ul>

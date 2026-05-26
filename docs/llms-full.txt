@@ -2026,6 +2026,10 @@ Besides the configuration files, gptme supports several environment variables to
 
 - ``LLM_API_TIMEOUT`` - Set the timeout in seconds for LLM API requests (default: 600). Must be a valid numeric string (e.g., "600", "1800"). Useful for local LLMs that may take longer to respond.
 
+.. rubric:: Browser Configuration
+
+- ``GPTME_BROWSER_CDP_URL`` - Connect the Playwright browser backend to an existing Chromium-compatible browser over Chrome DevTools Protocol instead of launching Playwright's bundled Chromium. Example: ``http://127.0.0.1:9222``. Start Chrome/Chromium with ``--remote-debugging-port=9222`` to enable this.
+
 .. rubric:: Paths
 
 - ``GPTME_LOGS_HOME`` - Override the default logs folder location
