@@ -104,7 +104,17 @@ class MCPConfig:
         """Create a MCPConfig instance from a dictionary. Warns about unknown keys."""
         enabled = doc.pop("enabled", False)
         auto_start = doc.pop("auto_start", False)
-        servers = [MCPServerConfig(**server) for server in doc.pop("servers", [])]
+        raw_servers = doc.pop("servers", [])
+        if not isinstance(raw_servers, list):
+            raise ValueError("mcp.servers must be a list")
+        servers: list[MCPServerConfig] = []
+        for server in raw_servers:
+            if not isinstance(server, dict):
+                raise ValueError("mcp.servers entries must be objects")
+            try:
+                servers.append(MCPServerConfig(**server))
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"mcp.servers entry invalid: {e}") from e
         if doc:
             logger.warning(f"Unknown keys in MCP config: {doc.keys()}")
         return cls(

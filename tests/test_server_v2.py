@@ -2434,3 +2434,98 @@ def test_v2_agents_put_rejects_invalid_nested_project_config(
     data = response.get_json()
     assert data is not None
     assert data["error"] == "Invalid project_config: rag must be an object"
+
+
+def test_v2_agents_put_rejects_non_list_mcp_servers(
+    client: FlaskClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Agents PUT should return 400 when MCP servers is not a list."""
+
+    def fail_workspace(*args, **kwargs):
+        pytest.fail(
+            "create_workspace_from_template should not run for invalid project_config"
+        )
+
+    monkeypatch.setattr(
+        "gptme.server.api_v2_agents.create_workspace_from_template", fail_workspace
+    )
+
+    response = client.put(
+        "/api/v2/agents",
+        json={
+            "name": "bob2",
+            "template_repo": "https://example.com/repo.git",
+            "template_branch": "master",
+            "fork_command": "echo ok",
+            "project_config": {"mcp": {"servers": "not_a_list"}},
+        },
+    )
+
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data is not None
+    assert data["error"] == "Invalid project_config: servers must be a list"
+
+
+def test_v2_agents_put_rejects_non_object_mcp_server_entries(
+    client: FlaskClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Agents PUT should return 400 when an MCP server entry is not a dict."""
+
+    def fail_workspace(*args, **kwargs):
+        pytest.fail(
+            "create_workspace_from_template should not run for invalid project_config"
+        )
+
+    monkeypatch.setattr(
+        "gptme.server.api_v2_agents.create_workspace_from_template", fail_workspace
+    )
+
+    response = client.put(
+        "/api/v2/agents",
+        json={
+            "name": "bob2",
+            "template_repo": "https://example.com/repo.git",
+            "template_branch": "master",
+            "fork_command": "echo ok",
+            "project_config": {"mcp": {"servers": ["not_an_object"]}},
+        },
+    )
+
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data is not None
+    assert (
+        data["error"] == "Invalid project_config: mcp.servers entries must be objects"
+    )
+
+
+def test_v2_agents_put_rejects_bad_mcp_server_fields(
+    client: FlaskClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Agents PUT should return 400 when an MCP server entry has invalid field types."""
+
+    def fail_workspace(*args, **kwargs):
+        pytest.fail(
+            "create_workspace_from_template should not run for invalid project_config"
+        )
+
+    monkeypatch.setattr(
+        "gptme.server.api_v2_agents.create_workspace_from_template", fail_workspace
+    )
+
+    response = client.put(
+        "/api/v2/agents",
+        json={
+            "name": "bob2",
+            "template_repo": "https://example.com/repo.git",
+            "template_branch": "master",
+            "fork_command": "echo ok",
+            "project_config": {"mcp": {"servers": [{"name": 123}]}},
+        },
+    )
+
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data is not None
+    assert data["error"] == "Invalid project_config: servers entry invalid"
