@@ -53,7 +53,7 @@ function loadRegistry(): ServerRegistry {
  *  an instance-specific URL, so the hardcoded preset was always stale and causes CSP errors.
  *  Note: the previous migration only deleted the isPreset flag, so we filter by URL alone
  *  to also clean up entries that went through the old migration. */
-function migrateCloudPreset(registry: ServerRegistry): void {
+export function migrateCloudPreset(registry: ServerRegistry): void {
   const STALE_CLOUD_URL = 'https://api.gptme.ai';
   const normalized = (url: string) => url.toLowerCase().replace(/\/+$/, '');
   registry.servers = registry.servers.filter(

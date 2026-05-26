@@ -18,7 +18,7 @@ The web UI is used in several different configurations:
 | **Local dev** | Run alongside `gptme-server` for local development | `http://127.0.0.1:5700` |
 | **Desktop app** | Bundled in [gptme-tauri](https://github.com/gptme/gptme-tauri) as a native desktop app | Local gptme-server embedded |
 | **Hosted (open)** | Hosted at [chat.gptme.org](https://chat.gptme.org/) — bring your own server | User-configured |
-| **Cloud** | Managed service at [gptme.ai](https://gptme.ai) — no server setup needed | `https://api.gptme.ai` |
+| **Cloud** | Managed service at [gptme.ai](https://gptme.ai) — no server setup needed | Auto-discovered instance URL via the `gptme.ai` auth flow |
 | **Custom remote** | Connect to remote servers (VMs, workstations, agent instances) | User-configured |
 
 All modes use the same codebase. The multi-backend feature lets you connect to several of these simultaneously.

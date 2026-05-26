@@ -1,5 +1,6 @@
 import { describe, it, expect } from '@jest/globals';
-import { deriveServerName } from '../servers';
+import type { ServerRegistry } from '@/types/servers';
+import { deriveServerName, migrateCloudPreset } from '../servers';
 
 describe('deriveServerName', () => {
   it('returns "Local" for default-port localhost URLs', () => {
@@ -32,5 +33,44 @@ describe('deriveServerName', () => {
   it('returns "Server" for malformed URLs', () => {
     expect(deriveServerName('not-a-url')).toBe('Server');
     expect(deriveServerName('')).toBe('Server');
+  });
+});
+
+describe('migrateCloudPreset', () => {
+  it('removes the retired api.gptme.ai cloud preset by URL alone', () => {
+    const registry: ServerRegistry = {
+      activeServerId: 'stale',
+      connectedServerIds: ['stale', 'local'],
+      servers: [
+        {
+          id: 'stale',
+          name: 'Cloud',
+          baseUrl: 'https://API.GPTME.AI/',
+          authToken: 'token',
+          useAuthToken: true,
+          createdAt: 1,
+          lastUsedAt: 1,
+        },
+        {
+          id: 'local',
+          name: 'Local',
+          baseUrl: 'http://127.0.0.1:5700',
+          authToken: null,
+          useAuthToken: false,
+          createdAt: 2,
+          lastUsedAt: 2,
+          isPreset: true,
+        },
+      ],
+    };
+
+    migrateCloudPreset(registry);
+
+    expect(registry.servers).toEqual([
+      expect.objectContaining({
+        id: 'local',
+        baseUrl: 'http://127.0.0.1:5700',
+      }),
+    ]);
   });
 });
