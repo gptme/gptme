@@ -1030,12 +1030,18 @@ Pass eval or suite names to run, or result files to print.</p>
 <dl class="std option">
 <dt class="sig sig-object std" id="cmdoption-gptme-auth-login-url">
 <span class="sig-name descname"><span class="pre">--url</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;url&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-auth-login-url" title="Link to this definition">#</a></dt>
-<dd><p>gptme service URL to authenticate with.</p>
+<dd><p>gptme service URL (used for LLM API and token storage).</p>
 <dl class="field-list simple">
 <dt class="field-odd">Default<span class="colon">:</span></dt>
 <dd class="field-odd"><p><code class="docutils literal notranslate"><span class="pre">'https://fleet.gptme.ai'</span></code></p>
 </dd>
 </dl>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-auth-login-auth-url">
+<span class="sig-name descname"><span class="pre">--auth-url</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;auth_url&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-auth-login-auth-url" title="Link to this definition">#</a></dt>
+<dd><p>Override the device-auth endpoint base URL. Defaults to the Supabase edge function used by gptme.ai.</p>
 </dd></dl>
 
 <dl class="std option">
