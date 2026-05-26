@@ -9,7 +9,13 @@ def conversation_id_error(value: str) -> str | None:
         return "conversation name cannot be empty."
     if len(value.encode()) > _MAX_CONVERSATION_ID_BYTES:
         return "conversation name too long."
-    if value == "." or "/" in value or "\\" in value or ".." in value:
+    if (
+        value == "."
+        or "/" in value
+        or "\\" in value
+        or ".." in value
+        or "\x00" in value
+    ):
         return (
             "conversation name must be a single path component "
             "(no '.', '/', '\\\\', or '..')."
