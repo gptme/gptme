@@ -123,10 +123,8 @@ def test_chats_list(tmp_path, mocker):
     assert result.exit_code == 0
     assert "Chat One" in result.output
     assert "Chat Two" in result.output
-    assert "2024-01-01-chat-one" in result.output
-    assert "2024-01-01-chat-two" in result.output
-    assert "Messages: 1" in result.output  # First chat has 1 message
-    assert "Messages: 2" in result.output  # Second chat has 2 messages
+    assert "(1 msgs)" in result.output  # First chat has 1 message
+    assert "(2 msgs)" in result.output  # Second chat has 2 messages
     assert "Using browser tool with" not in result.output
 
 
