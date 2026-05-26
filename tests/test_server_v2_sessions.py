@@ -392,6 +392,23 @@ def test_session_endpoints_reject_non_object_json(
     assert response.get_json() == {"error": "JSON body must be an object"}
 
 
+@pytest.mark.parametrize(
+    "endpoint", ["step", "tool/confirm", "rerun", "elicit/respond", "interrupt"]
+)
+def test_session_endpoints_reject_malformed_json(
+    conv, client: FlaskClient, endpoint: str
+):
+    """Malformed JSON should return a structured 400 before field validation."""
+    response = client.post(
+        f"/api/v2/conversations/{conv['conversation_id']}/{endpoint}",
+        data="{bad:",
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "No JSON data provided"}
+
+
 class TestInterruptEndpoint:
     """Test POST /api/v2/conversations/<id>/interrupt validation."""
 

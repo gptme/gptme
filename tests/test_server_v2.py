@@ -1840,6 +1840,30 @@ def test_v2_create_conversation_malformed_json_body(client: FlaskClient):
     assert "No JSON data" in data["error"]
 
 
+def test_v2_edit_message_malformed_json_body(client: FlaskClient):
+    """PATCH /messages/<index> with malformed JSON should return a JSON 400."""
+    conversation_id = create_conversation(client)["conversation_id"]
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "Original message"},
+    )
+    assert response.status_code == 200
+
+    conversation = client.get(f"/api/v2/conversations/{conversation_id}").get_json()
+    assert conversation is not None
+    user_index = len(conversation["log"]) - 1
+
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/messages/{user_index}",
+        data="{bad:",
+        content_type="application/json",
+    )
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data is not None
+    assert "No JSON data" in data["error"]
+
+
 @pytest.mark.parametrize("messages", ["not-a-list", 42, {"key": "val"}])
 def test_v2_create_conversation_messages_not_list(
     client: FlaskClient, messages: object

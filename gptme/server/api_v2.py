@@ -780,6 +780,8 @@ def api_conversation_edit_message(conversation_id: str, index: int):
 
     req_json = request.get_json(silent=True)
     if req_json is None:
+        if request.get_data(cache=True):
+            return flask.jsonify({"error": "No JSON data provided"}), 400
         req_json = {}
     elif not isinstance(req_json, dict):
         return flask.jsonify({"error": "JSON body must be an object"}), 400

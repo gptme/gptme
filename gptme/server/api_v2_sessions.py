@@ -66,10 +66,14 @@ def _get_request_json_object() -> dict | tuple[flask.Response, int]:
     """Return request JSON as an object or a 400 error response.
 
     Session endpoints expect JSON objects. Arrays/strings/numbers would make
-    later `.get()` access crash with AttributeError and return 500s.
+    later `.get()` access crash with AttributeError and return 500s. When the
+    client sends a non-empty malformed JSON body, surface a structured 400 here
+    instead of falling through to misleading "field is required" errors.
     """
     req_json = request.get_json(silent=True)
     if req_json is None:
+        if request.get_data(cache=True):
+            return flask.jsonify({"error": "No JSON data provided"}), 400
         return {}
     if not isinstance(req_json, dict):
         return flask.jsonify({"error": "JSON body must be an object"}), 400
