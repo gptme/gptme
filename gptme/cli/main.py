@@ -211,6 +211,19 @@ def _extract_missing_explicit_local_path(prompt: str) -> str | None:
     return candidate
 
 
+def _find_missing_explicit_local_path(prompts: list[str]) -> str | None:
+    """Return the first missing explicit local-path prompt in raw CLI argv order.
+
+    This catches mixed positional argv like ``gptme missing.py "fix it"`` before
+    prompt arguments are merged into a single message, where the path would
+    otherwise be masked by surrounding text.
+    """
+    for prompt in prompts:
+        if missing := _extract_missing_explicit_local_path(prompt):
+            return missing
+    return None
+
+
 commands_help = "\n".join(_gen_help(incl_langtags=False))
 _builtin_tools = get_available_tools(include_mcp=False)
 _known_tool_names = sorted(tool.name for tool in _builtin_tools)
@@ -655,6 +668,13 @@ def main(
 
     # join prompts, grouped by `-` if present, since that's the separator for "chained"/multiple-round prompts
     sep = "\n\n" + MULTIPROMPT_SEPARATOR
+
+    if missing_path := _find_missing_explicit_local_path(prompts):
+        raise click.UsageError(
+            "Prompt looks like an explicit local path, but it does not exist: "
+            f"{missing_path}"
+        )
+
     prompts = [p.strip() for p in "\n\n".join(prompts).split(sep) if p]
     # File paths in multiprompts are expanded at runtime by include_paths() in
     # _run_chat_loop (gptme/chat.py:194), not at parse time. Each prompt from the

@@ -193,6 +193,39 @@ class TestOutputFormatValidation:
         assert "explicit local path" in result.stderr
         assert str(missing_path) in result.stderr
 
+    def test_json_missing_explicit_path_with_other_prompt_keeps_stdout_clean(
+        self, tmp_path
+    ):
+        """Mixed prompt/path argv should still fail before any JSON stdout output."""
+        runner_cls: Any = CliRunner
+        try:
+            runner = runner_cls(mix_stderr=False)
+        except TypeError:
+            runner = runner_cls()
+        missing_path = tmp_path / "missing-prompt.txt"
+        result = runner.invoke(
+            cli.main,
+            [
+                "--output-format",
+                "json",
+                "--non-interactive",
+                str(missing_path),
+                "hello",
+            ],
+            env={
+                "HOME": str(tmp_path),
+                "XDG_DATA_HOME": str(tmp_path),
+                "XDG_STATE_HOME": str(tmp_path / "state"),
+            },
+        )
+
+        assert result.exit_code == 2
+        assert result.stdout.strip() == "", (
+            "stdout must stay empty on early JSON-mode prompt validation errors"
+        )
+        assert "explicit local path" in result.stderr
+        assert str(missing_path) in result.stderr
+
     def test_noninteractive_missing_prompt_has_no_fake_resume_hint(
         self, monkeypatch, tmp_path: Path
     ):
