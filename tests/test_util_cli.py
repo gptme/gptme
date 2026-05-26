@@ -818,3 +818,37 @@ def test_llm_generate_prepends_system_message(monkeypatch):
         f"First message must be system, got {captured[0].role!r}; "
         f"Anthropic rejects conversations without a leading system message"
     )
+
+
+def test_llm_generate_prepends_system_message_stream(monkeypatch):
+    """--stream path must also prepend a system message (same message list is used for both paths)."""
+    import unittest.mock as mock
+
+    captured: list = []
+
+    def fake_stream(messages, model, tools):
+        captured.extend(messages)
+        yield "ok"
+
+    monkeypatch.setattr("gptme.llm._stream", fake_stream)
+    monkeypatch.setattr("gptme.init.init", lambda *a, **kw: None)
+    monkeypatch.setattr("gptme.llm.get_provider_from_model", lambda m: mock.MagicMock())
+    monkeypatch.setattr("gptme.llm.init_llm", lambda *a, **kw: None)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "llm",
+            "generate",
+            "--stream",
+            "--model",
+            "anthropic/claude-sonnet-4-6",
+            "hello",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured, "No messages were passed to _stream"
+    assert captured[0].role == "system", (
+        f"First message must be system, got {captured[0].role!r}"
+    )
