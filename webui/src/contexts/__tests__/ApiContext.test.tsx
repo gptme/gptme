@@ -2,7 +2,7 @@ import '@testing-library/jest-dom';
 import { render, waitFor } from '@testing-library/react';
 import { observable } from '@legendapp/state';
 import { QueryClient } from '@tanstack/react-query';
-import { ApiProvider } from '../ApiContext';
+import { ApiProvider, shouldSkipHostedLoopbackAutoConnect } from '../ApiContext';
 import type { ConnectionProbeResult } from '@/utils/api';
 
 const mockCheckConnection = jest.fn();
@@ -241,5 +241,29 @@ describe('ApiProvider mobile auto-connect', () => {
       },
       { timeout: 2000 }
     );
+  });
+});
+
+describe('shouldSkipHostedLoopbackAutoConnect', () => {
+  it('skips loopback auto-connect on hosted browser origins', () => {
+    expect(
+      shouldSkipHostedLoopbackAutoConnect('http://127.0.0.1:5700', 'https://chat.gptme.org', false)
+    ).toBe(true);
+  });
+
+  it('keeps loopback auto-connect for localhost dev origins', () => {
+    expect(
+      shouldSkipHostedLoopbackAutoConnect('http://127.0.0.1:5700', 'http://localhost:4173', false)
+    ).toBe(false);
+  });
+
+  it('does not skip non-loopback targets', () => {
+    expect(
+      shouldSkipHostedLoopbackAutoConnect(
+        'https://bob.example.com',
+        'https://chat.gptme.org',
+        false
+      )
+    ).toBe(false);
   });
 });

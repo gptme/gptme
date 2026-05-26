@@ -63,8 +63,25 @@ const MAX_AUTO_CONNECT_ATTEMPTS = 10;
 const INITIAL_RETRY_DELAY = 1000;
 const DEFAULT_LOCAL_SERVER_URL = 'http://127.0.0.1:5700';
 
-function isInitialMobileLocalTarget(baseUrl: string): boolean {
+function isDefaultLoopbackTarget(baseUrl: string): boolean {
   return ['http://127.0.0.1:5700', 'http://localhost:5700'].includes(baseUrl.replace(/\/+$/, ''));
+}
+
+export function shouldSkipHostedLoopbackAutoConnect(
+  baseUrl: string,
+  pageOrigin: string,
+  isTauri: boolean
+): boolean {
+  if (isTauri || !isDefaultLoopbackTarget(baseUrl)) {
+    return false;
+  }
+
+  try {
+    const parsedOrigin = new URL(pageOrigin);
+    return !['localhost', '127.0.0.1', '[::1]'].includes(parsedOrigin.hostname);
+  } catch {
+    return false;
+  }
 }
 
 const stopAutoConnect = () => {
@@ -365,7 +382,12 @@ export function ApiProvider({
     : { baseUrl: DEFAULT_LOCAL_SERVER_URL, authToken: null, useAuthToken: false };
 
   const shouldSkipInitialMobileAutoConnect =
-    isTauri && managesLocalServer === false && isInitialMobileLocalTarget(connectionConfig.baseUrl);
+    isTauri && managesLocalServer === false && isDefaultLoopbackTarget(connectionConfig.baseUrl);
+  const shouldSkipHostedLoopbackAutoConnectOnFirstLoad = shouldSkipHostedLoopbackAutoConnect(
+    connectionConfig.baseUrl,
+    window.location.origin,
+    isTauri
+  );
 
   // Primary client from pool (re-resolved each render to pick up changes)
   const api = getPrimaryClient();
@@ -376,6 +398,7 @@ export function ApiProvider({
     if (hasAuthCodeInHash(currentHash)) return;
     if (isTauri && isLoadingTauriStatus) return;
     if (shouldSkipInitialMobileAutoConnect) return;
+    if (shouldSkipHostedLoopbackAutoConnectOnFirstLoad) return;
 
     void (async () => {
       console.log('[ApiContext] Attempting initial connection');
@@ -386,6 +409,7 @@ export function ApiProvider({
     connectionConfig.baseUrl,
     isLoadingTauriStatus,
     isTauri,
+    shouldSkipHostedLoopbackAutoConnectOnFirstLoad,
     shouldSkipInitialMobileAutoConnect,
   ]);
 
