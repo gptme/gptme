@@ -677,12 +677,10 @@ def api_conversation_post(conversation_id: str):
         )
 
     # Validate and convert file paths from JSON strings to Path objects
-    files_raw = req_json.get("files", [])
-    if not isinstance(files_raw, list) or not all(
-        isinstance(f, str) for f in files_raw
-    ):
-        return flask.jsonify({"error": "files must be a list of strings"}), 400
-    file_paths = [Path(f) for f in files_raw]
+    files_result = _get_optional_string_list_field(req_json, "files")
+    if isinstance(files_result, tuple):
+        return files_result
+    file_paths = [Path(f) for f in files_result] if files_result is not None else []
     msg = Message(
         req_json["role"],
         req_json["content"],
