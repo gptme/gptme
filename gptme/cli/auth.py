@@ -75,11 +75,11 @@ def auth_login(url: str, auth_url: str | None, no_browser: bool):
 
     # Step 1: Request device authorization
     try:
-        resp = requests.post(authorize_url, timeout=15)
+        resp = requests.post(authorize_url, json={"client_id": "gptme-cli"}, timeout=15)
         resp.raise_for_status()
     except requests.exceptions.ConnectionError:
-        console.print(f"[red]✗ Could not connect to {base_url}[/red]")
-        console.print("  Is the service running? Check your --url argument.")
+        console.print(f"[red]✗ Could not connect to {auth_base}[/red]")
+        console.print("  Check your --auth-url argument.")
         sys.exit(1)
     except requests.exceptions.HTTPError as e:
         console.print(
@@ -130,6 +130,7 @@ def auth_login(url: str, auth_url: str | None, no_browser: bool):
             poll_resp = requests.post(
                 token_url,
                 json={
+                    "client_id": "gptme-cli",
                     "device_code": device_code,
                     "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
                 },
