@@ -1098,3 +1098,34 @@ class TestTranscriptEndpointInputValidation:
         assert response.status_code == 200
         data = response.get_json()
         assert data["messages_added"] == 2
+
+    @pytest.mark.parametrize(
+        "bad_call_sid",
+        [12345, 0, True, False, {"nested": "obj"}, {}, [1, 2, 3], []],
+        ids=[
+            "truthy-integer",
+            "falsy-integer",
+            "truthy-bool",
+            "falsy-bool",
+            "truthy-object",
+            "falsy-object",
+            "truthy-array",
+            "falsy-array",
+        ],
+    )
+    def test_transcript_non_string_call_sid_returns_400(
+        self, bad_call_sid, client: FlaskClient
+    ):
+        """call_metadata.call_sid must be a string; non-strings must return 400."""
+        convname = f"test-transcript-{uuid.uuid4().hex[:8]}"
+        response = client.post(
+            f"/api/v2/conversations/{convname}/transcript",
+            json={
+                "turns": [{"role": "user", "text": "hello"}],
+                "call_metadata": {"call_sid": bad_call_sid},
+            },
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert "call_sid" in data["error"]

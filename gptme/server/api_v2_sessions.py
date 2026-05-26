@@ -935,8 +935,10 @@ def api_conversation_transcript(conversation_id: str):
         return flask.jsonify({"error": "call_metadata (object) is required"}), 400
 
     call_sid = call_metadata.get("call_sid")
-    if not call_sid:
+    if call_sid is None or call_sid == "":
         return flask.jsonify({"error": "call_metadata.call_sid is required"}), 400
+    if not isinstance(call_sid, str):
+        return flask.jsonify({"error": "call_metadata.call_sid must be a string"}), 400
 
     with LogManager.load(conversation_id, lock=True, create=True) as manager:
         # Idempotency check: scan existing messages for this call_sid in metadata
