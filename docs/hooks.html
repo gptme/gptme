@@ -462,7 +462,7 @@
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-types">Hook Types</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#message-lifecycle-hooks">Message Lifecycle Hooks</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#turn-and-step-lifecycle-hooks">Turn And Step Lifecycle Hooks</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-lifecycle-hooks">Tool Lifecycle Hooks</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#file-operation-hooks">File Operation Hooks</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#session-lifecycle-hooks">Session Lifecycle Hooks</a></li>
@@ -524,29 +524,34 @@
 <section id="hook-types">
 <h2>Hook Types<a class="headerlink" href="#hook-types" title="Link to this heading">#</a></h2>
 <p>The following hook types are available:</p>
-<section id="message-lifecycle-hooks">
-<h3>Message Lifecycle Hooks<a class="headerlink" href="#message-lifecycle-hooks" title="Link to this heading">#</a></h3>
+<section id="turn-and-step-lifecycle-hooks">
+<h3>Turn And Step Lifecycle Hooks<a class="headerlink" href="#turn-and-step-lifecycle-hooks" title="Link to this heading">#</a></h3>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">MESSAGE_PRE_PROCESS</span></code>: Before processing a user message</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">MESSAGE_POST_PROCESS</span></code>: After message processing completes</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">MESSAGE_TRANSFORM</span></code>: Transform message content before processing</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">TURN_PRE</span></code>: Once per submitted user prompt, before the turn starts</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">STEP_PRE</span></code>: Before each generation/tool-execution step within a turn</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">STEP_POST</span></code>: After each step completes</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">TURN_POST</span></code>: After the whole turn completes</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">MESSAGE_TRANSFORM</span></code>: Rewrite assistant message content before persistence/display</p></li>
 </ul>
+<p><code class="docutils literal notranslate"><span class="pre">TURN_PRE</span></code> is the clean “user prompt submitted” surface. <code class="docutils literal notranslate"><span class="pre">STEP_PRE</span></code> may run
+multiple times inside one turn if the assistant keeps calling tools.</p>
 </section>
 <section id="tool-lifecycle-hooks">
 <h3>Tool Lifecycle Hooks<a class="headerlink" href="#tool-lifecycle-hooks" title="Link to this heading">#</a></h3>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">TOOL_PRE_EXECUTE</span></code>: Before executing any tool</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">TOOL_POST_EXECUTE</span></code>: After executing any tool</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">TOOL_EXECUTE_PRE</span></code>: Before executing any tool</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">TOOL_EXECUTE_POST</span></code>: After executing any tool</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">TOOL_TRANSFORM</span></code>: Transform tool execution</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">TOOL_CONFIRM</span></code>: Blocking confirmation/deny decision before execution</p></li>
 </ul>
 </section>
 <section id="file-operation-hooks">
 <h3>File Operation Hooks<a class="headerlink" href="#file-operation-hooks" title="Link to this heading">#</a></h3>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">FILE_PRE_SAVE</span></code>: Before saving a file</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">FILE_POST_SAVE</span></code>: After saving a file</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">FILE_PRE_PATCH</span></code>: Before patching a file</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">FILE_POST_PATCH</span></code>: After patching a file</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">FILE_SAVE_PRE</span></code>: Before saving a file</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">FILE_SAVE_POST</span></code>: After saving a file</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">FILE_PATCH_PRE</span></code>: Before patching a file</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">FILE_PATCH_POST</span></code>: After patching a file</p></li>
 </ul>
 </section>
 <section id="session-lifecycle-hooks">
@@ -585,8 +590,8 @@
     <span class="n">name</span><span class="o">=</span><span class="s2">&quot;linter&quot;</span><span class="p">,</span>
     <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;Automatic linting tool&quot;</span><span class="p">,</span>
     <span class="n">hooks</span><span class="o">=</span><span class="p">{</span>
-        <span class="s2">&quot;file_save&quot;</span><span class="p">:</span> <span class="p">(</span>
-            <span class="n">HookType</span><span class="o">.</span><span class="n">FILE_POST_SAVE</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>  <span class="c1"># Hook type</span>
+         <span class="s2">&quot;file_save&quot;</span><span class="p">:</span> <span class="p">(</span>
+            <span class="n">HookType</span><span class="o">.</span><span class="n">FILE_SAVE_POST</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>  <span class="c1"># Hook type</span>
             <span class="n">on_file_save</span><span class="p">,</span>                    <span class="c1"># Hook function</span>
             <span class="mi">10</span>                               <span class="c1"># Priority (higher = runs first)</span>
         <span class="p">)</span>
@@ -599,15 +604,16 @@
 <h3>Registering Hooks Programmatically<a class="headerlink" href="#registering-hooks-programmatically" title="Link to this heading">#</a></h3>
 <p>You can also register hooks directly:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">gptme.hooks</span> <span class="kn">import</span> <span class="n">register_hook</span><span class="p">,</span> <span class="n">HookType</span>
+<span class="kn">from</span> <span class="nn">gptme.hooks.confirm</span> <span class="kn">import</span> <span class="n">ConfirmationResult</span>
 
-<span class="k">def</span> <span class="nf">my_hook_function</span><span class="p">(</span><span class="n">log</span><span class="p">,</span> <span class="n">workspace</span><span class="p">):</span>
+<span class="k">def</span> <span class="nf">my_hook_function</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Custom hook function.&quot;&quot;&quot;</span>
     <span class="c1"># Do something</span>
     <span class="k">return</span> <span class="n">Message</span><span class="p">(</span><span class="s2">&quot;system&quot;</span><span class="p">,</span> <span class="s2">&quot;Hook executed!&quot;</span><span class="p">)</span>
 
 <span class="n">register_hook</span><span class="p">(</span>
     <span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_custom_hook&quot;</span><span class="p">,</span>
-    <span class="n">hook_type</span><span class="o">=</span><span class="n">HookType</span><span class="o">.</span><span class="n">MESSAGE_PRE_PROCESS</span><span class="p">,</span>
+    <span class="n">hook_type</span><span class="o">=</span><span class="n">HookType</span><span class="o">.</span><span class="n">TURN_PRE</span><span class="p">,</span>
     <span class="n">func</span><span class="o">=</span><span class="n">my_hook_function</span><span class="p">,</span>
     <span class="n">priority</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
     <span class="n">enabled</span><span class="o">=</span><span class="kc">True</span>
@@ -618,21 +624,25 @@
 <section id="hook-function-signatures">
 <h3>Hook Function Signatures<a class="headerlink" href="#hook-function-signatures" title="Link to this heading">#</a></h3>
 <p>Hook functions receive different arguments depending on the hook type:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Message hooks</span>
-<span class="k">def</span> <span class="nf">message_hook</span><span class="p">(</span><span class="n">log</span><span class="p">,</span> <span class="n">workspace</span><span class="p">):</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Turn/step hooks</span>
+<span class="k">def</span> <span class="nf">turn_hook</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
     <span class="k">pass</span>
 
 <span class="c1"># Tool hooks</span>
-<span class="k">def</span> <span class="nf">tool_hook</span><span class="p">(</span><span class="n">tool_name</span><span class="p">,</span> <span class="n">tool_use</span><span class="p">):</span>
+<span class="k">def</span> <span class="nf">tool_hook</span><span class="p">(</span><span class="n">log</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">tool_use</span><span class="p">):</span>
     <span class="k">pass</span>
 
 <span class="c1"># File hooks</span>
-<span class="k">def</span> <span class="nf">file_hook</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">content</span><span class="p">,</span> <span class="n">created</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+<span class="k">def</span> <span class="nf">file_hook</span><span class="p">(</span><span class="n">log</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">content</span><span class="p">,</span> <span class="n">created</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
     <span class="k">pass</span>
 
 <span class="c1"># Session hooks</span>
-<span class="k">def</span> <span class="nf">session_hook</span><span class="p">(</span><span class="n">logdir</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">manager</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">initial_msgs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="k">def</span> <span class="nf">session_hook</span><span class="p">(</span><span class="n">logdir</span><span class="p">,</span> <span class="n">workspace</span><span class="p">,</span> <span class="n">initial_msgs</span><span class="p">):</span>
     <span class="k">pass</span>
+
+<span class="c1"># Confirmation hooks</span>
+<span class="k">def</span> <span class="nf">confirm_hook</span><span class="p">(</span><span class="n">tool_use</span><span class="p">,</span> <span class="n">preview</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">workspace</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">ConfirmationResult</span><span class="o">.</span><span class="n">confirm</span><span class="p">()</span>
 </pre></div>
 </div>
 <p>Hook functions can:</p>
@@ -654,7 +664,7 @@
 <span class="n">all_hooks</span> <span class="o">=</span> <span class="n">get_hooks</span><span class="p">()</span>
 
 <span class="c1"># Get hooks of a specific type</span>
-<span class="n">tool_hooks</span> <span class="o">=</span> <span class="n">get_hooks</span><span class="p">(</span><span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_POST_EXECUTE</span><span class="p">)</span>
+<span class="n">tool_hooks</span> <span class="o">=</span> <span class="n">get_hooks</span><span class="p">(</span><span class="n">HookType</span><span class="o">.</span><span class="n">TOOL_EXECUTE_POST</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
@@ -675,7 +685,7 @@
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">gptme.hooks</span> <span class="kn">import</span> <span class="n">unregister_hook</span><span class="p">,</span> <span class="n">HookType</span>
 
 <span class="c1"># Unregister from specific type</span>
-<span class="n">unregister_hook</span><span class="p">(</span><span class="s2">&quot;my_hook&quot;</span><span class="p">,</span> <span class="n">HookType</span><span class="o">.</span><span class="n">FILE_POST_SAVE</span><span class="p">)</span>
+<span class="n">unregister_hook</span><span class="p">(</span><span class="s2">&quot;my_hook&quot;</span><span class="p">,</span> <span class="n">HookType</span><span class="o">.</span><span class="n">FILE_SAVE_POST</span><span class="p">)</span>
 
 <span class="c1"># Unregister from all types</span>
 <span class="n">unregister_hook</span><span class="p">(</span><span class="s2">&quot;my_hook&quot;</span><span class="p">)</span>
@@ -715,7 +725,7 @@
     <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;Automatic pre-commit checks&quot;</span><span class="p">,</span>
     <span class="n">hooks</span><span class="o">=</span><span class="p">{</span>
         <span class="s2">&quot;precommit_check&quot;</span><span class="p">:</span> <span class="p">(</span>
-            <span class="n">HookType</span><span class="o">.</span><span class="n">FILE_POST_SAVE</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+            <span class="n">HookType</span><span class="o">.</span><span class="n">FILE_SAVE_POST</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
             <span class="n">run_precommit</span><span class="p">,</span>
             <span class="mi">5</span>  <span class="c1"># Run after other hooks</span>
         <span class="p">)</span>
@@ -769,7 +779,7 @@
     <span class="n">name</span><span class="o">=</span><span class="s2">&quot;linter&quot;</span><span class="p">,</span>
     <span class="n">desc</span><span class="o">=</span><span class="s2">&quot;Automatic Python linting&quot;</span><span class="p">,</span>
     <span class="n">hooks</span><span class="o">=</span><span class="p">{</span>
-        <span class="s2">&quot;lint&quot;</span><span class="p">:</span> <span class="p">(</span><span class="n">HookType</span><span class="o">.</span><span class="n">FILE_POST_SAVE</span><span class="o">.</span><span class="n">value</span><span class="p">,</span> <span class="n">lint_file</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+        <span class="s2">&quot;lint&quot;</span><span class="p">:</span> <span class="p">(</span><span class="n">HookType</span><span class="o">.</span><span class="n">FILE_SAVE_POST</span><span class="o">.</span><span class="n">value</span><span class="p">,</span> <span class="n">lint_file</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
     <span class="p">}</span>
 <span class="p">)</span>
 </pre></div>
@@ -867,7 +877,7 @@
 <span class="n">tool</span> <span class="o">=</span> <span class="n">ToolSpec</span><span class="p">(</span>
     <span class="n">name</span><span class="o">=</span><span class="s2">&quot;precommit&quot;</span><span class="p">,</span>
     <span class="n">hooks</span><span class="o">=</span><span class="p">{</span>
-        <span class="s2">&quot;check&quot;</span><span class="p">:</span> <span class="p">(</span><span class="n">HookType</span><span class="o">.</span><span class="n">MESSAGE_POST_PROCESS</span><span class="o">.</span><span class="n">value</span><span class="p">,</span> <span class="n">precommit_hook</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+        <span class="s2">&quot;check&quot;</span><span class="p">:</span> <span class="p">(</span><span class="n">HookType</span><span class="o">.</span><span class="n">TURN_POST</span><span class="o">.</span><span class="n">value</span><span class="p">,</span> <span class="n">precommit_hook</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
     <span class="p">}</span>
 <span class="p">)</span>
 </pre></div>
@@ -967,7 +977,7 @@ If not provided, defaults will be loaded from env/config.</p></li>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#hook-types">Hook Types</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#message-lifecycle-hooks">Message Lifecycle Hooks</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#turn-and-step-lifecycle-hooks">Turn And Step Lifecycle Hooks</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-lifecycle-hooks">Tool Lifecycle Hooks</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#file-operation-hooks">File Operation Hooks</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#session-lifecycle-hooks">Session Lifecycle Hooks</a></li>
