@@ -406,7 +406,7 @@ def test_session_endpoints_reject_malformed_json(
     )
 
     assert response.status_code == 400
-    assert response.get_json() == {"error": "No JSON data provided"}
+    assert response.get_json() == {"error": "Malformed JSON in request body"}
 
 
 class TestInterruptEndpoint:

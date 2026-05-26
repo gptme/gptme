@@ -73,7 +73,7 @@ def _get_request_json_object() -> dict | tuple[flask.Response, int]:
     req_json = request.get_json(silent=True)
     if req_json is None:
         if request.get_data(cache=True):
-            return flask.jsonify({"error": "No JSON data provided"}), 400
+            return flask.jsonify({"error": "Malformed JSON in request body"}), 400
         return {}
     if not isinstance(req_json, dict):
         return flask.jsonify({"error": "JSON body must be an object"}), 400
