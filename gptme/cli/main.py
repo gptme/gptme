@@ -675,6 +675,27 @@ def main(
             f"{missing_path}"
         )
 
+    # Validate and resolve --output-schema early (format: "module:ClassName"),
+    # before creating a logdir or running setup. An explicit but malformed or
+    # unloadable schema is a usage error, not something to silently ignore — the
+    # user explicitly asked for structured output.
+    output_schema_type: type | None = None
+    if output_schema:
+        if ":" not in output_schema:
+            raise click.UsageError(
+                f"Invalid --output-schema format: '{output_schema}'. "
+                "Expected 'module:ClassName' (e.g. 'mymodule:MyModel')."
+            )
+        module_name, class_name = output_schema.rsplit(":", 1)
+        try:
+            module = importlib.import_module(module_name)
+            output_schema_type = getattr(module, class_name)
+        except (ImportError, AttributeError) as e:
+            raise click.UsageError(
+                f"Could not load --output-schema '{output_schema}': {e}. "
+                "Verify the module is installed and the class name is correct."
+            ) from e
+
     prompts = [p.strip() for p in "\n\n".join(prompts).split(sep) if p]
     # File paths in multiprompts are expanded at runtime by include_paths() in
     # _run_chat_loop (gptme/chat.py:194), not at parse time. Each prompt from the
@@ -839,26 +860,6 @@ def main(
     # register a handler for Ctrl-C
     set_interruptible()  # prepare, user should be able to Ctrl+C until user prompt ready
     signal.signal(signal.SIGINT, handle_keyboard_interrupt)
-
-    # Parse output_schema if provided (format: "module:ClassName")
-    output_schema_type: type | None = None
-    if output_schema:
-        try:
-            if ":" in output_schema:
-                module_name, class_name = output_schema.rsplit(":", 1)
-
-                module = importlib.import_module(module_name)
-                output_schema_type = getattr(module, class_name)
-            else:
-                logger.warning(
-                    f"Invalid output_schema format: '{output_schema}'. "
-                    "Expected 'module:ClassName' (e.g. 'mymodule:MyModel')"
-                )
-        except (ImportError, AttributeError) as e:
-            logger.warning(
-                f"Could not load output_schema '{output_schema}': {e}. "
-                "Verify the module is installed and the class name is correct."
-            )
 
     # Architect/editor split: if enabled via CLI flag OR via TOML config
     _toml_architect_enabled = bool(

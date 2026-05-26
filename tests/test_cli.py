@@ -386,6 +386,44 @@ def test_missing_explicit_path_prompt_is_reported_as_usage_error(
     assert "Traceback" not in result.output
 
 
+def test_malformed_output_schema_is_reported_as_usage_error(runner: CliRunner):
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--name",
+            "malformed-output-schema",
+            "--output-schema",
+            "notamodule",  # missing ':ClassName'
+            "hello",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "--output-schema" in result.output
+    assert "notamodule" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_unloadable_output_schema_is_reported_as_usage_error(runner: CliRunner):
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--name",
+            "unloadable-output-schema",
+            "--output-schema",
+            "gptme.message:NoSuchClass",  # real module, missing class
+            "hello",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "--output-schema" in result.output
+    assert "gptme.message:NoSuchClass" in result.output
+    assert "Traceback" not in result.output
+
+
 @pytest.mark.parametrize(
     "prompts",
     [
