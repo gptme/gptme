@@ -389,11 +389,9 @@ def llm_generate(prompt: str | None, model: str | None, stream: bool):
         if not model:
             default_model = get_default_model()
             if not default_model:
-                print(
-                    "Error: No model specified and no default model available.",
-                    file=sys.stderr,
+                raise click.UsageError(
+                    "No model specified and no default model available."
                 )
-                sys.exit(1)
             model = default_model.full
 
         # Ensure provider is initialized
