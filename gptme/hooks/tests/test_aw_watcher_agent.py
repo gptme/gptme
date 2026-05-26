@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import cast
 from unittest.mock import patch
 
+from gptme.hooks import HookRegistry, HookType, get_registry, set_registry, trigger_hook
 from gptme.hooks.aw_watcher_agent import emit_end, emit_start
 from gptme.logmanager import LogManager
 
@@ -55,6 +56,42 @@ def test_emit_end_shells_out_when_enabled(monkeypatch):
     argv = run.call_args.args[0]
     assert argv[:2] == ["aw-watcher-agent", "emit-end"]
     assert "--session-id" in argv and "conv123" in argv
+
+
+def test_session_end_hook_accepts_trigger_kwargs(monkeypatch):
+    """Registered session.end hook should tolerate extra trigger kwargs."""
+    from gptme.hooks.aw_watcher_agent import register
+
+    monkeypatch.setenv("GPTME_AW_WATCHER_AGENT", "1")
+    manager = cast(
+        LogManager,
+        SimpleNamespace(
+            logdir=Path("/tmp/conv123"),
+            workspace=Path("/tmp/workspace"),
+        ),
+    )
+
+    old = get_registry()
+    set_registry(HookRegistry())
+    try:
+        register()
+        with patch(
+            "gptme.hooks.aw_watcher_agent.subprocess.run",
+            return_value=_completed(),
+        ) as run:
+            assert (
+                list(
+                    trigger_hook(
+                        HookType.SESSION_END,
+                        logdir=Path("/tmp/conv123"),
+                        manager=manager,
+                    )
+                )
+                == []
+            )
+        run.assert_called_once()
+    finally:
+        set_registry(old)
 
 
 def test_emit_start_noops_when_disabled(monkeypatch):

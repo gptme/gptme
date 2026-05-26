@@ -130,11 +130,13 @@ def emit_start(
     yield
 
 
-def emit_end(manager: LogManager) -> Generator[Message | StopPropagation, None, None]:
+def emit_end(
+    manager: LogManager, **kwargs
+) -> Generator[Message | StopPropagation, None, None]:
     """Emit a session-end event matching the earlier session-start emission."""
     if not _enabled():
         return
-    logdir = getattr(manager, "logdir", None)
+    logdir = getattr(manager, "logdir", None) or kwargs.get("logdir")
     workspace = getattr(manager, "workspace", None)
     if logdir is None:
         return
