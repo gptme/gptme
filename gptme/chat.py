@@ -198,6 +198,14 @@ def _run_chat_loop(
                 if msg.role == "user" and execute_cmd(msg, manager):
                     continue
 
+                if msg.role == "user":
+                    if turn_pre_msgs := trigger_hook(
+                        HookType.TURN_PRE,
+                        manager=manager,
+                    ):
+                        for hook_msg in turn_pre_msgs:
+                            manager.append(hook_msg)
+
                 # Process the message and get response
                 try:
                     _process_message_conversation(
@@ -245,6 +253,16 @@ def _run_chat_loop(
                     # Handle user commands
                     if msg.role == "user" and execute_cmd(msg, manager):
                         continue
+
+                    # Trigger turn.pre hooks once per submitted user prompt,
+                    # after the prompt is appended and command handling has
+                    # declined to consume it.
+                    if turn_pre_msgs := trigger_hook(
+                        HookType.TURN_PRE,
+                        manager=manager,
+                    ):
+                        for hook_msg in turn_pre_msgs:
+                            manager.append(hook_msg)
 
                     # Process the message and get response
                     _process_message_conversation(

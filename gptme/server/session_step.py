@@ -590,6 +590,18 @@ def step(
         )
         os.chdir(workspace)
 
+    # Trigger TURN_PRE once per submitted user prompt before the step starts.
+    # This gives hooks a stable "user prompt submitted" lifecycle point that is
+    # distinct from step.pre, which may run multiple times inside one turn.
+    if turn_pre_msgs := trigger_hook(
+        HookType.TURN_PRE,
+        manager=manager,
+    ):
+        for msg in turn_pre_msgs:
+            _append_and_notify(manager, session, msg)
+        manager.write()
+        logger.debug("Wrote turn.pre hook messages to disk")
+
     # Trigger STEP_PRE hook BEFORE preparing messages
     # This ensures hook messages are included in the LLM input
     if pre_msgs := trigger_hook(

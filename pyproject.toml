@@ -18,6 +18,7 @@ Issues = "https://github.com/gptme/gptme/issues"
 
 [project.entry-points."gptme.plugins"]
 auto_snapshots = "gptme.hooks.auto_snapshots:plugin"
+aw_watcher_agent = "gptme.hooks.aw_watcher_agent:plugin"
 
 [project.scripts]
 gptme = "gptme.cli.main:main"

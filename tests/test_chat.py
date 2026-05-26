@@ -690,6 +690,46 @@ def test_external_queued_prompts_are_drained_between_turns(tmp_path):
     assert not get_prompt_queue_path(logdir).exists()
 
 
+def test_turn_pre_hook_runs_once_per_prompt():
+    """TURN_PRE should fire once when a queued prompt becomes an active turn."""
+    import sys
+
+    from gptme.chat import _run_chat_loop
+    from gptme.hooks import HookType
+    from gptme.message import Message
+
+    _chat_mod = sys.modules["gptme.chat"]
+
+    manager = MagicMock()
+    manager.log = MagicMock()
+    manager.workspace = Path("/tmp")
+    manager.logdir = Path("/tmp/logdir")
+
+    seen_hooks = []
+
+    def track_hooks(hook_type, *args, **kwargs):
+        del args, kwargs
+        seen_hooks.append(hook_type)
+        return []
+
+    with (
+        patch.object(_chat_mod, "_process_message_conversation", return_value=None),
+        patch.object(_chat_mod, "trigger_hook", side_effect=track_hooks),
+        patch.object(_chat_mod, "include_paths", side_effect=lambda msg, ws: msg),
+        patch.object(_chat_mod, "execute_cmd", return_value=False),
+    ):
+        _run_chat_loop(
+            manager=manager,
+            prompt_queue=[Message("user", "queued prompt")],
+            stream=False,
+            tool_format="markdown",
+            model=None,
+            interactive=False,
+        )
+
+    assert seen_hooks.count(HookType.TURN_PRE) == 1
+
+
 def test_complete_checks_external_queue_before_exiting(tmp_path):
     """External queued prompts should keep the loop alive after complete."""
     import sys

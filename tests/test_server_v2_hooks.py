@@ -131,6 +131,42 @@ def test_message_pre_process_hook(client: FlaskClient, monkeypatch):
     )
 
 
+def test_turn_pre_hook(client: FlaskClient, monkeypatch):
+    """Test that TURN_PRE hooks fire once when a user prompt starts a turn."""
+    monkeypatch.setenv("HOOK_ALLOWLIST", "test")
+
+    conv = create_conversation(client)
+
+    response = client.post(
+        f"/api/v2/conversations/{conv['conversation_id']}",
+        json={"role": "user", "content": "Say hello"},
+    )
+    assert response.status_code == 200
+
+    response = client.post(
+        f"/api/v2/conversations/{conv['conversation_id']}/step",
+        json={
+            "session_id": conv["session_id"],
+            "stream": False,
+        },
+    )
+
+    assert response.status_code in (200, 500)
+    time.sleep(2)
+
+    response = client.get(f"/api/v2/conversations/{conv['conversation_id']}")
+    assert response.status_code == 200
+    data = response.get_json()
+
+    messages = data.get("log", [])
+    test_hook_messages = [
+        m for m in messages if "TEST_TURN_PRE hook triggered" in m.get("content", "")
+    ]
+    assert len(test_hook_messages) > 0, (
+        f"TEST_TURN_PRE hook message should be in log. Found {len(messages)} messages total"
+    )
+
+
 def test_message_post_process_hook(client: FlaskClient, monkeypatch):
     """Test that TURN_POST hooks work."""
     import unittest.mock

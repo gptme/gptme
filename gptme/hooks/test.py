@@ -21,6 +21,11 @@ def test_message_pre_process_hook(manager) -> Generator[Message, None, None]:
     yield Message("system", "TEST_STEP_PRE hook triggered")
 
 
+def test_turn_pre_hook(manager) -> Generator[Message, None, None]:
+    """Test hook for TURN_PRE (turn.pre - once per submitted prompt)."""
+    yield Message("system", "TEST_TURN_PRE hook triggered")
+
+
 def test_message_post_process_hook(manager) -> Generator[Message, None, None]:
     """Test hook for TURN_POST (turn.post - after turn completes)."""
     yield Message("system", "TEST_TURN_POST hook triggered")
@@ -40,6 +45,12 @@ def register_test_hooks() -> None:
         "test_step_pre",
         HookType.STEP_PRE,
         test_message_pre_process_hook,
+        priority=100,
+    )
+    register_hook(
+        "test_turn_pre",
+        HookType.TURN_PRE,
+        test_turn_pre_hook,
         priority=100,
     )
     register_hook(
