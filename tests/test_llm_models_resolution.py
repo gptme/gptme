@@ -336,6 +336,24 @@ class TestLogWarnOnce:
             log_warn_once(test_msg)  # second call — should be suppressed
         assert test_msg not in caplog.text
 
+    def test_get_model_unknown_warns_once(self, caplog):
+        """get_model on an unknown model should warn once across repeated calls.
+
+        Regression: the bare-name fallback used raw logger.warning instead of
+        log_warn_once, so resolving the same unknown model twice (as the CLI
+        does during setup) logged "Unknown model ..." twice.
+        """
+        import logging
+
+        unknown = "definitely-not-a-real-model-xyz"
+        with caplog.at_level(logging.WARNING):
+            get_model(unknown)
+            get_model(unknown)
+        warnings = [
+            r for r in caplog.records if f"Unknown model {unknown}" in r.getMessage()
+        ]
+        assert len(warnings) == 1
+
 
 # ── Custom provider resolution ───────────────────────────────────────────
 
