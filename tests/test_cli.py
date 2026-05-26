@@ -261,21 +261,7 @@ def test_resume_with_workspace_uses_matching_conversation(
 
     selected_logdirs: list[Path] = []
 
-    def fake_chat(
-        prompt_msgs,
-        initial_msgs,
-        logdir,
-        workspace,
-        model,
-        stream=True,
-        no_confirm=False,
-        interactive=True,
-        show_hidden=False,
-        tool_allowlist=None,
-        tool_format=None,
-        output_schema=None,
-        output_format="text",
-    ):
+    def fake_chat(prompt_msgs, initial_msgs, logdir, *args, **kwargs):
         selected_logdirs.append(logdir)
 
     monkeypatch.setattr(cli, "chat", fake_chat)
