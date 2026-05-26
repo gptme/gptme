@@ -90,8 +90,6 @@ See the `README <https://github.com/gptme/gptme/blob/master/README.md>`_ file fo
    Discord <https://discord.gg/NMaCmmkxWv>
    X <https://x.com/gptmeorg>
 
-
-
 Indices and tables
 ==================
 
@@ -211,7 +209,6 @@ For better results on coding tasks, use a larger model:
    same model for both chat and summaries.
 
 See :doc:`providers` for ``llama.cpp``, Groq, and all other local and remote provider options.
-
 
 Next Steps
 ----------
@@ -418,7 +415,6 @@ For more detailed information about specific features, check out:
 - :doc:`tools` - Available tools and their usage
 - :doc:`providers` - Supported LLM providers
 - :doc:`server` - Web UI and API server setup
-
 
 Features
 --------
@@ -704,7 +700,6 @@ Demos
    :local:
    :backlinks: none
 
-
 .. rubric:: Snake with curses
 
 Generate a snake game that runs in the terminal using curses, and then modify it to add color.
@@ -736,7 +731,6 @@ Steps
 #. Program runs
 #. Add color
 
-
 .. rubric:: Fibonacci
 
 An old demo showing off basic code execution and shell interaction.
@@ -751,7 +745,6 @@ Steps
 #. Write a fib function to fib.py, commit
 #. Create a public repo and push to GitHub
 
-
 .. rubric:: Answer question from URL
 
 Showing off basic URL loading from the prompt, and answering questions based on the content.
@@ -764,7 +757,6 @@ Steps
 
 #. Ask who the CEO of Superuser Labs is, passing website URL
 #. gptme browses the website, and answers correctly
-
 
 .. rubric:: Edit history with /edit
 
@@ -811,12 +803,9 @@ gptme can be used to create powerful yet simple automated workflows. Here we sho
 
 We will be using shell scripts, cron jobs, and other tools to automate the workflows.
 
-
 .. note::
 
    This is a work in progress. We intend to make gptme more powerful for automations, see `issue #143 <https://github.com/gptme/gptme/issues/143>`_ for more details on this plan.
-
-
 
 .. rubric:: Example: Implement feature
 
@@ -827,95 +816,8 @@ Given a GitHub issue it will check out a new branch, look up relevant files, mak
 .. code-block:: bash
 
    $ gptme 'read <url>' '-' 'create a branch' '-' 'look up relevant files' '-' 'make changes' '-' 'typecheck it' '-' 'test it' '-' 'create a pull request'
-.. rubric:: Example: Automated Code Review
 
-This example demonstrates a simple and composable approach to automated code review using gptme and shell scripting.
-
-1. Create a script called `review_pr.sh`:
-
-   .. code-block:: bash
-
-      #!/bin/bash
-      # Usage: ./review_pr.sh <repo> <pr_number>
-
-      repo=$1
-      pr_number=$2
-
-      # Fetch PR diff
-      diff=$(gh pr view $pr_number --repo $repo --json diffUrl -q .diffUrl | xargs curl -s)
-
-      # Generate review using gptme
-      review=$(gptme --non-interactive "Review this pull request diff and provide constructive feedback:
-      1. Identify potential bugs or issues.
-      2. Suggest improvements for code quality and readability.
-      3. Check for adherence to best practices.
-      4. Highlight any security concerns.
-
-      Pull Request Diff:
-      $diff
-
-      Format your review as a markdown list with clear, concise points.")
-
-      # Post review comment
-      gh pr comment $pr_number --repo $repo --body "## Automated Code Review
-
-      $review
-
-      *This review was generated automatically by gptme.*"
-
-2. Make the script executable:
-
-   .. code-block:: bash
-
-      chmod +x review_pr.sh
-
-3. Set up a GitHub Actions workflow (`.github/workflows/code_review.yml`):
-
-   .. code-block:: yaml
-
-      name: Automated Code Review
-      on:
-        pull_request:
-          types: [opened, synchronize]
-
-      jobs:
-        review:
-          runs-on: ubuntu-latest
-          steps:
-            - uses: actions/checkout@v2
-            - name: Install gptme and GitHub CLI
-              run: |
-                pip install gptme
-                gh auth login --with-token <<< "${{ secrets.GITHUB_TOKEN }}"
-            - name: Run code review
-              env:
-                GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              run: |
-                ./review_pr.sh ${{ github.repository }} ${{ github.event.pull_request.number }}
-
-This setup provides automated code reviews for your pull requests using gptme. It demonstrates how powerful automation can be achieved with minimal code and high composability.
-
-Key points:
-
-- Uses shell scripting for simplicity and ease of understanding
-- Leverages gptme's non-interactive mode for automation
-- Utilizes GitHub CLI (`gh`) for seamless GitHub integration
-- Integrates with GitHub Actions for automated workflow
-
-Benefits of this approach:
-
-- Easily customizable: Adjust the gptme prompt to focus on specific aspects of code review
-- Composable: The shell script can be extended or combined with other tools
-- Minimal dependencies: Relies on widely available tools (bash, curl, gh)
-- Quick setup: Can be implemented in any GitHub repository with minimal configuration
-
-To customize this for your specific needs:
-
-1. Modify the gptme prompt in `review_pr.sh` to focus on your project's coding standards
-2. Add additional checks or integrations to the shell script as needed
-3. Adjust the GitHub Actions workflow to fit your CI/CD pipeline
-
-This example serves as a starting point for integrating gptme into your development workflow, demonstrating its potential for automating code review tasks.
+.. include:: automation/example_code_review.rst
 
 .. rubric:: Example: Daily Activity Summary
 
@@ -1009,9 +911,7 @@ Community Projects
 * `ErikBjare/nbody-sim <https://github.com/ErikBjare/nbody-sim>`_
     Simple but performant n-body simulation in Rust built with gptme using only a few prompts.
 
-
 .. rubric:: Adding Your Project
-
 
 If you've built something using gptme, we'd love to feature it here!
 
@@ -1207,6 +1107,7 @@ Chats
 
 Computer
 --------
+
 .. warning::
 
    The computer use interface is experimental and has serious security implications.
@@ -1350,7 +1251,6 @@ To see available commands in your session, use ``/help``.
    Some commands are only available when their corresponding tool is enabled.
    Use ``/tools`` to see which tools are currently active.
 
-
 Built-in Commands
 -----------------
 
@@ -1462,7 +1362,6 @@ Export the conversation as an HTML file.
    /export                   # Export to <conversation-name>.html
    /export my-chat.html      # Export to specific filename
 
-
 Model & Token Management
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -1512,7 +1411,6 @@ Displays token counts by:
 
    /context
 
-
 Tools & Information
 ~~~~~~~~~~~~~~~~~~~
 
@@ -1547,7 +1445,6 @@ Show the help message with available commands and keyboard shortcuts.
 .. code-block:: text
 
    /help
-
 
 Session Control
 ~~~~~~~~~~~~~~~
@@ -1586,7 +1483,6 @@ Clear the terminal screen.
 .. code-block:: text
 
    /clear
-
 
 Advanced
 ~~~~~~~~
@@ -1627,7 +1523,6 @@ Manage gptme plugins.
 
    /plugin list           # List discovered plugins
    /plugin info <name>    # Show details about a plugin
-
 
 Tool Commands
 -------------
@@ -1710,7 +1605,6 @@ Manage Model Context Protocol (MCP) servers.
 
 For more on MCP, see :doc:`mcp`.
 
-
 Tool Shortcuts
 --------------
 
@@ -1730,7 +1624,6 @@ This is equivalent to writing a code block:
    ```shell
    echo hello
    ```
-
 
 Keyboard Shortcuts
 ------------------
@@ -1755,7 +1648,6 @@ These shortcuts work in the interactive prompt:
      - Auto-complete commands, paths, and filenames
    * - ``Up/Down``
      - Navigate command history
-
 
 Command Registration
 --------------------
@@ -1991,7 +1883,6 @@ The merging behavior is the same as for the :ref:`global local config <global-co
 .. tip::
 
     Add ``gptme.local.toml`` to your ``.gitignore`` to keep secrets out of version control.
-
 
 .. _chat-config:
 
@@ -2718,7 +2609,6 @@ Give the assistant access to a full desktop environment, allowing it to interact
 
 See :doc:`tools` for the Computer tool documentation and the `computer use tracking issue <https://github.com/gptme/gptme/issues/216>`_.
 
-
 Interfaces
 ----------
 
@@ -2759,7 +2649,6 @@ See :doc:`server` for the API documentation.
 - **ACP (Agent Client Protocol)**: Use gptme as a coding agent in Zed and JetBrains IDEs. See :doc:`acp`.
 - **gptme.vim**: Vim plugin for in-editor integration. See `gptme.vim <https://github.com/gptme/gptme.vim>`_.
 
-
 LLM Support
 -----------
 
@@ -2774,7 +2663,6 @@ gptme works with a wide range of LLM providers and models:
 - **Local models** — Run models locally via ``llama.cpp`` (no API key required)
 
 See :doc:`providers` for setup instructions and model configuration.
-
 
 Extensibility
 -------------
@@ -2833,7 +2721,6 @@ See :doc:`mcp`.
 - **gptme-lsp** — Language Server Protocol integration
 - **gptme-ace** — ACE-inspired context optimization
 - **gptme-gupp** — work state persistence across sessions
-
 
 Autonomous Agents
 -----------------
@@ -2905,7 +2792,6 @@ Agents coordinate via a shared coordination layer (SQLite-based file leases, mes
 
    Creating your own agent takes minutes with the template. See :doc:`agents` for the full guide — from creating your first agent to running it autonomously.
 
-
 Automation & CI
 ---------------
 
@@ -2918,7 +2804,6 @@ gptme supports several automation modes:
 - **Subagent spawning** — delegate subtasks to parallel agent instances via tmux
 
 See :doc:`bot` for the GitHub bot and :doc:`usage` for automation patterns.
-
 
 Quality of Life
 ---------------
@@ -3924,7 +3809,6 @@ Start the server:
 
     gptme-server
 
-
 For more CLI options, see the :ref:`CLI reference <cli:gptme-server>`.
 
 .. _server:gptme-webui:
@@ -3988,6 +3872,7 @@ Computer Use Interface
 ----------------------
 
 The computer use interface provides an innovative split-view experience with chat on the left and a live desktop environment on the right, enabling AI agents to interact directly with desktop applications.
+
 .. warning::
 
    The computer use interface is experimental and has serious security implications.
@@ -6860,7 +6745,6 @@ Here is the API reference for ``gptme``.
    :local:
    :backlinks: none
 
-
 core
 ----
 
@@ -6890,7 +6774,6 @@ Holds the current conversation as a list of messages, saves and loads the conver
 .. automodule:: gptme.logmanager
    :members:
 
-
 Config
 ------
 
@@ -6898,7 +6781,6 @@ Configuration for ``gptme`` on user-level (:ref:`global-config`), project-level 
 
 .. automodule:: gptme.config
    :members:
-
 
 prompts
 -------
@@ -6962,7 +6844,6 @@ Note that pricing for models varies widely when accounting for caching, making s
 
 You can get an overview of actual model usage in the wild from the `OpenRouter app analytics for gptme <https://openrouter.ai/apps?url=https://github.com/gptme/gptme>`_.
 
-
 Model Leaderboard
 -----------------
 
@@ -6988,7 +6869,6 @@ To generate this table locally:
     gptme-eval --leaderboard --leaderboard-format csv       # for data analysis
     gptme-eval --leaderboard --leaderboard-format markdown   # for GitHub/blog
     gptme-eval --leaderboard --leaderboard-format html       # self-contained HTML page
-
 
 Usage
 -----
@@ -7093,7 +6973,6 @@ Run all practical suites at once (useful for benchmarking):
     # Or run every suite (basic + browser + init_projects + practical):
     gptme-eval all --model anthropic/claude-sonnet-4-6
 
-
 Raw Results
 -----------
 
@@ -7112,7 +6991,6 @@ To view raw results locally:
 
     # Export as JSON for programmatic use
     gptme-eval --leaderboard --leaderboard-format json
-
 
 Other evals
 -----------
@@ -8314,7 +8192,6 @@ Looking for an **open source Claude Code alternative** or an **AI coding agent**
 
 This page compares gptme against the leading AI coding tools to help you pick the right one for your workflow.
 
-
 What Makes gptme Different
 ---------------------------
 
@@ -8328,7 +8205,6 @@ Most AI coding tools focus on interactive pair programming. gptme does that too,
 - **Open source**: MIT licensed, fully inspectable, forkable. Your agent, your rules.
 
 The git-as-agent-brain approach has also been explored in Oxford's `Git Context Controller paper <https://arxiv.org/html/2508.00031v1>`_, which achieved SOTA on SWE-Bench using a similar architecture — storing agent context and memory in git repositories.
-
 
 Feature Comparison
 ------------------
@@ -8474,7 +8350,6 @@ Feature Comparison
      - $0
      - bundled
 
-
 Overview
 --------
 
@@ -8573,7 +8448,6 @@ Overview
      - Free
      - Bootstrap
      - |check|
-
 
 Projects
 --------
@@ -8791,7 +8665,6 @@ Differences to gptme:
 
 Disclaimer: gptme author Erik was an early hire at Lovable.
 
-
 Claude Managed Agents
 ^^^^^^^^^^^^^^^^^^^^^
 
@@ -8816,7 +8689,6 @@ Differences to gptme:
    CMA launching validates the autonomous agent category. If Anthropic thinks managed
    agents are worth building, the open-source, model-agnostic alternative matters more.
 
-
 Other Claude Products
 ^^^^^^^^^^^^^^^^^^^^^
 
@@ -8826,13 +8698,11 @@ Anthropic offers several AI products beyond Claude Code and Claude Managed Agent
 - **Claude Artifacts**: Preview HTML and React components inline — like a mini Lovable.dev. Released Aug 27, 2024.
 - **Claude Desktop**: Desktop client with MCP support for extensibility. Released October 31, 2024.
 
-
 Other OpenAI Products
 ^^^^^^^^^^^^^^^^^^^^^
 
 - **ChatGPT Code Interpreter**: One of the early inspirations for gptme. Gives ChatGPT access to a Python sandbox. Released July 6, 2023.
 - **ChatGPT Canvas**: OpenAI's response to Claude Artifacts. Released October 3, 2024.
-
 
 Open Interpreter
 ^^^^^^^^^^^^^^^^
@@ -8876,7 +8746,6 @@ This is a major goal of the project, and it is important to keep in mind that th
 
     -- `Kenneth Reitz <https://x.com/kennethreitz42/status/1852750768920518768>`_ (and many others)
 
-
 To that end, in this document we will present some statistics about the current state of the project, trying to be mindful to keep an eye on this page and make sure we are not growing too much.
 
 Startup time
@@ -8887,7 +8756,6 @@ Startup time
 
 .. command-output:: make bench-startup
    :cwd: ..
-
 
 Lines of code
 -------------
@@ -9341,7 +9209,6 @@ Thanks to everyone who contributed to this release:
 
 Changes since v0.30.0:
 
-
 ## 📦 gptme
 
 ### ✨ Features (25)
@@ -9479,7 +9346,6 @@ Thanks to everyone who contributed to this release:
 
 Changes since v0.29.0:
 
-
 ## 📦 gptme
 
 ### ✨ Features (26)
@@ -9587,7 +9453,6 @@ Thanks to everyone who contributed to this release:
 ## Changelog
 
 Changes since v0.28.3:
-
 
 ## 📦 gptme
 
@@ -9785,7 +9650,6 @@ Thanks to everyone who contributed to this release:
 
 Changes since v0.28.2:
 
-
 ## 📦 gptme
 
 ### ✨ Features (2)
@@ -9835,7 +9699,6 @@ Thanks to everyone who contributed to this release:
 
 Changes since v0.28.1:
 
-
 ## 📦 gptme
 
 ### ✨ Features (3)
@@ -9876,7 +9739,6 @@ Thanks to everyone who contributed to this release:
 ## Changelog
 
 Changes since v0.28.0:
-
 
 ## 📦 gptme
 
@@ -10229,7 +10091,6 @@ Thanks to everyone who contributed to this release:
 
 Changes since v0.26.0:
 
-
 ## 📦 gptme
 
 ### ✨ Features (19)
@@ -10396,7 +10257,6 @@ Thanks to everyone who contributed to this release:
 
 Changes since v0.25.0:
 
-
 ## 📦 gptme
 
 ### ✨ Features (4)
@@ -10466,7 +10326,6 @@ Thanks to everyone who contributed to this release:
 ## Changelog
 
 Changes since v0.24.1:
-
 
 ## 📦 gptme
 
@@ -10576,7 +10435,6 @@ Thanks to everyone who contributed to this release:
 
 Changes since v0.24.0:
 
-
 ## 📦 gptme
 
 ### ✨ Features (1)
@@ -10632,7 +10490,6 @@ Thanks to everyone who contributed to this release:
 
 Changes since v0.23.0:
 
-
 ## 📦 gptme
 
 ### ✨ Features (5)
@@ -10685,7 +10542,6 @@ Thanks to everyone who contributed to this release:
 ## Changelog
 
 Changes since v0.22.0:
-
 
 ## 📦 gptme
 
@@ -10756,7 +10612,6 @@ Thanks to everyone who contributed to this release:
 
 Changes since v0.21.0:
 
-
 ## 📦 gptme
 
 ### ✨ Features (5)
@@ -10820,7 +10675,6 @@ Thanks to everyone who contributed to this release:
 ## Changelog
 
 Changes since v0.20.0:
-
 
 ## 📦 gptme
 
@@ -10899,7 +10753,6 @@ Thanks to everyone who contributed to this release:
 
 Changes since v0.19.2:
 
-
 ## 📦 gptme
 
 ### ✨ Features (1)
@@ -10957,7 +10810,6 @@ Thanks to everyone who contributed to this release:
 ## Changelog
 
 Changes since v0.18.2:
-
 
 ## 📦 gptme
 
@@ -11022,7 +10874,6 @@ Thanks to everyone who contributed to this release:
 ## Changelog
 
 Changes since v0.17.0:
-
 
 ## 📦 gptme
 
@@ -11095,7 +10946,6 @@ Thanks to everyone who contributed to this release:
 ## Changelog
 
 Changes since v0.16.0:
-
 
 ## 📦 gptme
 
@@ -11172,7 +11022,6 @@ Thanks to everyone who contributed to this release:
 
 Changes since v0.15.0:
 
-
 ## 📦 gptme
 
 ### ✨ Features (7)
@@ -11232,7 +11081,6 @@ Thanks to everyone who contributed to this release:
 ## Changelog
 
 Changes since v0.14.2:
-
 
 ## 📦 gptme
 
@@ -11297,7 +11145,6 @@ Thanks to everyone who contributed to this release:
 ## Changelog
 
 Changes since v0.13.2:
-
 
 ## 📦 gptme
 
@@ -11386,7 +11233,6 @@ Thanks to everyone who contributed to this release:
 
 Changes since v0.12.8:
 
-
 ## 📦 gptme
 
 ### 🔨 Misc (1)
@@ -11411,7 +11257,6 @@ Thanks to everyone who contributed to this release:
 ## Changelog
 
 Changes since v0.11.1:
-
 
 ## 📦 gptme
 
@@ -11482,7 +11327,6 @@ Thanks to everyone who contributed to this release:
 
 Changes since v0.10.5:
 
-
 ## 📦 gptme
 
 ### ✨ Features (2)
@@ -11546,7 +11390,6 @@ Thanks to everyone who contributed to this release:
 
 Changes since v0.10.4:
 
-
 ## 📦 gptme
 
 ### 🐛 Fixes (4)
@@ -11577,7 +11420,6 @@ Thanks to everyone who contributed to this release:
 ## Changelog
 
 Changes since v0.10.3:
-
 
 ## 📦 gptme
 
@@ -11618,7 +11460,6 @@ Thanks to everyone who contributed to this release:
 
 Changes since v0.10.2:
 
-
 ## 📦 gptme
 
 ### ✨ Features (2)
@@ -11655,7 +11496,6 @@ Thanks to everyone who contributed to this release:
 
 Changes since v0.10.1:
 
-
 ## 📦 gptme
 
 ### ✨ Features (1)
@@ -11688,7 +11528,6 @@ Thanks to everyone who contributed to this release:
 ## Changelog
 
 Changes since v0.10.0:
-
 
 ## 📦 gptme
 
@@ -11744,7 +11583,6 @@ Thanks to everyone who contributed to this release:
 
 Changes since v0.9.4:
 
-
 ## 📦 gptme
 
 ### 🐛 Fixes (3)
@@ -11778,7 +11616,6 @@ Thanks to everyone who contributed to this release:
 
 Changes since v0.9.3:
 
-
 ## 📦 gptme
 
 ### 🐛 Fixes (4)
@@ -11811,7 +11648,6 @@ Thanks to everyone who contributed to this release:
 ## Changelog
 
 Changes since v0.9.2:
-
 
 ## 📦 gptme
 
@@ -11852,7 +11688,6 @@ Thanks to everyone who contributed to this release:
 
 Changes since v0.9.1:
 
-
 ## 📦 gptme
 
 ### ✨ Features (1)
@@ -11890,7 +11725,6 @@ Thanks to everyone who contributed to this release:
 
 Changes since v0.9.0:
 
-
 ## 📦 gptme
 
 ### 🐛 Fixes (2)
@@ -11918,7 +11752,6 @@ Thanks to everyone who contributed to this release:
 ## Changelog
 
 Changes since v0.8.1:
-
 
 ## 📦 gptme
 
@@ -11963,7 +11796,6 @@ Thanks to everyone who contributed to this release:
 
 Changes since v0.8.0:
 
-
 ## 📦 gptme
 
 ### ✨ Features (3)
@@ -11997,7 +11829,6 @@ Thanks to everyone who contributed to this release:
 ## Changelog
 
 Changes since v0.7.0:
-
 
 ## 📦 gptme
 
@@ -12046,7 +11877,6 @@ Thanks to everyone who contributed to this release:
 
 Changes since v0.6.1:
 
-
 ## 📦 gptme
 
 ### ✨ Features (1)
@@ -12078,7 +11908,6 @@ Thanks to everyone who contributed to this release:
 
 Changes since v0.6.0:
 
-
 ## 📦 gptme
 
 ### ✨ Features (1)
@@ -12106,7 +11935,6 @@ Thanks to everyone who contributed to this release:
 ## Changelog
 
 Changes since v0.5.0:
-
 
 ## 📦 gptme
 
@@ -12138,7 +11966,6 @@ Thanks to everyone who contributed to this release:
 ## Changelog
 
 Changes since v0.4.2:
-
 
 ## 📦 gptme
 
@@ -12179,7 +12006,6 @@ Thanks to everyone who contributed to this release:
 
 Changes since v0.4.1:
 
-
 ## 📦 gptme
 
 ### ✨ Features (2)
@@ -12209,7 +12035,6 @@ Thanks to everyone who contributed to this release:
 ## Changelog
 
 Changes since v0.4.0:
-
 
 ## 📦 gptme
 
@@ -12242,7 +12067,6 @@ Thanks to everyone who contributed to this release:
 ## Changelog
 
 Changes since v0.3.3:
-
 
 ## 📦 gptme
 
@@ -12303,7 +12127,6 @@ Thanks to everyone who contributed to this release:
 
 Changes since v0.3.2:
 
-
 ## 📦 gptme
 
 ### 🐛 Fixes (1)
@@ -12331,7 +12154,6 @@ Thanks to everyone who contributed to this release:
 
 Changes since v0.3.1:
 
-
 ## 📦 gptme
 
 ### 🐛 Fixes (1)
@@ -12354,7 +12176,6 @@ Thanks to everyone who contributed to this release:
 ## Changelog
 
 Changes since v0.3.0:
-
 
 ## 📦 gptme
 
@@ -12388,7 +12209,6 @@ Thanks to everyone who contributed to this release:
 ## Changelog
 
 Changes since v0.2.2:
-
 
 ## 📦 gptme
 
@@ -12425,7 +12245,6 @@ Thanks to everyone who contributed to this release:
 ## Changelog
 
 Changes since v0.2.1:
-
 
 ## 📦 gptme
 
@@ -12464,7 +12283,6 @@ Thanks to everyone who contributed to this release:
 ## Changelog
 
 Changes since v0.1.1:
-
 
 ## 📦 gptme
 
@@ -12505,7 +12323,6 @@ Thanks to everyone who contributed to this release:
 ## Changelog
 
 Changes since initial commit (d00e9aae68cbd6b89bbc474ed7721d08798f96dc):
-
 
 ## 📦 gptme
 
