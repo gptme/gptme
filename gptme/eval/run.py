@@ -22,6 +22,7 @@ from typing import TypedDict
 
 from tqdm import tqdm
 
+from ..logmanager import LogManager
 from .agents import Agent, GPTMe
 from .agents.claude_code import ClaudeCodeAgent, is_claude_code_model
 from .cost import get_eval_costs
@@ -436,19 +437,32 @@ def execute(
             ctx = ResultContext(files, stdout_run, stderr_run, exit_code)
             results: list[CaseResult] = []
             print(f"\n--- Results for '{test['name']}' with {agent.model} ---")
-            for name, case in test["expect"].items():
-                eval_start = time.time()
+
+            def _evaluate_checks(checks, payload):
+                for name, case in checks.items():
+                    eval_start = time.time()
+                    try:
+                        passed = case(payload)
+                    except Exception as e:
+                        print(f"Error while checking {name}: {e}")
+                        passed = False
+                    eval_duration = time.time() - eval_start
+                    checkmark = "✅" if passed else "❌"
+                    print(f"{checkmark} {name:20s}")
+                    results.append(
+                        CaseResult(name=name, passed=passed, duration=eval_duration)
+                    )
+
+            _evaluate_checks(test["expect"], ctx)
+
+            check_log = test.get("check_log", {})
+            if check_log:
                 try:
-                    passed = case(ctx)
+                    messages = LogManager.load(log_dir, lock=False).log.messages
                 except Exception as e:
-                    print(f"Error while checking {name}: {e}")
-                    passed = False
-                eval_duration = time.time() - eval_start
-                checkmark = "✅" if passed else "❌"
-                print(f"{checkmark} {name:20s}")
-                results.append(
-                    CaseResult(name=name, passed=passed, duration=eval_duration)
-                )
+                    print(f"Error while loading conversation log: {e}")
+                    messages = []
+                _evaluate_checks(check_log, messages)
             print("--- End of results ---")
 
             time_eval = sum(r.duration for r in results)
@@ -544,8 +558,15 @@ def act_process(
 
     # Runs in a process for each eval
     # each eval has a process group, so we can kill all child processes
-    os.setpgrp()
-    pgrp = os.getpgrp()
+    pgrp: int | None = None
+    try:
+        os.setpgrp()
+        pgrp = os.getpgrp()
+    except PermissionError as e:
+        subprocess_logger.warning(
+            "Could not create a dedicated process group for eval cleanup: %s",
+            e,
+        )
 
     # Fix #130: Suppress verbose gptme output during optimization
     # Only keep output if not in parallel mode (i.e., interactive testing)
@@ -565,6 +586,10 @@ def act_process(
 
     start = time.time()
 
+    def cleanup_process_group() -> None:
+        if pgrp is not None:
+            _graceful_killpg(pgrp)
+
     def error_handler(e):
         duration = time.time() - start
         if not isinstance(e, KeyboardInterrupt):
@@ -579,7 +604,7 @@ def act_process(
         sync_dict["result"] = result_error
 
         # kill child processes gracefully
-        _graceful_killpg(pgrp)
+        cleanup_process_group()
 
     # handle SIGTERM
     def sigterm_handler(*_):
@@ -611,7 +636,7 @@ def act_process(
         # Reset SIGTERM handler before cleanup to prevent self-SIGTERM
         # from overwriting the timeout result (same guard as the success path).
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
-        _graceful_killpg(pgrp)
+        cleanup_process_group()
         return
     except Exception as e:
         error_handler(e)
@@ -642,4 +667,4 @@ def act_process(
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
 
     # kill child processes gracefully
-    _graceful_killpg(pgrp)
+    cleanup_process_group()

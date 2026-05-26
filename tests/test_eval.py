@@ -537,6 +537,48 @@ def test_execute_docker_mode_runs_checks_in_docker_env():
     assert result.run_stdout == "done"
 
 
+def test_execute_runs_check_log_against_conversation_messages():
+    test: EvalSpec = {
+        "name": "trajectory-check",
+        "files": {},
+        "prompt": "write output",
+        "run": "cat out.txt",
+        "expect": {"has output": lambda ctx: ctx.files.get("out.txt") == "done"},
+        "check_log": {
+            "saw delegated assistant message": lambda messages: any(
+                msg.role == "assistant" and "delegated to subagent" in msg.content
+                for msg in messages
+            )
+        },
+    }
+    agent = SuccessAgent(model="claude-code/test")
+    fake_messages = [
+        Message("assistant", "delegated to subagent"),
+        Message("system", "✅ Subagent 'demo' completed: done"),
+    ]
+
+    with (
+        patch("gptme.eval.run.SimpleExecutionEnv") as MockEnv,
+        patch("gptme.eval.run.LogManager.load") as mock_load,
+    ):
+        env = MockEnv.return_value
+        env.run.return_value = ("done", "", 0)
+        env.download.return_value = {"out.txt": "done"}
+        mock_load.return_value = SimpleNamespace(
+            log=SimpleNamespace(messages=fake_messages)
+        )
+
+        result = execute(test=test, agent=agent, timeout=5, parallel=False)
+
+    assert result.status == "success"
+    assert [case.name for case in result.results] == [
+        "has output",
+        "saw delegated assistant message",
+    ]
+    assert all(case.passed for case in result.results)
+    mock_load.assert_called_once_with(agent.log_dir, lock=False)
+
+
 def test_run_evals_top_level_timeout_cancels_pending_futures(tmp_path):
     class FakeFuture:
         def __init__(self, result: EvalResult):

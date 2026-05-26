@@ -8,6 +8,7 @@ from typing_extensions import NotRequired
 if TYPE_CHECKING:
     from .cost import CostSummary
 
+from ..message import Message
 from ..tools import ToolFormat
 
 Files = dict[str, str | bytes]
@@ -115,6 +116,13 @@ class EvalSpec(TypedDict):
     run: str
     prompt: str
     expect: dict[str, Callable[[ResultContext], bool]]
+    check_log: NotRequired[dict[str, Callable[[list[Message]], bool]]]
+    """Optional trajectory checks against the parent conversation log.
+
+    These are evaluated after generation using the messages stored in the eval
+    conversation log, enabling checks on delegation/tool-use behavior in
+    addition to file/stdout/stderr assertions.
+    """
     tools: NotRequired[list[str]]
     task_type: NotRequired[Literal["structured_process", "creative_restructuring"]]
     """Task category for lesson injection gating.
