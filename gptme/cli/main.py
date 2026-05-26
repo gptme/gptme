@@ -171,12 +171,12 @@ def _validate_custom_tool_paths(tool_allowlist: str | None) -> None:
             continue
 
         path = Path(item).expanduser()
+        if path.suffix != ".py":
+            raise click.UsageError(f"Tool file must be a .py file: {item}")
         if not path.exists():
             raise click.UsageError(f"Tool file does not exist: {item}")
         if not path.is_file():
             raise click.UsageError(f"Tool path is not a file: {item}")
-        if path.suffix != ".py":
-            raise click.UsageError(f"Tool file must be a .py file: {item}")
 
 
 def _extract_missing_explicit_local_path(prompt: str) -> str | None:
