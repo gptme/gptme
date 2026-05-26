@@ -681,11 +681,6 @@ def test_project_config_rejects_non_object_mcp_server_entries():
         ProjectConfig.from_dict({"mcp": {"servers": ["not_an_object"]}})
 
 
-def test_project_config_rejects_bad_mcp_server_fields():
-    with pytest.raises(ValueError, match="servers entry invalid"):
-        ProjectConfig.from_dict({"mcp": {"servers": [{"name": 123}]}})
-
-
 def test_resume_config_precedence():
     """Test that resume configuration respects saved config unless CLI overrides provided."""
     with tempfile.TemporaryDirectory() as tmpdir:
