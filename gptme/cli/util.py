@@ -7,6 +7,9 @@ Command groups are split into separate modules for maintainability:
 - cmd_hooks.py: Claude Code hook installation and execution
 - cmd_mcp.py: MCP server management (list, test, info, search)
 - cmd_skills.py: Skills and lessons (list, show, search, install, validate, etc.)
+
+Inline command groups (smaller, live in this file):
+- context: RAG index/retrieve plus workspace/git/journal context generation
 """
 
 # Filter requests' overly-strict version-compatibility warning before any
@@ -19,17 +22,24 @@ warnings.filterwarnings(
     message=r".*urllib3.*chardet.*charset_normalizer.*",
 )
 
+import glob
 import importlib
 import io
 import json
 import logging
 import os
+import subprocess
 import sys
 import time
 from contextlib import redirect_stderr, redirect_stdout
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
+
+if TYPE_CHECKING:
+    from rich.tree import Tree as RichTree
 
 _LAZY_COMMANDS: dict[str, tuple[str, str]] = {
     "agents": (".cmd_agents", "agents"),
@@ -326,6 +336,267 @@ def context_retrieve(query: str, full: bool):
     # Search for the query
     results = rag_search(query, return_full=full)
     print(results)
+
+
+def _git_run(cmd: list[str], check: bool = True, timeout: int = 10) -> tuple[str, bool]:
+    """Run a git command and return (stdout, success)."""
+    try:
+        env = os.environ.copy()
+        env.update({"PAGER": "cat", "GIT_PAGER": "cat", "GIT_TERMINAL_PROMPT": "0"})
+        result = subprocess.run(
+            ["git"] + cmd,
+            capture_output=True,
+            text=True,
+            check=check,
+            env=env,
+            timeout=timeout,
+        )
+        return result.stdout.strip(), True
+    except subprocess.TimeoutExpired:
+        return "", False
+    except subprocess.CalledProcessError as e:
+        return e.stderr.strip(), False
+
+
+def _codeblock(langtag: str, content: str) -> str:
+    return f"```{langtag}\n{content}\n```"
+
+
+def _read_gitignore(path: str) -> list[str]:
+    ignores: list[str] = []
+    for fp in [
+        os.path.join(path, ".gitignore"),
+        os.path.expanduser("~/.config/git/ignore"),
+    ]:
+        if os.path.exists(fp):
+            with open(fp) as f:
+                ignores += [
+                    line.strip()
+                    for line in f
+                    if line.strip() and not line.startswith("#")
+                ]
+    return ignores
+
+
+def _walk_directory(
+    directory: Path,
+    tree: "RichTree",
+    excludes: list[str],
+    max_depth: int | None,
+    depth: int = 1,
+) -> None:  # type: ignore[name-defined]
+    from rich.filesize import decimal
+    from rich.markup import escape
+    from rich.text import Text
+
+    if max_depth is not None and depth > max_depth:
+        return
+    try:
+        for path in sorted(
+            Path(directory).iterdir(), key=lambda p: (p.is_file(), p.name.lower())
+        ):
+            if any(path.match(e) for e in excludes):
+                continue
+            try:
+                if path.is_dir():
+                    style = "dim" if path.name.startswith("__") else ""
+                    branch = tree.add(
+                        f"[bold magenta][link file://{path}]{escape(path.name)}/",
+                        style=style,
+                        guide_style=style,
+                    )
+                    _walk_directory(path, branch, excludes, max_depth, depth + 1)
+                else:
+                    text = Text(path.name, "green")
+                    text.highlight_regex(r"\..*$", "bold red")
+                    text.stylize(f"link file://{path}")
+                    text.append(f" ({decimal(path.stat().st_size)})", "blue")
+                    tree.add(text)
+            except OSError as e:
+                tree.add(f"[red]{path.name} [Error: {e}]")
+    except (PermissionError, OSError) as e:
+        tree.add(f"[red][Error: {e}]")
+
+
+@context.command("git")
+@click.option("--max-files", type=int, default=10, help="Max files to list per section")
+@click.option(
+    "--show-diff/--no-diff", default=True, help="Include staged/unstaged diffs"
+)
+def context_git(max_files: int, show_diff: bool):
+    """Summarise the current git repo: branch, recent commits, staged/unstaged changes."""
+    output, success = _git_run(["rev-parse", "--git-dir"])
+    if not success:
+        click.echo("Not a git repository", err=True)
+        raise SystemExit(1)
+
+    sections: list[str] = ["## Git"]
+
+    remote, ok = _git_run(["config", "--get", "remote.origin.url"])
+    if ok and remote:
+        sections.append(f"Repository: {remote}")
+
+    branch, ok = _git_run(["rev-parse", "--abbrev-ref", "HEAD"])
+    if ok:
+        if branch == "HEAD":
+            sha, _ = _git_run(["rev-parse", "--short", "HEAD"])
+            sections.append(f"HEAD is detached at {sha}")
+            branch = ""
+        else:
+            sections.append(f"Current branch: {branch}")
+
+    log_out, ok = _git_run(
+        [
+            "log",
+            "--pretty=format:%h (%ad) %s",
+            "--date=format:%Y-%m-%d %H:%M",
+            "-n",
+            "5",
+            branch or "HEAD",
+        ]
+    )
+    if ok and log_out:
+        sections.append("\n### Recent commits")
+        sections.extend(f"- {line}" for line in log_out.split("\n"))
+
+    for title, git_args in [
+        ("Staged files", ["diff", "--name-only", "--cached"]),
+        ("Changed files (unstaged)", ["diff", "--name-only"]),
+        ("Untracked files", ["ls-files", "--others", "--exclude-standard"]),
+    ]:
+        out, ok = _git_run(git_args)
+        if ok and out:
+            files = [fp for fp in out.split("\n") if fp]
+            sections.append(f"\n### {title}")
+            sections.extend(f"- {fp}" for fp in files[:max_files])
+            if len(files) > max_files:
+                sections.append(f"... and {len(files) - max_files} more")
+
+    if show_diff:
+        for title, git_args in [
+            ("Staged changes", ["diff", "--cached"]),
+            ("Unstaged changes", ["diff"]),
+        ]:
+            diff, ok = _git_run(git_args)
+            if ok and diff:
+                sections.append(f"\n### {title}")
+                sections.append(_codeblock("diff", diff))
+
+    print("\n".join(sections))
+
+
+@context.command("tree")
+@click.option(
+    "--path", type=click.Path(exists=True), default=".", help="Workspace root"
+)
+@click.option("--max-depth", type=int, default=1, help="Tree depth")
+def context_tree(path: str, max_depth: int):
+    """Print workspace directory tree (respects .gitignore)."""
+    from rich import print as rich_print
+    from rich.tree import Tree
+
+    excludes = _read_gitignore(path) + [".git"]
+    abs_path = os.path.abspath(path)
+    tree = Tree(abs_path, guide_style="bold bright_blue")
+    _walk_directory(Path(path), tree, excludes, max_depth)
+    print("## Workspace structure\n\n```tree")
+    rich_print(tree)
+    print("```")
+
+
+@context.command("files")
+@click.option(
+    "--config",
+    type=click.Path(exists=True),
+    default=None,
+    help="Path to gptme.toml (default: auto-discover from git root or cwd)",
+)
+def context_files(config: str | None):
+    """Print the contents of all files listed in gptme.toml [prompt] files.
+
+    Replaces ad-hoc context scripts in non-gptme harnesses (autonomous runs,
+    project-monitoring) that manually concatenate gptme.toml prompt files.
+    """
+    import tomllib
+
+    # Discover gptme.toml from cwd → git root
+    toml_path: Path | None
+    if config:
+        toml_path = Path(config)
+    else:
+        candidates = [Path.cwd() / "gptme.toml"]
+        root, ok = _git_run(["rev-parse", "--show-toplevel"])
+        if ok and root:
+            candidates.append(Path(root) / "gptme.toml")
+        toml_path = next((p for p in candidates if p.exists()), None)  # type: ignore[arg-type]
+
+    if not toml_path or not toml_path.exists():
+        click.echo("No gptme.toml found. Use --config to specify path.", err=True)
+        raise SystemExit(1)
+
+    with open(toml_path, "rb") as f:
+        cfg = tomllib.load(f)
+
+    files = cfg.get("prompt", {}).get("files", [])
+    if not files:
+        click.echo("No [prompt] files configured in gptme.toml.", err=True)
+        raise SystemExit(1)
+
+    workspace = toml_path.parent
+    for rel in files:
+        fpath = workspace / rel
+        if not fpath.exists():
+            click.echo(f"# FILE: {rel} (not found)\n", err=True)
+            continue
+        print(f"## FILE: {rel}\n")
+        print(fpath.read_text())
+        print("---\n")
+
+
+@context.command("journal")
+@click.option("--days", type=int, default=7, help="Days to look back")
+@click.option("--path", type=click.Path(exists=True), help="Journal directory")
+def context_journal(days: int, path: str | None):
+    """Print journal entries from the last N days."""
+    # Discover journal dir: prefer workspace-relative path first
+    candidates: list[str | None] = [path]
+    repo_root, ok = _git_run(["rev-parse", "--show-toplevel"])
+    if ok and repo_root:
+        candidates.append(os.path.join(repo_root, "journal"))
+    candidates += [
+        os.path.expanduser("~/journal"),
+        os.path.expanduser("~/Documents/journal"),
+        os.path.expanduser("~/notes"),
+    ]
+
+    journal_dir: str | None = None
+    for loc in candidates:
+        if loc and os.path.isdir(loc):
+            journal_dir = loc
+            break
+
+    if not journal_dir:
+        click.echo("No journal directory found. Use --path to specify one.", err=True)
+        raise SystemExit(1)
+
+    dates = [
+        (datetime.now(tz=timezone.utc) - timedelta(days=i)).strftime("%Y-%m-%d")
+        for i in range(days)
+    ]
+    entries: list[str] = []
+    for date in dates:
+        # Support both flat (YYYY-MM-DD-topic.md) and subdirectory (YYYY-MM-DD/topic.md) layouts
+        flat_files = glob.glob(os.path.join(journal_dir, f"*{date}*.md"))
+        subdir_files = glob.glob(os.path.join(journal_dir, date, "*.md"))
+        for file in flat_files + subdir_files:
+            with open(file) as f:
+                entries.append(f"\n# {date} — {os.path.basename(file)}\n{f.read()}")
+
+    if entries:
+        print(f"Journal entries from the last {days} days:\n")
+        print("\n".join(entries))
+    else:
+        print(f"No journal entries found for the last {days} days")
 
 
 @main.group()
