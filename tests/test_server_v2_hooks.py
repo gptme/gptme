@@ -133,6 +133,8 @@ def test_message_pre_process_hook(client: FlaskClient, monkeypatch):
 
 def test_turn_pre_hook(client: FlaskClient, monkeypatch):
     """Test that TURN_PRE hooks fire once when a user prompt starts a turn."""
+    import unittest.mock
+
     monkeypatch.setenv("HOOK_ALLOWLIST", "test")
 
     conv = create_conversation(client)
@@ -143,16 +145,22 @@ def test_turn_pre_hook(client: FlaskClient, monkeypatch):
     )
     assert response.status_code == 200
 
-    response = client.post(
-        f"/api/v2/conversations/{conv['conversation_id']}/step",
-        json={
-            "session_id": conv["session_id"],
-            "stream": False,
-        },
-    )
+    def mock_chat_complete(messages, model, tools=None):
+        return ("Hello! How can I help you?", None)
 
-    assert response.status_code in (200, 500)
-    time.sleep(2)
+    with unittest.mock.patch(
+        "gptme.server.session_step._chat_complete", mock_chat_complete
+    ):
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/step",
+            json={
+                "session_id": conv["session_id"],
+                "stream": False,
+            },
+        )
+
+        assert response.status_code == 200
+        time.sleep(2)
 
     response = client.get(f"/api/v2/conversations/{conv['conversation_id']}")
     assert response.status_code == 200
