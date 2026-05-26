@@ -418,7 +418,12 @@ def test_architect_model_unqualified_is_usage_error(
 
 
 def test_unknown_agent_profile_stays_off_stdout_in_json_mode():
-    runner = CliRunner()
+    # Click < 8.4 defaults to mix_stderr=True; Click >= 8.4 removed that kwarg
+    # but separates streams by default. Use try/except to handle both.
+    try:
+        runner = CliRunner(mix_stderr=False)  # type: ignore[call-arg]
+    except TypeError:
+        runner = CliRunner()
     result = runner.invoke(
         cli.main,
         [
