@@ -405,7 +405,17 @@ def test_malformed_output_schema_is_reported_as_usage_error(runner: CliRunner):
     assert "Traceback" not in result.output
 
 
-def test_unloadable_output_schema_is_reported_as_usage_error(runner: CliRunner):
+@pytest.mark.parametrize(
+    "schema",
+    [
+        "gptme.message:NoSuchClass",  # real module, missing class
+        ":ClassName",  # empty module name
+        "invalid/path:ClassName",  # invalid module name
+    ],
+)
+def test_unloadable_output_schema_is_reported_as_usage_error(
+    runner: CliRunner, schema: str
+):
     result = runner.invoke(
         cli.main,
         [
@@ -413,14 +423,14 @@ def test_unloadable_output_schema_is_reported_as_usage_error(runner: CliRunner):
             "--name",
             "unloadable-output-schema",
             "--output-schema",
-            "gptme.message:NoSuchClass",  # real module, missing class
+            schema,
             "hello",
         ],
     )
 
     assert result.exit_code == 2
     assert "--output-schema" in result.output
-    assert "gptme.message:NoSuchClass" in result.output
+    assert schema in result.output
     assert "Traceback" not in result.output
 
 

@@ -690,7 +690,7 @@ def main(
         try:
             module = importlib.import_module(module_name)
             output_schema_type = getattr(module, class_name)
-        except (ImportError, AttributeError) as e:
+        except (ImportError, AttributeError, ValueError) as e:
             raise click.UsageError(
                 f"Could not load --output-schema '{output_schema}': {e}. "
                 "Verify the module is installed and the class name is correct."
