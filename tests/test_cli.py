@@ -61,12 +61,18 @@ def runner():
         yield runner
 
 
-def _write_conversation(conv_id: str, content: str = "hello") -> Path:
+def _write_conversation(
+    conv_id: str, content: str = "hello", workspace: Path | None = None
+) -> Path:
     conv_dir = cli.get_logs_dir() / conv_id
     conv_dir.mkdir(parents=True, exist_ok=True)
     (conv_dir / "conversation.jsonl").write_text(
         f'{{"role":"user","content":"{content}"}}\n'
     )
+    if workspace is not None:
+        workspace = workspace.resolve()
+        workspace.mkdir(parents=True, exist_ok=True)
+        (conv_dir / "config.toml").write_text(f'[chat]\nworkspace = "{workspace}"\n')
     return conv_dir
 
 
@@ -198,6 +204,90 @@ def test_get_logdir_resume_named_conversation_skips_conversation_scan(
     monkeypatch.setattr(cli, "get_user_conversations", fail_get_user_conversations)
 
     assert cli.get_logdir_resume(conv_id) == conv_dir
+
+
+def test_get_logdir_resume_random_filters_by_workspace(tmp_path: Path, runid: int):
+    workspace_a = tmp_path / "workspace-a"
+    workspace_b = tmp_path / "workspace-b"
+
+    older_match = _write_conversation(
+        f"resume-a-older-{runid}", content="older", workspace=workspace_a
+    )
+    newest_other = _write_conversation(
+        f"resume-b-newest-{runid}", content="other", workspace=workspace_b
+    )
+    newest_match = _write_conversation(
+        f"resume-a-newest-{runid}", content="newest", workspace=workspace_a
+    )
+
+    os.utime(older_match / "conversation.jsonl", (1, 1))
+    os.utime(newest_match / "conversation.jsonl", (2, 2))
+    os.utime(newest_other / "conversation.jsonl", (3, 3))
+
+    assert cli.get_logdir_resume(workspace=workspace_a) == newest_match
+
+
+def test_get_logdir_resume_random_workspace_without_match_errors(
+    tmp_path: Path, runid: int
+):
+    workspace_a = tmp_path / "workspace-a"
+    workspace_b = tmp_path / "workspace-b"
+
+    _write_conversation(
+        f"resume-b-only-{runid}", content="other", workspace=workspace_b
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=f"No previous conversations to resume for workspace '{workspace_a.resolve()}'",
+    ):
+        cli.get_logdir_resume(workspace=workspace_a)
+
+
+def test_resume_with_workspace_uses_matching_conversation(
+    monkeypatch, runner: CliRunner, tmp_path: Path, runid: int
+):
+    workspace_a = tmp_path / "workspace-a"
+    workspace_b = tmp_path / "workspace-b"
+
+    target = _write_conversation(
+        f"resume-workspace-target-{runid}", content="target", workspace=workspace_a
+    )
+    newer_other = _write_conversation(
+        f"resume-workspace-other-{runid}", content="other", workspace=workspace_b
+    )
+    os.utime(target / "conversation.jsonl", (1, 1))
+    os.utime(newer_other / "conversation.jsonl", (2, 2))
+
+    selected_logdirs: list[Path] = []
+
+    def fake_chat(
+        prompt_msgs,
+        initial_msgs,
+        logdir,
+        workspace,
+        model,
+        stream=True,
+        no_confirm=False,
+        interactive=True,
+        show_hidden=False,
+        tool_allowlist=None,
+        tool_format=None,
+        output_schema=None,
+        output_format="text",
+    ):
+        selected_logdirs.append(logdir)
+
+    monkeypatch.setattr(cli, "chat", fake_chat)
+
+    result = runner.invoke(
+        cli.main,
+        ["--resume", "--workspace", str(workspace_a), "--non-interactive"],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    assert selected_logdirs == [target]
 
 
 def test_missing_custom_tool_path_is_reported_as_usage_error(
@@ -706,9 +796,11 @@ def test_comma_separated_choice_strips_short_option_equals_prefix():
     with pytest.raises(click.exceptions.BadParameter):
         csc.convert("=", None, None)
 
+
 def test_comma_separated_choice_allows_excluding_unavailable_tools():
     """Allow `-tool` exclusions even when that tool is unavailable locally."""
     from gptme.cli.main import CommaSeparatedChoice
+
     csc = CommaSeparatedChoice(
         ["shell", "save", "read"],
         allow_prefixes=["+", "-"],

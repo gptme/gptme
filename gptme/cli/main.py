@@ -137,6 +137,7 @@ class WorkspacePath(click.ParamType):
             self.fail(f"'{value}' is not a directory.", param, ctx)
         return str(path.resolve())
 
+
 class ConversationName(click.ParamType):
     """Click type for conversation names stored under the logs directory."""
 
@@ -613,9 +614,14 @@ def main(
 
     logdir_preexisting = True
 
+    resume_workspace_filter: Path | None = None
+    if workspace not in (None, "@log"):
+        assert workspace is not None
+        resume_workspace_filter = Path(workspace)
+
     if resume:
         try:
-            logdir = get_logdir_resume(name)
+            logdir = get_logdir_resume(name, workspace=resume_workspace_filter)
         except ValueError as e:
             raise click.UsageError(str(e)) from e
         prompt_msgs = inject_stdin(prompt_msgs, piped_input)
@@ -963,15 +969,29 @@ def get_logdir(logdir: Path | str | Literal["random"]) -> Path:
     return logdir
 
 
-def get_logdir_resume(name: str = "random") -> Path:
+def get_logdir_resume(name: str = "random", workspace: Path | None = None) -> Path:
     if name != "random":
         logdir = get_logs_dir() / name
         if (logdir / "conversation.jsonl").exists():
             return logdir
         raise ValueError(f"No conversation named '{name}' to resume")
 
-    if conv := next(get_user_conversations(detail=False), None):
+    conversations = get_user_conversations(detail=False)
+    if workspace is not None:
+        workspace = workspace.resolve()
+        conversations = (
+            conv
+            for conv in conversations
+            if Path(conv.workspace).resolve() == workspace
+        )
+
+    if conv := next(conversations, None):
         return Path(conv.path).parent
+
+    if workspace is not None:
+        raise ValueError(
+            f"No previous conversations to resume for workspace '{workspace}'"
+        )
     raise ValueError("No previous conversations to resume")
 
 
