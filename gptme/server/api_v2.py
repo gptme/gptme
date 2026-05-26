@@ -667,6 +667,8 @@ def api_conversation_post(conversation_id: str):
         init_tools(tool_allowlist)
     except ValueError as exc:
         return flask.jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return flask.jsonify({"error": f"Failed to load tool: {exc}"}), 400
 
     try:
         log = LogManager.load(conversation_id, branch=branch)
