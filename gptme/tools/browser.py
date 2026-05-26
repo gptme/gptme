@@ -23,6 +23,15 @@ Playwright backend:
        PW_VERSION=$(pipx runpip gptme show playwright | grep Version | cut -d' ' -f2)
        pipx run playwright==$PW_VERSION install chromium-headless-shell
 
+ - To use an existing Chromium-compatible browser over Chrome DevTools Protocol
+   instead of launching Playwright's bundled Chromium, start it with remote
+   debugging enabled and set GPTME_BROWSER_CDP_URL:
+
+   .. code-block:: bash
+
+       chromium --remote-debugging-port=9222
+       export GPTME_BROWSER_CDP_URL=http://127.0.0.1:9222
+
 Lynx backend:
  - Text-only browser for basic page reading and searching
  - No screenshot support

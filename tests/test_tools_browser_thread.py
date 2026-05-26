@@ -20,6 +20,7 @@ from gptme.tools._browser_thread import (
     TIMEOUT,
     BrowserThread,
     Command,
+    _connect_or_launch_browser,
     _is_connection_error,
 )
 
@@ -39,6 +40,8 @@ class TestIsConnectionError:
             "Target closed while processing",
             "Connection terminated by remote",
             "pipe closed during operation",
+            "WebSocket error: read ECONNRESET",
+            "read ECONNRESET",
         ],
     )
     def test_detects_connection_errors(self, msg: str):
@@ -97,6 +100,37 @@ class TestCommand:
 
 
 # =============================================================================
+# Browser launch tests
+# =============================================================================
+
+
+class TestConnectOrLaunchBrowser:
+    def test_launches_bundled_chromium_by_default(self):
+        mock_pw = MagicMock()
+        mock_browser = MagicMock()
+        mock_pw.chromium.launch.return_value = mock_browser
+
+        result = _connect_or_launch_browser(mock_pw, None)
+
+        assert result is mock_browser
+        mock_pw.chromium.launch.assert_called_once_with()
+        mock_pw.chromium.connect_over_cdp.assert_not_called()
+
+    def test_connects_over_cdp_when_configured(self):
+        mock_pw = MagicMock()
+        mock_browser = MagicMock()
+        mock_pw.chromium.connect_over_cdp.return_value = mock_browser
+
+        result = _connect_or_launch_browser(mock_pw, "http://127.0.0.1:9222")
+
+        assert result is mock_browser
+        mock_pw.chromium.connect_over_cdp.assert_called_once_with(
+            "http://127.0.0.1:9222"
+        )
+        mock_pw.chromium.launch.assert_not_called()
+
+
+# =============================================================================
 # BrowserThread tests (mocked playwright)
 # =============================================================================
 
@@ -141,6 +175,40 @@ class TestBrowserThreadInit:
         mock_pw.chromium.launch.side_effect = OSError("cannot allocate memory")
         with pytest.raises(OSError, match="cannot allocate memory"):
             BrowserThread()
+
+    def test_connects_over_cdp_when_configured(self, mock_playwright):
+        mock_pw, _ = mock_playwright
+        mock_cdp_browser = MagicMock()
+        mock_pw.chromium.connect_over_cdp.return_value = mock_cdp_browser
+
+        bt = BrowserThread(cdp_url="http://127.0.0.1:9222")
+        try:
+            mock_pw.chromium.connect_over_cdp.assert_called_once_with(
+                "http://127.0.0.1:9222"
+            )
+            mock_pw.chromium.launch.assert_not_called()
+        finally:
+            bt.stop()
+
+    def test_connects_over_cdp_from_env(self, mock_playwright, monkeypatch):
+        mock_pw, _ = mock_playwright
+        monkeypatch.setenv("GPTME_BROWSER_CDP_URL", "http://127.0.0.1:9223")
+
+        bt = BrowserThread()
+        try:
+            mock_pw.chromium.connect_over_cdp.assert_called_once_with(
+                "http://127.0.0.1:9223"
+            )
+            mock_pw.chromium.launch.assert_not_called()
+        finally:
+            bt.stop()
+
+    def test_cdp_connection_error_propagates(self, mock_playwright):
+        mock_pw, _ = mock_playwright
+        mock_pw.chromium.connect_over_cdp.side_effect = OSError("cdp unavailable")
+
+        with pytest.raises(OSError, match="cdp unavailable"):
+            BrowserThread(cdp_url="http://127.0.0.1:9222")
 
 
 class TestBrowserThreadExecute:
@@ -265,8 +333,10 @@ class TestBrowserThreadRetry:
 
         bt = BrowserThread()
         try:
+            assert bt._init_error is None
             with pytest.raises(RuntimeError, match="Browser restart failed"):
                 bt.execute(fail_func)
+            assert bt._init_error is None
         finally:
             bt.stop()
 

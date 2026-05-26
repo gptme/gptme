@@ -7,7 +7,9 @@ from queue import Empty, Queue
 from threading import Event, Lock, Thread
 from typing import Any, Literal, TypeVar
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import Browser, Playwright, sync_playwright
+
+from gptme.config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +29,8 @@ def _is_connection_error(error: Exception) -> bool:
             "target closed",
             "connection terminated",
             "pipe closed",
+            "websocket error",
+            "econnreset",
         ]
     )
 
@@ -41,8 +45,20 @@ class Command:
 Action = Literal["stop"]
 
 
+def _connect_or_launch_browser(playwright: Playwright, cdp_url: str | None) -> Browser:
+    if cdp_url:
+        browser = playwright.chromium.connect_over_cdp(cdp_url)
+        logger.info("Connected to browser over CDP")
+        return browser
+
+    browser = playwright.chromium.launch()
+    logger.info("Browser launched")
+    return browser
+
+
 class BrowserThread:
-    def __init__(self):
+    def __init__(self, cdp_url: str | None = None) -> None:
+        self.cdp_url = cdp_url or get_config().get_env("BROWSER_CDP_URL")
         self.queue: Queue[tuple[Command | Action, object]] = Queue()
         self.results: dict[object, tuple[Any, Exception | None]] = {}
         self.lock = Lock()
@@ -59,11 +75,10 @@ class BrowserThread:
         logger.debug("Browser thread started")
 
     def _run(self):
-        playwright = None
-        browser = None
+        playwright: Playwright | None = None
+        browser: Browser | None = None
 
-        def launch_browser():
-            """Launch or relaunch the browser"""
+        def launch_browser() -> Exception | None:
             nonlocal playwright, browser
             if playwright is None:
                 playwright = sync_playwright().start()
@@ -74,24 +89,25 @@ class BrowserThread:
                         browser = None  # Clear reference after close
                     except Exception:
                         browser = None  # Clear reference even if close fails
-                browser = playwright.chromium.launch()
-                logger.info("Browser launched")
-                return True
+                browser = _connect_or_launch_browser(playwright, self.cdp_url)
+                return None
             except Exception as e:
                 browser = None  # Ensure browser is None after failed launch
                 if "Executable doesn't exist" in str(e):
                     pw_version = importlib.metadata.version("playwright")
-                    self._init_error = RuntimeError(
+                    error = RuntimeError(
                         f"Browser executable not found. Run: pipx run playwright=={pw_version} install chromium-headless-shell"
                     )
                 else:
-                    self._init_error = e
+                    error = e
                 logger.error(f"Failed to launch browser: {e}", exc_info=True)
-                return False
+                return error
 
         try:
             # Initial browser launch
-            if not launch_browser():
+            init_error = launch_browser()
+            if init_error:
+                self._init_error = init_error
                 self.ready.set()
                 return
 
@@ -120,12 +136,12 @@ class BrowserThread:
                                 if attempt < max_retries - 1:
                                     # Try to recover by restarting browser
                                     logger.info("Attempting to restart browser...")
-                                    if launch_browser():
+                                    restart_error = launch_browser()
+                                    if restart_error is None:
                                         logger.info("Browser restarted successfully")
                                         continue  # Retry command
-                                    # Create informative error about restart failure
                                     restart_error = RuntimeError(
-                                        f"Browser restart failed after connection error in {command_name}: {e}"
+                                        f"Browser restart failed after connection error in {command_name}: {restart_error}"
                                     )
                                     with self.lock:
                                         self.results[cmd_id] = (None, restart_error)
