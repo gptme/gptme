@@ -4,6 +4,7 @@ Contains the HookRegistry class, context-local registry management,
 and module-level API functions (register_hook, trigger_hook, etc.).
 """
 
+import contextvars
 import functools
 import logging
 import threading
@@ -169,10 +170,14 @@ class HookRegistry:
         # Start async hooks in background threads (fire-and-forget)
         # Note: daemon=True is intentional - async hooks are for non-blocking
         # side effects (logging, telemetry) where completion on exit is not required
+        # Each hook gets its own copy_context() so it inherits the triggering
+        # thread's ContextVars (conversation ID, config, tools) but mutations
+        # inside one hook thread don't affect other hook threads.
         for hook in async_hooks:
+            ctx = contextvars.copy_context()
             thread = threading.Thread(
-                target=self._run_async_hook,
-                args=(hook, args, kwargs),
+                target=ctx.run,
+                args=(self._run_async_hook, hook, args, kwargs),
                 daemon=True,
                 name=f"async-hook-{hook.name}",
             )

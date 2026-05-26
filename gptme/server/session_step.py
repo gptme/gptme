@@ -9,6 +9,7 @@ handlers in api_v2_sessions.py.
 
 import asyncio
 import atexit
+import contextvars
 import logging
 import os
 import threading
@@ -897,8 +898,9 @@ def start_tool_execution(
         if not session.pending_tools:
             _start_step_thread(conversation_id, session, model, chat_config.workspace)
 
-    # Start execution in a thread
-    thread = threading.Thread(target=execute_tool_thread)
+    # Propagate ContextVars from the request context into the execution thread.
+    ctx = contextvars.copy_context()
+    thread = threading.Thread(target=ctx.run, args=(execute_tool_thread,))
     thread.daemon = True
     thread.start()
     return thread
@@ -932,6 +934,13 @@ def _start_step_thread(
     session.generating_since = datetime.now(tz=timezone.utc)
 
     def step_thread() -> None:
+        # Set conversation/session context vars so hooks triggered during
+        # LLM generation (TURN_PRE, STEP_PRE, TURN_POST, etc.) can identify
+        # which conversation they're operating on.
+        from ..hooks import current_conversation_id, current_session_id
+
+        current_conversation_id.set(conversation_id)
+        current_session_id.set(session.id)
         step(
             conversation_id=conversation_id,
             session=session,
@@ -942,8 +951,10 @@ def _start_step_thread(
             stream=stream,
         )
 
-    # Start step execution in a thread
-    thread = threading.Thread(target=step_thread)
+    # Propagate ContextVars (model, config) from the caller into the step thread.
+    # Each thread gets its own copy so mutations stay isolated between sessions.
+    ctx = contextvars.copy_context()
+    thread = threading.Thread(target=ctx.run, args=(step_thread,))
     thread.daemon = True
     thread.start()
 
