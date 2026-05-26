@@ -995,6 +995,34 @@ def test_context_journal_subdirectory_layout(tmp_path):
     assert "subdir notes" in result.output
 
 
+def test_context_journal_uses_local_date_not_utc(tmp_path, monkeypatch):
+    """context journal should use the local calendar date when choosing entries."""
+    from datetime import datetime, timedelta, timezone
+
+    class FakeDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 1, 1, 23, 0, tzinfo=tz)
+
+        def astimezone(self, tz=None):
+            return type(self)(2026, 1, 2, 8, 0, tzinfo=timezone(timedelta(hours=9)))
+
+    monkeypatch.setattr("gptme.cli.util.datetime", FakeDateTime)
+
+    runner = CliRunner()
+    journal_dir = tmp_path / "journal"
+    journal_dir.mkdir()
+    (journal_dir / "2026-01-02-local.md").write_text(
+        "# Local day\nfound via local date"
+    )
+
+    result = runner.invoke(
+        main, ["context", "journal", "--path", str(journal_dir), "--days", "1"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "found via local date" in result.output
+
+
 def test_context_journal_no_entries(tmp_path):
     """context journal reports nothing found gracefully."""
     runner = CliRunner()

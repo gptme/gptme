@@ -579,10 +579,8 @@ def context_journal(days: int, path: str | None):
         click.echo("No journal directory found. Use --path to specify one.", err=True)
         raise SystemExit(1)
 
-    dates = [
-        (datetime.now(tz=timezone.utc) - timedelta(days=i)).strftime("%Y-%m-%d")
-        for i in range(days)
-    ]
+    today = datetime.now(tz=timezone.utc).astimezone().date()
+    dates = [(today - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days)]
     entries: list[str] = []
     for date in dates:
         # Support both flat (YYYY-MM-DD-topic.md) and subdirectory (YYYY-MM-DD/topic.md) layouts
