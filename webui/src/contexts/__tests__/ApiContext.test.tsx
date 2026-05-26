@@ -266,4 +266,10 @@ describe('shouldSkipHostedLoopbackAutoConnect', () => {
       )
     ).toBe(false);
   });
+
+  it('does not skip when running in Tauri (isTauri=true)', () => {
+    expect(
+      shouldSkipHostedLoopbackAutoConnect('http://127.0.0.1:5700', 'https://chat.gptme.org', true)
+    ).toBe(false);
+  });
 });
