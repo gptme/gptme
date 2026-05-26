@@ -870,3 +870,138 @@ def test_llm_generate_prepends_system_message_stream(monkeypatch):
     assert captured[0].role == "system", (
         f"First message must be system, got {captured[0].role!r}"
     )
+
+
+def test_context_git_in_repo(tmp_path):
+    """context git outputs branch/commit info inside a git repo."""
+    import subprocess
+
+    runner = CliRunner()
+    # Minimal git env so global hooks/signing/gpg don't interfere
+    git_env = {
+        "HOME": str(tmp_path),
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_AUTHOR_NAME": "Test",
+        "GIT_AUTHOR_EMAIL": "test@test.com",
+        "GIT_COMMITTER_NAME": "Test",
+        "GIT_COMMITTER_EMAIL": "test@test.com",
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+    }
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        subprocess.run(["git", "init"], check=True, capture_output=True, env=git_env)
+        subprocess.run(
+            ["git", "config", "user.email", "test@test.com"],
+            check=True,
+            capture_output=True,
+            env=git_env,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test"],
+            check=True,
+            capture_output=True,
+            env=git_env,
+        )
+        subprocess.run(
+            ["git", "config", "commit.gpgsign", "false"],
+            check=True,
+            capture_output=True,
+            env=git_env,
+        )
+        Path("readme.txt").write_text("hello")
+        subprocess.run(
+            ["git", "add", "."], check=True, capture_output=True, env=git_env
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "initial commit", "--no-verify"],
+            check=True,
+            capture_output=True,
+            env=git_env,
+        )
+        result = runner.invoke(main, ["context", "git"])
+    assert result.exit_code == 0, result.output
+    assert "## Git" in result.output
+
+
+def test_context_git_not_in_repo(tmp_path):
+    """context git exits nonzero outside a git repo."""
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        result = runner.invoke(main, ["context", "git"])
+    assert result.exit_code != 0
+
+
+def test_context_tree(tmp_path):
+    """context tree prints a workspace tree."""
+    runner = CliRunner()
+    (tmp_path / "file.txt").write_text("content")
+    (tmp_path / "subdir").mkdir()
+    result = runner.invoke(main, ["context", "tree", "--path", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert "Workspace structure" in result.output
+
+
+def test_context_files(tmp_path):
+    """context files reads gptme.toml [prompt] files and prints them."""
+    runner = CliRunner()
+    prompt_file = tmp_path / "notes.md"
+    prompt_file.write_text("hello notes")
+    toml = tmp_path / "gptme.toml"
+    toml.write_text('[prompt]\nfiles = ["notes.md"]\n')
+    result = runner.invoke(main, ["context", "files", "--config", str(toml)])
+    assert result.exit_code == 0, result.output
+    assert "notes.md" in result.output
+    assert "hello notes" in result.output
+
+
+def test_context_files_missing_toml(tmp_path):
+    """context files exits nonzero when no gptme.toml is found."""
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        result = runner.invoke(main, ["context", "files"])
+    assert result.exit_code != 0
+
+
+def test_context_journal(tmp_path):
+    """context journal finds and prints journal entries."""
+    from datetime import datetime, timezone
+
+    runner = CliRunner()
+    today = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+    journal_dir = tmp_path / "journal"
+    journal_dir.mkdir()
+    # flat layout: YYYY-MM-DD-topic.md
+    (journal_dir / f"{today}-test.md").write_text("# Today\nsome notes")
+    result = runner.invoke(
+        main, ["context", "journal", "--path", str(journal_dir), "--days", "1"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "some notes" in result.output
+
+
+def test_context_journal_subdirectory_layout(tmp_path):
+    """context journal handles subdirectory-per-day journal layout."""
+    from datetime import datetime, timezone
+
+    runner = CliRunner()
+    today = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+    journal_dir = tmp_path / "journal"
+    day_dir = journal_dir / today
+    day_dir.mkdir(parents=True)
+    (day_dir / "session.md").write_text("# Session\nsubdir notes")
+    result = runner.invoke(
+        main, ["context", "journal", "--path", str(journal_dir), "--days", "1"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "subdir notes" in result.output
+
+
+def test_context_journal_no_entries(tmp_path):
+    """context journal reports nothing found gracefully."""
+    runner = CliRunner()
+    journal_dir = tmp_path / "journal"
+    journal_dir.mkdir()
+    result = runner.invoke(
+        main, ["context", "journal", "--path", str(journal_dir), "--days", "1"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "No journal entries" in result.output
