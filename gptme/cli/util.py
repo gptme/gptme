@@ -521,9 +521,9 @@ def context_files(config: str | None):
     Replaces ad-hoc context scripts in non-gptme harnesses (autonomous runs,
     project-monitoring) that manually concatenate gptme.toml prompt files.
     """
-    try:
+    if sys.version_info >= (3, 11):
         import tomllib
-    except ModuleNotFoundError:
+    else:
         import tomli as tomllib  # type: ignore[no-redef]
 
     # Discover gptme.toml from cwd → git root
