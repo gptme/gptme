@@ -59,6 +59,9 @@ class MessageCreateRequest(BaseModel):
     role: str = Field(..., description="Message role")
     content: str = Field(..., description="Message content")
     files: list[str] | None = Field(None, description="Associated files")
+    tools: list[str] | None = Field(
+        None, description="Optional per-request tool allowlist"
+    )
     branch: str = Field("main", description="Conversation branch")
 
 

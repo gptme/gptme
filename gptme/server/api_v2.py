@@ -127,6 +127,18 @@ def _validate_model_input(model: str, expected_provider: str | None = None) -> s
     return trimmed_model
 
 
+def _get_optional_string_list_field(
+    req_json: dict, field: str
+) -> list[str] | None | tuple[flask.Response, int]:
+    """Return an optional list[str] field or a 400 response."""
+    value = req_json.get(field)
+    if value is None:
+        return None
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        return flask.jsonify({"error": f"{field} must be a list of strings"}), 400
+    return value
+
+
 def _persist_default_model(model: str) -> bool:
     """Persist env.MODEL and try to apply it in-process.
 
@@ -647,9 +659,14 @@ def api_conversation_post(conversation_id: str):
     branch = req_json.get("branch", "main")
     if error := _validate_branch(branch):
         return error
-    tool_allowlist = req_json.get("tools", None)
+    tool_allowlist = _get_optional_string_list_field(req_json, "tools")
+    if isinstance(tool_allowlist, tuple):
+        return tool_allowlist
 
-    init_tools(tool_allowlist)
+    try:
+        init_tools(tool_allowlist)
+    except ValueError as exc:
+        return flask.jsonify({"error": str(exc)}), 400
 
     try:
         log = LogManager.load(conversation_id, branch=branch)

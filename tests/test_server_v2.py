@@ -1492,6 +1492,44 @@ def test_v2_post_message_rejects_invalid_files_payload(
     assert response.get_json() == {"error": "files must be a list of strings"}
 
 
+@pytest.mark.parametrize(
+    "tools_payload",
+    [
+        "bash",
+        ["shell", 123],
+        {"name": "shell"},
+    ],
+)
+def test_v2_post_message_rejects_invalid_tools_payload(
+    client: FlaskClient, tools_payload: object
+):
+    """POST message should reject malformed tool allowlists with 400."""
+    conversation_id = create_conversation(client)["conversation_id"]
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "Test message", "tools": tools_payload},
+    )
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "tools must be a list of strings"}
+
+
+def test_v2_post_message_rejects_unknown_tool_name(client: FlaskClient):
+    """POST message should surface unknown tool names as a 400, not a 500."""
+    conversation_id = create_conversation(client)["conversation_id"]
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={
+            "role": "user",
+            "content": "Test message",
+            "tools": ["definitely-not-a-real-tool"],
+        },
+    )
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data is not None
+    assert "Tool 'definitely-not-a-real-tool' not found" in data["error"]
+
+
 @pytest.mark.parametrize("body", [[], [1, 2, 3], "string", 42])
 def test_v2_post_message_rejects_non_object_json(client: FlaskClient, body: object):
     """POST /conversations/<id> should reject non-object JSON bodies with 400."""
