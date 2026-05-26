@@ -80,7 +80,10 @@ def chats():
     "--summarize", is_flag=True, help="Generate LLM-based summaries for chats"
 )
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON.")
-def chats_list(limit: int, summarize: bool, output_json: bool):
+@click.option(
+    "--metadata", is_flag=True, help="Show full metadata (ID, model, cost, tokens)."
+)
+def chats_list(limit: int, summarize: bool, output_json: bool, metadata: bool):
     """List conversation logs."""
     _ensure_tools()
 
@@ -101,7 +104,7 @@ def chats_list(limit: int, summarize: bool, output_json: bool):
             tool_allowlist=[],
             tool_format="markdown",
         )
-    list_chats(max_results=limit, include_summary=summarize)
+    list_chats(max_results=limit, metadata=metadata, include_summary=summarize)
 
 
 @chats.command("search")

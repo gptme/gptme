@@ -181,36 +181,60 @@ def _format_message_with_context(
     if not line_indices:
         return content[:100] + "..." if len(content) > 100 else content
 
-    # Format matches with line-based context
-    formatted_matches = []
-    for match_idx, start_pos, end_pos in line_indices[:max_matches]:
-        # Get context lines
-        context_start = max(0, match_idx - context_lines)
-        context_end = min(len(lines), match_idx + context_lines + 1)
+    # Gather the matches to render (up to max_matches)
+    visible = line_indices[:max_matches]
 
-        context_lines_text = lines[context_start:context_end]
+    # Merge overlapping context windows so nearby matches share a single block.
+    # Each window is [context_start, context_end) in line space.
+    windows: list[tuple[int, int, list[tuple[int, int, int]]]] = []
+    for match_idx, start_pos, end_pos in visible:
+        cs = max(0, match_idx - context_lines)
+        ce = min(len(lines), match_idx + context_lines + 1)
+        if windows and cs <= windows[-1][1]:
+            # Overlaps with the previous window — extend it
+            prev_cs, _, prev_matches = windows[-1]
+            windows[-1] = (
+                prev_cs,
+                max(ce, windows[-1][1]),
+                prev_matches + [(match_idx, start_pos, end_pos)],
+            )
+        else:
+            windows.append((cs, ce, [(match_idx, start_pos, end_pos)]))
 
-        # Add line numbers and highlight the match line
-        formatted_lines = []
-        for i, line in enumerate(context_lines_text, start=context_start):
-            if i == match_idx:
-                before = line[:start_pos]
-                match = line[start_pos:end_pos]
-                after = line[end_pos:]
-                if sys.stdout.isatty():
-                    formatted_line = f"{before}\033[1;31m{match}\033[0m{after}"
-                else:
-                    formatted_line = f"{before}**{match}**{after}"
+    # Build a highlight map: line_idx -> list of (start, end) char positions
+    def _highlight_line(line: str, highlights: list[tuple[int, int]]) -> str:
+        if not highlights:
+            return line
+        result_parts = []
+        prev = 0
+        for hs, he in sorted(highlights):
+            result_parts.append(line[prev:hs])
+            match_text = line[hs:he]
+            if sys.stdout.isatty():
+                result_parts.append(f"\033[1;31m{match_text}\033[0m")
             else:
-                formatted_line = line
+                result_parts.append(f"**{match_text}**")
+            prev = he
+        result_parts.append(line[prev:])
+        return "".join(result_parts)
+
+    formatted_matches = []
+    for cs, ce, block_matches in windows:
+        highlight_map: dict[int, list[tuple[int, int]]] = {}
+        for match_idx, start_pos, end_pos in block_matches:
+            highlight_map.setdefault(match_idx, []).append((start_pos, end_pos))
+
+        formatted_lines = []
+        for i in range(cs, ce):
+            line = lines[i]
+            formatted_line = _highlight_line(line, highlight_map.get(i, []))
             formatted_lines.append(f"{i + 1:4d}| {formatted_line}")
 
         context_text = "\n     ".join(formatted_lines)
-        if context_start > 0:
+        if cs > 0:
             context_text = "...\n     " + context_text
-        if context_end < len(lines):
+        if ce < len(lines):
             context_text = context_text + "\n     ..."
-
         formatted_matches.append(context_text)
 
     result = "\n".join(formatted_matches)
