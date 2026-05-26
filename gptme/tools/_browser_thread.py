@@ -93,6 +93,8 @@ class BrowserThread:
                 return None
             except Exception as e:
                 browser = None  # Ensure browser is None after failed launch
+                error: Exception
+                
                 if "Executable doesn't exist" in str(e):
                     pw_version = importlib.metadata.version("playwright")
                     error = RuntimeError(
