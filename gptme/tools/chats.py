@@ -60,10 +60,6 @@ def list_chats(
 
     print(f"Recent conversations (showing up to {max_results}):")
     for i, conv in enumerate(conversations, 1):
-        log_path = Path(conv.path)
-        log_manager = LogManager.load(log_path, lock=False)
-        msg_count = len(log_manager.log.messages)
-
         if metadata:
             print()  # Add a newline between conversations
             first, *rest = conv.format(metadata=True).split("\n")
@@ -71,10 +67,11 @@ def list_chats(
             for line in rest:
                 print(f"     {line}")
         else:
-            print(f"{i:2}. {conv.name} ({msg_count} msgs)")
+            print(f"{i:2}. {conv.name} ({conv.messages} msgs)")
 
         # Use the LLM to generate a summary if requested
         if include_summary:
+            log_manager = LogManager.load(Path(conv.path), lock=False)
             summary = summarize(log_manager.log.messages)
             print(
                 f"\n    Summary:\n{textwrap.indent(summary.content, '    > ', predicate=lambda _: True)}"
@@ -178,7 +175,7 @@ def _format_message_with_context(
             idx = line_lower.find(query_lower, start)
             if idx == -1:
                 break
-            line_indices.append((line_idx, idx, idx + len(query)))
+            line_indices.append((line_idx, idx, idx + len(query_lower)))
             start = idx + len(query_lower)
 
     if not line_indices:
