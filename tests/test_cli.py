@@ -1,8 +1,6 @@
 import os
 import random
 import signal
-import subprocess
-import sys
 import tempfile
 import threading
 import time
@@ -419,37 +417,27 @@ def test_architect_model_unqualified_is_usage_error(
     assert "provider prefix" in result.output
 
 
-def test_unknown_agent_profile_stays_off_stdout_in_json_mode(runid: int):
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(project_root)
-    result = subprocess.run(
+def test_unknown_agent_profile_stays_off_stdout_in_json_mode():
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.main,
         [
-            sys.executable,
-            "-m",
-            "gptme",
             "--non-interactive",
             "--output-format",
             "json",
-            "--name",
-            f"test-agent-profile-json-{runid}",
             "--agent-profile",
             "definitely-missing-profile",
             "hello",
         ],
-        cwd=project_root,
-        env=env,
-        capture_output=True,
-        check=False,
-        stdin=subprocess.DEVNULL,
-        text=True,
-        timeout=30,
+        catch_exceptions=False,
     )
 
-    assert result.returncode == 2
-    assert result.stdout == ""
+    assert result.exit_code == 2
+    assert (
+        result.stdout == ""
+    )  # stdout clean — no profile error leaking into JSON stream
     assert "Invalid value for '--agent-profile'" in result.stderr
     assert "gptme-util profile list" in result.stderr
-    assert "Traceback" not in result.stderr
 
 
 def test_noninteractive_missing_prompt_does_not_leave_orphan_logdir(
