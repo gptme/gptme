@@ -152,6 +152,33 @@ class ConversationName(click.ParamType):
         return value
 
 
+def _looks_like_tool_file_path(value: str) -> bool:
+    return (
+        value.endswith(".py")
+        or value.startswith(("/", "./", "../", "~"))
+        or (len(value) > 2 and value[1] == ":" and value[2] in "/\\")
+    )
+
+
+def _validate_custom_tool_paths(tool_allowlist: str | None) -> None:
+    """Fail fast on missing custom tool files before config/logging init."""
+    if not tool_allowlist:
+        return
+
+    for raw_item in tool_allowlist.split(","):
+        item = raw_item.strip().removeprefix("+").removeprefix("-")
+        if not item or not _looks_like_tool_file_path(item):
+            continue
+
+        path = Path(item).expanduser()
+        if not path.exists():
+            raise click.UsageError(f"Tool file does not exist: {item}")
+        if not path.is_file():
+            raise click.UsageError(f"Tool path is not a file: {item}")
+        if path.suffix != ".py":
+            raise click.UsageError(f"Tool file must be a .py file: {item}")
+
+
 def _extract_missing_explicit_local_path(prompt: str) -> str | None:
     """Return an explicit local-path prompt that is missing on disk.
 
@@ -542,6 +569,8 @@ def main(
     else:
         # User explicitly provided empty list (e.g., no -t flags with multiple=True)
         tool_allowlist_str = None
+
+    _validate_custom_tool_paths(tool_allowlist_str)
 
     if profile:
         print("Profiling enabled...")
