@@ -133,7 +133,7 @@ def api_agents_put():
     if project_config_raw:
         try:
             project_config = ProjectConfig.from_dict(project_config_raw, workspace=path)
-        except ValueError as exc:
+        except (ValueError, TypeError) as exc:
             return flask.jsonify({"error": f"Invalid project_config: {exc}"}), 400
 
     # Create workspace using shared module

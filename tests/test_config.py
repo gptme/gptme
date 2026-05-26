@@ -671,6 +671,21 @@ def test_project_config_rejects_non_object_rag_section():
         ProjectConfig.from_dict({"rag": "boom"})
 
 
+def test_project_config_rejects_non_list_mcp_servers():
+    with pytest.raises(ValueError, match="servers must be a list"):
+        ProjectConfig.from_dict({"mcp": {"servers": "not_a_list"}})
+
+
+def test_project_config_rejects_non_object_mcp_server_entries():
+    with pytest.raises(ValueError, match="servers entries must be objects"):
+        ProjectConfig.from_dict({"mcp": {"servers": ["not_an_object"]}})
+
+
+def test_project_config_rejects_bad_mcp_server_fields():
+    with pytest.raises(ValueError, match="servers entry invalid"):
+        ProjectConfig.from_dict({"mcp": {"servers": [{"name": 123}]}})
+
+
 def test_resume_config_precedence():
     """Test that resume configuration respects saved config unless CLI overrides provided."""
     with tempfile.TemporaryDirectory() as tmpdir:
