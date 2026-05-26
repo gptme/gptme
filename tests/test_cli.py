@@ -223,6 +223,27 @@ def test_missing_custom_tool_path_is_reported_as_usage_error(
     assert "Traceback" not in result.output
 
 
+def test_missing_explicit_path_prompt_is_reported_as_usage_error(
+    runner: CliRunner, tmp_path: Path
+):
+    missing_path = tmp_path / "missing-prompt.txt"
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--name",
+            "missing-explicit-path-prompt",
+            str(missing_path),
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "explicit local path" in result.output
+    assert str(missing_path) in result.output
+    assert "Traceback" not in result.output
+
+
 def test_noninteractive_missing_prompt_does_not_leave_orphan_logdir(
     monkeypatch, tmp_path: Path
 ):
@@ -706,9 +727,11 @@ def test_comma_separated_choice_strips_short_option_equals_prefix():
     with pytest.raises(click.exceptions.BadParameter):
         csc.convert("=", None, None)
 
+
 def test_comma_separated_choice_allows_excluding_unavailable_tools():
     """Allow `-tool` exclusions even when that tool is unavailable locally."""
     from gptme.cli.main import CommaSeparatedChoice
+
     csc = CommaSeparatedChoice(
         ["shell", "save", "read"],
         allow_prefixes=["+", "-"],
