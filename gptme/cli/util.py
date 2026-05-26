@@ -401,8 +401,8 @@ def llm_generate(prompt: str | None, model: str | None, stream: bool):
         except ValueError as e:
             raise click.UsageError(str(e)) from e
 
-    # Create message
-    messages = [Message("user", prompt)]
+    # Anthropic requires the first message to be a system message
+    messages = [Message("system", ""), Message("user", prompt)]
 
     try:
         if stream:
