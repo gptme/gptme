@@ -800,7 +800,7 @@ def test_llm_generate_prepends_system_message(monkeypatch):
 
     def fake_chat_complete(messages, model, tools):
         captured.extend(messages)
-        return "ok"
+        return ("ok", None)
 
     # Patch at source — _chat_complete is lazily imported inside llm_generate
     monkeypatch.setattr("gptme.llm._chat_complete", fake_chat_complete)
@@ -813,6 +813,9 @@ def test_llm_generate_prepends_system_message(monkeypatch):
         main, ["llm", "generate", "--model", "anthropic/claude-sonnet-4-6", "hello"]
     )
     assert result.exit_code == 0, result.output
+    assert result.output.strip() == "ok", (
+        f"Expected plain response text, got: {result.output!r}"
+    )
     assert captured, "No messages were passed to _chat_complete"
     assert captured[0].role == "system", (
         f"First message must be system, got {captured[0].role!r}; "

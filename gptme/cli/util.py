@@ -341,7 +341,16 @@ def llm():
     help="Model to use (e.g. openai/gpt-4o, anthropic/claude-sonnet-4-6)",
 )
 @click.option("--stream/--no-stream", default=False, help="Stream the response")
-def llm_generate(prompt: str | None, model: str | None, stream: bool):
+@click.option(
+    "--system",
+    "system_prompt",
+    default="You are a helpful assistant.",
+    show_default=True,
+    help="System message to prepend.",
+)
+def llm_generate(
+    prompt: str | None, model: str | None, stream: bool, system_prompt: str
+):
     """Generate a response from an LLM without any formatting."""
 
     # Suppress all logging output to get clean response
@@ -402,7 +411,7 @@ def llm_generate(prompt: str | None, model: str | None, stream: bool):
             raise click.UsageError(str(e)) from e
 
     # Anthropic requires the first message to be a system message
-    messages = [Message("system", ""), Message("user", prompt)]
+    messages = [Message("system", system_prompt), Message("user", prompt)]
 
     try:
         if stream:
@@ -412,7 +421,7 @@ def llm_generate(prompt: str | None, model: str | None, stream: bool):
             print()  # Final newline
         else:
             # Get complete response and print it
-            response = _chat_complete(messages, model, None)
+            response, _ = _chat_complete(messages, model, None)
             print(response)
     except Exception as e:
         print(f"Error generating response: {e}", file=sys.stderr)
