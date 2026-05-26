@@ -777,3 +777,16 @@ def test_agents_scan_workspace_passes_through(mocker, tmp_path):
     runner = CliRunner()
     runner.invoke(main, ["agents", "scan", "--workspace", str(tmp_path)])
     mock_scan.assert_called_once_with(workspace=str(tmp_path))
+
+
+def test_llm_generate_unknown_model():
+    """gptme-util llm generate --model unknown/model should fail cleanly, not crash."""
+    runner = CliRunner()
+    result = runner.invoke(
+        main, ["llm", "generate", "--model", "notareal/model", "hello"]
+    )
+    assert result.exit_code != 0
+    # Should show clean error, not a raw ValueError traceback
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    # Error mentions the unknown provider/model — exact message varies by code path
+    assert "notareal" in result.output or "Unknown" in result.output
