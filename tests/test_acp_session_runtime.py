@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
+import threading
 import time
 import uuid
 from types import SimpleNamespace
@@ -497,12 +499,21 @@ def test_acp_step_runs_session_start_step_pre_and_turn_post_hooks(
 
     monkeypatch.setattr(rt_mod, "GptmeAcpClient", _factory)
 
-    from gptme.hooks import HookType
+    from gptme.hooks import HookType, current_conversation_id, current_session_id
     from gptme.message import Message
     from gptme.server.acp_session_runtime import AcpSessionRuntime
     from gptme.server.api_v2_sessions import ConversationSession, SessionManager
 
+    hook_contexts: list[tuple[HookType, str | None, str | None]] = []
+
     def _fake_trigger_hook(hook_type: HookType, **kwargs):
+        hook_contexts.append(
+            (
+                hook_type,
+                current_conversation_id.get(),
+                current_session_id.get(),
+            )
+        )
         if hook_type == HookType.SESSION_START:
             return [Message("system", "HOOK_SESSION_START")]
         if hook_type == HookType.STEP_PRE:
@@ -542,9 +553,53 @@ def test_acp_step_runs_session_start_step_pre_and_turn_post_hooks(
         assert "HOOK_SESSION_START" in contents
         assert "HOOK_STEP_PRE" in contents
         assert "HOOK_TURN_POST" in contents
+        assert hook_contexts == [
+            (HookType.SESSION_START, conversation_id, "sid-hooks"),
+            (HookType.STEP_PRE, conversation_id, "sid-hooks"),
+            (HookType.TURN_POST, conversation_id, "sid-hooks"),
+        ]
+        assert current_conversation_id.get() is None
+        assert current_session_id.get() is None
     finally:
         SessionManager._sessions.pop("sid-hooks", None)
         SessionManager._conversation_sessions[conversation_id].discard("sid-hooks")
+
+
+def test_start_acp_step_thread_propagates_contextvars(monkeypatch, tmp_path):
+    import gptme.server.session_step as sessions_mod
+    from gptme.hooks import current_conversation_id, current_session_id
+    from gptme.server.api_v2_sessions import ConversationSession
+
+    caller_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+        "caller_var", default=None
+    )
+    seen: dict[str, str | None] = {}
+    done = threading.Event()
+
+    async def _fake_acp_step(conversation_id: str, session, workspace) -> None:
+        seen["caller_var"] = caller_var.get()
+        seen["conversation_id"] = current_conversation_id.get()
+        seen["session_id"] = current_session_id.get()
+        session.generating = False
+        session.generating_since = None
+        done.set()
+
+    monkeypatch.setattr(sessions_mod, "_acp_step", _fake_acp_step)
+
+    session = ConversationSession(id="sid-thread", conversation_id="conv-thread")
+
+    token = caller_var.set("copied")
+    try:
+        sessions_mod._start_acp_step_thread("conv-thread", session, tmp_path)
+        assert done.wait(timeout=2), "ACP thread did not complete"
+    finally:
+        caller_var.reset(token)
+
+    assert seen == {
+        "caller_var": "copied",
+        "conversation_id": "conv-thread",
+        "session_id": "sid-thread",
+    }
 
 
 def test_iter_text_from_acp_update_shapes():

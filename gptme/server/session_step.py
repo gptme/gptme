@@ -337,154 +337,170 @@ async def _acp_step(
     - No per-token streaming (response arrives in one chunk)
     - Tool confirmations are auto-approved inside the subprocess
     """
+    from ..hooks import current_conversation_id, current_session_id
 
-    # Validate acp_runtime is set (use explicit check, not assert which python -O disables)
-    if session.acp_runtime is None:
-        logger.error(
-            "_acp_step called without acp_runtime for session %s", conversation_id
-        )
-        SessionManager.add_event(
-            conversation_id,
-            {"type": "error", "error": "Internal error: ACP runtime not initialized"},
-        )
-        session.generating = False
-        session.generating_since = None
-        return
-    acp_runtime = session.acp_runtime  # snapshot to avoid TOCTOU races
-
-    logdir = get_logs_dir() / conversation_id
-    chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
-    prepare_execution_environment(
-        workspace=workspace,
-        tools=chat_config.tools,
-        chat_config=chat_config,
-    )
-
-    manager = LogManager.load(conversation_id, lock=False)
-
-    # Keep server-side hook semantics aligned with the in-process step path.
-    assistant_messages = [m for m in manager.log.messages if m.role == "assistant"]
-    if len(assistant_messages) == 0:
-        if session_start_msgs := trigger_hook(
-            HookType.SESSION_START,
-            logdir=logdir,
-            workspace=workspace,
-            initial_msgs=manager.log.messages,
-        ):
-            for hook_msg in session_start_msgs:
-                _append_and_notify(manager, session, hook_msg)
-            manager.write()
-
-    if pre_msgs := trigger_hook(
-        HookType.STEP_PRE,
-        manager=manager,
-    ):
-        for hook_msg in pre_msgs:
-            _append_and_notify(manager, session, hook_msg)
-        manager.write()
-
-    user_messages = [m for m in manager.log.messages if m.role == "user"]
-    if not user_messages:
-        error_event: ErrorEvent = {
-            "type": "error",
-            "error": "No user message to process",
-        }
-        SessionManager.add_event(conversation_id, error_event)
-        session.generating = False
-        session.generating_since = None
-        return
-
-    next_user_index = session.acp_last_user_msg_index + 1
-    pending_user_messages = user_messages[next_user_index:]
-    if not pending_user_messages:
-        duplicate_error_event: ErrorEvent = {
-            "type": "error",
-            "error": "No new user message to process",
-        }
-        SessionManager.add_event(conversation_id, duplicate_error_event)
-        session.generating = False
-        session.generating_since = None
-        return
-
-    SessionManager.add_event(conversation_id, {"type": "generation_started"})
-
-    stream_tokens: list[str] = []
-
-    async def _on_acp_update(_session_id: str, update: Any) -> None:
-        # Best-effort bridge: forward ACP session_update text chunks to SSE.
-        for chunk in _iter_text_from_acp_update(update):
-            if not chunk:
-                continue
-            stream_tokens.append(chunk)
-            SessionManager.add_event(
-                conversation_id,
-                {"type": "generation_progress", "token": chunk},
-            )
-
-    acp_runtime.set_on_update(_on_acp_update)
+    conversation_token = current_conversation_id.set(conversation_id)
+    session_token = current_session_id.set(session.id)
 
     try:
-        final_msg: Message | None = None
-
-        for absolute_index, user_msg in enumerate(
-            pending_user_messages,
-            start=next_user_index,
-        ):
-            text, _raw = await acp_runtime.prompt(user_msg.content)
-            final_text = "".join(stream_tokens) if stream_tokens else text
-            stream_tokens.clear()
-            msg = Message("assistant", final_text)
-            _append_and_notify(manager, session, msg)
-            manager.write()
-            session.acp_last_user_msg_index = absolute_index
-            final_msg = msg
-
-        if post_msgs := trigger_hook(
-            HookType.TURN_POST,
-            manager=manager,
-        ):
-            for hook_msg in post_msgs:
-                _append_and_notify(manager, session, hook_msg)
-
-        manager.write()
-
-        if final_msg is None:
-            # Should not happen: pending_user_messages was non-empty above, but
-            # guard explicitly instead of using assert (disabled by python -O).
-            logger.warning(
-                "ACP step produced no final message for conversation %s",
-                conversation_id,
+        # Validate acp_runtime is set (use explicit check, not assert which python -O disables)
+        if session.acp_runtime is None:
+            logger.error(
+                "_acp_step called without acp_runtime for session %s", conversation_id
             )
-            no_msg_event: ErrorEvent = {
-                "type": "error",
-                "error": "ACP step completed but produced no assistant message",
-            }
-            SessionManager.add_event(conversation_id, no_msg_event)
-        else:
             SessionManager.add_event(
                 conversation_id,
                 {
-                    "type": "generation_complete",
-                    "message": msg2dict(final_msg, manager.workspace, manager.logdir),
+                    "type": "error",
+                    "error": "Internal error: ACP runtime not initialized",
                 },
             )
+            session.generating = False
+            session.generating_since = None
+            return
+        acp_runtime = session.acp_runtime  # snapshot to avoid TOCTOU races
 
-        # Auto-generate display name AFTER signaling generation_complete,
-        # so the event isn't blocked by a potentially slow LLM call.
-        _try_auto_name_and_notify(
-            chat_config,
-            manager.log.messages,
-            chat_config.model or "",
-            conversation_id,
+        logdir = get_logs_dir() / conversation_id
+        chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
+        prepare_execution_environment(
+            workspace=workspace,
+            tools=chat_config.tools,
+            chat_config=chat_config,
         )
-    except Exception as e:
-        logger.exception("Error during ACP step: %s", e)
-        session.last_error = str(e)
-        SessionManager.add_event(conversation_id, {"type": "error", "error": str(e)})
+
+        manager = LogManager.load(conversation_id, lock=False)
+
+        # Keep server-side hook semantics aligned with the in-process step path.
+        assistant_messages = [m for m in manager.log.messages if m.role == "assistant"]
+        if len(assistant_messages) == 0:
+            if session_start_msgs := trigger_hook(
+                HookType.SESSION_START,
+                logdir=logdir,
+                workspace=workspace,
+                initial_msgs=manager.log.messages,
+            ):
+                for hook_msg in session_start_msgs:
+                    _append_and_notify(manager, session, hook_msg)
+                manager.write()
+
+        if pre_msgs := trigger_hook(
+            HookType.STEP_PRE,
+            manager=manager,
+        ):
+            for hook_msg in pre_msgs:
+                _append_and_notify(manager, session, hook_msg)
+            manager.write()
+
+        user_messages = [m for m in manager.log.messages if m.role == "user"]
+        if not user_messages:
+            error_event: ErrorEvent = {
+                "type": "error",
+                "error": "No user message to process",
+            }
+            SessionManager.add_event(conversation_id, error_event)
+            session.generating = False
+            manager.write()
+            session.generating_since = None
+            return
+
+        next_user_index = session.acp_last_user_msg_index + 1
+        pending_user_messages = user_messages[next_user_index:]
+        if not pending_user_messages:
+            duplicate_error_event: ErrorEvent = {
+                "type": "error",
+                "error": "No new user message to process",
+            }
+            SessionManager.add_event(conversation_id, duplicate_error_event)
+            session.generating = False
+            session.generating_since = None
+            return
+
+        SessionManager.add_event(conversation_id, {"type": "generation_started"})
+
+        stream_tokens: list[str] = []
+
+        async def _on_acp_update(_session_id: str, update: Any) -> None:
+            # Best-effort bridge: forward ACP session_update text chunks to SSE.
+            for chunk in _iter_text_from_acp_update(update):
+                if not chunk:
+                    continue
+                stream_tokens.append(chunk)
+                SessionManager.add_event(
+                    conversation_id,
+                    {"type": "generation_progress", "token": chunk},
+                )
+
+        acp_runtime.set_on_update(_on_acp_update)
+
+        try:
+            final_msg: Message | None = None
+
+            for absolute_index, user_msg in enumerate(
+                pending_user_messages,
+                start=next_user_index,
+            ):
+                text, _raw = await acp_runtime.prompt(user_msg.content)
+                final_text = "".join(stream_tokens) if stream_tokens else text
+                stream_tokens.clear()
+                msg = Message("assistant", final_text)
+                _append_and_notify(manager, session, msg)
+                manager.write()
+                session.acp_last_user_msg_index = absolute_index
+                final_msg = msg
+
+            if post_msgs := trigger_hook(
+                HookType.TURN_POST,
+                manager=manager,
+            ):
+                for hook_msg in post_msgs:
+                    _append_and_notify(manager, session, hook_msg)
+
+            manager.write()
+
+            if final_msg is None:
+                # Should not happen: pending_user_messages was non-empty above, but
+                # guard explicitly instead of using assert (disabled by python -O).
+                logger.warning(
+                    "ACP step produced no final message for conversation %s",
+                    conversation_id,
+                )
+                no_msg_event: ErrorEvent = {
+                    "type": "error",
+                    "error": "ACP step completed but produced no assistant message",
+                }
+                SessionManager.add_event(conversation_id, no_msg_event)
+            else:
+                SessionManager.add_event(
+                    conversation_id,
+                    {
+                        "type": "generation_complete",
+                        "message": msg2dict(
+                            final_msg, manager.workspace, manager.logdir
+                        ),
+                    },
+                )
+
+            # Auto-generate display name AFTER signaling generation_complete,
+            # so the event isn't blocked by a potentially slow LLM call.
+            _try_auto_name_and_notify(
+                chat_config,
+                manager.log.messages,
+                chat_config.model or "",
+                conversation_id,
+            )
+        except Exception as e:
+            logger.exception("Error during ACP step: %s", e)
+            session.last_error = str(e)
+            SessionManager.add_event(
+                conversation_id, {"type": "error", "error": str(e)}
+            )
+        finally:
+            acp_runtime.set_on_update(None)
+            session.generating = False
+            session.generating_since = None
     finally:
-        acp_runtime.set_on_update(None)
-        session.generating = False
-        session.generating_since = None
+        current_conversation_id.reset(conversation_token)
+        current_session_id.reset(session_token)
 
 
 def _start_acp_step_thread(
@@ -498,9 +514,16 @@ def _start_acp_step_thread(
     session.generating_since = datetime.now(tz=timezone.utc)
 
     def _run() -> None:
+        from ..hooks import current_conversation_id, current_session_id
+
+        current_conversation_id.set(conversation_id)
+        current_session_id.set(session.id)
         asyncio.run(_acp_step(conversation_id, session, workspace))
 
-    t = threading.Thread(target=_run, daemon=True)
+    # Propagate request-scoped ContextVars (model, config, tools) into the ACP
+    # worker thread; hook/session vars are then set explicitly in that thread.
+    ctx = contextvars.copy_context()
+    t = threading.Thread(target=ctx.run, args=(_run,), daemon=True)
     t.start()
 
 
