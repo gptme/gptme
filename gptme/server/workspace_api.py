@@ -60,7 +60,9 @@ class UploadedFileMetadata(BaseModel):
 
     name: str = Field(..., description="File name")
     path: str = Field(
-        ..., description="Absolute filesystem path for use in message files"
+        ...,
+        description="Path relative to conversation logdir (e.g. 'attachments/filename'). "
+        "Use with GET /api/v2/conversations/{id}/files/<path> to retrieve the file.",
     )
     type: Literal["file", "directory"] = Field(..., description="File type")
     size: int = Field(..., description="File size in bytes")
@@ -329,7 +331,9 @@ def upload_files(conversation_id: str):
     (<logdir>/attachments/). Accepts multipart/form-data with file fields.
     Uploaded files are intended for the agent to read as context; the agent can
     move them into the workspace if it needs to modify them.
-    Returns absolute file paths so they can be included directly in message files.
+    Returns logdir-relative paths (e.g. ``attachments/filename``) for each
+    uploaded file. Retrieve a file via
+    ``GET /api/v2/conversations/{id}/files/<path>``.
     """
     if error := _validate_conversation_id(conversation_id):
         return error

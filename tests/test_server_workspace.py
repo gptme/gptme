@@ -867,3 +867,136 @@ class TestWorkspaceEdgeCases:
         assert response.status_code == 200
         data = response.get_json()
         assert isinstance(data, list)
+
+
+class TestUploadFilesEndpoint:
+    """Tests for the upload_files API endpoint."""
+
+    def _create_conv(self, client: FlaskClient) -> str:
+        convname = f"test-upload-{uuid4().hex[:8]}"
+        resp = client.put(
+            f"/api/v2/conversations/{convname}",
+            json={"prompt": "Test."},
+        )
+        assert resp.status_code == 200
+        return convname
+
+    def test_upload_success_returns_logdir_relative_path(self, client: FlaskClient):
+        """Uploaded file path is logdir-relative (e.g. attachments/filename)."""
+        import io
+
+        conv_id = self._create_conv(client)
+        data = {"file": (io.BytesIO(b"hello world"), "test.txt")}
+        resp = client.post(
+            f"/api/v2/conversations/{conv_id}/workspace/upload",
+            data=data,
+            content_type="multipart/form-data",
+        )
+        assert resp.status_code == 200
+        result = resp.get_json()
+        assert result is not None
+        assert "files" in result
+        assert len(result["files"]) == 1
+        f = result["files"][0]
+        assert f["name"] == "test.txt"
+        # Path is logdir-relative, not absolute
+        from pathlib import Path
+
+        assert not Path(f["path"]).is_absolute()
+        assert f["path"] == "attachments/test.txt"
+        assert f["size"] == len(b"hello world")
+        assert f["type"] == "file"
+
+    def test_upload_no_files_returns_400(self, client: FlaskClient):
+        conv_id = self._create_conv(client)
+        resp = client.post(
+            f"/api/v2/conversations/{conv_id}/workspace/upload",
+            data={},
+            content_type="multipart/form-data",
+        )
+        assert resp.status_code == 400
+        assert "No files provided" in resp.get_json()["error"]
+
+    def test_upload_hidden_filename_rejected(self, client: FlaskClient):
+        """Files whose names start with '.' are skipped → 400."""
+        import io
+
+        conv_id = self._create_conv(client)
+        data = {"file": (io.BytesIO(b"secret"), ".hidden")}
+        resp = client.post(
+            f"/api/v2/conversations/{conv_id}/workspace/upload",
+            data=data,
+            content_type="multipart/form-data",
+        )
+        assert resp.status_code == 400
+        assert "No valid files uploaded" in resp.get_json()["error"]
+
+    def test_upload_path_traversal_filename_sanitized(self, client: FlaskClient):
+        """Path-traversal component in filename is stripped to basename."""
+        import io
+
+        conv_id = self._create_conv(client)
+        data = {"file": (io.BytesIO(b"pwned"), "../../../etc/evil.txt")}
+        resp = client.post(
+            f"/api/v2/conversations/{conv_id}/workspace/upload",
+            data=data,
+            content_type="multipart/form-data",
+        )
+        assert resp.status_code == 200
+        result = resp.get_json()
+        assert result["files"][0]["name"] == "evil.txt"
+        assert "etc" not in result["files"][0]["path"]
+
+    def test_upload_duplicate_filename_renamed(self, client: FlaskClient):
+        """Second upload with same name gets a unique suffix."""
+        import io
+
+        conv_id = self._create_conv(client)
+        for i in range(2):
+            data = {"file": (io.BytesIO(f"content {i}".encode()), "dup.txt")}
+            resp = client.post(
+                f"/api/v2/conversations/{conv_id}/workspace/upload",
+                data=data,
+                content_type="multipart/form-data",
+            )
+            assert resp.status_code == 200
+
+        # The second upload must have a different name
+        # (re-upload and collect both)
+        names = []
+        for i in range(2):
+            data = {"file": (io.BytesIO(f"c{i}".encode()), "same.txt")}
+            resp = client.post(
+                f"/api/v2/conversations/{conv_id}/workspace/upload",
+                data=data,
+                content_type="multipart/form-data",
+            )
+            assert resp.status_code == 200
+            names.append(resp.get_json()["files"][0]["name"])
+        assert names[0] != names[1], "Duplicate filenames must be renamed"
+
+    def test_upload_nonexistent_conversation_returns_404(self, client: FlaskClient):
+        import io
+
+        data = {"file": (io.BytesIO(b"x"), "x.txt")}
+        resp = client.post(
+            "/api/v2/conversations/nonexistent-conv-xyz/workspace/upload",
+            data=data,
+            content_type="multipart/form-data",
+        )
+        assert resp.status_code == 404
+
+    def test_upload_empty_file_accepted(self, client: FlaskClient):
+        """Zero-byte files are valid uploads."""
+        import io
+
+        conv_id = self._create_conv(client)
+        data = {"file": (io.BytesIO(b""), "empty.txt")}
+        resp = client.post(
+            f"/api/v2/conversations/{conv_id}/workspace/upload",
+            data=data,
+            content_type="multipart/form-data",
+        )
+        assert resp.status_code == 200
+        result = resp.get_json()
+        assert result["files"][0]["size"] == 0
