@@ -18,7 +18,7 @@ def conversation_id_error(value: str) -> str | None:
     ):
         return (
             "conversation name must be a single path component "
-            "(no '.', '/', '\\\\', or '..')."
+            "(no '.', '/', '\\\\', '..', or null bytes)."
         )
     return None
 
