@@ -446,9 +446,20 @@ def main(
     if agent_profile:
         selected_profile = get_profile(agent_profile)
         if not selected_profile:
-            print(f"Unknown profile: {agent_profile}")
-            print("Use 'gptme-util profile list' to see available profiles.")
-            sys.exit(1)
+            agent_profile_param = next(
+                (
+                    param
+                    for param in ctx.command.params
+                    if param.name == "agent_profile"
+                ),
+                None,
+            )
+            raise click.BadParameter(
+                f"unknown profile '{agent_profile}'. "
+                "Use 'gptme-util profile list' to see available profiles.",
+                ctx=ctx,
+                param=agent_profile_param,
+            )
 
         logger.info(f"Using agent profile: {selected_profile.name}")
 
