@@ -666,6 +666,11 @@ key = "value"
     assert config.files == ["README.md"]
 
 
+def test_project_config_rejects_non_object_rag_section():
+    with pytest.raises(ValueError, match="rag must be an object"):
+        ProjectConfig.from_dict({"rag": "boom"})
+
+
 def test_resume_config_precedence():
     """Test that resume configuration respects saved config unless CLI overrides provided."""
     with tempfile.TemporaryDirectory() as tmpdir:

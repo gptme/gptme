@@ -21,6 +21,24 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _pop_object_section(config_data: dict, key: str) -> dict:
+    """Pop a nested config section and require it to be an object."""
+    value = config_data.pop(key, None)
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"{key} must be an object")
+    return value
+
+
+def _build_section(section_name: str, section_cls, section_data: dict):
+    """Construct a config dataclass and normalize constructor errors."""
+    try:
+        return section_cls(**section_data)
+    except TypeError as exc:
+        raise ValueError(f"invalid {section_name} config: {exc}") from exc
+
+
 @dataclass
 class PluginsConfig:
     """Configuration for the plugin system."""
@@ -248,16 +266,24 @@ class ProjectConfig:
             files = config_data.pop("files", None)
             context_cmd = config_data.pop("context_cmd", None)
 
-        rag = RagConfig(**config_data.pop("rag", {}))
+        rag = _build_section("rag", RagConfig, _pop_object_section(config_data, "rag"))
+
+        agent_data = config_data.pop("agent", None)
+        if agent_data is not None and not isinstance(agent_data, dict):
+            raise ValueError("agent must be an object")
         agent = (
-            AgentConfig(**config_data.pop("agent")) if "agent" in config_data else None
+            _build_section("agent", AgentConfig, agent_data)
+            if agent_data is not None
+            else None
         )
-        lessons = LessonsConfig(dirs=config_data.pop("lessons", {}).get("dirs", []))
+
+        lessons_data = _pop_object_section(config_data, "lessons")
+        lessons = LessonsConfig(dirs=lessons_data.get("dirs", []))
 
         # Handle unified context config (replaces GPTME_FRESH + context_selector)
         # Support both old and new config formats for backward compatibility
-        context_data = config_data.pop("context", {})
-        context_selector_data = config_data.pop("context_selector", {})
+        context_data = _pop_object_section(config_data, "context")
+        context_selector_data = _pop_object_section(config_data, "context_selector")
 
         # If new [context] section exists, use it
         if context_data:
@@ -271,36 +297,40 @@ class ProjectConfig:
             # No config, use defaults
             context = ContextConfig()
 
-        plugins_data = config_data.pop("plugins", {})
+        plugins_data = _pop_object_section(config_data, "plugins")
         plugins = PluginsConfig(
             paths=plugins_data.get("paths", []),
             enabled=plugins_data.get("enabled", []),
         )
-        env = config_data.pop("env", {})
-        if mcp := config_data.pop("mcp", None):
-            mcp = MCPConfig.from_dict(mcp)
+        env = _pop_object_section(config_data, "env")
+        mcp: MCPConfig | None = None
+        mcp_data = config_data.pop("mcp", None)
+        if mcp_data is not None and not isinstance(mcp_data, dict):
+            raise ValueError("mcp must be an object")
+        if mcp_data:
+            mcp = MCPConfig.from_dict(mcp_data)
 
         # Extract plugin-prefixed keys (e.g., [plugin.retrieval] -> plugin["retrieval"])
         # This allows plugins to have their own config sections without triggering warnings
         plugin_config: dict[str, dict] = {}
         if plugin_data := config_data.pop("plugin", None):
             # Handle [plugin] section with nested subsections
-            if isinstance(plugin_data, dict):
-                plugin_config = plugin_data
+            if not isinstance(plugin_data, dict):
+                raise ValueError("plugin must be an object")
+            plugin_config = plugin_data
 
         # Parse architect config from TOML dict
         architect = ArchitectConfig()
         if architect_data := config_data.pop("architect", None):
-            if isinstance(architect_data, dict):
-                known_keys = set(ArchitectConfig.__dataclass_fields__)
-                unknown = {k for k in architect_data if k not in known_keys}
-                if unknown:
-                    logger.warning(
-                        f"Unknown keys in architect config: {unknown} (ignored)"
-                    )
-                architect = ArchitectConfig(
-                    **{k: v for k, v in architect_data.items() if k in known_keys}
-                )
+            if not isinstance(architect_data, dict):
+                raise ValueError("architect must be an object")
+            known_keys = set(ArchitectConfig.__dataclass_fields__)
+            unknown = {k for k in architect_data if k not in known_keys}
+            if unknown:
+                logger.warning(f"Unknown keys in architect config: {unknown} (ignored)")
+            architect = ArchitectConfig(
+                **{k: v for k, v in architect_data.items() if k in known_keys}
+            )
 
         # Warn about unknown keys and drop them instead of passing them through
         # as kwargs (which would crash with "unexpected keyword argument").

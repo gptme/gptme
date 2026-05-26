@@ -131,7 +131,10 @@ def api_agents_put():
         return flask.jsonify({"error": "project_config must be an object"}), 400
     project_config: ProjectConfig | None = None
     if project_config_raw:
-        project_config = ProjectConfig.from_dict(project_config_raw, workspace=path)
+        try:
+            project_config = ProjectConfig.from_dict(project_config_raw, workspace=path)
+        except ValueError as exc:
+            return flask.jsonify({"error": f"Invalid project_config: {exc}"}), 400
 
     # Create workspace using shared module
     try:
