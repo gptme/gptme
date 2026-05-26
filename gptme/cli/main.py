@@ -30,6 +30,7 @@ from ..config import setup_config_from_cli
 from ..constants import MULTIPROMPT_SEPARATOR
 from ..dirs import get_logs_dir
 from ..init import init_logging
+from ..llm import get_provider_from_model
 from ..llm import reply as llm_reply
 from ..llm.models import get_recommended_model
 from ..logmanager import (
@@ -839,6 +840,20 @@ def main(
         # Use the architect model for the planning turn, or fall back
         _arch_model = _arch_model or config.chat.model
         assert _arch_model, "Architect mode requires a model to be configured"
+
+        # Validate architect/editor model names up front so a malformed value
+        # (e.g. missing provider prefix) surfaces as a clean usage error rather
+        # than a raw traceback from llm_reply mid-planning. Mirrors the main
+        # --model path, which validates inside setup_config_from_cli above.
+        for _flag, _value in (
+            ("--architect-model", _arch_model),
+            ("--editor-model", _editor_model),
+        ):
+            if _value:
+                try:
+                    get_provider_from_model(_value)
+                except ValueError as e:
+                    raise click.UsageError(f"{_flag}: {e}") from e
 
         # Construct architect messages from first user prompt
         from ..prompts.architect import (
