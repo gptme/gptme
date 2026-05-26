@@ -446,6 +446,19 @@ class TestBrowseWorkspaceEndpoint:
         response = client.get("/api/v2/conversations/nonexistent-conv-999/workspace")
         assert response.status_code == 404
 
+    def test_nonexistent_subpath_returns_404_without_path_leak(
+        self, client: FlaskClient, workspace_conv
+    ):
+        """Nonexistent subpath returns 404, not 400 with internal filesystem path."""
+        conv_id = workspace_conv["conversation_id"]
+        response = client.get(
+            f"/api/v2/conversations/{conv_id}/workspace/nonexistent-subdir"
+        )
+        assert response.status_code == 404
+        error = response.get_json()["error"]
+        # Must not expose internal filesystem paths in the error message
+        assert "/" not in error, f"Internal path leaked in error: {error!r}"
+
     def test_file_metadata_fields(self, client: FlaskClient, workspace_conv):
         """Test that file metadata contains all expected fields."""
         conv_id = workspace_conv["conversation_id"]
@@ -976,3 +989,17 @@ class TestUploadFilesEndpoint:
         assert resp.status_code == 200
         result = resp.get_json()
         assert result["files"][0]["size"] == 0
+
+    def test_upload_whitespace_only_filename_rejected(self, client: FlaskClient):
+        """Filenames containing only whitespace must be rejected."""
+        conv_id = self._create_conv(client)
+        for bad_name in ("   ", "\t", " \t "):
+            data = {"file": (io.BytesIO(b"content"), bad_name)}
+            resp = client.post(
+                f"/api/v2/conversations/{conv_id}/workspace/upload",
+                data=data,
+                content_type="multipart/form-data",
+            )
+            assert resp.status_code == 400, (
+                f"Expected 400 for whitespace filename {bad_name!r}, got {resp.status_code}"
+            )

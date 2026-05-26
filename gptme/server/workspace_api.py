@@ -296,6 +296,8 @@ def browse_workspace(conversation_id: str, subpath: str | None = None):
         if path.is_file():
             # Return single file metadata
             return flask.jsonify(WorkspaceFile(path, workspace).to_dict())
+        if not path.exists():
+            return flask.jsonify({"error": "File or directory not found"}), 404
         # Return directory listing
         return flask.jsonify(list_directory(path, workspace, show_hidden))
 
@@ -363,7 +365,7 @@ def upload_files(conversation_id: str):
                 continue
 
             # Sanitize filename (prevent path traversal via filename)
-            filename = Path(file.filename).name
+            filename = Path(file.filename).name.strip()
             if not filename or filename.startswith("."):
                 continue
 
