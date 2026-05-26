@@ -1882,6 +1882,30 @@ def test_v2_create_conversation_messages_not_list(
     assert "messages" in data["error"].lower()
 
 
+@pytest.mark.parametrize("bad_prompt", [None, [], 42, {"mode": "full"}])
+def test_v2_create_conversation_rejects_non_string_prompt(
+    client: FlaskClient, tmp_path, monkeypatch, bad_prompt: object
+):
+    """PUT /conversations/<id> should reject non-string prompt values before side effects."""
+    import uuid
+
+    logs_dir = tmp_path / "logs"
+    monkeypatch.setattr("gptme.server.api_v2.get_logs_dir", lambda: logs_dir)
+    conv_id = f"test-bad-prompt-{uuid.uuid4().hex[:8]}"
+
+    response = client.put(
+        f"/api/v2/conversations/{conv_id}",
+        json={"prompt": bad_prompt},
+    )
+
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "prompt must be a string"}
+    assert not (logs_dir / conv_id).exists()
+
+    retry = client.put(f"/api/v2/conversations/{conv_id}", json={"prompt": "none"})
+    assert retry.status_code == 200
+
+
 @pytest.mark.parametrize("bad_agent", [[], 42, {"path": "~/agent"}])
 def test_v2_create_conversation_rejects_invalid_agent_type(
     client: FlaskClient, tmp_path, monkeypatch, bad_agent: object
