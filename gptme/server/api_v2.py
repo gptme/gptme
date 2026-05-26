@@ -670,11 +670,18 @@ def api_conversation_post(conversation_id: str):
     except Exception as exc:
         return flask.jsonify({"error": f"Failed to load tool: {exc}"}), 400
 
+    # Check conversation existence before branch to return accurate error messages.
+    logdir = get_logs_dir() / conversation_id
+    if not logdir.exists():
+        return (
+            flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
+            404,
+        )
     try:
         log = LogManager.load(conversation_id, branch=branch)
     except FileNotFoundError:
         return (
-            flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
+            flask.jsonify({"error": f"Branch not found: {branch}"}),
             404,
         )
 

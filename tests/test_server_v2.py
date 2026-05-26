@@ -1111,6 +1111,28 @@ def test_v2_conversation_post(v2_conv, client: FlaskClient):
     assert data["log"][-1]["content"] == "Hello, this is a test message."
 
 
+def test_v2_conversation_post_nonexistent_branch_returns_404(
+    v2_conv, client: FlaskClient
+):
+    """POST to an existing conversation with a non-existent branch returns 404 with
+    a 'Branch not found' error — not the misleading 'Conversation not found' message
+    that would fire when the conversation itself is absent.
+    """
+    conversation_id = v2_conv["conversation_id"]
+
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "hello", "branch": "no-such-branch"},
+    )
+
+    assert response.status_code == 404
+    data = response.get_json()
+    assert data is not None
+    # Must say "Branch not found", not "Conversation not found"
+    assert "branch" in data["error"].lower()
+    assert "no-such-branch" in data["error"]
+
+
 @pytest.mark.slow
 @pytest.mark.requires_api
 def test_v2_generate(v2_conv, client: FlaskClient):
