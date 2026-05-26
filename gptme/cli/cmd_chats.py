@@ -118,7 +118,7 @@ def chats_list(limit: int, summarize: bool, output_json: bool):
 )
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON.")
 @click.option(
-    "-c", "--context", default=50, help="Characters of context around each match."
+    "-c", "--context", default=1, help="Lines of context to show around each match."
 )
 @click.option(
     "-m", "--matches", default=1, help="Maximum matches to show per conversation."
@@ -173,7 +173,7 @@ def chats_search(
             tool_allowlist=[],
             tool_format="markdown",
         )
-    search_chats(query, max_results=limit, context_size=context, max_matches=matches)
+    search_chats(query, max_results=limit, context_lines=context, max_matches=matches)
 
 
 @chats.command("read")
