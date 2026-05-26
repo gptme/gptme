@@ -647,8 +647,11 @@ def main(
     logdir_preexisting = True
 
     resume_workspace_filter: Path | None = None
-    if workspace not in (None, "@log"):
-        assert workspace is not None
+    if workspace == "@log":
+        resume_workspace_filter = None
+    elif workspace is None:
+        resume_workspace_filter = Path.cwd()
+    else:
         resume_workspace_filter = Path(workspace)
 
     if resume:

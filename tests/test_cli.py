@@ -276,6 +276,39 @@ def test_resume_with_workspace_uses_matching_conversation(
     assert selected_logdirs == [target]
 
 
+def test_resume_without_explicit_workspace_uses_cwd(
+    monkeypatch, runner: CliRunner, tmp_path: Path, runid: int
+):
+    workspace_a = tmp_path / "workspace-a"
+    workspace_b = tmp_path / "workspace-b"
+
+    target = _write_conversation(
+        f"resume-cwd-target-{runid}", content="target", workspace=workspace_a
+    )
+    newer_other = _write_conversation(
+        f"resume-cwd-other-{runid}", content="other", workspace=workspace_b
+    )
+    os.utime(target / "conversation.jsonl", (1, 1))
+    os.utime(newer_other / "conversation.jsonl", (2, 2))
+
+    selected_logdirs: list[Path] = []
+
+    def fake_chat(prompt_msgs, initial_msgs, logdir, *args, **kwargs):
+        selected_logdirs.append(logdir)
+
+    monkeypatch.setattr(cli, "chat", fake_chat)
+    monkeypatch.setattr(cli.Path, "cwd", classmethod(lambda cls: workspace_a))
+
+    result = runner.invoke(
+        cli.main,
+        ["--resume", "--non-interactive"],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    assert selected_logdirs == [target]
+
+
 def test_missing_custom_tool_path_is_reported_as_usage_error(
     runner: CliRunner, tmp_path: Path
 ):
