@@ -345,7 +345,7 @@ class TestLogWarnOnce:
         """
         import logging
 
-        unknown = "definitely-not-a-real-model-xyz"
+        unknown = f"definitely-not-a-real-model-{id(self)}"
         with caplog.at_level(logging.WARNING):
             get_model(unknown)
             get_model(unknown)
