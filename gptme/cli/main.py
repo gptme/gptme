@@ -9,7 +9,6 @@ import shutil
 import signal
 import sys
 import traceback
-import urllib.parse
 from datetime import datetime, timezone
 from itertools import islice
 from pathlib import Path
@@ -174,10 +173,6 @@ def _extract_missing_explicit_local_path(prompt: str) -> str | None:
         and candidate[0].isalpha()
     )
     if not explicit_local:
-        return None
-
-    parsed = urllib.parse.urlparse(candidate)
-    if parsed.scheme in ("http", "https") and parsed.netloc:
         return None
 
     try:
