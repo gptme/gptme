@@ -118,7 +118,7 @@ class GptmeApiClient:
         """
         url = f"{self.base_url}/api/v2/conversations/{conversation_id}/step"
 
-        payload = {
+        payload: dict[str, Any] = {
             "session_id": session_id,
             "auto_confirm": auto_confirm,
             "stream": stream,
@@ -221,7 +221,7 @@ class GptmeApiClient:
         """
         url = f"{self.base_url}/api/v2/conversations/{conversation_id}/tool/confirm"
 
-        payload = {
+        payload: dict[str, Any] = {
             "session_id": session_id,
             "tool_id": tool_id,
             "action": action,

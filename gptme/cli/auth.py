@@ -82,9 +82,8 @@ def auth_login(url: str, auth_url: str | None, no_browser: bool):
         console.print("  Check your --auth-url argument.")
         sys.exit(1)
     except requests.exceptions.HTTPError as e:
-        console.print(
-            f"[red]✗ Authorization request failed: {e.response.status_code}[/red]"
-        )
+        status = e.response.status_code if e.response is not None else "unknown"
+        console.print(f"[red]✗ Authorization request failed: {status}[/red]")
         sys.exit(1)
 
     try:

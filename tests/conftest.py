@@ -437,9 +437,9 @@ def event_listener(setup_conversation):
         try:
             for line in resp.iter_lines():
                 if line:
-                    line = line.decode("utf-8")
-                    if line.startswith("data: "):
-                        event_data = json.loads(line[6:])
+                    line_str = line.decode("utf-8")
+                    if line_str.startswith("data: "):
+                        event_data = json.loads(line_str[6:])
                         events.put(event_data)
 
                         # Track event types
