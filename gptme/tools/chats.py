@@ -66,7 +66,10 @@ def list_chats(
 
         if metadata:
             print()  # Add a newline between conversations
-            print(f"{i:2}. {textwrap.indent(conv.format(metadata=True), '    ')[4:]}")
+            first, *rest = conv.format(metadata=True).split("\n")
+            print(f"{i:2}. {first}")
+            for line in rest:
+                print(f"     {line}")
         else:
             print(f"{i:2}. {conv.name} ({msg_count} msgs)")
 
@@ -197,7 +200,10 @@ def _format_message_with_context(
                 before = line[:start_pos]
                 match = line[start_pos:end_pos]
                 after = line[end_pos:]
-                formatted_line = f"{before}\033[1;31m{match}\033[0m{after}"
+                if sys.stdout.isatty():
+                    formatted_line = f"{before}\033[1;31m{match}\033[0m{after}"
+                else:
+                    formatted_line = f"{before}**{match}**{after}"
             else:
                 formatted_line = line
             formatted_lines.append(f"{i + 1:4d}| {formatted_line}")
