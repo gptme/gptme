@@ -1,4 +1,5 @@
 import json
+import sys
 
 from gptme.tools import init_tools
 from gptme.tools.chats import _format_message_with_context, list_chats, search_chats
@@ -41,8 +42,9 @@ def test_chats(tmp_path, monkeypatch, capsys):
     assert "Search results" in captured.out
 
 
-def test_format_message_basic():
+def test_format_message_basic(monkeypatch):
     """Test basic match highlighting."""
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     result = _format_message_with_context("hello world", "world")
     assert "world" in result
     # Should contain ANSI bold red escape codes
@@ -71,8 +73,9 @@ def test_format_message_no_repr_quotes():
     assert "'world'" not in result
 
 
-def test_format_message_case_insensitive_highlight():
+def test_format_message_case_insensitive_highlight(monkeypatch):
     """Test that highlighting works case-insensitively and preserves original casing."""
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     result = _format_message_with_context("Hello WORLD", "world")
     # The ANSI highlight should be present
     assert "\033[1;31m" in result
