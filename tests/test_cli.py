@@ -565,6 +565,29 @@ def test_noninteractive_missing_prompt_does_not_leave_orphan_logdir(
     assert not logs_dir.exists() or not any(logs_dir.iterdir())
 
 
+def test_noninteractive_whitespace_only_prompt_rejected(monkeypatch, tmp_path: Path):
+    """Whitespace-only prompts should be treated as missing, not sent to the LLM."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+
+    runner = CliRunner()
+
+    for whitespace_prompt in ["   ", "\t", "\n", "  \t  "]:
+        result = runner.invoke(
+            cli.main,
+            ["--non-interactive", "--name", "ws-prompt", whitespace_prompt],
+            input="",
+        )
+        assert result.exit_code != 0, (
+            f"Expected non-zero exit for whitespace prompt {whitespace_prompt!r}"
+        )
+        assert not (cli.get_logs_dir() / "ws-prompt").exists(), (
+            f"Orphan logdir created for whitespace prompt {whitespace_prompt!r}"
+        )
+
+
 def test_should_print_resume_hint_requires_nonempty_conversation_log(tmp_path: Path):
     logdir = tmp_path / "resume-hint"
     logdir.mkdir()

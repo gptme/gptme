@@ -699,7 +699,9 @@ def main(
                 "Verify the module is installed and the class name is correct."
             ) from e
 
-    prompts = [p.strip() for p in "\n\n".join(prompts).split(sep) if p]
+    prompts = [
+        stripped for p in "\n\n".join(prompts).split(sep) if (stripped := p.strip())
+    ]
     # File paths in multiprompts are expanded at runtime by include_paths() in
     # _run_chat_loop (gptme/chat.py:194), not at parse time. Each prompt from the
     # queue goes through include_paths when popped, ensuring fresh content.
