@@ -493,6 +493,26 @@ def test_architect_model_unqualified_is_usage_error(
     assert "provider prefix" in result.output
 
 
+def test_empty_model_is_usage_error(runner: CliRunner, runid: int):
+    # --model "" should give a clean UsageError, not silently fall back to the
+    # default model with a warning. An empty string is an obvious user mistake.
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--name",
+            f"test-empty-model-{runid}",
+            "--model",
+            "",
+            "hello",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "Traceback" not in result.output
+    assert "empty" in result.output.lower()
+
+
 def test_unknown_agent_profile_stays_off_stdout_in_json_mode():
     # Click < 8.2 defaults to mix_stderr=True; Click 8.2 removed that kwarg
     # and separates streams by default. Use try/except to handle both.

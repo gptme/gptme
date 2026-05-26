@@ -109,6 +109,8 @@ def setup_config_from_cli(
     # For new conversations: CLI args -> env vars/config files -> defaults
     resolved_model: str | None
     if model is not None:
+        if not model.strip():
+            raise ValueError("Model name cannot be empty.")
         # CLI override always takes precedence
         resolved_model = model
     elif existing_chat_config and existing_chat_config.model:
