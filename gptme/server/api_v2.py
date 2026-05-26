@@ -522,7 +522,7 @@ def api_conversation_put(conversation_id: str):
         return flask.jsonify({"error": "'config' must be an object"}), 400
     prompt = req_json.get("prompt", "full")
     if not isinstance(prompt, str):
-        return flask.jsonify({"error": "prompt must be a string"}), 400
+        return flask.jsonify({"error": "'prompt' must be a string"}), 400
 
     # Load or create the chat config, overriding values from request config if provided
     config_dict = dict(config_raw)

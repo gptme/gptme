@@ -1899,7 +1899,7 @@ def test_v2_create_conversation_rejects_non_string_prompt(
     )
 
     assert response.status_code == 400
-    assert response.get_json() == {"error": "prompt must be a string"}
+    assert response.get_json() == {"error": "'prompt' must be a string"}
     assert not (logs_dir / conv_id).exists()
 
     retry = client.put(f"/api/v2/conversations/{conv_id}", json={"prompt": "none"})
