@@ -391,6 +391,21 @@ def test_tools_info():
     assert isinstance(data["is_mcp"], bool)
 
 
+def test_tools_info_json_invalid_tool_stays_machine_readable():
+    """tools info --json should return a JSON error payload for missing tools."""
+    import json
+
+    runner = CliRunner()
+
+    result = runner.invoke(main, ["tools", "info", "nonexistent-tool", "--json"])
+
+    assert result.exit_code == 1
+    data = json.loads(result.output)
+    assert data["tool"] == "nonexistent-tool"
+    assert "not found" in data["error"]
+    assert "shell" in data["available_tools"]
+
+
 def test_tools_call_non_default_tool():
     """Non-default tools that expose functions must be callable.
 

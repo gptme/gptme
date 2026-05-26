@@ -501,9 +501,21 @@ def tools_info(
         if tool_name in available_dict:
             tool = available_dict[tool_name]
         else:
-            print(f"Tool '{tool_name}' not found. Available tools:")
-            for name in sorted(available_dict.keys()):
-                print(f"  - {name}")
+            if as_json:
+                click.echo(
+                    json.dumps(
+                        {
+                            "tool": tool_name,
+                            "error": f"Tool '{tool_name}' not found",
+                            "available_tools": sorted(available_dict.keys()),
+                        },
+                        indent=2,
+                    )
+                )
+            else:
+                print(f"Tool '{tool_name}' not found. Available tools:")
+                for name in sorted(available_dict.keys()):
+                    print(f"  - {name}")
             sys.exit(1)
 
     if as_json:
