@@ -945,7 +945,11 @@ def test_tools_short_option_equals_syntax_works(runner: CliRunner):
 
 @pytest.mark.parametrize(
     "tool_spec",
-    ["./definitely-missing-custom-tool.py", "+./definitely-missing-custom-tool.py"],
+    [
+        "./definitely-missing-custom-tool.py",
+        "+./definitely-missing-custom-tool.py",
+        "-./definitely-missing-custom-tool.py",
+    ],
 )
 def test_missing_custom_tool_path_fails_before_config_init(
     runner: CliRunner, tool_spec: str
