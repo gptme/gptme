@@ -666,9 +666,24 @@ key = "value"
     assert config.files == ["README.md"]
 
 
-def test_project_config_rejects_non_object_rag_section():
-    with pytest.raises(ValueError, match="rag must be an object"):
-        ProjectConfig.from_dict({"rag": "boom"})
+@pytest.mark.parametrize(
+    "section_name",
+    [
+        "rag",
+        "agent",
+        "lessons",
+        "context",
+        "context_selector",
+        "plugins",
+        "env",
+        "mcp",
+        "plugin",
+        "architect",
+    ],
+)
+def test_project_config_rejects_non_object_nested_sections(section_name: str):
+    with pytest.raises(ValueError, match=f"{section_name} must be an object"):
+        ProjectConfig.from_dict({section_name: "boom"})
 
 
 def test_project_config_rejects_non_list_mcp_servers():
