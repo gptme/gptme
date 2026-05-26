@@ -28,6 +28,20 @@ def test_parallel_checks_pass_for_planner_style_trajectory():
     assert check_subagent_parallel_integrated_results(messages)
 
 
+def test_parallel_checks_pass_for_subagent_batch_only_trajectory():
+    """subagent_batch without explicit subagent_wait should still pass."""
+    messages = [
+        Message(
+            "assistant",
+            '```ipython\nsubagent_batch([{"agent_id": "a"}, {"agent_id": "b"}, {"agent_id": "c"}])\n```',
+        ),
+        Message("assistant", "Done. WORDS=6 LINES=4 EXISTS=yes"),
+    ]
+
+    assert check_subagent_parallel_used(messages)
+    assert check_subagent_parallel_started_before_wait(messages)
+
+
 def test_parallel_started_before_wait_rejects_sequential_launch():
     messages = [
         Message(

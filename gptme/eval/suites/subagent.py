@@ -32,7 +32,8 @@ def check_subagent_parallel_started_before_wait(messages: list[Message]) -> bool
     assistant_log = _role_contents(messages, "assistant")
     first_wait = assistant_log.find("subagent_wait(")
     if first_wait == -1:
-        return False
+        # subagent_batch manages its own parallelism without explicit waits
+        return "subagent_batch(" in assistant_log
     before_wait = assistant_log[:first_wait]
     return (
         "subagent_batch(" in before_wait
