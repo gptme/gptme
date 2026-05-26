@@ -440,7 +440,9 @@ def test_unknown_agent_profile_stays_off_stdout_in_json_mode(runid: int):
         env=env,
         capture_output=True,
         check=False,
+        stdin=subprocess.DEVNULL,
         text=True,
+        timeout=5,
     )
 
     assert result.returncode == 2
