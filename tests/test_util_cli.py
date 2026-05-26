@@ -938,6 +938,7 @@ def test_context_tree(tmp_path):
     result = runner.invoke(main, ["context", "tree", "--path", str(tmp_path)])
     assert result.exit_code == 0, result.output
     assert "Workspace structure" in result.output
+    assert "\x1b[" not in result.output
 
 
 def test_context_files(tmp_path):
@@ -1033,3 +1034,13 @@ def test_context_journal_no_entries(tmp_path):
     )
     assert result.exit_code == 0, result.output
     assert "No journal entries" in result.output
+
+
+def test_context_journal_rejects_file_path(tmp_path):
+    """context journal should reject a file passed to --path."""
+    runner = CliRunner()
+    journal_file = tmp_path / "journal.md"
+    journal_file.write_text("# Not a directory\n")
+    result = runner.invoke(main, ["context", "journal", "--path", str(journal_file)])
+    assert result.exit_code != 0
+    assert "Directory" in result.output

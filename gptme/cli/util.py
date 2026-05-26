@@ -351,6 +351,8 @@ def _git_run(cmd: list[str], check: bool = True, timeout: int = 10) -> tuple[str
             env=env,
             timeout=timeout,
         )
+        if result.returncode != 0:
+            return (result.stderr or result.stdout).strip(), False
         return result.stdout.strip(), True
     except subprocess.TimeoutExpired:
         return "", False
@@ -492,16 +494,18 @@ def context_git(max_files: int, show_diff: bool):
 @click.option("--max-depth", type=int, default=1, help="Tree depth")
 def context_tree(path: str, max_depth: int):
     """Print workspace directory tree (respects .gitignore)."""
-    from rich import print as rich_print
+    from rich.console import Console
     from rich.tree import Tree
 
     excludes = _read_gitignore(path) + [".git"]
     abs_path = os.path.abspath(path)
     tree = Tree(abs_path, guide_style="bold bright_blue")
     _walk_directory(Path(path), tree, excludes, max_depth)
-    print("## Workspace structure\n\n```tree")
-    rich_print(tree)
-    print("```")
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, color_system=None)
+    console.print(tree)
+    print("## Workspace structure")
+    print(_codeblock("tree", buffer.getvalue().rstrip()))
 
 
 @context.command("files")
@@ -517,7 +521,10 @@ def context_files(config: str | None):
     Replaces ad-hoc context scripts in non-gptme harnesses (autonomous runs,
     project-monitoring) that manually concatenate gptme.toml prompt files.
     """
-    import tomllib
+    try:
+        import tomllib
+    except ModuleNotFoundError:
+        import tomli as tomllib  # type: ignore[no-redef]
 
     # Discover gptme.toml from cwd → git root
     toml_path: Path | None
@@ -555,7 +562,11 @@ def context_files(config: str | None):
 
 @context.command("journal")
 @click.option("--days", type=int, default=7, help="Days to look back")
-@click.option("--path", type=click.Path(exists=True), help="Journal directory")
+@click.option(
+    "--path",
+    type=click.Path(exists=True, file_okay=False),
+    help="Journal directory",
+)
 def context_journal(days: int, path: str | None):
     """Print journal entries from the last N days."""
     # Discover journal dir: prefer workspace-relative path first
