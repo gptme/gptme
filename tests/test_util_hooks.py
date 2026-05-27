@@ -300,6 +300,10 @@ def test_run_invalid_json_returns_continue(runner: CliRunner) -> None:
             id="prompt-list",
         ),
         pytest.param(
+            '{"hook_event_name": "PreToolUse", "tool_name": 123}',
+            id="tool-name-int",
+        ),
+        pytest.param(
             '{"hook_event_name": "PreToolUse", "tool_name": "Bash", "transcript": 999}',
             id="transcript-not-list",
         ),

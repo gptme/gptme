@@ -520,7 +520,7 @@ def _extract_pretooluse_text(hook_input: dict) -> str:
     parts: list[str] = []
 
     tool_name = hook_input.get("tool_name", "")
-    if tool_name:
+    if isinstance(tool_name, str) and tool_name:
         parts.append(tool_name)
 
     tool_input = hook_input.get("tool_input", {})
