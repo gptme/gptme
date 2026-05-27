@@ -20,7 +20,7 @@ from ..message import (
     len_tokens,
 )
 from ..telemetry import trace_function
-from ..tools import ToolSpec, ToolUse
+from ..tools import ToolSpec, ToolUse, get_tool_format
 from ..util import console
 from .models import (
     MODELS,
@@ -40,6 +40,18 @@ from .provider_plugins import (
 
 logger = logging.getLogger(__name__)
 _max_tokens_env_warned = False
+
+
+def _tooluse_break_check_char(char: str) -> bool:
+    """Return whether this character can complete a runnable tool call."""
+    current_format = get_tool_format()
+    if current_format == "markdown":
+        return char == "\n"
+    if current_format == "tool":
+        return char in {"}", "\n"}
+    if current_format == "xml":
+        return char in {">", "\n"}
+    return char == "\n"
 
 
 # Cheap/fast default model per provider for first-run / fallback scenarios.
@@ -554,9 +566,11 @@ def _reply_stream(
             if not json_mode:
                 sys.stdout.flush()
 
-            # Trigger the tool detection only if the line is finished.
-            # Helps to detect nested start code blocks.
-            if break_on_tooluse and char == "\n":
+            # Trigger tool detection at cheap format-specific breakpoints.
+            # Markdown tools need line completion; XML/tool formats can finish
+            # before a trailing newline, so waiting only for "\n" can leak
+            # extra assistant text past the breakpoint.
+            if break_on_tooluse and _tooluse_break_check_char(char):
                 # TODO: make this more robust/general, maybe with a callback that runs on each char/chunk
                 # pause inference on finished code-block, letting user run the command before continuing
                 # Use streaming=True to require blank line after code blocks during streaming

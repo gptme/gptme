@@ -498,6 +498,55 @@ def test_reply_stream_on_token_break_on_tooluse(monkeypatch):
     assert len(collected) < len(tool_block)
 
 
+def test_reply_stream_on_token_break_on_tooluse_tool_format_without_newline(
+    monkeypatch,
+):
+    """tool-format breakpoint must not wait for a trailing newline."""
+    from gptme.llm import _reply_stream
+    from gptme.message import Message
+    from gptme.tools import get_tool_format, init_tools, set_tool_format
+
+    init_tools()
+
+    tool_call = '@shell(tool_uid): {"command": "echo hi"}'
+    suffix = "This text should not be reached"
+
+    def _fake_gen(chunks):
+        yield from chunks
+
+    class _FakeStream:
+        def __init__(self, chunks):
+            self.gen = _fake_gen(chunks)
+            self.metadata = {"model": "test/model"}
+
+        def __iter__(self):
+            yield from self.gen
+
+    monkeypatch.setattr(
+        "gptme.llm._stream",
+        lambda *args, **kwargs: _FakeStream([tool_call + suffix]),
+    )
+
+    collected: list[str] = []
+    previous_format = get_tool_format()
+    set_tool_format("tool")
+    try:
+        result = _reply_stream(
+            messages=[Message("user", "hi")],
+            model="test/model",
+            tools=None,
+            on_token=collected.append,
+            break_on_tooluse=True,
+        )
+    finally:
+        set_tool_format(previous_format)
+
+    received_text = "".join(collected)
+    assert received_text == tool_call
+    assert result.content == tool_call
+    assert suffix not in received_text
+
+
 def test_reply_stream_on_token_thinking_tag_suppressed(monkeypatch):
     """on_token must not receive thinking-tag lines or their content.
 
