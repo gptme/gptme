@@ -154,6 +154,16 @@ def test_name_rejects_path_traversal(bad_name: str, runner: CliRunner):
     assert "conversation name must be a single path component" in result.output
 
 
+@pytest.mark.parametrize("bad_name", ["", " ", "   ", "\t"])
+def test_name_rejects_empty_or_whitespace_only_values(bad_name: str, runner: CliRunner):
+    result = runner.invoke(
+        cli.main,
+        ["--name", bad_name, "--non-interactive", "hello"],
+    )
+    assert result.exit_code == 2
+    assert "conversation name cannot be empty" in result.output
+
+
 def test_command_fork_rejects_path_traversal(runner: CliRunner, runid: int, name: str):
     escape_name = f"../escape-{runid}"
     escape_path = cli.get_logs_dir().parent / f"escape-{runid}"

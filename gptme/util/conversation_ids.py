@@ -5,7 +5,7 @@ _MAX_CONVERSATION_ID_BYTES = 255  # Linux NAME_MAX for a single path component
 
 def conversation_id_error(value: str) -> str | None:
     """Return a validation error for unsafe conversation identifiers, if any."""
-    if not value:
+    if not value or not value.strip():
         return "conversation name cannot be empty."
     if len(value.encode()) > _MAX_CONVERSATION_ID_BYTES:
         return "conversation name too long."

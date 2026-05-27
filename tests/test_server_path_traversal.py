@@ -546,6 +546,18 @@ class TestConversationIdLengthValidation:
         with app.app_context():
             assert _validate_conversation_id("a" * 255) is None
 
+    def test_whitespace_only_id_rejected_unit(self):
+        """Whitespace-only conversation IDs must be rejected before hitting disk."""
+        from gptme.server.api_v2_common import _validate_conversation_id
+        from gptme.server.app import create_app
+
+        app = create_app()
+        with app.app_context():
+            result = _validate_conversation_id("   ")
+            assert result is not None
+            _response, status_code = result
+            assert status_code == 400
+
     def test_multibyte_over_limit_rejected(self):
         """Multi-byte chars counted by UTF-8 bytes, not code points.
 

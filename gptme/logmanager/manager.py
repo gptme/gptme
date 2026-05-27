@@ -64,7 +64,7 @@ _MESSAGE_FIELD_NAMES = frozenset(f.name for f in fields(Message))
 
 def conversation_name_error(value: str) -> str | None:
     """Return a validation error for unsafe conversation names, if any."""
-    if not value:
+    if not value or not value.strip():
         return "conversation name cannot be empty."
     if len(value.encode()) > _MAX_CONVERSATION_NAME_BYTES:
         return "conversation name too long."
