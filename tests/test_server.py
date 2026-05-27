@@ -314,6 +314,36 @@ def test_api_v2_conversation_path_not_command(conv, client: FlaskClient):
     assert "command" not in data
 
 
+def test_api_v2_conversation_post_tools_validation(conv, client: FlaskClient):
+    """Test that the tools field is validated before calling init_tools.
+
+    A non-list value (string, int) should return 400 instead of crashing
+    with a 500 when get_toolchain iterates over characters.
+    """
+    # String tools should be rejected with 400
+    response = client.post(
+        f"/api/v2/conversations/{conv}",
+        json={"role": "user", "content": "hello", "tools": "malformed"},
+    )
+    assert response.status_code == 400
+    data = response.get_json()
+    assert "tools" in data.get("error", "").lower()
+
+    # Integer tools should be rejected with 400
+    response = client.post(
+        f"/api/v2/conversations/{conv}",
+        json={"role": "user", "content": "hello", "tools": 42},
+    )
+    assert response.status_code == 400
+
+    # Valid list of tools should still work
+    response = client.post(
+        f"/api/v2/conversations/{conv}",
+        json={"role": "user", "content": "hello", "tools": ["shell"]},
+    )
+    assert response.status_code == 200
+
+
 # --- Cookie-based authentication tests ---
 
 
