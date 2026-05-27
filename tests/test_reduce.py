@@ -209,6 +209,41 @@ def test_truncate_msg_quad_fence():
     assert "```python" not in truncated.content.replace("````python", "")
 
 
+def test_truncate_msg_preserves_tool_use_codeblocks():
+    """Tool-call messages must stay parseable after reduction."""
+    tool_lines = "\n".join(f"echo line_{i}" for i in range(50))
+    msg = Message(
+        "assistant",
+        content=f"Planning.\n```shell\n{tool_lines}\n```\nAfter the tool call.",
+    )
+
+    truncated = truncate_msg(msg)
+
+    assert truncated is None
+
+
+def test_reduce_log_skips_tool_use_messages():
+    """reduce_log should compact a different message before touching tool calls."""
+    tool_lines = "\n".join(f"echo line_{i}" for i in range(80))
+    filler_lines = "\n".join(f"value_{i} = {i}" for i in range(70))
+    tool_msg = Message(
+        "assistant",
+        content=f"Planning.\n```shell\n{tool_lines}\n```\nAfter the tool call.",
+    )
+    filler_msg = Message("assistant", content=f"```python\n{filler_lines}\n```")
+    msgs = [
+        Message("system", content="system prompt"),
+        tool_msg,
+        Message("system", content="command executed successfully"),
+        filler_msg,
+    ]
+
+    reduced = list(reduce_log(msgs, limit=150))
+
+    assert reduced[1].content == tool_msg.content
+    assert "[...]" in reduced[3].content
+
+
 @pytest.mark.slow
 def test_reduce_log():
     msgs = [

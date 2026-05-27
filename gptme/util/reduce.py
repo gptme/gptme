@@ -7,12 +7,34 @@ Typically used when the log exceeds a token limit and needs to be shortened.
 import logging
 import re
 from collections.abc import Generator
+from typing import Literal
 
 from ..codeblock import Codeblock
 from ..llm.models import get_default_model, get_model
 from ..message import Message, len_tokens
 
 logger = logging.getLogger(__name__)
+
+
+def message_contains_tool_use(msg: Message) -> bool:
+    """Return True when an assistant message contains a runnable tool call.
+
+    Tool-call messages must stay parseable so later tool results do not become
+    orphaned after compaction. We probe both formats explicitly because
+    conversations may contain markdown, XML, or structured ``tool`` syntax.
+    """
+    if msg.role != "assistant":
+        return False
+
+    from ..tools.base import ToolUse
+
+    tool_formats: tuple[Literal["tool", "xml"], ...] = ("tool", "xml")
+    for tool_format in tool_formats:
+        if any(
+            ToolUse.iter_from_content(msg.content, tool_format_override=tool_format)
+        ):
+            return True
+    return False
 
 
 def reduce_log(
@@ -37,10 +59,17 @@ def reduce_log(
         return
 
     logger.info(f"Log exceeded limit of {limit}, was {tokens}, reducing")
-    # filter out pinned messages
-    non_pinned = [(i, m) for i, m in enumerate(log) if not m.pinned]
+    # Filter out pinned messages and assistant tool-call messages. Tool-call
+    # messages must remain parseable so paired tool results keep their anchor.
+    non_pinned = [
+        (i, m)
+        for i, m in enumerate(log)
+        if not m.pinned and not message_contains_tool_use(m)
+    ]
     if not non_pinned:
-        logger.warning("Cannot reduce log: all messages are pinned")
+        logger.warning(
+            "Cannot reduce log: all messages are pinned or protected tool calls"
+        )
         yield from log
         return
 
@@ -75,6 +104,10 @@ def reduce_log(
 
 def truncate_msg(msg: Message, lines_pre=10, lines_post=10) -> Message | None:
     """Truncates message codeblocks and <details> blocks to the first and last `lines_pre` and `lines_post` lines, keeping the rest as `[...]`."""
+    if message_contains_tool_use(msg):
+        logger.debug("truncate_msg: preserving tool-call message")
+        return None
+
     content_staged = msg.content
 
     # Truncate long codeblocks

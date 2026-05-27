@@ -19,7 +19,7 @@ from ...util.master_context import (
     create_master_context_reference,
 )
 from ...util.output_storage import create_tool_result_summary
-from ...util.reduce import reduce_log
+from ...util.reduce import message_contains_tool_use, reduce_log
 from .scoring import compress_content
 
 logger = logging.getLogger(__name__)
@@ -93,6 +93,7 @@ def auto_compact_log(
     needs_phase3_compression = any(
         (log_length - idx - 1) >= 3  # Don't compress very recent messages
         and msg.role == "assistant"  # Only compress assistant responses
+        and not message_contains_tool_use(msg)  # Keep tool-call pairs parseable
         and len_tokens(msg.content, model.model) > 1000  # Only compress long messages
         for idx, msg in enumerate(log)
     )
@@ -223,6 +224,7 @@ def auto_compact_log(
         if (
             distance_from_end >= 3  # Don't compress very recent messages
             and msg.role == "assistant"  # Only compress assistant responses
+            and not message_contains_tool_use(msg)  # Preserve tool-call pairs
             and msg_tokens > 1000  # Only compress long messages
         ):
             compressed_content = compress_content(msg.content, target_ratio=0.7)

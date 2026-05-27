@@ -507,6 +507,30 @@ def test_auto_compact_phase3_compresses_long_messages():
     assert "def important():" in compacted[long_msg_idx].content
 
 
+def test_auto_compact_phase3_preserves_tool_use_messages():
+    """Phase 3 must not rewrite assistant messages that contain tool calls."""
+    tool_lines = "\n".join(f"echo line_{i}" for i in range(220))
+    tool_msg = Message(
+        "assistant",
+        f"Planning before tool.\n```shell\n{tool_lines}\n```\nAfter the tool call.",
+    )
+    tool_result = Message("system", "Command executed successfully.")
+    messages = [
+        Message("user", "Hello"),
+        Message("assistant", "Short response"),
+        Message("user", "Tell me more"),
+        tool_msg,
+        tool_result,
+        Message("assistant", "You're welcome"),
+        Message("user", "One more thing"),
+    ]
+
+    compacted = list(auto_compact_log(messages, limit=100000))
+
+    assert compacted[3].content == tool_msg.content
+    assert compacted[4].content == tool_result.content
+
+
 def test_estimate_compaction_savings():
     """Test that estimate_compaction_savings correctly estimates potential savings."""
     from gptme.tools.autocompact import estimate_compaction_savings
