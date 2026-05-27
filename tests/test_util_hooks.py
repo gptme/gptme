@@ -284,6 +284,47 @@ def test_run_invalid_json_returns_continue(runner: CliRunner) -> None:
     assert out.get("continue") is True
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param("[1, 2, 3]", id="json-array"),
+        pytest.param("12345", id="json-int"),
+        pytest.param('"a bare string"', id="json-string"),
+        pytest.param("null", id="json-null"),
+        pytest.param("true", id="json-bool"),
+        pytest.param(
+            '{"hook_event_name": "UserPromptSubmit", "prompt": 123}', id="prompt-int"
+        ),
+        pytest.param(
+            '{"hook_event_name": "UserPromptSubmit", "prompt": ["a", "b"]}',
+            id="prompt-list",
+        ),
+        pytest.param(
+            '{"hook_event_name": "PreToolUse", "tool_name": "Bash", "transcript": 999}',
+            id="transcript-not-list",
+        ),
+        pytest.param(
+            '{"hook_event_name": "PreToolUse", "tool_name": "Bash", "transcript": ["x", 42]}',
+            id="transcript-nondict-entries",
+        ),
+    ],
+)
+def test_run_malformed_input_returns_continue(runner: CliRunner, payload: str) -> None:
+    """Valid-JSON-but-malformed events must never crash the hook.
+
+    The command is the registered CC hook entrypoint; if it raises instead of
+    emitting valid JSON, the hook integration breaks. Non-object top-level JSON
+    and wrong-typed fields (prompt, transcript) previously raised AttributeError
+    / TypeError.
+    """
+    result = runner.invoke(
+        main, ["hooks", "run"], input=payload, catch_exceptions=False
+    )
+    assert result.exit_code == 0, result.output
+    out = json.loads(result.output)
+    assert out.get("continue") is True
+
+
 def test_run_no_matching_lesson_returns_continue(
     runner: CliRunner, tmp_path: Path
 ) -> None:
