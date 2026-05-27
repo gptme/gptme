@@ -1259,6 +1259,115 @@ class TestInitModelInteractive:
 
         mock_ask.assert_not_called()
 
+    @patch("gptme.init.set_default_model")
+    @patch("gptme.init.get_model")
+    @patch("gptme.init.init_llm")
+    @patch("gptme.llm.llm_gptme.device_flow_authenticate")
+    @patch("gptme.init.is_output_json", return_value=False)
+    @patch("gptme.init.get_config")
+    @patch("gptme.init.console")
+    def test_interactive_gptme_missing_auth_runs_inline_device_flow(
+        self,
+        mock_console,
+        mock_config_fn,
+        mock_json_mode,
+        mock_device_flow,
+        mock_init_llm,
+        mock_get_model,
+        mock_set_default,
+        dummy_model_meta,
+    ):
+        """Interactive gptme runs should offer inline login and retry init."""
+        from gptme.init import init_model
+
+        config = MagicMock()
+        config.chat = MagicMock(model=None)
+        config.get_env.return_value = None
+        mock_config_fn.return_value = config
+        mock_console.input.return_value = ""
+        mock_get_model.return_value = dummy_model_meta
+        mock_init_llm.side_effect = [
+            KeyError("gptme provider requires authentication"),
+            None,
+        ]
+
+        init_model(model="gptme/claude-sonnet-4-6", interactive=True)
+
+        mock_console.input.assert_called_once()
+        mock_device_flow.assert_called_once_with(server_url="https://fleet.gptme.ai")
+        assert mock_init_llm.call_args_list == [call("gptme"), call("gptme")]
+
+    @patch("gptme.init.set_default_model")
+    @patch("gptme.init.get_model")
+    @patch("gptme.init.init_llm")
+    @patch("gptme.llm.llm_gptme.device_flow_authenticate")
+    @patch("gptme.init.is_output_json", return_value=False)
+    @patch("gptme.init.get_config")
+    @patch("gptme.init.console")
+    def test_interactive_gptme_decline_keeps_keyerror(
+        self,
+        mock_console,
+        mock_config_fn,
+        mock_json_mode,
+        mock_device_flow,
+        mock_init_llm,
+        mock_get_model,
+        mock_set_default,
+        dummy_model_meta,
+    ):
+        """Declining the inline gptme login should preserve the original failure."""
+        from gptme.init import init_model
+
+        config = MagicMock()
+        config.chat = MagicMock(model=None)
+        config.get_env.return_value = None
+        mock_config_fn.return_value = config
+        mock_console.input.return_value = "n"
+        mock_get_model.return_value = dummy_model_meta
+        mock_init_llm.side_effect = KeyError("gptme provider requires authentication")
+
+        with pytest.raises(KeyError, match="gptme provider requires authentication"):
+            init_model(model="gptme/claude-sonnet-4-6", interactive=True)
+
+        mock_console.input.assert_called_once()
+        mock_device_flow.assert_not_called()
+        mock_init_llm.assert_called_once_with("gptme")
+
+    @patch("gptme.init.set_default_model")
+    @patch("gptme.init.get_model")
+    @patch("gptme.init.init_llm")
+    @patch("gptme.llm.llm_gptme.device_flow_authenticate")
+    @patch("gptme.init.is_output_json", return_value=False)
+    @patch("gptme.init.get_config")
+    @patch("gptme.init.console")
+    def test_non_interactive_gptme_missing_auth_does_not_prompt(
+        self,
+        mock_console,
+        mock_config_fn,
+        mock_json_mode,
+        mock_device_flow,
+        mock_init_llm,
+        mock_get_model,
+        mock_set_default,
+        dummy_model_meta,
+    ):
+        """Non-interactive gptme runs should still fail fast without prompting."""
+        from gptme.init import init_model
+
+        config = MagicMock()
+        config.chat = MagicMock(model=None)
+        config.get_env.return_value = None
+        mock_config_fn.return_value = config
+        mock_get_model.return_value = dummy_model_meta
+        mock_init_llm.side_effect = KeyError("gptme provider requires authentication")
+
+        with pytest.raises(KeyError, match="gptme provider requires authentication"):
+            init_model(model="gptme/claude-sonnet-4-6", interactive=False)
+
+        mock_console.input.assert_not_called()
+        mock_device_flow.assert_not_called()
+        mock_init_llm.assert_called_once_with("gptme")
+
 
 # ===========================================================================
 # init_model() — all builtin providers
