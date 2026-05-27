@@ -335,13 +335,18 @@ def test_api_v2_conversation_post_tools_validation(conv, client: FlaskClient):
         json={"role": "user", "content": "hello", "tools": 42},
     )
     assert response.status_code == 400
+    data = response.get_json()
+    assert "tools" in data.get("error", "").lower()
 
     # Valid list of tools should still work
     response = client.post(
         f"/api/v2/conversations/{conv}",
         json={"role": "user", "content": "hello", "tools": ["shell"]},
     )
-    assert response.status_code == 200
+    body = response.get_json()
+    assert response.status_code == 200, (
+        f"Expected 200 for valid tools list, got {response.status_code}: {body}"
+    )
 
 
 # --- Cookie-based authentication tests ---
