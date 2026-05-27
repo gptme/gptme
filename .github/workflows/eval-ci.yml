@@ -82,7 +82,7 @@ jobs:
         )
         "
 
-    - name: Run eval quality gate (hello, prime100, fix-bug)
+    - name: Run eval quality gate (hello, prime100, fix-bug, hello-patch, init-git)
       id: run_evals
       if: steps.check_key.outputs.available == 'true'
       env:
@@ -90,9 +90,9 @@ jobs:
         EVAL_MODEL: anthropic/claude-haiku-4-5@tool
       run: |
         mkdir -p eval_results
-        # 3 basic tests with Haiku — fast and cheap (~$0.02–0.05/run)
+        # 5 basic tests with Haiku — fast and cheap (~$0.03-0.08/run)
         poetry run python -m gptme.eval \
-          hello prime100 fix-bug \
+          hello prime100 fix-bug hello-patch init-git \
           -m "$EVAL_MODEL" \
           --timeout 60 \
           --parallel 3
