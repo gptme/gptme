@@ -967,7 +967,7 @@ def test_context_journal(tmp_path):
     from datetime import datetime, timezone
 
     runner = CliRunner()
-    today = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+    today = datetime.now(tz=timezone.utc).astimezone().strftime("%Y-%m-%d")
     journal_dir = tmp_path / "journal"
     journal_dir.mkdir()
     # flat layout: YYYY-MM-DD-topic.md
@@ -984,7 +984,7 @@ def test_context_journal_subdirectory_layout(tmp_path):
     from datetime import datetime, timezone
 
     runner = CliRunner()
-    today = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+    today = datetime.now(tz=timezone.utc).astimezone().strftime("%Y-%m-%d")
     journal_dir = tmp_path / "journal"
     day_dir = journal_dir / today
     day_dir.mkdir(parents=True)
