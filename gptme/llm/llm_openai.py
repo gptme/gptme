@@ -1708,11 +1708,13 @@ def _get_openai_compatible_models(
             for model in raw_models
         ]
     except requests.RequestException as e:
-        logger.debug(f"Failed to retrieve models from {provider_name} provider: {e}")
+        log_fn = logger.debug if provider_name == "local" else logger.warning
+        log_fn(f"Failed to retrieve models from {provider_name} provider: {e}")
         # Return empty list instead of raising - local server might not be running
         return []
     except Exception as e:
-        logger.debug(f"Unexpected error retrieving {provider_name} models: {e}")
+        log_fn = logger.debug if provider_name == "local" else logger.warning
+        log_fn(f"Unexpected error retrieving {provider_name} models: {e}")
         return []
 
 
