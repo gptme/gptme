@@ -483,7 +483,13 @@
 <p>This guide will help you get started with gptme.</p>
 <section id="installation">
 <h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">#</a></h2>
-<p>To install gptme, we recommend using <code class="docutils literal notranslate"><span class="pre">pipx</span></code> or <code class="docutils literal notranslate"><span class="pre">uv</span></code>:</p>
+<p>The quickest way to install gptme is with the one-line installer:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-sSf<span class="w"> </span>https://gptme.ai/install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>sh
+</pre></div>
+</div>
+<p>This auto-detects <code class="docutils literal notranslate"><span class="pre">uv</span></code> or <code class="docutils literal notranslate"><span class="pre">pipx</span></code> and installs gptme with browser support.
+Pass <code class="docutils literal notranslate"><span class="pre">--help</span></code> for options (<code class="docutils literal notranslate"><span class="pre">--dev</span></code>, <code class="docutils literal notranslate"><span class="pre">--extras</span></code>, <code class="docutils literal notranslate"><span class="pre">--no-extras</span></code>, <code class="docutils literal notranslate"><span class="pre">--yes</span></code>).</p>
+<p>Alternatively, install directly with <code class="docutils literal notranslate"><span class="pre">pipx</span></code> or <code class="docutils literal notranslate"><span class="pre">uv</span></code>:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pipx<span class="w"> </span>install<span class="w"> </span>gptme
 <span class="c1"># or</span>
 uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span>gptme
