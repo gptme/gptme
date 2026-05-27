@@ -421,31 +421,14 @@ def _walk_directory(
 
 
 @context.command("git")
-@click.option("--max-files", type=int, default=10, help="Max files to list per section")
-@click.option(
-    "--show-diff/--no-diff", default=True, help="Include staged/unstaged diffs"
-)
-def context_git(max_files: int, show_diff: bool):
+def context_git():
     """Summarise the current git repo: branch, recent commits, staged/unstaged changes."""
     output, success = _git_run(["rev-parse", "--git-dir"])
     if not success:
         click.echo("Not a git repository", err=True)
         raise SystemExit(1)
 
-    sections: list[str] = ["## Git"]
-
-    remote, ok = _git_run(["config", "--get", "remote.origin.url"])
-    if ok and remote:
-        sections.append(f"Repository: {remote}")
-
-    branch, ok = _git_run(["rev-parse", "--abbrev-ref", "HEAD"])
-    if ok:
-        if branch == "HEAD":
-            sha, _ = _git_run(["rev-parse", "--short", "HEAD"])
-            sections.append(f"HEAD is detached at {sha}")
-            branch = ""
-        else:
-            sections.append(f"Current branch: {branch}")
+    print("## Git\n")
 
     log_out, ok = _git_run(
         [
@@ -454,37 +437,17 @@ def context_git(max_files: int, show_diff: bool):
             "--date=format:%Y-%m-%d %H:%M",
             "-n",
             "5",
-            branch or "HEAD",
         ]
     )
     if ok and log_out:
-        sections.append("\n### Recent commits")
-        sections.extend(f"- {line}" for line in log_out.split("\n"))
+        print("### Recent commits")
+        for line in log_out.split("\n"):
+            print(f"- {line}")
+        print()
 
-    for title, git_args in [
-        ("Staged files", ["diff", "--name-only", "--cached"]),
-        ("Changed files (unstaged)", ["diff", "--name-only"]),
-        ("Untracked files", ["ls-files", "--others", "--exclude-standard"]),
-    ]:
-        out, ok = _git_run(git_args)
-        if ok and out:
-            files = [fp for fp in out.split("\n") if fp]
-            sections.append(f"\n### {title}")
-            sections.extend(f"- {fp}" for fp in files[:max_files])
-            if len(files) > max_files:
-                sections.append(f"... and {len(files) - max_files} more")
-
-    if show_diff:
-        for title, git_args in [
-            ("Staged changes", ["diff", "--cached"]),
-            ("Unstaged changes", ["diff"]),
-        ]:
-            diff, ok = _git_run(git_args)
-            if ok and diff:
-                sections.append(f"\n### {title}")
-                sections.append(_codeblock("diff", diff))
-
-    print("\n".join(sections))
+    status_out, ok = _git_run(["status", "-vv"])
+    if ok and status_out:
+        print(_codeblock("", status_out))
 
 
 @context.command("tree")
