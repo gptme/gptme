@@ -601,7 +601,7 @@ class LessonIndex:
                 results.append(lesson)
                 continue
 
-        return results
+        return [self.materialize_lesson(lesson) for lesson in results]
 
     def get_by_category(self, category: str) -> list[Lesson]:
         """Get all lessons in a category.
