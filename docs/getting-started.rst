@@ -6,7 +6,16 @@ This guide will help you get started with gptme.
 Installation
 ------------
 
-To install gptme, we recommend using ``pipx`` or ``uv``:
+The quickest way to install gptme is with the one-line installer:
+
+.. code-block:: bash
+
+    curl -sSf https://gptme.ai/install.sh | sh
+
+This auto-detects ``uv`` or ``pipx`` and installs gptme with browser support.
+Pass ``--help`` for options (``--dev``, ``--extras``, ``--no-extras``, ``--yes``).
+
+Alternatively, install directly with ``pipx`` or ``uv``:
 
 .. code-block:: bash
 
