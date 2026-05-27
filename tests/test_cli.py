@@ -353,6 +353,18 @@ def test_resume_with_log_workspace_uses_global_latest(
     assert selected_logdirs == [newest_other]
 
 
+def test_workspace_tilde_path_is_expanded(monkeypatch, tmp_path: Path):
+    home = tmp_path / "home"
+    workspace = home / "workspace"
+    workspace.mkdir(parents=True)
+
+    monkeypatch.setenv("HOME", str(home))
+
+    result = cli.WorkspacePath().convert("~/workspace", None, None)
+
+    assert result == str(workspace.resolve())
+
+
 def test_missing_custom_tool_path_is_reported_as_usage_error(
     runner: CliRunner, tmp_path: Path
 ):

@@ -131,7 +131,7 @@ class WorkspacePath(click.ParamType):
     def convert(self, value, param, ctx):
         if value == "@log":
             return value
-        path = Path(value)
+        path = Path(value).expanduser()
         if not path.exists():
             self.fail(f"directory '{value}' does not exist.", param, ctx)
         if not path.is_dir():
