@@ -478,8 +478,12 @@
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util">gptme-util</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context">context</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context-files">files</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context-git">git</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context-index">index</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context-journal">journal</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context-retrieve">retrieve</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context-tree">tree</a></li>
 </ul>
 </li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-llm">llm</a><ul class="nav section-nav flex-column">
@@ -1118,6 +1122,29 @@ After successful login, tokens are stored locally for future use.</p>
 <div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>context<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>COMMAND<span class="w"> </span><span class="o">[</span>ARGS<span class="o">]</span>...
 </pre></div>
 </div>
+<section id="gptme-util-context-files">
+<h4>files<a class="headerlink" href="#gptme-util-context-files" title="Link to this heading">#</a></h4>
+<p>Print the contents of all files listed in gptme.toml [prompt] files.</p>
+<p>Replaces ad-hoc context scripts in non-gptme harnesses (autonomous runs,
+project-monitoring) that manually concatenate gptme.toml prompt files.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>context<span class="w"> </span>files<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-context-files-config">
+<span class="sig-name descname"><span class="pre">--config</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;config&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-util-context-files-config" title="Link to this definition">#</a></dt>
+<dd><p>Path to gptme.toml (default: auto-discover from git root or cwd)</p>
+</dd></dl>
+
+</section>
+<section id="gptme-util-context-git">
+<h4>git<a class="headerlink" href="#gptme-util-context-git" title="Link to this heading">#</a></h4>
+<p>Summarise the current git repo: branch, recent commits, staged/unstaged changes.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>context<span class="w"> </span>git<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+</section>
 <section id="gptme-util-context-index">
 <h4>index<a class="headerlink" href="#gptme-util-context-index" title="Link to this heading">#</a></h4>
 <p>Index a file or directory for context retrieval.</p>
@@ -1129,6 +1156,26 @@ After successful login, tokens are stored locally for future use.</p>
 <dt class="sig sig-object std" id="cmdoption-gptme-util-context-index-arg-PATH">
 <span class="sig-name descname"><span class="pre">PATH</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-context-index-arg-PATH" title="Link to this definition">#</a></dt>
 <dd><p>Required argument</p>
+</dd></dl>
+
+</section>
+<section id="gptme-util-context-journal">
+<h4>journal<a class="headerlink" href="#gptme-util-context-journal" title="Link to this heading">#</a></h4>
+<p>Print journal entries from the last N days.</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>context<span class="w"> </span>journal<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-context-journal-days">
+<span class="sig-name descname"><span class="pre">--days</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;days&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-util-context-journal-days" title="Link to this definition">#</a></dt>
+<dd><p>Days to look back</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-context-journal-path">
+<span class="sig-name descname"><span class="pre">--path</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;path&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-util-context-journal-path" title="Link to this definition">#</a></dt>
+<dd><p>Journal directory</p>
 </dd></dl>
 
 </section>
@@ -1150,6 +1197,26 @@ After successful login, tokens are stored locally for future use.</p>
 <dt class="sig sig-object std" id="cmdoption-gptme-util-context-retrieve-arg-QUERY">
 <span class="sig-name descname"><span class="pre">QUERY</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-context-retrieve-arg-QUERY" title="Link to this definition">#</a></dt>
 <dd><p>Required argument</p>
+</dd></dl>
+
+</section>
+<section id="gptme-util-context-tree">
+<h4>tree<a class="headerlink" href="#gptme-util-context-tree" title="Link to this heading">#</a></h4>
+<p>Print workspace directory tree (respects .gitignore).</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>context<span class="w"> </span>tree<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-context-tree-path">
+<span class="sig-name descname"><span class="pre">--path</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;path&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-util-context-tree-path" title="Link to this definition">#</a></dt>
+<dd><p>Workspace root</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-context-tree-max-depth">
+<span class="sig-name descname"><span class="pre">--max-depth</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;max_depth&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-util-context-tree-max-depth" title="Link to this definition">#</a></dt>
+<dd><p>Tree depth</p>
 </dd></dl>
 
 </section>
@@ -1619,8 +1686,12 @@ Use –all to include unavailable tools as well.</p>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util">gptme-util</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context">context</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context-files">files</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context-git">git</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context-index">index</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context-journal">journal</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context-retrieve">retrieve</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context-tree">tree</a></li>
 </ul>
 </li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-llm">llm</a><ul class="nav section-nav flex-column">
