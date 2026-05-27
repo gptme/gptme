@@ -1133,6 +1133,29 @@ def test_v2_conversation_post_nonexistent_branch_returns_404(
     assert "no-such-branch" in data["error"]
 
 
+@pytest.mark.parametrize("cmd", ["exit", "restart", "edit"])
+def test_v2_conversation_post_blocks_unsafe_commands(
+    v2_conv, client: FlaskClient, cmd: str
+):
+    """Commands that would crash or block the server are rejected with a clean 400.
+
+    /exit and /restart terminate/restart the server process; /edit launches an
+    interactive $EDITOR subprocess on the server host, blocking the worker thread.
+    None should be dispatched to handle_cmd in server mode.
+    """
+    conversation_id = v2_conv["conversation_id"]
+
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": f"/{cmd}"},
+    )
+
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data is not None
+    assert "not available in server mode" in data["error"]
+
+
 @pytest.mark.slow
 @pytest.mark.requires_api
 def test_v2_generate(v2_conv, client: FlaskClient):

@@ -699,9 +699,12 @@ def api_conversation_post(conversation_id: str):
     # Check if the message is a slash command (e.g. /help, /model, /tools)
     if msg.role == "user" and is_message_command(msg.content):
         # Block commands that are unsafe in server context (would crash or block server)
+        # - exit/restart: terminate or restart the server process
+        # - edit: launches an interactive $EDITOR subprocess on the server host,
+        #   blocking the worker thread (see commands/session.py::_edit)
         parts = msg.content.lstrip("/").split()
         cmd_name = parts[0] if parts else ""
-        server_blocked_commands = {"exit", "restart"}
+        server_blocked_commands = {"exit", "restart", "edit"}
         if cmd_name in server_blocked_commands:
             return flask.jsonify(
                 {"error": f"Command /{cmd_name} is not available in server mode"}
