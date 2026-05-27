@@ -760,7 +760,7 @@ def get_available_models(provider: Provider) -> list[ModelMeta]:
         ValueError: If provider doesn't support listing models
         Exception: If API request fails
     """
-    if provider in ("openrouter", "local") or is_custom_provider(provider):
+    if provider in ("openrouter", "local", "gptme") or is_custom_provider(provider):
         from .llm_openai import get_available_models as get_openai_models
 
         return get_openai_models(provider)

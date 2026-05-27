@@ -75,6 +75,20 @@ def test_get_model_dynamic_fetch_success(mock_get_models):
 
 
 @patch("gptme.llm.models.listing._get_models_for_provider")
+def test_get_model_gptme_dynamic_fetch_success(mock_get_models):
+    """Test successful dynamic model fetching for gptme."""
+    dynamic_model = ModelMeta(provider="gptme", model="openai/gpt-5", context=256_000)
+    mock_get_models.return_value = [dynamic_model]
+
+    model = get_model("gptme/openai/gpt-5")
+    assert model.provider == "gptme"
+    assert model.model == "openai/gpt-5"
+    assert model.context == 256_000
+
+    mock_get_models.assert_called_once_with("gptme", dynamic_fetch=True)
+
+
+@patch("gptme.llm.models.listing._get_models_for_provider")
 def test_get_model_dynamic_fetch_failure(mock_get_models):
     """Test fallback when dynamic model fetching fails."""
     mock_get_models.side_effect = Exception("API error")
@@ -103,6 +117,18 @@ def test_get_models_for_provider():
     openai_models = _get_models_for_provider("openai", dynamic_fetch=False)
     assert len(openai_models) > 0
     assert all(m.provider == "openai" for m in openai_models)
+
+
+@patch("gptme.llm.get_available_models")
+def test_get_models_for_provider_gptme_dynamic_fetch(mock_get_available_models):
+    """gptme provider should use dynamic fetching for model listing."""
+    dynamic_model = ModelMeta(provider="gptme", model="openai/gpt-5", context=256_000)
+    mock_get_available_models.return_value = [dynamic_model]
+
+    models = _get_models_for_provider("gptme", dynamic_fetch=True)
+
+    assert models == [dynamic_model]
+    mock_get_available_models.assert_called_once_with("gptme")
 
 
 @patch("gptme.llm.models.listing._get_models_for_provider")

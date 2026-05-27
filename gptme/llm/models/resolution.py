@@ -229,7 +229,7 @@ def get_model(model: str) -> ModelMeta:
                 )
 
             # For providers that support dynamic fetching, use _get_models_for_provider
-            if provider == "openrouter":
+            if provider in ("openrouter", "gptme"):
                 try:
                     from .listing import _get_models_for_provider  # fmt: skip
 
@@ -259,7 +259,8 @@ def get_model(model: str) -> ModelMeta:
                 except Exception as e:
                     # Fall back to unknown model metadata
                     logger.debug(
-                        "Failed to fetch OpenRouter models for %s: %s",
+                        "Failed to fetch dynamic %s models for %s: %s",
+                        provider,
                         model_name,
                         e,
                     )

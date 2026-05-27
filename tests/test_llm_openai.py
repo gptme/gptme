@@ -1,7 +1,7 @@
 import logging
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from pydantic import BaseModel
@@ -2562,6 +2562,46 @@ class TestOpenrouterModelToModelmeta:
             self._model_data("openrouter/anthropic/claude-sonnet-4-20250514")
         )
         assert meta.full == "openrouter/anthropic/claude-sonnet-4-20250514"
+
+
+class TestGetAvailableModels:
+    """Tests for OpenAI-compatible model listing helpers."""
+
+    @patch("gptme.llm.llm_openai.requests.get")
+    @patch("gptme.llm.llm_openai.get_config")
+    @patch("gptme.llm.llm_gptme.get_base_url")
+    @patch("gptme.llm.llm_gptme.get_api_key")
+    def test_gptme_provider_uses_authenticated_models_endpoint(
+        self,
+        mock_get_api_key,
+        mock_get_base_url,
+        mock_get_config,
+        mock_requests_get,
+    ):
+        """gptme model listing should hit its OpenAI-compatible /models endpoint."""
+        from gptme.llm.llm_openai import get_available_models
+
+        get_available_models.cache_clear()
+        mock_get_config.return_value = MagicMock()
+        mock_get_api_key.return_value = "gptme-token"
+        mock_get_base_url.return_value = "https://fleet.gptme.ai/v1"
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "data": [{"id": "openai/gpt-5", "context_length": 256000}]
+        }
+        mock_requests_get.return_value = mock_response
+
+        models = get_available_models("gptme")
+
+        mock_requests_get.assert_called_once_with(
+            "https://fleet.gptme.ai/v1/models",
+            headers={"Authorization": "Bearer gptme-token"},
+            timeout=10,
+        )
+        assert len(models) == 1
+        assert models[0].provider == "gptme"
+        assert models[0].model == "openai/gpt-5"
+        assert models[0].context == 256_000
 
 
 class TestResolveMaxTokens:
