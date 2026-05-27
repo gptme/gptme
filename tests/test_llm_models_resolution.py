@@ -199,6 +199,7 @@ class TestProviderAliasResolution:
         model = get_model("gptme.ai/claude-sonnet-4-6")
         assert model.provider == "gptme"
         assert "claude-sonnet-4-6" in model.model
+        assert model.full.startswith("gptme/")
 
     def test_gptme_ai_alone_resolves_to_gptme_recommended(self):
         """get_model('gptme.ai') alone should resolve like get_model('gptme')."""

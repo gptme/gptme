@@ -37,12 +37,6 @@ MODEL_ALIASES: dict[str, dict[str, str]] = {
     },
 }
 
-# Provider aliases: maps friendly alias strings to their canonical built-in provider name.
-# Allows users to write e.g. ``gptme.ai/model`` as a synonym for ``gptme/model``.
-PROVIDER_ALIASES: dict[str, str] = {
-    "gptme.ai": "gptme",
-}
-
 # Built-in providers (static list)
 BuiltinProvider = Literal[
     "openai",
@@ -60,6 +54,15 @@ BuiltinProvider = Literal[
 ]
 PROVIDERS: list[BuiltinProvider] = cast(
     list[BuiltinProvider], get_args(BuiltinProvider)
+)
+
+# Provider aliases: maps friendly alias strings to their canonical built-in provider name.
+# Allows users to write e.g. ``gptme.ai/model`` as a synonym for ``gptme/model``.
+PROVIDER_ALIASES: dict[str, str] = {
+    "gptme.ai": "gptme",
+}
+assert all(v in PROVIDERS for v in PROVIDER_ALIASES.values()), (
+    f"PROVIDER_ALIASES contains invalid target(s): {set(PROVIDER_ALIASES.values()) - set(PROVIDERS)}"
 )
 
 
