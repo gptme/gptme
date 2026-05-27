@@ -160,7 +160,7 @@ def _lesson_show(lesson_name: str) -> str:
             file_match = lesson_name_lower in lesson.path.stem.lower()
 
             if title_match or file_match:
-                if getattr(lesson, "is_stub", False) is True:
+                if lesson.is_stub:
                     lesson = index.materialize_lesson(lesson)
                 return f"# {lesson.title}\n\n{lesson.body}"
 
@@ -280,7 +280,7 @@ def _skills_read(name: str) -> str:
         # First check skills (by metadata.name)
         for item in index.lessons:
             if item.metadata.name and name_lower in item.metadata.name.lower():
-                if getattr(item, "is_stub", False) is True:
+                if item.is_stub:
                     item = index.materialize_lesson(item)
                 return f"# {item.metadata.name}\n\n{item.body}"
 
@@ -290,7 +290,7 @@ def _skills_read(name: str) -> str:
             file_match = name_lower in item.path.stem.lower()
 
             if title_match or file_match:
-                if getattr(item, "is_stub", False) is True:
+                if item.is_stub:
                     item = index.materialize_lesson(item)
                 return f"# {item.title}\n\n{item.body}"
 

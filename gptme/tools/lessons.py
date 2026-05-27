@@ -382,7 +382,7 @@ def auto_include_lessons_hook(
             return
 
         for match in new_matches:
-            if getattr(match.lesson, "is_stub", False) is True:
+            if match.lesson.is_stub:
                 match.lesson = index.materialize_lesson(match.lesson)
 
         # Format lessons as system message

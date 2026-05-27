@@ -5,7 +5,7 @@ import logging
 import os
 from pathlib import Path
 
-from .parser import Lesson, parse_lesson
+from .parser import Lesson, LessonMetadata, parse_lesson
 
 logger = logging.getLogger(__name__)
 
@@ -426,6 +426,10 @@ class LessonIndex:
             logger.warning(f"Failed to read skill manifest {manifest_path}: {e}")
             return [], set()
 
+        if not isinstance(manifest, dict):
+            logger.warning(f"Skill manifest {manifest_path} is not a JSON object")
+            return [], set()
+
         skills = manifest.get("skills")
         if not isinstance(skills, list):
             logger.warning(
@@ -507,8 +511,6 @@ class LessonIndex:
         depends: list[str],
         status: str,
     ):
-        from .parser import LessonMetadata
-
         return LessonMetadata(
             name=name,
             description=description,
