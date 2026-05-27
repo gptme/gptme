@@ -86,6 +86,12 @@ logger = logging.getLogger(__name__)
 # SVG excluded: can embed <script> tags (XSS via crafted SVG).
 _ALLOWED_AVATAR_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".ico"}
 
+# Commands that must not run in server mode:
+# - exit/restart: terminate or restart the server process
+# - edit: launches an interactive $EDITOR subprocess, blocking the worker thread
+# - delete (without --force): calls input() waiting for stdin that never arrives
+_SERVER_BLOCKED_COMMANDS = {"exit", "restart", "edit", "delete"}
+
 
 def _is_valid_image_content(path: "Path") -> bool:
     """Validate file content is a recognised image format using Pillow.
@@ -698,14 +704,10 @@ def api_conversation_post(conversation_id: str):
 
     # Check if the message is a slash command (e.g. /help, /model, /tools)
     if msg.role == "user" and is_message_command(msg.content):
-        # Block commands that are unsafe in server context (would crash or block server)
-        # - exit/restart: terminate or restart the server process
-        # - edit: launches an interactive $EDITOR subprocess on the server host,
-        #   blocking the worker thread (see commands/session.py::_edit)
+        # Block commands that are unsafe in server context (see _SERVER_BLOCKED_COMMANDS)
         parts = msg.content.lstrip("/").split()
         cmd_name = parts[0] if parts else ""
-        server_blocked_commands = {"exit", "restart", "edit"}
-        if cmd_name in server_blocked_commands:
+        if cmd_name in _SERVER_BLOCKED_COMMANDS:
             return flask.jsonify(
                 {"error": f"Command /{cmd_name} is not available in server mode"}
             ), 400
