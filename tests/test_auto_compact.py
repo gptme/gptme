@@ -508,18 +508,33 @@ def test_auto_compact_phase3_compresses_long_messages():
 
 
 def test_auto_compact_phase3_preserves_tool_use_messages():
-    """Phase 3 must not rewrite assistant messages that contain tool calls."""
-    tool_lines = "\n".join(f"echo line_{i}" for i in range(220))
+    """Phase 3 must not rewrite assistant messages that contain tool calls.
+
+    The guard in Phase 3 skips messages where message_contains_tool_use() is True.
+    This test verifies that guard actually fires: it places a long (>1000 token)
+    tool-call message alongside a long non-tool-use message that triggers
+    needs_phase3_compression=True, then confirms the tool-call message is
+    unchanged while the non-tool-use message is compressed.
+    """
+    # >1000 tokens so Phase 3 would compress it if not for the guard
+    tool_lines = "\n".join(f"echo line_{i}" for i in range(300))
     tool_msg = Message(
         "assistant",
         f"Planning before tool.\n```shell\n{tool_lines}\n```\nAfter the tool call.",
     )
     tool_result = Message("system", "Command executed successfully.")
+
+    # Long non-tool-use assistant message at distance >= 3 from end — this is
+    # what makes needs_phase3_compression=True and causes Phase 3 to actually run.
+    long_content = "This is a detailed analysis sentence. " * 200
+    long_content += "\n```python\ndef example(): pass\n```\n"
+    long_content += "Final conclusion. " * 50
+
     messages = [
         Message("user", "Hello"),
-        Message("assistant", "Short response"),
+        Message("assistant", long_content),  # idx 1, distance 5 — triggers Phase 3
         Message("user", "Tell me more"),
-        tool_msg,
+        tool_msg,  # idx 3, distance 3 — >1000 tokens but protected by guard
         tool_result,
         Message("assistant", "You're welcome"),
         Message("user", "One more thing"),
@@ -527,6 +542,10 @@ def test_auto_compact_phase3_preserves_tool_use_messages():
 
     compacted = list(auto_compact_log(messages, limit=100000))
 
+    # Phase 3 ran: the long non-tool-use message was compressed
+    assert len(compacted[1].content) < len(long_content)
+
+    # The tool-call message must be preserved exactly despite being >1000 tokens
     assert compacted[3].content == tool_msg.content
     assert compacted[4].content == tool_result.content
 
