@@ -78,6 +78,33 @@ def check_subagent_complete_parent_result(messages: list[Message]) -> bool:
     return "SUM=5050" in final_msg or "5050" in final_msg
 
 
+def check_subagent_complete_waited_before_result(messages: list[Message]) -> bool:
+    """Parent must wait for (or be notified of) completion before stating the result.
+
+    A trajectory-only guard: the outcome checks pass whenever ``SUM=5050`` lands
+    in the final message or ``answer.txt``, even if the parent *fabricated* the
+    answer before the subagent actually finished. This verifies ordering — a
+    ``subagent_wait(...)`` call or the completion hook notification must appear
+    at or before the final assistant message that states ``SUM=5050``.
+    """
+    completion_idx = None
+    result_idx = None
+    for i, msg in enumerate(messages):
+        if completion_idx is None and (
+            (msg.role == "assistant" and "subagent_wait(" in msg.content)
+            or (
+                msg.role == "system"
+                and "✅ Subagent 'sum-roundtrip' completed" in msg.content
+            )
+        ):
+            completion_idx = i
+        if msg.role == "assistant" and "SUM=5050" in msg.content:
+            result_idx = i  # keep the last result-bearing message
+    if completion_idx is None or result_idx is None:
+        return False
+    return completion_idx <= result_idx
+
+
 _PARALLEL_A = "alpha beta gamma delta epsilon zeta\n"
 _PARALLEL_B = "one\ntwo\nthree\nfour\n"
 _NOTES = "Keep this brief. The parent can read this between spawn and wait.\n"
@@ -144,6 +171,7 @@ tests: list["EvalSpec"] = [
             "received hook notification": check_subagent_complete_hook_notification,
             "roundtrip returned complete marker": check_subagent_complete_roundtrip_marker,
             "parent used delegated result": check_subagent_complete_parent_result,
+            "waited before stating result": check_subagent_complete_waited_before_result,
         },
     },
 ]
