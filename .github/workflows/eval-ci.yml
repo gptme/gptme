@@ -95,7 +95,7 @@ jobs:
           hello prime100 fix-bug hello-patch init-git \
           -m "$EVAL_MODEL" \
           --timeout 60 \
-          --parallel 3
+          --parallel 5
 
     - name: Parse results and post PR comment
       if: always()
