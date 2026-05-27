@@ -45,6 +45,22 @@ EXAMPLES:
 EOF
 }
 
+# --- helpers ---
+say()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
+ok()   { printf '\033[1;32m  ✓\033[0m %s\n' "$*"; }
+warn() { printf '\033[1;33mwarn:\033[0m %s\n' "$*" >&2; }
+die()  { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
+
+has() { command -v "$1" >/dev/null 2>&1; }
+
+confirm() {
+  [ "$YES" -eq 1 ] && return 0
+  # When piped from curl, stdin is the script — read from the terminal directly.
+  printf '%s [y/N] ' "$1"
+  read -r ans </dev/tty 2>/dev/null || { warn "Could not read from terminal; assuming yes."; return 0; }
+  case "$ans" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
+}
+
 # --- defaults ---
 DEV=0
 EXTRAS="browser"
@@ -69,22 +85,6 @@ while [ $# -gt 0 ]; do
       exit 1 ;;
   esac
 done
-
-# --- helpers (defined after arg parse so die() is available above) ---
-say()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
-ok()   { printf '\033[1;32m  ✓\033[0m %s\n' "$*"; }
-warn() { printf '\033[1;33mwarn:\033[0m %s\n' "$*" >&2; }
-die()  { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
-
-has() { command -v "$1" >/dev/null 2>&1; }
-
-confirm() {
-  [ "$YES" -eq 1 ] && return 0
-  # When piped from curl, stdin is the script — read from the terminal directly.
-  printf '%s [y/N] ' "$1"
-  read -r ans </dev/tty 2>/dev/null || { warn "Could not read from terminal; assuming yes."; return 0; }
-  case "$ans" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
-}
 
 # --- build package spec ---
 if [ "$DEV" -eq 1 ]; then
@@ -145,7 +145,8 @@ case "$INSTALLER" in
     uv tool install "$PKG"
     ;;
   pipx)
-    pipx install "$PKG"
+    # --force handles re-installs cleanly (plain install exits 1 if already installed)
+    pipx install --force "$PKG"
     ;;
   pip3|pip)
     $INSTALLER install --user "$PKG"
