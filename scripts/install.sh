@@ -57,7 +57,12 @@ confirm() {
   [ "$YES" -eq 1 ] && return 0
   # When piped from curl, stdin is the script — read from the terminal directly.
   printf '%s [y/N] ' "$1"
-  read -r ans </dev/tty 2>/dev/null || { warn "Could not read from terminal; assuming yes."; return 0; }
+  if ! read -r ans </dev/tty 2>/dev/null; then
+    printf '\033[1;31merror:\033[0m No terminal available for confirmation.\n' >&2
+    printf '  Re-run with --yes/-y to install non-interactively:\n' >&2
+    printf '  curl -sSf %s | sh -s -- --yes\n' "$SCRIPT_URL" >&2
+    exit 1
+  fi
   case "$ans" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
 }
 
