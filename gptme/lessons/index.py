@@ -452,13 +452,14 @@ class LessonIndex:
                 continue
 
             skill_file = self._skill_path_from_manifest_entry(directory, entry_path)
-            manifest_paths.add(skill_file)
 
             if not skill_file.is_file():
                 logger.warning(
                     f"Skill manifest {manifest_path} references missing file: {skill_file}"
                 )
                 continue
+
+            manifest_paths.add(skill_file)
 
             raw_keywords = entry.get("keywords", [])
             if isinstance(raw_keywords, str):
