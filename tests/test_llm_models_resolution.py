@@ -27,7 +27,7 @@ from gptme.llm.models.resolution import (
     log_warn_once,
     set_default_model,
 )
-from gptme.llm.models.types import MODEL_ALIASES
+from gptme.llm.models.types import MODEL_ALIASES, PROVIDER_ALIASES
 
 # ── Fixtures ─────────────────────────────────────────────────────────────
 
@@ -181,6 +181,36 @@ class TestAliasResolution:
         props = _find_base_model_properties("anthropic", "claude-nonexistent-9-9")
         # Should be None since there's no alias and no base model after stripping date
         assert props is None
+
+
+# ── Provider alias resolution ────────────────────────────────────────────
+
+
+class TestProviderAliasResolution:
+    """Tests for PROVIDER_ALIASES — e.g. gptme.ai -> gptme."""
+
+    def test_provider_aliases_defined(self):
+        """PROVIDER_ALIASES should contain at least the gptme.ai entry."""
+        assert "gptme.ai" in PROVIDER_ALIASES
+        assert PROVIDER_ALIASES["gptme.ai"] == "gptme"
+
+    def test_gptme_ai_model_resolves_to_gptme_provider(self):
+        """get_model('gptme.ai/model') should produce a gptme-provider ModelMeta."""
+        model = get_model("gptme.ai/claude-sonnet-4-6")
+        assert model.provider == "gptme"
+        assert "claude-sonnet-4-6" in model.model
+
+    def test_gptme_ai_alone_resolves_to_gptme_recommended(self):
+        """get_model('gptme.ai') alone should resolve like get_model('gptme')."""
+        model_alias = get_model("gptme.ai")
+        model_canonical = get_model("gptme")
+        assert model_alias.provider == model_canonical.provider
+        assert model_alias.model == model_canonical.model
+
+    def test_unknown_alias_unchanged(self):
+        """A provider prefix not in PROVIDER_ALIASES passes through unmodified."""
+        model = get_model("anthropic/claude-sonnet-4-6")
+        assert model.provider == "anthropic"
 
 
 # ── Date suffix stripping ────────────────────────────────────────────────

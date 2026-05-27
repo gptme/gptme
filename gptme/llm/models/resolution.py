@@ -8,6 +8,7 @@ from .types import (
     _DATE_SUFFIX_PATTERN,
     _MODEL_FAMILY_PATTERN,
     MODEL_ALIASES,
+    PROVIDER_ALIASES,
     PROVIDERS,
     ModelMeta,
     Provider,
@@ -162,6 +163,14 @@ def _find_closest_model_properties(
 
 
 def get_model(model: str) -> ModelMeta:
+    # Apply provider aliases (e.g. "gptme.ai" -> "gptme")
+    if "/" in model:
+        prefix, rest = model.split("/", 1)
+        if prefix in PROVIDER_ALIASES:
+            model = f"{PROVIDER_ALIASES[prefix]}/{rest}"
+    elif model in PROVIDER_ALIASES:
+        model = PROVIDER_ALIASES[model]
+
     # if only provider is given, get recommended model
     if model in PROVIDERS:
         provider = cast(Provider, model)

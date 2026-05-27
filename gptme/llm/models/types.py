@@ -37,6 +37,12 @@ MODEL_ALIASES: dict[str, dict[str, str]] = {
     },
 }
 
+# Provider aliases: maps friendly alias strings to their canonical built-in provider name.
+# Allows users to write e.g. ``gptme.ai/model`` as a synonym for ``gptme/model``.
+PROVIDER_ALIASES: dict[str, str] = {
+    "gptme.ai": "gptme",
+}
+
 # Built-in providers (static list)
 BuiltinProvider = Literal[
     "openai",

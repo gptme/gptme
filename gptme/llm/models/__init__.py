@@ -30,6 +30,7 @@ from .resolution import (
 )
 from .types import (
     MODEL_ALIASES,
+    PROVIDER_ALIASES,
     PROVIDERS,
     PROVIDERS_OPENAI,
     BuiltinProvider,
@@ -51,6 +52,7 @@ __all__ = [
     "_ModelDictMeta",
     # Constants
     "MODEL_ALIASES",
+    "PROVIDER_ALIASES",
     "MODELS",
     "PROVIDERS",
     "PROVIDERS_OPENAI",
