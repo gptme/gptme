@@ -164,6 +164,27 @@ def test_name_rejects_empty_or_whitespace_only_values(bad_name: str, runner: Cli
     assert "conversation name cannot be empty" in result.output
 
 
+@pytest.mark.parametrize(
+    ("bad_name", "expected_message"),
+    [
+        (" leading", "conversation name cannot start or end with whitespace"),
+        ("trailing ", "conversation name cannot start or end with whitespace"),
+        (" leading-trailing ", "conversation name cannot start or end with whitespace"),
+        ("foo\tbar", "conversation name cannot contain control characters"),
+        ("foo\nbar", "conversation name cannot contain control characters"),
+    ],
+)
+def test_name_rejects_control_characters_and_edge_whitespace(
+    bad_name: str, expected_message: str, runner: CliRunner
+):
+    result = runner.invoke(
+        cli.main,
+        ["--name", bad_name, "--non-interactive", "hello"],
+    )
+    assert result.exit_code == 2
+    assert expected_message in result.output
+
+
 def test_command_fork_rejects_path_traversal(runner: CliRunner, runid: int, name: str):
     escape_name = f"../escape-{runid}"
     escape_path = cli.get_logs_dir().parent / f"escape-{runid}"
@@ -630,6 +651,10 @@ def test_should_print_resume_hint_is_disabled_for_json_output(tmp_path: Path):
     (logdir / "conversation.jsonl").write_text('{"role":"user","content":"hello"}\n')
 
     assert not cli._should_print_resume_hint(logdir, "json")
+
+
+def test_format_resume_hint_shell_quotes_space_containing_name():
+    assert cli._format_resume_hint("foo bar") == "gptme --name 'foo bar'"
 
 
 def test_command_exit(args: list[str], runner: CliRunner):

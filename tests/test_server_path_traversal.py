@@ -558,6 +558,21 @@ class TestConversationIdLengthValidation:
             _response, status_code = result
             assert status_code == 400
 
+    @pytest.mark.parametrize(
+        "bad_id", [" leading", "trailing ", "foo\tbar", "foo\nbar"]
+    )
+    def test_control_or_edge_whitespace_id_rejected_unit(self, bad_id: str):
+        """Control chars and edge whitespace should fail before filesystem access."""
+        from gptme.server.api_v2_common import _validate_conversation_id
+        from gptme.server.app import create_app
+
+        app = create_app()
+        with app.app_context():
+            result = _validate_conversation_id(bad_id)
+            assert result is not None
+            _response, status_code = result
+            assert status_code == 400
+
     def test_multibyte_over_limit_rejected(self):
         """Multi-byte chars counted by UTF-8 bytes, not code points.
 

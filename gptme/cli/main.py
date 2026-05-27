@@ -5,6 +5,7 @@ import logging
 import os
 import pstats
 import select
+import shlex
 import shutil
 import signal
 import sys
@@ -751,7 +752,7 @@ def main(
     # Register atexit handler to show conversation ID on exit
     def goodbye_handler():
         if _should_print_resume_hint(logdir, output_format):
-            print(f"\nGoodbye! (resume with: gptme --name {logdir.name})")
+            print(f"\nGoodbye! (resume with: {_format_resume_hint(logdir.name)})")
 
     atexit.register(goodbye_handler)
 
@@ -1116,6 +1117,10 @@ def _should_print_resume_hint(logdir: Path, output_format: str) -> bool:
         return log_file.stat().st_size > 0
     except OSError:
         return False
+
+
+def _format_resume_hint(name: str) -> str:
+    return f"gptme --name {shlex.quote(name)}"
 
 
 def _cleanup_aborted_new_logdir(logdir: Path, *, preexisting: bool) -> None:

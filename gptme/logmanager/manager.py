@@ -45,7 +45,7 @@ from ..dirs import get_logs_dir
 from ..message import Message, _migrate_metadata, len_tokens, print_msg
 from ..tools import ToolUse
 from ..util.context import enrich_messages_with_context
-from ..util.conversation_ids import validate_conversation_id
+from ..util.conversation_ids import conversation_id_error, validate_conversation_id
 from ..util.reduce import limit_log, reduce_log
 from ..util.uri import URI
 
@@ -55,8 +55,6 @@ logger = logging.getLogger(__name__)
 
 RoleLiteral = Literal["user", "assistant", "system"]
 
-_MAX_CONVERSATION_NAME_BYTES = 255  # Linux NAME_MAX for a single path component
-
 # Field names accepted by Message.__init__, used to drop unknown keys when
 # reading stored logs (forward-compatibility with logs from newer versions).
 _MESSAGE_FIELD_NAMES = frozenset(f.name for f in fields(Message))
@@ -64,16 +62,7 @@ _MESSAGE_FIELD_NAMES = frozenset(f.name for f in fields(Message))
 
 def conversation_name_error(value: str) -> str | None:
     """Return a validation error for unsafe conversation names, if any."""
-    if not value or not value.strip():
-        return "conversation name cannot be empty."
-    if len(value.encode()) > _MAX_CONVERSATION_NAME_BYTES:
-        return "conversation name too long."
-    if value == "." or "/" in value or "\\" in value or ".." in value:
-        return (
-            "conversation name must be a single path component "
-            "(no '.', '/', '\\\\', or '..')."
-        )
-    return None
+    return conversation_id_error(value)
 
 
 @dataclass(frozen=True, repr=False)

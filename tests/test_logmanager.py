@@ -3,7 +3,12 @@ from pathlib import Path
 import pytest
 
 from gptme.dirs import get_logs_dir
-from gptme.logmanager import Log, LogManager, check_for_modifications
+from gptme.logmanager import (
+    Log,
+    LogManager,
+    check_for_modifications,
+    conversation_name_error,
+)
 from gptme.message import Message
 from gptme.tools import init_tools
 
@@ -65,6 +70,21 @@ def test_fork_rejects_path_traversal(tmp_path: Path, monkeypatch):
         log.fork("../escape")
 
     assert not (tmp_path / "escape").exists()
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (" leading", "conversation name cannot start or end with whitespace."),
+        ("trailing ", "conversation name cannot start or end with whitespace."),
+        ("foo\tbar", "conversation name cannot contain control characters."),
+        ("foo\nbar", "conversation name cannot contain control characters."),
+    ],
+)
+def test_conversation_name_error_rejects_control_and_edge_whitespace(
+    value: str, expected: str
+):
+    assert conversation_name_error(value) == expected
 
 
 def test_write_persists_main_branch_when_on_other_branch(tmp_path: Path, monkeypatch):

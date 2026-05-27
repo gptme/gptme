@@ -7,18 +7,16 @@ def conversation_id_error(value: str) -> str | None:
     """Return a validation error for unsafe conversation identifiers, if any."""
     if not value or not value.strip():
         return "conversation name cannot be empty."
+    if value != value.strip():
+        return "conversation name cannot start or end with whitespace."
     if len(value.encode()) > _MAX_CONVERSATION_ID_BYTES:
         return "conversation name too long."
-    if (
-        value == "."
-        or "/" in value
-        or "\\" in value
-        or ".." in value
-        or "\x00" in value
-    ):
+    if any(not ch.isprintable() for ch in value):
+        return "conversation name cannot contain control characters."
+    if value == "." or "/" in value or "\\" in value or ".." in value:
         return (
             "conversation name must be a single path component "
-            "(no '.', '/', '\\\\', '..', or null bytes)."
+            "(no '.', '/', '\\\\', or '..')."
         )
     return None
 
