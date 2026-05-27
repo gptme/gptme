@@ -1723,8 +1723,6 @@ def _openai_compatible_model_to_modelmeta(
 
     model_id = model_data.get("id", model_data.get("name", "unknown"))
 
-    # Ollama models typically have context of 128k, but this may vary
-    # Try to extract from model data if available
     context = model_data.get("context_length", 128_000)
 
     # Use CustomProvider for non-builtin providers, "local" for local provider
@@ -1736,15 +1734,24 @@ def _openai_compatible_model_to_modelmeta(
     else:
         provider = CustomProvider(provider_name)
 
+    # Detect vision support from architecture/modality info if available
+    architecture = model_data.get("architecture", {})
+    input_modalities = architecture.get("input_modalities", [])
+    supports_vision = "image" in input_modalities
+    if not supports_vision and not input_modalities:
+        modality = architecture.get("modality", "")
+        input_side = modality.split("->")[0] if "->" in modality else ""
+        supports_vision = "image" in input_side
+
     return ModelMeta(
         provider=provider,
         model=model_id,
         context=context,
-        max_output=None,  # Ollama doesn't typically report this
+        max_output=None,
         supports_streaming=True,
-        supports_vision=False,  # Could be enhanced to detect vision models
+        supports_vision=supports_vision,
         supports_reasoning=False,
-        price_input=0,  # Local models are free
+        price_input=0,  # pricing unknown for dynamically discovered models
         price_output=0,
     )
 

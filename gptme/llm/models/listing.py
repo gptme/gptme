@@ -250,7 +250,7 @@ def _print_detailed_format(
     else:
         print(f"\n{provider}:")
 
-    if dynamic_fetch and provider == "openrouter" and len(models) > 0:
+    if dynamic_fetch and provider in ("openrouter", "gptme") and len(models) > 0:
         print(f"  ({len(models)} models available via API)")
 
     # Show up to 10 models with details
