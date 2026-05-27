@@ -109,6 +109,8 @@ def skills_show(name: str):
     # Search by skill name first, then lesson title/filename
     for item in index.lessons:
         if item.metadata.name and name_lower in item.metadata.name.lower():
+            if getattr(item, "is_stub", False) is True:
+                item = index.materialize_lesson(item)
             click.echo(f"# {item.metadata.name}")
             if item.metadata.description:
                 click.echo(f"\n{item.metadata.description}")
@@ -118,6 +120,8 @@ def skills_show(name: str):
 
     for item in index.lessons:
         if name_lower in item.title.lower() or name_lower in item.path.stem.lower():
+            if getattr(item, "is_stub", False) is True:
+                item = index.materialize_lesson(item)
             click.echo(f"# {item.title}")
             click.echo(f"\nPath: {item.path}\n")
             click.echo(item.body)

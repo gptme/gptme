@@ -1,5 +1,6 @@
 """Tests for lesson index module."""
 
+import json
 import tempfile
 from pathlib import Path
 
@@ -86,6 +87,55 @@ class TestLessonIndex:
 
         index = LessonIndex([temp_lesson_dir])
         assert len(index.lessons) == 1
+
+    def test_manifest_index_builds_skill_stub_then_materializes(self, tmp_path: Path):
+        """index.json should avoid eager SKILL.md parsing but still support full reads."""
+        clear_cache()
+        skills_dir = tmp_path / "skills"
+        skill_dir = skills_dir / "deploy-helper"
+        skill_dir.mkdir(parents=True)
+        skill_file = skill_dir / "SKILL.md"
+        skill_file.write_text(
+            """---
+name: deploy-helper
+description: Automates deployment workflows
+keywords:
+  - deployment workflow
+---
+
+# Production Deployment Tool
+
+Content about deployments.
+"""
+        )
+        (skills_dir / "index.json").write_text(
+            json.dumps(
+                {
+                    "version": "1.0",
+                    "skills": [
+                        {
+                            "name": "deploy-helper",
+                            "description": "Automates deployment workflows",
+                            "path": "deploy-helper",
+                            "keywords": ["deployment workflow"],
+                        }
+                    ],
+                }
+            )
+        )
+
+        index = LessonIndex([skills_dir])
+        assert len(index.lessons) == 1
+
+        skill = index.lessons[0]
+        assert skill.is_stub is True
+        assert skill.metadata.name == "deploy-helper"
+        assert skill.body == ""
+
+        materialized = index.materialize_lesson(skill)
+        assert materialized.is_stub is False
+        assert materialized.title == "Production Deployment Tool"
+        assert "Content about deployments." in materialized.body
 
 
 class TestLessonDeduplication:

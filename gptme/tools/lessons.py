@@ -381,6 +381,10 @@ def auto_include_lessons_hook(
             logger.debug("No new lessons to include")
             return
 
+        for match in new_matches:
+            if getattr(match.lesson, "is_stub", False) is True:
+                match.lesson = index.materialize_lesson(match.lesson)
+
         # Format lessons as system message
         content_parts = ["# Relevant Lessons\n"]
         for match in new_matches:

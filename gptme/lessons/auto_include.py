@@ -125,6 +125,9 @@ def auto_include_lessons(
 
         # Limit to top N (matcher may already limit, but ensure it)
         matches = matches[:max_lessons]
+        for match in matches:
+            if getattr(match.lesson, "is_stub", False) is True:
+                match.lesson = index.materialize_lesson(match.lesson)
 
         # Format lessons for inclusion, respecting token budget
         lesson_content, dropped_count, subsequent_tokens = _format_with_budget(

@@ -1,13 +1,17 @@
 """Tests for auto-include lesson system with token budget."""
 
+import json
 from pathlib import Path
 
 from gptme.lessons.auto_include import (
     _estimate_tokens,
     _format_with_budget,
     _get_token_budget,
+    auto_include_lessons,
 )
+from gptme.lessons.index import LessonIndex, clear_cache
 from gptme.lessons.parser import Lesson, LessonMetadata
+from gptme.message import Message
 
 
 def _make_lesson(title: str, body: str, path: str | Path = "/tmp/test.md") -> Lesson:
@@ -190,3 +194,57 @@ def test_get_token_budget_negative_env(monkeypatch):
     monkeypatch.setenv("GPTME_LESSONS_TOKEN_BUDGET", "-1000")
     budget = _get_token_budget()
     assert budget == 50000
+
+
+def test_auto_include_materializes_manifest_backed_skill(tmp_path: Path, monkeypatch):
+    """Matching a manifest-backed skill should load the full SKILL.md before injection."""
+    skill_dir = tmp_path / "skills" / "python-repl"
+    skill_dir.mkdir(parents=True)
+    skill_file = skill_dir / "SKILL.md"
+    skill_file.write_text(
+        """---
+name: python-repl
+description: Use Python REPL for quick computations
+keywords:
+  - python repl
+  - quick computation
+---
+
+# Python REPL Skill
+
+Execute Python code interactively.
+"""
+    )
+    (tmp_path / "skills" / "index.json").write_text(
+        json.dumps(
+            {
+                "version": "1.0",
+                "skills": [
+                    {
+                        "name": "python-repl",
+                        "description": "Use Python REPL for quick computations",
+                        "path": "python-repl",
+                        "keywords": ["python repl", "quick computation"],
+                    }
+                ],
+            }
+        )
+    )
+
+    monkeypatch.setattr(
+        LessonIndex,
+        "_default_dirs",
+        staticmethod(lambda: [tmp_path / "skills"]),
+    )
+    clear_cache()
+
+    messages = [
+        Message("system", "System prompt"),
+        Message("user", "Use the python repl for a quick computation"),
+    ]
+    updated = auto_include_lessons(messages)
+
+    assert len(updated) == 3
+    lesson_msg = updated[1]
+    assert "Python REPL Skill" in lesson_msg.content
+    assert "Execute Python code interactively." in lesson_msg.content

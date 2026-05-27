@@ -1,5 +1,6 @@
 """Lesson index for discovery and search."""
 
+import json
 import logging
 import os
 from pathlib import Path
@@ -325,6 +326,24 @@ class LessonIndex:
         cache_misses = 0
         skipped_duplicates = 0
 
+        manifest_lessons, manifest_skill_paths = self._load_manifest_skill_stubs(
+            directory
+        )
+        for lesson in manifest_lessons:
+            if not self._claim_lesson_slot(
+                lesson.path, directory, seen_paths, seen_rel_paths
+            ):
+                skipped_duplicates += 1
+                continue
+
+            if lesson.metadata.status != "active":
+                logger.debug(
+                    f"Skipping {lesson.metadata.status} lesson: {lesson.path.relative_to(directory)}"
+                )
+                continue
+
+            self.lessons.append(lesson)
+
         # Find both .md and .mdc files
         lesson_files = list(directory.rglob("*.md")) + list(directory.rglob("*.mdc"))
 
@@ -333,6 +352,9 @@ class LessonIndex:
         excluded_patterns = ["worktree/", "/.git/"]
 
         for lesson_file in lesson_files:
+            if lesson_file in manifest_skill_paths:
+                continue
+
             # Skip special files
             if lesson_file.name.lower() in ("readme.md", "todo.md"):
                 continue
@@ -345,46 +367,18 @@ class LessonIndex:
                 logger.debug(f"Skipping lesson in excluded directory: {lesson_file}")
                 continue
 
-            # Deduplication: Skip if lesson with same resolved path already indexed
-            # This handles symlinks pointing to the same file
-            resolved_path = os.path.realpath(lesson_file)
-            if resolved_path in seen_paths:
-                logger.debug(
-                    f"Skipping duplicate lesson: {lesson_file.relative_to(directory)} "
-                    f"(resolves to already indexed file)"
-                )
+            if not self._claim_lesson_slot(
+                lesson_file, directory, seen_paths, seen_rel_paths
+            ):
                 skipped_duplicates += 1
                 continue
-
-            # Deduplication: Skip if lesson with same relative path already indexed
-            # from a different directory. This handles the common case where workspace
-            # lessons/ and gptme-contrib/lessons/ both contain e.g. social/foo.md
-            # First directory wins (per configured order), regardless of active status.
-            relative_name = lesson_file.relative_to(directory).as_posix()
-            if relative_name in seen_rel_paths:
-                logger.debug(
-                    f"Skipping duplicate lesson: {lesson_file.relative_to(directory)} "
-                    f"(same relative path already indexed from earlier directory)"
-                )
-                skipped_duplicates += 1
-                continue
-
-            # Always mark as seen (regardless of status) to enforce "first dir wins"
-            # An inactive lesson in an earlier dir suppresses all copies in later dirs.
-            seen_paths.add(resolved_path)
-            seen_rel_paths.add(relative_name)
 
             try:
-                # Try to use cached lesson first
-                lesson = _get_cached_lesson(lesson_file)
-
-                if lesson is None:
-                    # Cache miss or invalid, parse and cache
-                    lesson = parse_lesson(lesson_file)
-                    _cache_lesson(lesson_file, lesson)
-                    cache_misses += 1
-                else:
+                lesson, from_cache = self._load_lesson_file(lesson_file)
+                if from_cache:
                     cache_hits += 1
+                else:
+                    cache_misses += 1
 
                 # Filter based on status - only include active lessons
                 if lesson.metadata.status != "active":
@@ -398,6 +392,173 @@ class LessonIndex:
                 logger.warning(f"Failed to parse lesson {lesson_file}: {e}")
 
         return cache_hits, cache_misses, skipped_duplicates
+
+    @staticmethod
+    def _load_lesson_file(path: Path) -> tuple[Lesson, bool]:
+        """Load a lesson file, using the cache when possible."""
+        lesson = _get_cached_lesson(path)
+        if lesson is not None:
+            return lesson, True
+
+        lesson = parse_lesson(path)
+        _cache_lesson(path, lesson)
+        return lesson, False
+
+    @staticmethod
+    def _skill_path_from_manifest_entry(directory: Path, entry_path: str) -> Path:
+        """Resolve a manifest entry path to its SKILL.md file."""
+        skill_path = directory / Path(entry_path)
+        if skill_path.name.lower() != "skill.md":
+            skill_path = skill_path / "SKILL.md"
+        return skill_path
+
+    def _load_manifest_skill_stubs(
+        self, directory: Path
+    ) -> tuple[list[Lesson], set[Path]]:
+        """Load lightweight skill stubs from ``index.json`` when present."""
+        manifest_path = directory / "index.json"
+        if not manifest_path.is_file():
+            return [], set()
+
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as e:
+            logger.warning(f"Failed to read skill manifest {manifest_path}: {e}")
+            return [], set()
+
+        skills = manifest.get("skills")
+        if not isinstance(skills, list):
+            logger.warning(
+                f"Skill manifest {manifest_path} is missing a top-level 'skills' list"
+            )
+            return [], set()
+
+        stubs: list[Lesson] = []
+        manifest_paths: set[Path] = set()
+
+        for entry in skills:
+            if not isinstance(entry, dict):
+                continue
+
+            name = entry.get("name")
+            entry_path = entry.get("path")
+            if not isinstance(name, str) or not name.strip():
+                continue
+            if not isinstance(entry_path, str) or not entry_path.strip():
+                continue
+
+            skill_file = self._skill_path_from_manifest_entry(directory, entry_path)
+            manifest_paths.add(skill_file)
+
+            if not skill_file.is_file():
+                logger.warning(
+                    f"Skill manifest {manifest_path} references missing file: {skill_file}"
+                )
+                continue
+
+            raw_keywords = entry.get("keywords", [])
+            if isinstance(raw_keywords, str):
+                raw_keywords = [raw_keywords]
+            elif not isinstance(raw_keywords, list):
+                raw_keywords = []
+            keywords = [kw for kw in raw_keywords if isinstance(kw, str) and kw.strip()]
+
+            raw_depends = entry.get("depends", [])
+            if isinstance(raw_depends, str):
+                raw_depends = [raw_depends]
+            elif not isinstance(raw_depends, list):
+                raw_depends = []
+            depends = [dep for dep in raw_depends if isinstance(dep, str) and dep]
+
+            description = entry.get("description", "")
+            if not isinstance(description, str):
+                description = ""
+
+            status = entry.get("status", "active")
+            if not isinstance(status, str):
+                status = "active"
+
+            stubs.append(
+                Lesson(
+                    path=skill_file,
+                    metadata=self._manifest_metadata(
+                        name=name.strip(),
+                        description=description.strip(),
+                        keywords=keywords,
+                        depends=depends,
+                        status=status,
+                    ),
+                    title=name.strip(),
+                    description=description.strip(),
+                    category=skill_file.parent.name,
+                    body="",
+                    is_stub=True,
+                )
+            )
+
+        return stubs, manifest_paths
+
+    @staticmethod
+    def _manifest_metadata(
+        *,
+        name: str,
+        description: str,
+        keywords: list[str],
+        depends: list[str],
+        status: str,
+    ):
+        from .parser import LessonMetadata
+
+        return LessonMetadata(
+            name=name,
+            description=description,
+            depends=depends,
+            keywords=keywords,
+            status=status,
+        )
+
+    @staticmethod
+    def _claim_lesson_slot(
+        lesson_file: Path,
+        directory: Path,
+        seen_paths: set[str],
+        seen_rel_paths: set[str],
+    ) -> bool:
+        """Reserve a lesson slot for deduplication, first directory wins."""
+        try:
+            relative_name = lesson_file.relative_to(directory).as_posix()
+        except ValueError:
+            logger.warning(
+                f"Skipping out-of-tree lesson while indexing {directory}: {lesson_file}"
+            )
+            return False
+
+        resolved_path = os.path.realpath(lesson_file)
+        if resolved_path in seen_paths:
+            logger.debug(
+                f"Skipping duplicate lesson: {relative_name} "
+                f"(resolves to already indexed file)"
+            )
+            return False
+
+        if relative_name in seen_rel_paths:
+            logger.debug(
+                f"Skipping duplicate lesson: {relative_name} "
+                f"(same relative path already indexed from earlier directory)"
+            )
+            return False
+
+        seen_paths.add(resolved_path)
+        seen_rel_paths.add(relative_name)
+        return True
+
+    def materialize_lesson(self, lesson: Lesson) -> Lesson:
+        """Load the full lesson body/title for manifest-backed skill stubs."""
+        if not lesson.is_stub:
+            return lesson
+
+        materialized, _ = self._load_lesson_file(lesson.path)
+        return materialized
 
     def search(self, query: str) -> list[Lesson]:
         """Search lessons by keyword or content.

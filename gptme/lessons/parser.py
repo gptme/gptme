@@ -72,6 +72,7 @@ class Lesson:
     description: str
     category: str
     body: str
+    is_stub: bool = False
 
 
 def _extract_title(content: str) -> str:

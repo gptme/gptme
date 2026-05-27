@@ -373,6 +373,9 @@ def run(workspace: Path | None = None) -> None:
 
     # Take top N
     new_results = new_results[:max_lessons]
+    for result in new_results:
+        if getattr(result.lesson, "is_stub", False) is True:
+            result.lesson = index.materialize_lesson(result.lesson)
 
     # Build context text
     parts = []
