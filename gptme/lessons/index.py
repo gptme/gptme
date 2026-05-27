@@ -559,8 +559,12 @@ class LessonIndex:
         if not lesson.is_stub:
             return lesson
 
-        materialized, _ = self._load_lesson_file(lesson.path)
-        return materialized
+        try:
+            materialized, _ = self._load_lesson_file(lesson.path)
+            return materialized
+        except Exception as e:
+            logger.warning(f"Failed to materialize stub {lesson.path}: {e}")
+            return lesson
 
     def search(self, query: str) -> list[Lesson]:
         """Search lessons by keyword or content.
@@ -612,9 +616,13 @@ class LessonIndex:
             category: Category name (e.g., "tools", "patterns")
 
         Returns:
-            List of lessons in category
+            List of lessons in category (stubs are materialized on return)
         """
-        return [lesson for lesson in self.lessons if lesson.category == category]
+        return [
+            self.materialize_lesson(lesson)
+            for lesson in self.lessons
+            if lesson.category == category
+        ]
 
     def refresh(self) -> None:
         """Refresh the index by re-parsing all lessons."""
