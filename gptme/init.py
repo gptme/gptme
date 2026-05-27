@@ -10,7 +10,7 @@ from rich.logging import RichHandler
 
 from .cli.setup import ask_for_api_key
 from .commands import init_commands
-from .config import get_config
+from .config import Config, get_config
 from .hooks import init_hooks
 from .llm import guess_provider_from_config, init_llm, is_custom_provider
 from .llm.llm_gptme import GptmeAuthError
@@ -216,7 +216,7 @@ def init_model(
 def _maybe_authenticate_gptme_interactively(
     provider: Provider,
     interactive: bool,
-    config,
+    config: Config,
 ) -> bool:
     """Offer inline gptme.ai device-flow auth and return True if it completed."""
     if provider != "gptme" or not interactive or is_output_json():
