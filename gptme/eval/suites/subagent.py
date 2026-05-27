@@ -85,7 +85,10 @@ def check_subagent_complete_waited_before_result(messages: list[Message]) -> boo
     in the final message or ``answer.txt``, even if the parent *fabricated* the
     answer before the subagent actually finished. This verifies ordering — a
     ``subagent_wait(...)`` call or the completion hook notification must appear
-    at or before the final assistant message that states ``SUM=5050``.
+    before the first assistant message that states ``SUM=5050``.
+
+    Tracking the *first* occurrence (not the last) ensures that fabricate-early
+    trajectories fail even if the agent re-states the result after a later wait.
     """
     completion_idx = None
     result_idx = None
@@ -98,8 +101,8 @@ def check_subagent_complete_waited_before_result(messages: list[Message]) -> boo
             )
         ):
             completion_idx = i
-        if msg.role == "assistant" and "SUM=5050" in msg.content:
-            result_idx = i  # keep the last result-bearing message
+        if result_idx is None and msg.role == "assistant" and "SUM=5050" in msg.content:
+            result_idx = i  # first result-bearing message
     if completion_idx is None or result_idx is None:
         return False
     return completion_idx <= result_idx

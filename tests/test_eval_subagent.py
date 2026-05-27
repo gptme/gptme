@@ -127,3 +127,28 @@ def test_waited_before_result_rejects_fabricated_answer_before_completion():
     ]
 
     assert not check_subagent_complete_waited_before_result(messages)
+
+
+def test_waited_before_result_rejects_fabricate_then_repeat():
+    """Fabricating the result early then re-stating it after a real wait must fail.
+
+    Without first-occurrence tracking, this trajectory would bypass the check
+    because the *last* SUM=5050 appears after the wait.
+    """
+    messages = [
+        Message(
+            "assistant",
+            '```ipython\nsubagent("sum-roundtrip", "Return COMPLETE_SUM: 5050 via complete")\n```',
+        ),
+        # Parent fabricates the answer before waiting.
+        Message("assistant", "I already know the answer is SUM=5050."),
+        Message(
+            "assistant",
+            '```ipython\nsubagent_wait("sum-roundtrip")\n```',
+        ),
+        # Re-states the result after the wait — last occurrence would pass with
+        # a naive "track last" strategy, but first occurrence already failed.
+        Message("assistant", "Confirmed. SUM=5050"),
+    ]
+
+    assert not check_subagent_complete_waited_before_result(messages)
