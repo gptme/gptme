@@ -1459,6 +1459,30 @@ def test_v2_chat_config_patch_rejects_invalid_workspace_type(
     assert response.get_json() == {"error": "chat.workspace must be a string path"}
 
 
+@pytest.mark.parametrize(
+    ("tools_payload", "expected_error"),
+    [
+        ("shell", "tools must be a list of strings"),
+        (["definitely-not-a-tool"], "Tool 'definitely-not-a-tool' not found"),
+    ],
+)
+def test_v2_chat_config_patch_validates_tools_before_init(
+    client: FlaskClient, tools_payload: object, expected_error: str
+):
+    """Config PATCH should reject malformed tool allowlists with 400."""
+    conv = create_conversation(client)
+    conversation_id = conv["conversation_id"]
+
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config",
+        json={"chat": {"tools": tools_payload}},
+    )
+
+    assert response.status_code == 400
+    data = response.get_json()
+    assert expected_error in data["error"]
+
+
 def test_v2_chat_config_patch_rejected_during_generation(client: FlaskClient):
     """Config PATCH should return 409 when a session is actively generating."""
     conv = create_conversation(client)

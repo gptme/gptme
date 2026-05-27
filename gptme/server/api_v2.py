@@ -1177,6 +1177,18 @@ def api_conversation_config_patch(conversation_id: str):
         return flask.jsonify({"error": "No JSON data provided"}), 400
     if not isinstance(req_json, dict):
         return flask.jsonify({"error": "JSON body must be an object"}), 400
+    chat_patch = req_json.get("chat")
+    if isinstance(chat_patch, dict) and "tools" in chat_patch:
+        tool_allowlist = _get_optional_string_list_field(chat_patch, "tools")
+        if isinstance(tool_allowlist, tuple):
+            return tool_allowlist
+        if tool_allowlist is not None:
+            try:
+                init_tools(tool_allowlist)
+            except ValueError as exc:
+                return flask.jsonify({"error": str(exc)}), 400
+            except Exception as exc:
+                return flask.jsonify({"error": f"Failed to load tool: {exc}"}), 400
 
     logdir = get_logs_dir() / conversation_id
 
