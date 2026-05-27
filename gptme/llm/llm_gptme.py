@@ -30,6 +30,11 @@ from ..config import Config
 
 logger = logging.getLogger(__name__)
 
+
+class GptmeAuthError(KeyError):
+    """Raised when no valid gptme.ai credentials are found."""
+
+
 # Default base URL for the gptme cloud API proxy
 DEFAULT_BASE_URL = "https://fleet.gptme.ai/v1"
 
@@ -103,7 +108,7 @@ def get_api_key(config: Config) -> str:
     if api_key:
         return api_key
 
-    raise KeyError(
+    raise GptmeAuthError(
         "gptme provider requires authentication. Either:\n"
         "  1. Run `gptme-auth login` to authenticate via Device Flow\n"
         "  2. Set the GPTME_CLOUD_API_KEY environment variable"

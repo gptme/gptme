@@ -13,6 +13,7 @@ from .commands import init_commands
 from .config import get_config
 from .hooks import init_hooks
 from .llm import guess_provider_from_config, init_llm, is_custom_provider
+from .llm.llm_gptme import GptmeAuthError
 from .llm.models import (
     PROVIDERS,
     CustomProvider,
@@ -189,10 +190,8 @@ def init_model(
         console.log(f"Using model: [green]{model_full}[/green]")
     try:
         init_llm(provider)
-    except KeyError as e:
-        if not _maybe_authenticate_gptme_interactively(
-            provider, interactive, config, e
-        ):
+    except GptmeAuthError:
+        if not _maybe_authenticate_gptme_interactively(provider, interactive, config):
             raise
         init_llm(provider)
 
@@ -218,12 +217,9 @@ def _maybe_authenticate_gptme_interactively(
     provider: Provider,
     interactive: bool,
     config,
-    error: KeyError,
 ) -> bool:
     """Offer inline gptme.ai device-flow auth and return True if it completed."""
     if provider != "gptme" or not interactive or is_output_json():
-        return False
-    if "gptme provider requires authentication" not in str(error):
         return False
 
     response = console.input(

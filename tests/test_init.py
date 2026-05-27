@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
+from gptme.llm.llm_gptme import GptmeAuthError
 from gptme.llm.models.types import CustomProvider, ModelMeta
 
 # ---------------------------------------------------------------------------
@@ -1287,7 +1288,7 @@ class TestInitModelInteractive:
         mock_console.input.return_value = ""
         mock_get_model.return_value = dummy_model_meta
         mock_init_llm.side_effect = [
-            KeyError("gptme provider requires authentication"),
+            GptmeAuthError("gptme provider requires authentication"),
             None,
         ]
 
@@ -1324,9 +1325,13 @@ class TestInitModelInteractive:
         mock_config_fn.return_value = config
         mock_console.input.return_value = "n"
         mock_get_model.return_value = dummy_model_meta
-        mock_init_llm.side_effect = KeyError("gptme provider requires authentication")
+        mock_init_llm.side_effect = GptmeAuthError(
+            "gptme provider requires authentication"
+        )
 
-        with pytest.raises(KeyError, match="gptme provider requires authentication"):
+        with pytest.raises(
+            GptmeAuthError, match="gptme provider requires authentication"
+        ):
             init_model(model="gptme/claude-sonnet-4-6", interactive=True)
 
         mock_console.input.assert_called_once()
@@ -1359,9 +1364,13 @@ class TestInitModelInteractive:
         config.get_env.return_value = None
         mock_config_fn.return_value = config
         mock_get_model.return_value = dummy_model_meta
-        mock_init_llm.side_effect = KeyError("gptme provider requires authentication")
+        mock_init_llm.side_effect = GptmeAuthError(
+            "gptme provider requires authentication"
+        )
 
-        with pytest.raises(KeyError, match="gptme provider requires authentication"):
+        with pytest.raises(
+            GptmeAuthError, match="gptme provider requires authentication"
+        ):
             init_model(model="gptme/claude-sonnet-4-6", interactive=False)
 
         mock_console.input.assert_not_called()
