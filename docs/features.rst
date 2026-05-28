@@ -140,7 +140,7 @@ See :doc:`lessons`.
 🧠 Skills
 ^^^^^^^^^
 
-Lightweight workflow bundles (Anthropic format) that auto-load when mentioned by name. Great for packaging reusable instructions and helper scripts.
+Lightweight workflow bundles (`Agents Skills open standard <https://agentskills.io>`_ format) that auto-load when mentioned by name. Great for packaging reusable instructions and helper scripts. Compatible with **26+ tools** (Claude Code, Codex, Cursor, Copilot, Gemini CLI, and more).
 
 See :doc:`skills`.
 
