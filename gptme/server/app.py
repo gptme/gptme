@@ -115,7 +115,11 @@ def create_app(
 
     @app.route("/computer")
     def computer():
-        return app.send_static_file("computer.html")
+        # Fall back to index.html for SPAs that don't bundle a computer.html
+        static_dir = Path(app.static_folder) if app.static_folder else Path(static_path)
+        if (static_dir / "computer.html").is_file():
+            return app.send_static_file("computer.html")
+        return app.send_static_file("index.html")
 
     @app.route("/chat")
     def chat():

@@ -30,6 +30,33 @@ def test_webui_dir_missing_index_raises(tmp_path):
         create_app(webui_dir=str(tmp_path))
 
 
+def test_computer_route_spa_fallback(tmp_path):
+    """When webui_dir lacks computer.html (modern SPA), /computer serves index.html."""
+    from gptme.server.app import create_app
+
+    (tmp_path / "index.html").write_text("<title>spa index</title>")
+
+    app = create_app(webui_dir=str(tmp_path))
+    with app.test_client() as client:
+        resp = client.get("/computer")
+    assert resp.status_code == 200
+    assert b"spa index" in resp.data
+
+
+def test_computer_route_serves_computer_html(tmp_path):
+    """When webui_dir has computer.html (legacy), /computer serves it."""
+    from gptme.server.app import create_app
+
+    (tmp_path / "index.html").write_text("<title>spa index</title>")
+    (tmp_path / "computer.html").write_text("<title>computer page</title>")
+
+    app = create_app(webui_dir=str(tmp_path))
+    with app.test_client() as client:
+        resp = client.get("/computer")
+    assert resp.status_code == 200
+    assert b"computer page" in resp.data
+
+
 def test_default_uses_bundled_static():
     from gptme.server.app import create_app, static_path
 
