@@ -73,6 +73,20 @@ def test_webui_dir_serves_spa_assets(tmp_path):
     assert b"hello" in resp.data
 
 
+def test_spa_deeplink_fallback(tmp_path):
+    """Deep-linked SPA routes like /settings must serve index.html, not 404."""
+    from gptme.server.app import create_app
+
+    (tmp_path / "index.html").write_text("<title>spa</title>")
+
+    app = create_app(webui_dir=str(tmp_path))
+    with app.test_client() as client:
+        for path in ("/settings", "/conversations/abc", "/workspace/foo"):
+            resp = client.get(path)
+            assert resp.status_code == 200, f"{path} should serve index.html"
+            assert b"spa" in resp.data
+
+
 def test_default_uses_bundled_static():
     from gptme.server.app import create_app, static_path
 

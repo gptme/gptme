@@ -47,6 +47,8 @@ def create_app(
         serve_path = candidate
         logger.info("Serving web UI from %s", serve_path)
 
+    is_custom_webui = serve_path != static_path
+
     # When serving a custom (Vite-built) webui, set static_url_path='' so that
     # asset URLs like /assets/index.js are served directly from the root of the
     # custom dir instead of requiring a /static/ prefix (Flask's default).
@@ -135,6 +137,19 @@ def create_app(
     @app.route("/favicon.png")
     def favicon():
         return flask.send_from_directory(media_path, "logo.png")
+
+    if is_custom_webui:
+        # SPA catch-all: when Flask's static file handler returns 404 for an
+        # unknown path (e.g. /settings, /conversations/abc), serve index.html
+        # so React Router handles client-side routing.
+        # API 404s (missing endpoints) pass through unchanged.
+        @app.errorhandler(404)
+        def spa_404_handler(e):
+            from flask import request
+
+            if request.path.startswith("/api/"):
+                return flask.jsonify({"error": "Not found"}), 404
+            return app.send_static_file("index.html")
 
     # Server confirmation hook is now registered via init_hooks(server=True)
     # in server/cli.py
