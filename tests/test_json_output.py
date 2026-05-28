@@ -35,6 +35,30 @@ def _invoke_cli_with_captured_goodbye(monkeypatch, tmp_path: Path, args: list[st
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
     monkeypatch.setattr(cli.atexit, "register", handlers.append)
 
+    # Pre-chat mocks to make tests environment-independent.
+    # Without these the full setup_config_from_cli → init_tools → get_prompt
+    # pipeline runs in a bare tmp_path with no model configured, so the CLI
+    # exits through UsageError before reaching chat().
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=[],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            agent=None,
+        ),
+        project=None,
+    )
+    monkeypatch.setattr(cli, "setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr(cli, "init_tools", lambda _: [])
+    monkeypatch.setattr(cli, "get_prompt", lambda **_: [])
+    monkeypatch.setattr(cli, "init_telemetry", lambda **_: None)
+    monkeypatch.setattr(cli, "set_interruptible", lambda: None)
+    monkeypatch.setattr(cli.signal, "signal", lambda *args, **kwargs: None)
+
     runner = CliRunner()
     result = runner.invoke(cli.main, args, input="")
     goodbye_handler = next(
