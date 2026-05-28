@@ -55,7 +55,7 @@ def create_app(
     app = flask.Flask(
         __name__,
         static_folder=serve_path,
-        static_url_path="" if webui_dir else "/static",
+        static_url_path="" if is_custom_webui else "/static",
     )
 
     # Capture the server's default model from the startup context
