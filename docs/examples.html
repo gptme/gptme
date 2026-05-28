@@ -438,7 +438,9 @@
 <button class="btn btn-sm pst-navbar-icon search-button search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
     <i class="fa-solid fa-magnifying-glass fa-lg"></i>
 </button>
-
+<button class="sidebar-toggle secondary-toggle btn btn-sm" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="fa-solid fa-list"></span>
+</button>
 </div></div>
       
     </div>
@@ -454,6 +456,18 @@
     <div id="print-main-content">
         <div id="jb-print-toc">
             
+            <div>
+                <h2> Contents </h2>
+            </div>
+            <nav aria-label="Page">
+                <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#common-tasks">Common Tasks</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#advanced-workflows">Advanced Workflows</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#automation">Automation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#community-extensions-gptme-contrib">Community Extensions (gptme-contrib)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#explore-more">Explore More</a></li>
+</ul>
+            </nav>
         </div>
     </div>
 </div>
@@ -466,33 +480,42 @@
   <section id="examples">
 <h1>Examples<a class="headerlink" href="#examples" title="Link to this heading">#</a></h1>
 <p>Here are some examples of how to use gptme and what its capabilities are.</p>
-<p>To see example output without running the commands yourself, check out the <a class="reference internal" href="demos.html"><span class="doc">Demos</span></a>.</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;write a web app to particles.html which shows off an impressive and colorful particle effect using three.js&#39;</span>
-gptme<span class="w"> </span><span class="s1">&#39;render mandelbrot set to mandelbrot.png&#39;</span>
-
-<span class="c1"># files</span>
+<p>To see example output without running the commands yourself, check out the <a class="reference internal" href="demos.html"><span class="doc">Demos</span></a> page.</p>
+<nav class="contents local" id="contents">
+<ul class="simple">
+<li><p><a class="reference internal" href="#common-tasks" id="id1">Common Tasks</a></p></li>
+<li><p><a class="reference internal" href="#advanced-workflows" id="id2">Advanced Workflows</a></p></li>
+<li><p><a class="reference internal" href="#automation" id="id3">Automation</a></p></li>
+<li><p><a class="reference internal" href="#community-extensions-gptme-contrib" id="id4">Community Extensions (gptme-contrib)</a></p></li>
+<li><p><a class="reference internal" href="#explore-more" id="id5">Explore More</a></p></li>
+</ul>
+</nav>
+<section id="common-tasks">
+<h2><a class="toc-backref" href="#id1" role="doc-backlink">Common Tasks</a><a class="headerlink" href="#common-tasks" title="Link to this heading">#</a></h2>
+<p>Everyday prompts that work well with gptme out of the box.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># ask questions about files</span>
 gptme<span class="w"> </span><span class="s1">&#39;summarize this&#39;</span><span class="w"> </span>README.md
 gptme<span class="w"> </span><span class="s1">&#39;refactor this&#39;</span><span class="w"> </span>main.py
 gptme<span class="w"> </span><span class="s1">&#39;what do you see?&#39;</span><span class="w"> </span>image.png<span class="w">  </span><span class="c1"># vision</span>
 
-<span class="c1"># stdin</span>
+<span class="c1"># pipe stdin for context</span>
 git<span class="w"> </span>status<span class="w"> </span>-vv<span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;fix TODOs&#39;</span>
 git<span class="w"> </span>status<span class="w"> </span>-vv<span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;commit&#39;</span>
 make<span class="w"> </span><span class="nb">test</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;fix the failing tests&#39;</span>
 
-<span class="c1"># if path not directly provided in prompt, it can read files using tools</span>
+<span class="c1"># explore the workspace</span>
 gptme<span class="w"> </span><span class="s1">&#39;explore&#39;</span>
 gptme<span class="w"> </span><span class="s1">&#39;take a screenshot and tell me what you see&#39;</span>
 gptme<span class="w"> </span><span class="s1">&#39;suggest improvements to my vimrc&#39;</span>
 
-<span class="c1"># can read URLs (if browser tool is available)</span>
+<span class="c1"># read URLs and GitHub issues</span>
 gptme<span class="w"> </span><span class="s1">&#39;implement this&#39;</span><span class="w"> </span>https://github.com/gptme/gptme/issues/286
-
-<span class="c1"># can use `gh` shell tool to read issues, PRs, etc.</span>
-gptme<span class="w"> </span><span class="s1">&#39;implement gptme/gptme/issues/286&#39;</span>
+gptme<span class="w"> </span><span class="s1">&#39;implement gptme/gptme/issues/286&#39;</span><span class="w">  </span><span class="c1"># uses `gh` shell tool</span>
 
 <span class="c1"># create new projects</span>
 gptme<span class="w"> </span><span class="s1">&#39;create a performant n-body simulation in rust&#39;</span>
+gptme<span class="w"> </span><span class="s1">&#39;render mandelbrot set to mandelbrot.png&#39;</span>
+gptme<span class="w"> </span><span class="s1">&#39;write a web app to particles.html which shows off an impressive and colorful particle effect using three.js&#39;</span>
 
 <span class="c1"># chaining prompts</span>
 gptme<span class="w"> </span><span class="s1">&#39;make a change&#39;</span><span class="w"> </span>-<span class="w"> </span><span class="s1">&#39;test it&#39;</span><span class="w"> </span>-<span class="w"> </span><span class="s1">&#39;commit it&#39;</span>
@@ -502,6 +525,120 @@ gptme<span class="w"> </span><span class="s1">&#39;show me something cool in the
 gptme<span class="w"> </span>-r
 </pre></div>
 </div>
+</section>
+<section id="advanced-workflows">
+<h2><a class="toc-backref" href="#id2" role="doc-backlink">Advanced Workflows</a><a class="headerlink" href="#advanced-workflows" title="Link to this heading">#</a></h2>
+<p>gptme’s tool system lets you unlock more powerful workflows. Enable extra tools with the <code class="docutils literal notranslate"><span class="pre">--tools</span></code> flag.</p>
+<p class="rubric">Subagents (Planner Mode)</p>
+<p>Use a separate planning agent to research and plan before coding. This is great for complex tasks where you want clear reasoning before any code is written.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tools<span class="w"> </span>+subagent<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s1">&#39;Plan and implement a CLI tool that monitors CPU/memory usage and alerts when thresholds are exceeded&#39;</span>
+</pre></div>
+</div>
+<p>The subagent researches the approach, presents a plan, and only then does gptme start writing code. The result is better architecture for complex projects.</p>
+<p class="rubric">Computer Use</p>
+<p>Let gptme interact with your desktop — take screenshots, move the mouse, click buttons, and type. Useful for GUI automation, testing, and workflows that span multiple applications.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tools<span class="w"> </span>+computer<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s1">&#39;Take a screenshot of my browser, identify any UI issues, and write a bug report to bugs.md&#39;</span>
+</pre></div>
+</div>
+<p class="rubric">Combining Tools for Maximum Power</p>
+<p>Enable multiple tools together for complex, autonomous workflows. The most powerful combination is <code class="docutils literal notranslate"><span class="pre">+subagent</span></code> (for planning) with <code class="docutils literal notranslate"><span class="pre">+computer</span></code> (for desktop interaction):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Plan, implement, and visually verify — all in one session</span>
+gptme<span class="w"> </span>--tools<span class="w"> </span>+computer,+subagent<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s1">&#39;Research the top Python testing frameworks, implement a comparison benchmark, run it, and take a screenshot of the results&#39;</span>
+
+<span class="c1"># Autonomous agent workflow: plan first, then execute with full tool access</span>
+gptme<span class="w"> </span>--tools<span class="w"> </span>+subagent,+computer,+browser<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s1">&#39;Find my most-starred GitHub repo, write a blog post about it, and open the draft in my browser&#39;</span>
+</pre></div>
+</div>
+<p>The subagent handles research and planning; <code class="docutils literal notranslate"><span class="pre">+computer</span></code> and <code class="docutils literal notranslate"><span class="pre">+browser</span></code> handle execution and verification.</p>
+<p class="rubric">Setting Up a Persistent Agent (gptme-agent)</p>
+<p>Create a persistent AI agent — like the example in <a class="reference internal" href="agents.html"><span class="doc">Agents</span></a> — that runs autonomously, maintains its own task list, journal, and learns over time.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Install gptme (includes the gptme-agent command)</span>
+pipx<span class="w"> </span>install<span class="w"> </span>gptme
+
+<span class="c1"># Create a new agent workspace from the template</span>
+gptme-agent<span class="w"> </span>create<span class="w"> </span>~/my-agent<span class="w"> </span>--name<span class="w"> </span>MyAgent
+
+<span class="c1"># Bootstrap it</span>
+<span class="nb">cd</span><span class="w"> </span>~/my-agent
+gptme<span class="w"> </span><span class="s1">&#39;explore the workspace, read my identity files, and tell me what I am&#39;</span>
+
+<span class="c1"># Run it autonomously on a schedule</span>
+gptme-agent<span class="w"> </span>install
+gptme-agent<span class="w"> </span>run
+</pre></div>
+</div>
+<p>Your agent will have its own workspace, task system, journal, and lesson system — everything needed for a persistent, self-improving AI agent.</p>
+<p class="rubric">MCP Servers</p>
+<p>Connect gptme to custom tools and data sources via the Model Context Protocol.</p>
+<p>Configure MCP servers in <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[[mcp.servers]]</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;filesystem&quot;</span>
+<span class="n">command</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;npx&quot;</span>
+<span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;-y&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;@modelcontextprotocol/server-filesystem&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;/projects&quot;</span><span class="p">]</span>
+<span class="n">auto_start</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+</pre></div>
+</div>
+<p>Then use gptme as usual — the server starts automatically:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;Refactor all my unused imports across all projects under /projects&#39;</span>
+</pre></div>
+</div>
+<p>See the <a class="reference internal" href="mcp.html"><span class="doc">MCP</span></a> page for the full list of configuration options.</p>
+</section>
+<section id="automation">
+<h2><a class="toc-backref" href="#id3" role="doc-backlink">Automation</a><a class="headerlink" href="#automation" title="Link to this heading">#</a></h2>
+<p>gptme can be used in scripts and CI/CD pipelines for automated workflows. See the <a class="reference internal" href="automation.html"><span class="doc">Automation</span></a> page for full examples.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Non-interactive mode for scripts</span>
+git<span class="w"> </span>diff<span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span>--non-interactive<span class="w"> </span><span class="s1">&#39;review this diff for bugs and security issues&#39;</span>
+gptme<span class="w"> </span>--non-interactive<span class="w"> </span>--model<span class="w"> </span><span class="s1">&#39;sonnet&#39;</span><span class="w"> </span><span class="s1">&#39;generate a changelog to CHANGELOG.md from these commits&#39;</span><span class="w"> </span><span class="o">&lt;&lt;&lt;</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>git<span class="w"> </span>log<span class="w"> </span>--oneline<span class="w"> </span>v1.0..HEAD<span class="k">)</span><span class="s2">&quot;</span>
+</pre></div>
+</div>
+<p>The <a class="reference internal" href="automation.html"><span class="doc">Automation</span></a> page covers code review bots, daily activity summaries, and composable shell pipelines.</p>
+</section>
+<section id="community-extensions-gptme-contrib">
+<h2><a class="toc-backref" href="#id4" role="doc-backlink">Community Extensions (gptme-contrib)</a><a class="headerlink" href="#community-extensions-gptme-contrib" title="Link to this heading">#</a></h2>
+<p><a class="reference external" href="https://github.com/gptme/gptme-contrib">gptme-contrib</a> is a community repository with plugins, packages, and scripts that extend gptme with additional capabilities.</p>
+<p class="rubric">Getting Started</p>
+<p>Clone the repo and point gptme at it:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/gptme/gptme-contrib<span class="w"> </span>~/.config/gptme/contrib
+</pre></div>
+</div>
+<p>Then enable plugins in your <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code>:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[plugins]</span>
+<span class="n">paths</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;~/.config/gptme/contrib/plugins&quot;</span><span class="p">]</span>
+<span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;gptme_imagen&quot;</span><span class="p">]</span>
+</pre></div>
+</div>
+<p class="rubric">Image Generation</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">gptme-imagen</span></code> plugin adds multi-provider image generation (DALL-E, Gemini Imagen):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;generate an image of a futuristic city at night, save to city.png&#39;</span>
+gptme<span class="w"> </span><span class="s1">&#39;render the mandelbrot set as an image using matplotlib and compare it with an AI-generated version&#39;</span>
+</pre></div>
+</div>
+<p class="rubric">Semantic Context Retrieval</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">gptme-retrieval</span></code> plugin automatically injects relevant context from your codebase before each step — useful when working on large projects:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[plugins]</span>
+<span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;gptme_retrieval&quot;</span><span class="p">]</span>
+
+<span class="k">[plugin.retrieval]</span>
+<span class="n">backend</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;qmd&quot;</span><span class="w">     </span><span class="c1"># semantic search (requires: cargo install qmd)</span>
+<span class="n">mode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;vsearch&quot;</span><span class="w">    </span><span class="c1"># vector search</span>
+<span class="n">max_results</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span>
+</pre></div>
+</div>
+<p>Browse the <a class="reference external" href="https://github.com/gptme/gptme-contrib/tree/master/plugins">full plugin list</a> — there are also plugins for LSP integration, multi-model consensus, code graph analysis (via <code class="docutils literal notranslate"><span class="pre">gptme-codegraph</span></code>), voice, and more.</p>
+</section>
+<section id="explore-more">
+<h2><a class="toc-backref" href="#id5" role="doc-backlink">Explore More</a><a class="headerlink" href="#explore-more" title="Link to this heading">#</a></h2>
+<p>Learn more about gptme with these dedicated pages:</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="demos.html"><span class="doc">Demos</span></a> — watch example runs with terminal recordings</p></li>
+<li><p><a class="reference internal" href="automation.html"><span class="doc">Automation</span></a> — CI/CD, cron jobs, shell scripts</p></li>
+<li><p><a class="reference internal" href="projects.html"><span class="doc">Projects</span></a> — things built with gptme</p></li>
+</ul>
 <p>Do you have a cool example? Share it with us in the <a class="reference external" href="https://github.com/gptme/gptme/discussions">Discussions</a>!</p>
 <div class="toctree-wrapper compound">
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">More Examples</span></p>
@@ -515,6 +652,7 @@ gptme<span class="w"> </span>-r
 </li>
 </ul>
 </div>
+</section>
 </section>
 
 
@@ -552,6 +690,26 @@ gptme<span class="w"> </span>-r
             </div>
             
             
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+  <div class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> Contents
+  </div>
+  <nav class="bd-toc-nav page-toc">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#common-tasks">Common Tasks</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#advanced-workflows">Advanced Workflows</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#automation">Automation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#community-extensions-gptme-contrib">Community Extensions (gptme-contrib)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#explore-more">Explore More</a></li>
+</ul>
+  </nav></div>
+
+</div></div>
               
             
           </div>
