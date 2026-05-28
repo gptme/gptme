@@ -21,6 +21,20 @@ let mockBaseUrl = 'http://localhost:5700';
 // Controls whether isLikelyChromeCorsPna() classifies the last probe URL as PNA.
 const mockIsLikelyChromeCorsPna = jest.fn().mockReturnValue(false);
 
+const setLocation = (href: string) => {
+  const url = new URL(href);
+  Object.defineProperty(window, 'location', {
+    value: {
+      ...window.location,
+      href: url.href,
+      origin: url.origin,
+      hostname: url.hostname,
+    },
+    writable: true,
+    configurable: true,
+  });
+};
+
 jest.mock('@/utils/api', () => ({
   isLikelyChromeCorsPna: (...args: unknown[]) => mockIsLikelyChromeCorsPna(...args),
 }));
@@ -84,6 +98,7 @@ describe('WelcomeView', () => {
   beforeEach(() => {
     // Default to a first-time user (no stored settings → hasCompletedSetup=false).
     localStorage.clear();
+    setLocation('http://localhost/');
     isConnected$.set(true);
     lastConnectionResult$.set(null);
     mockBaseUrl = 'http://localhost:5700';
@@ -189,6 +204,36 @@ describe('WelcomeView', () => {
     expect(screen.queryByRole('button', { name: /use gptme\.ai/i })).not.toBeInTheDocument();
     // Retry connection stays available regardless of onboarding state
     expect(screen.getByRole('button', { name: /retry connection/i })).toBeInTheDocument();
+  });
+
+  it('detects a reachable hosted loopback server and shows CORS setup guidance before retry', async () => {
+    seedReturningUser();
+    setLocation('https://chat.gptme.org/');
+    isConnected$.set(false);
+    mockFetch.mockResolvedValue({ ok: true });
+
+    render(
+      <SettingsProvider>
+        <WelcomeView />
+      </SettingsProvider>
+    );
+
+    expect(
+      await screen.findByText(/appears to be running, but it is not allowing requests from/i)
+    ).toBeInTheDocument();
+    expect(screen.getByText('Local gptme server needs browser access')).toBeInTheDocument();
+    expect(
+      screen.getByText(/gptme-server --cors-origin='https:\/\/chat\.gptme\.org'/i)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Install it, then start a server/i)).not.toBeInTheDocument();
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://localhost:5700/api/v2',
+      expect.objectContaining({
+        mode: 'no-cors',
+        cache: 'no-store',
+        targetAddressSpace: 'local',
+      })
+    );
   });
 
   it('opens the setup wizard at the welcome step from the first-visit "Get started" CTA', async () => {
