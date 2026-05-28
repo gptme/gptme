@@ -210,7 +210,8 @@ describe('WelcomeView', () => {
     seedReturningUser();
     setLocation('https://chat.gptme.org/');
     isConnected$.set(false);
-    mockFetch.mockResolvedValue({ ok: true });
+    // Simulate: CORS fetch blocked (server running, no --cors-origin), no-cors probe succeeds.
+    mockFetch.mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce({});
 
     render(
       <SettingsProvider>
@@ -226,7 +227,15 @@ describe('WelcomeView', () => {
       screen.getByText(/gptme-server --cors-origin='https:\/\/chat\.gptme\.org'/i)
     ).toBeInTheDocument();
     expect(screen.queryByText(/Install it, then start a server/i)).not.toBeInTheDocument();
-    expect(mockFetch).toHaveBeenCalledWith(
+    // First call: CORS probe (no mode: no-cors).
+    expect(mockFetch).toHaveBeenNthCalledWith(
+      1,
+      'http://localhost:5700/api/v2',
+      expect.objectContaining({ cache: 'no-store' })
+    );
+    // Second call: no-cors probe confirms server is running but CORS is blocking.
+    expect(mockFetch).toHaveBeenNthCalledWith(
+      2,
       'http://localhost:5700/api/v2',
       expect.objectContaining({
         mode: 'no-cors',

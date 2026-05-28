@@ -195,23 +195,36 @@ export const WelcomeView = () => {
     const timeoutId = window.setTimeout(() => controller.abort(), 2500);
     let cancelled = false;
 
-    fetch(
-      probeUrl,
-      withLocalAddressSpace(probeUrl, {
-        mode: 'no-cors',
-        cache: 'no-store',
-        signal: controller.signal,
-      })
-    )
-      .then(() => {
+    const runProbe = async () => {
+      try {
+        // First try a regular CORS fetch. If it succeeds, CORS is already configured
+        // and the hint would be a false positive — suppress it.
+        try {
+          await fetch(probeUrl, { cache: 'no-store', signal: controller.signal });
+          if (!cancelled) setHostedLoopbackReachable(false);
+          return;
+        } catch {
+          if (controller.signal.aborted || cancelled) return;
+        }
+        // CORS fetch failed; probe with no-cors to confirm the server is running at all.
+        // If this succeeds the server is up but not yet allowing cross-origin requests.
+        await fetch(
+          probeUrl,
+          withLocalAddressSpace(probeUrl, {
+            mode: 'no-cors',
+            cache: 'no-store',
+            signal: controller.signal,
+          })
+        );
         if (!cancelled) setHostedLoopbackReachable(true);
-      })
-      .catch(() => {
+      } catch {
         if (!cancelled) setHostedLoopbackReachable(false);
-      })
-      .finally(() => {
+      } finally {
         window.clearTimeout(timeoutId);
-      });
+      }
+    };
+
+    runProbe();
 
     return () => {
       cancelled = true;
