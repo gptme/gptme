@@ -518,7 +518,7 @@ export const ChatInput: FC<Props> = ({
   const [selectedModel, setSelectedModel] = useState('');
 
   // Fallback model when no other default is available
-  const fallbackModel = 'anthropic/claude-sonnet-4-20250514';
+  const fallbackModel = 'anthropic/claude-sonnet-4-6';
 
   // Compute the effective model to use (explicit selection or conversation default)
   const effectiveModel = hasExplicitModelSelection
