@@ -4,7 +4,9 @@ Flask application factory for gptme server.
 
 import atexit
 import logging
+import os
 from importlib import resources
+from pathlib import Path
 
 import flask
 from flask_cors import CORS
@@ -19,7 +21,29 @@ media_path = _root_path.parent / "media"
 atexit.register(_gptme_path_ctx.__exit__, None, None, None)
 
 
-def create_app(cors_origin: str | None = None, host: str = "127.0.0.1") -> flask.Flask:
+def _resolve_static_folder(webui_dir: str | Path | None = None) -> Path:
+    """Resolve which directory the web UI is served from.
+
+    Precedence: explicit ``webui_dir`` argument > ``GPTME_WEBUI_DIR`` env var >
+    the embedded legacy static bundle. A configured directory must exist so
+    that a typo fails loudly at startup instead of silently serving 404s.
+    """
+    candidate = webui_dir or os.environ.get("GPTME_WEBUI_DIR")
+    if not candidate:
+        return static_path
+    path = Path(candidate).expanduser()
+    if not path.is_dir():
+        raise FileNotFoundError(
+            f"webui_dir does not exist or is not a directory: {path}"
+        )
+    return path
+
+
+def create_app(
+    cors_origin: str | None = None,
+    host: str = "127.0.0.1",
+    webui_dir: str | Path | None = None,
+) -> flask.Flask:
     """Create the Flask app.
 
     Args:
@@ -27,8 +51,13 @@ def create_app(cors_origin: str | None = None, host: str = "127.0.0.1") -> flask
             A comma-separated string allows multiple origins, e.g.
             "tauri://localhost,http://tauri.localhost". Whitespace around
             entries is ignored.
+        webui_dir: Optional directory containing a web UI build (e.g. the
+            modern React webui's ``dist/``) to serve instead of the bundled
+            legacy UI. Falls back to the ``GPTME_WEBUI_DIR`` environment
+            variable, then to the embedded legacy static bundle.
     """
-    app = flask.Flask(__name__, static_folder=static_path)
+    static_folder = _resolve_static_folder(webui_dir)
+    app = flask.Flask(__name__, static_folder=static_folder)
 
     # Capture the server's default model from the startup context
     # This is needed because ContextVar doesn't propagate across request contexts

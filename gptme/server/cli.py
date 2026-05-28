@@ -127,6 +127,17 @@ def main():
     ),
 )
 @click.option(
+    "--webui-dir",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+    default=None,
+    envvar="GPTME_WEBUI_DIR",
+    help=(
+        "Directory containing a web UI build (e.g. the modern React webui's "
+        "dist/) to serve instead of the bundled legacy UI. Can also be set "
+        "via the GPTME_WEBUI_DIR environment variable."
+    ),
+)
+@click.option(
     "--exit-on-parent-death",
     is_flag=True,
     default=False,
@@ -154,6 +165,7 @@ def serve(
     port: int,
     tools: str | None,
     cors_origin: str | None,
+    webui_dir: Path | None,
     exit_on_parent_death: bool,
     watch_pid: int | None,
 ):  # pragma: no cover
@@ -221,7 +233,7 @@ def serve(
     # Initialize authentication and display token
     init_auth(host=host, display=True)
 
-    app = create_app(cors_origin=cors_origin, host=host)
+    app = create_app(cors_origin=cors_origin, host=host, webui_dir=webui_dir)
 
     try:
         app.run(debug=debug, host=host, port=port)
