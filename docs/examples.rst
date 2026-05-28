@@ -90,7 +90,7 @@ The subagent handles research and planning; ``+computer`` and ``+browser`` handl
 
 .. rubric:: Setting Up a Persistent Agent (gptme-agent)
 
-Create a persistent AI agent — like `Bob <https://github.com/TimeToBuildBob>`_ — that runs autonomously, maintains its own task list, journal, and learns over time.
+Create a persistent AI agent — like the example in :doc:`agents` — that runs autonomously, maintains its own task list, journal, and learns over time.
 
 .. code-block:: bash
 
@@ -114,11 +114,23 @@ Your agent will have its own workspace, task system, journal, and lesson system 
 
 Connect gptme to custom tools and data sources via the Model Context Protocol.
 
+Configure MCP servers in ``~/.config/gptme/config.toml``:
+
+.. code-block:: toml
+
+    [[mcp.servers]]
+    name = "filesystem"
+    command = "npx"
+    args = ["-y", "@modelcontextprotocol/server-filesystem", "/projects"]
+    auto_start = true
+
+Then use gptme as usual — the server starts automatically:
+
 .. code-block:: bash
 
-    # Load a filesystem MCP server to work across projects
-    gptme --mcp '{"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/projects"]}' \
-      'Refactor all my unused imports across all projects under /projects'
+    gptme 'Refactor all my unused imports across all projects under /projects'
+
+See the :doc:`mcp` page for the full list of configuration options.
 
 Automation
 ----------
@@ -129,7 +141,7 @@ gptme can be used in scripts and CI/CD pipelines for automated workflows. See th
 
     # Non-interactive mode for scripts
     git diff | gptme --non-interactive 'review this diff for bugs and security issues'
-    gptme --non-interactive --model 'sonnet' 'generate a changelog from these commits' <<< "$(git log --oneline v1.0..HEAD)"
+    gptme --non-interactive --model 'sonnet' 'generate a changelog to CHANGELOG.md from these commits' <<< "$(git log --oneline v1.0..HEAD)"
 
 The :doc:`automation` page covers code review bots, daily activity summaries, and composable shell pipelines.
 
