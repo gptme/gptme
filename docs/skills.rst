@@ -1,15 +1,15 @@
 Skills
 ======
 
-gptme's skill system fully conforms to the **`Agent Skills open standard
-<https://agentskills.io>`_**, the cross-vendor format originally developed by
+gptme's skill system fully conforms to the `Agent Skills open standard
+<https://agentskills.io>`_, the cross-vendor format originally developed by
 Anthropic and adopted by 26+ tools (Claude Code, OpenAI Codex, Gemini CLI,
 GitHub Copilot, Cursor, and more). Skills authored for gptme work in those
 tools, and vice versa — the same interop play gptme makes for :doc:`MCP <mcp>`.
 
 .. note::
 
-   Skills are a **special case of lessons** using Anthropic's folder-style format.
+   Skills are a **special case of lessons** using the Agent Skills open standard format.
    In gptme, skills auto-load when their **name appears in the message** (e.g.,
    mentioning "python-repl" loads that skill). This differs from lessons which
    auto-load by keywords/patterns/tools. For deep runtime integration, use
