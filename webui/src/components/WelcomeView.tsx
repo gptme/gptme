@@ -201,7 +201,7 @@ export const WelcomeView = () => {
         // and the hint would be a false positive — connect directly instead.
         try {
           await fetch(probeUrl, { cache: 'no-store', signal: controller.signal });
-          if (!cancelled) connect(); // CORS is already configured; auto-connect
+          if (!cancelled) void connect(); // CORS is already configured; auto-connect
           return;
         } catch {
           if (controller.signal.aborted || cancelled) return;
