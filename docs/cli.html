@@ -844,6 +844,12 @@ PROMPTS can be chained with the ‘-’ separator.</p>
 </dd></dl>
 
 <dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-server-serve-webui-dir">
+<span class="sig-name descname"><span class="pre">--webui-dir</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;webui_dir&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-server-serve-webui-dir" title="Link to this definition">#</a></dt>
+<dd><p>Directory containing a web UI build (e.g. the modern React webui’s dist/) to serve instead of the bundled legacy UI. Can also be set via the GPTME_WEBUI_DIR environment variable.</p>
+</dd></dl>
+
+<dl class="std option">
 <dt class="sig sig-object std" id="cmdoption-gptme-server-serve-exit-on-parent-death">
 <span class="sig-name descname"><span class="pre">--exit-on-parent-death</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-server-serve-exit-on-parent-death" title="Link to this definition">#</a></dt>
 <dd><p>Exit when the parent process dies. Useful when run as a sidecar (e.g. by gptme-tauri) to avoid orphaned servers when the parent exits without cleaning up children (gptme/gptme#2260).</p>
@@ -869,6 +875,14 @@ PROMPTS can be chained with the ‘-’ separator.</p>
 <span class="sig-name descname"><span class="pre">GPTME_SERVER_PORT</span></span></dt>
 <dd><blockquote>
 <div><p>Provide a default for <a class="reference internal" href="#cmdoption-gptme-server-serve-port"><code class="xref std std-option docutils literal notranslate"><span class="pre">--port</span></code></a></p>
+</div></blockquote>
+</dd></dl>
+
+<dl class="std envvar" id="gptme-server-serve-webui-dir-gptme-webui-dir">
+<dt class="sig sig-object std">
+<span class="sig-name descname"><span class="pre">GPTME_WEBUI_DIR</span></span></dt>
+<dd><blockquote>
+<div><p>Provide a default for <a class="reference internal" href="#cmdoption-gptme-server-serve-webui-dir"><code class="xref std std-option docutils literal notranslate"><span class="pre">--webui-dir</span></code></a></p>
 </div></blockquote>
 </dd></dl>
 
