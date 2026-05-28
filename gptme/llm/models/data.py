@@ -18,6 +18,20 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
     # https://docs.anthropic.com/en/docs/about-claude/models
     # Active models here; deprecated models in llm_anthropic_models_deprecated.py
     "anthropic": {
+        "claude-opus-4-8": {
+            "context": 1_000_000,
+            "max_output": 128_000,
+            # NOTE: at >200k context price is 2x for input and 1.5x for output
+            "price_input": 5,
+            "price_output": 25,
+            "supports_vision": True,
+            "supports_reasoning": True,
+            "supports_parallel_tool_calls": True,
+            "preferred_edit_format": "diff",
+            "knowledge_cutoff": datetime(
+                2026, 1, 1, tzinfo=timezone.utc
+            ),  # training cutoff Jan 2026
+        },
         "claude-opus-4-7": {
             "context": 1_000_000,
             "max_output": 128_000,
@@ -354,6 +368,17 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "price_output": 5,
             # "supports_vision": True,
             "supports_reasoning": True,
+            "preferred_edit_format": "diff",
+        },
+        "anthropic/claude-opus-4.8": {
+            "context": 1_000_000,
+            "max_output": 128_000,
+            # NOTE: at >200k context price is 2x for input and 1.5x for output
+            "price_input": 5,
+            "price_output": 25,
+            "supports_vision": True,
+            "supports_reasoning": True,
+            "supports_parallel_tool_calls": True,
             "preferred_edit_format": "diff",
         },
         "anthropic/claude-opus-4.7": {

@@ -648,6 +648,9 @@ class TestRequiresAdaptiveThinking:
             "openrouter/anthropic/claude-opus-4-7",
             "claude-opus-4-7-20260401",
             "anthropic/claude-opus-4-7-20260401",
+            "claude-opus-4-8",
+            "anthropic/claude-opus-4-8",
+            "openrouter/anthropic/claude-opus-4-8",
         ],
     )
     def test_adaptive_required(self, model):
@@ -689,6 +692,11 @@ class TestBuildThinkingParam:
         # Budget is irrelevant once adaptive: effort flows via output_config.
         assert _build_thinking_param(
             "claude-opus-4-7", use_thinking=True, thinking_budget=32000
+        ) == {"type": "adaptive"}
+
+    def test_opus_48_returns_adaptive(self):
+        assert _build_thinking_param(
+            "claude-opus-4-8", use_thinking=True, thinking_budget=8000
         ) == {"type": "adaptive"}
 
     def test_opus_46_returns_legacy_enabled(self):

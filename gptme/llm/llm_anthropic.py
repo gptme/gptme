@@ -52,7 +52,9 @@ _EffortLevel = Literal["low", "medium", "high", "xhigh", "max"]
 # https://platform.claude.com/docs/en/docs/build-with-claude/extended-thinking
 # ("Manual extended thinking is no longer supported on Claude Opus 4.7 or
 # later models and returns a 400 error.")
-_ADAPTIVE_THINKING_MODELS: frozenset[str] = frozenset({"claude-opus-4-7"})
+_ADAPTIVE_THINKING_MODELS: frozenset[str] = frozenset(
+    {"claude-opus-4-7", "claude-opus-4-8"}
+)
 
 if TYPE_CHECKING:
     # noreorder
@@ -702,7 +704,7 @@ def stream(
     if not _anthropic:
         raise RuntimeError("LLM not initialized")
     messages_dicts, system_messages, tools_dict = _prepare_messages_for_api(
-        messages, tools
+        messages, tools, model=model
     )
 
     # Add schema tool for constrained output
@@ -1024,16 +1026,36 @@ def _process_file(message_dict: dict) -> dict:
     return message_dict
 
 
+def _supports_native_system_messages(model: str) -> bool:
+    """Check if the model supports ``role: "system"`` messages in the messages array.
+
+    Claude Opus 4.8+ accepts ``role: "system"`` entries after a user turn.
+    Strip vendor/OpenRouter prefixes to the bare Anthropic model ID before
+    comparing.
+    """
+    # Strip vendor prefix: "anthropic/claude-opus-4-8" -> "claude-opus-4-8",
+    # "openrouter/anthropic/claude-opus-4-8" -> "claude-opus-4-8".
+    # Then strip date suffixes: "claude-opus-4-8-20260401" -> "claude-opus-4-8".
+    base = model.split("/")[-1]
+
+    # Check if it's Opus 4.8 or a dated variant of it
+    return base == "claude-opus-4-8" or base.startswith("claude-opus-4-8-")
+
+
 def _transform_system_messages(
     messages: list[Message],
+    model: str | None = None,
 ) -> tuple[list[Message], list["anthropic.types.TextBlockParam"]]:
     """Transform system messages into Anthropic's expected format.
 
     This function:
     1. Extracts the leading static system prompt messages as the main system prompt
-    2. Transforms subsequent system messages into <system> tags in user messages
-    3. Merges consecutive user messages
-    4. Applies cache control to optimize performance
+    2. For models without native system-message support (< Opus 4.8): wraps
+       subsequent system messages as ``<system>`` tags in user messages
+    3. For Opus 4.8+: preserves subsequent system messages as ``role: "system"``
+       (native mid-conversation system-message support)
+    4. Merges consecutive user messages (for legacy path)
+    5. Applies cache control to optimize performance
 
     Note: Anthropic allows up to 4 cache breakpoints in a conversation.
     We use this to cache:
@@ -1067,23 +1089,30 @@ def _transform_system_messages(
 
     system_prompt = "\n\n".join(system_prompt_parts)
 
-    # Convert subsequent system messages into <system> messages,
-    # unless a `call_id` is present, indicating the tool_format is 'tool'.
-    # Tool responses are handled separately by _handle_tool.
-    for i, message in enumerate(messages):
-        if message.role == "system":
-            content = (
-                f"<system>{message.content}</system>"
-                if message.call_id is None
-                else message.content
-            )
+    native_system = model is not None and _supports_native_system_messages(model)
 
-            messages[i] = Message(
-                "user",
-                content=content,
-                files=message.files,
-                call_id=message.call_id,
-            )
+    if native_system:
+        # Opus 4.8+: subsequent system messages are kept as-is (native support).
+        # No transformation needed — they pass through as role="system".
+        pass
+    else:
+        # Pre-Opus-4.8: convert subsequent system messages into <system> tags
+        # inside user messages, unless a `call_id` is present, indicating the
+        # tool_format is 'tool'. Tool responses are handled separately by _handle_tool.
+        for i, message in enumerate(messages):
+            if message.role == "system":
+                content = (
+                    f"<system>{message.content}</system>"
+                    if message.call_id is None
+                    else message.content
+                )
+
+                messages[i] = Message(
+                    "user",
+                    content=content,
+                    files=message.files,
+                    call_id=message.call_id,
+                )
 
     # find consecutive user role messages and merge them together
     messages_new: list[Message] = []
@@ -1144,7 +1173,9 @@ def _create_web_search_tool(max_uses: int = 5) -> dict[str, Any]:
 
 
 def _prepare_messages_for_api(
-    messages: list[Message], tools: list[ToolSpec] | None
+    messages: list[Message],
+    tools: list[ToolSpec] | None,
+    model: str | None = None,
 ) -> tuple[
     list["anthropic.types.MessageParam"],
     list["anthropic.types.TextBlockParam"],
@@ -1153,7 +1184,7 @@ def _prepare_messages_for_api(
     """Prepare messages for the Anthropic API.
 
     This function:
-    1. Transforms system messages
+    1. Transforms system messages (model-aware for Opus 4.8+ native support)
     2. Handles file attachments
     3. Applies cache control
     4. Prepares tools
@@ -1161,6 +1192,7 @@ def _prepare_messages_for_api(
     Args:
         messages: List of messages to prepare
         tools: List of tool specifications
+        model: Model identifier (used for feature detection, e.g. native system messages)
 
     Returns:
         tuple containing:
@@ -1172,7 +1204,7 @@ def _prepare_messages_for_api(
     import anthropic.types  # fmt: skip
 
     # Transform system messages
-    messages, system_messages = _transform_system_messages(messages)
+    messages, system_messages = _transform_system_messages(messages, model=model)
 
     # Find the stable boundary before the first ephemeral message.
     # This index (into messages_dicts_new after conversion) is passed to
