@@ -145,6 +145,52 @@ gptme can be used in scripts and CI/CD pipelines for automated workflows. See th
 
 The :doc:`automation` page covers code review bots, daily activity summaries, and composable shell pipelines.
 
+Community Extensions (gptme-contrib)
+-------------------------------------
+
+`gptme-contrib <https://github.com/gptme/gptme-contrib>`_ is a community repository with plugins, packages, and scripts that extend gptme with additional capabilities.
+
+.. rubric:: Getting Started
+
+Clone the repo and point gptme at it:
+
+.. code-block:: bash
+
+    git clone https://github.com/gptme/gptme-contrib ~/.config/gptme/contrib
+
+Then enable plugins in your ``~/.config/gptme/config.toml``:
+
+.. code-block:: toml
+
+    [plugins]
+    paths = ["~/.config/gptme/contrib/plugins"]
+    enabled = ["gptme_imagen"]
+
+.. rubric:: Image Generation
+
+The ``gptme-imagen`` plugin adds multi-provider image generation (DALL-E, Gemini Imagen):
+
+.. code-block:: bash
+
+    gptme 'generate an image of a futuristic city at night, save to city.png'
+    gptme 'render the mandelbrot set as an image using matplotlib and compare it with an AI-generated version'
+
+.. rubric:: Semantic Context Retrieval
+
+The ``gptme-retrieval`` plugin automatically injects relevant context from your codebase before each step — useful when working on large projects:
+
+.. code-block:: toml
+
+    [plugins]
+    enabled = ["gptme_retrieval"]
+
+    [plugin.retrieval]
+    backend = "qmd"     # semantic search (requires: cargo install qmd)
+    mode = "vsearch"    # vector search
+    max_results = 5
+
+Browse the `full plugin list <https://github.com/gptme/gptme-contrib/tree/master/plugins>`_ — there are also plugins for LSP integration, multi-model consensus, code graph analysis (via ``gptme-codegraph``), voice, and more.
+
 Explore More
 ------------
 
