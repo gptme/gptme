@@ -323,17 +323,20 @@ def api_conversation_step(conversation_id: str):
     if model is not None and not isinstance(model, str):
         return flask.jsonify({"error": "model must be a string"}), 400
 
-    stream = req_json.get("stream", chat_config.stream)
-    if not isinstance(stream, bool):
-        return (
-            flask.jsonify(
-                {
-                    "error": "Invalid 'stream' value",
-                    "message": "'stream' must be a boolean",
-                }
-            ),
-            400,
-        )
+    if "stream" in req_json:
+        stream = req_json["stream"]
+        if not isinstance(stream, bool):
+            return (
+                flask.jsonify(
+                    {
+                        "error": "Invalid 'stream' value",
+                        "message": "'stream' must be a boolean",
+                    }
+                ),
+                400,
+            )
+    else:
+        stream = chat_config.stream
 
     # ACP opt-in: sticky once enabled for a session.
     # Default can be set server-wide via GPTME_USE_ACP_DEFAULT=true env var.

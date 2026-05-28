@@ -603,7 +603,7 @@ class TestToolConfirmEndpoint:
         assert response.status_code == 404
 
     def test_unknown_action_checked_before_tool_lookup(self, conv, client: FlaskClient):
-        """Unknown actions should return 400 even when tool_id is missing."""
+        """Unknown actions should return 400 before the tool_id lookup."""
         response = client.post(
             f"/api/v2/conversations/{conv['conversation_id']}/tool/confirm",
             json={
