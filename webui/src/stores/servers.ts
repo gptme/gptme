@@ -12,32 +12,40 @@ const STORAGE_KEY = 'gptme_servers';
 const LEGACY_BASE_URL_KEY = 'gptme_baseUrl';
 const LEGACY_USER_TOKEN_KEY = 'gptme_userToken';
 
+/** Apply post-parse schema normalization to a registry read from storage.
+ *  Mutates and returns the object. The caller should fall back to
+ *  migrateFromLegacy() if the returned registry has no servers. */
+function normalizeRegistry(parsed: ServerRegistry): ServerRegistry {
+  // Ensure connectedServerIds exists (migration from phase 1 format)
+  if (!parsed.connectedServerIds) {
+    parsed.connectedServerIds = parsed.activeServerId ? [parsed.activeServerId] : [];
+  }
+  // Migrate: remove stale Cloud preset (it pointed at a broken URL)
+  migrateCloudPreset(parsed);
+  // Validate activeServerId points to an existing server
+  if (parsed.servers.length > 0 && !parsed.servers.some((s) => s.id === parsed.activeServerId)) {
+    parsed.activeServerId = parsed.servers[0].id;
+  }
+  // Prune connectedServerIds to only existing servers
+  const serverIds = new Set(parsed.servers.map((s) => s.id));
+  parsed.connectedServerIds = parsed.connectedServerIds.filter((id) => serverIds.has(id));
+  // Ensure activeServerId is in connectedServerIds
+  if (parsed.activeServerId && !parsed.connectedServerIds.includes(parsed.activeServerId)) {
+    parsed.connectedServerIds.push(parsed.activeServerId);
+  }
+  return parsed;
+}
+
 function loadRegistry(): ServerRegistry {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       const parsed = JSON.parse(stored) as ServerRegistry;
       if (parsed.servers?.length > 0) {
-        // Ensure connectedServerIds exists (migration from phase 1 format)
-        if (!parsed.connectedServerIds) {
-          parsed.connectedServerIds = [parsed.activeServerId];
-        }
-        // Migrate: remove stale Cloud preset (it pointed at a broken URL)
-        migrateCloudPreset(parsed);
+        const normalized = normalizeRegistry(parsed);
         // If migration removed all servers, fall through to fresh migration
-        if (parsed.servers.length === 0) return migrateFromLegacy();
-        // Validate activeServerId points to an existing server
-        if (!parsed.servers.some((s) => s.id === parsed.activeServerId)) {
-          parsed.activeServerId = parsed.servers[0].id;
-        }
-        // Prune connectedServerIds to only existing servers
-        const serverIds = new Set(parsed.servers.map((s) => s.id));
-        parsed.connectedServerIds = parsed.connectedServerIds.filter((id) => serverIds.has(id));
-        // Ensure activeServerId is in connectedServerIds
-        if (!parsed.connectedServerIds.includes(parsed.activeServerId)) {
-          parsed.connectedServerIds.push(parsed.activeServerId);
-        }
-        return parsed;
+        if (normalized.servers.length === 0) return migrateFromLegacy();
+        return normalized;
       }
     }
   } catch {
@@ -124,9 +132,16 @@ function normalizeUrl(url: string): string {
 // Initialize the observable
 export const serverRegistry$ = observable<ServerRegistry>(loadRegistry());
 
-// Persist on every change
+// Guard: suppress onChange write-back when we are applying a cross-tab storage event
+// so that the incoming value is not echoed back to localStorage (which would fire
+// another storage event in other tabs and cascade across N tabs).
+let _syncingFromStorage = false;
+
+// Persist on every change (skip during cross-tab sync to prevent cascade)
 serverRegistry$.onChange(({ value }) => {
-  persistRegistry(value);
+  if (!_syncingFromStorage) {
+    persistRegistry(value);
+  }
 });
 
 // Cross-tab sync: re-hydrate when another tab writes gptme_servers to localStorage.
@@ -136,8 +151,12 @@ if (typeof window !== 'undefined') {
   window.addEventListener('storage', (event: StorageEvent) => {
     if (event.key === STORAGE_KEY && event.newValue) {
       try {
-        const updated = JSON.parse(event.newValue) as ServerRegistry;
-        serverRegistry$.set(updated);
+        const parsed = JSON.parse(event.newValue) as ServerRegistry;
+        if (parsed.servers?.length > 0) {
+          _syncingFromStorage = true;
+          serverRegistry$.set(normalizeRegistry(parsed));
+          _syncingFromStorage = false;
+        }
       } catch {
         // Ignore corrupted storage
       }
