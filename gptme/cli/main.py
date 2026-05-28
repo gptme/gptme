@@ -749,9 +749,13 @@ def main(
         logdir = get_logdir(name)
         prompt_msgs = inject_stdin(prompt_msgs, piped_input)
 
+    show_resume_hint_on_exit = False
+
     # Register atexit handler to show conversation ID on exit
     def goodbye_handler():
-        if _should_print_resume_hint(logdir, output_format):
+        if show_resume_hint_on_exit and _should_print_resume_hint(
+            logdir, output_format
+        ):
             print(f"\nGoodbye! (resume with: {_format_resume_hint(logdir.name)})")
 
     atexit.register(goodbye_handler)
@@ -990,6 +994,7 @@ def main(
             output_schema_type,
             output_format,
         )
+        show_resume_hint_on_exit = True
     except (RuntimeError, Exception) as e:
         logger.error("Fatal error occurred")
         if verbose:

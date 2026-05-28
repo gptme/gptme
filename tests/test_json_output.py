@@ -249,17 +249,55 @@ class TestOutputFormatValidation:
         self, monkeypatch, tmp_path: Path
     ):
         """The goodbye handler should print once a conversation log exists."""
-        _, goodbye_handler = _invoke_cli_with_captured_goodbye(
-            monkeypatch, tmp_path, ["--non-interactive", "--name", "resume-test"]
+
+        def fake_chat(prompt_msgs, initial_msgs, logdir, *args, **kwargs):
+            (logdir / "conversation.jsonl").write_text(
+                '{"role":"user","content":"hello"}\n'
+            )
+
+        monkeypatch.setattr(cli, "chat", fake_chat)
+        result, goodbye_handler = _invoke_cli_with_captured_goodbye(
+            monkeypatch,
+            tmp_path,
+            ["--non-interactive", "--name", "resume-test", "hello"],
         )
-        log_file = cli.get_logdir("resume-test") / "conversation.jsonl"
-        log_file.write_text('{"role":"user","content":"hello"}\n')
 
         goodbye_output = io.StringIO()
         with redirect_stdout(goodbye_output):
             goodbye_handler()
 
+        assert result.exit_code == 0
         assert "resume with: gptme --name resume-test" in goodbye_output.getvalue()
+
+    def test_fatal_chat_error_has_no_fake_resume_hint(
+        self, monkeypatch, tmp_path: Path
+    ):
+        """Fatal chat errors must not advertise a resume hint for the failed run."""
+
+        def fake_chat(prompt_msgs, initial_msgs, logdir, *args, **kwargs):
+            (logdir / "conversation.jsonl").write_text(
+                '{"role":"user","content":"hello"}\n'
+            )
+            raise RuntimeError(f"Another gptme instance is using {logdir}")
+
+        monkeypatch.setattr(cli, "chat", fake_chat)
+        result, goodbye_handler = _invoke_cli_with_captured_goodbye(
+            monkeypatch,
+            tmp_path,
+            ["--non-interactive", "--name", "fatal-resume", "hello"],
+        )
+
+        goodbye_output = io.StringIO()
+        with redirect_stdout(goodbye_output):
+            goodbye_handler()
+
+        output = (result.output or "").lower()
+        goodbye_text = goodbye_output.getvalue().lower()
+        assert result.exit_code != 0
+        assert "fatal error occurred" in output
+        assert "another gptme instance is using" in output
+        assert "resume with:" not in goodbye_text
+        assert "goodbye!" not in goodbye_text
 
     def test_should_print_resume_hint_handles_missing_conversation_log(
         self, tmp_path: Path
