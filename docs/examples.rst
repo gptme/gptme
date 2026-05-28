@@ -70,7 +70,23 @@ Let gptme interact with your desktop — take screenshots, move the mouse, click
 .. code-block:: bash
 
     gptme --tools +computer \
-      'Record a loom-style screencast: open my browser, navigate to the project README, take a screenshot, and explain the architecture'
+      'Take a screenshot of my browser, identify any UI issues, and write a bug report to bugs.md'
+
+.. rubric:: Combining Tools for Maximum Power
+
+Enable multiple tools together for complex, autonomous workflows. The most powerful combination is ``+subagent`` (for planning) with ``+computer`` (for desktop interaction):
+
+.. code-block:: bash
+
+    # Plan, implement, and visually verify — all in one session
+    gptme --tools +computer,+subagent \
+      'Research the top Python testing frameworks, implement a comparison benchmark, run it, and take a screenshot of the results'
+
+    # Autonomous agent workflow: plan first, then execute with full tool access
+    gptme --tools +subagent,+computer,+browser \
+      'Find my most-starred GitHub repo, write a blog post about it, and open the draft in my browser'
+
+The subagent handles research and planning; ``+computer`` and ``+browser`` handle execution and verification.
 
 .. rubric:: Setting Up a Persistent Agent (gptme-agent)
 
@@ -78,18 +94,21 @@ Create a persistent AI agent — like `Bob <https://github.com/TimeToBuildBob>`_
 
 .. code-block:: bash
 
-    # Install the agent template
-    pip install gptme-agent
-    gptme-agent create ~/my-agent --name my-agent
+    # Install gptme (includes the gptme-agent command)
+    pipx install gptme
+
+    # Create a new agent workspace from the template
+    gptme-agent create ~/my-agent --name MyAgent
 
     # Bootstrap it
     cd ~/my-agent
     gptme 'explore the workspace, read my identity files, and tell me what I am'
 
-    # Run it autonomously
+    # Run it autonomously on a schedule
+    gptme-agent install
     gptme-agent run
 
-Your agent will have its own workspace, task system, journal, and lesson system — everything Bob uses, ready to customize.
+Your agent will have its own workspace, task system, journal, and lesson system — everything needed for a persistent, self-improving AI agent.
 
 .. rubric:: MCP Servers
 
