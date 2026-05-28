@@ -245,6 +245,27 @@ describe('WelcomeView', () => {
     );
   });
 
+  it('auto-connects when probe confirms CORS is already configured on the loopback server', async () => {
+    seedReturningUser();
+    setLocation('https://chat.gptme.org/');
+    isConnected$.set(false);
+    // Simulate: CORS fetch succeeds (server has --cors-origin already set).
+    mockFetch.mockResolvedValueOnce({});
+
+    render(
+      <SettingsProvider>
+        <WelcomeView />
+      </SettingsProvider>
+    );
+
+    // connect() should be called automatically once the CORS probe resolves.
+    await waitFor(() => expect(mockConnect).toHaveBeenCalled());
+    // The CORS hint must NOT appear — the server is already configured correctly.
+    expect(
+      screen.queryByText(/appears to be running, but it is not allowing requests from/i)
+    ).not.toBeInTheDocument();
+  });
+
   it('opens the setup wizard at the welcome step from the first-visit "Get started" CTA', async () => {
     isConnected$.set(false);
 

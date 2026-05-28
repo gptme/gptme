@@ -198,10 +198,10 @@ export const WelcomeView = () => {
     const runProbe = async () => {
       try {
         // First try a regular CORS fetch. If it succeeds, CORS is already configured
-        // and the hint would be a false positive — suppress it.
+        // and the hint would be a false positive — connect directly instead.
         try {
           await fetch(probeUrl, { cache: 'no-store', signal: controller.signal });
-          if (!cancelled) setHostedLoopbackReachable(false);
+          if (!cancelled) connect(); // CORS is already configured; auto-connect
           return;
         } catch {
           if (controller.signal.aborted || cancelled) return;
@@ -231,7 +231,14 @@ export const WelcomeView = () => {
       window.clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [activeServerBaseUrl, errorBucket, isConnected, isDefaultLocalServer, isHostedOrigin]);
+  }, [
+    activeServerBaseUrl,
+    connect,
+    errorBucket,
+    isConnected,
+    isDefaultLocalServer,
+    isHostedOrigin,
+  ]);
 
   const disconnectedDesc = (() => {
     if (errorBucket === 'network') {
