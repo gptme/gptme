@@ -118,6 +118,10 @@ def create_app(
 
     init_auth(host=host, display=False)
 
+    # Track whether we're serving a custom webui build (not the legacy bundle).
+    # Used below to gate SPA-specific route behaviour.
+    is_custom_webui = static_folder != static_path
+
     # Register static file routes directly on the app
     @app.route("/")
     def root():
@@ -125,6 +129,10 @@ def create_app(
 
     @app.route("/computer")
     def computer():
+        # Legacy bundle ships computer.html; a custom React build does not —
+        # fall back to index.html and let client-side routing take over.
+        if is_custom_webui or not (static_folder / "computer.html").exists():
+            return app.send_static_file("index.html")
         return app.send_static_file("computer.html")
 
     @app.route("/chat")
@@ -134,6 +142,18 @@ def create_app(
     @app.route("/favicon.png")
     def favicon():
         return flask.send_from_directory(media_path, "logo.png")
+
+    if is_custom_webui:
+        # SPA catch-all: serve any unknown path as index.html so that React
+        # Router deep-links (/settings, /conversations/xyz, …) work correctly.
+        # Actual static assets (JS/CSS/images) are served first because their
+        # paths exist in static_folder; only truly unknown paths fall through.
+        @app.route("/<path:path>")
+        def spa_fallback(path: str):
+            asset = static_folder / path
+            if asset.is_file():
+                return app.send_static_file(path)
+            return app.send_static_file("index.html")
 
     # Server confirmation hook is now registered via init_hooks(server=True)
     # in server/cli.py

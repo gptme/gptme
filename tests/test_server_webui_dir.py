@@ -64,3 +64,53 @@ def test_missing_webui_dir_raises(tmp_path):
     missing = tmp_path / "does-not-exist"
     with pytest.raises(FileNotFoundError):
         create_app(webui_dir=missing)
+
+
+def test_computer_route_falls_back_to_index_for_custom_webui(tmp_path):
+    """Custom webui builds (React/Vite) don't ship computer.html; /computer must
+    serve index.html so client-side routing handles it instead of 404-ing."""
+    from gptme.server.app import create_app
+
+    (tmp_path / "index.html").write_text("<html>spa</html>")
+    # Intentionally no computer.html in tmp_path
+    app = create_app(webui_dir=tmp_path)
+
+    with app.test_client() as client:
+        resp = client.get("/computer")
+        assert resp.status_code == 200
+        assert b"spa" in resp.data
+
+
+def test_spa_catch_all_serves_index_for_unknown_paths(tmp_path):
+    """Unknown deep-link paths (e.g. /settings, /conversations/xyz) should
+    return index.html when a custom webui dir is configured."""
+    from gptme.server.app import create_app
+
+    (tmp_path / "index.html").write_text("<html>spa</html>")
+    app = create_app(webui_dir=tmp_path)
+
+    with app.test_client() as client:
+        resp = client.get("/settings")
+        assert resp.status_code == 200
+        assert b"spa" in resp.data
+
+        resp = client.get("/conversations/some-id")
+        assert resp.status_code == 200
+        assert b"spa" in resp.data
+
+
+def test_spa_catch_all_serves_actual_asset_files(tmp_path):
+    """Existing static assets (JS/CSS/images) must be served as-is, not
+    replaced with index.html, when the custom webui dir is active."""
+    from gptme.server.app import create_app
+
+    (tmp_path / "index.html").write_text("<html>spa</html>")
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    (assets / "main.js").write_text("console.log('hi')")
+    app = create_app(webui_dir=tmp_path)
+
+    with app.test_client() as client:
+        resp = client.get("/assets/main.js")
+        assert resp.status_code == 200
+        assert b"console.log" in resp.data
