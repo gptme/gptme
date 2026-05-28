@@ -1,21 +1,27 @@
 Skills
 ======
 
+gptme's skill system fully conforms to the `Agent Skills open standard
+<https://agentskills.io>`_, the cross-vendor format originally developed by
+Anthropic and adopted by 26+ tools (Claude Code, OpenAI Codex, Gemini CLI,
+GitHub Copilot, Cursor, and more). Skills authored for gptme work in those
+tools, and vice versa — the same interop play gptme makes for :doc:`MCP <mcp>`.
+
 .. note::
 
-   Skills are a **special case of lessons** using Anthropic's folder-style format.
+   Skills are a **special case of lessons** using the Agent Skills open standard format.
    In gptme, skills auto-load when their **name appears in the message** (e.g.,
    mentioning "python-repl" loads that skill). This differs from lessons which
    auto-load by keywords/patterns/tools. For deep runtime integration, use
    :doc:`plugins`.
 
 The skills system extends gptme's :doc:`lessons` to support reusable workflow
-instructions inspired by Anthropic's Skills format and Cursor's rules system.
+instructions following the Agent Skills open standard.
 
 Overview
 --------
 
-**Skills** are lessons that follow Anthropic's format and can include:
+**Skills** are lessons that follow the Agent Skills open standard format and can include:
 
 - Instructional content (like lessons)
 - References to helper files colocated with ``SKILL.md``
@@ -99,7 +105,7 @@ Skill vs. Lesson vs. Plugin
 Skill Format
 ------------
 
-Skills use YAML frontmatter following Anthropic's format:
+Skills use YAML frontmatter following the Agent Skills open standard format:
 
 .. code-block:: yaml
 
@@ -133,7 +139,7 @@ Skills are organized parallel to lessons:
         ├── tools/        # Tool-specific lessons
         ├── patterns/     # General patterns
         ├── workflows/    # Workflow lessons
-        └── skills/       # Skills (Anthropic format)
+        └── skills/       # Skills (Agent Skills open standard format)
             └── python-repl/
                 ├── SKILL.md
                 ├── python_helpers.py
@@ -193,7 +199,7 @@ Identify:
 
 Create a skill directory in one of the `supported paths`_ above (e.g. ``~/.config/gptme/skills/skill-name/`` or ``./skills/skill-name/``) with at minimum:
 
-**SKILL.md** (Anthropic format):
+**SKILL.md** (Agent Skills open standard format):
 
 .. code-block:: yaml
 
@@ -253,7 +259,7 @@ You may place helper scripts in the same directory as the skill for manual use:
 What Skills Support (and Don't)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-To stay compatible with the Anthropic Skills format and avoid inventing
+To stay compatible with the Agent Skills open standard and avoid inventing
 tool-specific conventions, gptme currently supports:
 
 - Skill discovery and listing

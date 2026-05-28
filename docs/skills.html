@@ -498,19 +498,23 @@
                   
   <section id="skills">
 <h1>Skills<a class="headerlink" href="#skills" title="Link to this heading">#</a></h1>
+<p>gptme’s skill system fully conforms to the <a class="reference external" href="https://agentskills.io">Agent Skills open standard</a>, the cross-vendor format originally developed by
+Anthropic and adopted by 26+ tools (Claude Code, OpenAI Codex, Gemini CLI,
+GitHub Copilot, Cursor, and more). Skills authored for gptme work in those
+tools, and vice versa — the same interop play gptme makes for <a class="reference internal" href="mcp.html"><span class="doc">MCP</span></a>.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>Skills are a <strong>special case of lessons</strong> using Anthropic’s folder-style format.
+<p>Skills are a <strong>special case of lessons</strong> using the Agent Skills open standard format.
 In gptme, skills auto-load when their <strong>name appears in the message</strong> (e.g.,
 mentioning “python-repl” loads that skill). This differs from lessons which
 auto-load by keywords/patterns/tools. For deep runtime integration, use
 <a class="reference internal" href="plugins.html"><span class="doc">Plugin System</span></a>.</p>
 </div>
 <p>The skills system extends gptme’s <a class="reference internal" href="lessons.html"><span class="doc">Lessons</span></a> to support reusable workflow
-instructions inspired by Anthropic’s Skills format and Cursor’s rules system.</p>
+instructions following the Agent Skills open standard.</p>
 <section id="overview">
 <h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
-<p><strong>Skills</strong> are lessons that follow Anthropic’s format and can include:</p>
+<p><strong>Skills</strong> are lessons that follow the Agent Skills open standard format and can include:</p>
 <ul class="simple">
 <li><p>Instructional content (like lessons)</p></li>
 <li><p>References to helper files colocated with <code class="docutils literal notranslate"><span class="pre">SKILL.md</span></code></p></li>
@@ -619,7 +623,7 @@ instructions inspired by Anthropic’s Skills format and Cursor’s rules system
 </section>
 <section id="skill-format">
 <h2>Skill Format<a class="headerlink" href="#skill-format" title="Link to this heading">#</a></h2>
-<p>Skills use YAML frontmatter following Anthropic’s format:</p>
+<p>Skills use YAML frontmatter following the Agent Skills open standard format:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nn">---</span>
 <span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">skill-name</span>
 <span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Brief description of what the skill does and when to use it</span>
@@ -647,7 +651,7 @@ hooks, or script execution orchestration, use <a class="reference internal" href
     ├── tools/        # Tool-specific lessons
     ├── patterns/     # General patterns
     ├── workflows/    # Workflow lessons
-    └── skills/       # Skills (Anthropic format)
+    └── skills/       # Skills (Agent Skills open standard format)
         └── python-repl/
             ├── SKILL.md
             ├── python_helpers.py
@@ -699,7 +703,7 @@ directories are being scanned.</p>
 <section id="create-skill-directory">
 <h3>2. Create Skill Directory<a class="headerlink" href="#create-skill-directory" title="Link to this heading">#</a></h3>
 <p>Create a skill directory in one of the <a class="reference internal" href="#supported-paths">supported paths</a> above (e.g. <code class="docutils literal notranslate"><span class="pre">~/.config/gptme/skills/skill-name/</span></code> or <code class="docutils literal notranslate"><span class="pre">./skills/skill-name/</span></code>) with at minimum:</p>
-<p><strong>SKILL.md</strong> (Anthropic format):</p>
+<p><strong>SKILL.md</strong> (Agent Skills open standard format):</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nn">---</span>
 <span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">skill-name</span>
 <span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Brief description of what the skill does</span>
@@ -752,7 +756,7 @@ helper.py          # optional, run manually if needed
 </section>
 <section id="what-skills-support-and-don-t">
 <h3>What Skills Support (and Don’t)<a class="headerlink" href="#what-skills-support-and-don-t" title="Link to this heading">#</a></h3>
-<p>To stay compatible with the Anthropic Skills format and avoid inventing
+<p>To stay compatible with the Agent Skills open standard and avoid inventing
 tool-specific conventions, gptme currently supports:</p>
 <ul class="simple">
 <li><p>Skill discovery and listing</p></li>
