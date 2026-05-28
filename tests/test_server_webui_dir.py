@@ -57,6 +57,22 @@ def test_computer_route_serves_computer_html(tmp_path):
     assert b"computer page" in resp.data
 
 
+def test_webui_dir_serves_spa_assets(tmp_path):
+    """Assets emitted by Vite at /assets/... must be reachable (not 404)."""
+    from gptme.server.app import create_app
+
+    (tmp_path / "index.html").write_text("<title>modern webui</title>")
+    assets_dir = tmp_path / "assets"
+    assets_dir.mkdir()
+    (assets_dir / "index.js").write_text("console.log('hello')")
+
+    app = create_app(webui_dir=str(tmp_path))
+    with app.test_client() as client:
+        resp = client.get("/assets/index.js")
+    assert resp.status_code == 200
+    assert b"hello" in resp.data
+
+
 def test_default_uses_bundled_static():
     from gptme.server.app import create_app, static_path
 

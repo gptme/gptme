@@ -47,7 +47,14 @@ def create_app(
         serve_path = candidate
         logger.info("Serving web UI from %s", serve_path)
 
-    app = flask.Flask(__name__, static_folder=serve_path)
+    # When serving a custom (Vite-built) webui, set static_url_path='' so that
+    # asset URLs like /assets/index.js are served directly from the root of the
+    # custom dir instead of requiring a /static/ prefix (Flask's default).
+    app = flask.Flask(
+        __name__,
+        static_folder=serve_path,
+        static_url_path="" if webui_dir else "/static",
+    )
 
     # Capture the server's default model from the startup context
     # This is needed because ContextVar doesn't propagate across request contexts
