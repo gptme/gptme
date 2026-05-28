@@ -324,6 +324,16 @@ def api_conversation_step(conversation_id: str):
         return flask.jsonify({"error": "model must be a string"}), 400
 
     stream = req_json.get("stream", chat_config.stream)
+    if not isinstance(stream, bool):
+        return (
+            flask.jsonify(
+                {
+                    "error": "Invalid 'stream' value",
+                    "message": "'stream' must be a boolean",
+                }
+            ),
+            400,
+        )
 
     # ACP opt-in: sticky once enabled for a session.
     # Default can be set server-wide via GPTME_USE_ACP_DEFAULT=true env var.
@@ -559,13 +569,11 @@ def api_conversation_tool_confirm(conversation_id: str):
     tool_id = _get_required_string_field(req_json, "tool_id")
     if not isinstance(tool_id, str):
         return tool_id
-    action = req_json.get("action")
-
-    if not action:
-        return (
-            flask.jsonify({"error": "action is required"}),
-            400,
-        )
+    action = _get_required_string_field(req_json, "action")
+    if not isinstance(action, str):
+        return action
+    if action not in {"confirm", "edit", "skip", "auto"}:
+        return flask.jsonify({"error": f"Unknown action: {action}"}), 400
 
     session: ConversationSession | None = None
 
@@ -689,8 +697,6 @@ def api_conversation_tool_confirm(conversation_id: str):
         start_tool_execution(
             conversation_id, session, tool_id, tool_exec.tooluse, model, chat_config
         )
-    else:
-        return flask.jsonify({"error": f"Unknown action: {action}"}), 400
 
     return flask.jsonify({"status": "ok", "message": f"Tool {action}ed"})
 

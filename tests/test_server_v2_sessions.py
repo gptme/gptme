@@ -277,6 +277,20 @@ class TestStepEndpoint:
         assert data is not None
         assert "use_acp" in data["error"]
 
+    def test_invalid_stream_type(self, conv, client: FlaskClient):
+        """Step with non-boolean stream returns 400."""
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/step",
+            json={
+                "session_id": conv["session_id"],
+                "stream": "false",  # string, not bool
+            },
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert "stream" in data["error"]
+
     def test_invalid_auto_confirm_type(self, conv, client: FlaskClient):
         """Step with invalid auto_confirm type returns 400."""
         response = client.post(
@@ -504,6 +518,22 @@ class TestToolConfirmEndpoint:
         assert data is not None
         assert data["error"] == "action is required"
 
+    @pytest.mark.parametrize("bad_action", [["confirm"], {"confirm": True}, 0, False])
+    def test_non_string_action(self, conv, client: FlaskClient, bad_action: object):
+        """action must be a string before any pending-tool lookup."""
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/tool/confirm",
+            json={
+                "session_id": conv["session_id"],
+                "tool_id": "some-tool",
+                "action": bad_action,
+            },
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert data["error"] == "action must be a string"
+
     @pytest.mark.parametrize("bad_session_id", [["boom"], {"boom": 1}, 0, False])
     def test_non_string_session_id(
         self, conv, client: FlaskClient, bad_session_id: object
@@ -571,6 +601,20 @@ class TestToolConfirmEndpoint:
             },
         )
         assert response.status_code == 404
+
+    def test_unknown_action_checked_before_tool_lookup(self, conv, client: FlaskClient):
+        """Unknown actions should return 400 even when tool_id is missing."""
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/tool/confirm",
+            json={
+                "tool_id": "nonexistent-tool",
+                "action": "invalid_action",
+            },
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert "unknown action" in data["error"].lower()
 
     def test_unknown_action(self, conv, client: FlaskClient):
         """Confirm with unknown action returns 400."""
