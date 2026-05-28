@@ -129,6 +129,22 @@ serverRegistry$.onChange(({ value }) => {
   persistRegistry(value);
 });
 
+// Cross-tab sync: re-hydrate when another tab writes gptme_servers to localStorage.
+// This makes the SetupWizard auto-connect promise work for web browser users: when
+// the auth callback lands in tab B and registers a new server, tab A's wizard wakes up.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event: StorageEvent) => {
+    if (event.key === STORAGE_KEY && event.newValue) {
+      try {
+        const updated = JSON.parse(event.newValue) as ServerRegistry;
+        serverRegistry$.set(updated);
+      } catch {
+        // Ignore corrupted storage
+      }
+    }
+  });
+}
+
 export function getActiveServer(): ServerConfig | undefined {
   const registry = serverRegistry$.get();
   return registry.servers.find((s) => s.id === registry.activeServerId);
