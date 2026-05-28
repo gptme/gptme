@@ -5,6 +5,7 @@ Flask application factory for gptme server.
 import atexit
 import logging
 from importlib import resources
+from pathlib import Path
 
 import flask
 from flask_cors import CORS
@@ -19,7 +20,11 @@ media_path = _root_path.parent / "media"
 atexit.register(_gptme_path_ctx.__exit__, None, None, None)
 
 
-def create_app(cors_origin: str | None = None, host: str = "127.0.0.1") -> flask.Flask:
+def create_app(
+    cors_origin: str | None = None,
+    host: str = "127.0.0.1",
+    webui_dir: str | None = None,
+) -> flask.Flask:
     """Create the Flask app.
 
     Args:
@@ -27,8 +32,22 @@ def create_app(cors_origin: str | None = None, host: str = "127.0.0.1") -> flask
             A comma-separated string allows multiple origins, e.g.
             "tauri://localhost,http://tauri.localhost". Whitespace around
             entries is ignored.
+        webui_dir: Directory to serve the web UI from. When set, overrides the
+            legacy webui bundled in the package — point it at a built modern
+            webui (``webui/dist`` from the gptme repo) to self-host it.
     """
-    app = flask.Flask(__name__, static_folder=static_path)
+    serve_path = static_path
+    if webui_dir:
+        candidate = Path(webui_dir).expanduser()
+        if not (candidate / "index.html").is_file():
+            raise ValueError(
+                f"--webui-dir {candidate} does not contain an index.html; "
+                "point it at a built web UI directory (e.g. webui/dist)."
+            )
+        serve_path = candidate
+        logger.info("Serving web UI from %s", serve_path)
+
+    app = flask.Flask(__name__, static_folder=serve_path)
 
     # Capture the server's default model from the startup context
     # This is needed because ContextVar doesn't propagate across request contexts
