@@ -12,6 +12,9 @@ const mockInvokeTauri = jest.fn();
 const mockProcessConnectionFromHash = jest.fn();
 const isConnected$ = observable(false);
 const mockIsTauriEnvironment = jest.fn(() => false);
+const CLOUD_AUTH_BASE_URL = process.env['VITE_GPTME_CLOUD_BASE_URL'] || 'https://gptme.ai';
+const CLOUD_AUTH_URL = `${CLOUD_AUTH_BASE_URL}/authorize`;
+const CLOUD_AUTH_ORIGIN = new URL(CLOUD_AUTH_URL).origin;
 
 type MockTauriServerStatus = {
   running: boolean;
@@ -224,7 +227,7 @@ describe('SetupWizard', () => {
     fireEvent.click(screen.getByRole('button', { name: /cloud/i }));
     fireEvent.click(screen.getByRole('button', { name: /sign in to gptme.ai/i }));
 
-    expect(mockOpen).toHaveBeenCalledWith('https://gptme.ai/authorize', '_blank');
+    expect(mockOpen).toHaveBeenCalledWith(CLOUD_AUTH_URL, '_blank');
     expect(screen.getByText(/waiting for sign-in to complete/i)).toBeInTheDocument();
     expect(screen.queryByText(/you're all set/i)).not.toBeInTheDocument();
 
@@ -258,7 +261,7 @@ describe('SetupWizard', () => {
     await act(async () => {
       window.dispatchEvent(
         new MessageEvent('message', {
-          origin: 'https://gptme.ai',
+          origin: CLOUD_AUTH_ORIGIN,
           data: {
             type: 'gptme-cloud-auth-code',
             code: 'deadbeef',
@@ -296,7 +299,7 @@ describe('SetupWizard', () => {
     fireEvent.click(screen.getByRole('button', { name: /sign in to gptme.ai/i }));
 
     const authMessage = new MessageEvent('message', {
-      origin: 'https://gptme.ai',
+      origin: CLOUD_AUTH_ORIGIN,
       data: { type: 'gptme-cloud-auth-code', code: 'deadbeef' },
     });
 
