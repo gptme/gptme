@@ -348,6 +348,7 @@ export function SetupWizard() {
           if (cancelled) {
             return;
           }
+          handled = false;
           setConnectError(
             error instanceof Error ? error.message : 'Could not complete cloud sign-in.'
           );

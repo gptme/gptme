@@ -315,6 +315,65 @@ describe('SetupWizard', () => {
     expect(mockConnect).toHaveBeenCalledTimes(1);
   });
 
+  it('allows retrying cloud auth after a failed code exchange', async () => {
+    mockProcessConnectionFromHash
+      .mockRejectedValueOnce(new Error('expired code'))
+      .mockResolvedValueOnce({
+        baseUrl: 'https://fleet.gptme.ai/api/v1/instances/test',
+        authToken: 'tok-123',
+        useAuthToken: true,
+      });
+    mockConnect.mockImplementation(async () => {
+      isConnected$.set(true);
+    });
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /cloud/i }));
+    fireEvent.click(screen.getByRole('button', { name: /sign in to gptme.ai/i }));
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          origin: CLOUD_AUTH_ORIGIN,
+          data: { type: 'gptme-cloud-auth-code', code: 'expired' },
+        })
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('expired code')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /sign in to gptme.ai/i }));
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          origin: CLOUD_AUTH_ORIGIN,
+          data: { type: 'gptme-cloud-auth-code', code: 'fresh-code' },
+        })
+      );
+    });
+
+    await waitFor(() => {
+      expect(mockProcessConnectionFromHash).toHaveBeenNthCalledWith(2, 'code=fresh-code');
+    });
+
+    await waitFor(() => {
+      expect(mockConnect).toHaveBeenCalledWith({
+        baseUrl: 'https://fleet.gptme.ai/api/v1/instances/test',
+        authToken: 'tok-123',
+        useAuthToken: true,
+      });
+    });
+  });
+
   it('marks setup complete after local connect succeeds', async () => {
     mockConnect.mockImplementation(async () => {
       isConnected$.set(true);
