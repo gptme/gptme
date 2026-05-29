@@ -86,20 +86,18 @@ def _get_temperature(provider: Provider, model_meta: "ModelMeta | None" = None) 
     """
     if provider == "moonshot":
         return 1.0
-    if model_meta is not None and model_meta.supports_responses_api:
-        return 1.0
     if provider == "openai" and model_meta is not None and "gpt-5" in model_meta.model:
         return 1.0
     return TEMPERATURE
 
 
-def _get_top_p(provider: Provider, model_meta=None) -> float | None:
+def _get_top_p(provider: Provider, model_meta: "ModelMeta | None" = None) -> float | None:
     """Return the top_p for a given provider.
 
     Moonshot/Kimi models require top_p=0.95. All others use the global default.
     Returns None for models that don't support top_p (e.g., gpt-5.x).
     """
-    if model_meta and provider == "openai" and "gpt-5" in getattr(model_meta, 'model', ''):
+    if model_meta is not None and provider == "openai" and "gpt-5" in model_meta.model:
         return None
     if provider == "moonshot":
         return 0.95
