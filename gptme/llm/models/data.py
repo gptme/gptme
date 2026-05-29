@@ -460,6 +460,26 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "preferred_edit_format": "diff",
         },
     },
+    "moonshot": {
+        # https://platform.moonshot.ai/docs
+        # All kimi models require temperature=1; handled in llm_openai.py
+        "kimi-k2.6": {
+            "context": 262_144,
+            "max_output": 262_144,
+            "price_input": 0.60,
+            "price_output": 2.40,
+            "supports_vision": True,
+            "preferred_edit_format": "diff",
+        },
+        "kimi-k2": {
+            "context": 262_144,
+            "max_output": 262_144,
+            "price_input": 0.38,
+            "price_output": 1.52,
+            "supports_vision": True,
+            "preferred_edit_format": "diff",
+        },
+    },
     "nvidia": {},
     "azure": {},
     # gptme managed service — proxies to multiple providers
