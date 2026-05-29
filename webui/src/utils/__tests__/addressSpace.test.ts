@@ -4,6 +4,7 @@ describe('isLocalUrl', () => {
   it.each([
     'http://localhost:5700',
     'http://127.0.0.1:5700',
+    'http://[::1]:5700',
     'http://10.0.0.5:5700',
     'http://192.168.1.100:5700',
     'http://172.16.0.1:5700',
@@ -34,6 +35,13 @@ describe('withLocalAddressSpace', () => {
       'loopback'
     );
     expect(init.method).toBe('GET');
+  });
+
+  it("adds targetAddressSpace:'loopback' for an IPv6 loopback URL", () => {
+    const init = withLocalAddressSpace('http://[::1]:5700', { method: 'GET' });
+    expect((init as RequestInit & { targetAddressSpace?: string }).targetAddressSpace).toBe(
+      'loopback'
+    );
   });
 
   it("adds targetAddressSpace:'local' for an RFC1918 private URL", () => {
