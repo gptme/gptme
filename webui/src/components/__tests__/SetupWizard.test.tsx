@@ -280,6 +280,38 @@ describe('SetupWizard', () => {
     });
   });
 
+  it('ignores duplicate cloud auth postMessages (once-guard)', async () => {
+    mockConnect.mockImplementation(async () => {
+      isConnected$.set(true);
+    });
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /cloud/i }));
+    fireEvent.click(screen.getByRole('button', { name: /sign in to gptme.ai/i }));
+
+    const authMessage = new MessageEvent('message', {
+      origin: 'https://gptme.ai',
+      data: { type: 'gptme-cloud-auth-code', code: 'deadbeef' },
+    });
+
+    await act(async () => {
+      window.dispatchEvent(authMessage);
+      window.dispatchEvent(authMessage); // duplicate
+    });
+
+    await waitFor(() => {
+      expect(mockProcessConnectionFromHash).toHaveBeenCalledTimes(1);
+    });
+
+    expect(mockConnect).toHaveBeenCalledTimes(1);
+  });
+
   it('marks setup complete after local connect succeeds', async () => {
     mockConnect.mockImplementation(async () => {
       isConnected$.set(true);

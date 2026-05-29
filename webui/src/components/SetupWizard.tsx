@@ -315,6 +315,7 @@ export function SetupWizard() {
     }
 
     let cancelled = false;
+    let handled = false;
 
     const handleCloudAuthMessage = (event: MessageEvent) => {
       if (event.origin !== CLOUD_AUTH_ORIGIN) {
@@ -325,6 +326,13 @@ export function SetupWizard() {
       if (data?.type !== CLOUD_AUTH_MESSAGE_TYPE || typeof data.code !== 'string') {
         return;
       }
+
+      // Once-guard: ignore duplicate messages (popup may emit the same code twice)
+      if (handled) {
+        return;
+      }
+      handled = true;
+
       const authCode = data.code;
 
       void (async () => {
