@@ -1405,7 +1405,7 @@ def _serve_agent_avatar(agent_path_str: str):
 def api_agents():
     """List agents extracted from conversations."""
     agent_map: dict[str, dict] = {}
-    for conv in get_user_conversations():
+    for conv in get_user_conversations(detail=False):
         if not conv.agent_path:
             continue
         path = conv.agent_path
