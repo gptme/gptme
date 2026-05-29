@@ -3,7 +3,8 @@
 This hook plugin is intentionally small and fail-open:
 
 - it shells out to the external ``aw-watcher-agent`` CLI if configured
-- it emits only ``session.start`` / ``session.end`` lifecycle events
+- it emits ``session.start`` / ``session.end`` lifecycle events and per-tool
+  activity heartbeats
 - failures are logged and ignored so telemetry never breaks a session
 
 Activation:
@@ -18,21 +19,31 @@ import logging
 import os
 import shlex
 import subprocess
+import time
+from contextvars import ContextVar
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..hooks import HookType, register_hook
 from ..llm.models import get_default_model
+from ..logmanager import LogManager
 from ..plugins.plugin import GptmePlugin
+from .server_confirm import current_session_id
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
     from ..hooks import StopPropagation
-    from ..logmanager import LogManager
+    from ..logmanager import Log
     from ..message import Message
+    from ..tools.base import ToolUse
 
 logger = logging.getLogger(__name__)
+
+_tool_start_times_var: ContextVar[dict[int, float] | None] = ContextVar(
+    "aw_watcher_agent_tool_start_times",
+    default=None,
+)
 
 
 def _enabled() -> bool:
@@ -114,6 +125,22 @@ def _run_aw(argv: list[str]) -> None:
         logger.debug("aw-watcher-agent stderr: %s", result.stderr.strip())
 
 
+def _ensure_tool_start_times() -> dict[int, float]:
+    tool_start_times = _tool_start_times_var.get()
+    if tool_start_times is None:
+        tool_start_times = {}
+        _tool_start_times_var.set(tool_start_times)
+    return tool_start_times
+
+
+def _current_tool_session_id() -> str | None:
+    manager = LogManager.get_current_log()
+    logdir = getattr(manager, "logdir", None) if manager is not None else None
+    if logdir is not None:
+        return Path(logdir).name
+    return current_session_id.get()
+
+
 def emit_start(
     logdir: Path,
     workspace: Path | None,
@@ -147,10 +174,68 @@ def emit_end(
     yield
 
 
+def record_tool_start(
+    log: Log,
+    workspace: Path | None,
+    tool_use: ToolUse,
+) -> Generator[Message | StopPropagation, None, None]:
+    """Record the start time for a tool so the post hook can emit duration."""
+    del log, workspace
+    if not _enabled():
+        return
+    tool_start_times = _ensure_tool_start_times()
+    tool_start_times[id(tool_use)] = time.monotonic()
+    _tool_start_times_var.set(tool_start_times)
+    return
+    yield
+
+
+def emit_tool_activity(
+    log: Log,
+    workspace: Path | None,
+    tool_use: ToolUse,
+) -> Generator[Message | StopPropagation, None, None]:
+    """Emit one per-tool activity heartbeat after a tool finishes."""
+    del log
+    if not _enabled():
+        return
+
+    session_id = _current_tool_session_id()
+    if not session_id:
+        return
+
+    tool_start_times = _ensure_tool_start_times()
+    started_at = tool_start_times.pop(id(tool_use), None)
+    _tool_start_times_var.set(tool_start_times)
+    duration_ms = 0
+    if started_at is not None:
+        duration_ms = max(int(round((time.monotonic() - started_at) * 1000)), 0)
+
+    argv = _command_prefix() + [
+        "emit-activity",
+        *_base_args(session_id, workspace),
+        "--tool",
+        tool_use.tool,
+        "--status",
+        "success",
+        "--duration-ms",
+        str(duration_ms),
+    ]
+    _run_aw(argv)
+    return
+    yield
+
+
 def register() -> None:
     """Register aw-watcher-agent lifecycle hooks."""
     register_hook("aw_watcher_agent.start", HookType.SESSION_START, emit_start)
     register_hook("aw_watcher_agent.end", HookType.SESSION_END, emit_end)
+    register_hook(
+        "aw_watcher_agent.tool_pre", HookType.TOOL_EXECUTE_PRE, record_tool_start
+    )
+    register_hook(
+        "aw_watcher_agent.tool_post", HookType.TOOL_EXECUTE_POST, emit_tool_activity
+    )
     logger.debug("Registered aw-watcher-agent hooks")
 
 
