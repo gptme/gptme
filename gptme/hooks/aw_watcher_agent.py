@@ -44,6 +44,8 @@ _tool_start_times_var: ContextVar[dict[int, float] | None] = ContextVar(
     "aw_watcher_agent_tool_start_times",
     default=None,
 )
+# Prune entries older than this to prevent accumulation when POST is skipped (e.g. tool exception)
+_MAX_TOOL_AGE_S = 300
 
 
 def _enabled() -> bool:
@@ -184,7 +186,13 @@ def record_tool_start(
     if not _enabled():
         return
     tool_start_times = _ensure_tool_start_times()
-    tool_start_times[id(tool_use)] = time.monotonic()
+    # Prune stale entries from tools whose POST hook was never called (e.g. exception).
+    # Do this at PRE time so the POST path stays side-effect-free.
+    now = time.monotonic()
+    stale = [k for k, v in tool_start_times.items() if now - v > _MAX_TOOL_AGE_S]
+    for k in stale:
+        del tool_start_times[k]
+    tool_start_times[id(tool_use)] = now
     _tool_start_times_var.set(tool_start_times)
     return
     yield
@@ -217,6 +225,8 @@ def emit_tool_activity(
         "--tool",
         tool_use.tool,
         "--status",
+        # TOOL_EXECUTE_POST only fires on the success path in tools/base.py;
+        # exceptions skip the post hook entirely, so "success" is accurate here.
         "success",
         "--duration-ms",
         str(duration_ms),
