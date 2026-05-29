@@ -97,6 +97,34 @@ class ComputerTransport(abc.ABC):
         ...
 
 
+def _resize_image(path: Path, width: int, height: int) -> None:
+    """Resize an image in place with ImageMagick's ``convert``.
+
+    Raises a ``RuntimeError`` with an actionable message when ``convert`` is
+    missing, times out, or fails, instead of leaking a raw subprocess error.
+    """
+    import subprocess
+
+    try:
+        subprocess.run(
+            ["convert", str(path), "-resize", f"{width}x{height}!", str(path)],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except FileNotFoundError as e:
+        raise RuntimeError(
+            "ImageMagick 'convert' not found. Install ImageMagick to enable "
+            "screenshot resizing (e.g. 'apt install imagemagick' or "
+            "'brew install imagemagick')."
+        ) from e
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError("Image resize timed out") from e
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Image resize failed: {e.stderr}") from e
+
+
 # ---------------------------------------------------------------------------
 # Native transport: delegates to existing xdotool/cliclick helpers
 # ---------------------------------------------------------------------------
@@ -238,18 +266,7 @@ class NativeComputerTransport(ComputerTransport):
         if not path.exists():
             raise RuntimeError("Screenshot failed")
         if width and height:
-            import subprocess
-
-            try:
-                subprocess.run(
-                    ["convert", str(path), "-resize", f"{width}x{height}!", str(path)],
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-            except subprocess.CalledProcessError as e:
-                raise RuntimeError(f"Image resize failed: {e.stderr}") from e
+            _resize_image(path, width, height)
         return path
 
     def cursor_position(self) -> tuple[int, int]:
@@ -533,7 +550,6 @@ class CuaComputerTransport(ComputerTransport):
         self._ensure_sandbox()
         assert self._sandbox is not None
 
-        import subprocess
         import tempfile
 
         async def _capture() -> Path:
@@ -555,13 +571,7 @@ class CuaComputerTransport(ComputerTransport):
 
         path: Path = self._run_async(_capture())  # type: ignore[assignment]
         if width and height:
-            subprocess.run(
-                ["convert", str(path), "-resize", f"{width}x{height}!", str(path)],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
+            _resize_image(path, width, height)
         return path
 
     def cursor_position(self) -> tuple[int, int]:

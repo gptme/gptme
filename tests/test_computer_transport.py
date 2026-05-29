@@ -19,6 +19,7 @@ from gptme.tools.computer_transport import (
     ComputerTransport,
     CuaComputerTransport,
     NativeComputerTransport,
+    _resize_image,
     get_transport,
 )
 
@@ -679,6 +680,49 @@ class TestNativeCursorPositionErrorHandling(unittest.TestCase):
             transport.cursor_position()
 
         self.assertIn("Unexpected xdotool output format", str(ctx.exception))
+
+
+class TestResizeImage(unittest.TestCase):
+    """Error handling for the ImageMagick resize helper."""
+
+    def test_missing_convert_raises_actionable_runtime_error(self):
+        """A missing `convert` binary must surface an install hint, not FileNotFoundError."""
+        with (
+            patch("subprocess.run", side_effect=FileNotFoundError()),
+            self.assertRaises(RuntimeError) as ctx,
+        ):
+            _resize_image(Path("/tmp/shot.png"), 100, 100)
+        self.assertIn("ImageMagick", str(ctx.exception))
+
+    def test_convert_timeout_raises_runtime_error(self):
+        """A convert timeout must raise RuntimeError, not leak TimeoutExpired."""
+        import subprocess
+
+        with (
+            patch(
+                "subprocess.run",
+                side_effect=subprocess.TimeoutExpired(cmd="convert", timeout=30),
+            ),
+            self.assertRaises(RuntimeError) as ctx,
+        ):
+            _resize_image(Path("/tmp/shot.png"), 100, 100)
+        self.assertIn("timed out", str(ctx.exception))
+
+    def test_convert_failure_includes_stderr(self):
+        """A non-zero convert exit must raise RuntimeError carrying stderr."""
+        import subprocess
+
+        with (
+            patch(
+                "subprocess.run",
+                side_effect=subprocess.CalledProcessError(
+                    returncode=1, cmd="convert", stderr="bad image"
+                ),
+            ),
+            self.assertRaises(RuntimeError) as ctx,
+        ):
+            _resize_image(Path("/tmp/shot.png"), 100, 100)
+        self.assertIn("bad image", str(ctx.exception))
 
 
 if __name__ == "__main__":
