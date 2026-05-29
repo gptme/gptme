@@ -49,6 +49,7 @@ BuiltinProvider = Literal[
     "groq",
     "xai",
     "deepseek",
+    "moonshot",
     "nvidia",
     "local",
 ]
@@ -95,6 +96,7 @@ PROVIDERS_OPENAI = [
     "xai",
     "groq",
     "deepseek",
+    "moonshot",
     "nvidia",
     "local",
 ]
