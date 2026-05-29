@@ -9,6 +9,7 @@ const mockConnect = jest.fn();
 const mockOpen = jest.fn();
 const mockFetch = jest.fn();
 const mockInvokeTauri = jest.fn();
+const mockProcessConnectionFromHash = jest.fn();
 const isConnected$ = observable(false);
 const mockIsTauriEnvironment = jest.fn(() => false);
 
@@ -56,6 +57,10 @@ jest.mock('@/utils/tauri', () => ({
 
 jest.mock('@/hooks/useTauriServerStatus', () => ({
   useTauriServerStatus: () => mockUseTauriServerStatus(),
+}));
+
+jest.mock('@/utils/connectionConfig', () => ({
+  processConnectionFromHash: (...args: unknown[]) => mockProcessConnectionFromHash(...args),
 }));
 
 jest.mock('@legendapp/state/react', () => ({
@@ -143,10 +148,16 @@ describe('SetupWizard', () => {
     mockOpen.mockReset();
     mockFetch.mockReset();
     mockInvokeTauri.mockReset();
+    mockProcessConnectionFromHash.mockReset();
     mockFetch.mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => ({ provider_configured: true }),
+    });
+    mockProcessConnectionFromHash.mockResolvedValue({
+      baseUrl: 'https://fleet.gptme.ai/api/v1/instances/test',
+      authToken: 'tok-123',
+      useAuthToken: true,
     });
     Object.defineProperty(window, 'fetch', {
       writable: true,
@@ -226,6 +237,46 @@ describe('SetupWizard', () => {
 
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /you're all set/i })).toBeInTheDocument();
+    });
+  });
+
+  it('processes cloud auth codes posted back from the authorize popup', async () => {
+    mockConnect.mockImplementation(async () => {
+      isConnected$.set(true);
+    });
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+    fireEvent.click(screen.getByRole('button', { name: /cloud/i }));
+    fireEvent.click(screen.getByRole('button', { name: /sign in to gptme.ai/i }));
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          origin: 'https://gptme.ai',
+          data: {
+            type: 'gptme-cloud-auth-code',
+            code: 'deadbeef',
+          },
+        })
+      );
+    });
+
+    await waitFor(() => {
+      expect(mockProcessConnectionFromHash).toHaveBeenCalledWith('code=deadbeef');
+    });
+
+    await waitFor(() => {
+      expect(mockConnect).toHaveBeenCalledWith({
+        baseUrl: 'https://fleet.gptme.ai/api/v1/instances/test',
+        authToken: 'tok-123',
+        useAuthToken: true,
+      });
     });
   });
 

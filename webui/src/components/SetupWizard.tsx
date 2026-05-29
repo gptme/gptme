@@ -20,6 +20,7 @@ import {
 } from '@/utils/apiKeyProviders';
 import { fetchProviderConfigured } from '@/utils/providerStatus';
 import { isTauriEnvironment, invokeTauri } from '@/utils/tauri';
+import { processConnectionFromHash } from '@/utils/connectionConfig';
 import {
   bumpProviderStatusVersion,
   setupWizard$,
@@ -62,6 +63,8 @@ function getCloudAuthUrl(): string {
 }
 
 const CLOUD_AUTH_URL = getCloudAuthUrl();
+const CLOUD_AUTH_ORIGIN = new URL(CLOUD_AUTH_URL).origin;
+const CLOUD_AUTH_MESSAGE_TYPE = 'gptme-cloud-auth-code';
 const SERVER_START_RETRY_COUNT = 6;
 const SERVER_START_RETRY_DELAY_MS = 250;
 const SERVER_READY_RETRY_COUNT = 10;
@@ -305,6 +308,51 @@ export function SetupWizard() {
     setIsOpen(true);
     setupWizard$.open.set(false);
   }, [externalOpen, externalStep]);
+
+  useEffect(() => {
+    if (!cloudLoginStarted || step !== 'cloud' || isConnected) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const handleCloudAuthMessage = (event: MessageEvent) => {
+      if (event.origin !== CLOUD_AUTH_ORIGIN) {
+        return;
+      }
+
+      const data = event.data as { type?: string; code?: string } | null;
+      if (data?.type !== CLOUD_AUTH_MESSAGE_TYPE || typeof data.code !== 'string') {
+        return;
+      }
+      const authCode = data.code;
+
+      void (async () => {
+        setConnectError(null);
+
+        try {
+          const config = await processConnectionFromHash(`code=${encodeURIComponent(authCode)}`);
+          if (cancelled) {
+            return;
+          }
+          await connect(config);
+        } catch (error) {
+          if (cancelled) {
+            return;
+          }
+          setConnectError(
+            error instanceof Error ? error.message : 'Could not complete cloud sign-in.'
+          );
+        }
+      })();
+    };
+
+    window.addEventListener('message', handleCloudAuthMessage);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('message', handleCloudAuthMessage);
+    };
+  }, [cloudLoginStarted, connect, isConnected, step]);
 
   // Close the dialog. Also calls completeSetup() so that skipping or finishing always persists.
   const closeWizard = () => {
