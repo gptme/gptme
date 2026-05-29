@@ -240,7 +240,7 @@ describe('WelcomeView', () => {
       expect.objectContaining({
         mode: 'no-cors',
         cache: 'no-store',
-        targetAddressSpace: 'local',
+        targetAddressSpace: 'loopback',
       })
     );
   });

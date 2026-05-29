@@ -249,10 +249,13 @@ describe('SetupWizard', () => {
     });
 
     await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledWith('http://127.0.0.1:5700/api/v2', {
-        headers: {},
-        targetAddressSpace: 'local',
-      });
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://127.0.0.1:5700/api/v2',
+        expect.objectContaining({
+          headers: {},
+          targetAddressSpace: 'loopback',
+        })
+      );
     });
 
     await waitFor(() => {

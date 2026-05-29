@@ -28,8 +28,16 @@ describe('isLocalUrl', () => {
 });
 
 describe('withLocalAddressSpace', () => {
-  it("adds targetAddressSpace:'local' for a local URL", () => {
+  it("adds targetAddressSpace:'loopback' for a loopback URL", () => {
     const init = withLocalAddressSpace('http://127.0.0.1:5700', { method: 'GET' });
+    expect((init as RequestInit & { targetAddressSpace?: string }).targetAddressSpace).toBe(
+      'loopback'
+    );
+    expect(init.method).toBe('GET');
+  });
+
+  it("adds targetAddressSpace:'local' for an RFC1918 private URL", () => {
+    const init = withLocalAddressSpace('http://192.168.1.100:5700', { method: 'GET' });
     expect((init as RequestInit & { targetAddressSpace?: string }).targetAddressSpace).toBe(
       'local'
     );
@@ -66,7 +74,7 @@ describe('withLocalAddressSpace', () => {
   it('defaults to an empty init when none is provided', () => {
     const init = withLocalAddressSpace('http://localhost:5700');
     expect((init as RequestInit & { targetAddressSpace?: string }).targetAddressSpace).toBe(
-      'local'
+      'loopback'
     );
   });
 });
