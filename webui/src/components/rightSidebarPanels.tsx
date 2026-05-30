@@ -1,10 +1,18 @@
 import type { ReactNode } from 'react';
-import { Globe, FolderOpen, Monitor, Package, SlidersHorizontal } from 'lucide-react';
+import {
+  Globe,
+  FolderOpen,
+  LayoutDashboard,
+  Monitor,
+  Package,
+  SlidersHorizontal,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { RightSidebarPanelId } from '@/types/sidebar';
 import { ArtifactsPanel } from './ArtifactsPanel';
 import { BrowserPreview } from './BrowserPreview';
 import { ConversationSettings } from './ConversationSettings';
+import { PanelsPanel } from './PanelsPanel';
 import { WorkspaceExplorer } from './workspace/WorkspaceExplorer';
 
 const VNC_URL = 'http://localhost:6080/vnc.html';
@@ -38,6 +46,12 @@ export const rightSidebarPanels: RightSidebarPanelDefinition[] = [
     label: 'Artifacts',
     icon: Package,
     render: ({ conversationId }) => <ArtifactsPanel conversationId={conversationId} />,
+  },
+  {
+    id: 'panels',
+    label: 'Panels',
+    icon: LayoutDashboard,
+    render: ({ conversationId }) => <PanelsPanel conversationId={conversationId} />,
   },
   {
     id: 'browser',
