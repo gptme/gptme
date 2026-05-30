@@ -254,6 +254,54 @@ def test_message_metadata():
     assert msg3.metadata == meta
 
 
+def test_message_metadata_artifacts_roundtrip():
+    """Tool-emitted artifact descriptors (list of dicts) survive round-trips.
+
+    Phase 2 of ErikBjare/bob#830 stores ``artifacts`` as a list of inline
+    tables in metadata; this guards both the JSON and TOML serializers.
+    """
+    import json
+
+    from dateutil.parser import isoparse
+
+    from gptme.message import Message, MessageMetadata
+
+    meta: MessageMetadata = {
+        "model": "claude-sonnet",
+        "artifacts": [
+            {
+                "source_type": "attachment",
+                "path": "attachments/plot.png",
+                "kind": "image",
+                "title": "plot.png",
+                "tool": "python",
+            },
+            {
+                "source_type": "external",
+                "url": "https://example.com/report.pdf",
+                "tool": "browser",
+            },
+        ],
+    }
+    msg = Message(role="assistant", content="Generated a plot", metadata=meta)
+
+    # JSON/JSONL roundtrip
+    d = msg.to_dict()
+    json_data = json.loads(json.dumps(d))
+    json_data["timestamp"] = isoparse(json_data["timestamp"])
+    msg2 = Message(**json_data)
+    assert msg2.metadata == meta
+
+    # TOML roundtrip (list of inline tables)
+    toml_str = msg.to_toml()
+    msg3 = Message.from_toml(toml_str)
+    assert msg3.metadata is not None
+    artifacts3 = msg3.metadata["artifacts"]
+    assert [a["source_type"] for a in artifacts3] == ["attachment", "external"]
+    assert artifacts3[0]["tool"] == "python"
+    assert artifacts3[1]["url"] == "https://example.com/report.pdf"
+
+
 def test_message_metadata_migration():
     """Test backward-compatible migration from flat to nested usage format."""
     import json

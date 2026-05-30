@@ -8,6 +8,7 @@ Covers:
 
 import io
 from pathlib import Path
+from typing import cast
 from uuid import uuid4
 
 import pytest
@@ -153,3 +154,140 @@ class TestGetArtifactEndpoint:
         conv_id = _create_conv(client)
         resp = client.get(f"/api/v2/conversations/{conv_id}/artifacts/art_deadbeef0000")
         assert resp.status_code == 404
+
+
+# ============================================================
+# Phase 2: tool/plugin-declared artifacts (message metadata)
+# ============================================================
+
+from gptme.logmanager import LogManager  # fmt: skip
+from gptme.message import Message, MessageMetadata  # fmt: skip
+from gptme.server.artifacts_api import derive_artifacts  # fmt: skip
+
+
+def _manager_with_messages(tmp_path, messages: list[Message]) -> LogManager:
+    return LogManager(log=messages, logdir=tmp_path, lock=False)
+
+
+class TestArtifactsFromMessages:
+    def test_attachment_descriptor_sets_tool_provenance(self, tmp_path):
+        msg = Message(
+            "assistant",
+            "made an image",
+            metadata={
+                "artifacts": [
+                    {
+                        "source_type": "attachment",
+                        "path": "attachments/plot.png",
+                        "tool": "python",
+                    }
+                ]
+            },
+        )
+        arts = derive_artifacts(_manager_with_messages(tmp_path, [msg]))
+        assert len(arts) == 1
+        assert arts[0].kind == "image"
+        assert arts[0].title == "plot.png"
+        assert arts[0].provenance.tool == "python"
+        assert arts[0].provenance.message_index == 0
+
+    def test_tool_descriptor_overrides_attachment_scan(self, tmp_path):
+        # A file on disk (Phase 1 scan) plus a message declaring the same path.
+        att = tmp_path / "attachments"
+        att.mkdir()
+        (att / "plot.png").write_bytes(b"\x89PNG")
+        msg = Message(
+            "assistant",
+            "made an image",
+            metadata={
+                "artifacts": [
+                    {
+                        "source_type": "attachment",
+                        "path": "attachments/plot.png",
+                        "tool": "python",
+                    }
+                ]
+            },
+        )
+        arts = derive_artifacts(_manager_with_messages(tmp_path, [msg]))
+        # Deduped to one artifact; the tool-declared provenance wins.
+        assert len(arts) == 1
+        assert arts[0].provenance.tool == "python"
+        assert arts[0].size == 4  # real file size still picked up
+
+    def test_external_source(self, tmp_path):
+        msg = Message(
+            "assistant",
+            "fetched a page",
+            metadata={
+                "artifacts": [
+                    {
+                        "source_type": "external",
+                        "url": "https://example.com/report.pdf",
+                        "tool": "browser",
+                    }
+                ]
+            },
+        )
+        arts = derive_artifacts(_manager_with_messages(tmp_path, [msg]))
+        assert len(arts) == 1
+        assert arts[0].source.type == "external"
+        assert arts[0].source.url == "https://example.com/report.pdf"
+        assert arts[0].kind == "pdf"
+        assert arts[0].size is None
+
+    def test_kind_override_validated(self, tmp_path):
+        # An invalid kind is ignored and reclassified; a valid one is honored.
+        msg = Message(
+            "assistant",
+            "x",
+            metadata={
+                "artifacts": [
+                    {"source_type": "workspace", "path": "out/app", "kind": "webapp"},
+                    {"source_type": "workspace", "path": "data.csv", "kind": "bogus"},
+                ]
+            },
+        )
+        arts = {
+            a.title: a
+            for a in derive_artifacts(_manager_with_messages(tmp_path, [msg]))
+        }
+        assert arts["app"].kind == "webapp"
+        assert arts["data.csv"].kind == "dataset"  # reclassified from extension
+
+    def test_malformed_descriptors_skipped(self, tmp_path):
+        # Deliberately invalid descriptors (cast past the TypedDict) to prove
+        # one bad entry never breaks the list.
+        bad_metadata = cast(
+            MessageMetadata,
+            {
+                "artifacts": [
+                    "not-a-dict",
+                    {"source_type": "attachment"},  # missing path
+                    {"source_type": "external"},  # missing url
+                    {"source_type": "bogus", "path": "x"},  # bad source type
+                    {"source_type": "attachment", "path": "attachments/ok.txt"},
+                ]
+            },
+        )
+        msg = Message("assistant", "x", metadata=bad_metadata)
+        arts = derive_artifacts(_manager_with_messages(tmp_path, [msg]))
+        assert [a.title for a in arts] == ["ok.txt"]
+
+    def test_target_id_filters_message_artifacts(self, tmp_path):
+        msg = Message(
+            "assistant",
+            "x",
+            metadata={
+                "artifacts": [
+                    {"source_type": "external", "url": "https://a.example/x.png"},
+                    {"source_type": "external", "url": "https://b.example/y.png"},
+                ]
+            },
+        )
+        manager = _manager_with_messages(tmp_path, [msg])
+        all_arts = derive_artifacts(manager)
+        target = all_arts[0].id
+        filtered = derive_artifacts(manager, target_id=target)
+        assert len(filtered) == 1
+        assert filtered[0].id == target

@@ -67,6 +67,24 @@ class UsageData(TypedDict, total=False):
     cache_creation_tokens: int
 
 
+class ArtifactDescriptor(TypedDict, total=False):
+    """A tool/plugin-emitted artifact descriptor (see ErikBjare/bob#830).
+
+    Phase 2 of the webui artifact surface: tools attach these to a message's
+    metadata so the server can surface artifacts via typed declarations instead
+    of filename heuristics. Only ``source_type`` plus one of ``path``/``url`` is
+    required; the server fills in id, timestamps, preview hint, and actions.
+    """
+
+    source_type: Literal["attachment", "workspace", "external", "inline"]
+    path: str  # logdir-relative (attachment) or workspace path
+    url: str  # external URL (external sources)
+    kind: str  # optional kind override; server classifies when absent
+    title: str  # optional human-readable title; defaults to basename/url
+    mime_type: str  # optional MIME type
+    tool: str  # producing tool name (provenance)
+
+
 class MessageMetadata(TypedDict, total=False):
     """
     Metadata stored with each message.
@@ -93,6 +111,7 @@ class MessageMetadata(TypedDict, total=False):
     cost: float  # Cost in USD
     usage: UsageData
     voice_call: dict[str, Any]  # Voice call metadata (call_sid, source, etc.)
+    artifacts: list[ArtifactDescriptor]  # tool/plugin-emitted artifact descriptors
 
 
 _TOKEN_KEYS = (
@@ -135,16 +154,33 @@ def _format_toml_value(value: object) -> str:
     return str(value)
 
 
+def _format_toml_inline_table(d: dict) -> str:
+    """Format a dict as a TOML inline table, recursing into nested dicts/lists."""
+    items = [f'"{k}" = {_format_toml_member(v)}' for k, v in d.items()]
+    return f"{{ {', '.join(items)} }}"
+
+
+def _format_toml_array(lst: list) -> str:
+    """Format a list as a TOML array, recursing into nested dicts/lists."""
+    return f"[{', '.join(_format_toml_member(v) for v in lst)}]"
+
+
+def _format_toml_member(value: object) -> str:
+    """Format any metadata member (scalar, dict, or list) for TOML."""
+    if isinstance(value, dict):
+        return _format_toml_inline_table(value)
+    if isinstance(value, list):
+        return _format_toml_array(value)
+    return _format_toml_value(value)
+
+
 def _format_metadata_toml(metadata: MessageMetadata) -> str:
-    """Format metadata as TOML inline table, handling nested ``usage``."""
-    meta_items = []
-    for k, v in metadata.items():
-        if k == "usage" and isinstance(v, dict):
-            # Format usage as a nested inline table
-            usage_items = [f'"{uk}" = {_format_toml_value(uv)}' for uk, uv in v.items()]
-            meta_items.append(f'"usage" = {{ {", ".join(usage_items)} }}')
-        else:
-            meta_items.append(f'"{k}" = {_format_toml_value(v)}')
+    """Format metadata as a TOML inline table.
+
+    Handles scalars, nested dicts (e.g. ``usage``), and lists of inline tables
+    (e.g. ``artifacts``) so all metadata round-trips through hand-editing.
+    """
+    meta_items = [f'"{k}" = {_format_toml_member(v)}' for k, v in metadata.items()]
     return f"metadata = {{ {', '.join(meta_items)} }}"
 
 

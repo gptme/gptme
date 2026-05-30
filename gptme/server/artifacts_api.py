@@ -16,7 +16,7 @@ import logging
 import mimetypes
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal, cast, get_args
 
 import flask
 from pydantic import BaseModel, Field
@@ -194,6 +194,114 @@ def _provenance_index(manager: LogManager, filename: str) -> int | None:
     return None
 
 
+# Valid artifact kinds, derived from the ArtifactKind literal so a tool-supplied
+# ``kind`` override is validated rather than trusted blindly.
+_ARTIFACT_KINDS: frozenset[str] = frozenset(get_args(ArtifactKind))
+
+# Source types a descriptor may declare.
+_SOURCE_TYPES = frozenset({"attachment", "workspace", "external", "inline"})
+
+
+def _artifact_from_descriptor(
+    desc: object,
+    message_index: int,
+    logdir: Path,
+    default_created_at: str,
+) -> Artifact | None:
+    """Build an :class:`Artifact` from a tool-emitted descriptor.
+
+    Returns ``None`` for malformed descriptors so one bad entry never breaks the
+    whole artifact list. The server owns id derivation, preview hint, and
+    actions; the tool only declares source, kind, title, and provenance.
+    """
+    if not isinstance(desc, dict):
+        return None
+
+    source_type = desc.get("source_type", "attachment")
+    if source_type not in _SOURCE_TYPES:
+        return None
+
+    path = desc.get("path")
+    url = desc.get("url")
+
+    # Stable id key per source type. Attachment/workspace ids hash the path so a
+    # tool-declared attachment dedups against the attachment-scan artifact.
+    if source_type == "external":
+        if not url:
+            return None
+        id_key = str(url)
+    elif source_type == "inline":
+        id_key = f"inline:{message_index}:{desc.get('title', '')}"
+    else:  # attachment / workspace
+        if not path:
+            return None
+        id_key = str(path)
+    artifact_id = _artifact_id(id_key)
+
+    title = desc.get("title") or (Path(path).name if path else url) or "artifact"
+
+    ref_name = path or url or title
+    mime_type = desc.get("mime_type")
+    if mime_type is None:
+        mime_type, _ = mimetypes.guess_type(ref_name)
+
+    kind_raw = desc.get("kind")
+    if kind_raw in _ARTIFACT_KINDS:
+        kind = cast(ArtifactKind, kind_raw)
+    else:
+        kind = classify_kind(Path(ref_name), mime_type)
+
+    # File-backed sources: stat the real file for size and creation proxy.
+    size: int | None = None
+    created_at = default_created_at
+    if source_type in ("attachment", "workspace") and path:
+        candidate = logdir / path if source_type == "attachment" else Path(path)
+        try:
+            stat = candidate.stat()
+            size = stat.st_size
+            created_at = datetime.fromtimestamp(
+                stat.st_mtime, tz=timezone.utc
+            ).isoformat()
+        except OSError:
+            pass
+
+    actions = [
+        ArtifactAction(type="download", panel=None, artifact_id=None),
+        ArtifactAction(type="open_workspace", panel=None, artifact_id=None),
+        ArtifactAction(type="open_panel", panel="artifacts", artifact_id=artifact_id),
+    ]
+    return Artifact(
+        id=artifact_id,
+        kind=kind,
+        title=str(title),
+        source=ArtifactSource(type=source_type, path=path, url=url),
+        created_at=created_at,
+        size=size,
+        mime_type=mime_type,
+        provenance=ArtifactProvenance(
+            message_index=message_index, tool=desc.get("tool")
+        ),
+        preview=ArtifactPreview(type=_PREVIEW_FOR_KIND.get(kind, "none")),
+        actions=actions,
+    )
+
+
+def _artifacts_from_messages(manager: LogManager) -> list[Artifact]:
+    """Collect artifacts declared in message metadata (``metadata.artifacts``)."""
+    out: list[Artifact] = []
+    for idx, msg in enumerate(manager.log):
+        meta: Any = msg.metadata or {}
+        descriptors = meta.get("artifacts")
+        if not isinstance(descriptors, list):
+            continue
+        default_created = msg.timestamp.isoformat()
+        for desc in descriptors:
+            art = _artifact_from_descriptor(desc, idx, manager.logdir, default_created)
+            if art is not None:
+                out.append(art)
+    return out
+
+
 def derive_artifacts(
     manager: LogManager, target_id: str | None = None
 ) -> list[Artifact]:
@@ -202,49 +310,52 @@ def derive_artifacts(
     Phase 1 only reads the ``attachments/`` directory. This is intentionally a
     pure function (no Flask state) so it can be unit tested directly.
 
-    Pass ``target_id`` to short-circuit after the matching artifact is found,
-    avoiding the O(files × messages) provenance scan for every detail request.
+    Two sources are merged: the ``attachments/`` directory scan (Phase 1) and
+    tool/plugin-declared descriptors in message metadata (Phase 2). When both
+    describe the same artifact id, the message-declared one wins because it
+    carries richer provenance (the producing tool).
+
+    Pass ``target_id`` to filter to a single artifact, avoiding the
+    O(files × messages) provenance scan for every detail request.
     """
+    by_id: dict[str, Artifact] = {}
+
     attachments_dir = manager.logdir / "attachments"
-    if not attachments_dir.is_dir():
-        return []
+    if attachments_dir.is_dir():
+        for item in sorted(attachments_dir.iterdir(), key=lambda p: p.name.lower()):
+            if not item.is_file() or item.name.startswith("."):
+                continue
 
-    artifacts: list[Artifact] = []
-    for item in sorted(attachments_dir.iterdir(), key=lambda p: p.name.lower()):
-        if not item.is_file() or item.name.startswith("."):
-            continue
+            rel_path = f"attachments/{item.name}"
+            artifact_id = _artifact_id(rel_path)
 
-        rel_path = f"attachments/{item.name}"
-        artifact_id = _artifact_id(rel_path)
+            # Skip non-target files early to avoid the provenance scan.
+            if target_id is not None and artifact_id != target_id:
+                continue
 
-        # Skip non-target files early to avoid the provenance scan.
-        if target_id is not None and artifact_id != target_id:
-            continue
+            mime_type, _ = mimetypes.guess_type(item.name)
+            kind = classify_kind(item, mime_type)
 
-        mime_type, _ = mimetypes.guess_type(item.name)
-        kind = classify_kind(item, mime_type)
+            try:
+                stat = item.stat()
+                size: int | None = stat.st_size
+                # st_mtime is the last-modification time; used as a creation-time
+                # proxy because st_birthtime is only available on macOS/BSD.
+                created_at = datetime.fromtimestamp(
+                    stat.st_mtime, tz=timezone.utc
+                ).isoformat()
+            except OSError:
+                # File disappeared between iterdir() and stat() — skip it.
+                continue
 
-        try:
-            stat = item.stat()
-            size: int | None = stat.st_size
-            # st_mtime is the last-modification time; used as a creation-time
-            # proxy because st_birthtime is only available on macOS/BSD.
-            created_at = datetime.fromtimestamp(
-                stat.st_mtime, tz=timezone.utc
-            ).isoformat()
-        except OSError:
-            # File disappeared between iterdir() and stat() — skip it.
-            continue
-
-        actions = [
-            ArtifactAction(type="download", panel=None, artifact_id=None),
-            ArtifactAction(type="open_workspace", panel=None, artifact_id=None),
-            ArtifactAction(
-                type="open_panel", panel="artifacts", artifact_id=artifact_id
-            ),
-        ]
-        artifacts.append(
-            Artifact(
+            actions = [
+                ArtifactAction(type="download", panel=None, artifact_id=None),
+                ArtifactAction(type="open_workspace", panel=None, artifact_id=None),
+                ArtifactAction(
+                    type="open_panel", panel="artifacts", artifact_id=artifact_id
+                ),
+            ]
+            by_id[artifact_id] = Artifact(
                 id=artifact_id,
                 kind=kind,
                 title=item.name,
@@ -258,13 +369,14 @@ def derive_artifacts(
                 preview=ArtifactPreview(type=_PREVIEW_FOR_KIND.get(kind, "none")),
                 actions=actions,
             )
-        )
 
-        # Found what we came for — no need to scan further.
-        if target_id is not None:
-            break
+    # Merge in tool/plugin-declared artifacts; these win on id collision.
+    for art in _artifacts_from_messages(manager):
+        if target_id is not None and art.id != target_id:
+            continue
+        by_id[art.id] = art
 
-    return artifacts
+    return sorted(by_id.values(), key=lambda a: a.title.lower())
 
 
 @artifacts_api.route("/api/v2/conversations/<string:conversation_id>/artifacts")
