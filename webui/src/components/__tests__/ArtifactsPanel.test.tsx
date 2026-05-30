@@ -79,7 +79,7 @@ describe('ArtifactsPanel', () => {
       expect(screen.getByText('hero.png')).toBeInTheDocument();
     });
 
-    expect(mockListArtifacts).toHaveBeenCalledWith('conv-1');
+    expect(mockListArtifacts).toHaveBeenCalledWith('conv-1', expect.any(AbortSignal));
     expect(screen.getByTestId('file-preview')).toHaveTextContent('hero.png:nested/hero.png');
   });
 

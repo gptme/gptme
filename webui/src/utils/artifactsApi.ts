@@ -24,13 +24,17 @@ export function useArtifactsApi() {
   const { api } = useApi();
 
   return useMemo(() => {
-    async function listArtifacts(conversationId: string): Promise<Artifact[]> {
+    async function listArtifacts(
+      conversationId: string,
+      signal?: AbortSignal
+    ): Promise<Artifact[]> {
       const url = `${api.baseUrl}/api/v2/conversations/${conversationId}/artifacts`;
 
       const response = await fetch(
         url,
         withLocalAddressSpace(url, {
           headers: api.authHeader ? { Authorization: api.authHeader } : undefined,
+          signal,
         })
       );
 

@@ -33,6 +33,12 @@ function toPreviewFile(artifact: Artifact): FileType | null {
   };
 }
 
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function formatCreatedAt(createdAt: string): string {
   const createdDate = new Date(createdAt);
   if (Number.isNaN(createdDate.getTime())) {
@@ -50,22 +56,28 @@ export function ArtifactsPanel({ conversationId }: ArtifactsPanelProps) {
 
   const { listArtifacts } = useArtifactsApi();
 
-  const loadArtifacts = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await listArtifacts(conversationId);
-      setArtifacts(data);
-    } catch (err) {
-      console.error('Error loading artifacts:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load artifacts');
-    } finally {
-      setLoading(false);
-    }
-  }, [conversationId, listArtifacts]);
+  const loadArtifacts = useCallback(
+    async (signal?: AbortSignal) => {
+      try {
+        setLoading(true);
+        setError(null);
+        const data = await listArtifacts(conversationId, signal);
+        setArtifacts(data);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        console.error('Error loading artifacts:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load artifacts');
+      } finally {
+        setLoading(false);
+      }
+    },
+    [conversationId, listArtifacts]
+  );
 
   useEffect(() => {
-    void loadArtifacts();
+    const controller = new AbortController();
+    void loadArtifacts(controller.signal);
+    return () => controller.abort();
   }, [loadArtifacts]);
 
   useEffect(() => {
@@ -108,7 +120,7 @@ export function ArtifactsPanel({ conversationId }: ArtifactsPanelProps) {
           <div>
             <h2 className="text-sm font-medium">Artifacts</h2>
             <p className="text-xs text-muted-foreground">
-              {artifacts.length} attachment-backed artifact{artifacts.length === 1 ? '' : 's'}
+              {artifacts.length} artifact{artifacts.length === 1 ? '' : 's'}
             </p>
           </div>
         </div>
@@ -164,9 +176,7 @@ export function ArtifactsPanel({ conversationId }: ArtifactsPanelProps) {
                         <div className="truncate text-sm font-medium">{artifact.title}</div>
                         <div className="mt-1 text-xs text-muted-foreground">
                           {formatCreatedAt(artifact.created_at)}
-                          {artifact.size !== null
-                            ? ` • ${(artifact.size / 1024).toFixed(1)} KB`
-                            : ''}
+                          {artifact.size !== null ? ` • ${formatFileSize(artifact.size)}` : ''}
                         </div>
                       </div>
                       <Badge variant="secondary" className="shrink-0 lowercase">
