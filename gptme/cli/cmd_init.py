@@ -251,13 +251,14 @@ def _scaffold_project(
         README_TEMPLATE.format(name=name, description=description),
         target=target,
     )
-    _create_file(
-        target / "tasks" / "README.md",
-        TASKS_README_TEMPLATE.format(
-            date=datetime.datetime.now(datetime.timezone.utc).date().isoformat()
-        ),
-        target=target,
-    )
+    if with_tasks:
+        _create_file(
+            target / "tasks" / "README.md",
+            TASKS_README_TEMPLATE.format(
+                date=datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+            ),
+            target=target,
+        )
 
     # Symlink CLAUDE.md -> AGENTS.md
     agents_path = target / "AGENTS.md"
