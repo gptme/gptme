@@ -72,6 +72,7 @@ To select a provider and model, run ``gptme`` with the ``-m``/``--model`` flag s
     gptme "hello" -m openai/gpt-5.5
     gptme "hello" -m anthropic  # will use provider default
     gptme "hello" -m openrouter/x-ai/grok-4
+    gptme "hello" -m openrouter/deepseek/deepseek-v4-pro
     gptme "hello" -m deepseek/deepseek-reasoner
     gptme "hello" -m gemini/gemini-2.5-flash
     gptme "hello" -m groq/llama-3.3-70b-versatile
