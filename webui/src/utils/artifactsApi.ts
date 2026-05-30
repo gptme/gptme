@@ -1,6 +1,7 @@
 import type { ApiError } from '@/types/api';
 import type { Artifact, ArtifactListResponse } from '@/types/artifact';
 import { useApi } from '@/contexts/ApiContext';
+import { withLocalAddressSpace } from '@/utils/addressSpace';
 import { useMemo } from 'react';
 
 async function readApiError(response: Response, fallback: string): Promise<string> {
@@ -26,9 +27,12 @@ export function useArtifactsApi() {
     async function listArtifacts(conversationId: string): Promise<Artifact[]> {
       const url = `${api.baseUrl}/api/v2/conversations/${conversationId}/artifacts`;
 
-      const response = await fetch(url, {
-        headers: api.authHeader ? { Authorization: api.authHeader } : undefined,
-      });
+      const response = await fetch(
+        url,
+        withLocalAddressSpace(url, {
+          headers: api.authHeader ? { Authorization: api.authHeader } : undefined,
+        })
+      );
 
       if (!response.ok) {
         throw new Error(await readApiError(response, 'Failed to load artifacts'));
