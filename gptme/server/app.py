@@ -109,7 +109,11 @@ def create_app(
                 origins_list[0] if len(origins_list) == 1 else origins_list
             )
             # Browsers reject credentials with a wildcard origin.
-            allow_credentials = "*" not in origins_list
+            # Similarly, wildcard CORS must not opt in to Private Network
+            # Access — doing so lets *any* HTTPS page reach the local server,
+            # defeating Chrome's PNA protection. Both flags require named origins.
+            non_wildcard = "*" not in origins_list
+            allow_credentials = non_wildcard
             CORS(
                 app,
                 resources={
@@ -122,9 +126,11 @@ def create_app(
                         # local server (http://127.0.0.1:5700) unless the
                         # preflight response carries
                         # Access-Control-Allow-Private-Network: true. Passing
-                        # an explicit --cors-origin is the user's opt-in for
+                        # a named --cors-origin is the user's opt-in for
                         # exactly that hosted-webui -> local-server workflow.
-                        "allow_private_network": True,
+                        # Wildcard origins are excluded: any HTTPS page would
+                        # then be able to reach loopback, bypassing PNA.
+                        "allow_private_network": non_wildcard,
                     }
                 },
             )
