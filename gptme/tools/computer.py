@@ -82,7 +82,6 @@ import subprocess
 from enum import Enum
 from typing import TYPE_CHECKING, Literal, TypedDict
 
-from ..message import ArtifactDescriptor, Message, MessageMetadata
 from .base import ToolSpec, ToolUse
 from .computer_transport import get_transport
 from .screenshot import screenshot
@@ -91,6 +90,7 @@ from .vision import view_image
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from ..message import ArtifactDescriptor, Message, MessageMetadata
     from .computer_transport import ComputerTransport
 
 logger = logging.getLogger(__name__)
@@ -102,10 +102,11 @@ IS_MACOS = platform.system() == "Darwin"
 
 def _make_screenshot_msg(path: Path, tool: str = "computer") -> Message | None:
     """Return view_image message augmented with an artifact descriptor."""
-    if not path.exists():
+    msg = view_image(path)
+    if not msg.files:
+        # view_image returns a system error message (no files attached) when path not found
         print("Error: Screenshot failed")
         return None
-    msg = view_image(path)
     descriptor: ArtifactDescriptor = {
         "source_type": "attachment",
         "path": str(path),
@@ -113,7 +114,9 @@ def _make_screenshot_msg(path: Path, tool: str = "computer") -> Message | None:
         "mime_type": "image/png",
         "tool": tool,
     }
-    return dataclasses.replace(msg, metadata=MessageMetadata(artifacts=[descriptor]))
+    existing: MessageMetadata = dict(msg.metadata) if msg.metadata else {}  # type: ignore[assignment]
+    existing["artifacts"] = [*existing.get("artifacts", []), descriptor]
+    return dataclasses.replace(msg, metadata=existing)
 
 
 # Constants from Anthropic's implementation
