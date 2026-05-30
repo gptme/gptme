@@ -116,6 +116,15 @@ def create_app(
                     r"/api/*": {
                         "origins": origins,
                         "supports_credentials": allow_credentials,
+                        # Allow public-origin -> loopback requests. Chrome's
+                        # Private Network Access policy blocks a secure public
+                        # origin (e.g. https://chat.gptme.org) from fetching a
+                        # local server (http://127.0.0.1:5700) unless the
+                        # preflight response carries
+                        # Access-Control-Allow-Private-Network: true. Passing
+                        # an explicit --cors-origin is the user's opt-in for
+                        # exactly that hosted-webui -> local-server workflow.
+                        "allow_private_network": True,
                     }
                 },
             )
