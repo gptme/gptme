@@ -104,7 +104,7 @@ export function ArtifactsPanel({ conversationId }: ArtifactsPanelProps) {
   const selectedFile = selectedArtifact ? toPreviewFile(selectedArtifact) : null;
 
   const handleOpenInWorkspace = () => {
-    if (!selectedArtifact?.source.path) {
+    if (selectedArtifact?.source.type !== 'attachment' || !selectedArtifact.source.path) {
       return;
     }
 
@@ -143,7 +143,9 @@ export function ArtifactsPanel({ conversationId }: ArtifactsPanelProps) {
             variant="outline"
             size="sm"
             onClick={handleOpenInWorkspace}
-            disabled={!selectedArtifact?.source.path}
+            disabled={
+              selectedArtifact?.source.type !== 'attachment' || !selectedArtifact?.source.path
+            }
             title="Open in workspace viewer"
           >
             <FolderOpen className="mr-2 h-4 w-4" />
