@@ -217,7 +217,7 @@ def _artifact_from_descriptor(
     if not isinstance(desc, dict):
         return None
 
-    source_type = desc.get("source_type", "attachment")
+    source_type = desc.get("source_type")
     if source_type not in _SOURCE_TYPES:
         return None
 
@@ -286,7 +286,9 @@ def _artifact_from_descriptor(
     )
 
 
-def _artifacts_from_messages(manager: LogManager) -> list[Artifact]:
+def _artifacts_from_messages(
+    manager: LogManager, target_id: str | None = None
+) -> list[Artifact]:
     """Collect artifacts declared in message metadata (``metadata.artifacts``)."""
     out: list[Artifact] = []
     for idx, msg in enumerate(manager.log):
@@ -294,11 +296,15 @@ def _artifacts_from_messages(manager: LogManager) -> list[Artifact]:
         descriptors = meta.get("artifacts")
         if not isinstance(descriptors, list):
             continue
-        default_created = msg.timestamp.isoformat()
+        ts = msg.timestamp
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        default_created = ts.isoformat()
         for desc in descriptors:
             art = _artifact_from_descriptor(desc, idx, manager.logdir, default_created)
             if art is not None:
-                out.append(art)
+                if target_id is None or art.id == target_id:
+                    out.append(art)
     return out
 
 
@@ -371,9 +377,7 @@ def derive_artifacts(
             )
 
     # Merge in tool/plugin-declared artifacts; these win on id collision.
-    for art in _artifacts_from_messages(manager):
-        if target_id is not None and art.id != target_id:
-            continue
+    for art in _artifacts_from_messages(manager, target_id=target_id):
         by_id[art.id] = art
 
     return sorted(by_id.values(), key=lambda a: a.title.lower())
