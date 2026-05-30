@@ -21,10 +21,10 @@ if TYPE_CHECKING:
     from collections.abc import Generator, Mapping, Sequence
 
 instructions = """
-Apply patches to multiple files in one atomic operation.
+Apply patches to multiple files atomically.
 Patches are validated in-memory: if ANY fails, NO files are written.
 
-Two markdown formats are supported:
+Two formats:
 
 **Simple** (one hunk per file) — paths in the fence header:
   ```patch_many path1.py path2.py
