@@ -59,17 +59,19 @@ export function ArtifactsPanel({ conversationId }: ArtifactsPanelProps) {
 
   const loadArtifacts = useCallback(
     async (signal?: AbortSignal) => {
+      setLoading(true);
+      setError(null);
       try {
-        setLoading(true);
-        setError(null);
         const data = await listArtifacts(conversationId, signal);
-        setArtifacts(data);
+        if (!signal?.aborted) {
+          setArtifacts(data);
+          setLoading(false);
+        }
       } catch (err) {
         if (err instanceof DOMException && err.name === 'AbortError') return;
         console.error('Error loading artifacts:', err);
         setError(err instanceof Error ? err.message : 'Failed to load artifacts');
-      } finally {
-        if (!signal?.aborted) setLoading(false);
+        setLoading(false);
       }
     },
     [conversationId, listArtifacts]
