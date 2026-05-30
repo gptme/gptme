@@ -202,7 +202,7 @@ def execute_patch_many_impl(
             # Roll back any already-written files to preserve atomicity
             for rolled_back in written:
                 try:
-                    rolled_back.write_text(originals[rolled_back])
+                    rolled_back.write_text(originals[rolled_back], encoding="utf-8")
                 except OSError:
                     pass  # best-effort rollback
             yield Message(
