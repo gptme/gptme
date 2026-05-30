@@ -10,21 +10,15 @@ Usage:
     gptme init --interactive  # Prompt for project details
 """
 
+import datetime
 import logging
-import os
+import shutil
 import subprocess
 from pathlib import Path
 
 import click
 
 logger = logging.getLogger(__name__)
-
-# Default files to create in the scaffold
-DIRECTORIES = [
-    "tasks",
-    "journal",
-    "knowledge",
-]
 
 GPTME_TOML_TEMPLATE = """\
 [agent]
@@ -154,11 +148,11 @@ gptme "help me understand this project"
 """
 
 
-def _prompt_name(default: str | None = None) -> str:
+def _prompt_name(target: Path, default: str | None = None) -> str:
     """Prompt for project name."""
     from rich.prompt import Prompt
 
-    return Prompt.ask("Project name", default=default or os.path.basename(Path.cwd()))
+    return Prompt.ask("Project name", default=default or target.name)
 
 
 def _prompt_description(default: str = "") -> str:
@@ -181,15 +175,13 @@ def _confirm(message: str, default: bool = True) -> bool:
     return response[0] == "y"
 
 
-def _create_file(path: Path, content: str) -> None:
+def _create_file(path: Path, content: str, *, target: Path) -> None:
     """Create a file with given content."""
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         logger.warning("Overwriting existing file: %s", path)
     path.write_text(content)
-    click.echo(
-        f"  Created {path.relative_to(path.parents[1] if path.parents[1:] else Path.cwd())}"
-    )
+    click.echo(f"  Created {path.relative_to(target)}")
 
 
 def _scaffold_project(
@@ -246,19 +238,25 @@ def _scaffold_project(
         (target / subdir).mkdir(parents=True, exist_ok=True)
 
     # Project files
-    _create_file(target / "gptme.toml", GPTME_TOML_TEMPLATE.format(name=name))
+    _create_file(
+        target / "gptme.toml", GPTME_TOML_TEMPLATE.format(name=name), target=target
+    )
     _create_file(
         target / "AGENTS.md",
         AGENTS_MD_TEMPLATE.format(name=name, description=description),
+        target=target,
     )
     _create_file(
-        target / "README.md", README_TEMPLATE.format(name=name, description=description)
+        target / "README.md",
+        README_TEMPLATE.format(name=name, description=description),
+        target=target,
     )
     _create_file(
         target / "tasks" / "README.md",
         TASKS_README_TEMPLATE.format(
-            date=subprocess.check_output(["date", "-u", "+%Y-%m-%d"], text=True).strip()
+            date=datetime.datetime.now(datetime.timezone.utc).date().isoformat()
         ),
+        target=target,
     )
 
     # Symlink CLAUDE.md -> AGENTS.md
@@ -299,7 +297,7 @@ jobs:
         pip install gptme
         gptme --version
 """
-        _create_file(ci_file, ci_content)
+        _create_file(ci_file, ci_content, target=target)
 
     # Optional: Makefile
     if with_makefile:
@@ -310,12 +308,12 @@ test:
 \tgptme --version
 
 format:
-	ruff format .
+\truff format .
 
 typecheck:
-\truff check --fix .
+\tmypy .
 """
-        _create_file(target / "Makefile", makefile_content)
+        _create_file(target / "Makefile", makefile_content, target=target)
 
     return target
 
@@ -327,12 +325,7 @@ def _scaffold_from_template(
     template_url = f"https://github.com/{template_repo}.git"
 
     # Check if gh is available
-    has_gh = (
-        subprocess.run(
-            ["which", "gh"], capture_output=True, text=True, check=False
-        ).returncode
-        == 0
-    )
+    has_gh = shutil.which("gh") is not None
 
     if has_gh:
         click.echo(f"  Cloning template from {template_repo}...")
@@ -357,7 +350,7 @@ def _scaffold_from_template(
     # Remove .git history to start fresh
     git_dir = target / ".git"
     if git_dir.exists():
-        subprocess.run(["rm", "-rf", str(git_dir)], check=True)
+        shutil.rmtree(git_dir)
 
     click.echo(f"  Created from template {template_repo}")
     return target
@@ -460,7 +453,7 @@ def main(
 
     # Interactive mode
     if interactive:
-        name = _prompt_name(name)
+        name = _prompt_name(target=target, default=name)
         description = _prompt_description(description)
         ci = _confirm("Include GitHub Actions CI workflow?", default=ci)
         makefile = _confirm("Include Makefile?", default=makefile)
