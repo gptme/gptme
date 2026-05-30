@@ -466,13 +466,15 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "max_output": 32_768,
             "price_input": 0.435,
             "price_output": 0.87,
+            "supports_reasoning": True,
             "preferred_edit_format": "diff",
         },
         "deepseek/deepseek-v4-flash": {
             "context": 1_000_000,
             "max_output": 32_768,
-            "price_input": 0.098,
-            "price_output": 0.197,
+            "price_input": 0.0983,
+            "price_output": 0.1966,
+            "supports_reasoning": True,
             "preferred_edit_format": "diff",
         },
         "deepseek/deepseek-v4-flash:free": {
