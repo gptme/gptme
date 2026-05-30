@@ -1,4 +1,4 @@
-.PHONY: test test-api docs build build-docker check-rst install-completions help tauri-dev tauri-build tauri-lint tauri-build-sidecar
+.PHONY: test test-api docs build build-docker check-rst install-completions help tauri-dev tauri-build tauri-lint tauri-build-sidecar bundle-webui
 
 # set default shell
 SHELL := $(shell which bash)
@@ -35,6 +35,12 @@ build-docker-full: ## Build full Docker images with Rust and Playwright
 
 build-server-exe: ## Build gptme-server executable with PyInstaller
 	bash ./scripts/build_server_executable.sh
+
+bundle-webui: ## Bundle the modern webui dist into the package (run after `cd webui && npm run build`)
+	@if [ ! -d webui/dist ]; then echo "ERROR: webui/dist not found — run 'npm run build' in the webui/ dir first"; exit 1; fi
+	mkdir -p gptme/server/webui-dist
+	rsync -a --delete webui/dist/ gptme/server/webui-dist/
+	@echo "Bundled webui/dist → gptme/server/webui-dist/ ($(ls gptme/server/webui-dist | wc -l) files at top level)"
 
 test: ## Run tests
 	@# if SLOW is not set, pass `-m "not slow"` to skip slow tests

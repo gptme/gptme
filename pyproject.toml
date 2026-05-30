@@ -42,7 +42,7 @@ gptme-eval-trends = "gptme.eval.trends:main"
 packages = [
     { include = "gptme" },
 ]
-include = ["gptme/server/static/**/*", "gptme/eval/tbench/setup.sh", "media/*.png", "media/*.wav"]
+include = ["gptme/server/static/**/*", "gptme/server/webui-dist/**/*", "gptme/eval/tbench/setup.sh", "media/*.png", "media/*.wav"]
 
 [tool.poetry.dependencies]
 python = "^3.10"

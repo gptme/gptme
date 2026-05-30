@@ -67,3 +67,6 @@ config.toml
 .vscode
 profiles/
 uv.lock
+
+# Bundled webui build artifact (populated by `make bundle-webui` / CI release)
+gptme/server/webui-dist/

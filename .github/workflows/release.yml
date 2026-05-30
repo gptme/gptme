@@ -240,6 +240,19 @@ jobs:
     - name: Install poetry
       run: pipx install poetry
 
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: webui/package-lock.json
+
+    - name: Build and bundle webui
+      run: |
+        cd webui && npm ci && npm run build
+        cd ..
+        make bundle-webui
+
     - name: Build Python packages
       run: |
         rm -f dist/*.whl dist/*.tar.gz

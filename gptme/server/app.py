@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 _gptme_path_ctx = resources.as_file(resources.files("gptme"))
 _root_path = _gptme_path_ctx.__enter__()
 static_path = _root_path / "server" / "static"
+# Bundled modern webui (populated by `make bundle-webui` or the release workflow)
+_bundled_webui_path = _root_path / "server" / "webui-dist"
 media_path = _root_path.parent / "media"
 atexit.register(_gptme_path_ctx.__exit__, None, None, None)
 
@@ -25,18 +27,23 @@ def _resolve_static_folder(webui_dir: str | Path | None = None) -> Path:
     """Resolve which directory the web UI is served from.
 
     Precedence: explicit ``webui_dir`` argument > ``GPTME_WEBUI_DIR`` env var >
+    bundled modern webui (``gptme/server/webui-dist/``) >
     the embedded legacy static bundle. A configured directory must exist so
     that a typo fails loudly at startup instead of silently serving 404s.
     """
     candidate = webui_dir or os.environ.get("GPTME_WEBUI_DIR")
-    if not candidate:
-        return static_path
-    path = Path(candidate).expanduser()
-    if not path.is_dir():
-        raise FileNotFoundError(
-            f"webui_dir does not exist or is not a directory: {path}"
-        )
-    return path
+    if candidate:
+        path = Path(candidate).expanduser()
+        if not path.is_dir():
+            raise FileNotFoundError(
+                f"webui_dir does not exist or is not a directory: {path}"
+            )
+        return path
+    # Prefer the bundled modern webui when it has been populated.
+    if _bundled_webui_path.is_dir() and any(_bundled_webui_path.iterdir()):
+        logger.debug("Serving bundled modern webui from %s", _bundled_webui_path)
+        return _bundled_webui_path
+    return static_path
 
 
 def create_app(
