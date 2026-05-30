@@ -24,10 +24,45 @@ instructions = """
 Apply patches to multiple files in one atomic operation.
 Patches are validated in-memory: if ANY fails, NO files are written.
 
-Space-separated paths follow the opening fence; write one conflict-marker patch
-per path (same format as `patch`), in the same order.
+Two markdown formats are supported:
+
+**Simple** (one hunk per file) — paths in the fence header:
+  ```patch_many path1.py path2.py
+  <<<<<<< ORIGINAL
+  old content for path1
+  =======
+  new content for path1
+  >>>>>>> UPDATED
+  <<<<<<< ORIGINAL
+  old content for path2
+  =======
+  new content for path2
+  >>>>>>> UPDATED
+  ```
+
+**Multi-hunk** (any number of hunks per file) — paths embedded with === PATH: ... === headers:
+  ```patch_many
+  === PATH: path1.py ===
+  <<<<<<< ORIGINAL
+  first hunk original
+  =======
+  first hunk updated
+  >>>>>>> UPDATED
+  <<<<<<< ORIGINAL
+  second hunk original
+  =======
+  second hunk updated
+  >>>>>>> UPDATED
+  === PATH: path2.py ===
+  <<<<<<< ORIGINAL
+  path2 original
+  =======
+  path2 updated
+  >>>>>>> UPDATED
+  ```
 
 Tool-call: pass `patches` as a JSON array of {"path": "...", "patch": "..."} entries.
+Each "patch" string may contain multiple ORIGINAL/UPDATED blocks for that file.
 """.strip()
 
 
@@ -235,13 +270,13 @@ def execute_patch_many(
     """Execute patch_many from a markdown block or tool/function-call kwargs."""
     if code is None and kwargs is not None and "patches" in kwargs:
         try:
-            patch_entries = _parse_patches_from_kwargs(kwargs)
+            kwarg_entries = _parse_patches_from_kwargs(kwargs)
         except (ValueError, json.JSONDecodeError) as e:
             yield Message("system", f"Error parsing patches from kwargs: {e}")
             return
 
         yield from execute_with_confirmation(
-            _serialize_confirmation_payload(patch_entries),
+            _serialize_confirmation_payload(kwarg_entries),
             args,
             kwargs,
             execute_fn=_execute_patch_many_confirmed,
@@ -254,6 +289,26 @@ def execute_patch_many(
         yield Message("system", "No patch content provided")
         return
 
+    # Multi-hunk format: paths embedded in content with === PATH: ... === headers
+    if _CONFIRM_HEADER in code:
+        try:
+            patch_entries: list[tuple[Path, str | Patch]] = list(
+                _parse_confirmation_payload(code)
+            )
+        except ValueError as e:
+            yield Message("system", f"Error parsing patches: {e}")
+            return
+        yield from execute_with_confirmation(
+            _serialize_confirmation_payload(patch_entries),
+            args,
+            kwargs,
+            execute_fn=_execute_patch_many_confirmed,
+            get_path_fn=_get_confirmation_path,
+            allow_edit=True,
+        )
+        return
+
+    # Simple format: space-separated paths in fence header, one hunk per file
     if not args or not args[0]:
         yield Message(
             "system",
@@ -263,7 +318,9 @@ def execute_patch_many(
 
     try:
         paths = [_resolve_path(arg) for arg in args]
-        patch_pairs = _parse_patches_from_content(code, paths)
+        patch_pairs: list[tuple[Path, str | Patch]] = list(
+            _parse_patches_from_content(code, paths)
+        )
     except ValueError as e:
         yield Message("system", f"Error parsing patches: {e}")
         return

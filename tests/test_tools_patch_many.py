@@ -11,6 +11,7 @@ from gptme.message import Message
 from gptme.tools import clear_tools, get_tool, init_tools
 from gptme.tools.patch import DIVIDER, ORIGINAL, UPDATED, Patch
 from gptme.tools.patch_many import (
+    _CONFIRM_HEADER,
     _parse_patches_from_content,
     _parse_patches_from_kwargs,
     execute_patch_many,
@@ -273,6 +274,28 @@ def new_name():
     assert "new_name" in content
     assert "old_func" not in content
     assert "old_name" not in content
+
+
+def test_markdown_multihunk_path_header_format(tmp_path):
+    """Test multi-hunk markdown using === PATH: ... === headers (no paths in fence)."""
+    f = tmp_path / "module.py"
+    f.write_text("def old_func():\n    return 1\n\ndef also_old():\n    return 2\n")
+
+    code = (
+        f"{_CONFIRM_HEADER}{f} ===\n"
+        + _patch_text("def old_func():\n    return 1", "def new_func():\n    return 42")
+        + "\n\n"
+        + _patch_text("def also_old():\n    return 2", "def also_new():\n    return 3")
+    )
+
+    messages = list(execute_patch_many(code, None, None))
+    assert messages
+    assert "atomically" in messages[0].content.lower()
+    content = f.read_text()
+    assert "new_func" in content
+    assert "also_new" in content
+    assert "old_func" not in content
+    assert "also_old" not in content
 
 
 def test_execute_patch_many_markdown_round_trip(tmp_path):
