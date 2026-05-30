@@ -12,6 +12,7 @@ Usage:
 
 import datetime
 import logging
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -167,12 +168,9 @@ def _prompt_description(default: str = "") -> str:
 
 def _confirm(message: str, default: bool = True) -> bool:
     """Ask for confirmation."""
-    # Use simple input to avoid rich dependency at runtime
-    suffix = " [Y/n]" if default else " [y/N]"
-    response = input(f"{message}{suffix} ").strip().lower()
-    if not response:
-        return default
-    return response[0] == "y"
+    from rich.prompt import Confirm
+
+    return Confirm.ask(message, default=default)
 
 
 def _create_file(path: Path, content: str, *, target: Path) -> None:
@@ -352,6 +350,27 @@ def _scaffold_from_template(
     git_dir = target / ".git"
     if git_dir.exists():
         shutil.rmtree(git_dir)
+
+    # Apply user-supplied name/description to standard template files
+    toml_path = target / "gptme.toml"
+    if toml_path.exists():
+        content = toml_path.read_text()
+        content = re.sub(
+            r'^(name\s*=\s*)"[^"]*"',
+            rf'\1"{name}"',
+            content,
+            count=1,
+            flags=re.MULTILINE,
+        )
+        toml_path.write_text(content)
+
+    for md_path in (target / "README.md", target / "AGENTS.md"):
+        if md_path.exists():
+            content = md_path.read_text()
+            lines = content.split("\n")
+            if lines and lines[0].startswith("# "):
+                lines[0] = f"# {name}"
+                md_path.write_text("\n".join(lines))
 
     click.echo(f"  Created from template {template_repo}")
     return target
