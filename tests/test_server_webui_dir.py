@@ -19,9 +19,13 @@ pytest.importorskip(
 )
 
 
-def test_default_static_folder_is_legacy_bundle():
+def test_default_static_folder_is_legacy_bundle(tmp_path, monkeypatch):
+    import gptme.server.app as app_mod
     from gptme.server.app import create_app, static_path
 
+    monkeypatch.delenv("GPTME_WEBUI_DIR", raising=False)
+    # Ensure no bundled webui-dist interferes (e.g. after `make bundle-webui`)
+    monkeypatch.setattr(app_mod, "_bundled_webui_path", tmp_path / "webui-dist")
     app = create_app()
     assert app.static_folder == str(static_path)
 
