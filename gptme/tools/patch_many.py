@@ -8,12 +8,14 @@ where the model would otherwise issue N separate patch calls, one per file.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..message import Message
+from ..util.ask_execute import execute_with_confirmation
 from .base import Parameter, ToolSpec
-from .patch import Patch, apply
+from .patch import DIVIDER, ORIGINAL, UPDATED, Patch, apply
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Mapping, Sequence
@@ -117,6 +119,63 @@ def _parse_patches_from_kwargs(kwargs: Mapping[str, object]) -> list[tuple[Path,
     return result
 
 
+_CONFIRM_HEADER = "=== PATH: "
+_CONFIRM_HEADER_RE = re.compile(
+    rf"(?ms)^{re.escape(_CONFIRM_HEADER)}(?P<path>.+?) ===\n"
+    r"(?P<patch>.*?)(?=^=== PATH: |\Z)"
+)
+
+
+def _stringify_patch(patch_src: str | Patch) -> str:
+    """Serialize a patch source into the standard conflict-marker format."""
+    if isinstance(patch_src, Patch):
+        return (
+            f"{ORIGINAL}{patch_src.original}{DIVIDER}{patch_src.updated}{UPDATED}"
+        ).strip()
+    return patch_src.strip()
+
+
+def _serialize_confirmation_payload(
+    patches: Sequence[tuple[Path, str | Patch]],
+) -> str:
+    """Build an editable multi-file payload for the confirmation hook."""
+    return "\n\n".join(
+        f"{_CONFIRM_HEADER}{path} ===\n{_stringify_patch(patch_src)}"
+        for path, patch_src in patches
+    )
+
+
+def _parse_confirmation_payload(content: str) -> list[tuple[Path, str]]:
+    """Parse the confirmation payload back into path/patch pairs."""
+    matches = list(_CONFIRM_HEADER_RE.finditer(content.strip()))
+    if not matches:
+        raise ValueError(
+            "Invalid patch_many payload: expected one or more '=== PATH: ... ===' sections"
+        )
+
+    return [
+        (_resolve_path(match.group("path")), match.group("patch").strip())
+        for match in matches
+    ]
+
+
+def _get_confirmation_path(
+    code: str | None, args: list[str] | None, kwargs: dict[str, str] | None
+) -> Path | None:
+    """patch_many confirms a multi-file payload, so there is no single target path."""
+    del code, args, kwargs
+    return None
+
+
+def _execute_patch_many_confirmed(
+    content: str, path: Path | None
+) -> Generator[Message, None, None]:
+    """Execute a confirmed patch_many payload."""
+    del path
+    patches = _parse_confirmation_payload(content)
+    yield from execute_patch_many_impl(patches)
+
+
 def execute_patch_many_impl(
     patches: Sequence[tuple[Path, str | Patch]],
 ) -> Generator[Message, None, None]:
@@ -200,7 +259,14 @@ def execute_patch_many(
             yield Message("system", f"Error parsing patches from kwargs: {e}")
             return
 
-        yield from execute_patch_many_impl(patch_entries)
+        yield from execute_with_confirmation(
+            _serialize_confirmation_payload(patch_entries),
+            args,
+            kwargs,
+            execute_fn=_execute_patch_many_confirmed,
+            get_path_fn=_get_confirmation_path,
+            allow_edit=True,
+        )
         return
 
     if not code:
@@ -221,7 +287,14 @@ def execute_patch_many(
         yield Message("system", f"Error parsing patches: {e}")
         return
 
-    yield from execute_patch_many_impl(patch_pairs)
+    yield from execute_with_confirmation(
+        _serialize_confirmation_payload(patch_pairs),
+        args,
+        kwargs,
+        execute_fn=_execute_patch_many_confirmed,
+        get_path_fn=_get_confirmation_path,
+        allow_edit=True,
+    )
 
 
 tool_patch_many = ToolSpec(

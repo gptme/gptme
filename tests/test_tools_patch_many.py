@@ -2,16 +2,24 @@
 
 import json
 from pathlib import Path
+from typing import cast
 
 import pytest
 
+import gptme.tools.patch_many as patch_many_tool
+from gptme.message import Message
 from gptme.tools import clear_tools, get_tool, init_tools
-from gptme.tools.patch import Patch
+from gptme.tools.patch import DIVIDER, ORIGINAL, UPDATED, Patch
 from gptme.tools.patch_many import (
     _parse_patches_from_content,
     _parse_patches_from_kwargs,
+    execute_patch_many,
     execute_patch_many_impl,
 )
+
+
+def _patch_text(original: str, updated: str) -> str:
+    return f"{ORIGINAL}{original}{DIVIDER}{updated}{UPDATED}".strip()
 
 
 def test_basic_parse():
@@ -243,6 +251,127 @@ def new_name():
     assert "new_name" in content
     assert "old_func" not in content
     assert "old_name" not in content
+
+
+def test_execute_patch_many_markdown_round_trip(tmp_path):
+    """Test the markdown entrypoint, including confirmation-hook execution."""
+    f1 = tmp_path / "file1.py"
+    f2 = tmp_path / "file2.py"
+    f1.write_text("original a")
+    f2.write_text("original b")
+
+    code = "\n\n".join(
+        [
+            _patch_text("original a", "modified a"),
+            _patch_text("original b", "modified b"),
+        ]
+    )
+
+    messages = list(execute_patch_many(code, [str(f1), str(f2)], None))
+    assert messages
+    assert "atomically" in messages[0].content.lower()
+    assert f1.read_text() == "modified a"
+    assert f2.read_text() == "modified b"
+
+
+def test_execute_patch_many_kwargs_round_trip(tmp_path):
+    """Test the kwargs entrypoint, including confirmation-hook execution."""
+    f1 = tmp_path / "file1.py"
+    f2 = tmp_path / "file2.py"
+    f1.write_text("original a")
+    f2.write_text("original b")
+
+    kwargs = {
+        "patches": json.dumps(
+            [
+                {
+                    "path": str(f1),
+                    "patch": _patch_text("original a", "modified a"),
+                },
+                {
+                    "path": str(f2),
+                    "patch": _patch_text("original b", "modified b"),
+                },
+            ]
+        )
+    }
+
+    messages = list(execute_patch_many(None, None, kwargs))
+    assert messages
+    assert "atomically" in messages[0].content.lower()
+    assert f1.read_text() == "modified a"
+    assert f2.read_text() == "modified b"
+
+
+def test_execute_patch_many_markdown_uses_confirmation(tmp_path, monkeypatch):
+    """Test that markdown patch_many routes through execute_with_confirmation."""
+    f = tmp_path / "file.py"
+    f.write_text("original")
+    captured: dict[str, object] = {}
+
+    def fake_execute_with_confirmation(code, args, tool_kwargs, **helper_kwargs):
+        captured["code"] = code
+        captured["args"] = args
+        captured["tool_kwargs"] = tool_kwargs
+        captured["helper_kwargs"] = helper_kwargs
+        yield Message("system", "stub")
+
+    monkeypatch.setattr(
+        patch_many_tool, "execute_with_confirmation", fake_execute_with_confirmation
+    )
+
+    messages = list(
+        patch_many_tool.execute_patch_many(
+            _patch_text("original", "modified"),
+            [str(f)],
+            None,
+        )
+    )
+
+    assert [message.content for message in messages] == ["stub"]
+    captured_code = cast(str, captured["code"])
+    assert str(f) in captured_code
+    assert "ORIGINAL" in captured_code
+
+
+def test_execute_patch_many_kwargs_uses_confirmation(tmp_path, monkeypatch):
+    """Test that kwargs patch_many routes through execute_with_confirmation."""
+    f = tmp_path / "file.py"
+    f.write_text("original")
+    captured: dict[str, object] = {}
+
+    def fake_execute_with_confirmation(code, args, tool_kwargs, **helper_kwargs):
+        captured["code"] = code
+        captured["args"] = args
+        captured["tool_kwargs"] = tool_kwargs
+        captured["helper_kwargs"] = helper_kwargs
+        yield Message("system", "stub")
+
+    monkeypatch.setattr(
+        patch_many_tool, "execute_with_confirmation", fake_execute_with_confirmation
+    )
+
+    messages = list(
+        patch_many_tool.execute_patch_many(
+            None,
+            None,
+            {
+                "patches": json.dumps(
+                    [
+                        {
+                            "path": str(f),
+                            "patch": _patch_text("original", "modified"),
+                        }
+                    ]
+                )
+            },
+        )
+    )
+
+    assert [message.content for message in messages] == ["stub"]
+    captured_code = cast(str, captured["code"])
+    assert str(f) in captured_code
+    assert "ORIGINAL" in captured_code
 
 
 def test_kwargs_rejects_path_traversal(tmp_path, monkeypatch):
