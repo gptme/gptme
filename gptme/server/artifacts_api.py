@@ -194,11 +194,16 @@ def _provenance_index(manager: LogManager, filename: str) -> int | None:
     return None
 
 
-def derive_artifacts(manager: LogManager) -> list[Artifact]:
+def derive_artifacts(
+    manager: LogManager, target_id: str | None = None
+) -> list[Artifact]:
     """Compute the artifact list for a conversation from its attachments.
 
     Phase 1 only reads the ``attachments/`` directory. This is intentionally a
     pure function (no Flask state) so it can be unit tested directly.
+
+    Pass ``target_id`` to short-circuit after the matching artifact is found,
+    avoiding the O(files × messages) provenance scan for every detail request.
     """
     attachments_dir = manager.logdir / "attachments"
     if not attachments_dir.is_dir():
@@ -210,20 +215,27 @@ def derive_artifacts(manager: LogManager) -> list[Artifact]:
             continue
 
         rel_path = f"attachments/{item.name}"
+        artifact_id = _artifact_id(rel_path)
+
+        # Skip non-target files early to avoid the provenance scan.
+        if target_id is not None and artifact_id != target_id:
+            continue
+
         mime_type, _ = mimetypes.guess_type(item.name)
         kind = classify_kind(item, mime_type)
 
         try:
             stat = item.stat()
             size: int | None = stat.st_size
+            # st_mtime is the last-modification time; used as a creation-time
+            # proxy because st_birthtime is only available on macOS/BSD.
             created_at = datetime.fromtimestamp(
                 stat.st_mtime, tz=timezone.utc
             ).isoformat()
         except OSError:
-            size = None
-            created_at = ""
+            # File disappeared between iterdir() and stat() — skip it.
+            continue
 
-        artifact_id = _artifact_id(rel_path)
         actions = [
             ArtifactAction(type="download", panel=None, artifact_id=None),
             ArtifactAction(type="open_workspace", panel=None, artifact_id=None),
@@ -247,6 +259,11 @@ def derive_artifacts(manager: LogManager) -> list[Artifact]:
                 actions=actions,
             )
         )
+
+        # Found what we came for — no need to scan further.
+        if target_id is not None:
+            break
+
     return artifacts
 
 
@@ -304,9 +321,9 @@ def get_artifact(conversation_id: str, artifact_id: str):
         except FileNotFoundError:
             return flask.jsonify({"error": "Conversation not found"}), 404
 
-        for artifact in derive_artifacts(manager):
-            if artifact.id == artifact_id:
-                return flask.jsonify(artifact.model_dump())
+        artifacts = derive_artifacts(manager, target_id=artifact_id)
+        if artifacts:
+            return flask.jsonify(artifacts[0].model_dump())
         return flask.jsonify({"error": "Artifact not found"}), 404
     except Exception as e:
         logger.exception("Error getting artifact")
