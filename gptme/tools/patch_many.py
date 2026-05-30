@@ -21,39 +21,13 @@ if TYPE_CHECKING:
     from collections.abc import Generator, Mapping, Sequence
 
 instructions = """
-Apply multiple patches to multiple files in a single atomic operation.
+Apply patches to multiple files in one atomic operation.
+Patches are validated in-memory: if ANY fails, NO files are written.
 
-All patches are resolved in-memory first. If ANY patch fails, NO files are written.
-Use this for cross-cutting changes that touch multiple files.
+Space-separated paths follow the opening fence; write one conflict-marker patch
+per path (same format as `patch`), in the same order.
 
-### Format
-
-The codeblock takes space-separated file paths and one conflict-marker patch per file:
-
-    ```patch_many path/to/file1.py path/to/file2.py
-
-    <<<<<<< ORIGINAL
-    original content
-    =======
-    updated content
-    >>>>>>> UPDATED
-
-    <<<<<<< ORIGINAL
-    original content
-    =======
-    updated content
-    >>>>>>> UPDATED
-    ```
-
-Each patch corresponds to the file at the same position in the path list.
-All patches are validated in-memory before writing any file.
-
-For tool/function-call format, pass a `patches` JSON array string:
-
-    [
-      {"path": "path/to/file1.py", "patch": "<<<<<<< ORIGINAL\\n..."},
-      {"path": "path/to/file2.py", "patch": "<<<<<<< ORIGINAL\\n..."}
-    ]
+Tool-call: pass `patches` as a JSON array of {"path": "...", "patch": "..."} entries.
 """.strip()
 
 
