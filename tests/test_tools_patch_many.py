@@ -298,6 +298,46 @@ def test_markdown_multihunk_path_header_format(tmp_path):
     assert "also_old" not in content
 
 
+def test_simple_format_placeholder_patch_round_trip(tmp_path):
+    """Simple markdown format should accept placeholder-based multi-edit patches."""
+    f = tmp_path / "module.py"
+    f.write_text(
+        """
+def hello():
+    print("hello")
+
+if __name__ == "__main__":
+    hello()
+""".strip()
+    )
+
+    code = _patch_text(
+        """
+def hello():
+    print("hello")
+    # ...
+if __name__ == "__main__":
+    hello()
+""".strip(),
+        """
+def hello_world():
+    print("hello")
+    # ...
+if __name__ == "__main__":
+    hello_world()
+""".strip(),
+    )
+
+    messages = list(execute_patch_many(code, [str(f)], None))
+    assert messages
+    assert "atomically" in messages[0].content.lower()
+    content = f.read_text()
+    assert "def hello_world()" in content
+    assert "hello_world()" in content
+    assert "def hello():" not in content
+    assert "    hello()" not in content
+
+
 def test_execute_patch_many_markdown_round_trip(tmp_path):
     """Test the markdown entrypoint, including confirmation-hook execution."""
     f1 = tmp_path / "file1.py"

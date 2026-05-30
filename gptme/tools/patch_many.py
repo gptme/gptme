@@ -86,9 +86,12 @@ def _resolve_path(raw_path: str) -> Path:
 
 def _parse_patches_from_content(
     content: str, paths: list[Path]
-) -> list[tuple[Path, Patch]]:
+) -> list[tuple[Path, str]]:
     """Parse multiple conflict-marker patches from markdown content and pair with paths."""
-    patches = list(Patch.from_codeblock(content))
+    # Count top-level ORIGINAL/UPDATED blocks here, not placeholder-expanded hunks.
+    # A single patch block may legitimately expand to multiple replacements when
+    # `apply()` handles placeholder markers like `# ...`.
+    patches = [_stringify_patch(patch) for patch in Patch._from_codeblock(content)]
     if len(patches) != len(paths):
         if len(patches) > len(paths):
             raise ValueError(
