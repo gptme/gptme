@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { FolderOpen, Loader2, Package, RefreshCw } from 'lucide-react';
 import { FilePreview } from '@/components/workspace/FilePreview';
@@ -55,6 +55,7 @@ export function ArtifactsPanel({ conversationId }: ArtifactsPanelProps) {
   const [error, setError] = useState<string | null>(null);
 
   const { listArtifacts } = useArtifactsApi();
+  const fetchControllerRef = useRef<AbortController | null>(null);
 
   const loadArtifacts = useCallback(
     async (signal?: AbortSignal) => {
@@ -68,17 +69,23 @@ export function ArtifactsPanel({ conversationId }: ArtifactsPanelProps) {
         console.error('Error loading artifacts:', err);
         setError(err instanceof Error ? err.message : 'Failed to load artifacts');
       } finally {
-        setLoading(false);
+        if (!signal?.aborted) setLoading(false);
       }
     },
     [conversationId, listArtifacts]
   );
 
-  useEffect(() => {
+  const startLoad = useCallback(() => {
+    fetchControllerRef.current?.abort();
     const controller = new AbortController();
+    fetchControllerRef.current = controller;
     void loadArtifacts(controller.signal);
-    return () => controller.abort();
   }, [loadArtifacts]);
+
+  useEffect(() => {
+    startLoad();
+    return () => fetchControllerRef.current?.abort();
+  }, [startLoad]);
 
   useEffect(() => {
     if (!artifacts.length) {
@@ -126,7 +133,7 @@ export function ArtifactsPanel({ conversationId }: ArtifactsPanelProps) {
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => void loadArtifacts()} title="Refresh">
+          <Button variant="outline" size="sm" onClick={startLoad} title="Refresh">
             <RefreshCw className="mr-2 h-4 w-4" />
             Refresh
           </Button>
