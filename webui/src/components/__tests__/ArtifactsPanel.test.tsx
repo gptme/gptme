@@ -89,7 +89,9 @@ describe('ArtifactsPanel', () => {
     render(<ArtifactsPanel conversationId="conv-2" />);
 
     await waitFor(() => {
-      expect(screen.getByTitle('Open in workspace viewer')).toBeInTheDocument();
+      const btn = screen.getByTitle('Open in workspace viewer');
+      expect(btn).toBeInTheDocument();
+      expect(btn).not.toBeDisabled();
     });
 
     fireEvent.click(screen.getByTitle('Open in workspace viewer'));
