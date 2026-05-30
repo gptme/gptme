@@ -128,6 +128,7 @@ def test_bundled_webui_dist_used_when_populated(tmp_path, monkeypatch):
     import gptme.server.app as app_mod
     from gptme.server.app import create_app
 
+    monkeypatch.delenv("GPTME_WEBUI_DIR", raising=False)
     bundled = tmp_path / "webui-dist"
     bundled.mkdir()
     (bundled / "index.html").write_text("<html>bundled-modern</html>")
@@ -147,6 +148,7 @@ def test_bundled_webui_dist_empty_falls_back_to_legacy(tmp_path, monkeypatch):
     import gptme.server.app as app_mod
     from gptme.server.app import create_app, static_path
 
+    monkeypatch.delenv("GPTME_WEBUI_DIR", raising=False)
     empty = tmp_path / "webui-dist"
     empty.mkdir()  # exists but no files
 
