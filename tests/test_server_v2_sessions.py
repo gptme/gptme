@@ -857,16 +857,22 @@ class TestRerunEndpoint:
         assert data is not None
         assert data["error"] == "session_id must be a string"
 
-    def test_whitespace_session_id(self, conv, client: FlaskClient):
-        """Rerun with whitespace-only session_id returns 400."""
+    @pytest.mark.parametrize(
+        "whitespace_id",
+        ["   ", "\t", "\n", " \t\n "],
+    )
+    def test_whitespace_only_session_id(
+        self, conv, client: FlaskClient, whitespace_id: str
+    ):
+        """Whitespace-only session_id should be rejected with 400, not 404."""
         response = client.post(
             f"/api/v2/conversations/{conv['conversation_id']}/rerun",
-            json={"session_id": "   "},
+            json={"session_id": whitespace_id},
         )
         assert response.status_code == 400
         data = response.get_json()
         assert data is not None
-        assert "session_id" in data["error"]
+        assert data["error"] == "session_id is required"
 
     def test_rerun_while_generating(self, conv, client: FlaskClient):
         """Rerun while generation in progress returns 409."""
