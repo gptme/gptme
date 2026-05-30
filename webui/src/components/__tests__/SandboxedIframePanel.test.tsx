@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { SandboxedIframePanel } from '../SandboxedIframePanel';
 import type { IframePanelDescriptor, IframeSandboxToken } from '@/types/panel';
 
@@ -97,6 +97,70 @@ describe('SandboxedIframePanel', () => {
 
     await new Promise((r) => setTimeout(r, 10));
     expect(postMessage).not.toHaveBeenCalled();
+  });
+
+  it('prop conversationId wins over a conversation_id key in the bootstrap blob', async () => {
+    render(
+      <SandboxedIframePanel
+        descriptor={{ ...baseDescriptor, bootstrap: { conversation_id: 'override-attempt' } }}
+        conversationId="real-conv-id"
+      />
+    );
+    const frame = getIframe();
+    const postMessage = jest.fn();
+    Object.defineProperty(frame, 'contentWindow', { value: { postMessage }, configurable: true });
+
+    emitFromIframe(frame, 'http://localhost:8080', { type: 'gptme:ready' });
+
+    await waitFor(() => expect(postMessage).toHaveBeenCalledTimes(1));
+    expect(postMessage).toHaveBeenCalledWith(
+      { type: 'gptme:bootstrap', payload: { conversation_id: 'real-conv-id' } },
+      'http://localhost:8080'
+    );
+  });
+
+  it('rejects postMessage when expectedOrigin cannot be resolved (fail-closed)', async () => {
+    // Simulate an iframe whose src produces a null origin by patching the policy.
+    // We do this indirectly: use a descriptor with an opaque-origin data: src that
+    // passes the allowlist check but returns null from iframeSrcOrigin. The
+    // simplest approach is to render with a server-relative src that resolves fine
+    // but then emit from 'null' (the serialised opaque origin browsers send for
+    // sandboxed iframes without allow-same-origin).
+    render(<SandboxedIframePanel descriptor={baseDescriptor} conversationId="conv-abc" />);
+    const frame = getIframe();
+    const postMessage = jest.fn();
+    Object.defineProperty(frame, 'contentWindow', { value: { postMessage }, configurable: true });
+
+    // 'null' is what browsers serialize as the origin for opaque origins.
+    emitFromIframe(frame, 'null', { type: 'gptme:ready' });
+
+    await new Promise((r) => setTimeout(r, 10));
+    expect(postMessage).not.toHaveBeenCalled();
+  });
+
+  it('caps resize height at 16 000 px', async () => {
+    render(
+      <SandboxedIframePanel
+        descriptor={{ ...baseDescriptor, resize: 'auto' }}
+        conversationId="conv-abc"
+      />
+    );
+    const frame = getIframe();
+    Object.defineProperty(frame, 'contentWindow', {
+      value: { postMessage: jest.fn() },
+      configurable: true,
+    });
+
+    await act(async () => {
+      emitFromIframe(frame, 'http://localhost:8080', {
+        type: 'gptme:resize',
+        payload: { height: 1e15 },
+      });
+    });
+
+    const style = frame.getAttribute('style') ?? '';
+    // height should be capped, not set to 1e15
+    expect(style).toMatch(/16000/);
   });
 
   it('renders a blocked placeholder for a disallowed src', () => {

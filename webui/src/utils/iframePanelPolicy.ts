@@ -63,12 +63,21 @@ export function iframeSrcOrigin(src: string, hostOrigin?: string): string | null
  * space-joined string for the iframe `sandbox` attribute. Unknown or
  * never-allowed tokens (allow-top-navigation, allow-popups, allow-modals)
  * are silently dropped. Duplicates are collapsed.
+ *
+ * The `allow-scripts` + `allow-same-origin` combination is unconditionally
+ * forbidden: together they allow the iframe to remove its own sandbox
+ * attribute and gain full access to the parent page's DOM. When both are
+ * requested, `allow-same-origin` is dropped so scripts still run but cannot
+ * escalate.
  */
 export function resolveSandbox(tokens: readonly string[] | undefined): string {
   if (!tokens || tokens.length === 0) return '';
   const allowed = new Set<string>();
   for (const token of tokens) {
     if (SANDBOX_ALLOWLIST.has(token)) allowed.add(token);
+  }
+  if (allowed.has('allow-scripts') && allowed.has('allow-same-origin')) {
+    allowed.delete('allow-same-origin');
   }
   return Array.from(allowed).join(' ');
 }

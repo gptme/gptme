@@ -38,7 +38,8 @@ export const SandboxedIframePanel: FC<Props> = ({ descriptor, conversationId }) 
 
     const handleMessage = (event: MessageEvent) => {
       // Strict origin gate: only accept messages from the declared src origin.
-      if (expectedOrigin && event.origin !== expectedOrigin) return;
+      // Fail closed: if expectedOrigin is null (origin unresolvable), reject all.
+      if (!expectedOrigin || event.origin !== expectedOrigin) return;
       if (event.source !== iframeRef.current?.contentWindow) return;
       if (!isGptmeIframeMessage(event.data)) return;
 
@@ -46,14 +47,17 @@ export const SandboxedIframePanel: FC<Props> = ({ descriptor, conversationId }) 
         case 'gptme:ready':
           post({
             type: 'gptme:bootstrap',
-            payload: { conversation_id: conversationId, ...(descriptor.bootstrap ?? {}) },
+            // Spread descriptor.bootstrap first so the prop-supplied
+            // conversationId always wins over any key in the bootstrap blob.
+            payload: { ...(descriptor.bootstrap ?? {}), conversation_id: conversationId },
           });
           break;
         case 'gptme:resize': {
           if (descriptor.resize !== 'auto') break;
           const height = (event.data.payload as { height?: unknown } | undefined)?.height;
+          const MAX_IFRAME_HEIGHT = 16_000;
           if (typeof height === 'number' && Number.isFinite(height) && height > 0) {
-            setAutoHeight(height);
+            setAutoHeight(Math.min(height, MAX_IFRAME_HEIGHT));
           }
           break;
         }

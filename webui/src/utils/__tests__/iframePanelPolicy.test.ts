@@ -55,9 +55,14 @@ describe('iframeSrcOrigin', () => {
 describe('resolveSandbox', () => {
   it('keeps allowlisted tokens', () => {
     expect(resolveSandbox(['allow-scripts'])).toBe('allow-scripts');
-    expect(resolveSandbox(['allow-scripts', 'allow-same-origin'])).toBe(
-      'allow-scripts allow-same-origin'
-    );
+    expect(resolveSandbox(['allow-same-origin'])).toBe('allow-same-origin');
+    expect(resolveSandbox(['allow-forms', 'allow-downloads'])).toBe('allow-forms allow-downloads');
+  });
+
+  it('drops allow-same-origin when allow-scripts is also present (sandbox escape guard)', () => {
+    // Both together let an iframe remove its own sandbox attribute.
+    expect(resolveSandbox(['allow-scripts', 'allow-same-origin'])).toBe('allow-scripts');
+    expect(resolveSandbox(['allow-same-origin', 'allow-scripts'])).toBe('allow-scripts');
   });
 
   it('drops never-allowed tokens', () => {
