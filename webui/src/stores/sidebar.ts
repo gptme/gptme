@@ -1,4 +1,5 @@
 import { type Agent } from '@/utils/workspaceUtils';
+import type { RightSidebarPanelId } from '@/types/sidebar';
 import { observable } from '@legendapp/state';
 import type { ImperativePanelHandle } from 'react-resizable-panels';
 
@@ -6,7 +7,7 @@ export const leftSidebarVisible$ = observable(false);
 export const leftSidebarCollapsed$ = observable(false);
 export const rightSidebarVisible$ = observable(true);
 export const rightSidebarCollapsed$ = observable(false);
-export const rightSidebarActiveTab$ = observable<string | null>(null);
+export const rightSidebarActiveTab$ = observable<RightSidebarPanelId | null>(null);
 
 // Selected workspace for filtering conversations
 export const selectedWorkspace$ = observable<string | null>(null);
