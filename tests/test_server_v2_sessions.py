@@ -263,6 +263,23 @@ class TestStepEndpoint:
         assert data is not None
         assert data["error"] == "session_id must be a string"
 
+    @pytest.mark.parametrize(
+        "whitespace_id",
+        ["   ", "\t", "\n", " \t\n "],
+    )
+    def test_whitespace_only_session_id(
+        self, conv, client: FlaskClient, whitespace_id: str
+    ):
+        """Whitespace-only session_id should be rejected with 400, not 404."""
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/step",
+            json={"session_id": whitespace_id},
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert data["error"] == "session_id is required"
+
     def test_invalid_use_acp_type(self, conv, client: FlaskClient):
         """Step with non-boolean use_acp returns 400."""
         response = client.post(
@@ -455,6 +472,23 @@ class TestInterruptEndpoint:
         data = response.get_json()
         assert data is not None
         assert data["error"] == "session_id must be a string"
+
+    @pytest.mark.parametrize(
+        "whitespace_id",
+        ["   ", "\t", "\n", " \t\n "],
+    )
+    def test_whitespace_only_session_id(
+        self, conv, client: FlaskClient, whitespace_id: str
+    ):
+        """Whitespace-only session_id should be rejected with 400, not 404."""
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/interrupt",
+            json={"session_id": whitespace_id},
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert data["error"] == "session_id is required"
 
     def test_interrupt_when_not_generating(self, conv, client: FlaskClient):
         """Interrupt when not generating is idempotent (returns 200)."""
@@ -801,6 +835,17 @@ class TestRerunEndpoint:
         data = response.get_json()
         assert data is not None
         assert data["error"] == "session_id must be a string"
+
+    def test_whitespace_session_id(self, conv, client: FlaskClient):
+        """Rerun with whitespace-only session_id returns 400."""
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/rerun",
+            json={"session_id": "   "},
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert "session_id" in data["error"]
 
     def test_rerun_while_generating(self, conv, client: FlaskClient):
         """Rerun while generation in progress returns 409."""

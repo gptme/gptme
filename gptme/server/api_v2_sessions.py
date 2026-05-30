@@ -89,7 +89,7 @@ def _get_required_string_field(
         return flask.jsonify({"error": f"{field} is required"}), 400
     if not isinstance(value, str):
         return flask.jsonify({"error": f"{field} must be a string"}), 400
-    if not value:
+    if not value.strip():
         return flask.jsonify({"error": f"{field} is required"}), 400
     return value
 
