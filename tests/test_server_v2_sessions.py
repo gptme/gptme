@@ -568,6 +568,27 @@ class TestToolConfirmEndpoint:
         assert data is not None
         assert data["error"] == "action must be a string"
 
+    @pytest.mark.parametrize(
+        "whitespace_session_id",
+        ["", "   ", "\t", "\n", "  \t\n  "],
+    )
+    def test_whitespace_session_id(
+        self, conv, client: FlaskClient, whitespace_session_id: str
+    ):
+        """Whitespace-only session_id returns 400 in tool confirm endpoint."""
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/tool/confirm",
+            json={
+                "session_id": whitespace_session_id,
+                "tool_id": "some-tool",
+                "action": "confirm",
+            },
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert "session_id" in data["error"]
+
     @pytest.mark.parametrize("bad_session_id", [["boom"], {"boom": 1}, 0, False])
     def test_non_string_session_id(
         self, conv, client: FlaskClient, bad_session_id: object

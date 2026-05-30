@@ -97,12 +97,20 @@ def _get_required_string_field(
 def _get_optional_string_field(
     req_json: dict, field: str
 ) -> str | None | tuple[flask.Response, int]:
-    """Return an optional string field or a 400 response."""
+    """Return an optional string field or a 400 response.
+
+    Rejects whitespace-only values with a 400 error, matching the
+    behavior of _get_required_string_field, to prevent misleading
+    404 errors when whitespace-only strings pass truthiness checks.
+    """
     value = req_json.get(field)
     if value is None:
         return None
     if not isinstance(value, str):
         return flask.jsonify({"error": f"{field} must be a string"}), 400
+    stripped = value.strip()
+    if not stripped:
+        return flask.jsonify({"error": f"{field} must be a non-empty string"}), 400
     return value
 
 
