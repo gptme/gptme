@@ -859,6 +859,15 @@ def test_llm_generate_unknown_model():
     assert "notareal" in result.output or "Unknown" in result.output
 
 
+def test_llm_generate_empty_model():
+    """gptme-util llm generate --model '' should error cleanly, not silently fall back to default."""
+    runner = CliRunner()
+    result = runner.invoke(main, ["llm", "generate", "--model", "", "hello"])
+    assert result.exit_code == 2
+    assert "Traceback" not in result.output
+    assert "empty" in result.output.lower()
+
+
 def test_llm_generate_prepends_system_message(monkeypatch):
     """llm generate must prepend a system message so Anthropic-compatible providers don't reject it."""
     import unittest.mock as mock

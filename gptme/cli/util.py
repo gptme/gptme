@@ -613,6 +613,11 @@ def llm_generate(
         print("Error: Empty prompt provided.", file=sys.stderr)
         sys.exit(1)
 
+    # Validate empty model before initialization (before redirect_stderr
+    # so Click can print the UsageError to real stderr, not the captured sink)
+    if model is not None and not model.strip():
+        raise click.UsageError("Model name cannot be empty.")
+
     # Capture stderr to suppress console output during initialization
     stderr_capture = io.StringIO()
 
