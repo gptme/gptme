@@ -66,6 +66,28 @@ b modified
         )
 
 
+def test_markdown_multi_hunk_error():
+    """Test that multi-hunk markdown patches give an actionable error pointing to kwargs."""
+    paths = [Path("/tmp/a.txt")]
+    with pytest.raises(ValueError, match="kwargs format"):
+        _parse_patches_from_content(
+            """
+<<<<<<< ORIGINAL
+first line
+=======
+first modified
+>>>>>>> UPDATED
+
+<<<<<<< ORIGINAL
+second line
+=======
+second modified
+>>>>>>> UPDATED
+""".strip(),
+            paths,
+        )
+
+
 def test_atomicity(tmp_path):
     """Test that if one patch fails, NO files are written."""
     f1 = tmp_path / "file1.py"

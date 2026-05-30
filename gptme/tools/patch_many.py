@@ -55,9 +55,16 @@ def _parse_patches_from_content(
     """Parse multiple conflict-marker patches from markdown content and pair with paths."""
     patches = list(Patch.from_codeblock(content))
     if len(patches) != len(paths):
+        if len(patches) > len(paths):
+            raise ValueError(
+                f"Got {len(patches)} patch(es) but {len(paths)} file path(s). "
+                "The markdown format supports exactly one hunk per file. "
+                "For multi-hunk patches, use the kwargs format: pass a 'patches' array "
+                "where each entry's 'patch' field contains all hunks for that file."
+            )
         raise ValueError(
             f"Got {len(patches)} patch(es) but {len(paths)} file path(s). "
-            "The number of patches must match the number of file paths."
+            "Each file path must have a corresponding conflict-marker patch."
         )
     return list(zip(paths, patches))
 
