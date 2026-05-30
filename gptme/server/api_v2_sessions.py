@@ -89,9 +89,10 @@ def _get_required_string_field(
         return flask.jsonify({"error": f"{field} is required"}), 400
     if not isinstance(value, str):
         return flask.jsonify({"error": f"{field} must be a string"}), 400
-    if not value.strip():
+    stripped = value.strip()
+    if not stripped:
         return flask.jsonify({"error": f"{field} is required"}), 400
-    return value
+    return stripped
 
 
 def _get_optional_string_field(
@@ -111,7 +112,7 @@ def _get_optional_string_field(
     stripped = value.strip()
     if not stripped:
         return flask.jsonify({"error": f"{field} must be a non-empty string"}), 400
-    return value
+    return stripped
 
 
 # Re-export step-level symbols that other modules may import from here.
