@@ -1,8 +1,7 @@
 """Tests for the models-related gptme-util CLI commands."""
 
 import json
-import subprocess
-import sys
+import types
 from unittest.mock import Mock, patch
 
 from click.testing import CliRunner
@@ -175,22 +174,20 @@ class TestModelsInfo:
         assert "detailed information about a specific model" in result.output
 
     @staticmethod
-    def _run_models_info(*args: str) -> "subprocess.CompletedProcess[str]":
-        """Invoke 'gptme-util models info' as a subprocess for separate stdout/stderr."""
-        return subprocess.run(
-            [
-                sys.executable,
-                "-c",
-                "import sys; sys.argv=['gptme-util'] + sys.argv[1:];"
-                "from gptme.cli.util import main; main()",
-                "models",
-                "info",
-                *args,
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
+    def _run_models_info(*args: str):
+        """Invoke 'gptme-util models info' via CliRunner for separate stdout/stderr capture.
+
+        Uses mix_stderr=False so stdout and stderr are independently accessible without
+        spawning a subprocess (which is slow on CI and can hit pytest timeouts).
+        """
+        runner = CliRunner(mix_stderr=False)  # type: ignore[call-arg]
+        r = runner.invoke(main, ["models", "info", *args])
+        result = types.SimpleNamespace(
+            returncode=r.exit_code,
+            stdout=r.output,
+            stderr=r.stderr or "",
         )
+        return result
 
     def test_known_model_no_warning(self):
         """A recognized provider/model shows info with no fallback warning."""
