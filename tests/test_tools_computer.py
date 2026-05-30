@@ -610,7 +610,7 @@ def test_computer_screenshot_success(
     mock_path = MagicMock(spec=Path)
     mock_path.exists.return_value = True
     mock_screenshot.return_value = mock_path
-    base_msg = Message(role="user", content="[image]")
+    base_msg = Message(role="user", content="[image]", files=[mock_path])
     mock_view_image.return_value = base_msg
     mock_subprocess_run.return_value = subprocess.CompletedProcess(
         args=[], returncode=0
