@@ -274,6 +274,25 @@ class TestArtifactsFromMessages:
         arts = derive_artifacts(_manager_with_messages(tmp_path, [msg]))
         assert [a.title for a in arts] == ["ok.txt"]
 
+    def test_inline_duplicate_title_no_collision(self, tmp_path):
+        # Two inline descriptors in the same message with the same (or absent)
+        # title must not collide — desc_index makes their ids unique.
+        msg = Message(
+            "assistant",
+            "x",
+            metadata={
+                "artifacts": [
+                    {"source_type": "inline", "title": "result"},
+                    {"source_type": "inline", "title": "result"},
+                    {"source_type": "inline"},  # both title absent
+                    {"source_type": "inline"},
+                ]
+            },
+        )
+        arts = derive_artifacts(_manager_with_messages(tmp_path, [msg]))
+        assert len(arts) == 4
+        assert len({a.id for a in arts}) == 4  # all ids distinct
+
     def test_target_id_filters_message_artifacts(self, tmp_path):
         msg = Message(
             "assistant",

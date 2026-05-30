@@ -205,6 +205,7 @@ _SOURCE_TYPES = frozenset({"attachment", "workspace", "external", "inline"})
 def _artifact_from_descriptor(
     desc: object,
     message_index: int,
+    desc_index: int,
     logdir: Path,
     default_created_at: str,
 ) -> Artifact | None:
@@ -231,7 +232,7 @@ def _artifact_from_descriptor(
             return None
         id_key = str(url)
     elif source_type == "inline":
-        id_key = f"inline:{message_index}:{desc.get('title', '')}"
+        id_key = f"inline:{message_index}:{desc_index}:{desc.get('title', '')}"
     else:  # attachment / workspace
         if not path:
             return None
@@ -300,8 +301,10 @@ def _artifacts_from_messages(
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=timezone.utc)
         default_created = ts.isoformat()
-        for desc in descriptors:
-            art = _artifact_from_descriptor(desc, idx, manager.logdir, default_created)
+        for desc_idx, desc in enumerate(descriptors):
+            art = _artifact_from_descriptor(
+                desc, idx, desc_idx, manager.logdir, default_created
+            )
             if art is not None:
                 if target_id is None or art.id == target_id:
                     out.append(art)
