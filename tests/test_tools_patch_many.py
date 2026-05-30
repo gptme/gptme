@@ -264,6 +264,39 @@ def test_kwargs_rejects_path_traversal(tmp_path, monkeypatch):
         )
 
 
+def test_atomic_write_failure_rollback(tmp_path, monkeypatch):
+    """Test that an OSError during write rolls back already-written files."""
+    f1 = tmp_path / "file1.py"
+    f2 = tmp_path / "file2.py"
+    f1.write_text("original a")
+    f2.write_text("original b")
+
+    patches = [
+        (f1, Patch("original a", "modified a")),
+        (f2, Patch("original b", "modified b")),
+    ]
+
+    # Make the second write fail
+    original_write_text = Path.write_text
+    call_count = [0]
+
+    def failing_write_text(self, *args, **kwargs):
+        call_count[0] += 1
+        if self == f2:
+            raise OSError("disk full")
+        return original_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", failing_write_text)
+
+    messages = list(execute_patch_many_impl(patches))
+    assert messages
+    assert "write error" in messages[0].content.lower()
+    assert "rolled back" in messages[0].content.lower()
+    # Both files should have their original content
+    assert f1.read_text() == "original a"
+    assert f2.read_text() == "original b"
+
+
 def test_patch_many_tool_is_discoverable():
     """Test that patch_many can be loaded through tool discovery."""
     clear_tools()

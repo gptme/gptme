@@ -126,6 +126,7 @@ def execute_patch_many_impl(
         return
 
     resolved: list[tuple[Path, str]] = []
+    originals: dict[Path, str] = {}
 
     for path, patch_src in patches:
         if not path.exists():
@@ -158,16 +159,31 @@ def execute_patch_many_impl(
             return
 
         resolved.append((path, new_content))
+        originals[path] = original
 
-    written: list[str] = []
+    written: list[Path] = []
     for path, new_content in resolved:
-        path.write_text(new_content, encoding="utf-8")
-        written.append(str(path))
+        try:
+            path.write_text(new_content, encoding="utf-8")
+        except OSError as e:
+            # Roll back any already-written files to preserve atomicity
+            for rolled_back in written:
+                try:
+                    rolled_back.write_text(originals[rolled_back])
+                except OSError:
+                    pass  # best-effort rollback
+            yield Message(
+                "system",
+                f"Atomic patch failed: write error on `{path}`: {e}. "
+                f"Rolled back {len(written)} file(s). No files were modified.",
+            )
+            return
+        written.append(path)
 
     yield Message(
         "system",
         f"Applied {len(written)} patch(es) atomically to:\n"
-        + "\n".join(f"  - {path}" for path in written),
+        + "\n".join(f"  - {p}" for p in written),
     )
 
 
