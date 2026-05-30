@@ -459,6 +459,29 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
             "supports_vision": True,
             "preferred_edit_format": "diff",
         },
+        # https://openrouter.ai/deepseek/deepseek-v4-pro (pricing verified 2026-05-30)
+        # MIT-licensed open-weight model, ~80.6% SWE-bench Verified
+        "deepseek/deepseek-v4-pro": {
+            "context": 1_000_000,
+            "max_output": 32_768,
+            "price_input": 0.435,
+            "price_output": 0.87,
+            "preferred_edit_format": "diff",
+        },
+        "deepseek/deepseek-v4-flash": {
+            "context": 1_000_000,
+            "max_output": 32_768,
+            "price_input": 0.098,
+            "price_output": 0.197,
+            "preferred_edit_format": "diff",
+        },
+        "deepseek/deepseek-v4-flash:free": {
+            "context": 1_000_000,
+            "max_output": 32_768,
+            "price_input": 0.0,
+            "price_output": 0.0,
+            "preferred_edit_format": "diff",
+        },
     },
     "nvidia": {},
     "azure": {},
