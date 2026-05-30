@@ -290,7 +290,9 @@ def execute_patch_many(
         return
 
     # Multi-hunk format: paths embedded in content with === PATH: ... === headers
-    if _CONFIRM_HEADER in code:
+    # Use the anchored regex (not a bare substring check) to avoid misrouting
+    # simple-format patches whose content happens to contain "=== PATH: ".
+    if _CONFIRM_HEADER_RE.search(code):
         try:
             patch_entries: list[tuple[Path, str | Patch]] = list(
                 _parse_confirmation_payload(code)

@@ -471,6 +471,22 @@ def test_atomic_write_failure_rollback(tmp_path, monkeypatch):
     assert f2.read_text() == "original b"
 
 
+def test_simple_format_not_misrouted_when_content_contains_path_header(tmp_path):
+    """Simple-format patch whose content contains '=== PATH: ' must not be misrouted."""
+    f = tmp_path / "Makefile"
+    # Content that contains the literal string that used to trigger misrouting
+    f.write_text("# old line\n=== PATH: some/file ===\nmore content\n")
+
+    code = _patch_text(
+        "# old line",
+        "# new line",
+    )
+    messages = list(execute_patch_many(code, [str(f)], None))
+    assert messages
+    assert "error" not in messages[0].content.lower(), messages[0].content
+    assert "# new line" in f.read_text()
+
+
 def test_patch_many_tool_is_discoverable():
     """Test that patch_many can be loaded through tool discovery."""
     clear_tools()
