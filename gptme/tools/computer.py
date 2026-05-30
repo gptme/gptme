@@ -72,6 +72,7 @@ Using a single sequence for complex operations ensures proper timing and recogni
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import os
 import platform
@@ -81,13 +82,15 @@ import subprocess
 from enum import Enum
 from typing import TYPE_CHECKING, Literal, TypedDict
 
+from ..message import ArtifactDescriptor, Message, MessageMetadata
 from .base import ToolSpec, ToolUse
 from .computer_transport import get_transport
 from .screenshot import screenshot
 from .vision import view_image
 
 if TYPE_CHECKING:
-    from ..message import Message
+    from pathlib import Path
+
     from .computer_transport import ComputerTransport
 
 logger = logging.getLogger(__name__)
@@ -95,6 +98,22 @@ logger = logging.getLogger(__name__)
 
 # Platform detection
 IS_MACOS = platform.system() == "Darwin"
+
+
+def _make_screenshot_msg(path: Path, tool: str = "computer") -> Message | None:
+    """Return view_image message augmented with an artifact descriptor."""
+    if not path.exists():
+        print("Error: Screenshot failed")
+        return None
+    msg = view_image(path)
+    descriptor: ArtifactDescriptor = {
+        "source_type": "attachment",
+        "path": str(path),
+        "kind": "image",
+        "mime_type": "image/png",
+        "tool": tool,
+    }
+    return dataclasses.replace(msg, metadata=MessageMetadata(artifacts=[descriptor]))
 
 
 # Constants from Anthropic's implementation
@@ -563,10 +582,7 @@ def _dispatch_transport(
 
     if action == "screenshot":
         path = transport.screenshot()
-        if path.exists():
-            return view_image(path)
-        print("Error: Screenshot failed")
-        return None
+        return _make_screenshot_msg(path)
 
     if action == "cursor_position":
         x, y = transport.cursor_position()
@@ -742,9 +758,7 @@ def computer(
                 raise RuntimeError("Image resize timed out") from e
             except subprocess.CalledProcessError as e:
                 raise RuntimeError(f"Image resize failed: {e.stderr}") from e
-            return view_image(path)
-        print("Error: Screenshot failed")
-        return None
+        return _make_screenshot_msg(path)
     if action == "cursor_position":
         if IS_MACOS:
             try:
