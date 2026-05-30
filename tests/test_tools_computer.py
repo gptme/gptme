@@ -605,10 +605,13 @@ def test_computer_screenshot_success(
     from pathlib import Path
     from unittest.mock import MagicMock
 
+    from gptme.message import Message
+
     mock_path = MagicMock(spec=Path)
     mock_path.exists.return_value = True
     mock_screenshot.return_value = mock_path
-    mock_view_image.return_value = "image_message"
+    base_msg = Message(role="user", content="[image]")
+    mock_view_image.return_value = base_msg
     mock_subprocess_run.return_value = subprocess.CompletedProcess(
         args=[], returncode=0
     )
@@ -620,7 +623,12 @@ def test_computer_screenshot_success(
         result = computer("screenshot")
     mock_screenshot.assert_called_once()
     mock_view_image.assert_called_once_with(mock_path)
-    assert result == "image_message"
+    assert isinstance(result, Message)
+    assert result.metadata is not None
+    artifacts = result.metadata.get("artifacts", [])
+    assert len(artifacts) == 1
+    assert artifacts[0]["kind"] == "image"
+    assert artifacts[0]["tool"] == "computer"
     # Verify resize uses correct API dimensions, not squared coordinates.
     cmd = mock_subprocess_run.call_args[0][0]
     assert "-resize" in cmd
