@@ -197,8 +197,6 @@ class TestHalfOpen:
         """After cooldown, only one call transitions to HALF_OPEN.
 
         Concurrent threads should see CircuitOpenError until the probe resolves.
-        This test simulates that by checking the second call is rejected after
-        the state transitions to HALF_OPEN mid-flight.
         """
         cb = _make_breaker(failure_threshold=1, cooldown=1.0)
         with pytest.raises(RuntimeError):
@@ -207,14 +205,19 @@ class TestHalfOpen:
         original = time.monotonic
         monkeypatch.setattr(time, "monotonic", lambda: original() + 2.0)
 
-        # Manually set to HALF_OPEN to test the second-call rejection
+        # Simulate an in-flight probe by setting HALF_OPEN + _probing=True
         with cb._lock:
             cb._state = CircuitState.HALF_OPEN
+            cb._probing = True
 
-        # While one probe is in-flight (state=HALF_OPEN), another thread calling
-        # would see HALF_OPEN and be allowed through too (this is intentional —
-        # HALF_OPEN acts as a single-probe window in this implementation since
-        # we transition state *after* the call completes).  Verify the probe works.
+        # A second call while the probe is in flight should be rejected
+        with pytest.raises(CircuitOpenError):
+            cb.call(_succeed)
+
+        # Once the probe finishes (probing cleared), a new probe is allowed
+        with cb._lock:
+            cb._probing = False
+
         result = cb.call(_succeed)
         assert result == "ok"
         assert cb.state == CircuitState.CLOSED
@@ -280,6 +283,52 @@ class TestEdgeCases:
         assert "closed" in r
         assert "0/5" in r
 
+    def test_ignore_exceptions_does_not_count_as_failure(self):
+        """Exceptions listed in ignore_exceptions should not trip the breaker."""
+        cb = _make_breaker(failure_threshold=2, cooldown=60.0)
+
+        class UserCancel(Exception):
+            pass
+
+        for _ in range(10):
+            with pytest.raises(UserCancel):
+                cb.call(
+                    lambda: (_ for _ in ()).throw(UserCancel("cancelled")),
+                    ignore_exceptions=(UserCancel,),
+                )
+
+        # Breaker should still be CLOSED — cancellations are not failures
+        assert cb.state == CircuitState.CLOSED
+        assert cb.failure_count == 0
+
+    def test_ignore_exceptions_in_half_open_clears_probe_flag(self):
+        """Ignored exceptions during HALF_OPEN clear _probing without recording a failure."""
+        cb = _make_breaker(failure_threshold=1, cooldown=0.0)
+
+        class UserCancel(Exception):
+            pass
+
+        with pytest.raises(RuntimeError):
+            cb.call(_fail)
+        assert cb.state == CircuitState.OPEN
+
+        # Force HALF_OPEN with no probe in flight so call() can claim the probe
+        with cb._lock:
+            cb._state = CircuitState.HALF_OPEN
+            cb._probing = False
+
+        # An ignored exception: probe flag should be cleared, state stays HALF_OPEN
+        with pytest.raises(UserCancel):
+            cb.call(
+                lambda: (_ for _ in ()).throw(UserCancel()),
+                ignore_exceptions=(UserCancel,),
+            )
+
+        # _probing cleared; a new probe is now allowed; state not moved to CLOSED/OPEN
+        with cb._lock:
+            assert not cb._probing
+            assert cb._state == CircuitState.HALF_OPEN
+
 
 # ---------------------------------------------------------------------------
 # Concurrent access
@@ -335,9 +384,12 @@ class TestConcurrentAccess:
         for t in threads:
             t.join()
 
-        # Exactly `threshold` RuntimeErrors; rest are CircuitOpenErrors
-        assert len(runtime_errors) == threshold
-        assert len(open_errors) == n_threads - threshold
+        # All threads see exactly one outcome
+        assert len(runtime_errors) + len(open_errors) == n_threads
+        # At least threshold failures are needed to trip the breaker; concurrent
+        # threads can all pass the pre-call state check before any failure is
+        # recorded, so the exact count is non-deterministic — only the lower bound holds.
+        assert len(runtime_errors) >= threshold
         assert cb.state == CircuitState.OPEN
 
     def test_concurrent_successes_reset_cleanly(self):

@@ -30,14 +30,12 @@ import logging
 import threading
 import time
 from enum import Enum
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
-
-F = TypeVar("F")
 
 
 class CircuitState(Enum):
@@ -85,6 +83,7 @@ class CircuitBreaker:
         self._opened_at: float | None = (
             None  # monotonic timestamp of last OPEN transition
         )
+        self._probing: bool = False  # True while a HALF_OPEN probe is in flight
 
     # ------------------------------------------------------------------
     # Public read-only properties
@@ -106,12 +105,26 @@ class CircuitBreaker:
     # Core call interface
     # ------------------------------------------------------------------
 
-    def call(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    def call(
+        self,
+        func: Callable[..., Any],
+        *args: Any,
+        ignore_exceptions: tuple[type[Exception], ...] = (),
+        **kwargs: Any,
+    ) -> Any:
         """Call *func* with circuit-breaker protection.
+
+        Args:
+            func: Callable to invoke.
+            *args: Positional arguments forwarded to *func*.
+            ignore_exceptions: Exception types that should NOT count as failures.
+                Useful for user-cancellation errors (e.g. ``MCPInterruptedError``)
+                that should not trip the breaker.
+            **kwargs: Keyword arguments forwarded to *func*.
 
         Raises:
             CircuitOpenError: If the breaker is OPEN and the cooldown has not
-                elapsed yet.
+                elapsed yet, or if a HALF_OPEN probe is already in flight.
             Exception: Any exception raised by *func* (recorded as a failure).
         """
         with self._lock:
@@ -126,16 +139,27 @@ class CircuitBreaker:
                     self.name,
                 )
                 self._state = CircuitState.HALF_OPEN
+                self._probing = False
 
-            # CLOSED or HALF_OPEN: let the call through
-            # Release the lock while executing so we don't block other threads
-            # (they'll see HALF_OPEN and be rejected or wait).
+            if self._state == CircuitState.HALF_OPEN:
+                if self._probing:
+                    # Another probe is already in flight — reject until it resolves
+                    raise CircuitOpenError(self.name, retry_after=self.cooldown)
+                self._probing = True
+
+            # CLOSED or HALF_OPEN (probe claimed): let the call through.
+            # Release the lock while executing so we don't block other threads.
             current_state = self._state
 
         # Execute outside the lock
         try:
             result = func(*args, **kwargs)
         except Exception as exc:
+            if ignore_exceptions and isinstance(exc, ignore_exceptions):
+                if current_state == CircuitState.HALF_OPEN:
+                    with self._lock:
+                        self._probing = False
+                raise
             self._record_failure(current_state, exc)
             raise
 
@@ -160,6 +184,7 @@ class CircuitBreaker:
             self._state = CircuitState.CLOSED
             self._failure_count = 0
             self._opened_at = None
+            self._probing = False
 
     def _record_failure(self, previous_state: CircuitState, exc: Exception) -> None:
         with self._lock:
@@ -172,6 +197,7 @@ class CircuitBreaker:
                 )
                 self._state = CircuitState.OPEN
                 self._opened_at = time.monotonic()
+                self._probing = False
                 return
 
             # CLOSED state — increment counter
@@ -202,6 +228,7 @@ class CircuitBreaker:
             self._state = CircuitState.CLOSED
             self._failure_count = 0
             self._opened_at = None
+            self._probing = False
 
     def seconds_until_probe(self) -> float:
         """Return seconds remaining before a probe is allowed, or 0 if now."""

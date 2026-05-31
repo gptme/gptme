@@ -11,7 +11,7 @@ from mcp.client.session import RequestContext
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 
-from gptme.circuit_breaker import CircuitBreaker, CircuitOpenError  # noqa: F401
+from gptme.circuit_breaker import CircuitBreaker
 from gptme.config import Config, get_config
 
 # Type alias for elicitation callback
@@ -311,8 +311,14 @@ class MCPClient:
 
         # Wrap the synchronous _run_async call with the circuit breaker so that
         # consecutive transport or server-side failures trip the breaker.
+        # Use a lambda so the coroutine is only created if the breaker allows
+        # the call through — avoids RuntimeWarning on every open-circuit fast-fail.
+        # MCPInterruptedError (user Ctrl-C) is excluded from failure counting.
         if self._circuit_breaker is not None:
-            return self._circuit_breaker.call(self._run_async, _call_tool())
+            return self._circuit_breaker.call(
+                lambda: self._run_async(_call_tool()),
+                ignore_exceptions=(MCPInterruptedError,),
+            )
         return self._run_async(_call_tool())
 
     def list_resources(self) -> types.ListResourcesResult:
