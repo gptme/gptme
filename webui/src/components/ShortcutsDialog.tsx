@@ -88,11 +88,15 @@ export function ShortcutsDialog() {
         return;
       }
       e.preventDefault();
-      setOpenState(!shortcutsDialogOpen$.get());
+      setOpen((prev) => {
+        const next = !prev;
+        shortcutsDialogOpen$.set(next);
+        return next;
+      });
     };
     document.addEventListener('keydown', down);
     return () => document.removeEventListener('keydown', down);
-  }, [setOpenState]);
+  }, []);
 
   return (
     <Dialog open={open} onOpenChange={setOpenState}>
