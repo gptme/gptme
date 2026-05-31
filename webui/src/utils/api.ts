@@ -1,5 +1,6 @@
 import { type CreateAgentResponse, type CreateAgentRequest } from '@/components/CreateAgentDialog';
 import type {
+  ActiveSession,
   ApiError,
   ApiErrorDetails,
   ChatConfig,
@@ -1340,6 +1341,16 @@ export class ApiClient {
   async getExternalSession(id: string, days = 30): Promise<ExternalSessionDetail> {
     const url = `${this.baseUrl}/api/v2/external-sessions/${id}?days=${days}`;
     return await this.fetchJson<ExternalSessionDetail>(url);
+  }
+
+  async getSessions(): Promise<ActiveSession[]> {
+    const url = `${this.baseUrl}/api/v2/sessions`;
+    return await this.fetchJson<ActiveSession[]>(url);
+  }
+
+  async deleteSession(sessionId: string): Promise<void> {
+    const url = `${this.baseUrl}/api/v2/sessions/${sessionId}`;
+    await this.fetchJson<{ status: string }>(url, { method: 'DELETE' });
   }
 }
 

@@ -1,5 +1,17 @@
 import type { Message, StreamingMessage } from './conversation';
 
+// Active server-side session (from /api/v2/sessions)
+export interface ActiveSession {
+  id: string;
+  conversation_id: string | null;
+  model: string | null;
+  message_count: number;
+  generating: boolean;
+  elapsed_seconds: number | null;
+  created_at: string;
+  last_activity: string;
+}
+
 // External session catalog item (from /api/v2/external-sessions)
 export interface ExternalSessionCatalogItem {
   id: string;

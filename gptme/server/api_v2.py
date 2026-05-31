@@ -188,6 +188,81 @@ v2_api.register_blueprint(sessions_api)
 v2_api.register_blueprint(agents_api)
 
 
+@v2_api.route("/api/v2/sessions")
+@require_auth
+@api_doc_simple(tags=["admin"])
+def api_sessions_list():
+    """List all active sessions.
+
+    Returns a snapshot of all in-memory sessions with basic metadata useful
+    for the admin panel (session ID, conversation ID, model, message count,
+    generating status, elapsed time).
+    """
+    from ..dirs import get_logs_dir
+    from .api_v2_sessions import SessionManager
+
+    now = datetime.now(tz=timezone.utc)
+    result = []
+    for session_id, session in SessionManager.get_all_sessions():
+        conversation_id = session.conversation_id
+
+        # Count messages in the conversation log (best-effort; skip on error)
+        message_count = 0
+        model: str | None = None
+        if conversation_id:
+            try:
+                manager = LogManager.load(conversation_id, lock=False)
+                message_count = len(list(manager.log.messages))
+                logdir = get_logs_dir() / conversation_id
+                chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
+                model = chat_config.model
+            except Exception:
+                pass
+
+        elapsed_seconds: float | None = None
+        if session.generating and session.generating_since:
+            elapsed_seconds = (now - session.generating_since).total_seconds()
+
+        result.append(
+            {
+                "id": session_id,
+                "conversation_id": conversation_id,
+                "model": model,
+                "message_count": message_count,
+                "generating": session.generating,
+                "elapsed_seconds": elapsed_seconds,
+                "created_at": session.created_at.isoformat(),
+                "last_activity": session.last_activity.isoformat(),
+            }
+        )
+
+    return flask.jsonify(result)
+
+
+@v2_api.route("/api/v2/sessions/<string:session_id>", methods=["DELETE"])
+@require_auth
+@api_doc_simple(tags=["admin"])
+def api_session_delete(session_id: str):
+    """Delete (kill) a session by ID.
+
+    Interrupts any in-progress generation and removes the session from memory.
+    The conversation log is not deleted.
+    """
+    from .api_v2_sessions import SessionManager
+
+    session = SessionManager.get_session(session_id)
+    if session is None:
+        return flask.jsonify({"error": f"Session not found: {session_id}"}), 404
+
+    # Mark as not generating before removal so the step thread exits cleanly
+    session.generating = False
+    session.generating_since = None
+    session.pending_tools.clear()
+
+    SessionManager.remove_session(session_id)
+    return flask.jsonify({"status": "ok", "message": f"Session {session_id} deleted"})
+
+
 @v2_api.route("/api/v2")
 @api_doc_simple(responses={200: ApiRootResponse}, tags=["meta"])
 def api_root():

@@ -11,6 +11,7 @@ import {
   Layers,
   ChevronRight,
   ChevronLeft,
+  Shield,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -84,9 +85,13 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
           ? 'workspaces'
           : location.pathname.startsWith('/external-sessions')
             ? 'external-sessions'
-            : 'chat';
+            : location.pathname.startsWith('/admin')
+              ? 'admin'
+              : 'chat';
 
-  const handleNavigateToSection = (section: NavItem['section']) => {
+  const handleNavigateToSection = (
+    section: 'chat' | 'tasks' | 'history' | 'agents' | 'workspaces' | 'external-sessions' | 'admin'
+  ) => {
     navigate(`/${section === 'chat' ? 'chat' : section}`);
   };
 
@@ -153,6 +158,22 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
         })}
 
         {/* Search */}
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={currentSection === 'admin' ? 'secondary' : 'ghost'}
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => handleNavigateToSection('admin')}
+              >
+                <Shield className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Admin</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
