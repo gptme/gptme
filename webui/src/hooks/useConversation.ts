@@ -229,10 +229,12 @@ export function useConversation(conversationId: string, serverId?: string) {
                 return;
               }
               // Capture tool duration when tool result arrives
-              const executingTool = conversation$?.executingTool.get();
-              if (executingTool?.startedAt) {
-                const durationMs = Date.now() - executingTool.startedAt;
-                recordToolDuration(conversationId, executingTool.tooluse.tool, durationMs);
+              if (message.role === 'tool') {
+                const executingTool = conversation$?.executingTool.get();
+                if (executingTool?.startedAt) {
+                  const durationMs = Date.now() - executingTool.startedAt;
+                  recordToolDuration(conversationId, executingTool.tooluse.tool, durationMs);
+                }
               }
               addMessage(conversationId, message);
             },

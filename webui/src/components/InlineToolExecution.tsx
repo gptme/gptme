@@ -14,14 +14,16 @@ interface InlineToolExecutionProps {
 
 export function InlineToolExecution({ executingTool$ }: InlineToolExecutionProps) {
   const executingTool = use$(executingTool$);
-  const [elapsedMs, setElapsedMs] = useState(0);
+  const [elapsedMs, setElapsedMs] = useState(() =>
+    executingTool?.startedAt ? Date.now() - executingTool.startedAt : 0
+  );
 
   useEffect(() => {
     if (!executingTool) {
       setElapsedMs(0);
       return;
     }
-    const startTime = executingTool.startedAt ?? Date.now();
+    const startTime = executingTool.startedAt;
     setElapsedMs(Date.now() - startTime);
     const interval = setInterval(() => {
       setElapsedMs(Date.now() - startTime);
