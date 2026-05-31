@@ -10,6 +10,7 @@ import { buildStepRoles, type StepRole } from '@/utils/stepGrouping';
 
 import { InlineToolConfirmation } from './InlineToolConfirmation';
 import { InlineToolExecution } from './InlineToolExecution';
+import { MessageSearchBar } from './MessageSearchBar';
 import { For, Memo, use$, useObservable, useObserveEffect } from '@legendapp/state/react';
 import { getObservableIndex } from '@legendapp/state';
 import { useApi } from '@/contexts/ApiContext';
@@ -44,6 +45,12 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   const { api, connectionConfig } = useApi();
   const hasSession$ = useObservable<boolean>(false);
   const { defaultModel } = useModels();
+
+  // Message search state — declared early so keyboard handlers can reference them
+  const searchVisible$ = useObservable(false);
+  const searchQuery$ = useObservable('');
+  const searchMatchIndices$ = useObservable<number[]>([]);
+  const searchCurrentMatch$ = useObservable(0);
 
   // Fetch user info once (cached in ApiClient)
   useEffect(() => {
@@ -89,6 +96,18 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isReadOnly, hasSession$, shouldFocus$]);
+
+  // Ctrl+F / Cmd+F to open message search
+  useEffect(() => {
+    const handleSearchKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        searchVisible$.set(true);
+      }
+    };
+    window.addEventListener('keydown', handleSearchKeyDown);
+    return () => window.removeEventListener('keydown', handleSearchKeyDown);
+  }, [searchVisible$]);
 
   const firstNonSystemIndex$ = useObservable(() => {
     return conversation$.get()?.data.log.findIndex((msg) => msg.role !== 'system') || 0;
@@ -218,6 +237,93 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     sendMessage({ message, options });
   };
 
+  // Search helpers: imperative DOM highlight + scroll, avoids re-rendering all messages
+  const highlightSearchMatch = useCallback(
+    (msgIndex: number) => {
+      scrollContainerRef.current
+        ?.querySelectorAll<HTMLElement>('[data-message-index]')
+        .forEach((el) => {
+          el.style.outline = '';
+          el.style.outlineOffset = '';
+        });
+      const el = scrollContainerRef.current?.querySelector<HTMLElement>(
+        `[data-message-index="${msgIndex}"]`
+      );
+      if (el) {
+        el.style.outline = '2px solid rgba(234,179,8,0.6)';
+        el.style.outlineOffset = '-2px';
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    },
+    [scrollContainerRef]
+  );
+
+  const computeSearchMatches = useCallback(
+    (query: string): number[] => {
+      if (!query.trim()) return [];
+      const q = query.toLowerCase();
+      const messages = conversation$.data.log.get();
+      if (!messages) return [];
+      return messages
+        .map((msg, i) => (msg.content.toLowerCase().includes(q) ? i : -1))
+        .filter((i) => i >= 0);
+    },
+    [conversation$]
+  );
+
+  const handleSearchQueryChange = useCallback(
+    (query: string) => {
+      searchQuery$.set(query);
+      const matches = computeSearchMatches(query);
+      searchMatchIndices$.set(matches);
+      searchCurrentMatch$.set(0);
+      if (matches.length > 0) highlightSearchMatch(matches[0]);
+      else
+        scrollContainerRef.current
+          ?.querySelectorAll<HTMLElement>('[data-message-index]')
+          .forEach((el) => {
+            el.style.outline = '';
+            el.style.outlineOffset = '';
+          });
+    },
+    [
+      searchQuery$,
+      searchMatchIndices$,
+      searchCurrentMatch$,
+      computeSearchMatches,
+      highlightSearchMatch,
+    ]
+  );
+
+  const handleSearchNext = useCallback(() => {
+    const matches = searchMatchIndices$.get();
+    if (!matches.length) return;
+    const next = (searchCurrentMatch$.get() + 1) % matches.length;
+    searchCurrentMatch$.set(next);
+    highlightSearchMatch(matches[next]);
+  }, [searchMatchIndices$, searchCurrentMatch$, highlightSearchMatch]);
+
+  const handleSearchPrev = useCallback(() => {
+    const matches = searchMatchIndices$.get();
+    if (!matches.length) return;
+    const prev = (searchCurrentMatch$.get() - 1 + matches.length) % matches.length;
+    searchCurrentMatch$.set(prev);
+    highlightSearchMatch(matches[prev]);
+  }, [searchMatchIndices$, searchCurrentMatch$, highlightSearchMatch]);
+
+  const handleSearchClose = useCallback(() => {
+    searchVisible$.set(false);
+    searchQuery$.set('');
+    searchMatchIndices$.set([]);
+    searchCurrentMatch$.set(0);
+    scrollContainerRef.current
+      ?.querySelectorAll<HTMLElement>('[data-message-index]')
+      .forEach((el) => {
+        el.style.outline = '';
+        el.style.outlineOffset = '';
+      });
+  }, [searchVisible$, searchQuery$, searchMatchIndices$, searchCurrentMatch$]);
+
   // Handle tool confirmation
   const handleConfirmTool = async () => {
     await confirmTool('confirm');
@@ -261,6 +367,21 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
 
   return (
     <main className="relative flex h-full flex-col">
+      <Memo>
+        {() =>
+          searchVisible$.get() ? (
+            <MessageSearchBar
+              query={searchQuery$.get()}
+              matchCount={searchMatchIndices$.get().length}
+              currentMatch={searchCurrentMatch$.get() + 1}
+              onQueryChange={handleSearchQueryChange}
+              onNext={handleSearchNext}
+              onPrev={handleSearchPrev}
+              onClose={handleSearchClose}
+            />
+          ) : null
+        }
+      </Memo>
       <div
         className="flex-1 overflow-y-auto"
         ref={scrollContainerRef}
@@ -361,7 +482,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
             const agentName = conversation$.data.agent?.name?.get();
 
             return (
-              <div key={`${index}-${msg$.timestamp.get()}`}>
+              <div key={`${index}-${msg$.timestamp.get()}`} data-message-index={index}>
                 {/* Show summary bar above first message when group is expanded */}
                 {groupSummary}
                 <ChatMessage

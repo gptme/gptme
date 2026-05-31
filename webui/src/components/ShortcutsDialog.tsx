@@ -26,6 +26,7 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     title: 'General',
     shortcuts: [
       { keys: [MOD, 'K'], description: 'Open command palette' },
+      { keys: [MOD, 'F'], description: 'Search messages in conversation' },
       { keys: ['?'], description: 'Show this shortcuts reference' },
       { keys: ['i'], description: 'Focus the message input' },
     ],
