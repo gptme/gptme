@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import {
+  Cpu,
   Globe,
   FolderOpen,
   LayoutDashboard,
@@ -12,6 +13,7 @@ import type { RightSidebarPanelId } from '@/types/sidebar';
 import { ArtifactsPanel } from './ArtifactsPanel';
 import { BrowserPreview } from './BrowserPreview';
 import { ConversationSettings } from './ConversationSettings';
+import { FunctionBrowserPanel } from './FunctionBrowserPanel';
 import { PanelsPanel } from './PanelsPanel';
 import { WorkspaceExplorer } from './workspace/WorkspaceExplorer';
 
@@ -52,6 +54,12 @@ export const rightSidebarPanels: RightSidebarPanelDefinition[] = [
     label: 'Panels',
     icon: LayoutDashboard,
     render: ({ conversationId }) => <PanelsPanel conversationId={conversationId} />,
+  },
+  {
+    id: 'functions',
+    label: 'Functions',
+    icon: Cpu,
+    render: () => <FunctionBrowserPanel />,
   },
   {
     id: 'browser',

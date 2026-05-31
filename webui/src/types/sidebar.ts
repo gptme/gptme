@@ -3,5 +3,6 @@ export type RightSidebarPanelId =
   | 'workspace'
   | 'artifacts'
   | 'panels'
+  | 'functions'
   | 'browser'
   | 'computer';
