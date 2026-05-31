@@ -35,6 +35,9 @@ export interface ConversationState {
   needsInitialStep: boolean;
   // Currently displayed branch name
   currentBranch: string;
+  // Max tokens setting for model responses, persisted across operations.
+  // Set by ChatInput when sending a message; read by all step() call sites.
+  maxTokens?: number;
 }
 
 // Central store for all conversations
@@ -151,6 +154,10 @@ export function initConversation(
 
 export function setNeedsInitialStep(id: string, needsInitialStep: boolean) {
   updateConversation(id, { needsInitialStep });
+}
+
+export function setMaxTokens(id: string, maxTokens: number | undefined) {
+  updateConversation(id, { maxTokens });
 }
 
 // Update conversation data in the store

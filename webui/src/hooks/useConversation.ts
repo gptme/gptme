@@ -22,6 +22,7 @@ import {
   selectedConversation$,
   updateConversationName,
   setNeedsInitialStep,
+  setMaxTokens,
 } from '@/stores/conversations';
 import { playChime } from '@/utils/audio';
 import { findLatestAssistantIndexForError } from '@/utils/conversationErrorHandling';
@@ -38,6 +39,7 @@ export function useConversation(conversationId: string, serverId?: string) {
   const { toast } = useToast();
   const conversation$ = conversations$.get(conversationId);
   const isConnected = use$(isConnected$);
+  const maxTokens = use$(() => conversation$?.maxTokens.get());
 
   const messageJustCompleted = useRef(false);
 
@@ -341,7 +343,7 @@ export function useConversation(conversationId: string, serverId?: string) {
               if (needsStep) {
                 console.log('[useConversation] Triggering initial step after subscription');
                 setNeedsInitialStep(conversationId, false);
-                api.step(conversationId).catch((error) => {
+                api.step(conversationId, undefined, true, 'main', maxTokens).catch((error) => {
                   console.error('[useConversation] Error triggering initial step:', error);
                   toastStepStartError(toast, error);
                 });
@@ -458,6 +460,8 @@ export function useConversation(conversationId: string, serverId?: string) {
 
       // Start generation
       await api.step(conversationId, options?.model, options?.stream, 'main', options?.maxTokens);
+      // Store maxTokens in conversation state so regenerate/rerun paths can use it
+      setMaxTokens(conversationId, options?.maxTokens);
     } catch (error) {
       console.error('Error sending message:', error);
       const { title, description } = getApiErrorPresentation(error, {
@@ -583,7 +587,7 @@ export function useConversation(conversationId: string, serverId?: string) {
 
       // After truncation, trigger re-generation
       if (truncate) {
-        await api.step(conversationId);
+        await api.step(conversationId, undefined, true, 'main', maxTokens);
       }
     } catch (error) {
       console.error('Error editing message:', error);
@@ -626,7 +630,7 @@ export function useConversation(conversationId: string, serverId?: string) {
         await api.rerunTools(conversationId);
       } catch {
         // No tools found — fall back to step() (regenerate)
-        await api.step(conversationId);
+        await api.step(conversationId, undefined, true, 'main', maxTokens);
       }
     } catch (error) {
       console.error('Error re-running from message:', error);
@@ -648,7 +652,7 @@ export function useConversation(conversationId: string, serverId?: string) {
       if (result.branches) {
         updateBranches(conversationId, result.branches);
       }
-      await api.step(conversationId);
+      await api.step(conversationId, undefined, true, 'main', maxTokens);
     } catch (error) {
       console.error('Error regenerating message:', error);
       const errorMsg = error instanceof Error ? error.message : 'Failed to regenerate';
