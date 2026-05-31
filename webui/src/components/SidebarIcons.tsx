@@ -64,7 +64,7 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
   const isExpanded = prefExpanded && isLargeScreen;
 
   const toggleNavExpanded = () => {
-    const next = !isExpanded;
+    const next = !prefExpanded;
     setPrefExpanded(next);
     try {
       localStorage.setItem(NAV_SIDEBAR_KEY, String(next));

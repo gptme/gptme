@@ -147,6 +147,24 @@ describe('SidebarIcons', () => {
     expect(chatLabel).toHaveClass('opacity-100');
   });
 
+  it('toggle on medium viewport (768-1023px) flips preference and stores it', () => {
+    // Start on lg+ with expanded preference, then shrink to medium
+    renderSidebar();
+    act(() => setWindowWidth(900));
+    const sidebar = screen.getByTestId('nav-sidebar');
+    // Auto-collapsed on medium viewport
+    expect(sidebar).toHaveAttribute('data-expanded', 'false');
+
+    // Click collapse → should set prefExpanded to false (not a no-op)
+    const toggle = screen.getByTestId('toggle-nav-sidebar');
+    fireEvent.click(toggle);
+    expect(mockLocalStorage.getItem('nav-sidebar-expanded')).toBe('false');
+
+    // Click again → should toggle prefExpanded back to true
+    fireEvent.click(toggle);
+    expect(mockLocalStorage.getItem('nav-sidebar-expanded')).toBe('true');
+  });
+
   it('hides labels (zero opacity) when collapsed', () => {
     mockLocalStorage.setItem('nav-sidebar-expanded', 'false');
     renderSidebar();
