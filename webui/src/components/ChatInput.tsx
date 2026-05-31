@@ -33,7 +33,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { type Observable } from '@legendapp/state';
 import { Computed, use$ } from '@legendapp/state/react';
-import { conversations$ } from '@/stores/conversations';
+import { conversations$, setMaxTokens as setMaxTokensStore } from '@/stores/conversations';
 import {
   selectedAgent$,
   selectedWorkspace$,
@@ -566,6 +566,13 @@ export const ChatInput: FC<Props> = ({
       conversationId ? conversations$.get(conversationId)?.maxTokens?.peek() : undefined
     );
   }, [conversationId, conversationModel, defaultModel, apiDefaultModel]);
+
+  // Keep store in sync with local maxTokens so regenerate/rerun see the current UI value
+  useEffect(() => {
+    if (conversationId) {
+      setMaxTokensStore(conversationId, maxTokens);
+    }
+  }, [maxTokens, conversationId]);
 
   const [selectedWorkspace, setSelectedWorkspace] = useState<string>(
     // For new conversations, use the selected workspace from sidebar, otherwise default to '.'
