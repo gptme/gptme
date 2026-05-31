@@ -8,16 +8,20 @@ implementing their own pre/post CWD comparison.
 See: https://github.com/gptme/gptme/issues/1521
 """
 
+from __future__ import annotations
+
 import logging
 import os
-from collections.abc import Generator
 from contextvars import ContextVar
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
 from ..hooks import HookType, StopPropagation, register_hook, trigger_hook
-from ..logmanager import Log
-from ..message import Message
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
+
+    from ..hooks.types import ToolExecutePostData, ToolExecutePreData
+    from ..message import Message
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +30,7 @@ _cwd_before_var: ContextVar[str | None] = ContextVar("cwd_changed_before", defau
 
 
 def _store_cwd(
-    log: Log, workspace: Path | None, tool_use: Any
+    data: ToolExecutePreData,
 ) -> Generator[Message | StopPropagation, None, None]:
     """Store the current working directory before tool execution."""
     try:
@@ -39,7 +43,7 @@ def _store_cwd(
 
 
 def _detect_change(
-    log: Log, workspace: Path | None, tool_use: Any, **kwargs: Any
+    data: ToolExecutePostData,
 ) -> Generator[Message | StopPropagation, None, None]:
     """Detect CWD changes and trigger CWD_CHANGED hooks."""
     try:
@@ -53,11 +57,11 @@ def _detect_change(
             logger.debug(f"CWD changed: {prev_cwd} → {current_cwd}")
             yield from trigger_hook(
                 HookType.CWD_CHANGED,
-                log=log,
-                workspace=workspace,
+                log=data.log,
+                workspace=data.workspace,
                 old_cwd=prev_cwd,
                 new_cwd=current_cwd,
-                tool_use=tool_use,
+                tool_use=data.tool_use,
             )
     except Exception as e:
         logger.exception(f"Error detecting CWD change: {e}")
@@ -75,6 +79,5 @@ def register() -> None:
         "cwd_changed.detect",
         HookType.TOOL_EXECUTE_POST,
         _detect_change,
-        priority=100,  # High priority — trigger before other POST hooks
+        priority=100,  # High priority — run first to detect CWD changes
     )
-    logger.debug("Registered centralized CWD change detection")

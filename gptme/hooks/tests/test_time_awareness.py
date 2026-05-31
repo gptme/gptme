@@ -2,7 +2,6 @@
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, cast
 
 import pytest
 
@@ -12,6 +11,7 @@ from gptme.hooks.time_awareness import (
     _shown_milestones_var,
     add_time_message,
 )
+from gptme.hooks.types import ToolExecutePostData
 from gptme.message import Message
 
 
@@ -37,7 +37,9 @@ def _call_add_time_message(
     """Helper to call add_time_message with a dummy log, returning only Messages."""
     # The hook doesn't use the log parameter, so we pass a sentinel
     results = list(
-        add_time_message(log=cast(Any, None), workspace=workspace, tool_use=None)
+        add_time_message(
+            ToolExecutePostData(log=None, workspace=workspace, tool_use=None)
+        )
     )
     return [r for r in results if isinstance(r, Message)]
 

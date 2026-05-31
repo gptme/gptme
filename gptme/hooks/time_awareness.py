@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Time awareness hook.
 
@@ -14,15 +16,19 @@ Shows time elapsed messages at: 1min, 5min, 10min, 15min, 20min, then every 10mi
 """
 
 import logging
-from collections.abc import Generator
 from contextvars import ContextVar
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
 from ..hooks import HookType, StopPropagation, register_hook
-from ..logmanager import Log
 from ..message import Message
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
+
+    from ..hooks.types import ToolExecutePostData
+
+logger = logging.getLogger(__name__)
 
 logger = logging.getLogger(__name__)
 
@@ -44,18 +50,17 @@ def _ensure_locals():
 
 
 def add_time_message(
-    log: Log, workspace: Path | None, tool_use: Any, **kwargs: Any
+    data: ToolExecutePostData,
 ) -> Generator[Message | StopPropagation, None, None]:
     """Add time elapsed message after tool execution.
 
     Shows messages at: 1min, 5min, 10min, 15min, 20min, then every 10min.
 
     Args:
-        log: The conversation log
-        workspace: Workspace directory path
-        tool_use: The tool being executed (unused)
+        data: Post-execution context (log, workspace, tool_use).
     """
     try:
+        workspace = data.workspace
         if workspace is None:
             return
 

@@ -34,9 +34,8 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
     from ..hooks import StopPropagation
-    from ..logmanager import Log
+    from ..hooks.types import ToolExecutePostData, ToolExecutePreData
     from ..message import Message
-    from ..tools.base import ToolUse
 
 logger = logging.getLogger(__name__)
 
@@ -177,12 +176,9 @@ def emit_end(
 
 
 def record_tool_start(
-    log: Log,
-    workspace: Path | None,
-    tool_use: ToolUse,
+    data: ToolExecutePreData,
 ) -> Generator[Message | StopPropagation, None, None]:
     """Record the start time for a tool so the post hook can emit duration."""
-    del log, workspace
     if not _enabled():
         return
     tool_start_times = _ensure_tool_start_times()
@@ -192,21 +188,23 @@ def record_tool_start(
     stale = [k for k, v in tool_start_times.items() if now - v > _MAX_TOOL_AGE_S]
     for k in stale:
         del tool_start_times[k]
-    tool_start_times[id(tool_use)] = now
+    if data.tool_use is not None:
+        tool_start_times[id(data.tool_use)] = now
     _tool_start_times_var.set(tool_start_times)
     return
     yield
 
 
 def emit_tool_activity(
-    log: Log,
-    workspace: Path | None,
-    tool_use: ToolUse,
-    **kwargs: Any,
+    data: ToolExecutePostData,
 ) -> Generator[Message | StopPropagation, None, None]:
     """Emit one per-tool activity heartbeat after a tool finishes."""
-    del log
     if not _enabled():
+        return
+
+    tool_use = data.tool_use
+    workspace = data.workspace
+    if tool_use is None:
         return
 
     session_id = _current_tool_session_id()

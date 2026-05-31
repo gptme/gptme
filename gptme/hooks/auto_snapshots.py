@@ -56,7 +56,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
     from ..hooks import StopPropagation
-    from ..logmanager import Log
+    from ..hooks.types import ToolExecutePostData, ToolExecutePreData
     from ..message import Message
 
 logger = logging.getLogger(__name__)
@@ -223,19 +223,20 @@ def _shadow_for(workspace: Path | None) -> Shadow | None:
 
 
 def _pre(
-    log: Log, workspace: Path | None, tool_use: Any
+    data: ToolExecutePreData,
 ) -> Generator[Message | StopPropagation, None, None]:
     """Capture pre-tool snapshot if the tool is mutating."""
     if not _enabled():
         return
-    if tool_use is None:
+    if data.tool_use is None:
         return
+    tool_use = data.tool_use
     tool_name = getattr(tool_use, "tool", None) or ""
     content = _tool_payload(tool_use)
     if not classify_tool_use(tool_name, content):
         _pre_tree_var.set(None)
         return
-    shadow = _shadow_for(workspace)
+    shadow = _shadow_for(data.workspace)
     if shadow is None:
         return
     try:
@@ -253,18 +254,19 @@ def _pre(
 
 
 def _post(
-    log: Log, workspace: Path | None, tool_use: Any, **kwargs: Any
+    data: ToolExecutePostData,
 ) -> Generator[Message | StopPropagation, None, None]:
     """Emit post-tool snapshot only when the workspace tree actually changed."""
     if not _enabled():
         return
-    if tool_use is None:
+    if data.tool_use is None:
         return
+    tool_use = data.tool_use
     tool_name = getattr(tool_use, "tool", None) or ""
     content = _tool_payload(tool_use)
     if not classify_tool_use(tool_name, content):
         return
-    shadow = _shadow_for(workspace)
+    shadow = _shadow_for(data.workspace)
     if shadow is None:
         return
     try:

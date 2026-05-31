@@ -23,6 +23,34 @@ if TYPE_CHECKING:
     from ..tools.base import ToolUse  # fmt: skip
 
 
+@dataclass
+class ToolExecuteData:
+    """Base data for tool execution hooks.
+
+    Shared fields between TOOL_EXECUTE_PRE and TOOL_EXECUTE_POST.
+    """
+
+    log: "Log | None" = None
+    workspace: Path | None = None
+    tool_use: "ToolUse | None" = None
+
+
+@dataclass
+class ToolExecutePreData(ToolExecuteData):
+    """Data passed to TOOL_EXECUTE_PRE hooks."""
+
+
+@dataclass
+class ToolExecutePostData(ToolExecuteData):
+    """Data passed to TOOL_EXECUTE_POST hooks.
+
+    Extends the base with tool result messages so post-hooks can inspect
+    what the tool actually returned.
+    """
+
+    result_msgs: tuple["Message", ...] | None = None
+
+
 class StopPropagation:
     """Sentinel class that hooks can yield to stop execution of lower-priority hooks.
 
@@ -127,27 +155,40 @@ class SessionEndHook(Protocol):
     ) -> Generator[Message | StopPropagation, None, None]: ...
 
 
-class ToolExecuteHook(Protocol):
-    """Hook called before/after tool execution.
+class ToolExecutePreHook(Protocol):
+    """Hook called before tool execution.
 
-    Note: Receives log/workspace separately since manager isn't available in ToolUse.execute() context.
+    Receives a single ToolExecutePreData object instead of positional args,
+    so adding new fields never breaks existing hook signatures.
 
     Args:
-        log: The conversation log
-        workspace: Workspace directory path
-        tool_use: The tool being executed
-
-    TOOL_EXECUTE_POST hooks also receive ``result_msgs: list[Message]`` as a
-    keyword argument (the messages yielded by the tool). Hooks that want to
-    inspect tool output should accept ``**kwargs`` and extract it from there.
+        data: Pre-execution context (log, workspace, tool_use).
     """
 
     def __call__(
         self,
-        log: "Log",
-        workspace: Path | None,
-        tool_use: "ToolUse",
+        data: ToolExecutePreData,
     ) -> Generator[Message | StopPropagation, None, None]: ...
+
+
+class ToolExecutePostHook(Protocol):
+    """Hook called after tool execution.
+
+    Receives a single ToolExecutePostData object that includes the tool's
+    result messages in addition to the execution context.
+
+    Args:
+        data: Post-execution context (log, workspace, tool_use, result_msgs).
+    """
+
+    def __call__(
+        self,
+        data: ToolExecutePostData,
+    ) -> Generator[Message | StopPropagation, None, None]: ...
+
+
+# ToolExecuteHook kept as union alias for backward compat in HookFunc
+ToolExecuteHook = ToolExecutePreHook | ToolExecutePostHook
 
 
 class MessageProcessHook(Protocol):
@@ -299,7 +340,8 @@ class FilePostSaveHook(Protocol):
 HookFunc = (
     SessionStartHook
     | SessionEndHook
-    | ToolExecuteHook
+    | ToolExecutePreHook
+    | ToolExecutePostHook
     | CwdChangedHook
     | MessageProcessHook
     | LoopContinueHook

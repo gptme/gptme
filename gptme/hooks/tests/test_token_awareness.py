@@ -16,6 +16,7 @@ from gptme.hooks.token_awareness import (
     add_token_budget,
     add_token_usage_warning,
 )
+from gptme.hooks.types import ToolExecutePostData
 from gptme.message import Message
 
 
@@ -102,7 +103,11 @@ class TestAddTokenUsageWarning:
             return_value=_make_model(),
         ):
             log: Any = None
-            msgs = list(add_token_usage_warning(log, None, None))
+            msgs = list(
+                add_token_usage_warning(
+                    ToolExecutePostData(log=log, workspace=None, tool_use=None)
+                )
+            )
         assert msgs == []
 
     def test_no_model_yields_nothing(self):
@@ -112,7 +117,11 @@ class TestAddTokenUsageWarning:
             return_value=None,
         ):
             log = self._make_log()
-            msgs = list(add_token_usage_warning(log, None, None))
+            msgs = list(
+                add_token_usage_warning(
+                    ToolExecutePostData(log=log, workspace=None, tool_use=None)
+                )
+            )
         assert msgs == []
 
     def test_no_workspace_always_warns(self):
@@ -129,7 +138,11 @@ class TestAddTokenUsageWarning:
             ),
         ):
             log = self._make_log()
-            msgs = list(add_token_usage_warning(log, None, None))
+            msgs = list(
+                add_token_usage_warning(
+                    ToolExecutePostData(log=log, workspace=None, tool_use=None)
+                )
+            )
         assert len(msgs) == 1
         msg = cast(Message, msgs[0])
         assert msg.role == "system"
@@ -152,7 +165,11 @@ class TestAddTokenUsageWarning:
             ),
         ):
             log = self._make_log()
-            msgs = list(add_token_usage_warning(log, workspace, None))
+            msgs = list(
+                add_token_usage_warning(
+                    ToolExecutePostData(log=log, workspace=workspace, tool_use=None)
+                )
+            )
 
         # 110k / 200k = 55% → crosses 50% threshold → should warn
         assert len(msgs) == 1
@@ -176,7 +193,11 @@ class TestAddTokenUsageWarning:
                 return_value=5_000,
             ),
         ):
-            list(add_token_usage_warning(log1, workspace, None))
+            list(
+                add_token_usage_warning(
+                    ToolExecutePostData(log=log1, workspace=workspace, tool_use=None)
+                )
+            )
 
         # Add more messages
         msgs2 = msgs1 + [Message("user", "more"), Message("assistant", "ok")]
@@ -195,7 +216,11 @@ class TestAddTokenUsageWarning:
             # Second call: total = 5000 + 5000 = 10000
             # 10k / 200k = 5% → below thresholds
             # But (10000 - 0) >= 10000 → WARNING_INTERVAL threshold crossed
-            msgs = list(add_token_usage_warning(log2, workspace, None))
+            msgs = list(
+                add_token_usage_warning(
+                    ToolExecutePostData(log=log2, workspace=workspace, tool_use=None)
+                )
+            )
 
         assert len(msgs) == 1
         assert "10000/200000" in cast(Message, msgs[0]).content
@@ -216,7 +241,11 @@ class TestAddTokenUsageWarning:
             ),
         ):
             log = self._make_log()
-            list(add_token_usage_warning(log, workspace, None))
+            list(
+                add_token_usage_warning(
+                    ToolExecutePostData(log=log, workspace=workspace, tool_use=None)
+                )
+            )
 
         # Now call again with no new messages → no token change → no warning
         with (
@@ -229,7 +258,11 @@ class TestAddTokenUsageWarning:
                 return_value=0,
             ),
         ):
-            msgs = list(add_token_usage_warning(log, workspace, None))
+            msgs = list(
+                add_token_usage_warning(
+                    ToolExecutePostData(log=log, workspace=workspace, tool_use=None)
+                )
+            )
         assert msgs == []
 
     def test_percentage_threshold_crossing(self, tmp_path: Path):
@@ -249,7 +282,11 @@ class TestAddTokenUsageWarning:
             ),
         ):
             log = self._make_log()
-            list(add_token_usage_warning(log, workspace, None))
+            list(
+                add_token_usage_warning(
+                    ToolExecutePostData(log=log, workspace=workspace, tool_use=None)
+                )
+            )
 
         # Now we're at 40k, last_warning=40k. Add 36k more → 76k → crosses 75%
         msgs2 = [Message("user", "hi")] * 4
@@ -265,7 +302,11 @@ class TestAddTokenUsageWarning:
                 return_value=36_000,
             ),
         ):
-            msgs = list(add_token_usage_warning(log2, workspace, None))
+            msgs = list(
+                add_token_usage_warning(
+                    ToolExecutePostData(log=log2, workspace=workspace, tool_use=None)
+                )
+            )
 
         assert len(msgs) == 1
         assert "76000/100000" in cast(Message, msgs[0]).content
@@ -277,7 +318,11 @@ class TestAddTokenUsageWarning:
             side_effect=RuntimeError("bad"),
         ):
             log = self._make_log()
-            msgs = list(add_token_usage_warning(log, tmp_path, None))
+            msgs = list(
+                add_token_usage_warning(
+                    ToolExecutePostData(log=log, workspace=tmp_path, tool_use=None)
+                )
+            )
         assert msgs == []
 
     def test_warning_constants(self):

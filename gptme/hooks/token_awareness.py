@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Token budget awareness hook.
 
@@ -10,14 +12,17 @@ Adds:
 """
 
 import logging
-from collections.abc import Generator
 from contextvars import ContextVar
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
 from ..hooks import HookType, StopPropagation, register_hook
-from ..logmanager import Log
 from ..message import Message, len_tokens
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
+    from pathlib import Path
+
+    from ..hooks.types import ToolExecutePostData
 
 logger = logging.getLogger(__name__)
 
@@ -86,21 +91,19 @@ def add_token_budget(
 
 
 def add_token_usage_warning(
-    log: Log, workspace: Path | None, tool_use: Any, **kwargs: Any
+    data: ToolExecutePostData,
 ) -> Generator[Message | StopPropagation, None, None]:
     """Add token usage warning after tool execution.
 
     Uses incremental token counting to avoid O(N²) behavior.
     Only shows warnings at meaningful thresholds to avoid noise.
 
-    Args:
-        log: The conversation log
-        workspace: Workspace directory path
-        tool_use: The tool being executed (unused)
-
     Yields:
         System message with token usage warning (only at thresholds)
     """
+    log = data.log
+    workspace = data.workspace
+
     # Guard against None log (can happen in edge cases like tests)
     if log is None:
         logger.debug("No log provided, skipping token usage warning")

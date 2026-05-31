@@ -2,11 +2,12 @@
 
 from pathlib import Path
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 from unittest.mock import patch
 
 from gptme.hooks import HookRegistry, HookType, get_registry, set_registry, trigger_hook
 from gptme.hooks.aw_watcher_agent import emit_end, emit_start
+from gptme.hooks.types import ToolExecutePostData, ToolExecutePreData
 from gptme.logmanager import LogManager, _current_log_var
 from gptme.tools.base import ToolUse
 
@@ -138,9 +139,11 @@ def test_tool_activity_hooks_emit_heartbeat_when_registered(monkeypatch):
                 list(
                     trigger_hook(
                         HookType.TOOL_EXECUTE_PRE,
-                        log=SimpleNamespace(messages=[]),
-                        workspace=Path("/tmp/workspace"),
-                        tool_use=tool_use,
+                        ToolExecutePreData(
+                            log=cast(Any, SimpleNamespace(messages=[])),
+                            workspace=Path("/tmp/workspace"),
+                            tool_use=tool_use,
+                        ),
                     )
                 )
                 == []
@@ -149,9 +152,11 @@ def test_tool_activity_hooks_emit_heartbeat_when_registered(monkeypatch):
                 list(
                     trigger_hook(
                         HookType.TOOL_EXECUTE_POST,
-                        log=SimpleNamespace(messages=[]),
-                        workspace=Path("/tmp/workspace"),
-                        tool_use=tool_use,
+                        ToolExecutePostData(
+                            log=cast(Any, SimpleNamespace(messages=[])),
+                            workspace=Path("/tmp/workspace"),
+                            tool_use=tool_use,
+                        ),
                     )
                 )
                 == []

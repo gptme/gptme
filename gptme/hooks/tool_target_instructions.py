@@ -17,18 +17,21 @@ parsing is intentionally out of scope — `cwd.changed` covers that.
 See: knowledge/technical-designs/tool-targeted-agent-instruction-loading.md
 """
 
+from __future__ import annotations
+
 import logging
-from collections.abc import Generator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from ..hooks import HookType, StopPropagation, register_hook
-from ..logmanager import Log
-from ..message import Message
 from ..prompts import find_agent_files_in_tree
 from .agents_md_inject import _get_loaded_files, inject_agent_instruction_files
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
+
+    from ..hooks.types import ToolExecutePostData
+    from ..message import Message
     from ..tools.base import ToolUse  # fmt: skip
 
 logger = logging.getLogger(__name__)
@@ -61,7 +64,7 @@ _MAX_INJECT_PER_EVENT = 3
 _MAX_BYTES_PER_EVENT = 12_000
 
 
-def _extract_paths(tool_use: "ToolUse") -> list[Path]:
+def _extract_paths(tool_use: ToolUse) -> list[Path]:
     """Extract explicit file/directory path candidates from a tool's arguments.
 
     Returns expanded `Path` objects for downstream resolution. Free text and
@@ -147,19 +150,20 @@ def _candidate_directories(paths: list[Path]) -> list[Path]:
 
 
 def on_tool_execute_post(
-    log: Log,
-    workspace: Path | None,
-    tool_use: Any,
-    **kwargs: Any,
+    data: ToolExecutePostData,
 ) -> Generator[Message | StopPropagation, None, None]:
     """Discover and inject AGENTS.md files for paths touched by structured tools.
 
+    Receives a ToolExecutePostData dataclass so new fields can be added without
+    breaking existing hook signatures. Extracts log/workspace/tool_use from data.
+
     Args:
-        log: The conversation log (used as a fallback for the loaded-files set
-            in server mode, mirroring `agents_md_inject`).
-        workspace: Workspace directory path.
-        tool_use: The tool that just executed.
+        data: Post-execution context (log, workspace, tool_use).
     """
+    log = data.log
+    tool_use = data.tool_use
+    if tool_use is None:
+        return
     try:
         paths = _extract_paths(tool_use)
         if not paths:

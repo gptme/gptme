@@ -21,6 +21,7 @@ from gptme.hooks.tool_target_instructions import (
     _extract_paths,
     on_tool_execute_post,
 )
+from gptme.hooks.types import ToolExecutePostData
 from gptme.logmanager import Log
 from gptme.message import Message
 from gptme.prompts import _loaded_agent_files_var
@@ -132,7 +133,9 @@ class TestOnToolExecutePost:
 
         use = _make_use("read", kwargs={"path": str(target)})
         msgs = list(
-            on_tool_execute_post(log=empty_log, workspace=tmp_path, tool_use=use)
+            on_tool_execute_post(
+                ToolExecutePostData(log=empty_log, workspace=tmp_path, tool_use=use)
+            )
         )
         injected = [m for m in msgs if isinstance(m, Message)]
         assert injected, "expected AGENTS.md injection for subdir read"
@@ -153,7 +156,9 @@ class TestOnToolExecutePost:
 
         use = _make_use("patch", kwargs={"path": str(target)})
         msgs = list(
-            on_tool_execute_post(log=empty_log, workspace=tmp_path, tool_use=use)
+            on_tool_execute_post(
+                ToolExecutePostData(log=empty_log, workspace=tmp_path, tool_use=use)
+            )
         )
         injected = [m for m in msgs if isinstance(m, Message)]
         assert injected, "patch in worktree should pull AGENTS.md"
@@ -174,17 +179,21 @@ class TestOnToolExecutePost:
         # First touch: original repo.
         msgs1 = list(
             on_tool_execute_post(
-                log=empty_log,
-                workspace=tmp_path,
-                tool_use=_make_use("read", kwargs={"path": str(original / "x.md")}),
+                ToolExecutePostData(
+                    log=empty_log,
+                    workspace=tmp_path,
+                    tool_use=_make_use("read", kwargs={"path": str(original / "x.md")}),
+                )
             )
         )
         # Second touch: worktree copy with identical content.
         msgs2 = list(
             on_tool_execute_post(
-                log=empty_log,
-                workspace=tmp_path,
-                tool_use=_make_use("read", kwargs={"path": str(worktree / "y.md")}),
+                ToolExecutePostData(
+                    log=empty_log,
+                    workspace=tmp_path,
+                    tool_use=_make_use("read", kwargs={"path": str(worktree / "y.md")}),
+                )
             )
         )
         injected1 = [m for m in msgs1 if isinstance(m, Message)]
@@ -207,16 +216,20 @@ class TestOnToolExecutePost:
 
         first = list(
             on_tool_execute_post(
-                log=empty_log,
-                workspace=tmp_path,
-                tool_use=_make_use("read", kwargs={"path": str(project / "a.py")}),
+                ToolExecutePostData(
+                    log=empty_log,
+                    workspace=tmp_path,
+                    tool_use=_make_use("read", kwargs={"path": str(project / "a.py")}),
+                )
             )
         )
         second = list(
             on_tool_execute_post(
-                log=empty_log,
-                workspace=tmp_path,
-                tool_use=_make_use("read", kwargs={"path": str(project / "b.py")}),
+                ToolExecutePostData(
+                    log=empty_log,
+                    workspace=tmp_path,
+                    tool_use=_make_use("read", kwargs={"path": str(project / "b.py")}),
+                )
             )
         )
         injected1 = [m for m in first if isinstance(m, Message)]
@@ -231,7 +244,9 @@ class TestOnToolExecutePost:
         (project / "AGENTS.md").write_text("# Instructions")
         use = _make_use("shell", args=[f"cat {project / 'foo.md'}"])
         msgs = list(
-            on_tool_execute_post(log=empty_log, workspace=tmp_path, tool_use=use)
+            on_tool_execute_post(
+                ToolExecutePostData(log=empty_log, workspace=tmp_path, tool_use=use)
+            )
         )
         assert [m for m in msgs if isinstance(m, Message)] == []
 
@@ -245,7 +260,9 @@ class TestOnToolExecutePost:
         target.write_text("nothing")
         use = _make_use("read", kwargs={"path": str(target)})
         msgs = list(
-            on_tool_execute_post(log=empty_log, workspace=tmp_path, tool_use=use)
+            on_tool_execute_post(
+                ToolExecutePostData(log=empty_log, workspace=tmp_path, tool_use=use)
+            )
         )
         injected = [
             m
@@ -268,7 +285,9 @@ class TestOnToolExecutePost:
 
         use = _make_use("read", kwargs={"path": str(project / "main.py")})
         msgs = list(
-            on_tool_execute_post(log=empty_log, workspace=tmp_path, tool_use=use)
+            on_tool_execute_post(
+                ToolExecutePostData(log=empty_log, workspace=tmp_path, tool_use=use)
+            )
         )
         local = [
             m for m in msgs if isinstance(m, Message) and str(project) in m.content
@@ -288,7 +307,9 @@ class TestOnToolExecutePost:
 
         use = _make_use("read", args=[], content=f"{target}\n# keep going")
         msgs = list(
-            on_tool_execute_post(log=empty_log, workspace=tmp_path, tool_use=use)
+            on_tool_execute_post(
+                ToolExecutePostData(log=empty_log, workspace=tmp_path, tool_use=use)
+            )
         )
 
         injected = [
@@ -313,10 +334,14 @@ class TestOnToolExecutePost:
 
         use = _make_use("read", kwargs={"path": str(target)})
         first = list(
-            on_tool_execute_post(log=empty_log, workspace=tmp_path, tool_use=use)
+            on_tool_execute_post(
+                ToolExecutePostData(log=empty_log, workspace=tmp_path, tool_use=use)
+            )
         )
         second = list(
-            on_tool_execute_post(log=empty_log, workspace=tmp_path, tool_use=use)
+            on_tool_execute_post(
+                ToolExecutePostData(log=empty_log, workspace=tmp_path, tool_use=use)
+            )
         )
 
         for msgs in (first, second):
@@ -370,7 +395,9 @@ class TestOnToolExecutePost:
 
         with patch("gptme.prompts.workspace.Path.home", return_value=tmp_path):
             msgs = list(
-                on_tool_execute_post(log=empty_log, workspace=tmp_path, tool_use=use)
+                on_tool_execute_post(
+                    ToolExecutePostData(log=empty_log, workspace=tmp_path, tool_use=use)
+                )
             )
 
         injected = [
