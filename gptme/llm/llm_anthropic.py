@@ -31,6 +31,7 @@ from .utils import (
 ENV_REASONING = "GPTME_REASONING"
 ENV_REASONING_BUDGET = "GPTME_REASONING_BUDGET"
 ENV_THINKING_EFFORT = "GPTME_THINKING_EFFORT"
+ENV_FAST_MODE = "GPTME_ANTHROPIC_FAST_MODE"
 
 # Named effort levels → budget_tokens fallback values.  When the installed
 # anthropic SDK exposes ``output_config.effort`` (>= 0.77) these are only
@@ -228,6 +229,29 @@ def _resolve_thinking_budget() -> int:
             f"Invalid {ENV_REASONING_BUDGET} value: {budget_raw!r}. "
             "Must be a valid integer."
         ) from parse_err
+
+
+def _fast_mode_kwargs() -> dict:
+    """Return ``extra_body`` kwargs enabling Anthropic fast mode, or ``{}``.
+
+    Fast mode (Claude Opus 4.8+ research preview) trades premium pricing for up
+    to ~2.5x higher output tokens/sec via the ``speed: "fast"`` request field.
+    It is sent through ``extra_body`` because the pinned anthropic SDK (^0.47)
+    does not type the field natively; ``extra_body`` is merged verbatim into the
+    request JSON, so this works regardless of SDK version.
+
+    Opt-in via ``GPTME_ANTHROPIC_FAST_MODE=1`` (default off). When disabled this
+    returns ``{}`` and has zero effect on the request — standard tier, standard
+    pricing. When enabled against a model/org without fast-mode access, the API
+    returns a normal error rather than silently downgrading; keep it off unless
+    you have access and want the latency/cost trade-off (best for latency-
+    sensitive callers such as gptme-voice).
+    """
+    enabled = os.environ.get(ENV_FAST_MODE, "").lower() in ("1", "true", "yes")
+    if not enabled:
+        return {}
+    logger.info("Anthropic fast mode enabled (speed=fast)")
+    return {"extra_body": {"speed": "fast"}}
 
 
 def _normalize_effort_level(effort: str) -> _EffortLevel:
@@ -659,6 +683,7 @@ def chat(
         tools=tools_dict or NOT_GIVEN,
         thinking=thinking_param if thinking_param is not None else NOT_GIVEN,
         **output_config_kwargs,
+        **_fast_mode_kwargs(),
         # We set a timeout for non-streaming requests to prevent Anthropic's
         # "Streaming is strongly recommended" warning/error.
         timeout=60,
@@ -755,6 +780,7 @@ def stream(
         tools=tools_dict or NOT_GIVEN,
         thinking=thinking_param if thinking_param is not None else NOT_GIVEN,  # type: ignore[arg-type]
         **output_config_kwargs,
+        **_fast_mode_kwargs(),
     ) as stream:
         for chunk in stream:
             match chunk.type:

@@ -8,6 +8,7 @@ from gptme.llm.llm_anthropic import (
     _HAS_OUTPUT_CONFIG,
     _adjust_thinking_budget,
     _build_thinking_param,
+    _fast_mode_kwargs,
     _output_config_kwargs,
     _prepare_messages_for_api,
     _requires_adaptive_thinking,
@@ -460,6 +461,26 @@ def test_web_search_tool_disabled():
 
     # Verify no tools are included
     assert tools_dict is None
+
+
+def test_fast_mode_disabled_by_default(monkeypatch):
+    """_fast_mode_kwargs returns {} when GPTME_ANTHROPIC_FAST_MODE is unset."""
+    monkeypatch.delenv("GPTME_ANTHROPIC_FAST_MODE", raising=False)
+    assert _fast_mode_kwargs() == {}
+
+
+@pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes", "Yes"])
+def test_fast_mode_enabled(monkeypatch, value):
+    """_fast_mode_kwargs injects extra_body speed=fast when enabled (truthy values)."""
+    monkeypatch.setenv("GPTME_ANTHROPIC_FAST_MODE", value)
+    assert _fast_mode_kwargs() == {"extra_body": {"speed": "fast"}}
+
+
+@pytest.mark.parametrize("value", ["0", "false", "no", "", "off"])
+def test_fast_mode_falsy_values_disabled(monkeypatch, value):
+    """_fast_mode_kwargs treats non-truthy values as disabled."""
+    monkeypatch.setenv("GPTME_ANTHROPIC_FAST_MODE", value)
+    assert _fast_mode_kwargs() == {}
 
 
 def test_web_search_tool_with_other_tools():
