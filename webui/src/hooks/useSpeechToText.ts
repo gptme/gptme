@@ -76,7 +76,8 @@ export function useSpeechToText(): UseSpeechToTextReturn {
     };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    recognition.onerror = (_event: any) => {
+    recognition.onerror = (event: any) => {
+      console.warn('SpeechRecognition error:', event.error);
       if (recognitionRef.current !== recognition) return; // stale closure guard
       setState('error');
       recognitionRef.current = null;
