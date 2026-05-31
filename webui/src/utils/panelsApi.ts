@@ -11,11 +11,16 @@ export function usePanelsApi() {
       conversationId: string,
       signal?: AbortSignal
     ): Promise<IframePanelEntry[]> {
-      const baseUrl = withLocalAddressSpace(api.baseUrl);
+      const url = `${api.baseUrl}/api/v2/conversations/${encodeURIComponent(conversationId)}/panels`;
+
       const response = await fetch(
-        `${baseUrl}/api/v2/conversations/${encodeURIComponent(conversationId)}/panels`,
-        { signal }
+        url,
+        withLocalAddressSpace(url, {
+          headers: api.authHeader ? { Authorization: api.authHeader } : undefined,
+          signal,
+        })
       );
+
       if (!response.ok) {
         throw new Error(`Failed to fetch panels (${response.status})`);
       }
@@ -24,5 +29,5 @@ export function usePanelsApi() {
     }
 
     return { listPanels };
-  }, [api.baseUrl]);
+  }, [api.baseUrl, api.authHeader]);
 }
