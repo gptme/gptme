@@ -23,6 +23,8 @@ import {
   updateConversationName,
   setNeedsInitialStep,
   setMaxTokens,
+  setTemperature,
+  setTopP,
 } from '@/stores/conversations';
 import { playChime } from '@/utils/audio';
 import { findLatestAssistantIndexForError } from '@/utils/conversationErrorHandling';
@@ -40,6 +42,8 @@ export function useConversation(conversationId: string, serverId?: string) {
   const conversation$ = conversations$.get(conversationId);
   const isConnected = use$(isConnected$);
   const maxTokens = use$(() => conversation$?.maxTokens.get());
+  const temperature = use$(() => conversation$?.temperature.get());
+  const topP = use$(() => conversation$?.topP.get());
 
   const messageJustCompleted = useRef(false);
 
@@ -343,10 +347,12 @@ export function useConversation(conversationId: string, serverId?: string) {
               if (needsStep) {
                 console.log('[useConversation] Triggering initial step after subscription');
                 setNeedsInitialStep(conversationId, false);
-                api.step(conversationId, undefined, true, 'main', maxTokens).catch((error) => {
-                  console.error('[useConversation] Error triggering initial step:', error);
-                  toastStepStartError(toast, error);
-                });
+                api
+                  .step(conversationId, undefined, true, 'main', maxTokens, temperature, topP)
+                  .catch((error) => {
+                    console.error('[useConversation] Error triggering initial step:', error);
+                    toastStepStartError(toast, error);
+                  });
               }
             },
             onReconnectState: (state) => {
@@ -459,9 +465,19 @@ export function useConversation(conversationId: string, serverId?: string) {
       setMessageStatus(conversationId, userMessage.timestamp!, 'sent');
 
       // Start generation
-      await api.step(conversationId, options?.model, options?.stream, 'main', options?.maxTokens);
-      // Store maxTokens in conversation state so regenerate/rerun paths can use it
+      await api.step(
+        conversationId,
+        options?.model,
+        options?.stream,
+        'main',
+        options?.maxTokens,
+        options?.temperature,
+        options?.topP
+      );
+      // Store generation params in conversation state so regenerate/rerun paths can use them
       setMaxTokens(conversationId, options?.maxTokens);
+      setTemperature(conversationId, options?.temperature);
+      setTopP(conversationId, options?.topP);
     } catch (error) {
       console.error('Error sending message:', error);
       const { title, description } = getApiErrorPresentation(error, {
@@ -587,7 +603,7 @@ export function useConversation(conversationId: string, serverId?: string) {
 
       // After truncation, trigger re-generation
       if (truncate) {
-        await api.step(conversationId, undefined, true, 'main', maxTokens);
+        await api.step(conversationId, undefined, true, 'main', maxTokens, temperature, topP);
       }
     } catch (error) {
       console.error('Error editing message:', error);
@@ -630,7 +646,7 @@ export function useConversation(conversationId: string, serverId?: string) {
         await api.rerunTools(conversationId);
       } catch {
         // No tools found — fall back to step() (regenerate)
-        await api.step(conversationId, undefined, true, 'main', maxTokens);
+        await api.step(conversationId, undefined, true, 'main', maxTokens, temperature, topP);
       }
     } catch (error) {
       console.error('Error re-running from message:', error);
@@ -652,7 +668,7 @@ export function useConversation(conversationId: string, serverId?: string) {
       if (result.branches) {
         updateBranches(conversationId, result.branches);
       }
-      await api.step(conversationId, undefined, true, 'main', maxTokens);
+      await api.step(conversationId, undefined, true, 'main', maxTokens, temperature, topP);
     } catch (error) {
       console.error('Error regenerating message:', error);
       const errorMsg = error instanceof Error ? error.message : 'Failed to regenerate';

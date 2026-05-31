@@ -16,7 +16,7 @@ import { getApiBaseUrl } from '@/utils/connectionConfig';
 import { isLocalUrl, withLocalAddressSpace } from '@/utils/addressSpace';
 import { type Observable } from '@legendapp/state';
 import { observable } from '@legendapp/state';
-import { initConversation, setMaxTokens } from '@/stores/conversations';
+import { initConversation, setMaxTokens, setTemperature, setTopP } from '@/stores/conversations';
 
 // Add DOM types
 type RequestInit = globalThis.RequestInit;
@@ -951,6 +951,8 @@ export class ApiClient {
       workspace?: string;
       pendingFiles?: File[];
       maxTokens?: number;
+      temperature?: number;
+      topP?: number;
     }
   ): Promise<string> {
     // Generate conversation ID immediately
@@ -981,6 +983,12 @@ export class ApiClient {
     );
     if (options?.maxTokens !== undefined) {
       setMaxTokens(conversationId, options.maxTokens);
+    }
+    if (options?.temperature !== undefined) {
+      setTemperature(conversationId, options.temperature);
+    }
+    if (options?.topP !== undefined) {
+      setTopP(conversationId, options.topP);
     }
 
     if (options?.pendingFiles?.length) {
@@ -1135,7 +1143,9 @@ export class ApiClient {
     model?: string,
     stream: boolean = true,
     branch: string = 'main',
-    maxTokens?: number
+    maxTokens?: number,
+    temperature?: number,
+    topP?: number
   ): Promise<void> {
     if (!this.isConnected) {
       throw new Error('Not connected to API');
@@ -1184,6 +1194,8 @@ export class ApiClient {
             branch,
             stream,
             ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
+            ...(temperature !== undefined ? { temperature } : {}),
+            ...(topP !== undefined ? { top_p: topP } : {}),
           }),
           signal: this.controller.signal,
         }
