@@ -256,8 +256,13 @@ jobs:
 
     - name: Validate package (dry-run publish)
       run: |
-        # Dry-run validates local package metadata only — no upload, no auth needed
+        # Dry-run validates artifact structure and metadata — no upload, no auth check
         poetry publish --dry-run --no-interaction
+
+    - name: Publish to PyPI
+      env:
+        POETRY_PYPI_TOKEN_PYPI: ${{ secrets.PYPI_TOKEN }}
+      run: poetry publish
 
     - name: Upload packages to GitHub release
       env:
@@ -279,8 +284,3 @@ jobs:
         gh workflow run build.yml -f tag="${TAG}"
         echo "Triggering Tauri workflow for ${TAG}..."
         gh workflow run tauri.yml -f tag="${TAG}"
-
-    - name: Publish to PyPI
-      env:
-        PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
-      run: poetry publish --username=__token__ --password=$PYPI_TOKEN
