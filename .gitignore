@@ -70,3 +70,7 @@ uv.lock
 
 # Bundled webui build artifact (populated by `make bundle-webui` / CI release)
 gptme/server/webui-dist/
+
+# Cache files written by scripts/build_changelog.py at build time
+scripts/changelog_contributors.csv
+scripts/changelog_contributors_twitter.csv
