@@ -56,6 +56,7 @@ jest.mock('@/stores/conversations', () => {
         })
       ),
     },
+    setMaxTokens: jest.fn(),
   };
 });
 
