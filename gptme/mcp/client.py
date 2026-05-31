@@ -11,6 +11,7 @@ from mcp.client.session import RequestContext
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 
+from gptme.circuit_breaker import CircuitBreaker, CircuitOpenError  # noqa: F401
 from gptme.config import Config, get_config
 
 # Type alias for elicitation callback
@@ -67,6 +68,9 @@ class MCPClient:
         self.stack: AsyncExitStack | None = None
         self.roots: list[types.Root] = []
         self._elicitation_callback: ElicitationCallback | None = None
+        # Per-client circuit breaker, keyed by server name after connect().
+        # The breaker protects call_tool() calls from hammering a broken server.
+        self._circuit_breaker: CircuitBreaker | None = None
 
     def _run_async(self, coro):
         """Run a coroutine in the event loop.
@@ -268,11 +272,19 @@ class MCPClient:
             )
             tools, session = self._run_async(self._setup_stdio_connection(params))
 
+        # Create a per-server circuit breaker (default: 5 failures / 30s cooldown).
+        self._circuit_breaker = CircuitBreaker(name=f"mcp:{server_name}")
         logger.info(f"Tools: {tools}")
         return tools, session
 
     def call_tool(self, tool_name: str, arguments: dict) -> str:
-        """Synchronous tool call method"""
+        """Synchronous tool call method.
+
+        Raises:
+            CircuitOpenError: If the circuit breaker for this server is open
+                (i.e. consecutive failures have exceeded the threshold).  Callers
+                should treat this as a transient error and surface it to the user.
+        """
         if not self.session:
             raise RuntimeError("Not connected to MCP server")
 
@@ -297,6 +309,10 @@ class MCPClient:
                         return content.text
             return str(result)
 
+        # Wrap the synchronous _run_async call with the circuit breaker so that
+        # consecutive transport or server-side failures trip the breaker.
+        if self._circuit_breaker is not None:
+            return self._circuit_breaker.call(self._run_async, _call_tool())
         return self._run_async(_call_tool())
 
     def list_resources(self) -> types.ListResourcesResult:
