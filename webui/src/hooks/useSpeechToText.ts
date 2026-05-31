@@ -75,13 +75,16 @@ export function useSpeechToText(): UseSpeechToTextReturn {
       }
     };
 
-    recognition.onerror = () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recognition.onerror = (_event: any) => {
+      if (recognitionRef.current !== recognition) return; // stale closure guard
       setState('error');
       recognitionRef.current = null;
       setInterimTranscript('');
     };
 
     recognition.onend = () => {
+      if (recognitionRef.current !== recognition) return; // stale closure guard
       recognitionRef.current = null;
       setState('idle');
       setInterimTranscript('');

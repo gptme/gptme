@@ -16,6 +16,8 @@ export function SpeechInputButton({ onTranscript, onInterimTranscript, disabled 
   const { state, isSupported, interimTranscript, startListening, stopListening, onFinalResult } =
     useSpeechToText();
 
+  const isListening = state === 'listening';
+
   useEffect(() => {
     onFinalResult(onTranscript);
   }, [onFinalResult, onTranscript]);
@@ -24,9 +26,12 @@ export function SpeechInputButton({ onTranscript, onInterimTranscript, disabled 
     onInterimTranscript?.(interimTranscript);
   }, [interimTranscript, onInterimTranscript]);
 
-  if (!isSupported) return null;
+  // Stop mic when button becomes disabled (e.g. during response generation)
+  useEffect(() => {
+    if (disabled && isListening) stopListening();
+  }, [disabled, isListening, stopListening]);
 
-  const isListening = state === 'listening';
+  if (!isSupported) return null;
   const isError = state === 'error';
 
   const handleClick = () => {
