@@ -285,6 +285,10 @@ jobs:
         # never starts (e.g. workflow file syntax error on the target branch,
         # missing workflow_dispatch trigger). Without this check a release can
         # silently ship the PyPI package with no binaries/installers built.
+        # Returns 0 if a non-completed workflow_dispatch run registers within
+        # ~30s, else 1. A run that registered but already finished (fast
+        # failure) is reported as registered-then-failed rather than missing,
+        # so the error message doesn't misattribute it.
         verify_triggered() {
           local workflow="$1"
           echo "Verifying ${workflow} run started..."
@@ -295,10 +299,13 @@ jobs:
               echo "✓ ${workflow} run registered (attempt ${i}/6)"
               return 0
             fi
-            echo "Waiting for ${workflow} run to register... (${i}/6)"
-            sleep 5
+            # Don't sleep after the final attempt — nothing follows it.
+            if [ "${i}" -lt 6 ]; then
+              echo "Waiting for ${workflow} run to register... (${i}/6)"
+              sleep 5
+            fi
           done
-          echo "::error::${workflow} was triggered but no run registered within 30s"
+          echo "::error::${workflow} was triggered but no active run registered within ~30s"
           return 1
         }
 
@@ -306,6 +313,13 @@ jobs:
         gh workflow run build.yml -f tag="${TAG}"
         echo "Triggering Tauri workflow for ${TAG}..."
         gh workflow run tauri.yml -f tag="${TAG}"
+
+        # Check both even if the first fails, so the job reports every missing
+        # trigger in one run (set -eo pipefail would otherwise stop at the first).
+        rc=0
+        verify_triggered build.yml || rc=1
+        verify_triggered tauri.yml || rc=1
+        exit "${rc}"
 
         # Poll after both triggers so the two dispatches register in parallel.
         verify_triggered build.yml
