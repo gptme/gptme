@@ -489,6 +489,23 @@ def test_tools_call_non_default_tool():
     assert "Available tools" in result.output
 
 
+def test_tools_call_execute_only_tool_message():
+    """Tools with an execute entrypoint but no discrete functions get a clear
+    message, not the misleading "No functions available for this tool".
+
+    Most core tools (shell, patch, save, read, …) expose behaviour through a
+    single ``execute`` entrypoint with an empty ``functions`` list, so they are
+    not callable via ``tools call``. The error should say so explicitly.
+    """
+    runner = CliRunner()
+
+    result = runner.invoke(main, ["tools", "call", "shell", "no_such_fn"])
+    assert result.exit_code != 0
+    assert "No functions available for this tool" not in result.output
+    assert "execute entrypoint" in result.output
+    assert "shell" in result.output
+
+
 def test_models_list():
     """Test the models list command."""
     import json

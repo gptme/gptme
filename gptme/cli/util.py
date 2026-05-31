@@ -840,13 +840,25 @@ def tools_call(tool_name: str, function_name: str, arg: list[str]):
         else None
     )
     if not function:
+        if not tool.functions:
+            # Most core tools (shell, patch, save, read, …) expose their
+            # behaviour through a single ``execute`` entrypoint rather than
+            # discrete named functions, so they cannot be reached via
+            # ``tools call``. Say so explicitly instead of the misleading
+            # "No functions available for this tool."
+            if tool.execute is not None:
+                print(
+                    f"Tool '{tool_name}' has no individually-callable functions; "
+                    "it runs through a single execute entrypoint and is not "
+                    "callable via 'tools call'."
+                )
+            else:
+                print(f"Tool '{tool_name}' exposes no callable functions.")
+            sys.exit(1)
         print(f"Function '{function_name}' not found in tool '{tool_name}'.")
-        if tool.functions:
-            print("Available functions:")
-            for f in tool.functions:
-                print(f"- {f.__name__}")
-        else:
-            print("No functions available for this tool.")
+        print("Available functions:")
+        for f in tool.functions:
+            print(f"- {f.__name__}")
         sys.exit(1)
     else:
         # Parse arguments into a dictionary, ensuring proper typing
