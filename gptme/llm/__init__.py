@@ -221,6 +221,8 @@ def reply(
     output_schema: type | None = None,
     on_token: Callable[[str], None] | None = None,
     max_tokens: int | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
 ) -> Message:
     if max_tokens is not None and max_tokens <= 0:
         raise ValueError(f"max_tokens must be a positive integer, got {max_tokens}")
@@ -266,6 +268,8 @@ def reply(
             output_schema=output_schema,
             on_token=on_token,
             max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
         )
     json_mode = is_output_json()
     if not json_mode:
@@ -276,6 +280,8 @@ def reply(
         tools,
         output_schema=output_schema,
         max_tokens=max_tokens,
+        temperature=temperature,
+        top_p=top_p,
     )
     if not json_mode:
         rprint(" " * shutil.get_terminal_size().columns, end="\r")
@@ -321,6 +327,8 @@ def _chat_complete(
     tools: list[ToolSpec] | None,
     output_schema: type | None = None,
     max_tokens: int | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
 ) -> tuple[str, MessageMetadata | None]:
     if max_tokens is not None and max_tokens <= 0:
         raise ValueError(f"max_tokens must be a positive integer, got {max_tokens}")
@@ -337,7 +345,13 @@ def _chat_complete(
         from .llm_openai import chat as chat_openai
 
         return chat_openai(
-            messages, model, tools, output_schema=output_schema, max_tokens=max_tokens
+            messages,
+            model,
+            tools,
+            output_schema=output_schema,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
         )
     if provider == "anthropic":
         from .llm_anthropic import chat as chat_anthropic
@@ -348,6 +362,8 @@ def _chat_complete(
             tools,
             output_schema=output_schema,
             max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
         )
     if provider == "openai-subscription":
         from .llm_openai_subscription import chat as chat_subscription
@@ -397,6 +413,8 @@ def _stream(
     tools: list[ToolSpec] | None,
     output_schema: type | None = None,
     max_tokens: int | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
 ) -> _StreamWithMetadata:
     if max_tokens is not None and max_tokens <= 0:
         raise ValueError(f"max_tokens must be a positive integer, got {max_tokens}")
@@ -411,7 +429,13 @@ def _stream(
         from .llm_openai import stream as stream_openai
 
         gen = stream_openai(
-            messages, model, tools, output_schema=output_schema, max_tokens=max_tokens
+            messages,
+            model,
+            tools,
+            output_schema=output_schema,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
         )
         return _StreamWithMetadata(gen, model)
     if provider == "anthropic":
@@ -423,6 +447,8 @@ def _stream(
             tools,
             output_schema=output_schema,
             max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
         )
         return _StreamWithMetadata(gen, model)
     if provider == "openai-subscription":
@@ -451,6 +477,8 @@ def _reply_stream(
     output_schema: type | None = None,
     on_token: Callable[[str], None] | None = None,
     max_tokens: int | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
 ) -> Message:
     json_mode = is_output_json()
     if not json_mode:
@@ -476,7 +504,13 @@ def _reply_stream(
 
     # Create stream wrapper to capture metadata
     stream = _stream(
-        messages, model, tools, output_schema=output_schema, max_tokens=max_tokens
+        messages,
+        model,
+        tools,
+        output_schema=output_schema,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        top_p=top_p,
     )
 
     try:

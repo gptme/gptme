@@ -425,6 +425,18 @@ class ChatConfig(BaseModel):
         description="Max tokens for the model's response (None = model default)",
         gt=0,
     )
+    temperature: float | None = Field(
+        None,
+        description="Sampling temperature (None = env/constant default 0; 0 = deterministic; higher = more creative)",
+        ge=0.0,
+        le=2.0,
+    )
+    top_p: float | None = Field(
+        None,
+        description="Top-p nucleus sampling (None = env/constant default 0.1)",
+        ge=0.0,
+        le=1.0,
+    )
 
 
 # Helper functions for automatic inference

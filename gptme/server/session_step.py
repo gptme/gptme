@@ -676,12 +676,22 @@ def step(
         metadata = None
         if stream:
             stream_wrapper = _stream(
-                msgs, model, tools, max_tokens=chat_config.max_tokens
+                msgs,
+                model,
+                tools,
+                max_tokens=chat_config.max_tokens,
+                temperature=chat_config.temperature,
+                top_p=chat_config.top_p,
             )
             chunks: Iterable[str] = stream_wrapper
         else:
             response, metadata = _chat_complete(
-                msgs, model, tools, max_tokens=chat_config.max_tokens
+                msgs,
+                model,
+                tools,
+                max_tokens=chat_config.max_tokens,
+                temperature=chat_config.temperature,
+                top_p=chat_config.top_p,
             )
             chunks = [response]  # Wrap in list to iterate
             stream_wrapper = None

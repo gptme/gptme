@@ -623,6 +623,8 @@ def chat(
     tools: list[ToolSpec] | None,
     output_schema: type[BaseModel] | None = None,
     max_tokens: int | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
 ) -> tuple[str, MessageMetadata | None]:
     from anthropic import NOT_GIVEN  # fmt: skip
 
@@ -673,12 +675,14 @@ def chat(
     output_config_kwargs = _output_config_kwargs(use_thinking=use_thinking)
     thinking_param = _build_thinking_param(model, use_thinking, thinking_budget)
 
+    _temperature = temperature if temperature is not None else TEMPERATURE
+    _top_p = top_p if top_p is not None else TOP_P
     response = _anthropic.messages.create(  # type: ignore[call-overload, misc]
         model=api_model,
         messages=messages_dicts,
         system=system_messages,
-        temperature=TEMPERATURE if not model_meta.supports_reasoning else 1,
-        top_p=TOP_P if not model_meta.supports_reasoning else NOT_GIVEN,
+        temperature=_temperature if not model_meta.supports_reasoning else 1,
+        top_p=_top_p if not model_meta.supports_reasoning else NOT_GIVEN,
         max_tokens=max_tokens,
         tools=tools_dict or NOT_GIVEN,
         thinking=thinking_param if thinking_param is not None else NOT_GIVEN,
@@ -716,6 +720,8 @@ def stream(
     tools: list[ToolSpec] | None,
     output_schema: type[BaseModel] | None = None,
     max_tokens: int | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
 ) -> Generator[str, None, MessageMetadata | None]:
     import anthropic.types  # fmt: skip
     from anthropic import NOT_GIVEN  # fmt: skip
@@ -770,12 +776,14 @@ def stream(
     output_config_kwargs = _output_config_kwargs(use_thinking=use_thinking)
     thinking_param = _build_thinking_param(model, use_thinking, thinking_budget)
 
+    _temperature = temperature if temperature is not None else TEMPERATURE
+    _top_p = top_p if top_p is not None else TOP_P
     with _anthropic.messages.stream(  # type: ignore[call-arg, misc]
         model=api_model,
         messages=messages_dicts,
         system=system_messages,
-        temperature=TEMPERATURE if not model_meta.supports_reasoning else 1,
-        top_p=TOP_P if not model_meta.supports_reasoning else NOT_GIVEN,
+        temperature=_temperature if not model_meta.supports_reasoning else 1,
+        top_p=_top_p if not model_meta.supports_reasoning else NOT_GIVEN,
         max_tokens=max_tokens,
         tools=tools_dict or NOT_GIVEN,
         thinking=thinking_param if thinking_param is not None else NOT_GIVEN,  # type: ignore[arg-type]

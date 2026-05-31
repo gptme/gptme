@@ -555,6 +555,29 @@ def test_chat_config_max_tokens_roundtrip():
     assert config_new.max_tokens == 4096
 
 
+def test_chat_config_temperature_top_p_default_omitted():
+    """temperature/top_p default to None and are omitted from serialization."""
+    config = ChatConfig()
+    assert config.temperature is None
+    assert config.top_p is None
+    assert "temperature" not in config.to_dict()["chat"]
+    assert "top_p" not in config.to_dict()["chat"]
+
+
+def test_chat_config_temperature_top_p_roundtrip():
+    """temperature and top_p survive a to_dict/from_dict round-trip."""
+    config = ChatConfig.from_dict({"chat": {"temperature": 0.7, "top_p": 0.9}})
+    assert config.temperature == 0.7
+    assert config.top_p == 0.9
+    assert config.to_dict()["chat"]["temperature"] == 0.7
+    assert config.to_dict()["chat"]["top_p"] == 0.9
+
+    toml_str = tomlkit.dumps(config.to_dict())
+    config_new = ChatConfig.from_dict(tomlkit.loads(toml_str).unwrap())
+    assert config_new.temperature == 0.7
+    assert config_new.top_p == 0.9
+
+
 def test_project_config_loaded_from_toml():
     config = ProjectConfig.from_dict(tomlkit.loads(project_config_toml).unwrap())
 

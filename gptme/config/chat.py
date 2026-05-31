@@ -57,6 +57,10 @@ class ChatConfig:
     interactive: bool = True
     # Max tokens for the model's response. None = provider/model default.
     max_tokens: int | None = None
+    # Sampling temperature override. None = use TEMPERATURE constant (env default 0).
+    temperature: float | None = None
+    # Top-p nucleus sampling override. None = use TOP_P constant (env default 0.1).
+    top_p: float | None = None
     # CLI sessions default to the current directory. Server sessions load
     # through from_logdir/load_or_create to get per-conversation workspaces.
     workspace: Path = field(default_factory=Path.cwd)

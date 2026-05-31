@@ -145,7 +145,9 @@ def test_turn_pre_hook(client: FlaskClient, monkeypatch):
     )
     assert response.status_code == 200
 
-    def mock_chat_complete(messages, model, tools=None, max_tokens=None):
+    def mock_chat_complete(
+        messages, model, tools=None, max_tokens=None, temperature=None, top_p=None
+    ):
         return ("Hello! How can I help you?", None)
 
     with unittest.mock.patch(
@@ -194,7 +196,9 @@ def test_message_post_process_hook(client: FlaskClient, monkeypatch):
 
     # Mock _chat_complete (since stream=False)
     # Returns (response, metadata) tuple - the new format
-    def mock_chat_complete(messages, model, tools=None, max_tokens=None):
+    def mock_chat_complete(
+        messages, model, tools=None, max_tokens=None, temperature=None, top_p=None
+    ):
         return ("Hello! How can I help you?", None)
 
     with unittest.mock.patch(

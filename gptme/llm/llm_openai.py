@@ -736,6 +736,8 @@ def chat(
     tools: list[ToolSpec] | None,
     output_schema=None,
     max_tokens: int | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
 ) -> tuple[str, MessageMetadata | None]:
     # This will generate code and such, so we need appropriate temperature and top_p params
     # top_p controls diversity, temperature controls randomness
@@ -774,8 +776,10 @@ def chat(
         if max_tokens is not None:
             response_kwargs["max_output_tokens"] = max_tokens
         if not is_reasoner:
-            response_kwargs["temperature"] = TEMPERATURE
-            response_kwargs["top_p"] = TOP_P
+            response_kwargs["temperature"] = (
+                temperature if temperature is not None else TEMPERATURE
+            )
+            response_kwargs["top_p"] = top_p if top_p is not None else TOP_P
 
         response = client.responses.create(**response_kwargs)
         metadata = _record_usage(response.usage, model)
@@ -810,8 +814,10 @@ def chat(
     # Build optional kwargs to avoid NOT_GIVEN/Omit type mismatch
     optional_kwargs: dict[str, Any] = {}
     if not is_reasoner:
-        optional_kwargs["temperature"] = TEMPERATURE
-        optional_kwargs["top_p"] = TOP_P
+        optional_kwargs["temperature"] = (
+            temperature if temperature is not None else TEMPERATURE
+        )
+        optional_kwargs["top_p"] = top_p if top_p is not None else TOP_P
     if tools_dict:
         optional_kwargs["tools"] = tools_dict
     if response_format is not None:
@@ -960,6 +966,8 @@ def _stream_responses(
     model_meta: ModelMeta,
     output_schema=None,
     max_tokens: int | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
 ) -> Generator[str, None, MessageMetadata | None]:
     """Stream via the OpenAI Responses API (used for GPT-5 class models).
 
@@ -1001,8 +1009,8 @@ def _stream_responses(
     if max_tokens is not None:
         kwargs["max_output_tokens"] = max_tokens
     if not is_reasoner:
-        kwargs["temperature"] = TEMPERATURE
-        kwargs["top_p"] = TOP_P
+        kwargs["temperature"] = temperature if temperature is not None else TEMPERATURE
+        kwargs["top_p"] = top_p if top_p is not None else TOP_P
 
     # Track function-call items: output_index -> (item_id, name, call_id)
     func_call_items: dict[int, tuple[str, str, str]] = {}
@@ -1109,6 +1117,8 @@ def stream(
     tools: list[ToolSpec] | None,
     output_schema=None,
     max_tokens: int | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
 ) -> Generator[str, None, MessageMetadata | None]:
     from . import _get_base_model, get_provider_from_model  # fmt: skip
     from .models import get_model  # fmt: skip
@@ -1136,6 +1146,8 @@ def stream(
             model_meta,
             output_schema=output_schema,
             max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
         )
         return captured_metadata
 
@@ -1147,8 +1159,10 @@ def stream(
     # Build optional kwargs to avoid NOT_GIVEN/Omit type mismatch
     optional_kwargs: dict[str, Any] = {}
     if not is_reasoner:
-        optional_kwargs["temperature"] = TEMPERATURE
-        optional_kwargs["top_p"] = TOP_P
+        optional_kwargs["temperature"] = (
+            temperature if temperature is not None else TEMPERATURE
+        )
+        optional_kwargs["top_p"] = top_p if top_p is not None else TOP_P
     if tools_dict:
         optional_kwargs["tools"] = tools_dict
     if response_format is not None:
