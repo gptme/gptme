@@ -285,16 +285,18 @@ jobs:
         # never starts (e.g. workflow file syntax error on the target branch,
         # missing workflow_dispatch trigger). Without this check a release can
         # silently ship the PyPI package with no binaries/installers built.
-        # Returns 0 if a non-completed workflow_dispatch run registers within
-        # ~30s, else 1. A run that registered but already finished (fast
-        # failure) is reported as registered-then-failed rather than missing,
-        # so the error message doesn't misattribute it.
+        # Returns 0 if any workflow_dispatch run created at or after
+        # TRIGGER_TIME registers within ~30s, else 1. Including recently-
+        # completed runs avoids a misleading "no run registered" error when
+        # the triggered workflow starts and fast-fails before the first poll.
         verify_triggered() {
           local workflow="$1"
           echo "Verifying ${workflow} run started..."
           for i in 1 2 3 4 5 6; do
             count="$(gh run list --workflow="${workflow}" --event=workflow_dispatch \
-              --limit 5 --json status --jq '[.[] | select(.status != "completed")] | length')"
+              --limit 5 --json status,createdAt | \
+              jq --arg since "${TRIGGER_TIME}" \
+              '[.[] | select(.status != "completed" or .createdAt >= $since)] | length')"
             if [ "${count:-0}" -gt 0 ]; then
               echo "✓ ${workflow} run registered (attempt ${i}/6)"
               return 0
@@ -309,6 +311,10 @@ jobs:
           return 1
         }
 
+        # Capture time before dispatching so verify_triggered can distinguish
+        # runs created by this dispatch from pre-existing completed runs.
+        TRIGGER_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
         echo "Triggering Build workflow for ${TAG}..."
         gh workflow run build.yml -f tag="${TAG}"
         echo "Triggering Tauri workflow for ${TAG}..."
@@ -320,7 +326,3 @@ jobs:
         verify_triggered build.yml || rc=1
         verify_triggered tauri.yml || rc=1
         exit "${rc}"
-
-        # Poll after both triggers so the two dispatches register in parallel.
-        verify_triggered build.yml
-        verify_triggered tauri.yml
