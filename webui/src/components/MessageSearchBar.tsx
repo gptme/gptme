@@ -43,6 +43,7 @@ export const MessageSearchBar: FC<Props> = ({
       <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
       <Input
         ref={inputRef}
+        data-search-input
         className="h-7 flex-1 border-none bg-transparent p-0 text-sm shadow-none focus-visible:ring-0"
         placeholder="Search messages…"
         value={query}
