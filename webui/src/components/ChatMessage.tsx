@@ -585,7 +585,11 @@ export const ChatMessage: FC<Props> = ({
                           conversationId={conversationId}
                           autoFocus$={editAutoFocus$}
                           value={editContent$.get()}
-                          onChange={(v) => editContent$.set(v)}
+                          onChange={(next) =>
+                            editContent$.set(
+                              typeof next === 'function' ? next(editContent$.get()) : next
+                            )
+                          }
                           editMode
                           editFiles={message$.files?.get()?.map(String)}
                           onEditSave={(content, files, pendingFiles, truncate) => {

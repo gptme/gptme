@@ -19,9 +19,11 @@ import {
   useRef,
   useCallback,
   type FC,
+  type Dispatch,
   type FormEvent,
   type KeyboardEvent,
   type DragEvent,
+  type SetStateAction,
 } from 'react';
 import { useApi } from '@/contexts/ApiContext';
 import { Badge } from '@/components/ui/badge';
@@ -86,7 +88,7 @@ interface Props {
   defaultModel?: string;
   autoFocus$: Observable<boolean>;
   value?: string;
-  onChange?: (value: string) => void;
+  onChange?: Dispatch<SetStateAction<string>>;
   // Edit mode: reuse ChatInput for inline message editing with attachment support
   editMode?: boolean;
   editFiles?: string[]; // Pre-existing file paths from the message being edited
@@ -1247,7 +1249,7 @@ export const ChatInput: FC<Props> = ({
 
                     <SpeechInputButton
                       onTranscript={(text) =>
-                        setMessage(message ? message + ' ' + text.trim() : text.trim())
+                        setMessage((prev) => (prev ? prev + ' ' + text.trim() : text.trim()))
                       }
                       disabled={isDisabled || isGenerating}
                     />
