@@ -53,6 +53,7 @@ import { useAgents } from '@/hooks/useAgents';
 import { useFileAutocomplete } from '@/hooks/useFileAutocomplete';
 import { FileAutocomplete } from '@/components/FileAutocomplete';
 import { VoiceButton } from '@/components/VoiceButton';
+import { SpeechInputButton } from '@/components/SpeechInputButton';
 import { useSettings } from '@/contexts/SettingsContext';
 import {
   Select,
@@ -1244,6 +1245,12 @@ export const ChatInput: FC<Props> = ({
                         )}
                     </div>
 
+                    <SpeechInputButton
+                      onTranscript={(text) =>
+                        setMessage(message ? message + ' ' + text.trim() : text.trim())
+                      }
+                      disabled={isDisabled || isGenerating}
+                    />
                     {settings.voiceServerUrl && (
                       <VoiceButton voiceServerUrl={settings.voiceServerUrl} />
                     )}
