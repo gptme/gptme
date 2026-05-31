@@ -420,6 +420,9 @@ class ChatConfig(BaseModel):
     model: str | None = Field(None, description="Default model")
     tools: list[str] | None = Field(None, description="Enabled tools")
     workspace: str | None = Field(None, description="Workspace path")
+    max_tokens: int | None = Field(
+        None, description="Max tokens for the model's response (None = model default)"
+    )
 
 
 # Helper functions for automatic inference

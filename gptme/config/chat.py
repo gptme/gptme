@@ -55,6 +55,8 @@ class ChatConfig:
     tool_format: "ToolFormat | None" = None
     stream: bool = True
     interactive: bool = True
+    # Max tokens for the model's response. None = provider/model default.
+    max_tokens: int | None = None
     # CLI sessions default to the current directory. Server sessions load
     # through from_logdir/load_or_create to get per-conversation workspaces.
     workspace: Path = field(default_factory=Path.cwd)

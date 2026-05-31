@@ -675,10 +675,14 @@ def step(
         # Handle streaming vs non-streaming differently
         metadata = None
         if stream:
-            stream_wrapper = _stream(msgs, model, tools)
+            stream_wrapper = _stream(
+                msgs, model, tools, max_tokens=chat_config.max_tokens
+            )
             chunks: Iterable[str] = stream_wrapper
         else:
-            response, metadata = _chat_complete(msgs, model, tools)
+            response, metadata = _chat_complete(
+                msgs, model, tools, max_tokens=chat_config.max_tokens
+            )
             chunks = [response]  # Wrap in list to iterate
             stream_wrapper = None
 
