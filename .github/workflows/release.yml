@@ -280,7 +280,33 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
+        # Verify a workflow_dispatch run actually registered after triggering.
+        # `gh workflow run` is fire-and-forget and exits 0 even when the run
+        # never starts (e.g. workflow file syntax error on the target branch,
+        # missing workflow_dispatch trigger). Without this check a release can
+        # silently ship the PyPI package with no binaries/installers built.
+        verify_triggered() {
+          local workflow="$1"
+          echo "Verifying ${workflow} run started..."
+          for i in 1 2 3 4 5 6; do
+            count="$(gh run list --workflow="${workflow}" --event=workflow_dispatch \
+              --limit 5 --json status --jq '[.[] | select(.status != "completed")] | length')"
+            if [ "${count:-0}" -gt 0 ]; then
+              echo "✓ ${workflow} run registered (attempt ${i}/6)"
+              return 0
+            fi
+            echo "Waiting for ${workflow} run to register... (${i}/6)"
+            sleep 5
+          done
+          echo "::error::${workflow} was triggered but no run registered within 30s"
+          return 1
+        }
+
         echo "Triggering Build workflow for ${TAG}..."
         gh workflow run build.yml -f tag="${TAG}"
         echo "Triggering Tauri workflow for ${TAG}..."
         gh workflow run tauri.yml -f tag="${TAG}"
+
+        # Poll after both triggers so the two dispatches register in parallel.
+        verify_triggered build.yml
+        verify_triggered tauri.yml
