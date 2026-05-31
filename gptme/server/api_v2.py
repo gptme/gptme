@@ -587,6 +587,7 @@ def api_conversation(conversation_id: str):
     logdir = get_logs_dir() / conversation_id
     chat_config = ChatConfig.load_or_create(logdir, ChatConfig()).save()
     log_dict = manager.to_dict(branches=True)
+    log_dict["logdir"] = str(logdir)
 
     # make all paths relative to workspace or logdir (no "../" or absolute paths)
     for msg in log_dict["log"]:

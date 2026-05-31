@@ -1172,6 +1172,7 @@ def test_v2_conversation_get(v2_conv, client: FlaskClient):
     data = response.get_json()
     assert data is not None
     assert "log" in data
+    assert data["logdir"] == str(Path(data["logfile"]).parent)
 
     # Should contain system messages (custom system prompt + possibly workspace prompt)
     assert len(data["log"]) >= 1  # At least custom system prompt

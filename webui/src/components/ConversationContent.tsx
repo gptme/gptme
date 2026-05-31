@@ -11,6 +11,7 @@ import { buildStepRoles, type StepRole } from '@/utils/stepGrouping';
 import { InlineToolConfirmation } from './InlineToolConfirmation';
 import { MessageSearchBar } from './MessageSearchBar';
 import { InlineToolExecution, ToolCompletionBadge } from './InlineToolExecution';
+import { OpenConversationPathButton } from './OpenConversationPathButton';
 import { For, Memo, use$, useObservable, useObserveEffect } from '@legendapp/state/react';
 import { getObservableIndex } from '@legendapp/state';
 import { useApi } from '@/contexts/ApiContext';
@@ -483,6 +484,15 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
           }
         }}
       >
+        <Memo>
+          {() => (
+            <OpenConversationPathButton
+              logdir={conversation$.data.logdir.get()}
+              baseUrl={connectionConfig.baseUrl}
+            />
+          )}
+        </Memo>
+
         <For each={conversation$.data.log}>
           {(msg$) => {
             const index = getObservableIndex(msg$);

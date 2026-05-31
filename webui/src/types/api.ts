@@ -96,6 +96,7 @@ export interface ConversationResponse {
   name: string;
   log: (Message | StreamingMessage)[];
   logfile: string;
+  logdir?: string;
   branches: Record<string, Message[]>;
   workspace: string;
   agent?: AgentInfo;
