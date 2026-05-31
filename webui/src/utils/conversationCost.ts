@@ -4,9 +4,9 @@ import type { Message } from '@/types/conversation';
  * Aggregate cost/token usage for a conversation, summed from per-message
  * metadata that gptme-server attaches to assistant messages.
  *
- * `totalTokens` is the headline input+output count (what users read as
- * "conversation size"). Cache read/creation tokens are kept separate to avoid
- * double-counting, since they are sub-categories of the provider's input.
+ * `totalTokens` is the total context processed: input + output + cache read +
+ * cache creation tokens. For Anthropic, `input_tokens` is the non-cached
+ * portion only, so cache tokens are additive (not double-counted).
  */
 export interface ConversationCostSummary {
   totalCost: number;
@@ -45,7 +45,7 @@ export function computeConversationCost(messages: Message[]): ConversationCostSu
     }
   }
 
-  const totalTokens = inputTokens + outputTokens;
+  const totalTokens = inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens;
 
   return {
     totalCost,

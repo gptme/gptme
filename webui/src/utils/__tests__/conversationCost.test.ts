@@ -51,8 +51,8 @@ describe('computeConversationCost', () => {
     expect(summary.outputTokens).toBe(130);
     expect(summary.cacheReadTokens).toBe(1000);
     expect(summary.cacheCreationTokens).toBe(30);
-    // headline total excludes cache tokens to avoid double-counting
-    expect(summary.totalTokens).toBe(430);
+    // total includes all processed tokens: input + output + cache (additive, not double-counted)
+    expect(summary.totalTokens).toBe(1460);
     expect(summary.messagesWithCost).toBe(2);
     expect(summary.hasData).toBe(true);
   });
