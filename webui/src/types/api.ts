@@ -115,6 +115,10 @@ export interface ChatConfig {
     stream: boolean;
     interactive: boolean;
     workspace: string;
+    // Sampling overrides. null/undefined = provider/model default.
+    temperature?: number | null;
+    top_p?: number | null;
+    max_tokens?: number | null;
   };
   env: Record<string, string>;
   mcp: McpConfig;

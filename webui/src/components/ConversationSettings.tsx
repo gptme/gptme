@@ -189,6 +189,104 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
                 isSubmitting={isSubmitting}
               />
 
+              {/* Sampling parameters */}
+              <h3 className="text-lg font-medium">Sampling</h3>
+              <div className="space-y-4 rounded-lg border px-3 py-3 shadow-sm">
+                <FormField
+                  control={control}
+                  name="chat.temperature"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Temperature</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={2}
+                          step={0.1}
+                          placeholder="Model default"
+                          value={field.value ?? ''}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            const n = Number(v);
+                            field.onChange(
+                              v === '' || isNaN(n) ? undefined : Math.min(2, Math.max(0, n))
+                            );
+                          }}
+                          disabled={isSubmitting}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Sampling temperature. 0–2 (OpenAI) · 0–1 (Anthropic/Gemini). Empty = model
+                        default.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={control}
+                  name="chat.top_p"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Top P</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={1}
+                          step={0.05}
+                          placeholder="Model default"
+                          value={field.value ?? ''}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            const n = Number(v);
+                            field.onChange(
+                              v === '' || isNaN(n) ? undefined : Math.min(1, Math.max(0, n))
+                            );
+                          }}
+                          disabled={isSubmitting}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Nucleus sampling probability mass (0–1). Empty = model default.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={control}
+                  name="chat.max_tokens"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Max Tokens</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min={1}
+                          step={1}
+                          placeholder="Model default"
+                          value={field.value ?? ''}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            const n = Math.round(Number(v));
+                            field.onChange(v === '' || isNaN(n) ? undefined : Math.max(1, n));
+                          }}
+                          disabled={isSubmitting}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Maximum tokens in the model&apos;s response. Empty = provider/model default.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
               {/* Advanced/rare toggles */}
               <h3 className="text-lg font-medium">Advanced Settings</h3>
               <div className="space-y-2 rounded-lg border px-3 py-2 shadow-sm">

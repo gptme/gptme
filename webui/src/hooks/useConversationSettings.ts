@@ -19,6 +19,9 @@ const chatConfigToFormValues = (config: ChatConfig | null): FormSchema => ({
     stream: config?.chat.stream ?? true,
     interactive: config?.chat.interactive ?? false,
     workspace: config?.chat.workspace || '',
+    temperature: config?.chat.temperature ?? undefined,
+    top_p: config?.chat.top_p ?? undefined,
+    max_tokens: config?.chat.max_tokens ?? undefined,
     env: config?.env ? Object.entries(config.env).map(([key, value]) => ({ key, value })) : [],
   },
   mcp: {
@@ -151,6 +154,9 @@ export const useConversationSettings = (conversationId: string) => {
         stream: values.chat.stream,
         interactive: values.chat.interactive,
         workspace: values.chat.workspace,
+        temperature: values.chat.temperature ?? null,
+        top_p: values.chat.top_p ?? null,
+        max_tokens: values.chat.max_tokens ?? null,
       },
       env: newEnv,
       mcp: {

@@ -25,6 +25,9 @@ export const formSchema = z.object({
     stream: z.boolean(),
     interactive: z.boolean(),
     workspace: z.string().min(1, 'Workspace directory is required'),
+    temperature: z.number().min(0, 'Must be ≥ 0').max(2, 'Must be ≤ 2').optional(),
+    top_p: z.number().min(0, 'Must be ≥ 0').max(1, 'Must be ≤ 1').optional(),
+    max_tokens: z.number().int('Must be a whole number').positive('Must be > 0').optional(),
     env: z
       .array(
         z.object({ key: z.string().min(1, 'Variable name cannot be empty'), value: z.string() })
