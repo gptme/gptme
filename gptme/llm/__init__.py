@@ -398,6 +398,8 @@ def _stream(
     output_schema: type | None = None,
     max_tokens: int | None = None,
 ) -> _StreamWithMetadata:
+    if max_tokens is not None and max_tokens <= 0:
+        raise ValueError(f"max_tokens must be a positive integer, got {max_tokens}")
     max_tokens = _resolve_max_tokens(model, max_tokens)
     provider = get_provider_from_model(model)
     # Custom providers and plugin providers are OpenAI-compatible, route through OpenAI path
