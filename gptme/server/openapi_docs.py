@@ -427,7 +427,7 @@ class ChatConfig(BaseModel):
     )
     temperature: float | None = Field(
         None,
-        description="Sampling temperature (None = env/constant default 0; 0 = deterministic; higher = more creative)",
+        description="Sampling temperature (None = env/constant default 0; 0 = deterministic; higher = more creative). Max 1.0 for Anthropic; up to 2.0 for OpenAI (values above 1.0 will fail for Anthropic).",
         ge=0.0,
         le=2.0,
     )
