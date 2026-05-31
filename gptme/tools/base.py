@@ -489,6 +489,7 @@ class ToolUse:
                     # Set context var so tools can access current ToolUse
                     # via get_current_tool_use() or implicitly in get_confirmation()
                     token = _current_tool_use.set(self)
+                    result_msgs: list[Message] = []
                     try:
                         ex = tool.execute(
                             self.content,
@@ -497,10 +498,12 @@ class ToolUse:
                         )
                         if isinstance(ex, Generator):
                             # Convert generator to list to measure execution time properly
-                            results = list(ex)
-                            yield from results
+                            result_msgs = list(ex)
+                            yield from result_msgs
                         else:
-                            yield ex
+                            if ex is not None:
+                                result_msgs = [ex]
+                            yield from result_msgs
                     finally:
                         _current_tool_use.reset(token)
 
@@ -521,6 +524,7 @@ class ToolUse:
                         log=log,
                         workspace=workspace,
                         tool_use=self,
+                        result_msgs=result_msgs,
                     ):
                         yield from post_hook_msgs
 

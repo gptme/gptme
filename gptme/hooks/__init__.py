@@ -174,6 +174,9 @@ def init_hooks(
         "cache_awareness": lambda: __import__(
             "gptme.hooks.cache_awareness", fromlist=["register"]
         ).register(),
+        "injection_screening": lambda: __import__(
+            "gptme.hooks.injection_screening", fromlist=["register"]
+        ).register(),
         "workspace_agents": lambda: __import__(
             "gptme.hooks.workspace_agents", fromlist=["register"]
         ).register(),

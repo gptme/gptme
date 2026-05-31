@@ -86,7 +86,7 @@ def add_token_budget(
 
 
 def add_token_usage_warning(
-    log: Log, workspace: Path | None, tool_use: Any
+    log: Log, workspace: Path | None, tool_use: Any, **kwargs: Any
 ) -> Generator[Message | StopPropagation, None, None]:
     """Add token usage warning after tool execution.
 

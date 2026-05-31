@@ -253,7 +253,7 @@ def _pre(
 
 
 def _post(
-    log: Log, workspace: Path | None, tool_use: Any
+    log: Log, workspace: Path | None, tool_use: Any, **kwargs: Any
 ) -> Generator[Message | StopPropagation, None, None]:
     """Emit post-tool snapshot only when the workspace tree actually changed."""
     if not _enabled():

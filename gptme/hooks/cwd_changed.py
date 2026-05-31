@@ -39,7 +39,7 @@ def _store_cwd(
 
 
 def _detect_change(
-    log: Log, workspace: Path | None, tool_use: Any
+    log: Log, workspace: Path | None, tool_use: Any, **kwargs: Any
 ) -> Generator[Message | StopPropagation, None, None]:
     """Detect CWD changes and trigger CWD_CHANGED hooks."""
     try:

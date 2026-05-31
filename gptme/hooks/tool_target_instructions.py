@@ -150,6 +150,7 @@ def on_tool_execute_post(
     log: Log,
     workspace: Path | None,
     tool_use: Any,
+    **kwargs: Any,
 ) -> Generator[Message | StopPropagation, None, None]:
     """Discover and inject AGENTS.md files for paths touched by structured tools.
 

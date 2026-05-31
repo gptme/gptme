@@ -44,7 +44,7 @@ def _ensure_locals():
 
 
 def add_time_message(
-    log: Log, workspace: Path | None, tool_use: Any
+    log: Log, workspace: Path | None, tool_use: Any, **kwargs: Any
 ) -> Generator[Message | StopPropagation, None, None]:
     """Add time elapsed message after tool execution.
 

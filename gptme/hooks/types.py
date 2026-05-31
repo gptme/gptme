@@ -136,6 +136,10 @@ class ToolExecuteHook(Protocol):
         log: The conversation log
         workspace: Workspace directory path
         tool_use: The tool being executed
+
+    TOOL_EXECUTE_POST hooks also receive ``result_msgs: list[Message]`` as a
+    keyword argument (the messages yielded by the tool). Hooks that want to
+    inspect tool output should accept ``**kwargs`` and extract it from there.
     """
 
     def __call__(
