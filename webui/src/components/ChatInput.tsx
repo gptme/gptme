@@ -558,11 +558,13 @@ export const ChatInput: FC<Props> = ({
     }
   }, [conversationModel, defaultModel, apiDefaultModel, hasExplicitModelSelection]);
 
-  // Reset explicit selection and maxTokens when conversation changes
+  // Sync local state with store when conversation changes
   useEffect(() => {
     setHasExplicitModelSelection(false);
     setSelectedModel(conversationModel || defaultModel || apiDefaultModel || '');
-    setMaxTokens(undefined);
+    setMaxTokens(
+      conversationId ? conversations$.get(conversationId)?.maxTokens?.peek() : undefined
+    );
   }, [conversationId, conversationModel, defaultModel, apiDefaultModel]);
 
   const [selectedWorkspace, setSelectedWorkspace] = useState<string>(
