@@ -994,6 +994,13 @@ export const ChatInput: FC<Props> = ({
     }
   };
 
+  const handleTranscript = useCallback(
+    (text: string) => {
+      setMessage((prev) => (prev ? prev + ' ' + text.trim() : text.trim()));
+    },
+    [setMessage]
+  );
+
   const handlePaste = useCallback(
     (e: React.ClipboardEvent) => {
       const items = e.clipboardData?.items;
@@ -1248,9 +1255,7 @@ export const ChatInput: FC<Props> = ({
                     </div>
 
                     <SpeechInputButton
-                      onTranscript={(text) =>
-                        setMessage((prev) => (prev ? prev + ' ' + text.trim() : text.trim()))
-                      }
+                      onTranscript={handleTranscript}
                       disabled={isDisabled || isGenerating}
                     />
                     {settings.voiceServerUrl && (

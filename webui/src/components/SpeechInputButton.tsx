@@ -56,8 +56,11 @@ export function SpeechInputButton({ onTranscript, onInterimTranscript, disabled 
           disabled={disabled}
           className={[
             'relative h-8 w-8 shrink-0 rounded-full transition-colors',
-            isError ? 'text-destructive' : '',
-            isListening ? 'text-blue-500 hover:text-blue-600' : 'text-muted-foreground',
+            isError
+              ? 'text-destructive'
+              : isListening
+                ? 'text-blue-500 hover:text-blue-600'
+                : 'text-muted-foreground',
           ].join(' ')}
           aria-label={label}
           aria-pressed={isListening}
