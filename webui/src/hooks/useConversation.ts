@@ -277,14 +277,21 @@ export function useConversation(conversationId: string, serverId?: string) {
             onToolComplete: (toolId, durationMs, success) => {
               console.log('[useConversation] Tool complete:', { toolId, durationMs, success });
               const executingTool = conversation$?.executingTool.get();
-              if (executingTool && executingTool.id !== toolId) {
+              if (!executingTool) {
+                console.warn(
+                  '[useConversation] tool_complete received with no executing tool — ignoring stale event:',
+                  { toolId }
+                );
+                return;
+              }
+              if (executingTool.id !== toolId) {
                 console.warn(
                   '[useConversation] tool_complete ID mismatch — ignoring stale event:',
                   { received: toolId, executing: executingTool.id }
                 );
                 return;
               }
-              const toolName = executingTool?.tooluse.tool ?? 'tool';
+              const toolName = executingTool.tooluse.tool;
               setToolComplete(conversationId, toolName, durationMs, success);
             },
             onInterrupted: () => {
