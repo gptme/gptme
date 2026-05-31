@@ -10,6 +10,7 @@ from ..injection_screening import (
     injection_screening,
     register,
 )
+from ..types import ToolExecutePostData
 
 
 def _make_tool_use(tool: str, content: str | None = None) -> ToolUse:
@@ -106,7 +107,8 @@ def _run_hook(
 ) -> list[Message]:
     tool_use = _make_tool_use(tool, content)
     result_msgs = _make_result_msgs(*result_texts)
-    return list(injection_screening(tool_use=tool_use, result_msgs=result_msgs))
+    data = ToolExecutePostData(tool_use=tool_use, result_msgs=tuple(result_msgs))
+    return list(injection_screening(data))
 
 
 def test_hook_flags_injection_in_browser_output():
@@ -169,12 +171,16 @@ def test_hook_no_warning_for_shell_output():
 
 def test_hook_no_warning_when_no_result_msgs():
     tool_use = _make_tool_use("browser")
-    result = list(injection_screening(tool_use=tool_use, result_msgs=None))
+    result = list(
+        injection_screening(ToolExecutePostData(tool_use=tool_use, result_msgs=None))
+    )
     assert result == []
 
 
 def test_hook_no_warning_when_no_tool_use():
-    result = list(injection_screening(tool_use=None, result_msgs=[]))
+    result = list(
+        injection_screening(ToolExecutePostData(tool_use=None, result_msgs=()))
+    )
     assert result == []
 
 
