@@ -26,6 +26,7 @@ import { ToolsConfiguration } from './settings/ToolsConfiguration';
 import { McpConfiguration } from './settings/McpConfiguration';
 import { useConversationSettings } from '@/hooks/useConversationSettings';
 import { demoConversations } from '@/democonversations';
+import { SessionCostSummary } from './SessionCostSummary';
 
 interface ConversationSettingsProps {
   conversationId: string;
@@ -116,6 +117,9 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
           <form onSubmit={handleSubmit(onSubmit, onInvalid)} className="flex h-full flex-col">
             <div className="flex-1 space-y-8 overflow-y-auto p-4 pb-12">
               <h3 className="mt-4 text-lg font-medium">Chat Settings</h3>
+
+              {/* Session Cost Summary */}
+              <SessionCostSummary conversationId={conversationId} />
 
               {/* Conversation Name Field */}
               <FormField
