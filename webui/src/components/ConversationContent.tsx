@@ -97,12 +97,16 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isReadOnly, hasSession$, shouldFocus$]);
 
-  // Ctrl+F / Cmd+F to open message search
+  // Ctrl+F / Cmd+F to open message search (or re-focus if already open)
   useEffect(() => {
     const handleSearchKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
         e.preventDefault();
-        searchVisible$.set(true);
+        if (searchVisible$.get()) {
+          document.querySelector<HTMLInputElement>('[data-search-input]')?.focus();
+        } else {
+          searchVisible$.set(true);
+        }
       }
     };
     window.addEventListener('keydown', handleSearchKeyDown);
