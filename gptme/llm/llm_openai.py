@@ -77,6 +77,33 @@ def _get_provider_api_key(config: Config, provider: Provider, env_var: str) -> s
 # `from gptme.llm.llm_openai import OPENROUTER_APP_HEADERS` imports.
 
 
+def _get_temperature(provider: Provider, model_meta: "ModelMeta | None" = None) -> float:
+    """Return the temperature for a given provider/model.
+
+    Moonshot/Kimi models require temperature=1.
+    OpenAI GPT-5 class models require temperature=1.
+    All others use the global default.
+    """
+    if provider == "moonshot":
+        return 1.0
+    if model_meta is not None and "gpt-5" in model_meta.model:
+        return 1.0
+    return TEMPERATURE
+
+
+def _get_top_p(provider: Provider, model_meta: "ModelMeta | None" = None) -> float | None:
+    """Return the top_p for a given provider.
+
+    Moonshot/Kimi models require top_p=0.95. All others use the global default.
+    Returns None for models that don't support top_p (e.g., gpt-5.x).
+    """
+    if model_meta is not None and "gpt-5" in model_meta.model:
+        return None
+    if provider == "moonshot":
+        return 0.95
+    return TOP_P
+
+
 def _record_usage(usage, model: str) -> MessageMetadata | None:
     """Record usage metrics as telemetry and return MessageMetadata."""
     if not usage:
@@ -401,6 +428,13 @@ def init(provider: Provider, config: Config):
         api_key = _get_provider_api_key(config, provider, "DEEPSEEK_API_KEY")
         clients[provider] = OpenAI(
             api_key=api_key, base_url="https://api.deepseek.com/v1", timeout=timeout
+        )
+    elif provider == "moonshot":
+        api_key = _get_provider_api_key(config, provider, "MOONSHOT_API_KEY")
+        clients[provider] = OpenAI(
+            api_key=api_key,
+            base_url="https://api.moonshot.ai/v1",
+            timeout=timeout,
         )
     elif provider == "nvidia":
         api_key = _get_provider_api_key(config, provider, "NVIDIA_API_KEY")
@@ -774,8 +808,10 @@ def chat(
         if max_tokens is not None:
             response_kwargs["max_output_tokens"] = max_tokens
         if not is_reasoner:
-            response_kwargs["temperature"] = TEMPERATURE
-            response_kwargs["top_p"] = TOP_P
+            response_kwargs["temperature"] = _get_temperature(provider, model_meta)
+            top_p = _get_top_p(provider, model_meta)
+            if top_p is not None:
+                response_kwargs["top_p"] = top_p
 
         response = client.responses.create(**response_kwargs)
         metadata = _record_usage(response.usage, model)
@@ -810,8 +846,10 @@ def chat(
     # Build optional kwargs to avoid NOT_GIVEN/Omit type mismatch
     optional_kwargs: dict[str, Any] = {}
     if not is_reasoner:
-        optional_kwargs["temperature"] = TEMPERATURE
-        optional_kwargs["top_p"] = TOP_P
+        optional_kwargs["temperature"] = _get_temperature(provider, model_meta)
+        top_p = _get_top_p(provider, model_meta)
+        if top_p is not None:
+            optional_kwargs["top_p"] = top_p
     if tools_dict:
         optional_kwargs["tools"] = tools_dict
     if response_format is not None:
@@ -1001,8 +1039,10 @@ def _stream_responses(
     if max_tokens is not None:
         kwargs["max_output_tokens"] = max_tokens
     if not is_reasoner:
-        kwargs["temperature"] = TEMPERATURE
-        kwargs["top_p"] = TOP_P
+        kwargs["temperature"] = _get_temperature(provider, model_meta)
+        top_p = _get_top_p(provider, model_meta)
+        if top_p is not None:
+            kwargs["top_p"] = top_p
 
     # Track function-call items: output_index -> (item_id, name, call_id)
     func_call_items: dict[int, tuple[str, str, str]] = {}
@@ -1147,8 +1187,10 @@ def stream(
     # Build optional kwargs to avoid NOT_GIVEN/Omit type mismatch
     optional_kwargs: dict[str, Any] = {}
     if not is_reasoner:
-        optional_kwargs["temperature"] = TEMPERATURE
-        optional_kwargs["top_p"] = TOP_P
+        optional_kwargs["temperature"] = _get_temperature(provider, model_meta)
+        top_p = _get_top_p(provider, model_meta)
+        if top_p is not None:
+            optional_kwargs["top_p"] = top_p
     if tools_dict:
         optional_kwargs["tools"] = tools_dict
     if response_format is not None:

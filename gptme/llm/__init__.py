@@ -66,6 +66,7 @@ PROVIDER_DEFAULT_MODELS: dict[str, str] = {
     "groq": "groq/llama-3.1-8b-instant",
     "xai": "xai/grok-3-mini",
     "deepseek": "deepseek/deepseek-chat",
+    "moonshot": "moonshot/kimi-k2.6",
 }
 
 # Mapping from provider name to the environment variable that holds its API key.
@@ -78,6 +79,7 @@ PROVIDER_API_KEYS: dict[str, str] = {
     "groq": "GROQ_API_KEY",
     "xai": "XAI_API_KEY",
     "deepseek": "DEEPSEEK_API_KEY",
+    "moonshot": "MOONSHOT_API_KEY",
     "azure": "AZURE_OPENAI_API_KEY",
 }
 
