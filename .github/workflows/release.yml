@@ -255,11 +255,9 @@ jobs:
         poetry build
 
     - name: Validate package (dry-run publish)
-      env:
-        PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
       run: |
-        # Dry-run validates the package can be published before any irreversible step
-        poetry publish --dry-run --username=__token__ --password=$PYPI_TOKEN
+        # Dry-run validates local package metadata only — no upload, no auth needed
+        poetry publish --dry-run --no-interaction
 
     - name: Upload packages to GitHub release
       env:
