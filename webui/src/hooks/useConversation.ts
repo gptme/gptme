@@ -277,6 +277,12 @@ export function useConversation(conversationId: string, serverId?: string) {
             onToolComplete: (toolId, durationMs) => {
               console.log('[useConversation] Tool complete:', { toolId, durationMs });
               const executingTool = conversation$?.executingTool.get();
+              if (executingTool && executingTool.id !== toolId) {
+                console.warn('[useConversation] tool_complete ID mismatch:', {
+                  expected: toolId,
+                  executing: executingTool.id,
+                });
+              }
               const toolName = executingTool?.tooluse.tool ?? 'tool';
               setToolComplete(conversationId, toolName, durationMs);
             },

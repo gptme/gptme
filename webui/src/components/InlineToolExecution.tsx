@@ -16,14 +16,18 @@ interface ToolCompletionBadgeProps {
   lastCompletedTool$: Observable<ConversationState['lastCompletedTool']>;
 }
 
+const BADGE_DISPLAY_MS = 3000;
+
 export function ToolCompletionBadge({ lastCompletedTool$ }: ToolCompletionBadgeProps) {
   const lastCompletedTool = use$(lastCompletedTool$);
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
     if (lastCompletedTool) {
+      const age = Date.now() - lastCompletedTool.completedAt;
+      if (age >= BADGE_DISPLAY_MS) return;
       setVisible(true);
-      const timer = setTimeout(() => setVisible(false), 3000);
+      const timer = setTimeout(() => setVisible(false), BADGE_DISPLAY_MS - age);
       return () => clearTimeout(timer);
     }
   }, [lastCompletedTool]);

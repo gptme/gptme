@@ -26,7 +26,7 @@ export interface ConversationState {
   // Any executing tool
   executingTool: ExecutingTool | null;
   // Duration of the most recently completed tool (cleared when next tool starts)
-  lastCompletedTool: { toolName: string; durationMs: number } | null;
+  lastCompletedTool: { toolName: string; durationMs: number; completedAt: number } | null;
   // Last received message
   lastMessage?: Message;
   // Whether to show the initial system message
@@ -140,7 +140,7 @@ export function setExecutingTool(
 export function setToolComplete(id: string, toolName: string, durationMs: number) {
   updateConversation(id, {
     executingTool: null,
-    lastCompletedTool: { toolName, durationMs },
+    lastCompletedTool: { toolName, durationMs, completedAt: Date.now() },
   });
 }
 
