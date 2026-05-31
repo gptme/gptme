@@ -237,15 +237,51 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     sendMessage({ message, options });
   };
 
+  const clearSearchHighlights = useCallback(() => {
+    scrollContainerRef.current
+      ?.querySelectorAll<HTMLElement>('[data-message-index]')
+      .forEach((el) => {
+        el.style.outline = '';
+        el.style.outlineOffset = '';
+      });
+  }, [scrollContainerRef]);
+
+  const isMessageHidden = useCallback(
+    (idx: number) => {
+      const messages = conversation$.data.log.get();
+      const msg = messages?.[idx];
+      if (!msg) return false;
+
+      const firstNonSystemIndex = firstNonSystemIndex$.get();
+      const isInitialSystem =
+        msg.role === 'system' && (firstNonSystemIndex === -1 || idx < firstNonSystemIndex);
+      if (isInitialSystem && !showInitialSystem$.get()) return true;
+      if (msg.hide && !showHiddenMessages$.get()) return true;
+
+      const stepRole = stepRoles$.get().get(idx);
+      if (
+        (stepRole?.type === 'group-start' || stepRole?.type === 'grouped') &&
+        !expandedGroups$.get().has(stepRole.groupId)
+      ) {
+        return true;
+      }
+
+      return false;
+    },
+    [
+      conversation$,
+      expandedGroups$,
+      firstNonSystemIndex$,
+      showHiddenMessages$,
+      showInitialSystem$,
+      stepRoles$,
+    ]
+  );
+
   // Search helpers: imperative DOM highlight + scroll, avoids re-rendering all messages
   const highlightSearchMatch = useCallback(
     (msgIndex: number) => {
-      scrollContainerRef.current
-        ?.querySelectorAll<HTMLElement>('[data-message-index]')
-        .forEach((el) => {
-          el.style.outline = '';
-          el.style.outlineOffset = '';
-        });
+      clearSearchHighlights();
       const el = scrollContainerRef.current?.querySelector<HTMLElement>(
         `[data-message-index="${msgIndex}"]`
       );
@@ -255,7 +291,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     },
-    [scrollContainerRef]
+    [clearSearchHighlights, scrollContainerRef]
   );
 
   const computeSearchMatches = useCallback(
@@ -265,11 +301,28 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
       const messages = conversation$.data.log.get();
       if (!messages) return [];
       return messages
-        .map((msg, i) => (msg.content.toLowerCase().includes(q) ? i : -1))
+        .map((msg, i) => {
+          const content = typeof msg.content === 'string' ? msg.content.toLowerCase() : '';
+          return !isMessageHidden(i) && content.includes(q) ? i : -1;
+        })
         .filter((i) => i >= 0);
     },
-    [conversation$]
+    [conversation$, isMessageHidden]
   );
+
+  const resetSearchState = useCallback(() => {
+    searchVisible$.set(false);
+    searchQuery$.set('');
+    searchMatchIndices$.set([]);
+    searchCurrentMatch$.set(0);
+    clearSearchHighlights();
+  }, [
+    clearSearchHighlights,
+    searchCurrentMatch$,
+    searchMatchIndices$,
+    searchQuery$,
+    searchVisible$,
+  ]);
 
   const handleSearchQueryChange = useCallback(
     (query: string) => {
@@ -278,15 +331,10 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
       searchMatchIndices$.set(matches);
       searchCurrentMatch$.set(0);
       if (matches.length > 0) highlightSearchMatch(matches[0]);
-      else
-        scrollContainerRef.current
-          ?.querySelectorAll<HTMLElement>('[data-message-index]')
-          .forEach((el) => {
-            el.style.outline = '';
-            el.style.outlineOffset = '';
-          });
+      else clearSearchHighlights();
     },
     [
+      clearSearchHighlights,
       searchQuery$,
       searchMatchIndices$,
       searchCurrentMatch$,
@@ -312,17 +360,12 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   }, [searchMatchIndices$, searchCurrentMatch$, highlightSearchMatch]);
 
   const handleSearchClose = useCallback(() => {
-    searchVisible$.set(false);
-    searchQuery$.set('');
-    searchMatchIndices$.set([]);
-    searchCurrentMatch$.set(0);
-    scrollContainerRef.current
-      ?.querySelectorAll<HTMLElement>('[data-message-index]')
-      .forEach((el) => {
-        el.style.outline = '';
-        el.style.outlineOffset = '';
-      });
-  }, [searchVisible$, searchQuery$, searchMatchIndices$, searchCurrentMatch$]);
+    resetSearchState();
+  }, [resetSearchState]);
+
+  useEffect(() => {
+    resetSearchState();
+  }, [conversationId, resetSearchState]);
 
   // Handle tool confirmation
   const handleConfirmTool = async () => {
@@ -418,32 +461,14 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
               return <div key={`${index}-${msg$.timestamp.get()}`} />;
             }
 
-            // Helper to check if a message at a given index is hidden
-            const isHiddenAt = (idx: number) => {
-              const m = conversation$.data.log[idx];
-              if (!m?.get()) return false;
-              const r = m.role.get();
-              const h = m.hide?.get();
-              const isInitial =
-                r === 'system' && (firstNonSystemIndex === -1 || idx < firstNonSystemIndex);
-              if (isInitial && !showInitialSystem$.get()) return true;
-              if (h && !showHiddenMessages$.get()) return true;
-              // Messages in collapsed step groups are visually hidden
-              const role = stepRoles$.get().get(idx);
-              if (role?.type === 'group-start' || role?.type === 'grouped') {
-                if (!expandedGroups$.get().has(role.groupId)) return true;
-              }
-              return false;
-            };
-
             // Get the previous and next *visible* messages for chain context
             // (skip hidden messages so they don't break chain grouping)
             let prevIdx = index - 1;
-            while (prevIdx >= 0 && isHiddenAt(prevIdx)) prevIdx--;
+            while (prevIdx >= 0 && isMessageHidden(prevIdx)) prevIdx--;
             const previousMessage$ = prevIdx >= 0 ? conversation$.data.log[prevIdx] : undefined;
 
             let nextIdx = index + 1;
-            while (conversation$.data.log[nextIdx]?.get() && isHiddenAt(nextIdx)) nextIdx++;
+            while (conversation$.data.log[nextIdx]?.get() && isMessageHidden(nextIdx)) nextIdx++;
             const nextMessage$ = conversation$.data.log[nextIdx]?.get()
               ? conversation$.data.log[nextIdx]
               : undefined;
