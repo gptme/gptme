@@ -376,7 +376,6 @@ export const ConversationList: FC<Props> = ({
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <span className="flex items-center text-muted-foreground">
-                              <span className="mr-1 text-[10px]">$</span>
                               <span>{formatCost(cost.totalCost)}</span>
                               <span className="ml-0.5 text-[10px] text-muted-foreground/60">
                                 · {formatTokens(cost.totalTokens)}
