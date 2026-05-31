@@ -134,7 +134,13 @@ const SessionDetail: FC<SessionDetailProps> = ({ sessionId, onClose }) => {
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b px-4 py-2">
         <h2 className="text-sm font-medium">Session details</h2>
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7"
+          onClick={onClose}
+          aria-label="Close session details"
+        >
           <X className="h-4 w-4" />
         </Button>
       </div>
@@ -238,6 +244,7 @@ export const ExternalSessionsView: FC = () => {
               placeholder="Search sessions…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              aria-label="Search external sessions"
             />
           </div>
         </div>

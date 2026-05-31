@@ -64,8 +64,9 @@ const ConversationRow: FC<{
   conv: ConversationSummary;
   onClick: (conv: ConversationSummary) => void;
 }> = ({ conv, onClick }) => (
-  <div
-    className="flex cursor-pointer items-start gap-3 border-b px-4 py-3 last:border-b-0 hover:bg-accent/50"
+  <button
+    type="button"
+    className="flex w-full items-start gap-3 border-b px-4 py-3 text-left last:border-b-0 hover:bg-accent/50"
     onClick={() => onClick(conv)}
   >
     <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-muted">
@@ -103,7 +104,7 @@ const ConversationRow: FC<{
         )}
       </div>
     </div>
-  </div>
+  </button>
 );
 
 export const HistoryView: FC = () => {
@@ -283,7 +284,13 @@ export const HistoryView: FC = () => {
       {/* Header */}
       <div className="flex-shrink-0 border-b px-6 py-4">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/chat')} className="h-8 w-8">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => navigate('/chat')}
+            className="h-8 w-8"
+            aria-label="Back to chat"
+          >
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
@@ -333,6 +340,7 @@ export const HistoryView: FC = () => {
                   size="icon"
                   className="h-7 w-7"
                   onClick={handleYearPrev}
+                  aria-label="Previous year"
                   disabled={
                     selectedYear !== null &&
                     selectedYear <= (availableYears[availableYears.length - 1] ?? selectedYear)
@@ -348,6 +356,7 @@ export const HistoryView: FC = () => {
                   size="icon"
                   className="h-7 w-7"
                   onClick={handleYearNext}
+                  aria-label="Next year"
                   disabled={selectedYear === null}
                 >
                   <ChevronRight className="h-4 w-4" />
@@ -406,6 +415,7 @@ export const HistoryView: FC = () => {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="h-8 pl-8"
+                  aria-label="Search conversations"
                 />
               </div>
             </div>
