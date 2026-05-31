@@ -1129,7 +1129,8 @@ export class ApiClient {
     logfile: string,
     model?: string,
     stream: boolean = true,
-    branch: string = 'main'
+    branch: string = 'main',
+    maxTokens?: number
   ): Promise<void> {
     if (!this.isConnected) {
       throw new Error('Not connected to API');
@@ -1172,7 +1173,13 @@ export class ApiClient {
         {
           method: 'POST',
           headers,
-          body: JSON.stringify({ session_id: sessionId, model, branch, stream }),
+          body: JSON.stringify({
+            session_id: sessionId,
+            model,
+            branch,
+            stream,
+            ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
+          }),
           signal: this.controller.signal,
         }
       );

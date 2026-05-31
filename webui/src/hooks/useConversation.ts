@@ -457,7 +457,7 @@ export function useConversation(conversationId: string, serverId?: string) {
       setMessageStatus(conversationId, userMessage.timestamp!, 'sent');
 
       // Start generation
-      await api.step(conversationId, options?.model, options?.stream);
+      await api.step(conversationId, options?.model, options?.stream, 'main', options?.maxTokens);
     } catch (error) {
       console.error('Error sending message:', error);
       const { title, description } = getApiErrorPresentation(error, {
