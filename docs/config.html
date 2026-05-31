@@ -654,6 +654,7 @@ It is used to store the model, toolset, tool format, and streaming/interactive m
 <p class="rubric">API Configuration</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">LLM_API_TIMEOUT</span></code> - Set the timeout in seconds for LLM API requests (default: 600). Must be a valid numeric string (e.g., “600”, “1800”). Useful for local LLMs that may take longer to respond.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GPTME_ANTHROPIC_FAST_MODE</span></code> - Enable Anthropic fast mode for the Anthropic provider (default: false). When enabled, requests set <code class="docutils literal notranslate"><span class="pre">speed:</span> <span class="pre">&quot;fast&quot;</span></code> for up to ~2.5x higher output tokens/sec at premium pricing — a research preview available on Claude Opus 4.8+. Requires an org with fast-mode access; otherwise the API returns an error. Off by default, so it never affects standard usage. Useful for latency-sensitive callers (e.g. gptme-voice).</p></li>
 </ul>
 <p class="rubric">Browser Configuration</p>
 <ul class="simple">

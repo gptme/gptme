@@ -207,6 +207,7 @@ Besides the configuration files, gptme supports several environment variables to
 .. rubric:: API Configuration
 
 - ``LLM_API_TIMEOUT`` - Set the timeout in seconds for LLM API requests (default: 600). Must be a valid numeric string (e.g., "600", "1800"). Useful for local LLMs that may take longer to respond.
+- ``GPTME_ANTHROPIC_FAST_MODE`` - Enable Anthropic fast mode for the Anthropic provider (default: false). When enabled, requests set ``speed: "fast"`` for up to ~2.5x higher output tokens/sec at premium pricing — a research preview available on Claude Opus 4.8+. Requires an org with fast-mode access; otherwise the API returns an error. Off by default, so it never affects standard usage. Useful for latency-sensitive callers (e.g. gptme-voice).
 
 .. rubric:: Browser Configuration
 
