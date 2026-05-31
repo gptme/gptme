@@ -9,7 +9,7 @@ import { computeForkPoints } from '@/utils/branchUtils';
 import { buildStepRoles, type StepRole } from '@/utils/stepGrouping';
 
 import { InlineToolConfirmation } from './InlineToolConfirmation';
-import { InlineToolExecution } from './InlineToolExecution';
+import { InlineToolExecution, ToolCompletionBadge } from './InlineToolExecution';
 import { For, Memo, use$, useObservable, useObserveEffect } from '@legendapp/state/react';
 import { getObservableIndex } from '@legendapp/state';
 import { useApi } from '@/contexts/ApiContext';
@@ -408,6 +408,9 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
 
         {/* Inline Tool Execution */}
         <InlineToolExecution executingTool$={conversation$?.executingTool} />
+
+        {/* Tool completion badge — briefly shows after tool finishes */}
+        <ToolCompletionBadge lastCompletedTool$={conversation$?.lastCompletedTool} />
 
         {/* Add padding at the bottom to account for the floating input */}
         <div className="mb-40" />

@@ -13,6 +13,7 @@ import contextvars
 import logging
 import os
 import threading
+import time
 import uuid
 from collections.abc import Iterable
 from datetime import datetime, timezone
@@ -873,7 +874,8 @@ def start_tool_execution(
             # Remove the tool from pending
             session.pending_tools.pop(current_tool_id, None)
 
-            # Notify about tool execution
+            # Record start time and notify about tool execution
+            tool_exec.started_at = time.monotonic()
             SessionManager.add_event(
                 conversation_id,
                 {"type": "tool_executing", "tool_id": current_tool_id},
@@ -902,6 +904,18 @@ def start_tool_execution(
 
                 msg = Message("system", f"Error: {e!s}", call_id=tooluse.call_id)
                 _append_and_notify(manager, session, msg)
+
+            # Emit tool_complete with duration
+            if tool_exec.started_at is not None:
+                duration_ms = (time.monotonic() - tool_exec.started_at) * 1000
+                SessionManager.add_event(
+                    conversation_id,
+                    {
+                        "type": "tool_complete",
+                        "tool_id": current_tool_id,
+                        "duration_ms": duration_ms,
+                    },
+                )
 
             # Persist tool outputs to disk
             manager.write()

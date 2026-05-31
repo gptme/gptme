@@ -1,7 +1,8 @@
-import type { ExecutingTool } from '@/stores/conversations';
-import { Loader2, Cog } from 'lucide-react';
+import type { ConversationState, ExecutingTool } from '@/stores/conversations';
+import { Loader2, Cog, CheckCircle } from 'lucide-react';
 import { type Observable } from '@legendapp/state';
 import { use$ } from '@legendapp/state/react';
+import { useEffect, useState } from 'react';
 import { CodeDisplay } from '@/components/CodeDisplay';
 import { MessageAvatar } from './MessageAvatar';
 import { detectToolLanguage } from '@/utils/highlightUtils';
@@ -9,6 +10,55 @@ import { observable } from '@legendapp/state';
 
 interface InlineToolExecutionProps {
   executingTool$: Observable<ExecutingTool | null>;
+}
+
+interface ToolCompletionBadgeProps {
+  lastCompletedTool$: Observable<ConversationState['lastCompletedTool']>;
+}
+
+export function ToolCompletionBadge({ lastCompletedTool$ }: ToolCompletionBadgeProps) {
+  const lastCompletedTool = use$(lastCompletedTool$);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (lastCompletedTool) {
+      setVisible(true);
+      const timer = setTimeout(() => setVisible(false), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [lastCompletedTool]);
+
+  if (!visible || !lastCompletedTool) return null;
+
+  return (
+    <div className="mx-auto max-w-3xl px-4 md:px-16">
+      <div className="flex items-center gap-1.5 py-1 text-xs text-green-600 dark:text-green-400">
+        <CheckCircle className="h-3.5 w-3.5" />
+        <code className="font-mono">{lastCompletedTool.toolName}</code>
+        <span>completed in {formatElapsed(lastCompletedTool.durationMs)}</span>
+      </div>
+    </div>
+  );
+}
+
+function formatElapsed(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function ElapsedTimer({ startedAt }: { startedAt: number }) {
+  const [elapsed, setElapsed] = useState(() => Date.now() - startedAt);
+
+  useEffect(() => {
+    const id = setInterval(() => setElapsed(Date.now() - startedAt), 100);
+    return () => clearInterval(id);
+  }, [startedAt]);
+
+  return (
+    <span className="ml-1 font-mono text-xs text-blue-500 dark:text-blue-400">
+      {formatElapsed(elapsed)}
+    </span>
+  );
 }
 
 export function InlineToolExecution({ executingTool$ }: InlineToolExecutionProps) {
@@ -76,12 +126,13 @@ export function InlineToolExecution({ executingTool$ }: InlineToolExecutionProps
                   />
                 </div>
 
-                {/* Status indicator */}
+                {/* Status indicator with elapsed timer */}
                 <div className="flex items-center gap-2 border-t border-blue-200 pt-3 dark:border-blue-800">
                   <Loader2 className="h-4 w-4 animate-spin text-blue-600 dark:text-blue-400" />
                   <span className="text-sm text-blue-700 dark:text-blue-300">
                     Executing tool...
                   </span>
+                  <ElapsedTimer startedAt={executingTool.startedAt} />
                 </div>
               </div>
             </div>

@@ -126,6 +126,7 @@ class BaseEvent(TypedDict):
         "generation_complete",
         "tool_pending",
         "tool_executing",
+        "tool_complete",
         "elicit_pending",
         "interrupted",
         "error",
@@ -184,6 +185,13 @@ class ToolExecutingEvent(BaseEvent):
     """Sent when a tool is being executed."""
 
     tool_id: str
+
+
+class ToolCompleteEvent(BaseEvent):
+    """Sent when a tool has finished executing."""
+
+    tool_id: str
+    duration_ms: float
 
 
 class FormFieldDict(TypedDict):
@@ -254,6 +262,7 @@ EventType = (
     | GenerationCompleteEvent
     | ToolPendingEvent
     | ToolExecutingEvent
+    | ToolCompleteEvent
     | ElicitPendingEvent
     | InterruptedEvent
     | ErrorEvent

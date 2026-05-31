@@ -12,6 +12,7 @@ import {
   setConnected,
   setPendingTool,
   setExecutingTool,
+  setToolComplete,
   addMessage,
   setMessageStatus,
   removeMessage,
@@ -265,13 +266,19 @@ export function useConversation(conversationId: string, serverId?: string) {
               if (pendingTool && pendingTool.id === toolId) {
                 // Move from pending to executing (generating stays false - tools can't be interrupted)
                 setPendingTool(conversationId, null, null);
-                setExecutingTool(conversationId, toolId, pendingTool.tooluse);
+                setExecutingTool(conversationId, toolId, pendingTool.tooluse, Date.now());
               } else {
                 console.warn(
                   '[useConversation] No matching pending tool found for executing tool:',
                   toolId
                 );
               }
+            },
+            onToolComplete: (toolId, durationMs) => {
+              console.log('[useConversation] Tool complete:', { toolId, durationMs });
+              const executingTool = conversation$?.executingTool.get();
+              const toolName = executingTool?.tooluse.tool ?? 'tool';
+              setToolComplete(conversationId, toolName, durationMs);
             },
             onInterrupted: () => {
               console.log('[useConversation] Generation interrupted');

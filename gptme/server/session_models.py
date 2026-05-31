@@ -42,6 +42,7 @@ class ToolExecution:
     tooluse: ToolUse
     status: ToolStatus = ToolStatus.PENDING
     auto_confirm: bool = False
+    started_at: float | None = None
 
 
 @dataclass
