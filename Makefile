@@ -162,9 +162,8 @@ release-minor:  ## Create a stable minor release (x.Y+1.0)
 	@make dist/CHANGELOG.md
 	@./scripts/publish_release.sh --notes-file dist/CHANGELOG.md
 
-./scripts/build_changelog.py:
-	wget -O $@ https://raw.githubusercontent.com/ActivityWatch/activitywatch/ade74fd7636abb2b675591682b4f753e289deb72/scripts/build_changelog.py
-	chmod +x $@
+# build_changelog.py is vendored in scripts/ (no longer downloaded at build time)
+# To update: wget -O scripts/build_changelog.py https://raw.githubusercontent.com/ActivityWatch/activitywatch/ade74fd7636abb2b675591682b4f753e289deb72/scripts/build_changelog.py
 
 .PHONY: dist/CHANGELOG.md
 dist/CHANGELOG.md: ./scripts/build_changelog.py

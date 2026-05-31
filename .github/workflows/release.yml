@@ -174,11 +174,7 @@ jobs:
 
       - name: Generate changelog
         run: |
-          # Download the shared changelog generator (same as `make dist/CHANGELOG.md`)
-          # Pinned to specific commit to avoid supply-chain risk from mutable master branch
-          wget -q -O scripts/build_changelog.py \
-            https://raw.githubusercontent.com/ActivityWatch/activitywatch/ade74fd7636abb2b675591682b4f753e289deb72/scripts/build_changelog.py
-          chmod +x scripts/build_changelog.py
+          # build_changelog.py is vendored in scripts/ (no longer downloaded from external URL)
           pip install -q requests
 
           TAG="${{ steps.version.outputs.tag }}"
@@ -257,6 +253,13 @@ jobs:
       run: |
         rm -f dist/*.whl dist/*.tar.gz
         poetry build
+
+    - name: Validate package (dry-run publish)
+      env:
+        PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+      run: |
+        # Dry-run validates the package can be published before any irreversible step
+        poetry publish --dry-run --username=__token__ --password=$PYPI_TOKEN
 
     - name: Upload packages to GitHub release
       env:
