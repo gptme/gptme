@@ -469,7 +469,7 @@ def test_fast_mode_disabled_by_default(monkeypatch):
     assert _fast_mode_kwargs() == {}
 
 
-@pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes", "Yes"])
+@pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes", "Yes", "YES"])
 def test_fast_mode_enabled(monkeypatch, value):
     """_fast_mode_kwargs injects extra_body speed=fast when enabled (truthy values)."""
     monkeypatch.setenv("GPTME_ANTHROPIC_FAST_MODE", value)

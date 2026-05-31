@@ -250,7 +250,7 @@ def _fast_mode_kwargs() -> dict:
     enabled = os.environ.get(ENV_FAST_MODE, "").lower() in ("1", "true", "yes")
     if not enabled:
         return {}
-    logger.info("Anthropic fast mode enabled (speed=fast)")
+    logger.debug("Anthropic fast mode enabled (speed=fast)")
     return {"extra_body": {"speed": "fast"}}
 
 
