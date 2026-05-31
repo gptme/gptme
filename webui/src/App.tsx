@@ -9,6 +9,7 @@ import { EmbeddedContextProvider } from './contexts/EmbeddedContext';
 import { SettingsProvider } from './contexts/SettingsContext';
 import { lazy, Suspense, type FC } from 'react';
 import { CommandPalette } from './components/CommandPalette';
+import { ShortcutsDialog } from './components/ShortcutsDialog';
 import { SetupWizard } from './components/SetupWizard';
 
 // Lazy-loaded route pages — code-split at route boundaries for smaller initial bundle
@@ -88,6 +89,7 @@ const App: FC = () => {
                   </Suspense>
                   <SetupWizard />
                   <CommandPalette />
+                  <ShortcutsDialog />
                   <Toaster />
                   <Sonner />
                 </BrowserRouter>

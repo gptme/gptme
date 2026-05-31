@@ -8,12 +8,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import { ChevronDown, Menu, Search, User } from 'lucide-react';
+import { ChevronDown, HelpCircle, Menu, Search, User } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useEmbeddedContext } from '@/contexts/EmbeddedContext';
 import type { EmbeddedMenuItem } from '@/lib/embeddedContext';
 import { Link } from 'react-router-dom';
 import { commandPaletteOpen$ } from '@/stores/commandPalette';
+import { shortcutsDialogOpen$ } from '@/stores/shortcutsDialog';
 import { leftSidebarVisible$, toggleLeftSidebar } from '@/stores/sidebar';
 import { use$ } from '@legendapp/state/react';
 
@@ -101,6 +102,22 @@ export const MenuBar: FC = () => {
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">Search</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={() => shortcutsDialogOpen$.set(true)}
+                aria-label="Keyboard shortcuts"
+              >
+                <HelpCircle className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Keyboard shortcuts (?)</TooltipContent>
           </Tooltip>
         </TooltipProvider>
         <ServerSelector />
