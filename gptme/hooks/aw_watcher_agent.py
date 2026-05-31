@@ -22,7 +22,7 @@ import subprocess
 import time
 from contextvars import ContextVar
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ..hooks import HookType, register_hook
 from ..llm.models import get_default_model
@@ -202,6 +202,7 @@ def emit_tool_activity(
     log: Log,
     workspace: Path | None,
     tool_use: ToolUse,
+    **kwargs: Any,
 ) -> Generator[Message | StopPropagation, None, None]:
     """Emit one per-tool activity heartbeat after a tool finishes."""
     del log
