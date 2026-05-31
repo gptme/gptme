@@ -53,6 +53,11 @@ export interface ConversationSummary {
   last_message_preview?: string;
   serverId?: string; // which server this conversation is from (multi-backend)
   serverName?: string; // display name for the server label
+  // Cost/token summary (populated by server when detail=True)
+  total_cost?: number;
+  total_input_tokens?: number;
+  total_output_tokens?: number;
+  total_cache_read_tokens?: number;
 }
 
 export interface GenerateCallbacks {

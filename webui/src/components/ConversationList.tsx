@@ -24,6 +24,7 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import { getRelativeTimeString, groupByDate } from '@/utils/time';
+import { computeConversationCost, formatCost, formatTokens } from '@/utils/conversationCost';
 import { useApi } from '@/contexts/ApiContext';
 import { demoConversations, getDemoMessages } from '@/democonversations';
 import {
@@ -357,6 +358,48 @@ export const ConversationList: FC<Props> = ({
                         </Tooltip>
                       ) : (
                         messageCountElement
+                      );
+                    }}
+                  </Computed>
+
+                  {/* Cost badge: show per-conversation total cost from loaded data */}
+                  <Computed>
+                    {() => {
+                      const storeConv = conversations$.get(conv.id)?.get();
+                      const isLoaded = storeConv?.data?.log?.length > 0;
+                      if (!isLoaded) return null;
+
+                      const cost = computeConversationCost(storeConv!.data!.log);
+                      if (!cost.hasData) return null;
+
+                      return (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="flex items-center text-muted-foreground">
+                              <span className="mr-1 text-[10px]">$</span>
+                              <span>{formatCost(cost.totalCost)}</span>
+                              <span className="ml-0.5 text-[10px] text-muted-foreground/60">
+                                · {formatTokens(cost.totalTokens)}
+                              </span>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <div className="space-y-1 text-xs">
+                              <div className="font-medium">Session cost</div>
+                              <div>Input: {formatTokens(cost.inputTokens)} tokens</div>
+                              <div>Output: {formatTokens(cost.outputTokens)} tokens</div>
+                              {cost.cacheReadTokens > 0 && (
+                                <div>Cache read: {formatTokens(cost.cacheReadTokens)} tokens</div>
+                              )}
+                              {cost.cacheCreationTokens > 0 && (
+                                <div>
+                                  Cache create: {formatTokens(cost.cacheCreationTokens)} tokens
+                                </div>
+                              )}
+                              <div>Total: {formatTokens(cost.totalTokens)} tokens</div>
+                            </div>
+                          </TooltipContent>
+                        </Tooltip>
                       );
                     }}
                   </Computed>
