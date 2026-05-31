@@ -2,12 +2,12 @@ import { Toaster } from '@/components/ui/toaster';
 import { Toaster as Sonner } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { ThemeProvider } from 'next-themes';
 import { ApiProvider } from './contexts/ApiContext';
 import { EmbeddedContextProvider } from './contexts/EmbeddedContext';
 import { SettingsProvider } from './contexts/SettingsContext';
-import { lazy, Suspense, type FC, type ReactNode } from 'react';
+import { lazy, Suspense, type FC } from 'react';
 import { CommandPalette } from './components/CommandPalette';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ShortcutsDialog } from './components/ShortcutsDialog';
@@ -47,12 +47,6 @@ const queryClient = new QueryClient({
   },
 });
 
-/** Resets the error boundary whenever the user navigates to a different route. */
-function LocationAwareErrorBoundary({ children }: { children: ReactNode }) {
-  const { key } = useLocation();
-  return <ErrorBoundary key={key}>{children}</ErrorBoundary>;
-}
-
 /** Lightweight fallback shown while a lazy-route chunk is loading. */
 const RouteLoader: FC = () => (
   <div className="flex h-64 items-center justify-center">
@@ -80,7 +74,7 @@ const App: FC = () => {
                     v7_relativeSplatPath: true,
                   }}
                 >
-                  <LocationAwareErrorBoundary>
+                  <ErrorBoundary>
                     <Suspense fallback={<RouteLoader />}>
                       <Routes>
                         <Route path="/" element={<Index />} />
@@ -97,7 +91,7 @@ const App: FC = () => {
                         <Route path="*" element={<NotFound />} />
                       </Routes>
                     </Suspense>
-                  </LocationAwareErrorBoundary>
+                  </ErrorBoundary>
                   <SetupWizard />
                   <CommandPalette />
                   <ShortcutsDialog />
