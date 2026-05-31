@@ -22,7 +22,7 @@ import subprocess
 import time
 from contextvars import ContextVar
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from ..hooks import HookType, register_hook
 from ..llm.models import get_default_model

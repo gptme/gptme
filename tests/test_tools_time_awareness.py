@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from gptme.hooks import HookType, clear_hooks, get_hooks, trigger_hook
+from gptme.hooks.types import ToolExecutePostData
 from gptme.logmanager import Log
 
 
@@ -95,7 +96,8 @@ def test_time_milestones(load_time_awareness_tool, tmp_path, monkeypatch):
         # Trigger TOOL_EXECUTE_POST (tool.execute.post) hook
         messages = list(
             trigger_hook(
-                HookType.TOOL_EXECUTE_POST, log=log, workspace=workspace, tool_use=None
+                HookType.TOOL_EXECUTE_POST,
+                ToolExecutePostData(log=log, workspace=workspace, tool_use=None),
             )
         )
 
@@ -138,7 +140,8 @@ def test_milestone_progression(load_time_awareness_tool, tmp_path):
     for i in range(3):
         messages = list(
             trigger_hook(
-                HookType.TOOL_EXECUTE_POST, log=log, workspace=workspace, tool_use=None
+                HookType.TOOL_EXECUTE_POST,
+                ToolExecutePostData(log=log, workspace=workspace, tool_use=None),
             )
         )
 
@@ -158,7 +161,10 @@ def test_no_workspace_graceful_handling(
 
     # Trigger hook without workspace
     messages = list(
-        trigger_hook(HookType.TOOL_EXECUTE_POST, log=log, workspace=None, tool_use=None)
+        trigger_hook(
+            HookType.TOOL_EXECUTE_POST,
+            ToolExecutePostData(log=log, workspace=None, tool_use=None),
+        )
     )
 
     # Should not crash, should not produce messages
@@ -193,7 +199,8 @@ def test_time_format_hours(load_time_awareness_tool, tmp_path):
     # Trigger hook
     messages = list(
         trigger_hook(
-            HookType.TOOL_EXECUTE_POST, log=log, workspace=workspace, tool_use=None
+            HookType.TOOL_EXECUTE_POST,
+            ToolExecutePostData(log=log, workspace=workspace, tool_use=None),
         )
     )
 
@@ -233,7 +240,8 @@ def test_every_10min_after_20(load_time_awareness_tool, tmp_path):
 
         messages = list(
             trigger_hook(
-                HookType.TOOL_EXECUTE_POST, log=log, workspace=workspace, tool_use=None
+                HookType.TOOL_EXECUTE_POST,
+                ToolExecutePostData(log=log, workspace=workspace, tool_use=None),
             )
         )
 

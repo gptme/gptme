@@ -24,6 +24,7 @@ from gptme.hooks.auto_snapshots import (
     is_mutating_shell_payload,
     is_mutating_tmux_payload,
 )
+from gptme.hooks.types import ToolExecutePostData, ToolExecutePreData
 from gptme.tools.base import ToolUse
 from gptme.workspace_snapshot import (
     Shadow,
@@ -298,8 +299,8 @@ def test_pre_post_noop_when_disabled(isolated_state_dir, workspace, monkeypatch)
     monkeypatch.delenv("GPTME_AUTO_SNAPSHOTS", raising=False)
     tu = MagicMock(tool="save", content="x")
     # Generator returns nothing and does not create a shadow.
-    list(_pre(MagicMock(), workspace, tu))
-    list(_post(MagicMock(), workspace, tu))
+    list(_pre(ToolExecutePreData(log=MagicMock(), workspace=workspace, tool_use=tu)))
+    list(_post(ToolExecutePostData(log=MagicMock(), workspace=workspace, tool_use=tu)))
     # No XDG shadow created.
     snaps_dir = isolated_state_dir / "gptme" / "workspace-snapshots"
     assert not snaps_dir.exists()
@@ -313,7 +314,7 @@ def test_pre_post_snapshot_round_trip_via_hook(
 
     # Simulate a save tool call.
     tu = MagicMock(tool="save", content="anything")
-    list(_pre(MagicMock(), workspace, tu))
+    list(_pre(ToolExecutePreData(log=MagicMock(), workspace=workspace, tool_use=tu)))
     # Hook ran on a clean workspace — at least the initial snapshot is recorded.
     shadow = Shadow.for_workspace(workspace)
     assert shadow.initialized()
@@ -323,7 +324,7 @@ def test_pre_post_snapshot_round_trip_via_hook(
 
     # Mutate the workspace, then run post hook.
     (workspace / "after-save.txt").write_text("new\n")
-    list(_post(MagicMock(), workspace, tu))
+    list(_post(ToolExecutePostData(log=MagicMock(), workspace=workspace, tool_use=tu)))
     snaps_after = list_snapshots(shadow, limit=100)
     post_labels = [label for _, label in snaps_after]
     assert any(label == "post:save" for label in post_labels)
@@ -335,12 +336,12 @@ def test_post_skips_when_no_mutation(isolated_state_dir, workspace, monkeypatch)
     _pre_tree_var.set(None)
     tu = MagicMock(tool="shell", content="echo hi > out.txt")
 
-    list(_pre(MagicMock(), workspace, tu))
+    list(_pre(ToolExecutePreData(log=MagicMock(), workspace=workspace, tool_use=tu)))
     shadow = Shadow.for_workspace(workspace)
     pre_count = len(list_snapshots(shadow, limit=100))
 
     # Run post immediately, no actual workspace mutation.
-    list(_post(MagicMock(), workspace, tu))
+    list(_post(ToolExecutePostData(log=MagicMock(), workspace=workspace, tool_use=tu)))
     post_count = len(list_snapshots(shadow, limit=100))
     # Pre adds one snapshot; post adds zero because tree is unchanged.
     assert post_count == pre_count
@@ -359,14 +360,14 @@ def test_pre_post_snapshot_round_trip_via_tool_format_shell_kwargs(
         _format="tool",
     )
 
-    list(_pre(MagicMock(), workspace, tu))
+    list(_pre(ToolExecutePreData(log=MagicMock(), workspace=workspace, tool_use=tu)))
     shadow = Shadow.for_workspace(workspace)
     assert shadow.initialized()
     pre_labels = [label for _, label in list_snapshots(shadow, limit=100)]
     assert any(label == "pre:shell" for label in pre_labels)
 
     (workspace / "smoke.txt").write_text("alpha\nbeta\n")
-    list(_post(MagicMock(), workspace, tu))
+    list(_post(ToolExecutePostData(log=MagicMock(), workspace=workspace, tool_use=tu)))
     post_labels = [label for _, label in list_snapshots(shadow, limit=100)]
     assert any(label == "post:shell" for label in post_labels)
 
@@ -375,7 +376,7 @@ def test_hook_skips_non_mutating_shell(isolated_state_dir, workspace, monkeypatc
     monkeypatch.setenv("GPTME_AUTO_SNAPSHOTS", "1")
     _pre_tree_var.set(None)
     tu = MagicMock(tool="shell", content="ls -la")
-    list(_pre(MagicMock(), workspace, tu))
+    list(_pre(ToolExecutePreData(log=MagicMock(), workspace=workspace, tool_use=tu)))
     # No shadow should be initialized for a plain read.
     snaps_dir = isolated_state_dir / "gptme" / "workspace-snapshots"
     assert not snaps_dir.exists()

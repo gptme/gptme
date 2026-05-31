@@ -3,6 +3,7 @@
 import pytest
 
 from gptme.hooks import HookType, clear_hooks, get_hooks, trigger_hook
+from gptme.hooks.types import ToolExecutePostData
 from gptme.logmanager import Log
 from gptme.message import Message
 
@@ -95,7 +96,10 @@ def test_add_token_usage_warning_hook(load_token_awareness_tool, tmp_path):
 
     # Use workspace=None to trigger fallback behavior (shows warning every time)
     results = list(
-        trigger_hook(HookType.TOOL_EXECUTE_POST, log=log, workspace=None, tool_use=None)
+        trigger_hook(
+            HookType.TOOL_EXECUTE_POST,
+            ToolExecutePostData(log=log, workspace=None, tool_use=None),
+        )
     )
 
     # Should have at least one message from the hook
@@ -139,7 +143,10 @@ def test_token_calculation_accuracy(load_token_awareness_tool, tmp_path):
 
     # Use workspace=None to trigger fallback behavior (shows warning every time)
     results = list(
-        trigger_hook(HookType.TOOL_EXECUTE_POST, log=log, workspace=None, tool_use=None)
+        trigger_hook(
+            HookType.TOOL_EXECUTE_POST,
+            ToolExecutePostData(log=log, workspace=None, tool_use=None),
+        )
     )
 
     # Find the usage warning
@@ -207,7 +214,10 @@ def test_multiple_usage_warnings(load_token_awareness_tool, tmp_path):
     # Use workspace=None to trigger fallback behavior (shows warning every time)
     # Trigger hook first time
     results1 = list(
-        trigger_hook(HookType.TOOL_EXECUTE_POST, log=log, workspace=None, tool_use=None)
+        trigger_hook(
+            HookType.TOOL_EXECUTE_POST,
+            ToolExecutePostData(log=log, workspace=None, tool_use=None),
+        )
     )
     assert len([m for m in results1 if "<system_warning>" in m.content]) >= 1
 
@@ -217,7 +227,10 @@ def test_multiple_usage_warnings(load_token_awareness_tool, tmp_path):
 
     # Trigger hook second time
     results2 = list(
-        trigger_hook(HookType.TOOL_EXECUTE_POST, log=log, workspace=None, tool_use=None)
+        trigger_hook(
+            HookType.TOOL_EXECUTE_POST,
+            ToolExecutePostData(log=log, workspace=None, tool_use=None),
+        )
     )
     assert len([m for m in results2 if "<system_warning>" in m.content]) >= 1
 

@@ -19,6 +19,7 @@ from gptme.hooks import (
 )
 from gptme.hooks.cwd_awareness import on_cwd_changed
 from gptme.hooks.cwd_changed import _cwd_before_var, _detect_change, _store_cwd
+from gptme.hooks.types import ToolExecutePostData, ToolExecutePreData
 from gptme.message import Message
 
 
@@ -45,7 +46,13 @@ class TestCwdChangedDetector:
         orig_cwd = os.getcwd()
         try:
             os.chdir(tmp_path)
-            list(_store_cwd(log=MagicMock(), workspace=None, tool_use=MagicMock()))
+            list(
+                _store_cwd(
+                    ToolExecutePreData(
+                        log=MagicMock(), workspace=None, tool_use=MagicMock()
+                    )
+                )
+            )
             assert _cwd_before_var.get() == str(tmp_path)
         finally:
             os.chdir(orig_cwd)
@@ -57,7 +64,11 @@ class TestCwdChangedDetector:
             os.chdir(tmp_path)
             _cwd_before_var.set(str(tmp_path))
             msgs = list(
-                _detect_change(log=MagicMock(), workspace=None, tool_use=MagicMock())
+                _detect_change(
+                    ToolExecutePostData(
+                        log=MagicMock(), workspace=None, tool_use=MagicMock()
+                    )
+                )
             )
             assert msgs == []
         finally:
@@ -83,7 +94,13 @@ class TestCwdChangedDetector:
         try:
             _cwd_before_var.set(str(tmp_path))
             os.chdir(subdir)
-            list(_detect_change(log=MagicMock(), workspace=None, tool_use=MagicMock()))
+            list(
+                _detect_change(
+                    ToolExecutePostData(
+                        log=MagicMock(), workspace=None, tool_use=MagicMock()
+                    )
+                )
+            )
             assert len(captured) == 1
             assert captured[0]["old"] == str(tmp_path)
             assert captured[0]["new"] == str(subdir)
@@ -97,7 +114,11 @@ class TestCwdChangedDetector:
             os.chdir(tmp_path)
             _cwd_before_var.set(None)
             msgs = list(
-                _detect_change(log=MagicMock(), workspace=None, tool_use=MagicMock())
+                _detect_change(
+                    ToolExecutePostData(
+                        log=MagicMock(), workspace=None, tool_use=MagicMock()
+                    )
+                )
             )
             assert msgs == []
         finally:
@@ -122,10 +143,22 @@ class TestCwdChangedDetector:
         orig_cwd = os.getcwd()
         try:
             os.chdir(tmp_path)
-            list(_store_cwd(log=MagicMock(), workspace=None, tool_use=MagicMock()))
+            list(
+                _store_cwd(
+                    ToolExecutePreData(
+                        log=MagicMock(), workspace=None, tool_use=MagicMock()
+                    )
+                )
+            )
 
             os.chdir(subdir)
-            list(_detect_change(log=MagicMock(), workspace=None, tool_use=MagicMock()))
+            list(
+                _detect_change(
+                    ToolExecutePostData(
+                        log=MagicMock(), workspace=None, tool_use=MagicMock()
+                    )
+                )
+            )
 
             assert len(triggered) == 1
             assert triggered[0] == str(subdir)
@@ -217,13 +250,21 @@ class TestIntegration:
         orig_cwd = os.getcwd()
         try:
             os.chdir(tmp_path)
-            list(_store_cwd(log=MagicMock(), workspace=None, tool_use=MagicMock()))
+            list(
+                _store_cwd(
+                    ToolExecutePreData(
+                        log=MagicMock(), workspace=None, tool_use=MagicMock()
+                    )
+                )
+            )
 
             os.chdir(subdir)
             msgs = _messages_only(
                 list(
                     _detect_change(
-                        log=MagicMock(), workspace=None, tool_use=MagicMock()
+                        ToolExecutePostData(
+                            log=MagicMock(), workspace=None, tool_use=MagicMock()
+                        )
                     )
                 )
             )
@@ -244,11 +285,21 @@ class TestIntegration:
         orig_cwd = os.getcwd()
         try:
             os.chdir(tmp_path)
-            list(_store_cwd(log=MagicMock(), workspace=None, tool_use=MagicMock()))
+            list(
+                _store_cwd(
+                    ToolExecutePreData(
+                        log=MagicMock(), workspace=None, tool_use=MagicMock()
+                    )
+                )
+            )
 
             # CWD stays the same
             msgs = list(
-                _detect_change(log=MagicMock(), workspace=None, tool_use=MagicMock())
+                _detect_change(
+                    ToolExecutePostData(
+                        log=MagicMock(), workspace=None, tool_use=MagicMock()
+                    )
+                )
             )
             assert msgs == []
         finally:

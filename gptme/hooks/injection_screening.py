@@ -10,13 +10,10 @@ Hook type: TOOL_EXECUTE_POST
 import logging
 import re
 from collections.abc import Generator
-from pathlib import Path
-from typing import Any
 
 from ..hooks import HookType, register_hook
-from ..logmanager import Log
+from ..hooks.types import ToolExecutePostData
 from ..message import Message
-from ..tools.base import ToolUse
 
 logger = logging.getLogger(__name__)
 
@@ -84,11 +81,7 @@ def _has_injection_pattern(text: str | None) -> tuple[bool, str]:
 
 
 def injection_screening(
-    log: Log | None = None,
-    workspace: Path | None = None,
-    tool_use: ToolUse | None = None,
-    result_msgs: list[Message] | None = None,
-    **kwargs: Any,
+    data: ToolExecutePostData,
 ) -> Generator[Message, None, None]:
     """TOOL_EXECUTE_POST hook that flags untrusted external content in tool output.
 
@@ -96,6 +89,8 @@ def injection_screening(
     patterns, this hook yields a system warning that appears before the model
     processes the tool results.
     """
+    tool_use = data.tool_use
+    result_msgs = data.result_msgs
     if tool_use is None or not result_msgs:
         return
 
