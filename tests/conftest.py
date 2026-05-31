@@ -478,7 +478,9 @@ def mock_generation():
     def create(responses: list[str]):
         response_iter = iter(responses)
 
-        def mock_stream(messages, model, tools=None, max_tokens=None):
+        def mock_stream(
+            messages, model, tools=None, max_tokens=None, temperature=None, top_p=None
+        ):
             try:
                 content = next(response_iter)
                 # Yield the content as a single chunk that will be iterated over char by char

@@ -873,7 +873,14 @@ def test_stream_forwards_output_schema_to_responses_path(monkeypatch):
     seen: dict[str, Any] = {}
 
     def fake_stream_responses(
-        messages, model, tools, model_meta, output_schema=None, max_tokens=None
+        messages,
+        model,
+        tools,
+        model_meta,
+        output_schema=None,
+        max_tokens=None,
+        temperature=None,
+        top_p=None,
     ):
         seen["messages"] = messages
         seen["model"] = model

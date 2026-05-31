@@ -1749,7 +1749,9 @@ def test_v2_step_error_returned_in_response(v2_conv, client: FlaskClient):
     assert response.status_code == 200
 
     # Mock _stream to raise an error (simulating an API auth failure)
-    def mock_stream_error(messages, model, tools=None, max_tokens=None):
+    def mock_stream_error(
+        messages, model, tools=None, max_tokens=None, temperature=None, top_p=None
+    ):
         raise RuntimeError("API key is invalid")
 
     with unittest.mock.patch("gptme.server.session_step._stream", mock_stream_error):
@@ -1790,7 +1792,9 @@ def test_v2_step_last_error_set_on_failure(v2_conv, client: FlaskClient):
     )
     assert response.status_code == 200
 
-    def mock_stream_error(messages, model, tools=None, max_tokens=None):
+    def mock_stream_error(
+        messages, model, tools=None, max_tokens=None, temperature=None, top_p=None
+    ):
         raise ValueError("Model not found: fake-model")
 
     with unittest.mock.patch("gptme.server.session_step._stream", mock_stream_error):

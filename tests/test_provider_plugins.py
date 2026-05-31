@@ -376,6 +376,8 @@ class TestPluginRouting:
             None,
             output_schema=None,
             max_tokens=None,
+            temperature=None,
+            top_p=None,
         )
 
     def test_stream_routes_plugin_provider_through_openai(self):
@@ -408,6 +410,8 @@ class TestPluginRouting:
             None,
             output_schema=None,
             max_tokens=None,
+            temperature=None,
+            top_p=None,
         )
 
 

@@ -903,7 +903,15 @@ class TestMaxTokensEnvOverride:
 
         captured: dict[str, Any] = {}
 
-        def fake_chat(messages, model, tools, output_schema=None, max_tokens=None):
+        def fake_chat(
+            messages,
+            model,
+            tools,
+            output_schema=None,
+            max_tokens=None,
+            temperature=None,
+            top_p=None,
+        ):
             captured["max_tokens"] = max_tokens
             return "ok", {"model": model}
 
@@ -926,7 +934,15 @@ class TestMaxTokensEnvOverride:
 
         captured: dict[str, Any] = {}
 
-        def fake_chat(messages, model, tools, output_schema=None, max_tokens=None):
+        def fake_chat(
+            messages,
+            model,
+            tools,
+            output_schema=None,
+            max_tokens=None,
+            temperature=None,
+            top_p=None,
+        ):
             captured["max_tokens"] = max_tokens
             return "ok", {"model": model}
 
@@ -948,7 +964,15 @@ class TestMaxTokensEnvOverride:
 
         captured: dict[str, Any] = {}
 
-        def fake_chat(messages, model, tools, output_schema=None, max_tokens=None):
+        def fake_chat(
+            messages,
+            model,
+            tools,
+            output_schema=None,
+            max_tokens=None,
+            temperature=None,
+            top_p=None,
+        ):
             captured["max_tokens"] = max_tokens
             return "ok", {"model": model}
 
@@ -969,7 +993,15 @@ class TestMaxTokensEnvOverride:
 
         captured: dict[str, Any] = {}
 
-        def fake_stream(messages, model, tools, output_schema=None, max_tokens=None):
+        def fake_stream(
+            messages,
+            model,
+            tools,
+            output_schema=None,
+            max_tokens=None,
+            temperature=None,
+            top_p=None,
+        ):
             captured["max_tokens"] = max_tokens
             if False:
                 yield ""
@@ -994,7 +1026,15 @@ class TestMaxTokensEnvOverride:
 
         captured: dict[str, Any] = {}
 
-        def fake_stream(messages, model, tools, output_schema=None, max_tokens=None):
+        def fake_stream(
+            messages,
+            model,
+            tools,
+            output_schema=None,
+            max_tokens=None,
+            temperature=None,
+            top_p=None,
+        ):
             captured["max_tokens"] = max_tokens
             if False:
                 yield ""
