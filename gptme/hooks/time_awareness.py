@@ -30,8 +30,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-logger = logging.getLogger(__name__)
-
 # Context-local storage for time tracking (ensures context safety in gptme-server)
 _conversation_start_times_var: ContextVar[dict[str, datetime] | None] = ContextVar(
     "conversation_start_times", default=None

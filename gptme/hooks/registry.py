@@ -35,7 +35,8 @@ from .types import (
     SessionEndHook,
     SessionStartHook,
     StopPropagation,
-    ToolExecuteHook,
+    ToolExecutePostHook,
+    ToolExecutePreHook,
 )
 
 logger = logging.getLogger(__name__)
@@ -428,11 +429,19 @@ def register_hook(
 @overload
 def register_hook(
     name: str,
-    hook_type: Literal[
-        HookType.TOOL_EXECUTE_PRE,
-        HookType.TOOL_EXECUTE_POST,
-    ],
-    func: ToolExecuteHook,
+    hook_type: Literal[HookType.TOOL_EXECUTE_PRE],
+    func: ToolExecutePreHook,
+    priority: int = 0,
+    enabled: bool = True,
+    async_mode: bool = False,
+) -> None: ...
+
+
+@overload
+def register_hook(
+    name: str,
+    hook_type: Literal[HookType.TOOL_EXECUTE_POST],
+    func: ToolExecutePostHook,
     priority: int = 0,
     enabled: bool = True,
     async_mode: bool = False,
