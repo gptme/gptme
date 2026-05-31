@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import type { ExecutingTool } from '@/stores/conversations';
 import { Loader2, Cog } from 'lucide-react';
 import { type Observable } from '@legendapp/state';
@@ -13,6 +14,22 @@ interface InlineToolExecutionProps {
 
 export function InlineToolExecution({ executingTool$ }: InlineToolExecutionProps) {
   const executingTool = use$(executingTool$);
+  const [elapsedMs, setElapsedMs] = useState(0);
+
+  useEffect(() => {
+    if (!executingTool) {
+      setElapsedMs(0);
+      return;
+    }
+    const startTime = executingTool.startedAt ?? Date.now();
+    setElapsedMs(Date.now() - startTime);
+    const interval = setInterval(() => {
+      setElapsedMs(Date.now() - startTime);
+    }, 100);
+    return () => clearInterval(interval);
+  }, [executingTool]);
+
+  const elapsedSeconds = (elapsedMs / 1000).toFixed(1);
 
   // Format args for display
   const formatArgs = (args: string[]) => {
@@ -38,7 +55,9 @@ export function InlineToolExecution({ executingTool$ }: InlineToolExecutionProps
               <div className="border-b border-blue-200 px-4 py-3 dark:border-blue-800">
                 <div className="flex items-center gap-2">
                   <Loader2 className="h-4 w-4 animate-spin text-blue-600 dark:text-blue-400" />
-                  <h3 className="font-medium text-blue-800 dark:text-blue-200">Tool Executing</h3>
+                  <h3 className="font-medium text-blue-800 dark:text-blue-200">
+                    Tool Executing ({elapsedSeconds}s)
+                  </h3>
                 </div>
                 <p className="mt-1 text-sm text-blue-700 dark:text-blue-300">
                   The assistant is currently using

@@ -22,6 +22,7 @@ import {
   selectedConversation$,
   updateConversationName,
   setNeedsInitialStep,
+  recordToolDuration,
 } from '@/stores/conversations';
 import { playChime } from '@/utils/audio';
 import { findLatestAssistantIndexForError } from '@/utils/conversationErrorHandling';
@@ -226,6 +227,12 @@ export function useConversation(conversationId: string, serverId?: string) {
               ) {
                 console.log('[useConversation] Skipping duplicate message');
                 return;
+              }
+              // Capture tool duration when tool result arrives
+              const executingTool = conversation$?.executingTool.get();
+              if (executingTool?.startedAt) {
+                const durationMs = Date.now() - executingTool.startedAt;
+                recordToolDuration(conversationId, executingTool.tooluse.tool, durationMs);
               }
               addMessage(conversationId, message);
             },

@@ -11,6 +11,7 @@ export interface PendingTool {
 export interface ExecutingTool {
   id: string;
   tooluse: ToolUse;
+  startedAt: number;
 }
 
 export interface ConversationState {
@@ -24,6 +25,8 @@ export interface ConversationState {
   pendingTool: PendingTool | null;
   // Any executing tool
   executingTool: ExecutingTool | null;
+  // Duration of the last completed tool call per tool name (ms)
+  toolDurations: Record<string, number>;
   // Last received message
   lastMessage?: Message;
   // Whether to show the initial system message
@@ -53,6 +56,7 @@ export function updateConversation(id: string, update: Partial<ConversationState
       isConnected: false,
       pendingTool: null,
       executingTool: null,
+      toolDurations: {},
       showInitialSystem: false,
       chatConfig: null,
       needsInitialStep: false,
@@ -118,8 +122,14 @@ export function setPendingTool(id: string, toolId: string | null, tooluse: ToolU
 
 export function setExecutingTool(id: string, toolId: string | null, tooluse: ToolUse | null) {
   updateConversation(id, {
-    executingTool: toolId && tooluse ? { id: toolId, tooluse } : null,
+    executingTool: toolId && tooluse ? { id: toolId, tooluse, startedAt: Date.now() } : null,
   });
+}
+
+export function recordToolDuration(id: string, toolName: string, durationMs: number) {
+  const conv = conversations$.get(id);
+  if (!conv) return;
+  conv.toolDurations[toolName].set(durationMs);
 }
 
 // Initialize a new conversation in the store
@@ -141,6 +151,7 @@ export function initConversation(
     isConnected: false,
     pendingTool: null,
     executingTool: null,
+    toolDurations: {},
     showInitialSystem: false,
     chatConfig: null,
     needsInitialStep: options?.needsInitialStep ?? false,
