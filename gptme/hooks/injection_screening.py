@@ -57,8 +57,11 @@ _INJECTION_PATTERNS: list[re.Pattern] = [
 def _is_untrusted_source(tool_name: str, tool_content: str | None) -> bool:
     """Return True if the tool retrieves untrusted external content."""
     if tool_name in _UNTRUSTED_SOURCE_TOOLS:
-        # For "read" tool: only flag URL reads, not local file reads
-        if tool_name == "read" and tool_content:
+        # For "read" tool: only flag URL reads, not local file reads.
+        # No content means we can't determine the target — treat as trusted.
+        if tool_name == "read":
+            if not tool_content:
+                return False
             return tool_content.strip().startswith(("http://", "https://"))
         return True
     return False

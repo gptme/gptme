@@ -48,6 +48,12 @@ def test_read_local_file_is_trusted():
     assert not _is_untrusted_source("read", "README.md")
 
 
+def test_read_with_empty_content_is_trusted():
+    # No content = can't determine target; must not fall through to return True
+    assert not _is_untrusted_source("read", None)
+    assert not _is_untrusted_source("read", "")
+
+
 # --- _has_injection_pattern ---
 
 
