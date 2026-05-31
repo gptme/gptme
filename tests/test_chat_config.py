@@ -113,3 +113,22 @@ def test_chat_config_save_new_section_uses_header(tmp_path: Path):
     saved = config_path.read_text()
     # Should serialize as [env] header, not inline: env = {MY_VAR = "hello"}
     assert "[env]" in saved, f"Expected [env] section header, got:\n{saved}"
+
+
+def test_chat_config_system_prompt_roundtrip(tmp_path: Path):
+    """system_prompt survives a save/load round-trip."""
+    config = ChatConfig(_logdir=tmp_path, system_prompt="Answer tersely.")
+    config.save()
+
+    loaded = ChatConfig.from_logdir(tmp_path)
+    assert loaded.system_prompt == "Answer tersely."
+
+
+def test_chat_config_load_or_create_empty_system_prompt_clears_existing(tmp_path: Path):
+    """An empty-string override clears an existing system_prompt."""
+    existing = ChatConfig(_logdir=tmp_path, system_prompt="Old prompt")
+    existing.save()
+
+    cleared = ChatConfig.load_or_create(tmp_path, ChatConfig(system_prompt="")).save()
+    assert cleared.system_prompt is None
+    assert "system_prompt" not in cleared.to_dict()["chat"]

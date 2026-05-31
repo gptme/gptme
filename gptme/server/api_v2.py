@@ -133,6 +133,14 @@ def _validate_model_input(model: str, expected_provider: str | None = None) -> s
     return trimmed_model
 
 
+def _append_conversation_system_prompt(
+    messages: list[Message], system_prompt: str | None
+) -> None:
+    """Append a conversation-local system prompt override when configured."""
+    if system_prompt:
+        messages.append(Message("system", system_prompt))
+
+
 def _get_optional_string_list_field(
     req_json: dict, field: str
 ) -> list[str] | None | tuple[flask.Response, int]:
@@ -640,14 +648,16 @@ def api_conversation_put(conversation_id: str):
 
     chat_config = ChatConfig.load_or_create(logdir, request_config)
 
-    msgs = get_prompt(
-        tools=list(get_toolchain(chat_config.tools, strict=False)),
-        interactive=chat_config.interactive,
-        tool_format=chat_config.tool_format or "markdown",
-        model=chat_config.model,
-        prompt=prompt,
-        workspace=chat_config.workspace,
-        agent_path=chat_config.agent,
+    msgs = list(
+        get_prompt(
+            tools=list(get_toolchain(chat_config.tools, strict=False)),
+            interactive=chat_config.interactive,
+            tool_format=chat_config.tool_format or "markdown",
+            model=chat_config.model,
+            prompt=prompt,
+            workspace=chat_config.workspace,
+            agent_path=chat_config.agent,
+        )
     )
 
     # Inject output-format capability hint for webui mode
@@ -667,6 +677,8 @@ def api_conversation_put(conversation_id: str):
                 "use ```html blocks — they render live in a sandboxed preview panel.",
             )
         )
+
+    _append_conversation_system_prompt(msgs, chat_config.system_prompt)
 
     for role, content, timestamp in validated_msgs:
         msgs.append(Message(role, content, timestamp=timestamp))
@@ -1348,6 +1360,7 @@ def api_conversation_config_patch(conversation_id: str):
                 agent_path=chat_config.agent,
             )
         )
+        _append_conversation_system_prompt(new_system_msgs, chat_config.system_prompt)
         manager.log = Log(new_system_msgs + remaining_msgs)
     manager.write()
 

@@ -21,6 +21,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
 import { EnvironmentVariables } from './settings/EnvironmentVariables';
 import { ToolsConfiguration } from './settings/ToolsConfiguration';
 import { McpConfiguration } from './settings/McpConfiguration';
@@ -356,6 +357,30 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
               {/* Advanced/rare toggles */}
               <h3 className="text-lg font-medium">Advanced Settings</h3>
               <div className="space-y-2 rounded-lg border px-3 py-2 shadow-sm">
+                <FormField
+                  control={control}
+                  name="chat.system_prompt"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>System Prompt Override</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          placeholder="Optional conversation-only system prompt override..."
+                          {...field}
+                          value={field.value || ''}
+                          disabled={isSubmitting}
+                          rows={8}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Appended as an extra system message for this conversation only. It does not
+                        edit global config, profiles, or agent bootstrap files.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
                 {/* Stream Field */}
                 <FormField
                   control={control}

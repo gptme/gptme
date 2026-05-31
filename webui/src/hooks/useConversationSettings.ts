@@ -19,6 +19,7 @@ const chatConfigToFormValues = (config: ChatConfig | null): FormSchema => ({
     stream: config?.chat.stream ?? true,
     interactive: config?.chat.interactive ?? false,
     workspace: config?.chat.workspace || '',
+    system_prompt: config?.chat.system_prompt || '',
     temperature: config?.chat.temperature ?? undefined,
     top_p: config?.chat.top_p ?? undefined,
     max_tokens: config?.chat.max_tokens ?? undefined,
@@ -113,9 +114,16 @@ export const useConversationSettings = (conversationId: string) => {
 
     // Capture original tools for comparison later
     const originalTools = originalConfig.chat.tools;
+    const originalSystemPrompt = originalConfig.chat.system_prompt || '';
 
     const toolsStringArray = values.chat.tools?.map((tool) => tool.name);
     const newTools = toolsStringArray?.length ? toolsStringArray : null;
+    const systemPromptInput = values.chat.system_prompt || '';
+    const newSystemPrompt = systemPromptInput.trim()
+      ? systemPromptInput
+      : originalSystemPrompt
+        ? ''
+        : null;
     const newEnv =
       values.chat.env?.reduce(
         (acc, { key, value }) => {
@@ -154,6 +162,7 @@ export const useConversationSettings = (conversationId: string) => {
         stream: values.chat.stream,
         interactive: values.chat.interactive,
         workspace: values.chat.workspace,
+        system_prompt: newSystemPrompt,
         temperature: values.chat.temperature ?? null,
         top_p: values.chat.top_p ?? null,
         max_tokens: values.chat.max_tokens ?? null,

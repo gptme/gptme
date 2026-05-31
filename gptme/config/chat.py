@@ -65,6 +65,7 @@ class ChatConfig:
     # through from_logdir/load_or_create to get per-conversation workspaces.
     workspace: Path = field(default_factory=Path.cwd)
     agent: Path | None = None
+    system_prompt: str | None = None
 
     env: dict = field(default_factory=dict)
     mcp: MCPConfig | None = None
@@ -114,6 +115,10 @@ class ChatConfig:
             agent = None
         else:
             agent = _coerce_config_path(agent_path, "agent")
+
+        system_prompt = chat_data.get("system_prompt")
+        if system_prompt is not None and not isinstance(system_prompt, str):
+            raise ValueError("chat.system_prompt must be a string")
 
         env = config_data.pop("env", {})
         if not isinstance(env, dict):
@@ -325,5 +330,10 @@ class ChatConfig:
             if project_config and project_config.agent:
                 config = replace(config, agent=config.workspace)
                 logger.debug(f"Auto-detected agent workspace: {config.workspace}")
+
+        # API clients use empty-string as an explicit clear signal for optional
+        # text fields that would otherwise be indistinguishable from "omitted".
+        if config.system_prompt == "":
+            config = replace(config, system_prompt=None)
 
         return config

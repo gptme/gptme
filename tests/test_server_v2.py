@@ -1343,6 +1343,47 @@ def test_v2_chat_config_update_works(client: FlaskClient):
     ) == _normalize_config_for_comparison(input_config.to_dict())
 
 
+def test_v2_chat_config_system_prompt_roundtrip_and_clear(client: FlaskClient):
+    """Config PATCH should persist, apply, and clear a conversation-local system prompt."""
+    conversation_id = create_conversation(client)["conversation_id"]
+    system_prompt = "Answer in bullet points."
+
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config",
+        json={"chat": {"system_prompt": system_prompt}},
+    )
+    assert response.status_code == 200
+
+    config_response = client.get(f"/api/v2/conversations/{conversation_id}/config")
+    config = ChatConfig.from_dict(config_response.get_json())
+    assert config.system_prompt == system_prompt
+
+    conversation = client.get(f"/api/v2/conversations/{conversation_id}").get_json()
+    system_messages = [
+        m["content"] for m in conversation["log"] if m["role"] == "system"
+    ]
+    assert system_messages[-1] == system_prompt
+
+    clear_response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config",
+        json={"chat": {"system_prompt": ""}},
+    )
+    assert clear_response.status_code == 200
+
+    cleared_config = client.get(
+        f"/api/v2/conversations/{conversation_id}/config"
+    ).get_json()
+    assert "system_prompt" not in cleared_config["chat"]
+
+    cleared_conversation = client.get(
+        f"/api/v2/conversations/{conversation_id}"
+    ).get_json()
+    cleared_system_messages = [
+        m["content"] for m in cleared_conversation["log"] if m["role"] == "system"
+    ]
+    assert system_prompt not in cleared_system_messages
+
+
 def test_v2_chat_config_update_missing_conversation_returns_404(client: FlaskClient):
     """Test that updating config for a missing conversation returns a 404.
 
