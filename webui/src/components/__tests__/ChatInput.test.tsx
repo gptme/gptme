@@ -57,6 +57,8 @@ jest.mock('@/stores/conversations', () => {
       ),
     },
     setMaxTokens: jest.fn(),
+    setTemperature: jest.fn(),
+    setTopP: jest.fn(),
   };
 });
 
