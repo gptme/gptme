@@ -392,6 +392,41 @@ class TestConcurrentAccess:
         assert len(runtime_errors) >= threshold
         assert cb.state == CircuitState.OPEN
 
+    def test_opened_at_not_reset_by_concurrent_failures_past_threshold(self):
+        """_opened_at should only be stamped once on the first CLOSED→OPEN transition.
+
+        When many threads all fail past the threshold, only the first one should
+        set _opened_at.  Later concurrent failures must NOT overwrite it, otherwise
+        the effective cooldown window drifts forward.
+        """
+        threshold = 3
+        cb = _make_breaker(failure_threshold=threshold, cooldown=60.0)
+        n_threads = 20
+        barrier = threading.Barrier(n_threads)
+
+        def _fail_after_barrier() -> None:
+            barrier.wait()
+            _fail()
+
+        def do_fail():
+            try:
+                cb.call(_fail_after_barrier)
+            except Exception:
+                pass
+
+        threads = [threading.Thread(target=do_fail) for _ in range(n_threads)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert cb.state == CircuitState.OPEN
+        # _opened_at must be a single value, not NaN or unreasonably far in the future.
+        # Specifically the cooldown should not have been pushed forward by N extra
+        # monotonic() calls — if it had, seconds_until_probe() would exceed cooldown.
+        assert cb._opened_at is not None
+        assert cb.seconds_until_probe() <= cb.cooldown
+
     def test_concurrent_successes_reset_cleanly(self):
         """Concurrent successes should not corrupt state."""
         cb = _make_breaker(failure_threshold=10, cooldown=60.0)

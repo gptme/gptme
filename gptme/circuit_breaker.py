@@ -209,7 +209,10 @@ class CircuitBreaker:
                 self.failure_threshold,
                 exc,
             )
-            if self._failure_count >= self.failure_threshold:
+            if (
+                self._failure_count >= self.failure_threshold
+                and self._state == CircuitState.CLOSED
+            ):
                 logger.warning(
                     "CircuitBreaker '%s': threshold reached (%d), transitioning to OPEN",
                     self.name,
