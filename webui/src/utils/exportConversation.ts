@@ -5,6 +5,17 @@ export interface ExportMarkdownOptions {
   includeTimestamps?: boolean;
 }
 
+export interface ImportedConversationData {
+  name: string;
+  messages: Message[];
+}
+
+const importableRoles = new Set<Message['role']>(['system', 'user', 'assistant']);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 export function getExportableMessages(
   messages: Message[],
   options?: Pick<ExportMarkdownOptions, 'includeSystem'>
@@ -93,4 +104,66 @@ export function exportConversationAsJSON(
     .replace(/-+/g, '-')
     .slice(0, 100);
   downloadAsFile(json, `${safeName}.json`, 'application/json');
+}
+
+export function parseConversationImportJSON(json: string): ImportedConversationData {
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    throw new Error('Invalid JSON file');
+  }
+
+  if (!isRecord(parsed)) {
+    throw new Error('Conversation import must be a JSON object');
+  }
+
+  if ('name' in parsed && parsed.name != null && typeof parsed.name !== 'string') {
+    throw new Error('Conversation import name must be a string');
+  }
+
+  if ('id' in parsed && parsed.id != null && typeof parsed.id !== 'string') {
+    throw new Error('Conversation import id must be a string');
+  }
+
+  if (!Array.isArray(parsed.messages)) {
+    throw new Error('Conversation import must include a messages array');
+  }
+
+  const messages = parsed.messages.map((message, index) => {
+    if (!isRecord(message)) {
+      throw new Error(`Imported message ${index + 1} must be an object`);
+    }
+
+    const { role, content, timestamp } = message;
+
+    if (typeof role !== 'string' || !importableRoles.has(role as Message['role'])) {
+      const roleLabel = typeof role === 'string' ? `"${role}"` : 'a valid role';
+      throw new Error(
+        `Imported message ${index + 1} has unsupported role ${roleLabel}. Only system, user, and assistant messages can be restored.`
+      );
+    }
+
+    if (typeof content !== 'string') {
+      throw new Error(`Imported message ${index + 1} is missing a string content field`);
+    }
+
+    if (timestamp !== undefined && typeof timestamp !== 'string') {
+      throw new Error(`Imported message ${index + 1} has an invalid timestamp`);
+    }
+
+    return {
+      role: role as Message['role'],
+      content,
+      ...(timestamp !== undefined ? { timestamp } : {}),
+    };
+  });
+
+  return {
+    name:
+      (typeof parsed.name === 'string' && parsed.name) ||
+      (typeof parsed.id === 'string' ? parsed.id : ''),
+    messages,
+  };
 }

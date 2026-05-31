@@ -4,6 +4,7 @@ import {
   exportConversationAsMarkdown,
   exportConversationAsJSON,
   getExportableMessages,
+  parseConversationImportJSON,
 } from '../exportConversation';
 import type { Message } from '@/types/conversation';
 
@@ -213,5 +214,55 @@ describe('exportConversationAsJSON', () => {
     const anchor = createElementSpy.mock.results[0]?.value as HTMLAnchorElement;
     expect(anchor.download).toBe('Test-Chat.json');
     createElementSpy.mockRestore();
+  });
+});
+
+describe('parseConversationImportJSON', () => {
+  it('parses a valid exported conversation', () => {
+    const result = parseConversationImportJSON(
+      JSON.stringify({
+        id: 'conv-123',
+        name: 'Imported Chat',
+        exported_at: '2026-03-28T10:03:00Z',
+        messages: sampleMessages,
+      })
+    );
+
+    expect(result.name).toBe('Imported Chat');
+    expect(result.messages).toEqual(sampleMessages);
+  });
+
+  it('throws for invalid JSON', () => {
+    expect(() => parseConversationImportJSON('{not json')).toThrow('Invalid JSON file');
+  });
+
+  it('throws when messages is missing', () => {
+    expect(() => parseConversationImportJSON(JSON.stringify({ name: 'Missing messages' }))).toThrow(
+      'Conversation import must include a messages array'
+    );
+  });
+
+  it('throws when a message is missing content', () => {
+    expect(() =>
+      parseConversationImportJSON(
+        JSON.stringify({
+          name: 'Broken import',
+          messages: [{ role: 'user' }],
+        })
+      )
+    ).toThrow('Imported message 1 is missing a string content field');
+  });
+
+  it('throws when a message uses an unsupported role', () => {
+    expect(() =>
+      parseConversationImportJSON(
+        JSON.stringify({
+          name: 'Broken import',
+          messages: [{ role: 'tool', content: 'Tool output' }],
+        })
+      )
+    ).toThrow(
+      'Imported message 1 has unsupported role "tool". Only system, user, and assistant messages can be restored.'
+    );
   });
 });

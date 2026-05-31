@@ -1,4 +1,14 @@
-import { PenSquare, Plus, Filter } from 'lucide-react';
+import {
+  PenSquare,
+  Plus,
+  Filter,
+  Upload,
+  Clock,
+  CheckCircle,
+  XCircle,
+  RefreshCw,
+  GitBranch,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ConversationList } from './ConversationList';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -7,12 +17,16 @@ import type { Task } from '@/types/task';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { selectedWorkspace$, selectedAgent$ } from '@/stores/sidebar';
 import { Card, CardContent } from '@/components/ui/card';
-import { Clock, CheckCircle, XCircle, RefreshCw, GitBranch } from 'lucide-react';
+import { useApi } from '@/contexts/ApiContext';
+import { initConversation } from '@/stores/conversations';
+import { parseConversationImportJSON } from '@/utils/exportConversation';
+import { useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 
-import type { FC } from 'react';
+import type { ChangeEvent, FC } from 'react';
 import { use$ } from '@legendapp/state/react';
 import { type Observable } from '@legendapp/state';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useCallback } from 'react';
 
 // Simplified task display component for sidebar
 const TaskListItem: FC<{ task: Task; isSelected: boolean; onClick: () => void }> = ({
@@ -103,6 +117,10 @@ export const UnifiedSidebar: FC<Props> = ({
   const selectedAgent = use$(selectedAgent$);
   const location = useLocation();
   const navigate = useNavigate();
+  const { api, connectionConfig, isConnected$ } = useApi();
+  const isConnected = use$(isConnected$);
+  const queryClient = useQueryClient();
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   // Navigation state - agents/workspaces show chat sidebar content
   const currentSection = location.pathname.startsWith('/tasks') ? 'tasks' : 'chat';
@@ -145,9 +163,84 @@ export const UnifiedSidebar: FC<Props> = ({
     navigate('/chat');
   };
 
+  const handleImportConversation = useCallback(
+    async (file: File) => {
+      if (!isConnected) {
+        toast.error('Connect to a gptme server before importing a conversation');
+        return;
+      }
+
+      try {
+        const imported = parseConversationImportJSON(await file.text());
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const conversationId = `chat-${timestamp}`;
+
+        await api.createConversation(conversationId, imported.messages);
+
+        let workspace = '.';
+        if (imported.name) {
+          try {
+            const currentConfig = await api.getChatConfig(conversationId);
+            workspace = currentConfig.chat.workspace || '.';
+            await api.updateChatConfig(conversationId, {
+              ...currentConfig,
+              chat: {
+                ...currentConfig.chat,
+                name: imported.name,
+              },
+            });
+          } catch (error) {
+            console.warn(
+              '[UnifiedSidebar] Imported conversation but failed to restore the name:',
+              error
+            );
+            toast.error('Imported messages, but failed to restore the conversation name');
+          }
+        }
+
+        initConversation(conversationId, {
+          id: conversationId,
+          name: imported.name || conversationId,
+          log: imported.messages,
+          logfile: conversationId,
+          branches: {},
+          workspace,
+        });
+
+        await queryClient.invalidateQueries({
+          queryKey: ['conversations', connectionConfig.baseUrl, isConnected],
+        });
+
+        toast.success('Conversation imported');
+        onSelectConversation(conversationId);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Failed to import conversation');
+      }
+    },
+    [api, connectionConfig.baseUrl, isConnected, onSelectConversation, queryClient]
+  );
+
+  const handleImportChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = '';
+      if (!file) return;
+      void handleImportConversation(file);
+    },
+    [handleImportConversation]
+  );
+
   // Content for the selected section only (navigation is handled by SidebarIcons)
   return (
     <div className="flex h-full flex-col">
+      <input
+        ref={importInputRef}
+        type="file"
+        accept=".json,application/json"
+        className="hidden"
+        aria-label="Import conversation JSON"
+        onChange={handleImportChange}
+      />
       {/* Chats Section Header */}
       {currentSection === 'chat' && (
         <div className="flex items-center gap-2 bg-background p-2">
@@ -183,6 +276,16 @@ export const UnifiedSidebar: FC<Props> = ({
             </TooltipProvider>
           )}
           <div className="flex-1" />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={() => importInputRef.current?.click()}
+            aria-label="Import conversation JSON"
+            disabled={!isConnected}
+          >
+            <Upload className="h-4 w-4" />
+          </Button>
           <Button
             variant="ghost"
             size="icon"
