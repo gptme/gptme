@@ -8,7 +8,6 @@ interface Props {
 interface State {
   hasError: boolean;
   error: Error | null;
-  isChunkLoadError: boolean;
 }
 
 function isChunkLoadError(error: Error): boolean {
@@ -55,15 +54,11 @@ function ErrorFallback({ error, onReload }: { error: Error | null; onReload: () 
 export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
-    this.state = { hasError: false, error: null, isChunkLoadError: false };
+    this.state = { hasError: false, error: null };
   }
 
   static getDerivedStateFromError(error: Error): State {
-    return {
-      hasError: true,
-      error,
-      isChunkLoadError: isChunkLoadError(error),
-    };
+    return { hasError: true, error };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
