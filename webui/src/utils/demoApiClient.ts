@@ -67,16 +67,18 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
     interruptGeneration: async () => {},
 
     // Read paths — serve empty collections so the UI renders cleanly.
-    getUserInfo: async () => notImpl('getUserInfo'),
     getServerInfo: async () => ({ version: 'demo' }),
     getConversations: async () => [],
     searchConversations: async () => [],
     getConversationsPaginated: async () => ({ conversations: [], nextCursor: undefined }),
+    getExternalSessions: async () => [],
+    getSessions: async () => [],
+
+    // Read paths — not yet fixture-backed; later slices will provide recorded data.
+    getUserInfo: async () => notImpl('getUserInfo'),
     getConversation: async () => notImpl('getConversation'),
     getChatConfig: async () => notImpl('getChatConfig'),
-    getExternalSessions: async () => [],
     getExternalSession: async () => notImpl('getExternalSession'),
-    getSessions: async () => [],
 
     // Write / mutation paths — fixture-backed in later slices.
     createConversation: async () => notImpl('createConversation'),
