@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Shield, RefreshCw, Trash2, AlertCircle, Loader2, Activity } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { useToast } from '@/components/ui/use-toast';
 import { useApi } from '@/contexts/ApiContext';
 import { use$ } from '@legendapp/state/react';
 import type { ActiveSession } from '@/types/api';
@@ -105,6 +106,7 @@ export const AdminView: FC = () => {
   const { api } = useApi();
   const isConnected = use$(api.isConnected$);
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [killingIds, setKillingIds] = useState<Set<string>>(new Set());
 
   const {
@@ -125,6 +127,16 @@ export const AdminView: FC = () => {
     mutationFn: (sessionId: string) => api.deleteSession(sessionId),
     onMutate: (sessionId) => {
       setKillingIds((prev) => new Set(prev).add(sessionId));
+    },
+    onError: (error, sessionId) => {
+      toast({
+        variant: 'destructive',
+        title: 'Failed to kill session',
+        description:
+          error instanceof Error
+            ? error.message
+            : `Could not kill session ${sessionId.slice(0, 8)}`,
+      });
     },
     onSettled: (_, __, sessionId) => {
       setKillingIds((prev) => {

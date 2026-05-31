@@ -259,6 +259,10 @@ def api_session_delete(session_id: str):
     session.generating_since = None
     session.pending_tools.clear()
 
+    # Notify SSE clients before removing so they can react (avoids zombie streams)
+    if session.conversation_id:
+        SessionManager.add_event(session.conversation_id, {"type": "interrupted"})
+
     SessionManager.remove_session(session_id)
     return flask.jsonify({"status": "ok", "message": f"Session {session_id} deleted"})
 
