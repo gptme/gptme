@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Cpu, Loader2, RefreshCw, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -47,26 +47,30 @@ export function FunctionBrowserPanel() {
     return () => fetchControllerRef.current?.abort();
   }, [startLoad]);
 
+  const lowerQuery = query.toLowerCase();
+  const filtered = useMemo(
+    () =>
+      tools.filter(
+        (t) =>
+          !lowerQuery ||
+          t.name.toLowerCase().includes(lowerQuery) ||
+          t.desc.toLowerCase().includes(lowerQuery) ||
+          t.block_types.some((bt) => bt.toLowerCase().includes(lowerQuery))
+      ),
+    [tools, lowerQuery]
+  );
+
   useEffect(() => {
-    if (!tools.length) {
+    if (!filtered.length) {
       setSelectedToolName(null);
       return;
     }
-    if (!selectedToolName || !tools.some((t) => t.name === selectedToolName)) {
-      setSelectedToolName(tools[0].name);
+    if (!selectedToolName || !filtered.some((t) => t.name === selectedToolName)) {
+      setSelectedToolName(filtered[0].name);
     }
-  }, [tools, selectedToolName]);
+  }, [filtered, selectedToolName]);
 
-  const lowerQuery = query.toLowerCase();
-  const filtered = tools.filter(
-    (t) =>
-      !lowerQuery ||
-      t.name.toLowerCase().includes(lowerQuery) ||
-      t.desc.toLowerCase().includes(lowerQuery) ||
-      t.block_types.some((bt) => bt.toLowerCase().includes(lowerQuery))
-  );
-
-  const selectedTool = tools.find((t) => t.name === selectedToolName) ?? null;
+  const selectedTool = filtered.find((t) => t.name === selectedToolName) ?? null;
 
   return (
     <div className="flex h-full flex-col">

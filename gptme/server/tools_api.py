@@ -64,7 +64,7 @@ def _serialize_tool(tool) -> ToolOut:
                 name=p.name,
                 type=str(p.type or "string"),
                 description=p.description or "",
-                required=bool(getattr(p, "required", True)),
+                required=bool(getattr(p, "required", False)),
             )
         )
 
