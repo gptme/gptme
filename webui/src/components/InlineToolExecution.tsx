@@ -1,5 +1,5 @@
 import type { ConversationState, ExecutingTool } from '@/stores/conversations';
-import { Loader2, Cog, CheckCircle } from 'lucide-react';
+import { Loader2, Cog, CheckCircle, XCircle } from 'lucide-react';
 import { type Observable } from '@legendapp/state';
 import { use$ } from '@legendapp/state/react';
 import { useEffect, useState } from 'react';
@@ -34,12 +34,19 @@ export function ToolCompletionBadge({ lastCompletedTool$ }: ToolCompletionBadgeP
 
   if (!visible || !lastCompletedTool) return null;
 
+  const { toolName, durationMs, success } = lastCompletedTool;
   return (
     <div className="mx-auto max-w-3xl px-4 md:px-16">
-      <div className="flex items-center gap-1.5 py-1 text-xs text-green-600 dark:text-green-400">
-        <CheckCircle className="h-3.5 w-3.5" />
-        <code className="font-mono">{lastCompletedTool.toolName}</code>
-        <span>completed in {formatElapsed(lastCompletedTool.durationMs)}</span>
+      <div
+        className={`flex items-center gap-1.5 py-1 text-xs ${
+          success ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+        }`}
+      >
+        {success ? <CheckCircle className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}
+        <code className="font-mono">{toolName}</code>
+        <span>
+          {success ? 'completed' : 'failed'} in {formatElapsed(durationMs)}
+        </span>
       </div>
     </div>
   );

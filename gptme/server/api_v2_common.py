@@ -192,6 +192,7 @@ class ToolCompleteEvent(BaseEvent):
 
     tool_id: str
     duration_ms: float
+    success: bool
 
 
 class FormFieldDict(TypedDict):

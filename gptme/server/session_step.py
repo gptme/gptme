@@ -914,6 +914,7 @@ def start_tool_execution(
                         "type": "tool_complete",
                         "tool_id": current_tool_id,
                         "duration_ms": duration_ms,
+                        "success": tool_exec.status != ToolStatus.FAILED,
                     },
                 )
 

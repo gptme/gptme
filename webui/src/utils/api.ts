@@ -187,6 +187,7 @@ export interface ToolCompleteEvent {
   type: 'tool_complete';
   tool_id: string;
   duration_ms: number;
+  success: boolean;
 }
 
 export interface ToolConfirmationRequest {
@@ -535,7 +536,7 @@ export class ApiClient {
       onMessageAdded: (message: Message) => void;
       onToolPending: (toolId: string, tooluse: ToolUse, auto_confirm: boolean) => void;
       onToolExecuting: (toolId: string) => void;
-      onToolComplete?: (toolId: string, durationMs: number) => void;
+      onToolComplete?: (toolId: string, durationMs: number, success: boolean) => void;
       onInterrupted: () => void;
       onError: (error: string) => void;
       onConfigChanged?: (config: ChatConfig, changedFields: string[]) => void;
@@ -689,7 +690,11 @@ export class ApiClient {
           case 'tool_complete': {
             console.log(`[ApiClient] Tool complete:`, data);
             const toolCompleteEvent = data as ToolCompleteEvent;
-            callbacks.onToolComplete?.(toolCompleteEvent.tool_id, toolCompleteEvent.duration_ms);
+            callbacks.onToolComplete?.(
+              toolCompleteEvent.tool_id,
+              toolCompleteEvent.duration_ms,
+              toolCompleteEvent.success
+            );
             break;
           }
 

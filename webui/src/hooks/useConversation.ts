@@ -274,8 +274,8 @@ export function useConversation(conversationId: string, serverId?: string) {
                 );
               }
             },
-            onToolComplete: (toolId, durationMs) => {
-              console.log('[useConversation] Tool complete:', { toolId, durationMs });
+            onToolComplete: (toolId, durationMs, success) => {
+              console.log('[useConversation] Tool complete:', { toolId, durationMs, success });
               const executingTool = conversation$?.executingTool.get();
               if (executingTool && executingTool.id !== toolId) {
                 console.warn('[useConversation] tool_complete ID mismatch:', {
@@ -284,7 +284,7 @@ export function useConversation(conversationId: string, serverId?: string) {
                 });
               }
               const toolName = executingTool?.tooluse.tool ?? 'tool';
-              setToolComplete(conversationId, toolName, durationMs);
+              setToolComplete(conversationId, toolName, durationMs, success);
             },
             onInterrupted: () => {
               console.log('[useConversation] Generation interrupted');
