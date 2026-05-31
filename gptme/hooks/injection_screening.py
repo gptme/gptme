@@ -1,8 +1,8 @@
 """Injection screening hook for untrusted tool outputs.
 
 Screens tool outputs from web/email/GitHub sources for prompt injection
-patterns. When detected, prepends an [UNTRUSTED] warning to the model context
-so the model treats the content as untrusted rather than instruction.
+patterns. When detected, appends an [UNTRUSTED] warning to the model context
+so the model treats the preceding tool output as untrusted rather than instruction.
 
 Hook type: TOOL_EXECUTE_POST
 """
@@ -10,8 +10,11 @@ Hook type: TOOL_EXECUTE_POST
 import logging
 import re
 from collections.abc import Generator
+from pathlib import Path
+from typing import Any
 
 from ..hooks import HookType, register_hook
+from ..logmanager import Log
 from ..message import Message
 from ..tools.base import ToolUse
 
@@ -81,11 +84,11 @@ def _has_injection_pattern(text: str | None) -> tuple[bool, str]:
 
 
 def injection_screening(
-    log=None,
-    workspace=None,
+    log: Log | None = None,
+    workspace: Path | None = None,
     tool_use: ToolUse | None = None,
     result_msgs: list[Message] | None = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> Generator[Message, None, None]:
     """TOOL_EXECUTE_POST hook that flags untrusted external content in tool output.
 
