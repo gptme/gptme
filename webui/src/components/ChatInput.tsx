@@ -221,7 +221,8 @@ const ChatOptionsPanel: FC<ChatOptionsProps> = ({
         value={maxTokens ?? ''}
         onChange={(e) => {
           const val = e.target.value;
-          setMaxTokens(val === '' ? undefined : Math.max(1, parseInt(val, 10)));
+          const n = Math.round(Number(val));
+          setMaxTokens(val === '' || isNaN(n) ? undefined : Math.max(1, n));
         }}
         disabled={isDisabled}
         className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
@@ -557,10 +558,11 @@ export const ChatInput: FC<Props> = ({
     }
   }, [conversationModel, defaultModel, apiDefaultModel, hasExplicitModelSelection]);
 
-  // Reset explicit selection when conversation changes
+  // Reset explicit selection and maxTokens when conversation changes
   useEffect(() => {
     setHasExplicitModelSelection(false);
     setSelectedModel(conversationModel || defaultModel || apiDefaultModel || '');
+    setMaxTokens(undefined);
   }, [conversationId, conversationModel, defaultModel, apiDefaultModel]);
 
   const [selectedWorkspace, setSelectedWorkspace] = useState<string>(
