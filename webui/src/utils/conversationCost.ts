@@ -68,5 +68,5 @@ export function formatCost(cost: number): string {
 
 /** Format a token count with locale grouping (e.g. 1,234). */
 export function formatTokens(tokens: number): string {
-  return tokens.toLocaleString();
+  return tokens.toLocaleString('en-US');
 }
