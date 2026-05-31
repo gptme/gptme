@@ -90,6 +90,10 @@ class IframePanelOut(BaseModel):
     message_index: int | None = Field(
         None, description="Index of the first message that declared this panel"
     )
+    warnings: list[str] = Field(
+        default_factory=list,
+        description="Validation warnings about opaque-origin sandbox limitations",
+    )
 
 
 class PanelListResponse(BaseModel):
@@ -140,16 +144,37 @@ def panels_from_messages(manager: LogManager) -> list[IframePanelOut]:
             if not isinstance(bootstrap, dict):
                 bootstrap = None
 
+            # Phase 3c: warn about server-relative src with allow-scripts
+            # producing an opaque sandbox origin ("null") that breaks the
+            # postMessage bootstrap handshake.
+            warnings: list[str] = []
+            stripped_src = str(src).strip()
+            if stripped_src.startswith("/") and "allow-scripts" in sandbox:
+                warnings.append(
+                    "Server-relative src with 'allow-scripts' sandbox has opaque origin; "
+                    "postMessage bootstrap handshake will not work. "
+                    "Use a localhost absolute URL for full functionality."
+                )
+
+            # Security: never forward the `allow` (Permissions-Policy) attribute.
+            # The sandbox is the primary security boundary; `allow` can grant
+            # hardware permissions (camera, microphone, geolocation) that
+            # bypass the sandbox. Tools that need capabilities should use the
+            # postMessage bootstrap protocol instead.
+            if isinstance(hint.get("allow"), str):
+                warnings.append(
+                    "The 'allow' attribute is not forwarded for security. "
+                    "Use the postMessage bootstrap handshake for controlled capabilities."
+                )
+
             out.append(
                 IframePanelOut(
                     id=panel_id,
                     kind="iframe",
                     title=str(title),
-                    src=str(src).strip(),
+                    src=stripped_src,
                     sandbox=sandbox,
-                    allow=hint.get("allow")
-                    if isinstance(hint.get("allow"), str)
-                    else None,
+                    allow=None,
                     resize=hint.get("resize")
                     if hint.get("resize") in ("auto", "fixed")
                     else None,
@@ -158,6 +183,7 @@ def panels_from_messages(manager: LogManager) -> list[IframePanelOut]:
                     if isinstance(hint.get("icon"), str)
                     else None,
                     message_index=idx,
+                    warnings=warnings,
                 )
             )
 

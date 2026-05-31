@@ -260,6 +260,122 @@ class TestPanelsFromMessages:
         panels = panels_from_messages(manager)
         assert panels[0].bootstrap == {"token": "abc123"}
 
+    def test_opaque_origin_warning_on_server_relative_with_scripts(self):
+        """Server-relative src + allow-scripts sandbox emits a warning."""
+        manager = _make_manager(
+            [
+                {
+                    "metadata": {
+                        "panel_hints": [
+                            {
+                                "id": "p",
+                                "kind": "iframe",
+                                "title": "P",
+                                "src": "/p/",
+                                "sandbox": ["allow-scripts"],
+                            }
+                        ]
+                    }
+                }
+            ]
+        )
+        panels = panels_from_messages(manager)
+        assert len(panels) == 1
+        assert len(panels[0].warnings) == 1
+        assert "opaque origin" in panels[0].warnings[0]
+
+    def test_no_warning_for_localhost_absolute_src(self):
+        """localhost absolute URL with allow-scripts gets no warning."""
+        manager = _make_manager(
+            [
+                {
+                    "metadata": {
+                        "panel_hints": [
+                            {
+                                "id": "p",
+                                "kind": "iframe",
+                                "title": "P",
+                                "src": "http://localhost:8080/p/",
+                                "sandbox": ["allow-scripts"],
+                            }
+                        ]
+                    }
+                }
+            ]
+        )
+        panels = panels_from_messages(manager)
+        assert panels[0].warnings == []
+
+    def test_no_warning_for_server_relative_without_scripts(self):
+        """Server-relative src without allow-scripts gets no warning."""
+        manager = _make_manager(
+            [
+                {
+                    "metadata": {
+                        "panel_hints": [
+                            {
+                                "id": "p",
+                                "kind": "iframe",
+                                "title": "P",
+                                "src": "/p/",
+                                "sandbox": ["allow-forms"],
+                            }
+                        ]
+                    }
+                }
+            ]
+        )
+        panels = panels_from_messages(manager)
+        assert panels[0].warnings == []
+
+    def test_allow_attribute_stripped_with_warning(self):
+        """The `allow` (Permissions-Policy) attribute is never forwarded; a warning is emitted."""
+        manager = _make_manager(
+            [
+                {
+                    "metadata": {
+                        "panel_hints": [
+                            {
+                                "id": "p",
+                                "kind": "iframe",
+                                "title": "P",
+                                "src": "/p/",
+                                "sandbox": [],
+                                "allow": "camera; microphone; geolocation",
+                            }
+                        ]
+                    }
+                }
+            ]
+        )
+        panels = panels_from_messages(manager)
+        assert len(panels) == 1
+        assert panels[0].allow is None
+        assert any("allow" in w.lower() for w in panels[0].warnings)
+
+    def test_allow_none_is_fine(self):
+        """No `allow` key in the hint is fine — no warning emitted."""
+        manager = _make_manager(
+            [
+                {
+                    "metadata": {
+                        "panel_hints": [
+                            {
+                                "id": "p",
+                                "kind": "iframe",
+                                "title": "P",
+                                "src": "/p/",
+                                "sandbox": [],
+                            }
+                        ]
+                    }
+                }
+            ]
+        )
+        panels = panels_from_messages(manager)
+        assert panels[0].allow is None
+        assert panels[0].warnings == []
+
     def test_missing_id_skipped(self):
         manager = _make_manager(
             [
