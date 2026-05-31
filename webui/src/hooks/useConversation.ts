@@ -278,10 +278,11 @@ export function useConversation(conversationId: string, serverId?: string) {
               console.log('[useConversation] Tool complete:', { toolId, durationMs, success });
               const executingTool = conversation$?.executingTool.get();
               if (executingTool && executingTool.id !== toolId) {
-                console.warn('[useConversation] tool_complete ID mismatch:', {
-                  expected: toolId,
-                  executing: executingTool.id,
-                });
+                console.warn(
+                  '[useConversation] tool_complete ID mismatch — ignoring stale event:',
+                  { received: toolId, executing: executingTool.id }
+                );
+                return;
               }
               const toolName = executingTool?.tooluse.tool ?? 'tool';
               setToolComplete(conversationId, toolName, durationMs, success);
