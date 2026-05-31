@@ -13,6 +13,18 @@ function trimTrailingSlash(url: string): string {
   return url.replace(/\/+$/, '');
 }
 
+/**
+ * Whether the app should run in offline demo mode (fixture-backed, no live
+ * backend, no auth). Activated by a `?demo=1` URL flag so a demo can be shared
+ * as a plain link. Safe to call outside a browser (returns false).
+ */
+export function isDemoMode(): boolean {
+  if (typeof window === 'undefined' || !window.location) {
+    return false;
+  }
+  return new URLSearchParams(window.location.search).get('demo') === '1';
+}
+
 // Vite statically replaces `import.meta.env.VITE_*` at build time for browser
 // bundles. Jest can't parse import.meta syntax (it's ESM-only), so we wrap it
 // in a Function() body to defer evaluation, then fall back to process.env

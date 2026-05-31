@@ -1,4 +1,4 @@
-import type { ApiClient } from '@/utils/api';
+import type { IApiClient } from '@/utils/api';
 import {
   getConnectionConfigFromSources,
   processConnectionFromHash,
@@ -23,9 +23,9 @@ import { toast } from 'sonner';
 
 interface ApiContextType {
   /** The primary server's client (shorthand for getClient(activeServerId)) */
-  api: ApiClient;
+  api: IApiClient;
   /** Get a client for any connected server. Defaults to primary. */
-  getClient: (serverId?: string) => ApiClient;
+  getClient: (serverId?: string) => IApiClient;
   isConnecting$: Observable<boolean>;
   isConnected$: Observable<boolean>;
   isAutoConnecting$: Observable<boolean>;
@@ -120,7 +120,7 @@ export function ApiProvider({
   const { isLoading: isLoadingTauriStatus, managesLocalServer } = useTauriServerStatus();
 
   // Get client for any server from the shared pool
-  const getClient = useCallback((serverId?: string): ApiClient => {
+  const getClient = useCallback((serverId?: string): IApiClient => {
     if (serverId) {
       const client = getClientForServer(serverId);
       if (client) return client;

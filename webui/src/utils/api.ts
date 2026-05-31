@@ -1377,6 +1377,20 @@ export class ApiClient {
   }
 }
 
+/**
+ * Public surface of {@link ApiClient}, with the class's private members
+ * stripped. `keyof` on a class type excludes `private`/`protected` members, so
+ * `Pick<ApiClient, keyof ApiClient>` yields exactly the public API as a plain
+ * structural type — `ApiClient` satisfies it for free, and an alternative
+ * implementation (e.g. the offline `createDemoApiClient`) can satisfy it
+ * *without* re-declaring the private fields a `class … extends ApiClient`
+ * would inherit. This is the seam the client pool (`stores/serverClients.ts`)
+ * and `ApiContext` are typed against so a live or demo backend can be swapped
+ * transparently. Self-maintaining: a new public method on `ApiClient` is
+ * automatically required of every `IApiClient` implementation.
+ */
+export type IApiClient = Pick<ApiClient, keyof ApiClient>;
+
 export const createApiClient = (baseUrl?: string, authHeader?: string | null): ApiClient => {
   return new ApiClient(baseUrl, authHeader);
 };
