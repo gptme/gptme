@@ -846,8 +846,13 @@ def test_external_session_gptme_directory_no_jsonl_skipped(tmp_path: Path):
     assert items == [], f"Expected no sessions, got: {items}"
 
 
-def test_v2_server_health_empty(client: FlaskClient):
+def test_v2_server_health_empty(client: FlaskClient, monkeypatch):
     """Server health endpoint returns green status with no active sessions."""
+    monkeypatch.setattr(
+        "gptme.server.api_v2.SessionManager.get_all_sessions",
+        lambda: [],
+    )
+
     response = client.get("/api/v2/server/health")
     assert response.status_code == 200
     data = response.get_json()
@@ -859,8 +864,19 @@ def test_v2_server_health_empty(client: FlaskClient):
     assert data["slots"] == []
 
 
-def test_v2_server_health_with_session(v2_conv, client: FlaskClient):
+def test_v2_server_health_with_session(v2_conv, client: FlaskClient, monkeypatch):
     """Server health endpoint reports idle session after creation."""
+    from gptme.server.session_models import SessionManager
+
+    session_id = v2_conv["session_id"]
+    session = SessionManager.get_session(session_id)
+    assert session is not None
+
+    monkeypatch.setattr(
+        "gptme.server.api_v2.SessionManager.get_all_sessions",
+        lambda: [(session_id, session)],
+    )
+
     response = client.get("/api/v2/server/health")
     assert response.status_code == 200
     data = response.get_json()
