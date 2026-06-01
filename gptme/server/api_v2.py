@@ -1878,7 +1878,7 @@ def api_user_config_file_patch():
     reload_config = req_json.get("reload", True)
     if not isinstance(key, str):
         return flask.jsonify({"error": "key must be a string"}), 400
-    if not isinstance(value, (str, int, float, bool)):
+    if not isinstance(value, str | int | float | bool):
         return flask.jsonify(
             {"error": "value must be a JSON scalar (string, number, or boolean)"}
         ), 400
