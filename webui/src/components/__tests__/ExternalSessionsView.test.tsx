@@ -1,5 +1,6 @@
 import '@testing-library/jest-dom';
-import { fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { render, screen } from '@testing-library/react';
 import { ExternalSessionsView } from '../ExternalSessionsView';
 
 const mockUseQuery = jest.fn();
@@ -55,12 +56,13 @@ describe('ExternalSessionsView', () => {
     });
   });
 
-  it('labels the search field and detail close button', () => {
+  it('labels the search field and detail close button', async () => {
+    const user = userEvent.setup();
     render(<ExternalSessionsView />);
 
     expect(screen.getByRole('textbox', { name: 'Search external sessions' })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /Imported session/i }));
+    await user.click(screen.getByRole('button', { name: /Imported session/i }));
 
     expect(screen.getByRole('button', { name: 'Close session details' })).toBeInTheDocument();
   });

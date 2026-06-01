@@ -1,5 +1,6 @@
 import '@testing-library/jest-dom';
-import { fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { render, screen } from '@testing-library/react';
 import { HistoryView } from '../HistoryView';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
@@ -69,10 +70,11 @@ describe('HistoryView', () => {
     expect(screen.getByRole('button', { name: /Accessible chat/i })).toBeInTheDocument();
   });
 
-  it('navigates when a conversation row button is clicked', () => {
+  it('navigates when a conversation row button is clicked', async () => {
+    const user = userEvent.setup();
     renderHistoryView();
 
-    fireEvent.click(screen.getByRole('button', { name: /Accessible chat/i }));
+    await user.click(screen.getByRole('button', { name: /Accessible chat/i }));
 
     expect(mockNavigate).toHaveBeenCalledWith('/chat/chat-1');
   });
