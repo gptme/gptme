@@ -65,6 +65,38 @@ To use the server with a locally hosted gptme-webui, configure the CORS origin w
     ``http://localhost:5701``) avoids the prompt entirely, since that is a
     local-to-local request.
 
+Self-Hosting with Docker Compose
+--------------------------------
+
+For a self-contained deployment, a ``docker-compose.yml`` is included at the
+repository root. It builds a lean image (``scripts/Dockerfile.selfhost``,
+gptme + the ``server`` extra only — no Node/agent tooling) and runs
+``gptme-server`` with persistent volumes for config and conversation logs.
+
+.. code-block:: bash
+
+   # Clone the repository
+   git clone https://github.com/gptme/gptme.git
+   cd gptme
+
+   # Configure: at least one provider key is required
+   cp .env.example .env
+   $EDITOR .env
+
+   # Build and start the server
+   docker compose up --build
+
+The server listens on http://localhost:5700. Open the hosted web UI at
+`chat.gptme.org <https://chat.gptme.org>`_ and point it at your server, or
+self-host the web UI too (set ``CORS_ORIGIN`` in ``.env`` to its origin).
+
+Key ``.env`` settings:
+
+- ``OPENAI_API_KEY`` / ``ANTHROPIC_API_KEY`` / ``OPENROUTER_API_KEY`` — at least one is required.
+- ``GPTME_SERVER_TOKEN`` — auth token. The server enables auth by default when bound to ``0.0.0.0`` (as in the container), so set this and configure the web UI with the same value. If left blank, a token is auto-generated at startup — find it with ``docker compose logs``.
+- ``CORS_ORIGIN`` — origin allowed to call the server (defaults to the hosted web UI).
+- ``GPTME_SERVER_PORT`` — host port to publish (the container always listens on 5700).
+
 Basic Web UI
 ------------
 

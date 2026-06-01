@@ -1,0 +1,43 @@
+# Lean image for self-hosting gptme-server.
+#
+# Unlike scripts/Dockerfile (which also bundles Node, the GitHub CLI, and the
+# Claude Code CLI for the agent/eval images), this installs only gptme with the
+# `server` extra — just enough to serve the API that the web UI talks to.
+#
+# Build/run via docker compose (see docker-compose.yml at the repo root):
+#   docker compose up --build
+FROM python:3.12-slim
+
+# git: gptme's git-aware features expect it at runtime. curl: container healthcheck.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# .dockerignore trims the build context to gptme/, pyproject.toml, poetry.lock,
+# and README.md — exactly what's needed to build and install the package.
+COPY . /app
+RUN pip install --no-cache-dir ".[server]"
+
+# Run as a non-root user; named volumes inherit this ownership.
+RUN useradd --create-home --uid 1000 gptme \
+    && mkdir -p /home/gptme/.config/gptme /home/gptme/.local/share/gptme \
+    && chown -R gptme:gptme /home/gptme
+USER gptme
+ENV HOME=/home/gptme
+
+EXPOSE 5700
+
+# gptme-server enables auth by default when bound to 0.0.0.0, so the health
+# endpoint returns 401 without a token. Treat a valid token (200) as healthy,
+# and fall back to "401 means the server is alive and routing" for liveness.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+    CMD curl -fsS -H "Authorization: Bearer ${GPTME_SERVER_TOKEN}" http://localhost:5700/api/v2/server/health \
+        || [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:5700/api/v2/server/health)" = "401" ]
+
+# Bind to 0.0.0.0 so the port is reachable from the host and other containers.
+# Pass --cors-origin (see docker-compose.yml) to allow a web UI origin, and set
+# GPTME_SERVER_TOKEN to require auth (recommended for any non-localhost exposure).
+ENTRYPOINT ["gptme-server", "serve", "--host", "0.0.0.0", "--port", "5700"]

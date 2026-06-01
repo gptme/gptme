@@ -1,0 +1,40 @@
+# Self-host gptme-server with one command:
+#
+#   docker compose up --build
+#
+# Then open the hosted web UI at https://chat.gptme.org and point it at
+# http://localhost:5700 — or host your own web UI (see docs/server.rst).
+#
+# Configuration: copy .env.example to .env and fill in at least one provider
+# key. Everything below reads from that .env file (or your shell environment).
+services:
+  gptme-server:
+    build:
+      context: .
+      dockerfile: scripts/Dockerfile.selfhost
+    image: gptme-server:selfhost
+    ports:
+      - "${GPTME_SERVER_PORT:-5700}:5700"
+    environment:
+      # At least one provider key is required to run conversations.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      # Auth token (the server enables auth by default on 0.0.0.0). Set this and
+      # configure the web UI with the same value; if blank, one is auto-generated
+      # at startup — see `docker compose logs`.
+      GPTME_SERVER_TOKEN: ${GPTME_SERVER_TOKEN:-}
+    # Appended to the image's entrypoint (gptme-server serve --host 0.0.0.0
+    # --port 5700). Allows the configured web UI origin to call this server.
+    command:
+      - --cors-origin
+      - ${CORS_ORIGIN:-https://chat.gptme.org}
+    volumes:
+      # Persist config, credentials, and conversation logs across restarts.
+      - gptme-config:/home/gptme/.config/gptme
+      - gptme-data:/home/gptme/.local/share/gptme
+    restart: unless-stopped
+
+volumes:
+  gptme-config:
+  gptme-data:
