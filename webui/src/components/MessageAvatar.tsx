@@ -66,7 +66,7 @@ export function MessageAvatar({
           ? 'bg-red-800 text-red-100'
           : isSuccess
             ? 'bg-green-800 text-green-100'
-            : 'bg-slate-500 text-white left-0'
+            : 'bg-slate-500 text-white'
   }`;
 
   // Determine tooltip text
