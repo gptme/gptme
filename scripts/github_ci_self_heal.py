@@ -83,6 +83,9 @@ def main() -> int:
         print(f"Warning: PR diff not found at {pr_diff_path}", file=sys.stderr)
 
     analysis = analyze_failure(failure_log, pr_diff)
+    if not analysis:
+        print("Error: Claude returned an empty response.", file=sys.stderr)
+        return 1
     print(analysis)
     return 0
 

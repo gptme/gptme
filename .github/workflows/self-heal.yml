@@ -103,8 +103,10 @@ jobs:
           PR_NUMBER: ${{ steps.pr.outputs.number }}
         run: |
           # Dedup: skip if a self-heal comment already exists for this PR.
+          # --paginate ensures all pages are checked, not just the first 30.
           EXISTING=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
-            --jq '[.[] | select(.body | contains("<!-- gptme-self-heal -->"))] | length')
+            --paginate \
+            --jq '.[] | select(.body | contains("<!-- gptme-self-heal -->")) | .id' | wc -l)
           if [ "${EXISTING:-0}" -gt "0" ]; then
             echo "Self-heal comment already exists — skipping duplicate"
             exit 0
@@ -133,6 +135,14 @@ jobs:
           BOT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
         run: |
+          # Dedup: skip if a self-heal comment already exists (same guard as success path).
+          EXISTING=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            --paginate \
+            --jq '.[] | select(.body | contains("<!-- gptme-self-heal -->")) | .id' | wc -l)
+          if [ "${EXISTING:-0}" -gt "0" ]; then
+            echo "Self-heal comment already exists — skipping duplicate error comment"
+            exit 0
+          fi
           {
             echo "<!-- gptme-self-heal -->"
             echo "## 🔧 gptme-bot: Self-heal (error)"
