@@ -1,7 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ChatMessage } from '../ChatMessage';
+import { MessageAvatar } from '../MessageAvatar';
 import '@testing-library/jest-dom';
-import type { Message } from '@/types/conversation';
+import type { Message, MessageRole } from '@/types/conversation';
 import { observable } from '@legendapp/state';
 import { SettingsProvider } from '@/contexts/SettingsContext';
 
@@ -36,6 +37,35 @@ describe('ChatMessage', () => {
 
     renderWithProviders(<ChatMessage message$={message$} conversationId={testConversationId} />);
     expect(screen.getByText('Hello!')).toBeInTheDocument();
+  });
+
+  it('renders a compact visible user avatar fallback', () => {
+    const message$ = observable<Message>({
+      role: 'user',
+      content: 'Hello!',
+      timestamp: new Date().toISOString(),
+    });
+
+    renderWithProviders(<ChatMessage message$={message$} conversationId={testConversationId} />);
+
+    const avatar = screen.getByLabelText('User avatar');
+    expect(avatar).toBeInTheDocument();
+    expect(avatar).toHaveTextContent('U');
+    expect(avatar).not.toHaveClass('hidden');
+  });
+
+  it('uses initials for named user avatar fallback', () => {
+    render(
+      <MessageAvatar
+        role$={observable<MessageRole>('user')}
+        chainType$={observable<'start' | 'middle' | 'end' | 'standalone'>('standalone')}
+        userName="Erik Bjareholt"
+      />
+    );
+
+    const avatar = screen.getByLabelText('Erik Bjareholt avatar');
+    expect(avatar).toHaveTextContent('EB');
+    expect(avatar).not.toHaveClass('hidden');
   });
 
   it('renders assistant message', () => {

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Bot, User, Terminal } from 'lucide-react';
+import { Bot, Terminal } from 'lucide-react';
 import type { MessageRole } from '@/types/conversation';
 import { type Observable } from '@legendapp/state';
 import { use$ } from '@legendapp/state/react';
@@ -14,6 +14,16 @@ interface MessageAvatarProps {
   agentName?: string;
   userAvatarUrl?: string;
   userName?: string;
+}
+
+function getInitials(name?: string): string {
+  const parts = name?.trim().split(/\s+/).filter(Boolean).slice(0, 2);
+
+  if (!parts?.length) {
+    return 'U';
+  }
+
+  return parts.map((part) => part[0]?.toUpperCase()).join('');
 }
 
 export function MessageAvatar({
@@ -41,16 +51,17 @@ export function MessageAvatar({
   const showCustomAvatar =
     (isAssistant && agentAvatarUrl && !imageError) || (isUser && userAvatarUrl && !imageError);
   const avatarUrl = isUser ? userAvatarUrl : agentAvatarUrl;
+  const sideClass = isUser ? 'right-0' : 'left-0';
 
-  const avatarClasses = `hidden md:flex flex-shrink-0 w-10 h-10 rounded-full items-center justify-center absolute border-2 border-border ${
+  const avatarClasses = `absolute flex h-8 w-8 flex-shrink-0 select-none items-center justify-center rounded-full border-2 border-border text-xs font-semibold md:h-10 md:w-10 md:text-sm ${sideClass} ${
     isUser
       ? showCustomAvatar
-        ? 'right-0 overflow-hidden'
-        : 'bg-blue-600 text-white right-0'
+        ? 'overflow-hidden'
+        : 'bg-blue-600 text-white'
       : isAssistant
         ? showCustomAvatar
-          ? 'left-0 overflow-hidden'
-          : 'bg-gptme-600 text-white left-0'
+          ? 'overflow-hidden'
+          : 'bg-gptme-600 text-white'
         : isError
           ? 'bg-red-800 text-red-100'
           : isSuccess
@@ -77,13 +88,13 @@ export function MessageAvatar({
       />
     </div>
   ) : (
-    <div className={avatarClasses}>
+    <div className={avatarClasses} aria-label={`${tooltipText} avatar`}>
       {isAssistant ? (
-        <Bot className="h-5 w-5" />
+        <Bot className="h-4 w-4 md:h-5 md:w-5" />
       ) : role === 'system' ? (
-        <Terminal className="h-5 w-5" />
+        <Terminal className="h-4 w-4 md:h-5 md:w-5" />
       ) : (
-        <User className="h-5 w-5" />
+        <span aria-hidden="true">{getInitials(userName)}</span>
       )}
     </div>
   );

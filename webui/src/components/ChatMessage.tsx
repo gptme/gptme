@@ -475,6 +475,9 @@ export const ChatMessage: FC<Props> = ({
         ${visualChain === 'standalone' ? 'mb-4' : 'mb-0'}
       `;
   });
+  const contentOffsetClasses$ = useObservable(() => {
+    return isUser$.get() ? 'pr-10 md:px-12' : 'pl-10 md:px-12';
+  });
 
   return (
     <Memo>
@@ -497,7 +500,7 @@ export const ChatMessage: FC<Props> = ({
                   }
                   userName={api.userInfo$.name?.get()}
                 />
-                <div className="md:px-12">
+                <div className={contentOffsetClasses$.get()}>
                   <div className={`group/message relative ${messageClasses$.get()}`}>
                     {/* Action buttons (top-right) */}
                     <div className="absolute right-1 top-1 z-10 flex gap-0.5 opacity-0 transition-opacity hover:!opacity-100 group-hover/message:opacity-50">
