@@ -1,6 +1,34 @@
 import type { ToolUse } from '@/types/conversation';
 
 /**
+ * Known gptme tool names. Used to distinguish tool-call codeblocks
+ * from ordinary markdown language-tagged fences (e.g. ```python for
+ * a code example).
+ */
+export const GPTME_TOOL_ALLOWLIST = new Set([
+  'shell',
+  'tmux',
+  'ipython',
+  'python',
+  'save',
+  'append',
+  'patch',
+  'morph',
+  'read',
+  'browser',
+  'vision',
+  'gh',
+  'mcp',
+  'think',
+  'ask',
+  'subagent',
+]);
+
+export function isKnownTool(name: string): boolean {
+  return GPTME_TOOL_ALLOWLIST.has(name.toLowerCase());
+}
+
+/**
  * Parse ToolUse objects from markdown codeblock content.
  *
  * Tool calls in gptme messages appear as fenced markdown codeblocks
@@ -14,6 +42,8 @@ export function parseToolCalls(content: string): ToolUse[] {
   let match: RegExpExecArray | null;
   while ((match = codeblockRegex.exec(content)) !== null) {
     const tool = match[1];
+    if (!isKnownTool(tool)) continue;
+
     const inlineArgs = match[2]?.trim() || '';
     const blockContent = match[3].trim();
 

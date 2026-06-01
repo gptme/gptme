@@ -17,7 +17,12 @@ import {
   Loader2,
 } from 'lucide-react';
 import type { ToolUse } from '@/types/conversation';
-import { getToolSummary, getToolCategory, CATEGORY_BORDER_ONLY } from '@/utils/toolCallParser';
+import {
+  getToolSummary,
+  getToolCategory,
+  CATEGORY_BORDER_ONLY,
+  isKnownTool,
+} from '@/utils/toolCallParser';
 import { CodeDisplay } from '@/components/CodeDisplay';
 import { detectToolLanguage } from '@/utils/highlightUtils';
 
@@ -172,26 +177,35 @@ export const RichToolCall: FC<RichToolCallProps> = ({
  */
 export function renderToolCallsFromContent(
   content: string,
-  completedTools?: Map<string, { success: boolean; durationMs: number }>
+  completedTools?: Map<number, { success: boolean; durationMs: number }>
 ): { content: string; toolCalls: React.ReactNode[] } {
-  // Match gptme markdown tool calls: ```toolname
   const codeblockRegex = /```(\w+)(\s+[^\n]*)?\n([\s\S]*?)```/g;
   const toolCalls: React.ReactNode[] = [];
   let cleanedContent = content;
 
   let match: RegExpExecArray | null;
   let callIndex = 0;
-  const matches: Array<{ start: number; end: number; tool: string; args: string; body: string }> =
-    [];
+  const matches: Array<{
+    start: number;
+    end: number;
+    tool: string;
+    args: string;
+    body: string;
+    index: number;
+  }> = [];
 
-  // Collect all matches first
+  // Collect matches first — skip non-tool language fences
   while ((match = codeblockRegex.exec(content)) !== null) {
+    const tool = match[1];
+    if (!isKnownTool(tool)) continue;
+
     matches.push({
       start: match.index,
       end: match.index + match[0].length,
-      tool: match[1],
+      tool,
       args: (match[2] || '').trim(),
       body: match[3].trim(),
+      index: callIndex++,
     });
   }
 
@@ -216,8 +230,8 @@ export function renderToolCallsFromContent(
     }
 
     const toolUse: ToolUse = { tool: m.tool, args, content: m.body };
-    const key = `${m.tool}-${callIndex}`;
-    const compMeta = completedTools?.get(m.tool);
+    const key = `toolcall-${m.index}`;
+    const compMeta = completedTools?.get(m.index);
     toolCalls.unshift(
       <RichToolCall
         key={key}
@@ -226,7 +240,6 @@ export function renderToolCallsFromContent(
         durationMs={compMeta?.durationMs}
       />
     );
-    callIndex++;
 
     // Remove the codeblock from the content (replace with placeholder for later reconstruction,
     // or just remove it entirely since RichToolCall replaces it visually)

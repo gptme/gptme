@@ -43,7 +43,7 @@ hello
     const content = `\`\`\`shell
 ls -la
 \`\`\``;
-    const completedTools = new Map([['shell', { success: true, durationMs: 1234 }]]);
+    const completedTools = new Map([[0, { success: true, durationMs: 1234 }]]);
     const result = renderToolCallsFromContent(content, completedTools);
     expect(result.toolCalls.length).toBeGreaterThan(0);
   });
@@ -65,5 +65,46 @@ The tests should pass.`;
     const result = renderToolCallsFromContent(content);
     expect(result.content).toContain('I will now run:');
     expect(result.content).toContain('The tests should pass.');
+  });
+
+  it('ignores non-tool language codeblocks (e.g. js, python)', () => {
+    const content = `Here is some code:
+
+\`\`\`js
+const x = 1;
+\`\`\`
+
+And a real tool call:
+
+\`\`\`shell
+echo hi
+\`\`\``;
+    const result = renderToolCallsFromContent(content);
+    expect(result.toolCalls).toHaveLength(1);
+    // The js block should remain in the cleaned content
+    expect(result.content).toContain('```js');
+    expect(result.content).toContain('const x = 1;');
+    // The shell block should be removed (rendered as RichToolCall)
+    expect(result.content).not.toContain('```shell');
+  });
+
+  it('uses per-index completion metadata, not per-tool-name', () => {
+    const content = `\`\`\`shell
+echo first
+\`\`\`
+
+\`\`\`shell
+echo second
+\`\`\``;
+    const completedTools = new Map([
+      [0, { success: true, durationMs: 100 }],
+      [1, { success: false, durationMs: 200 }],
+    ]);
+    const result = renderToolCallsFromContent(content, completedTools);
+    expect(result.toolCalls).toHaveLength(2);
+    // Keys should be unique per occurrence, not per tool name
+    const keys = result.toolCalls.map((node: any) => node?.key);
+    expect(new Set(keys).size).toBe(2);
+    expect(keys[0]).not.toBe(keys[1]);
   });
 });
