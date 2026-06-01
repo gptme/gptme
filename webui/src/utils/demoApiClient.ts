@@ -68,6 +68,13 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
 
     // Read paths — serve empty collections so the UI renders cleanly.
     getServerInfo: async () => ({ version: 'demo' }),
+    getServerHealth: async () => ({
+      session_count: 0,
+      generating_count: 0,
+      idle_count: 0,
+      health: 'green',
+      slots: [],
+    }),
     getConversations: async () => [],
     searchConversations: async () => [],
     getConversationsPaginated: async () => ({ conversations: [], nextCursor: undefined }),
