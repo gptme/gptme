@@ -50,7 +50,10 @@ Respond in this exact format:
         messages=[{"role": "user", "content": prompt}],
     )
 
-    return message.content[0].text
+    from anthropic.types import TextBlock
+
+    text_blocks = [b for b in message.content if isinstance(b, TextBlock)]
+    return text_blocks[0].text if text_blocks else ""
 
 
 def main() -> int:
