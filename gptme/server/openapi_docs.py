@@ -207,6 +207,50 @@ class UserDefaultModelSaveResponse(BaseModel):
     )
 
 
+class UserConfigFileResponse(BaseModel):
+    """Raw user config file contents plus path metadata."""
+
+    content: str = Field(..., description="Raw TOML contents of config.toml")
+    path: str = Field(..., description="Main config file path")
+    write_target: str = Field(..., description="Config path writes are applied to")
+    local_config_path: str = Field(..., description="Local override config path")
+    local_config_exists: bool = Field(
+        ..., description="Whether config.local.toml exists"
+    )
+    local_overrides_main: bool = Field(
+        True, description="Whether local config values override main config values"
+    )
+
+
+class UserConfigFileSaveRequest(BaseModel):
+    """Request to replace the raw user config file."""
+
+    content: str = Field(..., description="Raw TOML contents to write to config.toml")
+
+
+class UserConfigFileSaveResponse(UserConfigFileResponse):
+    """Response after replacing the raw user config file."""
+
+    status: str = Field(..., description="Operation status")
+
+
+class UserConfigFilePatchRequest(BaseModel):
+    """Request to update one dotted key in the user config file."""
+
+    key: str = Field(..., description="Dotted key path, for example env.MODEL")
+    value: str = Field(..., description="String value to persist at the key path")
+    reload: bool = Field(
+        True, description="Whether to reload gptme config after writing the value"
+    )
+
+
+class UserConfigFilePatchResponse(UserConfigFileResponse):
+    """Response after updating one config value."""
+
+    status: str = Field(..., description="Operation status")
+    key: str = Field(..., description="Dotted key path that was updated")
+
+
 class UserSettingsResponse(BaseModel):
     """Current user settings state (read-only snapshot)."""
 

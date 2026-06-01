@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Literal, cast
 
 import flask
+import tomlkit
 from dateutil.parser import isoparse
 from flask import request
 
@@ -42,7 +43,11 @@ from gptme.prompts import get_prompt
 
 from ..commands import handle_cmd
 from ..config import get_project_config
-from ..config.user import get_user_config_env_source, get_user_config_runtime_info
+from ..config.user import (
+    get_user_config_env_source,
+    get_user_config_paths,
+    get_user_config_runtime_info,
+)
 from ..dirs import get_logs_dir
 from ..logmanager import Log, LogManager, get_user_conversations
 from ..message import Message
@@ -73,6 +78,11 @@ from .openapi_docs import (
     StatusResponse,
     UserApiKeySaveRequest,
     UserApiKeySaveResponse,
+    UserConfigFilePatchRequest,
+    UserConfigFilePatchResponse,
+    UserConfigFileResponse,
+    UserConfigFileSaveRequest,
+    UserConfigFileSaveResponse,
     UserDefaultModelSaveRequest,
     UserDefaultModelSaveResponse,
     UserSettingsResponse,
@@ -178,6 +188,36 @@ def _validate_api_key_input(api_key: str) -> str:
         raise ValueError("API key is too long")
     if any(ord(ch) < 32 or ord(ch) == 127 for ch in trimmed):
         raise ValueError("API key contains control characters")
+    return trimmed
+
+
+def _get_user_config_file_response(content: str) -> dict[str, str | bool]:
+    """Return raw config text with the same path metadata as user settings."""
+    runtime_info = get_user_config_runtime_info()
+    return {
+        "content": content,
+        "path": runtime_info["config_path"],
+        "write_target": runtime_info["write_target"],
+        "local_config_path": runtime_info["local_config_path"],
+        "local_config_exists": runtime_info["local_config_exists"],
+        "local_overrides_main": runtime_info["local_overrides_main"],
+    }
+
+
+def _read_user_config_file_text() -> str:
+    """Read config.toml, creating the default file first if it is missing."""
+    config_file, _local_path = get_user_config_paths()
+    if not config_file.exists():
+        load_user_config()
+    return config_file.read_text()
+
+
+def _validate_config_key_path(key: str) -> str:
+    trimmed = key.strip()
+    if not trimmed:
+        raise ValueError("key must not be empty")
+    if any(not segment.strip() for segment in trimmed.split(".")):
+        raise ValueError("key must be a dotted path with non-empty segments")
     return trimmed
 
 
@@ -1758,6 +1798,101 @@ def api_user_avatar():
         return flask.jsonify({"error": "Avatar must be a valid image file"}), 400
 
     return flask.send_file(full_path)
+
+
+@v2_api.route("/api/v2/user/config-file", methods=["GET"])
+@require_auth
+@api_doc(
+    summary="Get raw user config file",
+    description="Return the raw TOML contents of the user's main config.toml file.",
+    responses={200: UserConfigFileResponse},
+    tags=["user"],
+)
+def api_user_config_file_get():
+    """Return raw config.toml contents for the settings UI."""
+    content = _read_user_config_file_text()
+    return flask.jsonify(_get_user_config_file_response(content))
+
+
+@v2_api.route("/api/v2/user/config-file", methods=["PUT"])
+@require_auth
+@api_doc(
+    summary="Replace raw user config file",
+    description=(
+        "Validate and replace the user's main config.toml file. "
+        "Malformed TOML is rejected before anything is written."
+    ),
+    request_body=UserConfigFileSaveRequest,
+    responses={200: UserConfigFileSaveResponse, 400: ErrorResponse},
+    tags=["user"],
+)
+def api_user_config_file_put():
+    """Replace config.toml with validated TOML text."""
+    req_json = request.get_json(silent=True)
+    if req_json is None:
+        return flask.jsonify({"error": "No JSON data provided"}), 400
+    if not isinstance(req_json, dict):
+        return flask.jsonify({"error": "JSON body must be an object"}), 400
+
+    content = req_json.get("content")
+    if not isinstance(content, str):
+        return flask.jsonify({"error": "content must be a string"}), 400
+
+    try:
+        tomlkit.loads(content)
+    except Exception as exc:
+        return flask.jsonify({"error": f"Invalid TOML: {exc}"}), 400
+
+    config_file, _local_path = get_user_config_paths()
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    config_file.write_text(content)
+
+    response = _get_user_config_file_response(content)
+    response["status"] = "ok"
+    return flask.jsonify(response)
+
+
+@v2_api.route("/api/v2/user/config-file", methods=["PATCH"])
+@require_auth
+@api_doc(
+    summary="Update one user config value",
+    description=(
+        "Update a single dotted key path in the user's main config.toml file "
+        "using the same persistence helper as the server settings endpoints."
+    ),
+    request_body=UserConfigFilePatchRequest,
+    responses={200: UserConfigFilePatchResponse, 400: ErrorResponse},
+    tags=["user"],
+)
+def api_user_config_file_patch():
+    """Persist one dotted key path into config.toml."""
+    req_json = request.get_json(silent=True)
+    if req_json is None:
+        return flask.jsonify({"error": "No JSON data provided"}), 400
+    if not isinstance(req_json, dict):
+        return flask.jsonify({"error": "JSON body must be an object"}), 400
+
+    key = req_json.get("key")
+    value = req_json.get("value")
+    reload_config = req_json.get("reload", True)
+    if not isinstance(key, str):
+        return flask.jsonify({"error": "key must be a string"}), 400
+    if not isinstance(value, str):
+        return flask.jsonify({"error": "value must be a string"}), 400
+    if not isinstance(reload_config, bool):
+        return flask.jsonify({"error": "reload must be a boolean"}), 400
+
+    try:
+        key = _validate_config_key_path(key)
+    except ValueError as exc:
+        return flask.jsonify({"error": str(exc)}), 400
+
+    set_config_value(key, value, reload=reload_config)
+    content = _read_user_config_file_text()
+    response = _get_user_config_file_response(content)
+    response["status"] = "ok"
+    response["key"] = key
+    return flask.jsonify(response)
 
 
 @v2_api.route("/api/v2/user/settings", methods=["GET"])

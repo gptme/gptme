@@ -28,6 +28,7 @@ import { getClientForServer } from '@/stores/serverClients';
 import type { ServerConfig } from '@/types/servers';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { ConfigFileEditor } from './ConfigFileEditor';
 import { ServerDefaultModelSettings } from './ServerDefaultModelSettings';
 import { ServerApiKeySettings } from './ServerApiKeySettings';
 
@@ -378,6 +379,7 @@ export const ServerConfiguration: FC = () => {
         </div>
       )}
 
+      <ConfigFileEditor />
       <ServerApiKeySettings />
       <ServerDefaultModelSettings />
 

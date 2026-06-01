@@ -323,6 +323,109 @@ def test_v2_user_default_model_rejects_unqualified_model(client: FlaskClient):
     assert data == {"error": "model must be fully qualified as provider/model"}
 
 
+def test_v2_user_config_file_get_reads_raw_toml(
+    client: FlaskClient, tmp_path, monkeypatch
+):
+    """GET /api/v2/user/config-file should return the raw main config.toml text."""
+    import gptme.config.user as user_mod
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[env]\nMODEL = "anthropic/claude-sonnet-4-7"\n')
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+
+    response = client.get("/api/v2/user/config-file")
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["content"] == '[env]\nMODEL = "anthropic/claude-sonnet-4-7"\n'
+    assert data["path"] == str(config_file)
+    assert data["write_target"] == str(config_file)
+    assert data["local_config_exists"] is False
+
+
+def test_v2_user_config_file_get_creates_missing_config(
+    client: FlaskClient, tmp_path, monkeypatch
+):
+    """GET should create the default config.toml when the file is missing."""
+    import gptme.config.user as user_mod
+
+    config_file = tmp_path / "config.toml"
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+
+    response = client.get("/api/v2/user/config-file")
+
+    assert response.status_code == 200
+    assert config_file.exists()
+    assert response.get_json()["content"] == config_file.read_text()
+
+
+def test_v2_user_config_file_put_validates_and_writes_toml(
+    client: FlaskClient, tmp_path, monkeypatch
+):
+    """PUT /api/v2/user/config-file should reject bad TOML and write valid TOML."""
+    import gptme.config.user as user_mod
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[env]\nMODEL = "old/model"\n')
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+
+    invalid_response = client.put(
+        "/api/v2/user/config-file",
+        json={"content": "[env\nMODEL = broken"},
+    )
+    assert invalid_response.status_code == 400
+    assert "Invalid TOML" in invalid_response.get_json()["error"]
+    assert config_file.read_text() == '[env]\nMODEL = "old/model"\n'
+
+    valid_content = '[env]\nMODEL = "anthropic/claude-sonnet-4-7"\n'
+    response = client.put(
+        "/api/v2/user/config-file",
+        json={"content": valid_content},
+    )
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["status"] == "ok"
+    assert data["content"] == valid_content
+    assert config_file.read_text() == valid_content
+
+
+def test_v2_user_config_file_patch_updates_dotted_key(
+    client: FlaskClient, tmp_path, monkeypatch
+):
+    """PATCH /api/v2/user/config-file should persist one dotted key."""
+    import gptme.config.user as user_mod
+
+    config_file = tmp_path / "config.toml"
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+
+    response = client.patch(
+        "/api/v2/user/config-file",
+        json={
+            "key": "env.MODEL",
+            "value": "anthropic/claude-sonnet-4-7",
+            "reload": False,
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["status"] == "ok"
+    assert data["key"] == "env.MODEL"
+    saved = tomlkit.loads(config_file.read_text()).unwrap()
+    assert saved["env"]["MODEL"] == "anthropic/claude-sonnet-4-7"
+
+
+def test_v2_user_config_file_patch_rejects_invalid_key(client: FlaskClient):
+    response = client.patch(
+        "/api/v2/user/config-file",
+        json={"key": "env..MODEL", "value": "anthropic/claude-sonnet-4-7"},
+    )
+
+    assert response.status_code == 400
+    assert "dotted path" in response.get_json()["error"]
+
+
 @pytest.mark.parametrize(
     "endpoint", ["/api/v2/user/api-key", "/api/v2/user/default-model"]
 )
