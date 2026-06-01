@@ -138,7 +138,7 @@ jobs:
             --body-file /tmp/comment.md
 
       - name: Report error if analysis failed
-        if: steps.pr.outputs.found == 'true' && failure() && (steps.analyze.outcome == 'failure' || steps.post_comment.outcome == 'failure')
+        if: steps.pr.outputs.found == 'true' && failure()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BOT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
