@@ -56,14 +56,18 @@ _IMAGE_MIME: dict[str, str] = {
 
 def _snapshot_images(cwd: Path) -> dict[Path, float]:
     """Return a {path: mtime} snapshot of image files directly in *cwd*."""
+    snapshot: dict[Path, float] = {}
     try:
-        return {
-            p: p.stat().st_mtime
-            for p in cwd.iterdir()
-            if p.is_file() and p.suffix.lower() in _IMAGE_EXTS
-        }
+        entries = list(cwd.iterdir())
     except OSError:
-        return {}
+        return snapshot
+    for p in entries:
+        if p.is_file() and p.suffix.lower() in _IMAGE_EXTS:
+            try:
+                snapshot[p] = p.stat().st_mtime
+            except OSError:
+                pass
+    return snapshot
 
 
 def _make_plot_artifacts(
