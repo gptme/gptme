@@ -465,6 +465,7 @@
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-webui-modern-web-interface">gptme-webui: Modern Web Interface</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#self-hosting-with-docker-compose">Self-Hosting with Docker Compose</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#production-deployment-nginx-reverse-proxy">Production Deployment: nginx Reverse Proxy</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-as-a-systemd-service-pipx">Running as a systemd Service (pipx)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#basic-web-ui">Basic Web UI</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#computer-use-interface">Computer Use Interface</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#local-computer-use-advanced">Local Computer Use (Advanced)</a></li>
@@ -661,6 +662,42 @@ itself (for example, behind a VPN or an SSH tunnel), skip the proxy entirely and
 keep the default loopback bind — open an SSH tunnel from your client with
 <code class="docutils literal notranslate"><span class="pre">ssh</span> <span class="pre">-L</span> <span class="pre">5700:127.0.0.1:5700</span> <span class="pre">user&#64;host</span></code> and use <code class="docutils literal notranslate"><span class="pre">http://localhost:5700</span></code>.</p>
 </section>
+<section id="running-as-a-systemd-service-pipx">
+<h2>Running as a systemd Service (pipx)<a class="headerlink" href="#running-as-a-systemd-service-pipx" title="Link to this heading">#</a></h2>
+<p>If you installed gptme directly with <code class="docutils literal notranslate"><span class="pre">pipx</span></code> rather than Docker, you can run
+the server as a systemd service so it starts on boot and restarts on failure.
+A ready-to-edit unit template ships at <a class="reference external" href="https://github.com/gptme/gptme/blob/master/scripts/gptme-server.service">scripts/gptme-server.service</a>.</p>
+<p>The template runs the server as a dedicated <code class="docutils literal notranslate"><span class="pre">gptme</span></code> user, reads secrets from
+<code class="docutils literal notranslate"><span class="pre">/etc/gptme/server.env</span></code>, binds loopback, and applies systemd hardening
+(<code class="docutils literal notranslate"><span class="pre">ProtectSystem=strict</span></code>, <code class="docutils literal notranslate"><span class="pre">NoNewPrivileges</span></code>, etc.). Install it with:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Dedicated service user + pipx install of the entrypoint</span>
+sudo<span class="w"> </span>useradd<span class="w"> </span>--system<span class="w"> </span>--create-home<span class="w"> </span>--shell<span class="w"> </span>/usr/sbin/nologin<span class="w"> </span>gptme
+sudo<span class="w"> </span>-u<span class="w"> </span>gptme<span class="w"> </span>pipx<span class="w"> </span>install<span class="w"> </span><span class="s1">&#39;gptme[server]&#39;</span>
+
+<span class="c1"># Pre-create config/data dirs (required: ProtectHome=read-only only bind-mounts</span>
+<span class="c1"># paths that already exist; gptme initialises them at import time, which fails</span>
+<span class="c1"># under the sandbox on a fresh install before any request is served)</span>
+sudo<span class="w"> </span>-u<span class="w"> </span>gptme<span class="w"> </span>mkdir<span class="w"> </span>-p<span class="w"> </span>/home/gptme/.config/gptme<span class="w"> </span><span class="se">\</span>
+<span class="w">                       </span>/home/gptme/.local/share/gptme<span class="w"> </span><span class="se">\</span>
+<span class="w">                       </span>/home/gptme/.local/state/gptme
+
+<span class="c1"># Secrets file (provider keys, optional GPTME_SERVER_TOKEN), not world-readable</span>
+sudo<span class="w"> </span>install<span class="w"> </span>-d<span class="w"> </span>-m<span class="w"> </span><span class="m">750</span><span class="w"> </span>-o<span class="w"> </span>gptme<span class="w"> </span>-g<span class="w"> </span>gptme<span class="w"> </span>/etc/gptme
+sudo<span class="w"> </span>install<span class="w"> </span>-m<span class="w"> </span><span class="m">640</span><span class="w"> </span>-o<span class="w"> </span>gptme<span class="w"> </span>-g<span class="w"> </span>gptme<span class="w"> </span>/dev/null<span class="w"> </span>/etc/gptme/server.env
+sudoedit<span class="w"> </span>/etc/gptme/server.env<span class="w">   </span><span class="c1"># add ANTHROPIC_API_KEY=... etc.</span>
+
+<span class="c1"># Download and install the unit (adjust User=, the ExecStart path, --cors-origin)</span>
+sudo<span class="w"> </span>curl<span class="w"> </span>-fsSL<span class="w"> </span>https://raw.githubusercontent.com/gptme/gptme/master/scripts/gptme-server.service<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-o<span class="w"> </span>/etc/systemd/system/gptme-server.service
+sudo<span class="w"> </span>systemctl<span class="w"> </span>daemon-reload
+sudo<span class="w"> </span>systemctl<span class="w"> </span><span class="nb">enable</span><span class="w"> </span>--now<span class="w"> </span>gptme-server
+</pre></div>
+</div>
+<p>Tail logs with <code class="docutils literal notranslate"><span class="pre">journalctl</span> <span class="pre">-u</span> <span class="pre">gptme-server</span> <span class="pre">-f</span></code>. Because the unit binds
+<code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code>, pair it with the nginx reverse proxy above to expose it over TLS;
+on loopback the auth token is optional (set <code class="docutils literal notranslate"><span class="pre">GPTME_SERVER_TOKEN</span></code> in the env
+file if you change the bind to a public interface).</p>
+</section>
 <section id="basic-web-ui">
 <h2>Basic Web UI<a class="headerlink" href="#basic-web-ui" title="Link to this heading">#</a></h2>
 <p>A lightweight chat interface with minimal dependencies is bundled with the gptme server for simple deployments.</p>
@@ -800,6 +837,7 @@ parent context smaller:</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-webui-modern-web-interface">gptme-webui: Modern Web Interface</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#self-hosting-with-docker-compose">Self-Hosting with Docker Compose</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#production-deployment-nginx-reverse-proxy">Production Deployment: nginx Reverse Proxy</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-as-a-systemd-service-pipx">Running as a systemd Service (pipx)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#basic-web-ui">Basic Web UI</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#computer-use-interface">Computer Use Interface</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#local-computer-use-advanced">Local Computer Use (Advanced)</a></li>
