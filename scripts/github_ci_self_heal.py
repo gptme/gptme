@@ -73,7 +73,7 @@ def main() -> int:
     )
     pr_diff = (
         pr_diff_path.read_text(errors="replace")
-        if pr_diff_path.exists()
+        if pr_diff_path.exists() and pr_diff_path.stat().st_size > 0
         else "(no diff available)"
     )
 
@@ -83,7 +83,7 @@ def main() -> int:
         print(f"Warning: PR diff not found at {pr_diff_path}", file=sys.stderr)
 
     analysis = analyze_failure(failure_log, pr_diff)
-    if not analysis:
+    if not analysis.strip():
         print("Error: Claude returned an empty response.", file=sys.stderr)
         return 1
     print(analysis)
