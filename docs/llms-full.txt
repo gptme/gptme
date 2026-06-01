@@ -4046,9 +4046,17 @@ gptme + the ``server`` extra only — no Node/agent tooling) and runs
    # Build and start the server
    docker compose up --build
 
-The server listens on http://localhost:5700. Open the hosted web UI at
-`chat.gptme.org <https://chat.gptme.org>`_ and point it at your server, or
-self-host the web UI too (set ``CORS_ORIGIN`` in ``.env`` to its origin).
+The server listens on http://localhost:5700.
+
+The simplest way to use it is the basic web UI the server bundles at the same
+origin — just open http://localhost:5700 in a browser. Being same-origin, it
+needs no CORS setup (you will still need the server token; see below).
+
+To use the full-featured hosted web UI instead, open
+`chat.gptme.org <https://chat.gptme.org>`_ and point it at your server. That is
+a cross-origin setup, so the server must allow the UI's origin — the default
+``CORS_ORIGIN`` already permits ``chat.gptme.org``. Set ``CORS_ORIGIN`` in
+``.env`` to a different origin if you self-host the web UI yourself.
 
 Key ``.env`` settings:
 
