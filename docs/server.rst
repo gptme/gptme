@@ -225,6 +225,13 @@ The template runs the server as a dedicated ``gptme`` user, reads secrets from
     sudo useradd --system --create-home --shell /usr/sbin/nologin gptme
     sudo -u gptme pipx install 'gptme[server]'
 
+    # Pre-create config/data dirs (required: ProtectHome=read-only only bind-mounts
+    # paths that already exist; gptme initialises them at import time, which fails
+    # under the sandbox on a fresh install before any request is served)
+    sudo -u gptme mkdir -p /home/gptme/.config/gptme \
+                           /home/gptme/.local/share/gptme \
+                           /home/gptme/.local/state/gptme
+
     # Secrets file (provider keys, optional GPTME_SERVER_TOKEN), not world-readable
     sudo install -d -m 750 -o gptme -g gptme /etc/gptme
     sudo install -m 640 -o gptme -g gptme /dev/null /etc/gptme/server.env

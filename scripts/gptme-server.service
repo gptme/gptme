@@ -9,12 +9,18 @@
 #   1. sudo useradd --system --create-home --shell /usr/sbin/nologin gptme
 #   2. sudo -u gptme pipx install 'gptme[server]'
 #        (binary lands at /home/gptme/.local/bin/gptme-server)
-#   3. sudo install -d -m 750 -o gptme -g gptme /etc/gptme
+#   3. sudo -u gptme mkdir -p /home/gptme/.config/gptme \
+#                              /home/gptme/.local/share/gptme \
+#                              /home/gptme/.local/state/gptme
+#      # Required: ProtectHome=read-only + ReadWritePaths only bind-mounts
+#      # paths that already exist; gptme creates them at import time if absent,
+#      # which fails under the sandbox before a single request is served.
+#   4. sudo install -d -m 750 -o gptme -g gptme /etc/gptme
 #      sudo install -m 640 -o gptme -g gptme /dev/null /etc/gptme/server.env
 #      # then edit /etc/gptme/server.env (see the EnvironmentFile keys below)
-#   4. sudo cp scripts/gptme-server.service /etc/systemd/system/
+#   5. sudo cp scripts/gptme-server.service /etc/systemd/system/
 #      # adjust User=, the ExecStart path, and --cors-origin to match your setup
-#   5. sudo systemctl daemon-reload && sudo systemctl enable --now gptme-server
+#   6. sudo systemctl daemon-reload && sudo systemctl enable --now gptme-server
 #
 # The server binds to loopback (127.0.0.1) by design: terminate TLS and expose
 # it with a reverse proxy (see the "Production Deployment" section of
@@ -56,7 +62,7 @@ ProtectSystem=strict
 ProtectHome=read-only
 # gptme persists config and conversation logs under the service user's home;
 # grant write access to just those paths (matches the User= home above).
-ReadWritePaths=/home/gptme/.config/gptme /home/gptme/.local/share/gptme
+ReadWritePaths=/home/gptme/.config/gptme /home/gptme/.local/share/gptme /home/gptme/.local/state/gptme
 ProtectControlGroups=true
 ProtectKernelModules=true
 ProtectKernelTunables=true
