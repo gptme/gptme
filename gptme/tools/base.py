@@ -454,6 +454,7 @@ class ToolUse:
         self,
         log: Log | None = None,
         workspace: Path | None = None,
+        on_result_message: Callable[[Message], None] | None = None,
     ) -> Generator[Message, None, None]:
         """Executes a tool-use tag and returns the output."""
         # noreorder
@@ -504,11 +505,13 @@ class ToolUse:
                         if isinstance(ex, Generator):
                             # Convert generator to list to measure execution time properly
                             result_msgs = list(ex)
-                            yield from result_msgs
                         else:
                             if ex is not None:
                                 result_msgs = [ex]
-                            yield from result_msgs
+                        if on_result_message:
+                            for msg in result_msgs:
+                                on_result_message(msg)
+                        yield from result_msgs
                     finally:
                         _current_tool_use.reset(token)
 

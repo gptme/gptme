@@ -11,6 +11,8 @@ from typing import Literal, Union
 
 import pytest
 
+from gptme.hooks import HookType
+from gptme.message import Message
 from gptme.tools.base import (
     Parameter,
     ToolSpec,
@@ -374,6 +376,38 @@ class TestToolUseFormatting:
         result = tu.to_output("xml")
         # quoteattr wraps in single-quotes when the value contains double-quotes
         assert "args='file \"name\".py'" in result
+
+    def test_execute_on_result_message_excludes_hook_messages(self, monkeypatch):
+        actual_output = Message("system", "actual output")
+
+        def execute(code, args, kwargs):
+            yield actual_output
+
+        fake_tool = ToolSpec(name="test_tool", desc="test", execute=execute)
+
+        def fake_trigger_hook(hook_type, data):
+            if hook_type == HookType.TOOL_EXECUTE_PRE:
+                return [Message("system", "pre hook")]
+            if hook_type == HookType.TOOL_EXECUTE_POST:
+                return [Message("system", "post hook")]
+            return []
+
+        monkeypatch.setattr("gptme.tools.get_tool", lambda name: fake_tool)
+        monkeypatch.setattr("gptme.hooks.trigger_hook", fake_trigger_hook)
+
+        streamed: list[Message] = []
+        yielded = list(
+            ToolUse("test_tool", [], None, start=0).execute(
+                on_result_message=streamed.append
+            )
+        )
+
+        assert [msg.content for msg in yielded] == [
+            "pre hook",
+            "actual output",
+            "post hook",
+        ]
+        assert streamed == [actual_output]
 
 
 # ── ToolUse._iter_from_xml ─────────────────────────────────────────

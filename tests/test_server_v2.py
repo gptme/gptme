@@ -80,6 +80,74 @@ def test_v2_api_root(client: FlaskClient, monkeypatch):
     assert "provider_configured" in data
 
 
+def test_start_tool_execution_streams_only_real_tool_output(
+    v2_conv, client: FlaskClient, monkeypatch
+):
+    from gptme.message import Message
+    from gptme.server.session_models import SessionManager, ToolExecution
+    from gptme.server.session_step import start_tool_execution
+    from gptme.tools import ToolUse
+
+    conversation_id = v2_conv["conversation_id"]
+    session_id = v2_conv["session_id"]
+    session = SessionManager.get_session(session_id)
+    assert session is not None
+
+    tool_id = "tool-1"
+    session.pending_tools[tool_id] = ToolExecution(
+        tool_id=tool_id,
+        tooluse=ToolUse("shell", [], "echo hello", call_id="call-1"),
+    )
+
+    def fake_execute(self, log=None, workspace=None, on_result_message=None):
+        pre_hook = Message("system", "pre hook chatter")
+        actual_output = Message("system", "real tool output")
+        post_hook = Message("system", "post hook chatter")
+        yield pre_hook
+        if on_result_message:
+            on_result_message(actual_output)
+        yield actual_output
+        yield post_hook
+
+    monkeypatch.setattr("gptme.tools.base.ToolUse.execute", fake_execute)
+    monkeypatch.setattr(
+        "gptme.server.session_step.prepare_execution_environment",
+        lambda workspace, tools, chat_config: None,
+    )
+    monkeypatch.setattr(
+        "gptme.server.session_step._start_step_thread",
+        lambda *args, **kwargs: None,
+    )
+
+    thread = start_tool_execution(
+        conversation_id=conversation_id,
+        session=session,
+        tool_id=tool_id,
+        edited_tooluse=None,
+        model="openai/mock-model",
+        chat_config=ChatConfig(),
+    )
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+
+    tool_output_events = [e for e in session.events if e["type"] == "tool_output"]
+    assert tool_output_events == [
+        {
+            "type": "tool_output",
+            "tool_id": tool_id,
+            "output": "real tool output",
+        }
+    ]
+
+    response = client.get(f"/api/v2/conversations/{conversation_id}")
+    assert response.status_code == 200
+    messages = response.get_json()["log"]
+    system_messages = [m["content"] for m in messages if m["role"] == "system"]
+    assert "pre hook chatter" in system_messages
+    assert "real tool output" in system_messages
+    assert "post hook chatter" in system_messages
+
+
 def test_v2_api_root_provider_configured(client: FlaskClient, monkeypatch):
     """provider_configured reflects whether get_default_model() returns a model."""
     from gptme.llm.models.types import ModelMeta

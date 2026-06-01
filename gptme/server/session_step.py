@@ -895,23 +895,32 @@ def start_tool_execution(
             # Execute the tool
             try:
                 logger.info(f"Executing tool: {tooluse.tool}")
-                # Iterate generator to stream tool_output events as outputs arrive
-                tool_outputs: list[Message] = []
-                for tool_output in tooluse.execute(
-                    log=manager.log, workspace=manager.workspace
-                ):
-                    tool_outputs.append(tool_output)
-                    # Emit tool_output event for each output message so the
-                    # frontend can display partial results in real time.
-                    if tool_output.role == "system":
+                stream_tool_id = current_tool_id
+
+                def stream_tool_output(
+                    tool_output: Message, tool_id: str = stream_tool_id
+                ) -> None:
+                    if (
+                        tool_output.role == "system"
+                        and not tool_output.hide
+                        and not tool_output.quiet
+                    ):
                         SessionManager.add_event(
                             conversation_id,
                             {
                                 "type": "tool_output",
-                                "tool_id": current_tool_id,
+                                "tool_id": tool_id,
                                 "output": tool_output.content,
                             },
                         )
+
+                tool_outputs = list(
+                    tooluse.execute(
+                        log=manager.log,
+                        workspace=manager.workspace,
+                        on_result_message=stream_tool_output,
+                    )
+                )
                 logger.info(f"Tool execution complete, outputs: {len(tool_outputs)}")
 
                 # Store the tool outputs, propagating call_id to pair results
