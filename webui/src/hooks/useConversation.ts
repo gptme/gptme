@@ -368,8 +368,6 @@ export function useConversation(conversationId: string, serverId?: string) {
               }
             },
             onConnected: () => {
-              setConnected(conversationId, true);
-
               // Check if this conversation needs initial step (was created from WelcomeView)
               // This fixes the race condition where step() was called before subscription
               const needsStep = conversation$?.needsInitialStep?.get();
