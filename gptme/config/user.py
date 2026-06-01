@@ -259,9 +259,7 @@ def _load_config_doc(path: str | None = None) -> tomlkit.TOMLDocument:
     return doc
 
 
-def set_config_value(
-    key: str, value: str, reload: bool = True
-) -> None:  # pragma: no cover
+def set_config_value(key: str, value: Any, reload: bool = True) -> None:
     """Set a value in the user config file."""
     doc: TOMLDocument | Container = _load_config_doc()
 

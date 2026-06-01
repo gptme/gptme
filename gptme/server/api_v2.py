@@ -1857,8 +1857,9 @@ def api_user_config_file_put():
 @api_doc(
     summary="Update one user config value",
     description=(
-        "Update a single dotted key path in the user's main config.toml file "
-        "using the same persistence helper as the server settings endpoints."
+        "Update a single dotted key path in the user's main config.toml file. "
+        "JSON scalar values preserve their TOML type on write: strings stay "
+        "strings, booleans stay booleans, and numbers stay numbers."
     ),
     request_body=UserConfigFilePatchRequest,
     responses={200: UserConfigFilePatchResponse, 400: ErrorResponse},
@@ -1877,8 +1878,10 @@ def api_user_config_file_patch():
     reload_config = req_json.get("reload", True)
     if not isinstance(key, str):
         return flask.jsonify({"error": "key must be a string"}), 400
-    if not isinstance(value, str):
-        return flask.jsonify({"error": "value must be a string"}), 400
+    if not isinstance(value, (str, int, float, bool)):
+        return flask.jsonify(
+            {"error": "value must be a JSON scalar (string, number, or boolean)"}
+        ), 400
     if not isinstance(reload_config, bool):
         return flask.jsonify({"error": "reload must be a boolean"}), 400
 

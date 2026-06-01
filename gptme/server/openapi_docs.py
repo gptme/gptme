@@ -238,7 +238,13 @@ class UserConfigFilePatchRequest(BaseModel):
     """Request to update one dotted key in the user config file."""
 
     key: str = Field(..., description="Dotted key path, for example env.MODEL")
-    value: str = Field(..., description="String value to persist at the key path")
+    value: str | int | float | bool = Field(
+        ...,
+        description=(
+            "JSON scalar value to persist at the key path. Strings remain "
+            "strings; booleans and numbers keep their TOML type."
+        ),
+    )
     reload: bool = Field(
         True, description="Whether to reload gptme config after writing the value"
     )

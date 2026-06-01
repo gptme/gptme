@@ -416,6 +416,29 @@ def test_v2_user_config_file_patch_updates_dotted_key(
     assert saved["env"]["MODEL"] == "anthropic/claude-sonnet-4-7"
 
 
+def test_v2_user_config_file_patch_preserves_boolean_value(
+    client: FlaskClient, tmp_path, monkeypatch
+):
+    """PATCH /api/v2/user/config-file should preserve non-string JSON scalars."""
+    import gptme.config.user as user_mod
+
+    config_file = tmp_path / "config.toml"
+    monkeypatch.setattr(user_mod, "config_path", str(config_file))
+
+    response = client.patch(
+        "/api/v2/user/config-file",
+        json={
+            "key": "lessons.enabled",
+            "value": True,
+            "reload": False,
+        },
+    )
+
+    assert response.status_code == 200
+    saved = tomlkit.loads(config_file.read_text()).unwrap()
+    assert saved["lessons"]["enabled"] is True
+
+
 def test_v2_user_config_file_patch_rejects_invalid_key(client: FlaskClient):
     response = client.patch(
         "/api/v2/user/config-file",
