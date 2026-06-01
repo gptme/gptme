@@ -342,6 +342,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
                 <CollapsedStepGroup
                   count={stepRole.count}
                   tools={stepRole.tools}
+                  steps={stepRole.steps}
                   isExpanded={expandedGroups$.get().has(stepRole.groupId)}
                   onToggle={() => toggleGroup(stepRole.groupId)}
                 />

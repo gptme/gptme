@@ -1,8 +1,25 @@
 import type { Message } from '@/types/conversation';
 
+/** Detail about a single tool call within a step group */
+export interface ToolStepDetail {
+  tool: string;
+  /** Short arg for display (filename, command, path) */
+  arg: string;
+  /** First line or brief snippet of the tool content */
+  snippet: string;
+}
+
 /** Role each message index plays in step grouping */
 export type StepRole =
-  | { type: 'group-start'; groupId: number; count: number; tools: string[] } // first hidden step — render summary
+  | {
+      type: 'group-start';
+      groupId: number;
+      count: number;
+      tools: string[];
+      /** Rich detail for each tool call step (in order). Present when we have assistant
+       *  messages with codeblock content to parse. */
+      steps?: ToolStepDetail[];
+    }
   | { type: 'grouped'; groupId: number } // hidden step (collapsed)
   | { type: 'response' }; // final assistant response — always visible
 
@@ -21,6 +38,62 @@ function detectTool(content: string): string | null {
     return 'shell';
   if (first.startsWith('ran ')) return 'shell';
   return null;
+}
+
+/**
+ * Extract tool-call details from an assistant message's content.
+ *
+ * Parses markdown codeblocks like:
+ *   ```save hello.py
+ *   print("hi")
+ *   ```
+ *   ```shell
+ *   Some output here...
+ *   ```
+ *
+ * Returns the tool name, a short arg for display, and a content snippet.
+ */
+function extractToolSteps(content: string): ToolStepDetail[] {
+  const steps: ToolStepDetail[] = [];
+  const regex = /```(\w+)(?:\s+([^\n]*))?\n([\s\S]*?)```/g;
+
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(content)) !== null) {
+    const tool = match[1];
+    const inlineArg = (match[2] || '').trim();
+    const blockContent = match[3].trim();
+
+    // Build display arg and snippet
+    let arg = inlineArg;
+    let snippet = '';
+
+    if (!arg) {
+      // No inline arg — use first meaningful line of block content
+      const firstLine = blockContent.split('\n')[0].trim();
+      if (firstLine && !firstLine.startsWith('#') && !firstLine.startsWith('//')) {
+        arg = firstLine;
+        snippet = blockContent.split('\n').slice(1).join('\n').trim();
+      } else {
+        snippet = blockContent;
+      }
+    } else {
+      snippet = blockContent;
+    }
+
+    // Truncate arg for display
+    if (arg && arg.length > 50) {
+      arg = arg.substring(0, 47) + '...';
+    }
+
+    // Truncate snippet for group summary
+    if (snippet && snippet.length > 30) {
+      snippet = snippet.split('\n')[0].substring(0, 27) + '...';
+    }
+
+    steps.push({ tool, arg, snippet });
+  }
+
+  return steps;
 }
 
 /**
@@ -93,12 +166,18 @@ export function buildStepRoles(
       // Detect tools used and count tool-call steps (system messages = tool results)
       const toolSet = new Set<string>();
       let toolCallCount = 0;
+      const allSteps: ToolStepDetail[] = [];
+
       for (const idx of stepIndices) {
         const msg = messages[idx];
         if (msg.role === 'system') {
           toolCallCount++;
           const tool = detectTool(msg.content);
           if (tool) toolSet.add(tool);
+        } else if (msg.role === 'assistant' && msg.content) {
+          // Extract rich tool-call detail from assistant messages
+          const extracted = extractToolSteps(msg.content);
+          allSteps.push(...extracted);
         }
       }
 
@@ -108,12 +187,19 @@ export function buildStepRoles(
       const stableGroupId = firstIdx;
 
       // count = tool-call steps (not raw messages); fall back to message count if no system msgs
-      roles.set(firstIdx, {
+      const groupStart: Extract<StepRole, { type: 'group-start' }> = {
         type: 'group-start',
         groupId: stableGroupId,
         count: toolCallCount || stepIndices.length,
         tools: Array.from(toolSet),
-      });
+      };
+
+      // Only include steps when we have useful detail (don't bloat the object)
+      if (allSteps.length > 0) {
+        groupStart.steps = allSteps;
+      }
+
+      roles.set(firstIdx, groupStart);
 
       // Mark the rest as grouped (hidden when collapsed)
       for (let k = 1; k < stepIndices.length; k++) {
