@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, RefreshCw, RotateCcw, Save } from 'lucide-react';
+import { AlertCircle, AlertTriangle, RefreshCw, RotateCcw, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -144,6 +144,17 @@ export function ConfigFileEditor() {
         <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{error}</span>
+        </div>
+      )}
+
+      {configFile?.local_config_exists && configFile?.local_overrides_main && (
+        <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            A local override config also exists at{' '}
+            <code className="text-xs">{configFile.local_config_path}</code> and takes precedence.
+            Changes saved here may be shadowed by values in the local file.
+          </span>
         </div>
       )}
 
