@@ -65,6 +65,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -o pipefail
           gh run view ${{ github.event.workflow_run.id }} \
             --repo ${{ github.repository }} \
             --log-failed 2>&1 | tail -c 15000 > /tmp/failure.log
