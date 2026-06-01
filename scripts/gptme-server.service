@@ -1,0 +1,67 @@
+# systemd unit template for running gptme-server as a persistent service.
+#
+# This is the pipx self-host counterpart to the Docker Compose setup
+# (docker-compose.yml): use it when you installed gptme directly with
+#   pipx install 'gptme[server]'
+# and want the server to start on boot and restart on failure, without Docker.
+#
+# Install (system-wide, runs as a dedicated user):
+#   1. sudo useradd --system --create-home --shell /usr/sbin/nologin gptme
+#   2. sudo -u gptme pipx install 'gptme[server]'
+#        (binary lands at /home/gptme/.local/bin/gptme-server)
+#   3. sudo install -d -m 750 -o gptme -g gptme /etc/gptme
+#      sudo install -m 640 -o gptme -g gptme /dev/null /etc/gptme/server.env
+#      # then edit /etc/gptme/server.env (see the EnvironmentFile keys below)
+#   4. sudo cp scripts/gptme-server.service /etc/systemd/system/
+#      # adjust User=, the ExecStart path, and --cors-origin to match your setup
+#   5. sudo systemctl daemon-reload && sudo systemctl enable --now gptme-server
+#
+# The server binds to loopback (127.0.0.1) by design: terminate TLS and expose
+# it with a reverse proxy (see the "Production Deployment" section of
+# docs/server.rst). On loopback, gptme-server does not require an auth token;
+# set GPTME_SERVER_TOKEN in the EnvironmentFile if you bind a public interface.
+#
+# Inspect logs with:  journalctl -u gptme-server -f
+
+[Unit]
+Description=gptme-server (gptme web/REST API)
+Documentation=https://gptme.org/docs/server.html
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gptme
+Group=gptme
+
+# Provider keys (OPENAI_API_KEY / ANTHROPIC_API_KEY / OPENROUTER_API_KEY) and an
+# optional GPTME_SERVER_TOKEN live here, one KEY=value per line. Keep it 0640
+# and owned by the service user so secrets are not world-readable.
+EnvironmentFile=/etc/gptme/server.env
+
+# Adjust the path to wherever pipx installed the entrypoint for User= above.
+# Bind loopback and front it with a reverse proxy; set --cors-origin to the
+# origin your web UI is served from (the hosted UI is https://chat.gptme.org).
+ExecStart=/home/gptme/.local/bin/gptme-server serve \
+    --host 127.0.0.1 --port 5700 \
+    --cors-origin https://chat.gptme.org
+
+Restart=on-failure
+RestartSec=5
+
+# --- Hardening (loosen only if your setup needs it) ---
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+# gptme persists config and conversation logs under the service user's home;
+# grant write access to just those paths (matches the User= home above).
+ReadWritePaths=/home/gptme/.config/gptme /home/gptme/.local/share/gptme
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictNamespaces=true
+RestrictRealtime=true
+
+[Install]
+WantedBy=multi-user.target

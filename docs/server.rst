@@ -207,6 +207,39 @@ itself (for example, behind a VPN or an SSH tunnel), skip the proxy entirely and
 keep the default loopback bind — open an SSH tunnel from your client with
 ``ssh -L 5700:127.0.0.1:5700 user@host`` and use ``http://localhost:5700``.
 
+Running as a systemd Service (pipx)
+-----------------------------------
+
+If you installed gptme directly with ``pipx`` rather than Docker, you can run
+the server as a systemd service so it starts on boot and restarts on failure.
+A ready-to-edit unit template ships at `scripts/gptme-server.service
+<https://github.com/gptme/gptme/blob/master/scripts/gptme-server.service>`_.
+
+The template runs the server as a dedicated ``gptme`` user, reads secrets from
+``/etc/gptme/server.env``, binds loopback, and applies systemd hardening
+(``ProtectSystem=strict``, ``NoNewPrivileges``, etc.). Install it with:
+
+.. code-block:: bash
+
+    # Dedicated service user + pipx install of the entrypoint
+    sudo useradd --system --create-home --shell /usr/sbin/nologin gptme
+    sudo -u gptme pipx install 'gptme[server]'
+
+    # Secrets file (provider keys, optional GPTME_SERVER_TOKEN), not world-readable
+    sudo install -d -m 750 -o gptme -g gptme /etc/gptme
+    sudo install -m 640 -o gptme -g gptme /dev/null /etc/gptme/server.env
+    sudoedit /etc/gptme/server.env   # add ANTHROPIC_API_KEY=... etc.
+
+    # Install and start the unit (adjust User=, the ExecStart path, --cors-origin)
+    sudo cp scripts/gptme-server.service /etc/systemd/system/
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now gptme-server
+
+Tail logs with ``journalctl -u gptme-server -f``. Because the unit binds
+``127.0.0.1``, pair it with the nginx reverse proxy above to expose it over TLS;
+on loopback the auth token is optional (set ``GPTME_SERVER_TOKEN`` in the env
+file if you change the bind to a public interface).
+
 Basic Web UI
 ------------
 
