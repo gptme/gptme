@@ -4065,6 +4065,108 @@ Key ``.env`` settings:
 - ``CORS_ORIGIN`` — origin allowed to call the server (defaults to the hosted web UI).
 - ``GPTME_SERVER_PORT`` — host port to publish (the container always listens on 5700).
 
+Production Deployment: nginx Reverse Proxy
+------------------------------------------
+
+The docker-compose setup above publishes the server on a plain HTTP port
+(``5700`` by default). For a public-facing deployment you should put it behind a
+reverse proxy that terminates TLS and forwards requests to the container. The
+example below uses nginx with a Let's Encrypt certificate.
+
+.. warning::
+
+   Do **not** expose the raw ``5700`` port to the internet. Bind the published
+   port to loopback so only the proxy can reach it. In ``.env`` (or
+   ``docker-compose.yml``) set the publish address to ``127.0.0.1``:
+
+   .. code-block:: yaml
+
+      ports:
+        - "127.0.0.1:5700:5700"
+
+   Also set ``GPTME_SERVER_TOKEN`` to a strong value — the proxy handles TLS,
+   but the token is what authenticates each request.
+
+**1. Obtain a TLS certificate** with certbot (one-time, then auto-renewed):
+
+.. code-block:: bash
+
+   sudo apt install certbot python3-certbot-nginx
+   sudo certbot certonly --nginx -d gptme.example.com
+
+.. note::
+
+   The ``--nginx`` plugin handles the ACME HTTP challenge through nginx
+   itself, so you do **not** need to stop nginx first (unlike
+   ``--standalone``, which binds its own listener to port 80 and fails
+   when nginx is already running).
+
+**2. nginx site config** (``/etc/nginx/sites-available/gptme``):
+
+.. code-block:: nginx
+
+   server {
+       listen 80;
+       server_name gptme.example.com;
+       # Redirect all HTTP to HTTPS
+       return 301 https://$host$request_uri;
+   }
+
+   server {
+       listen 443 ssl;
+       server_name gptme.example.com;
+
+       ssl_certificate     /etc/letsencrypt/live/gptme.example.com/fullchain.pem;
+       ssl_certificate_key /etc/letsencrypt/live/gptme.example.com/privkey.pem;
+
+       # Restrict to TLS 1.2/1.3 with strong ciphers (Mozilla "intermediate" profile)
+       ssl_protocols TLSv1.2 TLSv1.3;
+       ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
+       ssl_prefer_server_ciphers off;
+
+       location / {
+           proxy_pass http://127.0.0.1:5700;
+           proxy_set_header Host              $host;
+           proxy_set_header X-Real-IP         $remote_addr;
+           proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+           proxy_set_header X-Forwarded-Proto $scheme;
+
+           # gptme-server streams responses over Server-Sent Events
+           # (text/event-stream). Disable proxy buffering and use long
+           # read timeouts so streamed tokens are flushed to the client
+           # immediately rather than buffered until the response completes.
+           proxy_buffering    off;
+           proxy_cache        off;
+           proxy_read_timeout 3600s;
+           proxy_set_header   Connection "";
+           proxy_http_version 1.1;
+       }
+   }
+
+**3. Enable the site and reload nginx:**
+
+.. code-block:: bash
+
+   sudo ln -s /etc/nginx/sites-available/gptme /etc/nginx/sites-enabled/
+   sudo nginx -t        # validate config
+   sudo systemctl reload nginx
+
+The server is now reachable at ``https://gptme.example.com``. Point your web UI
+(or the hosted UI at `chat.gptme.org <https://chat.gptme.org>`_) at that URL, and
+set ``CORS_ORIGIN`` in ``.env`` to the origin the UI is served from.
+
+.. note::
+
+   The ``proxy_buffering off`` and long ``proxy_read_timeout`` settings are the
+   important part: without them nginx buffers the SSE stream and the chat appears
+   to hang until each full response is ready, instead of streaming token by
+   token.
+
+**Local-only access.** If you only want the server reachable from the host
+itself (for example, behind a VPN or an SSH tunnel), skip the proxy entirely and
+keep the default loopback bind — open an SSH tunnel from your client with
+``ssh -L 5700:127.0.0.1:5700 user@host`` and use ``http://localhost:5700``.
+
 Basic Web UI
 ------------
 

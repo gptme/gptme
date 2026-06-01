@@ -464,6 +464,7 @@
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-webui-modern-web-interface">gptme-webui: Modern Web Interface</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#self-hosting-with-docker-compose">Self-Hosting with Docker Compose</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#production-deployment-nginx-reverse-proxy">Production Deployment: nginx Reverse Proxy</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#basic-web-ui">Basic Web UI</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#computer-use-interface">Computer Use Interface</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#local-computer-use-advanced">Local Computer Use (Advanced)</a></li>
@@ -568,6 +569,97 @@ a cross-origin setup, so the server must allow the UI’s origin — the default
 <li><p><code class="docutils literal notranslate"><span class="pre">CORS_ORIGIN</span></code> — origin allowed to call the server (defaults to the hosted web UI).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">GPTME_SERVER_PORT</span></code> — host port to publish (the container always listens on 5700).</p></li>
 </ul>
+</section>
+<section id="production-deployment-nginx-reverse-proxy">
+<h2>Production Deployment: nginx Reverse Proxy<a class="headerlink" href="#production-deployment-nginx-reverse-proxy" title="Link to this heading">#</a></h2>
+<p>The docker-compose setup above publishes the server on a plain HTTP port
+(<code class="docutils literal notranslate"><span class="pre">5700</span></code> by default). For a public-facing deployment you should put it behind a
+reverse proxy that terminates TLS and forwards requests to the container. The
+example below uses nginx with a Let’s Encrypt certificate.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Do <strong>not</strong> expose the raw <code class="docutils literal notranslate"><span class="pre">5700</span></code> port to the internet. Bind the published
+port to loopback so only the proxy can reach it. In <code class="docutils literal notranslate"><span class="pre">.env</span></code> (or
+<code class="docutils literal notranslate"><span class="pre">docker-compose.yml</span></code>) set the publish address to <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">ports</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;127.0.0.1:5700:5700&quot;</span>
+</pre></div>
+</div>
+<p>Also set <code class="docutils literal notranslate"><span class="pre">GPTME_SERVER_TOKEN</span></code> to a strong value — the proxy handles TLS,
+but the token is what authenticates each request.</p>
+</div>
+<p><strong>1. Obtain a TLS certificate</strong> with certbot (one-time, then auto-renewed):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>sudo<span class="w"> </span>apt<span class="w"> </span>install<span class="w"> </span>certbot<span class="w"> </span>python3-certbot-nginx
+sudo<span class="w"> </span>certbot<span class="w"> </span>certonly<span class="w"> </span>--nginx<span class="w"> </span>-d<span class="w"> </span>gptme.example.com
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">--nginx</span></code> plugin handles the ACME HTTP challenge through nginx
+itself, so you do <strong>not</strong> need to stop nginx first (unlike
+<code class="docutils literal notranslate"><span class="pre">--standalone</span></code>, which binds its own listener to port 80 and fails
+when nginx is already running).</p>
+</div>
+<p><strong>2. nginx site config</strong> (<code class="docutils literal notranslate"><span class="pre">/etc/nginx/sites-available/gptme</span></code>):</p>
+<div class="highlight-nginx notranslate"><div class="highlight"><pre><span></span><span class="k">server</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kn">listen</span><span class="w"> </span><span class="mi">80</span><span class="p">;</span>
+<span class="w">    </span><span class="kn">server_name</span><span class="w"> </span><span class="s">gptme.example.com</span><span class="p">;</span>
+<span class="w">    </span><span class="c1"># Redirect all HTTP to HTTPS</span>
+<span class="w">    </span><span class="kn">return</span><span class="w"> </span><span class="mi">301</span><span class="w"> </span><span class="s">https://</span><span class="nv">$host$request_uri</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="k">server</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kn">listen</span><span class="w"> </span><span class="mi">443</span><span class="w"> </span><span class="s">ssl</span><span class="p">;</span>
+<span class="w">    </span><span class="kn">server_name</span><span class="w"> </span><span class="s">gptme.example.com</span><span class="p">;</span>
+
+<span class="w">    </span><span class="kn">ssl_certificate</span><span class="w">     </span><span class="s">/etc/letsencrypt/live/gptme.example.com/fullchain.pem</span><span class="p">;</span>
+<span class="w">    </span><span class="kn">ssl_certificate_key</span><span class="w"> </span><span class="s">/etc/letsencrypt/live/gptme.example.com/privkey.pem</span><span class="p">;</span>
+
+<span class="w">    </span><span class="c1"># Restrict to TLS 1.2/1.3 with strong ciphers (Mozilla &quot;intermediate&quot; profile)</span>
+<span class="w">    </span><span class="kn">ssl_protocols</span><span class="w"> </span><span class="s">TLSv1.2</span><span class="w"> </span><span class="s">TLSv1.3</span><span class="p">;</span>
+<span class="w">    </span><span class="kn">ssl_ciphers</span><span class="w"> </span><span class="s">ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384</span><span class="p">;</span>
+<span class="w">    </span><span class="kn">ssl_prefer_server_ciphers</span><span class="w"> </span><span class="no">off</span><span class="p">;</span>
+
+<span class="w">    </span><span class="kn">location</span><span class="w"> </span><span class="s">/</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kn">proxy_pass</span><span class="w"> </span><span class="s">http://127.0.0.1:5700</span><span class="p">;</span>
+<span class="w">        </span><span class="kn">proxy_set_header</span><span class="w"> </span><span class="s">Host</span><span class="w">              </span><span class="nv">$host</span><span class="p">;</span>
+<span class="w">        </span><span class="kn">proxy_set_header</span><span class="w"> </span><span class="s">X-Real-IP</span><span class="w">         </span><span class="nv">$remote_addr</span><span class="p">;</span>
+<span class="w">        </span><span class="kn">proxy_set_header</span><span class="w"> </span><span class="s">X-Forwarded-For</span><span class="w">   </span><span class="nv">$proxy_add_x_forwarded_for</span><span class="p">;</span>
+<span class="w">        </span><span class="kn">proxy_set_header</span><span class="w"> </span><span class="s">X-Forwarded-Proto</span><span class="w"> </span><span class="nv">$scheme</span><span class="p">;</span>
+
+<span class="w">        </span><span class="c1"># gptme-server streams responses over Server-Sent Events</span>
+<span class="w">        </span><span class="c1"># (text/event-stream). Disable proxy buffering and use long</span>
+<span class="w">        </span><span class="c1"># read timeouts so streamed tokens are flushed to the client</span>
+<span class="w">        </span><span class="c1"># immediately rather than buffered until the response completes.</span>
+<span class="w">        </span><span class="kn">proxy_buffering</span><span class="w">    </span><span class="no">off</span><span class="p">;</span>
+<span class="w">        </span><span class="kn">proxy_cache</span><span class="w">        </span><span class="no">off</span><span class="p">;</span>
+<span class="w">        </span><span class="kn">proxy_read_timeout</span><span class="w"> </span><span class="s">3600s</span><span class="p">;</span>
+<span class="w">        </span><span class="kn">proxy_set_header</span><span class="w">   </span><span class="s">Connection</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">;</span>
+<span class="w">        </span><span class="kn">proxy_http_version</span><span class="w"> </span><span class="mi">1</span><span class="s">.1</span><span class="p">;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p><strong>3. Enable the site and reload nginx:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>sudo<span class="w"> </span>ln<span class="w"> </span>-s<span class="w"> </span>/etc/nginx/sites-available/gptme<span class="w"> </span>/etc/nginx/sites-enabled/
+sudo<span class="w"> </span>nginx<span class="w"> </span>-t<span class="w">        </span><span class="c1"># validate config</span>
+sudo<span class="w"> </span>systemctl<span class="w"> </span>reload<span class="w"> </span>nginx
+</pre></div>
+</div>
+<p>The server is now reachable at <code class="docutils literal notranslate"><span class="pre">https://gptme.example.com</span></code>. Point your web UI
+(or the hosted UI at <a class="reference external" href="https://chat.gptme.org">chat.gptme.org</a>) at that URL, and
+set <code class="docutils literal notranslate"><span class="pre">CORS_ORIGIN</span></code> in <code class="docutils literal notranslate"><span class="pre">.env</span></code> to the origin the UI is served from.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">proxy_buffering</span> <span class="pre">off</span></code> and long <code class="docutils literal notranslate"><span class="pre">proxy_read_timeout</span></code> settings are the
+important part: without them nginx buffers the SSE stream and the chat appears
+to hang until each full response is ready, instead of streaming token by
+token.</p>
+</div>
+<p><strong>Local-only access.</strong> If you only want the server reachable from the host
+itself (for example, behind a VPN or an SSH tunnel), skip the proxy entirely and
+keep the default loopback bind — open an SSH tunnel from your client with
+<code class="docutils literal notranslate"><span class="pre">ssh</span> <span class="pre">-L</span> <span class="pre">5700:127.0.0.1:5700</span> <span class="pre">user&#64;host</span></code> and use <code class="docutils literal notranslate"><span class="pre">http://localhost:5700</span></code>.</p>
 </section>
 <section id="basic-web-ui">
 <h2>Basic Web UI<a class="headerlink" href="#basic-web-ui" title="Link to this heading">#</a></h2>
@@ -707,6 +799,7 @@ parent context smaller:</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-webui-modern-web-interface">gptme-webui: Modern Web Interface</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#self-hosting-with-docker-compose">Self-Hosting with Docker Compose</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#production-deployment-nginx-reverse-proxy">Production Deployment: nginx Reverse Proxy</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#basic-web-ui">Basic Web UI</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#computer-use-interface">Computer Use Interface</a><ul class="nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#local-computer-use-advanced">Local Computer Use (Advanced)</a></li>
