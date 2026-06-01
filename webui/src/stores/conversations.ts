@@ -141,7 +141,9 @@ export function setExecutingTool(
 ) {
   const update: Partial<ConversationState> = {
     executingTool:
-      toolId && tooluse ? { id: toolId, tooluse, startedAt: startedAt ?? Date.now() } : null,
+      toolId && tooluse
+        ? { id: toolId, tooluse, startedAt: startedAt ?? Date.now(), partialOutput: '' }
+        : null,
   };
   if (toolId) {
     // Clear the completion badge when a new tool starts executing

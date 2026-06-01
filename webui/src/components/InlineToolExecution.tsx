@@ -2,7 +2,7 @@ import type { ConversationState, ExecutingTool } from '@/stores/conversations';
 import { Loader2, Cog, CheckCircle, XCircle, Terminal } from 'lucide-react';
 import { type Observable } from '@legendapp/state';
 import { use$ } from '@legendapp/state/react';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { CodeDisplay } from '@/components/CodeDisplay';
 import { MessageAvatar } from './MessageAvatar';
 import { detectToolLanguage } from '@/utils/highlightUtils';
@@ -145,7 +145,7 @@ export function InlineToolExecution({ executingTool$ }: InlineToolExecutionProps
                       Output
                     </div>
                     <CodeDisplay
-                      code={executingTool.partialOutput.join('')}
+                      code={executingTool.partialOutput}
                       maxHeight="200px"
                       showLineNumbers={false}
                       language=""
