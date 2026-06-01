@@ -1,0 +1,120 @@
+name: self-heal
+
+# Triggered when the Test workflow completes with a failure on a pull request.
+# Analyzes the failing tests and posts a fix proposal as a PR comment.
+#
+# Uses workflow_run (not pull_request) so secrets are available for fork PRs too —
+# workflow_run always runs in the context of the base repo, not the fork.
+#
+# Phase 1: comment-only. No auto-merge, no auto-push.
+# Phase 2 (future): auto-open a draft fix PR when confidence is high.
+
+on:
+  workflow_run:
+    workflows: ["Test"]
+    types: [completed]
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: read
+
+jobs:
+  self-heal:
+    name: Analyze failure and propose fix
+    # Only run when tests actually failed AND the trigger was a pull_request event.
+    # event == 'pull_request' guarantees pull_requests is non-empty.
+    if: |
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout head commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Get PR number
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER="${{ github.event.workflow_run.pull_requests[0].number }}"
+          echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "PR: #$PR_NUMBER"
+
+      - name: Download failure log
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh run view ${{ github.event.workflow_run.id }} \
+            --repo ${{ github.repository }} \
+            --log-failed 2>&1 | tail -c 15000 > /tmp/failure.log
+          echo "Failure log size: $(wc -c < /tmp/failure.log) bytes"
+
+      - name: Download PR diff
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr diff ${{ steps.pr.outputs.number }} \
+            --repo ${{ github.repository }} 2>/dev/null \
+            | head -c 10000 > /tmp/pr.diff || true
+          echo "PR diff size: $(wc -c < /tmp/pr.diff) bytes"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install anthropic --quiet
+
+      - name: Analyze failure
+        id: analyze
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python scripts/github_ci_self_heal.py /tmp/failure.log /tmp/pr.diff \
+            > /tmp/analysis.txt
+          echo "Analysis complete ($(wc -c < /tmp/analysis.txt) bytes)"
+          cat /tmp/analysis.txt
+
+      - name: Post analysis as PR comment
+        if: success() && steps.analyze.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FAILED_RUN_URL: ${{ github.event.workflow_run.html_url }}
+          BOT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "## 🔧 gptme-bot: Self-heal analysis"
+            echo ""
+            echo "Tests failed on this PR. Here's my analysis:"
+            echo ""
+            cat /tmp/analysis.txt
+            echo ""
+            echo "---"
+            echo "*[Failing run](${FAILED_RUN_URL}) · [Analysis run](${BOT_RUN_URL})*"
+          } > /tmp/comment.md
+
+          gh pr comment ${{ steps.pr.outputs.number }} \
+            --repo ${{ github.repository }} \
+            --body-file /tmp/comment.md
+
+      - name: Report error if analysis failed
+        if: failure() && steps.analyze.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BOT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "## 🔧 gptme-bot: Self-heal (error)"
+            echo ""
+            echo "I attempted to analyze the CI failure but encountered an error."
+            echo "[Check the bot run](${BOT_RUN_URL}) for details."
+          } > /tmp/error-comment.md
+          gh pr comment ${{ steps.pr.outputs.number }} \
+            --repo ${{ github.repository }} \
+            --body-file /tmp/error-comment.md
