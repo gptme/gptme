@@ -1,5 +1,5 @@
 import type { FC } from 'react';
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useState } from 'react';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput, type ChatOptions } from './ChatInput';
 import { CollapsedStepGroup } from './CollapsedStepGroup';
@@ -258,8 +258,33 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
 
   const showConnectionBanner =
     !isReadOnly && (connectionStatus === 'reconnecting' || connectionStatus === 'disconnected');
-  const reconnectRetrySeconds =
-    reconnectRetryInMs && reconnectRetryInMs > 0 ? Math.ceil(reconnectRetryInMs / 1000) : null;
+
+  // Live countdown timer — decrements every second while reconnecting
+  const [reconnectRetrySeconds, setReconnectRetrySeconds] = useState<number | null>(null);
+  useEffect(() => {
+    if (connectionStatus !== 'reconnecting' || !reconnectRetryInMs) {
+      setReconnectRetrySeconds(null);
+      return;
+    }
+    // Compute remaining seconds from the retry interval
+    const computeRemaining = () => {
+      if (!conversation$?.reconnectRetryStartedAt?.get()) return null;
+      const elapsed = Date.now() - conversation$.reconnectRetryStartedAt.get()!;
+      const remaining = Math.max(0, reconnectRetryInMs! - elapsed);
+      return Math.ceil(remaining / 1000);
+    };
+    setReconnectRetrySeconds(computeRemaining());
+    const interval = setInterval(() => {
+      const remaining = computeRemaining();
+      if (remaining !== null && remaining <= 0) {
+        setReconnectRetrySeconds(null);
+        clearInterval(interval);
+      } else {
+        setReconnectRetrySeconds(remaining);
+      }
+    }, 250); // update 4×/s for smooth countdown
+    return () => clearInterval(interval);
+  }, [connectionStatus, reconnectRetryInMs, conversation$]);
 
   if (!conversation$) {
     return (

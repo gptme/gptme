@@ -32,6 +32,7 @@ export interface ConversationState {
   reconnectAttempt: number | null;
   reconnectMaxAttempts: number | null;
   reconnectRetryInMs: number | null;
+  reconnectRetryStartedAt: number | null;
   connectionError: string | null;
   // Any pending tool
   pendingTool: PendingTool | null;
@@ -83,6 +84,7 @@ export function updateConversation(id: string, update: Partial<ConversationState
       reconnectMaxAttempts: null,
       reconnectRetryInMs: null,
       connectionError: null,
+      reconnectRetryStartedAt: null,
       pendingTool: null,
       executingTool: null,
       lastCompletedTool: null,
@@ -166,6 +168,7 @@ export function setConnectionStatus(
     reconnectAttempt: options?.attempt ?? null,
     reconnectMaxAttempts: options?.maxAttempts ?? null,
     reconnectRetryInMs: options?.retryInMs ?? null,
+    reconnectRetryStartedAt: status === 'reconnecting' && options?.retryInMs ? Date.now() : null,
     connectionError: options?.error ?? null,
   });
 }
@@ -240,6 +243,7 @@ export function initConversation(
     reconnectMaxAttempts: null,
     reconnectRetryInMs: null,
     connectionError: null,
+    reconnectRetryStartedAt: null,
     pendingTool: null,
     executingTool: null,
     lastCompletedTool: null,

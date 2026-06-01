@@ -811,9 +811,9 @@ export class ApiClient {
       }
     };
 
-    eventSource.onerror = (error) => {
+    eventSource.onerror = (_error) => {
       if (!isCurrentEventSource()) return;
-      console.error(`[ApiClient] Event stream error for ${conversationId}:`, error);
+      console.error(`[ApiClient] Event stream error for ${conversationId}:`);
 
       // Clear the session ID timeout
       window.clearTimeout(sessionIdTimeout);
@@ -822,56 +822,53 @@ export class ApiClient {
         sessionIdTimeout: undefined,
       });
 
-      // If we were previously connected, try to reconnect
+      // Close the old EventSource and clean up — we'll reconnect from scratch
+      const wasConnected = isConnected;
       if (isConnected) {
-        console.log(`[ApiClient] Connection was established before, attempting to reconnect...`);
         isConnected = false;
-        eventSource.close();
-        this.eventSources.delete(conversationId);
+      }
+      eventSource.close();
+      this.eventSources.delete(conversationId);
 
-        // Only auto-reconnect if we haven't exceeded the max reconnects
-        if (reconnectCount < maxReconnects) {
-          reconnectCount++;
+      // Attempt retry with exponential backoff regardless of whether
+      // we were previously connected (dropped stream) or never connected
+      // (initial failure). Both paths use the same retry budget.
+      if (reconnectCount < maxReconnects) {
+        reconnectCount++;
 
-          // Exponential backoff for reconnection (1s, 2s, 4s, 8s, 16s)
-          const delay = Math.pow(2, reconnectCount - 1) * 1000;
+        const delay = Math.pow(2, reconnectCount - 1) * 1000;
 
-          console.log(
-            `[ApiClient] Reconnecting in ${delay}ms (attempt ${reconnectCount}/${maxReconnects})`
-          );
+        console.log(
+          `[ApiClient] Reconnecting in ${delay}ms (attempt ${reconnectCount}/${maxReconnects})`
+        );
 
-          callbacks.onConnectionState?.({
-            status: 'reconnecting',
-            attempt: reconnectCount,
-            maxAttempts: maxReconnects,
-            retryInMs: delay,
-          });
+        callbacks.onConnectionState?.({
+          status: 'reconnecting',
+          attempt: reconnectCount,
+          maxAttempts: maxReconnects,
+          retryInMs: delay,
+        });
 
-          // Set a new timer for reconnection
-          const reconnectTimer = window.setTimeout(() => {
-            reconnect(reconnectCount);
-          }, delay);
-          this.eventStreamTimers.set(conversationId, {
-            ...this.eventStreamTimers.get(conversationId),
-            reconnectTimer,
-          });
-        } else {
-          console.warn(`[ApiClient] Max reconnects (${maxReconnects}) reached, giving up`);
-          callbacks.onConnectionState?.({
-            status: 'disconnected',
-            message: 'Connection lost and max reconnects reached',
-          });
-          callbacks.onError?.('Connection lost and max reconnects reached');
-        }
+        const reconnectTimer = window.setTimeout(() => {
+          reconnect(reconnectCount);
+        }, delay);
+        this.eventStreamTimers.set(conversationId, {
+          ...this.eventStreamTimers.get(conversationId),
+          reconnectTimer,
+        });
       } else {
-        // We never established a connection, report the error
-        eventSource.close();
-        this.eventSources.delete(conversationId);
+        console.warn(`[ApiClient] Max reconnects (${maxReconnects}) reached, giving up`);
         callbacks.onConnectionState?.({
           status: 'disconnected',
-          message: 'Failed to connect to event stream',
+          message: wasConnected
+            ? 'Connection lost and max reconnects reached'
+            : 'Failed to connect to event stream',
         });
-        callbacks.onError?.('Failed to connect to event stream');
+        callbacks.onError?.(
+          wasConnected
+            ? 'Connection lost and max reconnects reached'
+            : 'Failed to connect to event stream'
+        );
       }
     };
   }
