@@ -131,8 +131,15 @@ example below uses nginx with a Let's Encrypt certificate.
 
 .. code-block:: bash
 
-   sudo apt install certbot
-   sudo certbot certonly --standalone -d gptme.example.com
+   sudo apt install certbot python3-certbot-nginx
+   sudo certbot certonly --nginx -d gptme.example.com
+
+.. note::
+
+   The ``--nginx`` plugin handles the ACME HTTP challenge through nginx
+   itself, so you do **not** need to stop nginx first (unlike
+   ``--standalone``, which binds its own listener to port 80 and fails
+   when nginx is already running).
 
 **2. nginx site config** (``/etc/nginx/sites-available/gptme``):
 
@@ -151,6 +158,11 @@ example below uses nginx with a Let's Encrypt certificate.
 
        ssl_certificate     /etc/letsencrypt/live/gptme.example.com/fullchain.pem;
        ssl_certificate_key /etc/letsencrypt/live/gptme.example.com/privkey.pem;
+
+       # Restrict to TLS 1.2/1.3 with strong ciphers (Mozilla "intermediate" profile)
+       ssl_protocols TLSv1.2 TLSv1.3;
+       ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
+       ssl_prefer_server_ciphers off;
 
        location / {
            proxy_pass http://127.0.0.1:5700;
