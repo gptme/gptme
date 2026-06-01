@@ -46,12 +46,15 @@ jobs:
             --jq ".[] | select(.head.sha == \"$HEAD_SHA\") | .number" | head -1)
           if [ -z "$PR_NUMBER" ]; then
             echo "No open PR found for sha $HEAD_SHA — skipping"
+            echo "found=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          echo "found=true" >> "$GITHUB_OUTPUT"
           echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
           echo "PR: #$PR_NUMBER"
 
       - name: Download failure log
+        if: steps.pr.outputs.found == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -61,6 +64,7 @@ jobs:
           echo "Failure log size: $(wc -c < /tmp/failure.log) bytes"
 
       - name: Download PR diff
+        if: steps.pr.outputs.found == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -70,14 +74,17 @@ jobs:
           echo "PR diff size: $(wc -c < /tmp/pr.diff) bytes"
 
       - name: Set up Python
+        if: steps.pr.outputs.found == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
       - name: Install dependencies
+        if: steps.pr.outputs.found == 'true'
         run: pip install anthropic --quiet
 
       - name: Analyze failure
+        if: steps.pr.outputs.found == 'true'
         id: analyze
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -88,7 +95,7 @@ jobs:
           cat /tmp/analysis.txt
 
       - name: Post analysis as PR comment
-        if: success() && steps.analyze.outcome == 'success'
+        if: steps.pr.outputs.found == 'true' && success() && steps.analyze.outcome == 'success'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FAILED_RUN_URL: ${{ github.event.workflow_run.html_url }}
@@ -120,7 +127,7 @@ jobs:
             --body-file /tmp/comment.md
 
       - name: Report error if analysis failed
-        if: failure() && steps.analyze.outcome == 'failure'
+        if: steps.pr.outputs.found == 'true' && failure() && steps.analyze.outcome == 'failure'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BOT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
