@@ -30,10 +30,11 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - name: Checkout head commit
+      - name: Checkout base repo
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+        # No ref: defaults to base branch (master), not the fork's head SHA.
+        # This prevents a malicious fork from exfiltrating secrets by modifying
+        # scripts/github_ci_self_heal.py — we always run the trusted base copy.
 
       - name: Get PR number
         id: pr
