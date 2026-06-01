@@ -1,5 +1,10 @@
 import '@testing-library/jest-dom';
 
+// Polyfill structuredClone for jsdom — Node 17+ has it but jsdom doesn't expose it.
+if (typeof structuredClone === 'undefined') {
+  global.structuredClone = <T>(val: T): T => JSON.parse(JSON.stringify(val));
+}
+
 // Shim Vite import.meta.env for Jest.
 // connectionConfig.ts and SetupWizard.tsx wrap import.meta.env accesses in
 // Function() and fall back to process.env when that throws.
