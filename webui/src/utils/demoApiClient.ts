@@ -198,7 +198,7 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
 
     // Conversation detail — serve the fixture or local in-memory conversations.
     getConversation: async (logfile) => {
-      if (logfile === DEMO_CONV_ID) return DEMO_CONV_RESPONSE;
+      if (logfile === DEMO_CONV_ID) return structuredClone(DEMO_CONV_RESPONSE);
       const local = localConversations.get(logfile);
       if (local) return local;
       throw new DemoModeError(`getConversation(${logfile})`);
