@@ -126,6 +126,7 @@ class BaseEvent(TypedDict):
         "generation_complete",
         "tool_pending",
         "tool_executing",
+        "tool_output",
         "tool_complete",
         "elicit_pending",
         "interrupted",
@@ -185,6 +186,13 @@ class ToolExecutingEvent(BaseEvent):
     """Sent when a tool is being executed."""
 
     tool_id: str
+
+
+class ToolOutputEvent(BaseEvent):
+    """Sent when a tool produces partial output during execution."""
+
+    tool_id: str
+    output: str
 
 
 class ToolCompleteEvent(BaseEvent):
@@ -263,6 +271,7 @@ EventType = (
     | GenerationCompleteEvent
     | ToolPendingEvent
     | ToolExecutingEvent
+    | ToolOutputEvent
     | ToolCompleteEvent
     | ElicitPendingEvent
     | InterruptedEvent

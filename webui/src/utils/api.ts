@@ -537,6 +537,7 @@ export class ApiClient {
       onMessageAdded: (message: Message) => void;
       onToolPending: (toolId: string, tooluse: ToolUse, auto_confirm: boolean) => void;
       onToolExecuting: (toolId: string) => void;
+      onToolOutput?: (toolId: string, output: string) => void;
       onToolComplete?: (toolId: string, durationMs: number, success: boolean) => void;
       onInterrupted: () => void;
       onError: (error: string) => void;
@@ -685,6 +686,13 @@ export class ApiClient {
             console.log(`[ApiClient] Tool executing:`, data);
             const toolExecutingEvent = data as { tool_id: string };
             callbacks.onToolExecuting(toolExecutingEvent.tool_id);
+            break;
+          }
+
+          case 'tool_output': {
+            console.log(`[ApiClient] Tool output:`, data);
+            const toolOutputEvent = data as { tool_id: string; output: string };
+            callbacks.onToolOutput?.(toolOutputEvent.tool_id, toolOutputEvent.output);
             break;
           }
 

@@ -1,8 +1,8 @@
 import type { ConversationState, ExecutingTool } from '@/stores/conversations';
-import { Loader2, Cog, CheckCircle, XCircle } from 'lucide-react';
+import { Loader2, Cog, CheckCircle, XCircle, Terminal } from 'lucide-react';
 import { type Observable } from '@legendapp/state';
 import { use$ } from '@legendapp/state/react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { CodeDisplay } from '@/components/CodeDisplay';
 import { MessageAvatar } from './MessageAvatar';
 import { detectToolLanguage } from '@/utils/highlightUtils';
@@ -136,6 +136,22 @@ export function InlineToolExecution({ executingTool$ }: InlineToolExecutionProps
                     )}
                   />
                 </div>
+
+                {/* Partial output */}
+                {executingTool.partialOutput && executingTool.partialOutput.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+                      <Terminal className="h-3.5 w-3.5" />
+                      Output
+                    </div>
+                    <CodeDisplay
+                      code={executingTool.partialOutput.join('')}
+                      maxHeight="200px"
+                      showLineNumbers={false}
+                      language=""
+                    />
+                  </div>
+                )}
 
                 {/* Status indicator with elapsed timer */}
                 <div className="flex items-center gap-2 border-t border-blue-200 pt-3 dark:border-blue-800">

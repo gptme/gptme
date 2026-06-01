@@ -12,6 +12,7 @@ import {
   setConnected,
   setPendingTool,
   setExecutingTool,
+  setToolOutput,
   setToolComplete,
   addMessage,
   setMessageStatus,
@@ -278,6 +279,12 @@ export function useConversation(conversationId: string, serverId?: string) {
                   '[useConversation] No matching pending tool found for executing tool:',
                   toolId
                 );
+              }
+            },
+            onToolOutput: (toolId, content) => {
+              const executingTool = conversation$?.executingTool.get();
+              if (executingTool && executingTool.id === toolId) {
+                setToolOutput(conversationId, content);
               }
             },
             onToolComplete: (toolId, durationMs, success) => {

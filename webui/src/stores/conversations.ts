@@ -12,6 +12,7 @@ export interface ExecutingTool {
   id: string;
   tooluse: ToolUse;
   startedAt: number;
+  partialOutput: string;
 }
 
 export interface ConversationState {
@@ -26,7 +27,12 @@ export interface ConversationState {
   // Any executing tool
   executingTool: ExecutingTool | null;
   // Duration of the most recently completed tool (cleared when next tool starts)
-  lastCompletedTool: { toolName: string; durationMs: number; completedAt: number; success: boolean } | null;
+  lastCompletedTool: {
+    toolName: string;
+    durationMs: number;
+    completedAt: number;
+    success: boolean;
+  } | null;
   // Last received message
   lastMessage?: Message;
   // Whether to show the initial system message
@@ -142,6 +148,17 @@ export function setExecutingTool(
     update.lastCompletedTool = null;
   }
   updateConversation(id, update);
+}
+
+export function setToolOutput(id: string, output: string) {
+  const conversation = conversations$.get(id);
+  if (!conversation) return;
+  const executing = conversation.executingTool.get();
+  if (!executing) return;
+  conversation.executingTool.set({
+    ...executing,
+    partialOutput: (executing.partialOutput || '') + output,
+  });
 }
 
 export function setToolComplete(
