@@ -15,6 +15,12 @@ export interface ExecutingTool {
   partialOutput: string;
 }
 
+export type ConversationConnectionStatus =
+  | 'connecting'
+  | 'connected'
+  | 'reconnecting'
+  | 'disconnected';
+
 export interface ConversationState {
   // The conversation data
   data: ConversationResponse;
@@ -22,6 +28,11 @@ export interface ConversationState {
   isGenerating: boolean;
   // Whether this conversation has an active event stream
   isConnected: boolean;
+  connectionStatus: ConversationConnectionStatus;
+  reconnectAttempt: number | null;
+  reconnectMaxAttempts: number | null;
+  reconnectRetryInMs: number | null;
+  connectionError: string | null;
   // Any pending tool
   pendingTool: PendingTool | null;
   // Any executing tool
@@ -67,6 +78,11 @@ export function updateConversation(id: string, update: Partial<ConversationState
       data: { id, name: '', log: [], logfile: id, branches: {}, workspace: '/default/workspace' },
       isGenerating: false,
       isConnected: false,
+      connectionStatus: 'disconnected',
+      reconnectAttempt: null,
+      reconnectMaxAttempts: null,
+      reconnectRetryInMs: null,
+      connectionError: null,
       pendingTool: null,
       executingTool: null,
       lastCompletedTool: null,
@@ -124,7 +140,34 @@ export function setGenerating(id: string, isGenerating: boolean) {
 }
 
 export function setConnected(id: string, isConnected: boolean) {
-  updateConversation(id, { isConnected });
+  updateConversation(id, {
+    isConnected,
+    connectionStatus: isConnected ? 'connected' : 'disconnected',
+    reconnectAttempt: null,
+    reconnectMaxAttempts: null,
+    reconnectRetryInMs: null,
+    connectionError: null,
+  });
+}
+
+export function setConnectionStatus(
+  id: string,
+  status: ConversationConnectionStatus,
+  options?: {
+    attempt?: number;
+    maxAttempts?: number;
+    retryInMs?: number;
+    error?: string | null;
+  }
+) {
+  updateConversation(id, {
+    isConnected: status === 'connected',
+    connectionStatus: status,
+    reconnectAttempt: options?.attempt ?? null,
+    reconnectMaxAttempts: options?.maxAttempts ?? null,
+    reconnectRetryInMs: options?.retryInMs ?? null,
+    connectionError: options?.error ?? null,
+  });
 }
 
 export function setPendingTool(id: string, toolId: string | null, tooluse: ToolUse | null) {
@@ -192,6 +235,11 @@ export function initConversation(
     },
     isGenerating: false,
     isConnected: false,
+    connectionStatus: 'disconnected',
+    reconnectAttempt: null,
+    reconnectMaxAttempts: null,
+    reconnectRetryInMs: null,
+    connectionError: null,
     pendingTool: null,
     executingTool: null,
     lastCompletedTool: null,

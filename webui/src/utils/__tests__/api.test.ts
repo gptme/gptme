@@ -12,6 +12,46 @@ jest.mock('@/stores/servers', () => ({
 
 import { ApiClient, ApiClientError, getApiErrorPresentation, isLikelyChromeCorsPna } from '../api';
 
+class MockEventSource {
+  static instances: MockEventSource[] = [];
+
+  onopen: (() => void) | null = null;
+  onmessage: ((event: { data: string }) => void) | null = null;
+  onerror: ((event: Event) => void) | null = null;
+  close = jest.fn();
+
+  constructor(
+    public url: string,
+    public init?: EventSourceInit
+  ) {
+    MockEventSource.instances.push(this);
+  }
+
+  emitOpen() {
+    this.onopen?.();
+  }
+
+  emitMessage(data: unknown) {
+    this.onmessage?.({ data: JSON.stringify(data) });
+  }
+
+  emitError() {
+    this.onerror?.(new Event('error'));
+  }
+}
+
+const createSseCallbacks = () => ({
+  onMessageStart: jest.fn(),
+  onToken: jest.fn(),
+  onMessageComplete: jest.fn(),
+  onMessageAdded: jest.fn(),
+  onToolPending: jest.fn(),
+  onToolExecuting: jest.fn(),
+  onInterrupted: jest.fn(),
+  onError: jest.fn(),
+  onConnectionState: jest.fn(),
+});
+
 describe('isLikelyChromeCorsPna', () => {
   const setHostname = (hostname: string) => {
     Object.defineProperty(window, 'location', {
@@ -164,6 +204,90 @@ describe('ApiClient error parsing', () => {
       code: 'no_subscription',
       type: 'payment_required',
     } satisfies Partial<ApiClientError>);
+  });
+});
+
+describe('ApiClient event stream reconnection', () => {
+  const originalEventSource = global.EventSource;
+  const originalCrypto = global.crypto;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    MockEventSource.instances = [];
+    Object.defineProperty(global, 'EventSource', {
+      value: MockEventSource,
+      configurable: true,
+    });
+    Object.defineProperty(global, 'crypto', {
+      value: {
+        ...originalCrypto,
+        randomUUID: jest.fn(() => 'test-client-id'),
+      },
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    Object.defineProperty(global, 'EventSource', {
+      value: originalEventSource,
+      configurable: true,
+    });
+    Object.defineProperty(global, 'crypto', {
+      value: originalCrypto,
+      configurable: true,
+    });
+    jest.restoreAllMocks();
+  });
+
+  it('reports reconnect state and reuses the session id after a transient drop', async () => {
+    const client = new ApiClient('http://127.0.0.1:5700');
+    const callbacks = createSseCallbacks();
+
+    await client.subscribeToEvents('conv-1', callbacks);
+
+    const first = MockEventSource.instances[0];
+    first.emitOpen();
+    first.emitMessage({ type: 'connected', session_id: 'session-1' });
+    expect(callbacks.onConnectionState).toHaveBeenLastCalledWith({ status: 'connected' });
+
+    first.emitError();
+
+    expect(first.close).toHaveBeenCalled();
+    expect(callbacks.onConnectionState).toHaveBeenLastCalledWith({
+      status: 'reconnecting',
+      attempt: 1,
+      maxAttempts: 5,
+      retryInMs: 1000,
+    });
+
+    first.emitMessage({ type: 'generation_progress', token: 'stale' });
+    expect(callbacks.onToken).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(1000);
+    await Promise.resolve();
+
+    expect(MockEventSource.instances).toHaveLength(2);
+    expect(MockEventSource.instances[1].url).toContain('session_id=session-1');
+    expect(callbacks.onError).not.toHaveBeenCalled();
+  });
+
+  it('cancels pending reconnect timers when the stream is closed manually', async () => {
+    const client = new ApiClient('http://127.0.0.1:5700');
+    const callbacks = createSseCallbacks();
+
+    await client.subscribeToEvents('conv-1', callbacks);
+
+    const first = MockEventSource.instances[0];
+    first.emitOpen();
+    first.emitMessage({ type: 'connected', session_id: 'session-1' });
+    first.emitError();
+
+    client.closeEventStream('conv-1');
+    jest.advanceTimersByTime(1000);
+    await Promise.resolve();
+
+    expect(MockEventSource.instances).toHaveLength(1);
   });
 });
 

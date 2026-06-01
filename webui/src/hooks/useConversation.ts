@@ -10,6 +10,7 @@ import {
   updateConversation,
   setGenerating,
   setConnected,
+  setConnectionStatus,
   setPendingTool,
   setExecutingTool,
   setToolOutput,
@@ -381,6 +382,26 @@ export function useConversation(conversationId: string, serverId?: string) {
                     console.error('[useConversation] Error triggering initial step:', error);
                     toastStepStartError(toast, error);
                   });
+              }
+            },
+            onConnectionState: (state) => {
+              switch (state.status) {
+                case 'connected':
+                  setConnectionStatus(conversationId, 'connected');
+                  break;
+                case 'reconnecting':
+                  setConnectionStatus(conversationId, 'reconnecting', {
+                    attempt: state.attempt,
+                    maxAttempts: state.maxAttempts,
+                    retryInMs: state.retryInMs,
+                  });
+                  break;
+                case 'disconnected':
+                  setConnectionStatus(conversationId, 'disconnected', { error: state.message });
+                  break;
+                case 'connecting':
+                  setConnectionStatus(conversationId, 'connecting');
+                  break;
               }
             },
             onReconnectState: (state) => {

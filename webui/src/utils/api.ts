@@ -200,6 +200,17 @@ export interface ToolConfirmationRequest {
   count?: number;
 }
 
+export type EventStreamConnectionState =
+  | { status: 'connecting' }
+  | { status: 'connected' }
+  | {
+      status: 'reconnecting';
+      attempt: number;
+      maxAttempts: number;
+      retryInMs: number;
+    }
+  | { status: 'disconnected'; message: string };
+
 export class ApiClient {
   public baseUrl: string;
   public authHeader: string | null = null;
@@ -211,6 +222,8 @@ export class ApiClient {
   public sessions$: Observable<Map<string, string>> = observable(new Map()); // Map conversation IDs to session IDs
   public userInfo$: Observable<UserInfo | null> = observable<UserInfo | null>(null);
   private eventSources: Map<string, EventSource> = new Map(); // Map conversation IDs to EventSource instances
+  private eventStreamTimers: Map<string, { reconnectTimer?: number; sessionIdTimeout?: number }> =
+    new Map();
   private isCleaningUp = false;
   private authCookieSet = false;
   private authCookieSetAt: number | null = null;
@@ -425,9 +438,8 @@ export class ApiClient {
       }
 
       // Close all event sources
-      for (const [conversationId, eventSource] of this.eventSources.entries()) {
-        eventSource.close();
-        this.eventSources.delete(conversationId);
+      for (const conversationId of Array.from(this.eventSources.keys())) {
+        this.closeEventStream(conversationId);
       }
     } finally {
       this.isCleaningUp = false;
@@ -544,6 +556,7 @@ export class ApiClient {
       onError: (error: string) => void;
       onConfigChanged?: (config: ChatConfig, changedFields: string[]) => void;
       onConnected?: () => void;
+      onConnectionState?: (state: EventStreamConnectionState) => void;
       onReconnectState?: (state: {
         generating: boolean;
         pendingTools: Array<{
@@ -558,32 +571,65 @@ export class ApiClient {
         log: Message[];
         branches: Record<string, Message[]>;
       }) => void;
-    }
+    },
+    reconnectAttempt = 0
   ): Promise<void> {
+    const maxReconnects = 5;
+
     // Close any existing event stream for this conversation
     this.closeEventStream(conversationId);
+    callbacks.onConnectionState?.(
+      reconnectAttempt > 0
+        ? {
+            status: 'reconnecting',
+            attempt: reconnectAttempt,
+            maxAttempts: maxReconnects,
+            retryInMs: 0,
+          }
+        : { status: 'connecting' }
+    );
 
     // Function to reconnect to the event stream if it fails, or we fail to get a session ID
-    const reconnect = () => {
+    const reconnect = (attempt: number) => {
       console.log(`[ApiClient] Attempting reconnection for ${conversationId}`);
       this.closeEventStream(conversationId);
       // Reset cookie state so expired cookies (24h TTL) are re-fetched on reconnect
       this.resetAuthCookie();
-      this.subscribeToEvents(conversationId, callbacks).catch((err) => {
+      this.subscribeToEvents(conversationId, callbacks, attempt).catch((err) => {
         console.error('[ApiClient] Reconnect failed:', err);
         callbacks.onError?.(String(err));
       });
     };
 
     // Create a timeout that will reconnect if we don't get a session ID after 5 seconds
-    const sessionIdTimeout = setTimeout(() => {
+    const sessionIdTimeout = window.setTimeout(() => {
       if (!this.sessions$.has(conversationId)) {
         console.log(
           `[ApiClient] Timed out waiting for session ID for ${conversationId}, reconnecting`
         );
-        reconnect();
+        const nextAttempt = reconnectAttempt + 1;
+        if (nextAttempt <= maxReconnects) {
+          callbacks.onConnectionState?.({
+            status: 'reconnecting',
+            attempt: nextAttempt,
+            maxAttempts: maxReconnects,
+            retryInMs: 0,
+          });
+          reconnect(nextAttempt);
+        } else {
+          this.closeEventStream(conversationId);
+          callbacks.onConnectionState?.({
+            status: 'disconnected',
+            message: 'Timed out waiting for event stream session',
+          });
+          callbacks.onError?.('Timed out waiting for event stream session');
+        }
       }
     }, 5000);
+    this.eventStreamTimers.set(conversationId, {
+      ...this.eventStreamTimers.get(conversationId),
+      sessionIdTimeout,
+    });
 
     /**
      * For SSE connections, we prefer cookie-based authentication (set via
@@ -623,23 +669,23 @@ export class ApiClient {
     }
 
     const eventSource = new EventSource(url.toString(), { withCredentials: true });
+    this.eventSources.set(conversationId, eventSource);
 
     // Add connect event notification
     let isConnected = false;
+    let reconnectCount = reconnectAttempt;
 
-    // Track reconnection attempts
-    let reconnectCount = 0;
-    const maxReconnects = 5;
-    let reconnectTimer: number | null = null;
+    const isCurrentEventSource = () => this.eventSources.get(conversationId) === eventSource;
 
     // Handle connection open
     eventSource.onopen = () => {
+      if (!isCurrentEventSource()) return;
       console.log(`[ApiClient] Event stream connected for ${conversationId}`);
       isConnected = true;
-      reconnectCount = 0; // Reset reconnect count on successful connection
     };
 
     eventSource.onmessage = (event) => {
+      if (!isCurrentEventSource()) return;
       try {
         const data = JSON.parse(event.data);
 
@@ -722,8 +768,14 @@ export class ApiClient {
             // Resolve the promise with the session ID
             this.sessions$.set(conversationId, data.session_id);
             // Clear the session ID timeout
-            clearTimeout(sessionIdTimeout);
+            window.clearTimeout(sessionIdTimeout);
+            this.eventStreamTimers.set(conversationId, {
+              ...this.eventStreamTimers.get(conversationId),
+              sessionIdTimeout: undefined,
+            });
+            reconnectCount = 0; // Reset reconnect count after the server handshake succeeds
             // Notify that connection is established
+            callbacks.onConnectionState?.({ status: 'connected' });
             callbacks.onConnected?.();
             // Restore state on reconnect (pending tools, generating flag)
             if (callbacks.onReconnectState && (data.pending_tools?.length || data.generating)) {
@@ -760,15 +812,22 @@ export class ApiClient {
     };
 
     eventSource.onerror = (error) => {
+      if (!isCurrentEventSource()) return;
       console.error(`[ApiClient] Event stream error for ${conversationId}:`, error);
 
       // Clear the session ID timeout
-      clearTimeout(sessionIdTimeout);
+      window.clearTimeout(sessionIdTimeout);
+      this.eventStreamTimers.set(conversationId, {
+        ...this.eventStreamTimers.get(conversationId),
+        sessionIdTimeout: undefined,
+      });
 
       // If we were previously connected, try to reconnect
       if (isConnected) {
         console.log(`[ApiClient] Connection was established before, attempting to reconnect...`);
         isConnected = false;
+        eventSource.close();
+        this.eventSources.delete(conversationId);
 
         // Only auto-reconnect if we haven't exceeded the max reconnects
         if (reconnectCount < maxReconnects) {
@@ -781,30 +840,52 @@ export class ApiClient {
             `[ApiClient] Reconnecting in ${delay}ms (attempt ${reconnectCount}/${maxReconnects})`
           );
 
-          // Clear any existing timer
-          if (reconnectTimer !== null) {
-            window.clearTimeout(reconnectTimer);
-          }
+          callbacks.onConnectionState?.({
+            status: 'reconnecting',
+            attempt: reconnectCount,
+            maxAttempts: maxReconnects,
+            retryInMs: delay,
+          });
 
           // Set a new timer for reconnection
-          reconnectTimer = window.setTimeout(() => {
-            reconnect();
+          const reconnectTimer = window.setTimeout(() => {
+            reconnect(reconnectCount);
           }, delay);
+          this.eventStreamTimers.set(conversationId, {
+            ...this.eventStreamTimers.get(conversationId),
+            reconnectTimer,
+          });
         } else {
           console.warn(`[ApiClient] Max reconnects (${maxReconnects}) reached, giving up`);
+          callbacks.onConnectionState?.({
+            status: 'disconnected',
+            message: 'Connection lost and max reconnects reached',
+          });
           callbacks.onError?.('Connection lost and max reconnects reached');
         }
       } else {
         // We never established a connection, report the error
+        eventSource.close();
+        this.eventSources.delete(conversationId);
+        callbacks.onConnectionState?.({
+          status: 'disconnected',
+          message: 'Failed to connect to event stream',
+        });
         callbacks.onError?.('Failed to connect to event stream');
       }
     };
-
-    // Store the event source
-    this.eventSources.set(conversationId, eventSource);
   }
 
   closeEventStream(conversationId: string): void {
+    const timers = this.eventStreamTimers.get(conversationId);
+    if (timers?.reconnectTimer !== undefined) {
+      window.clearTimeout(timers.reconnectTimer);
+    }
+    if (timers?.sessionIdTimeout !== undefined) {
+      window.clearTimeout(timers.sessionIdTimeout);
+    }
+    this.eventStreamTimers.delete(conversationId);
+
     if (this.eventSources.has(conversationId)) {
       this.eventSources.get(conversationId)!.close();
       this.eventSources.delete(conversationId);
