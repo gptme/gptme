@@ -1696,9 +1696,9 @@ def api_user_api_key():
         return flask.jsonify({"error": str(exc)}), 400
 
     env_var = PROVIDER_API_KEYS[provider]
-    set_config_value(f"env.{env_var}", trimmed_api_key, reload=False)
+    set_config_value(f"env.{env_var}", trimmed_api_key, reload=False, local=True)
     if trimmed_model is not None:
-        set_config_value("env.MODEL", trimmed_model, reload=False)
+        set_config_value("env.MODEL", trimmed_model, reload=False, local=True)
 
     # Apply the new key immediately so the running server picks it up without restart.
     # os.environ takes priority over the config file in Config.get_env(), so the next

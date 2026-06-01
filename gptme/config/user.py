@@ -259,21 +259,42 @@ def _load_config_doc(path: str | None = None) -> tomlkit.TOMLDocument:
     return doc
 
 
-def set_config_value(key: str, value: Any, reload: bool = True) -> None:
-    """Set a value in the user config file."""
-    doc: TOMLDocument | Container = _load_config_doc()
+def set_config_value(
+    key: str, value: Any, reload: bool = True, local: bool = False
+) -> None:
+    """Set a value in the user config file.
+
+    Args:
+        key: Dot-separated key path (e.g. "env.ANTHROPIC_API_KEY").
+        value: Value to set. Type is preserved in the TOML output.
+        reload: Whether to reload the in-memory config after writing.
+        local: If True, write to config.local.toml instead of config.toml.
+               Use for secrets (API keys) that should not be in the shared config.
+    """
+    if local:
+        _, local_path = get_user_config_paths()
+        write_path = str(local_path)
+        # Load existing local config or start empty (no defaults)
+        doc: TOMLDocument | Container = (
+            _load_config_doc(write_path) if local_path.exists() else tomlkit.document()
+        )
+    else:
+        write_path = config_path
+        doc = _load_config_doc()
 
     # Set the value
     keypath = key.split(".")
     d: TOMLDocument | Container = doc
-    for key in keypath[:-1]:
-        if key not in d:
-            d[key] = tomlkit.table()
-        d = d[key]  # type: ignore[assignment]
+    for k in keypath[:-1]:
+        if k not in d:
+            d[k] = tomlkit.table()
+        d = d[k]  # type: ignore[assignment]
     d[keypath[-1]] = value
 
     # Write the config
-    with open(config_path, "w") as config_file:
+    if local:
+        os.makedirs(os.path.dirname(write_path), exist_ok=True)
+    with open(write_path, "w") as config_file:
         tomlkit.dump(doc, config_file)
 
     if reload:

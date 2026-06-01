@@ -198,7 +198,8 @@ def test_v2_user_api_key_persists_env_entry(client: FlaskClient, tmp_path, monke
         "restart_required": False,
     }
 
-    saved = tomlkit.loads(config_file.read_text()).unwrap()
+    local_file = tmp_path / "config.local.toml"
+    saved = tomlkit.loads(local_file.read_text()).unwrap()
     assert saved["env"]["ANTHROPIC_API_KEY"] == "sk-ant-test-key"
 
 
@@ -247,7 +248,8 @@ def test_v2_user_api_key_persists_default_model(
     )
 
     assert response.status_code == 200
-    saved = tomlkit.loads(config_file.read_text()).unwrap()
+    local_file = tmp_path / "config.local.toml"
+    saved = tomlkit.loads(local_file.read_text()).unwrap()
     assert saved["env"]["ANTHROPIC_API_KEY"] == "sk-ant-test-key"
     assert saved["env"]["MODEL"] == "anthropic/claude-sonnet-4-7"
 
