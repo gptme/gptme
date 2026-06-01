@@ -23,7 +23,6 @@ jobs:
   self-heal:
     name: Analyze failure and propose fix
     # Only run when tests actually failed AND the trigger was a pull_request event.
-    # event == 'pull_request' guarantees pull_requests is non-empty.
     if: |
       github.event.workflow_run.conclusion == 'failure' &&
       github.event.workflow_run.event == 'pull_request'
@@ -41,7 +40,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          PR_NUMBER="${{ github.event.workflow_run.pull_requests[0].number }}"
+          # pull_requests[] is empty for fork PRs — look up by head SHA instead.
+          HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
+          PR_NUMBER=$(gh api "repos/${{ github.repository }}/pulls?state=open&per_page=100" \
+            --jq ".[] | select(.head.sha == \"$HEAD_SHA\") | .number" | head -1)
+          if [ -z "$PR_NUMBER" ]; then
+            echo "No open PR found for sha $HEAD_SHA — skipping"
+            exit 0
+          fi
           echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
           echo "PR: #$PR_NUMBER"
 
@@ -87,8 +93,18 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FAILED_RUN_URL: ${{ github.event.workflow_run.html_url }}
           BOT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
         run: |
+          # Dedup: skip if a self-heal comment already exists for this PR.
+          EXISTING=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            --jq '[.[] | select(.body | contains("<!-- gptme-self-heal -->"))] | length')
+          if [ "${EXISTING:-0}" -gt "0" ]; then
+            echo "Self-heal comment already exists — skipping duplicate"
+            exit 0
+          fi
+
           {
+            echo "<!-- gptme-self-heal -->"
             echo "## 🔧 gptme-bot: Self-heal analysis"
             echo ""
             echo "Tests failed on this PR. Here's my analysis:"
@@ -99,7 +115,7 @@ jobs:
             echo "*[Failing run](${FAILED_RUN_URL}) · [Analysis run](${BOT_RUN_URL})*"
           } > /tmp/comment.md
 
-          gh pr comment ${{ steps.pr.outputs.number }} \
+          gh pr comment "${PR_NUMBER}" \
             --repo ${{ github.repository }} \
             --body-file /tmp/comment.md
 
@@ -108,13 +124,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BOT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
         run: |
           {
+            echo "<!-- gptme-self-heal -->"
             echo "## 🔧 gptme-bot: Self-heal (error)"
             echo ""
             echo "I attempted to analyze the CI failure but encountered an error."
             echo "[Check the bot run](${BOT_RUN_URL}) for details."
           } > /tmp/error-comment.md
-          gh pr comment ${{ steps.pr.outputs.number }} \
+          gh pr comment "${PR_NUMBER}" \
             --repo ${{ github.repository }} \
             --body-file /tmp/error-comment.md

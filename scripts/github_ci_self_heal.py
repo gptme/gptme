@@ -67,12 +67,14 @@ def main() -> int:
     pr_diff_path = Path(sys.argv[2])
 
     failure_log = (
-        failure_log_path.read_text()
+        failure_log_path.read_text(errors="replace")
         if failure_log_path.exists()
         else "(no failure log available)"
     )
     pr_diff = (
-        pr_diff_path.read_text() if pr_diff_path.exists() else "(no diff available)"
+        pr_diff_path.read_text(errors="replace")
+        if pr_diff_path.exists()
+        else "(no diff available)"
     )
 
     if not failure_log_path.exists():
