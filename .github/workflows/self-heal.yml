@@ -42,9 +42,14 @@ jobs:
         run: |
           # pull_requests[] is empty for fork PRs — look up by head SHA instead.
           HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
-          PR_NUMBER=$(gh api "repos/${{ github.repository }}/pulls?state=open&per_page=100" \
+          # Collect all matching PR numbers first, then take the first.
+          # Piping --paginate directly to head -1 triggers SIGPIPE and can abort
+          # the step under pipefail before GITHUB_OUTPUT is written.
+          PR_NUMBERS=$(gh api "repos/${{ github.repository }}/pulls?state=open&per_page=100" \
             --paginate \
-            --jq ".[] | select(.head.sha == \"$HEAD_SHA\") | .number" | head -1)
+            --jq ".[] | select(.head.sha == \"$HEAD_SHA\") | .number" \
+            2>/dev/null || true)
+          PR_NUMBER=$(echo "${PR_NUMBERS}" | head -1)
           if [ -z "$PR_NUMBER" ]; then
             echo "No open PR found for sha $HEAD_SHA — skipping"
             echo "found=false" >> "$GITHUB_OUTPUT"
@@ -96,6 +101,7 @@ jobs:
           cat /tmp/analysis.txt
 
       - name: Post analysis as PR comment
+        id: post_comment
         if: steps.pr.outputs.found == 'true' && success() && steps.analyze.outcome == 'success'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -130,7 +136,7 @@ jobs:
             --body-file /tmp/comment.md
 
       - name: Report error if analysis failed
-        if: steps.pr.outputs.found == 'true' && failure() && steps.analyze.outcome == 'failure'
+        if: steps.pr.outputs.found == 'true' && failure() && (steps.analyze.outcome == 'failure' || steps.post_comment.outcome == 'failure')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BOT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
