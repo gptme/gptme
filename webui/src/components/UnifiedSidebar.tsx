@@ -174,6 +174,7 @@ export const UnifiedSidebar: FC<Props> = ({
         const imported = parseConversationImportJSON(await file.text());
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         const conversationId = `chat-${timestamp}`;
+        let restoredName = !imported.name;
 
         await api.createConversation(conversationId, imported.messages);
 
@@ -189,12 +190,12 @@ export const UnifiedSidebar: FC<Props> = ({
                 name: imported.name,
               },
             });
+            restoredName = true;
           } catch (error) {
             console.warn(
               '[UnifiedSidebar] Imported conversation but failed to restore the name:',
               error
             );
-            toast.error('Imported messages, but failed to restore the conversation name');
           }
         }
 
@@ -211,7 +212,11 @@ export const UnifiedSidebar: FC<Props> = ({
           queryKey: ['conversations', connectionConfig.baseUrl, isConnected],
         });
 
-        toast.success('Conversation imported');
+        toast.success(
+          restoredName
+            ? 'Conversation imported'
+            : 'Conversation imported, but the conversation name could not be restored'
+        );
         onSelectConversation(conversationId);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Failed to import conversation');

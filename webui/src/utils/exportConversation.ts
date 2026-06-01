@@ -24,6 +24,12 @@ export function getExportableMessages(
   return messages.filter((msg) => !msg.hide && (includeSystem || msg.role !== 'system'));
 }
 
+function getImportableMessages(messages: Message[]): Message[] {
+  return getExportableMessages(messages, { includeSystem: true }).filter((msg) =>
+    importableRoles.has(msg.role)
+  );
+}
+
 /**
  * Format a conversation's messages as a Markdown document.
  */
@@ -95,7 +101,7 @@ export function exportConversationAsJSON(
     id: conversationId,
     name,
     exported_at: new Date().toISOString(),
-    messages,
+    messages: getImportableMessages(messages),
   };
   const json = JSON.stringify(data, null, 2);
   const safeName = (name || conversationId)
@@ -138,6 +144,10 @@ export function parseConversationImportJSON(json: string): ImportedConversationD
 
     const { role, content, timestamp } = message;
 
+    if (role === 'tool') {
+      return null;
+    }
+
     if (typeof role !== 'string' || !importableRoles.has(role as Message['role'])) {
       const roleLabel = typeof role === 'string' ? `"${role}"` : 'a valid role';
       throw new Error(
@@ -162,8 +172,11 @@ export function parseConversationImportJSON(json: string): ImportedConversationD
 
   return {
     name:
-      (typeof parsed.name === 'string' && parsed.name) ||
-      (typeof parsed.id === 'string' ? parsed.id : ''),
-    messages,
+      typeof parsed.name === 'string'
+        ? parsed.name
+        : typeof parsed.id === 'string'
+          ? parsed.id
+          : '',
+    messages: messages.filter((message): message is Message => message !== null),
   };
 }

@@ -24,6 +24,15 @@ const sampleMessages: Message[] = [
   },
 ];
 
+async function readBlobAsText(blob: Blob): Promise<string> {
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error('Failed to read blob'));
+    reader.readAsText(blob);
+  });
+}
+
 describe('getExportableMessages', () => {
   it('excludes system and hidden messages by default', () => {
     const result = getExportableMessages(sampleMessages);
@@ -207,6 +216,28 @@ describe('exportConversationAsJSON', () => {
     expect(capturedBlob!.size).toBeGreaterThan(0);
   });
 
+  it('filters tool messages so exported JSON can be re-imported', async () => {
+    let capturedBlob: Blob | undefined;
+    (global.URL.createObjectURL as jest.Mock).mockImplementation((blob: Blob) => {
+      capturedBlob = blob;
+      return 'blob:test';
+    });
+
+    exportConversationAsJSON('conv-123', 'Test Chat', [
+      ...sampleMessages,
+      { role: 'tool', content: 'Tool output' },
+    ]);
+
+    const exportedText = await readBlobAsText(capturedBlob!);
+    const exported = JSON.parse(exportedText) as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    expect(exported.messages.some((message) => message.role === 'tool')).toBe(false);
+
+    const imported = parseConversationImportJSON(exportedText);
+    expect(imported.messages).toEqual(sampleMessages);
+  });
+
   it('generates a .json filename', () => {
     const createElementSpy = jest.spyOn(document, 'createElement');
     exportConversationAsJSON('conv-123', 'Test Chat', sampleMessages);
@@ -253,16 +284,46 @@ describe('parseConversationImportJSON', () => {
     ).toThrow('Imported message 1 is missing a string content field');
   });
 
-  it('throws when a message uses an unsupported role', () => {
+  it('skips tool messages from older exports', () => {
+    const result = parseConversationImportJSON(
+      JSON.stringify({
+        name: 'Imported Chat',
+        messages: [
+          { role: 'user', content: 'Hello' },
+          { role: 'tool', content: 'Tool output' },
+          { role: 'assistant', content: 'Hi' },
+        ],
+      })
+    );
+
+    expect(result.messages).toEqual([
+      { role: 'user', content: 'Hello' },
+      { role: 'assistant', content: 'Hi' },
+    ]);
+  });
+
+  it('throws when a message uses an unknown role', () => {
     expect(() =>
       parseConversationImportJSON(
         JSON.stringify({
           name: 'Broken import',
-          messages: [{ role: 'tool', content: 'Tool output' }],
+          messages: [{ role: 'critic', content: 'Nope' }],
         })
       )
     ).toThrow(
-      'Imported message 1 has unsupported role "tool". Only system, user, and assistant messages can be restored.'
+      'Imported message 1 has unsupported role "critic". Only system, user, and assistant messages can be restored.'
     );
+  });
+
+  it('preserves an explicitly empty name', () => {
+    const result = parseConversationImportJSON(
+      JSON.stringify({
+        id: 'conv-123',
+        name: '',
+        messages: [{ role: 'user', content: 'Hello' }],
+      })
+    );
+
+    expect(result.name).toBe('');
   });
 });
