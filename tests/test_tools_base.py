@@ -409,6 +409,47 @@ class TestToolUseFormatting:
         ]
         assert streamed == [actual_output]
 
+    def test_execute_on_result_message_streams_generator_progressively(
+        self, monkeypatch
+    ):
+        first_output = Message("system", "first output")
+        second_output = Message("system", "second output")
+        events: list[str] = []
+
+        def execute(code, args, kwargs):
+            events.append("tool:start")
+            yield first_output
+            events.append("tool:between")
+            yield second_output
+            events.append("tool:end")
+
+        fake_tool = ToolSpec(name="test_tool", desc="test", execute=execute)
+
+        monkeypatch.setattr("gptme.tools.get_tool", lambda name: fake_tool)
+        monkeypatch.setattr("gptme.hooks.trigger_hook", lambda hook_type, data: [])
+
+        streamed: list[Message] = []
+
+        def on_result_message(msg: Message) -> None:
+            events.append(f"callback:{msg.content}")
+            streamed.append(msg)
+
+        yielded = list(
+            ToolUse("test_tool", [], None, start=0).execute(
+                on_result_message=on_result_message
+            )
+        )
+
+        assert yielded == [first_output, second_output]
+        assert streamed == [first_output, second_output]
+        assert events == [
+            "tool:start",
+            "callback:first output",
+            "tool:between",
+            "callback:second output",
+            "tool:end",
+        ]
+
 
 # ── ToolUse._iter_from_xml ─────────────────────────────────────────
 
