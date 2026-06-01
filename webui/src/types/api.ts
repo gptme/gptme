@@ -1,5 +1,20 @@
 import type { Message, StreamingMessage } from './conversation';
 
+// Server connection health summary (from /api/v2/server/health)
+export interface ServerHealthSlot {
+  id: string;
+  generating: boolean;
+  elapsed_seconds: number | null;
+}
+
+export interface ServerHealth {
+  session_count: number;
+  generating_count: number;
+  idle_count: number;
+  health: 'green' | 'yellow' | 'red';
+  slots: ServerHealthSlot[];
+}
+
 // Active server-side session (from /api/v2/sessions)
 export interface ActiveSession {
   id: string;

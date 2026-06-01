@@ -1,12 +1,12 @@
 import { type FC } from 'react';
 import { MenuBar } from '@/components/MenuBar';
-import { AdminView } from '@/components/AdminView';
 import { ServerHealthPanel } from '@/components/dashboard/ServerHealthPanel';
 import { SidebarIcons } from '@/components/SidebarIcons';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { useTasksQuery } from '@/stores/tasks';
 
-const Admin: FC = () => {
+/** Standalone server health page — a lightweight single-panel view. */
+const Health: FC = () => {
   const { data: tasks = [] } = useTasksQuery();
 
   return (
@@ -14,13 +14,9 @@ const Admin: FC = () => {
       <MenuBar />
       <div className="flex min-h-0 flex-1">
         <SidebarIcons tasks={tasks} />
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <div className="border-b px-4 py-3">
-            <ServerHealthPanel />
-          </div>
-          <div className="flex-1 overflow-hidden">
-            <AdminView />
-          </div>
+        <div className="flex flex-1 flex-col gap-4 overflow-auto p-6">
+          <h1 className="text-lg font-semibold">Server Health</h1>
+          <ServerHealthPanel />
         </div>
       </div>
       <MobileBottomNav />
@@ -28,4 +24,4 @@ const Admin: FC = () => {
   );
 };
 
-export default Admin;
+export default Health;

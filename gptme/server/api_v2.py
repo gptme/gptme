@@ -267,6 +267,65 @@ def api_session_delete(session_id: str):
     return flask.jsonify({"status": "ok", "message": f"Session {session_id} deleted"})
 
 
+@v2_api.route("/api/v2/server/health")
+@require_auth
+@api_doc_simple(tags=["admin"])
+def api_server_health():
+    """Server connection health summary.
+
+    Returns a compact health snapshot: total session count, generating/idle
+    breakdown, a per-slot strip, and a color-coded health indicator —
+    without the per-session log-reading overhead of ``/api/v2/sessions``.
+
+    Health levels:
+    - ``green``  — no active generations or very light load
+    - ``yellow`` — some sessions generating
+    - ``red``    — all slots busy (every session is generating)
+    """
+    from .api_v2_sessions import SessionManager
+
+    now = datetime.now(tz=timezone.utc)
+    all_sessions = SessionManager.get_all_sessions()
+
+    total = len(all_sessions)
+    generating_count = 0
+    slots = []
+
+    for session_id, session in all_sessions:
+        is_gen = bool(session.generating)
+        if is_gen:
+            generating_count += 1
+        elapsed: float | None = None
+        if is_gen and session.generating_since:
+            elapsed = (now - session.generating_since).total_seconds()
+        slots.append(
+            {
+                "id": session_id[:8],
+                "generating": is_gen,
+                "elapsed_seconds": elapsed,
+            }
+        )
+
+    idle_count = total - generating_count
+
+    if total == 0 or generating_count == 0:
+        health = "green"
+    elif generating_count < total:
+        health = "yellow"
+    else:
+        health = "red"
+
+    return flask.jsonify(
+        {
+            "session_count": total,
+            "generating_count": generating_count,
+            "idle_count": idle_count,
+            "health": health,
+            "slots": slots,
+        }
+    )
+
+
 @v2_api.route("/api/v2")
 @api_doc_simple(responses={200: ApiRootResponse}, tags=["meta"])
 def api_root():

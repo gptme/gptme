@@ -846,6 +846,35 @@ def test_external_session_gptme_directory_no_jsonl_skipped(tmp_path: Path):
     assert items == [], f"Expected no sessions, got: {items}"
 
 
+def test_v2_server_health_empty(client: FlaskClient):
+    """Server health endpoint returns green status with no active sessions."""
+    response = client.get("/api/v2/server/health")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data is not None
+    assert data["session_count"] == 0
+    assert data["generating_count"] == 0
+    assert data["idle_count"] == 0
+    assert data["health"] == "green"
+    assert data["slots"] == []
+
+
+def test_v2_server_health_with_session(v2_conv, client: FlaskClient):
+    """Server health endpoint reports idle session after creation."""
+    response = client.get("/api/v2/server/health")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data is not None
+    assert data["session_count"] == 1
+    assert data["generating_count"] == 0
+    assert data["idle_count"] == 1
+    assert data["health"] == "green"
+    assert len(data["slots"]) == 1
+    slot = data["slots"][0]
+    assert not slot["generating"]
+    assert slot["elapsed_seconds"] is None
+
+
 def test_v2_conversations_list(client: FlaskClient):
     """Test listing V2 conversations."""
     response = client.get("/api/v2/conversations")

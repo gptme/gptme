@@ -9,6 +9,7 @@ import type {
   ExternalSessionCatalogItem,
   ExternalSessionDetail,
   SendMessageRequest,
+  ServerHealth,
   UserInfo,
 } from '@/types/api';
 import type { ConversationSummary, Message, ToolUse } from '@/types/conversation';
@@ -1388,6 +1389,11 @@ export class ApiClient {
   async getSessions(): Promise<ActiveSession[]> {
     const url = `${this.baseUrl}/api/v2/sessions`;
     return await this.fetchJson<ActiveSession[]>(url);
+  }
+
+  async getServerHealth(): Promise<ServerHealth> {
+    const url = `${this.baseUrl}/api/v2/server/health`;
+    return await this.fetchJson<ServerHealth>(url);
   }
 
   async deleteSession(sessionId: string): Promise<void> {
