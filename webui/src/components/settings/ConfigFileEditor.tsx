@@ -158,6 +158,18 @@ export function ConfigFileEditor() {
         </div>
       )}
 
+      {/\[\s*env\s*\]/.test(savedContent) && (
+        <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            This config contains an <code className="text-xs">[env]</code> section. API keys stored
+            here are readable by anyone with access to this file. Use the <strong>API Keys</strong>{' '}
+            panel to manage provider keys — they are stored in{' '}
+            <code className="text-xs">config.local.toml</code> instead.
+          </span>
+        </div>
+      )}
+
       <div className="space-y-2">
         <Label htmlFor="settings-config-file-editor">TOML</Label>
         <Textarea

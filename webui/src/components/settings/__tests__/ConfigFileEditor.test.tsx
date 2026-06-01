@@ -112,4 +112,35 @@ describe('ConfigFileEditor', () => {
     expect(mockSuccess).toHaveBeenCalledWith('Config file saved.');
     expect(screen.getByLabelText('gptme config TOML')).toHaveValue(updatedContent);
   });
+
+  it('shows env-section warning when config contains [env]', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => configResponse, // configResponse.content contains [env]
+    });
+
+    render(<ConfigFileEditor />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('gptme config TOML')).toHaveValue(configResponse.content);
+    });
+    expect(screen.getByText(/This config contains an/)).toBeInTheDocument();
+  });
+
+  it('does not show env-section warning when config has no [env] section', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        ...configResponse,
+        content: '[model]\ndefault = "anthropic/claude-3-5-sonnet"\n',
+      }),
+    });
+
+    render(<ConfigFileEditor />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('gptme config TOML')).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/This config contains an/)).not.toBeInTheDocument();
+  });
 });
