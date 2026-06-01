@@ -27,14 +27,14 @@ def analyze_failure(failure_log: str, pr_diff: str) -> str:
     prompt = f"""A CI test failure occurred on a pull request. Analyze the root cause and propose a minimal fix.
 
 ## Test failure output (last portion):
-```
+~~~~
 {failure_log}
-```
+~~~~
 
 ## Pull request diff:
-```diff
+~~~~diff
 {pr_diff}
-```
+~~~~
 
 Respond in this exact format:
 

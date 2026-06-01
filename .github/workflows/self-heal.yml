@@ -43,6 +43,7 @@ jobs:
           # pull_requests[] is empty for fork PRs — look up by head SHA instead.
           HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
           PR_NUMBER=$(gh api "repos/${{ github.repository }}/pulls?state=open&per_page=100" \
+            --paginate \
             --jq ".[] | select(.head.sha == \"$HEAD_SHA\") | .number" | head -1)
           if [ -z "$PR_NUMBER" ]; then
             echo "No open PR found for sha $HEAD_SHA — skipping"
