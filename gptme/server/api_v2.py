@@ -1846,6 +1846,9 @@ def api_user_config_file_put():
     config_file, _local_path = get_user_config_paths()
     config_file.parent.mkdir(parents=True, exist_ok=True)
     config_file.write_text(content)
+    from gptme.config.core import reload_config
+
+    reload_config()
 
     response = _get_user_config_file_response(content)
     response["status"] = "ok"

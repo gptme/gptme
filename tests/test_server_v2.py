@@ -366,8 +366,12 @@ def test_v2_user_config_file_put_validates_and_writes_toml(
     import gptme.config.user as user_mod
 
     config_file = tmp_path / "config.toml"
+    reload_calls: list[str] = []
     config_file.write_text('[env]\nMODEL = "old/model"\n')
     monkeypatch.setattr(user_mod, "config_path", str(config_file))
+    monkeypatch.setattr(
+        "gptme.config.core.reload_config", lambda: reload_calls.append("reload")
+    )
 
     invalid_response = client.put(
         "/api/v2/user/config-file",
@@ -388,6 +392,7 @@ def test_v2_user_config_file_put_validates_and_writes_toml(
     assert data["status"] == "ok"
     assert data["content"] == valid_content
     assert config_file.read_text() == valid_content
+    assert reload_calls == ["reload"]
 
 
 def test_v2_user_config_file_patch_updates_dotted_key(
