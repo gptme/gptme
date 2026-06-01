@@ -8,7 +8,9 @@ from gptme.tools.base import callable_signature
 from gptme.tools.python import (
     _detect_venv,
     _get_venv_site_packages,
+    _make_plot_artifacts,
     _setup_venv_paths,
+    _snapshot_images,
     execute_python,
 )
 
@@ -197,3 +199,110 @@ def test_setup_venv_paths_skips_own_venv():
             assert sys.path == original_path
     finally:
         sys.path[:] = original_path
+
+
+# --- Plot artifact descriptor tests ---
+
+
+def test_snapshot_images_empty(tmp_path):
+    """Empty directory → empty snapshot."""
+    assert _snapshot_images(tmp_path) == {}
+
+
+def test_snapshot_images_captures_images(tmp_path):
+    """Images in directory are captured with their mtimes."""
+    (tmp_path / "plot.png").write_bytes(b"")
+    (tmp_path / "chart.svg").write_bytes(b"")
+    snap = _snapshot_images(tmp_path)
+    assert tmp_path / "plot.png" in snap
+    assert tmp_path / "chart.svg" in snap
+
+
+def test_snapshot_images_ignores_non_images(tmp_path):
+    """Non-image files are not captured."""
+    (tmp_path / "data.csv").write_text("a,b")
+    (tmp_path / "script.py").write_text("pass")
+    assert _snapshot_images(tmp_path) == {}
+
+
+def test_make_plot_artifacts_new_file(tmp_path):
+    """A file present in *after* but not *before* produces a descriptor."""
+    path = tmp_path / "plot.png"
+    path.write_bytes(b"")
+    before: dict[Path, float] = {}
+    after = {path: path.stat().st_mtime}
+    artifacts = _make_plot_artifacts(before, after)
+    assert len(artifacts) == 1
+    assert artifacts[0]["kind"] == "image"
+    assert artifacts[0]["tool"] == "python"
+    assert artifacts[0]["source_type"] == "attachment"
+    assert artifacts[0]["path"] == str(path)
+
+
+def test_make_plot_artifacts_modified_file(tmp_path):
+    """A file whose mtime changed produces a descriptor."""
+    path = tmp_path / "plot.png"
+    path.write_bytes(b"v1")
+    before = {path: 1000.0}
+    after = {path: 2000.0}
+    artifacts = _make_plot_artifacts(before, after)
+    assert len(artifacts) == 1
+
+
+def test_make_plot_artifacts_unchanged_file(tmp_path):
+    """A file with the same mtime in before and after → no descriptor."""
+    path = tmp_path / "old.png"
+    path.write_bytes(b"")
+    mtime = path.stat().st_mtime
+    snap = {path: mtime}
+    assert _make_plot_artifacts(snap, snap) == []
+
+
+def test_make_plot_artifacts_mime_types(tmp_path):
+    """Correct MIME type is assigned per extension."""
+    cases = {
+        "a.png": "image/png",
+        "b.svg": "image/svg+xml",
+        "c.jpg": "image/jpeg",
+        "d.jpeg": "image/jpeg",
+        "e.gif": "image/gif",
+        "f.pdf": "application/pdf",
+    }
+    before: dict[Path, float] = {}
+    after: dict[Path, float] = {}
+    for name in cases:
+        p = tmp_path / name
+        p.write_bytes(b"")
+        after[p] = p.stat().st_mtime
+    artifacts = _make_plot_artifacts(before, after)
+    by_path = {Path(a["path"]).name: a["mime_type"] for a in artifacts}
+    for name, expected_mime in cases.items():
+        assert by_path[name] == expected_mime, (
+            f"{name}: {by_path[name]} != {expected_mime}"
+        )
+
+
+def test_execute_python_plot_artifact(tmp_path):
+    """execute_python attaches an artifact descriptor when code creates an image."""
+    plot_file = tmp_path / "plot.png"
+
+    # Patch Path.cwd() to return tmp_path so the pre/post snapshot sees the file
+    with patch("gptme.tools.python.Path.cwd", return_value=tmp_path):
+        # Write the plot file *during* execution by creating it inside the code
+        code = f"open('{plot_file}', 'wb').write(b'fake png')"
+        msg = next(execute_python(code, [], None))
+
+    assert msg.metadata is not None
+    artifacts = msg.metadata.get("artifacts", [])
+    assert any(a["tool"] == "python" and a["kind"] == "image" for a in artifacts), (
+        f"Expected image artifact, got: {artifacts}"
+    )
+
+
+def test_execute_python_no_plot_no_artifact(tmp_path):
+    """execute_python does NOT add artifacts when no image files are created."""
+    with patch("gptme.tools.python.Path.cwd", return_value=tmp_path):
+        msg = next(execute_python("x = 1 + 1", [], None))
+
+    artifacts = (msg.metadata or {}).get("artifacts", [])
+    assert artifacts == []

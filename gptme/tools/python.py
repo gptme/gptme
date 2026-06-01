@@ -36,8 +36,53 @@ if TYPE_CHECKING:
         InteractiveShell,  # fmt: skip
     )
 
+    from ..message import ArtifactDescriptor, MessageMetadata
+
 
 logger = getLogger(__name__)
+
+_IMAGE_EXTS: frozenset[str] = frozenset(
+    {".png", ".jpg", ".jpeg", ".svg", ".gif", ".pdf"}
+)
+_IMAGE_MIME: dict[str, str] = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".svg": "image/svg+xml",
+    ".gif": "image/gif",
+    ".pdf": "application/pdf",
+}
+
+
+def _snapshot_images(cwd: Path) -> dict[Path, float]:
+    """Return a {path: mtime} snapshot of image files directly in *cwd*."""
+    try:
+        return {
+            p: p.stat().st_mtime
+            for p in cwd.iterdir()
+            if p.is_file() and p.suffix.lower() in _IMAGE_EXTS
+        }
+    except OSError:
+        return {}
+
+
+def _make_plot_artifacts(
+    before: dict[Path, float], after: dict[Path, float]
+) -> "list[ArtifactDescriptor]":
+    """Return ArtifactDescriptors for image files created/modified since *before*."""
+    descriptors: list[ArtifactDescriptor] = []
+    for path, mtime in after.items():
+        if path not in before or before[path] != mtime:
+            descriptor: ArtifactDescriptor = {
+                "source_type": "attachment",
+                "path": str(path),
+                "kind": "image",
+                "mime_type": _IMAGE_MIME.get(path.suffix.lower(), "image/png"),
+                "tool": "python",
+            }
+            descriptors.append(descriptor)
+    return descriptors
+
 
 # IPython instance
 _ipython: "InteractiveShell | None" = None
@@ -209,6 +254,10 @@ def execute_python(
     # Create an IPython instance if it doesn't exist yet
     _ipython = _get_ipython()
 
+    # Snapshot image files before execution so we can detect newly created plots
+    cwd = Path.cwd()
+    pre_images = _snapshot_images(cwd)
+
     # Capture and display output in real-time
     with capture_and_display() as (stdout_capture, stderr_capture):
         # Execute the code (output will be displayed in real-time)
@@ -246,7 +295,16 @@ def execute_python(
     # strip ANSI escape sequences (safety net — colors are disabled at the source
     # via NO_COLOR=1 and IPython's NoColor setting, but libraries may still emit them)
     output = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", output)
-    yield Message("system", "Executed code block.\n\n" + output)
+
+    # Detect plot files created or modified during execution and attach descriptors
+    post_images = _snapshot_images(cwd)
+    plot_artifacts = _make_plot_artifacts(pre_images, post_images)
+    msg = Message("system", "Executed code block.\n\n" + output)
+    if plot_artifacts:
+        existing: MessageMetadata = dict(msg.metadata) if msg.metadata else {}  # type: ignore[assignment]
+        existing["artifacts"] = [*existing.get("artifacts", []), *plot_artifacts]
+        msg = dataclasses.replace(msg, metadata=existing)
+    yield msg
 
 
 @functools.lru_cache
