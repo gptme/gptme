@@ -16,7 +16,7 @@
  */
 import { observable } from '@legendapp/state';
 import type { ConnectionProbeResult, IApiClient } from '@/utils/api';
-import type { UserInfo } from '@/types/api';
+import type { ServerHealth, UserInfo } from '@/types/api';
 
 /** Thrown by demo-client paths that have no recorded fixture yet (slice 1). */
 export class DemoModeError extends Error {
@@ -73,6 +73,13 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
     getConversationsPaginated: async () => ({ conversations: [], nextCursor: undefined }),
     getExternalSessions: async () => [],
     getSessions: async () => [],
+    getServerHealth: async (): Promise<ServerHealth> => ({
+      session_count: 0,
+      generating_count: 0,
+      idle_count: 0,
+      health: 'green',
+      slots: [],
+    }),
 
     // Read paths — not yet fixture-backed; later slices will provide recorded data.
     getUserInfo: async () => notImpl('getUserInfo'),
