@@ -87,6 +87,24 @@ describe('createDemoApiClient', () => {
     expect(noResults).toHaveLength(0);
   });
 
+  it('created conversations surface in list and search endpoints', async () => {
+    const client = createDemoApiClient();
+    const messages = [{ role: 'user' as const, content: 'unique query XYZ' }];
+    await client.createConversation('demo/my-new-conv', messages);
+
+    // Must appear in flat list
+    const list = await client.getConversations();
+    expect(list.some((c) => c.id === 'demo/my-new-conv')).toBe(true);
+
+    // Must appear in paginated list
+    const paginated = await client.getConversationsPaginated();
+    expect(paginated.conversations.some((c) => c.id === 'demo/my-new-conv')).toBe(true);
+
+    // Must be searchable by name
+    const found = await client.searchConversations('my-new-conv');
+    expect(found.some((c) => c.id === 'demo/my-new-conv')).toBe(true);
+  });
+
   it('throws DemoModeError for write paths without fixtures', async () => {
     const client = createDemoApiClient();
     await expect(

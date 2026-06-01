@@ -75,7 +75,7 @@ const DEMO_MESSAGES: Message[] = [
 const DEMO_CONV_SUMMARY: ConversationSummary = {
   id: DEMO_CONV_ID,
   name: 'gptme demo — Fibonacci sequence',
-  modified: 1751328004, // 2026-01-01T00:00:04Z as Unix seconds
+  modified: 1767225604, // 2026-01-01T00:00:04Z as Unix seconds
   messages: DEMO_MESSAGES.length,
   last_message_role: 'assistant',
   last_message_preview: 'The first 10 Fibonacci numbers: [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]',
@@ -126,6 +126,13 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
   // In-memory store for conversations created during the demo session.
   const localConversations = new Map<string, ConversationResponse>();
 
+  const localSummary = (conv: ConversationResponse): ConversationSummary => ({
+    id: conv.id,
+    name: conv.name,
+    modified: Date.now() / 1000,
+    messages: conv.log.length,
+  });
+
   const notImpl = (method: string): never => {
     throw new DemoModeError(method);
   };
@@ -161,28 +168,29 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
       slots: [],
     }),
 
-    // Conversation lists — include the fixture demo conversation.
-    getConversations: async () => [DEMO_CONV_SUMMARY],
+    // Conversation lists — include the fixture demo conversation plus any in-session creations.
+    getConversations: async () => [
+      DEMO_CONV_SUMMARY,
+      ...Array.from(localConversations.values()).map(localSummary),
+    ],
     searchConversations: async (query) => {
       const q = query.toLowerCase();
+      const results: ConversationSummary[] = [];
       if (DEMO_CONV_SUMMARY.name.toLowerCase().includes(q)) {
-        return [DEMO_CONV_SUMMARY];
+        results.push(DEMO_CONV_SUMMARY);
       }
       for (const conv of localConversations.values()) {
         if (conv.name.toLowerCase().includes(q)) {
-          const summary: ConversationSummary = {
-            id: conv.id,
-            name: conv.name,
-            modified: Date.now() / 1000,
-            messages: conv.log.length,
-          };
-          return [summary];
+          results.push(localSummary(conv));
         }
       }
-      return [];
+      return results;
     },
     getConversationsPaginated: async () => ({
-      conversations: [DEMO_CONV_SUMMARY],
+      conversations: [
+        DEMO_CONV_SUMMARY,
+        ...Array.from(localConversations.values()).map(localSummary),
+      ],
       nextCursor: undefined,
     }),
     getExternalSessions: async () => [],
