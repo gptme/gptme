@@ -237,8 +237,9 @@ The template runs the server as a dedicated ``gptme`` user, reads secrets from
     sudo install -m 640 -o gptme -g gptme /dev/null /etc/gptme/server.env
     sudoedit /etc/gptme/server.env   # add ANTHROPIC_API_KEY=... etc.
 
-    # Install and start the unit (adjust User=, the ExecStart path, --cors-origin)
-    sudo cp scripts/gptme-server.service /etc/systemd/system/
+    # Download and install the unit (adjust User=, the ExecStart path, --cors-origin)
+    sudo curl -fsSL https://raw.githubusercontent.com/gptme/gptme/master/scripts/gptme-server.service \
+        -o /etc/systemd/system/gptme-server.service
     sudo systemctl daemon-reload
     sudo systemctl enable --now gptme-server
 

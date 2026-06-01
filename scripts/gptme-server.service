@@ -43,7 +43,7 @@ Group=gptme
 # Provider keys (OPENAI_API_KEY / ANTHROPIC_API_KEY / OPENROUTER_API_KEY) and an
 # optional GPTME_SERVER_TOKEN live here, one KEY=value per line. Keep it 0640
 # and owned by the service user so secrets are not world-readable.
-EnvironmentFile=/etc/gptme/server.env
+EnvironmentFile=-/etc/gptme/server.env
 
 # Adjust the path to wherever pipx installed the entrypoint for User= above.
 # Bind loopback and front it with a reverse proxy; set --cors-origin to the
