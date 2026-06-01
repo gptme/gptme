@@ -118,6 +118,7 @@ const TOOL_CATEGORY_MAP: Record<string, ToolCategory> = {
   save: 'file',
   append: 'file',
   patch: 'file',
+  morph: 'file',
   read: 'file',
   ls: 'file',
   shell: 'shell',

@@ -12,6 +12,7 @@ describe('toolCallParser', () => {
       ['save', 'file'],
       ['append', 'file'],
       ['patch', 'file'],
+      ['morph', 'file'],
       ['read', 'file'],
       ['ls', 'file'],
       ['shell', 'shell'],

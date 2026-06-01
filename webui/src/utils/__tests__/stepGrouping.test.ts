@@ -288,4 +288,29 @@ describe('buildStepRoles', () => {
     expect(roles.get(6)?.type).toBe('grouped');
     expect(Array.from(roles.values()).some((role) => role.type === 'response')).toBe(false);
   });
+
+  it('ignores non-tool fenced codeblocks when building step summaries', () => {
+    const messages = [
+      msg('user', 'save this example'), // 0
+      msg(
+        'assistant',
+        'Example first:\n\n```typescript\nconsole.log("demo");\n```\n\nThen save it:\n\n```save hello.ts\nconsole.log("hi");\n```'
+      ), // 1
+      msg('system', 'Saved to hello.ts'), // 2
+      msg('assistant', 'Done'), // 3
+    ];
+
+    const roles = buildStepRoles(messages, neverHidden);
+    const start = roles.get(1);
+    expect(start?.type).toBe('group-start');
+    if (start?.type === 'group-start') {
+      expect(start.steps).toEqual([
+        {
+          tool: 'save',
+          arg: 'hello.ts',
+          snippet: 'console.log("hi");',
+        },
+      ]);
+    }
+  });
 });

@@ -1,4 +1,5 @@
 import type { Message } from '@/types/conversation';
+import { isKnownTool } from './toolCallParser';
 
 /** Detail about a single tool call within a step group */
 export interface ToolStepDetail {
@@ -60,6 +61,7 @@ function extractToolSteps(content: string): ToolStepDetail[] {
   let match: RegExpExecArray | null;
   while ((match = regex.exec(content)) !== null) {
     const tool = match[1];
+    if (!isKnownTool(tool)) continue;
     const inlineArg = (match[2] || '').trim();
     const blockContent = match[3].trim();
 
