@@ -345,8 +345,13 @@ def display_costs(
 
     # Prefer conversation (most complete) when available; fall back to session.
     if conversation:
-        label = "Conversation Total" if has_prior_history else "Total"
-        suffix = " (all messages)" if has_prior_history else ""
+        if has_prior_history:
+            label, suffix = "Conversation Total", " (all messages)"
+        elif session is None:
+            # No active session (e.g. gptme -r resume) — label it as conversation
+            label, suffix = "Conversation Total", ""
+        else:
+            label, suffix = "Total", ""
         console.log(f"[bold]{label}:[/bold]{suffix}")
         _display_total(conversation.total)
     elif session:

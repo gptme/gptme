@@ -729,5 +729,4 @@ def test_display_costs_only_conversation_when_no_session():
 
     output = "\n".join(str(call.args[0]) for call in log.call_args_list)
     assert "Session Total" not in output
-    # Shows a total block (either "Total" or "Conversation Total")
-    assert "Total" in output
+    assert "Conversation Total" in output
