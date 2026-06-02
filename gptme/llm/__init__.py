@@ -382,14 +382,24 @@ class _StreamWithMetadata:
 
     Metadata is returned by the provider generator as its return value
     (captured via StopIteration). When the stream is broken early (e.g.
-    tool-use detection), we still populate the model name so messages
-    always have at least basic metadata.
+    tool-use detection), we fall back to partial metadata captured from the
+    provider's early events (e.g. Anthropic's message_start which carries
+    input/cache token counts before the model starts generating).
     """
 
-    def __init__(self, gen: Generator[str, None, MessageMetadata | None], model: str):
+    def __init__(
+        self,
+        gen: Generator[str, None, MessageMetadata | None],
+        model: str,
+        partial: dict | None = None,
+    ):
         self.gen = gen
         self.model = model
         self.metadata: MessageMetadata | None = None
+        # Optional dict populated by the provider generator with partial usage
+        # from early stream events (e.g. message_start).  Used as fallback when
+        # the stream is closed before the final usage event arrives.
+        self._partial = partial
 
     def __iter__(self) -> Iterator[str]:
         try:
@@ -398,10 +408,13 @@ class _StreamWithMetadata:
         except StopIteration as e:
             self.metadata = e.value
         finally:
-            # Ensure model is always set, even if the stream was broken early
-            # (break_on_tooluse, KeyboardInterrupt) before the final chunk arrived
             if self.metadata is None:
-                self.metadata = {"model": self.model}
+                # Fall back to partial metadata captured from message_start if
+                # the stream was closed before message_delta (break_on_tooluse).
+                partial_meta: MessageMetadata | None = (
+                    self._partial.get("metadata") if self._partial else None
+                )
+                self.metadata = partial_meta or {"model": self.model}
             elif "model" not in self.metadata:
                 self.metadata["model"] = self.model
 
@@ -441,6 +454,10 @@ def _stream(
     if provider == "anthropic":
         from .llm_anthropic import stream as stream_anthropic
 
+        # Shared dict: Anthropic generator writes partial usage from
+        # message_start; _StreamWithMetadata reads it as a fallback when the
+        # stream is closed before message_delta (break_on_tooluse path).
+        partial: dict = {}
         gen = stream_anthropic(
             messages,
             _get_base_model(model),
@@ -449,8 +466,9 @@ def _stream(
             max_tokens=max_tokens,
             temperature=temperature,
             top_p=top_p,
+            _partial=partial,
         )
-        return _StreamWithMetadata(gen, model)
+        return _StreamWithMetadata(gen, model, partial=partial)
     if provider == "openai-subscription":
         from .llm_openai_subscription import stream as stream_subscription
 
@@ -497,6 +515,10 @@ def _reply_stream(
     # Set to True when we detect a closing </think> tag so we can suppress the
     # one trailing blank "\n" that Anthropic always emits after </think>.
     just_closed_thinking = False
+    # True while inside a multiline <!-- think-sig: ... --> comment.
+    # Only the first line starts with "<!-- think-sig:"; continuation lines and
+    # the closing "-->" are also suppressed until the comment ends.
+    in_think_sig = False
     # Buffer chars for the current line before forwarding to on_token.
     # Thinking-tag lines are only detectable at the '\n' that closes them, so we
     # must buffer the entire line and then decide whether to emit or suppress it.
@@ -549,12 +571,22 @@ def _reply_stream(
                     are_thinking = False
                     just_closed_thinking = True
                 # Suppress Anthropic think-sig comment from display.
+                # The comment can span multiple lines:
+                #   <!-- think-sig: base64...   ← first line (starts the comment)
+                #   continuation_base64...       ← suppressed by in_think_sig
+                #   more_base64... -->           ← last line (ends the comment)
                 # The line is still accumulated in `output` so the signature
                 # survives message serialisation and API round-tripping.
                 elif are_thinking and last_line.startswith("<!-- think-sig:"):
+                    in_think_sig = not last_line.endswith("-->")
                     print_clear(len(last_line))
-                    # Don't reprint and don't emit the trailing newline so
-                    # this line is completely invisible in the terminal.
+                    output += char
+                    continue
+                elif in_think_sig:
+                    # Continuation or closing line of a multiline think-sig comment.
+                    if last_line.endswith("-->"):
+                        in_think_sig = False
+                    print_clear(len(last_line))
                     output += char
                     continue
 
@@ -564,7 +596,9 @@ def _reply_stream(
             else:
                 # Print normal characters
                 if not json_mode:
-                    if are_thinking:
+                    if in_think_sig:
+                        pass  # suppress think-sig comment body chars
+                    elif are_thinking:
                         rprint(f"[dim]{char}[/dim]", end="")
                     else:
                         rprint(char, end="")

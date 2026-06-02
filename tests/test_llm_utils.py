@@ -664,6 +664,66 @@ def test_reply_stream_on_token_thinking_tag_suppressed(monkeypatch):
     assert not received_text.startswith("\n")
 
 
+def test_reply_stream_multiline_think_sig_suppressed(monkeypatch):
+    """Multiline <!-- think-sig: ... --> comments must be invisible in streaming.
+
+    The fix in #2703 only suppressed the FIRST line of the comment.  Continuation
+    lines (plain base64) were still printed dimly because are_thinking=True.
+    This test verifies all lines of the comment are hidden from the terminal
+    output AND from on_token callbacks.
+    """
+    from gptme.llm import _reply_stream
+    from gptme.message import Message
+
+    # Multiline think-sig as Anthropic emits it
+    chunks = [
+        "<think>\n",
+        "some reasoning\n",
+        "<!-- think-sig: abc123\n",  # first line starts comment
+        "continuation_base64\n",  # continuation line — was leaked before fix
+        "more_base64 -->\n",  # closing line
+        "\n</think>\n\n",
+        "Actual answer",
+    ]
+    full_text = "".join(chunks)
+
+    def _fake_gen(c):
+        yield from c
+
+    class _FakeStream:
+        def __init__(self, c):
+            self.gen = _fake_gen(c)
+            self.metadata = {"model": "test/model"}
+
+        def __iter__(self):
+            yield from self.gen
+
+    monkeypatch.setattr(
+        "gptme.llm._stream",
+        lambda *args, **kwargs: _FakeStream(chunks),
+    )
+
+    collected: list[str] = []
+    result = _reply_stream(
+        messages=[Message("user", "hi")],
+        model="test/model",
+        tools=None,
+        on_token=collected.append,
+    )
+
+    # Full output (stored log) must include the raw comment for round-tripping
+    assert "think-sig" in result.content
+    assert result.content == full_text
+
+    received_text = "".join(collected)
+
+    # Terminal / on_token output must be clean
+    assert received_text == "Actual answer", repr(received_text)
+    assert "think-sig" not in received_text
+    assert "continuation_base64" not in received_text
+    assert "more_base64" not in received_text
+
+
 def test_extract_thinking_content_with_signature():
     """_extract_thinking_content must parse embedded think-sig comments."""
     from gptme.llm.llm_anthropic import _extract_thinking_content
