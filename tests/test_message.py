@@ -115,6 +115,37 @@ def test_format_msgs_preserves_codeblocks():
     # Code blocks should still work with syntax highlighting
 
 
+def test_format_msgs_strips_think_sig():
+    """Test that think blocks and think-sig comments are stripped."""
+    from gptme.message import Message, format_msgs
+
+    msg = Message(
+        "assistant",
+        "<think>\nreasoning\n<!-- think-sig: sig123 -->\n</think>\n\nActual response",
+    )
+    outputs = format_msgs([msg])
+    content = outputs[0]
+
+    assert "reasoning" not in content
+    assert "think-sig" not in content
+    assert "Actual response" in content
+    assert "<think>" not in content
+
+
+def test_format_msgs_think_strips_multiline():
+    """Test that multiline think blocks are stripped."""
+    from gptme.message import Message, format_msgs
+
+    msg = Message(
+        "assistant",
+        "<think>\nGood, another solid turn.\n</think>\n\nClean. Everything works.",
+    )
+    outputs = format_msgs([msg])
+    content = outputs[0]
+    assert "Good, another solid turn" not in content
+    assert "Clean. Everything works" in content
+
+
 def test_message_files_resolve_to_absolute(tmp_path, monkeypatch):
     """Test that file paths are resolved to absolute paths when serializing.
 

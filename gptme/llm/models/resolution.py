@@ -95,7 +95,7 @@ def _find_base_model_properties(
     if provider in MODEL_ALIASES and model_name in MODEL_ALIASES[provider]:
         canonical = MODEL_ALIASES[provider][model_name]
         if canonical in provider_models:
-            logger.info(f"Resolved alias {model_name} -> {canonical}")
+            logger.debug(f"Resolved alias {model_name} -> {canonical}")
             return provider_models[canonical]
 
     # Try stripping date suffix (e.g., -20250929) to find base model

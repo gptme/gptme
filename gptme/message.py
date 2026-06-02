@@ -468,6 +468,25 @@ timestamp = "{self.timestamp.isoformat()}"
         return tok * price
 
 
+def _strip_think_sig(content: str) -> str:
+    """Strip think blocks and think-sig comments from message content.
+
+    These are Anthropic extended thinking artifacts serialized into message
+    content. They are implementation noise the user shouldn't see.
+    """
+    import re
+
+    lt = chr(60)  # <
+    gt = chr(62)  # >
+    # Strip <think>...</think> blocks (may span lines)
+    think_block = lt + "think" + gt + r".*?" + lt + "/think" + gt + r"\s*"
+    content = re.sub(think_block, "", content, flags=re.DOTALL)
+    # Strip standalone <!-- think-sig: ... --> comments
+    sig_comment = lt + "!-- think-sig:.*?--" + gt + r"\s*"
+    content = re.sub(sig_comment, "", content)
+    return content
+
+
 def format_msgs(
     msgs: list[Message],
     oneline: bool = False,
@@ -491,18 +510,19 @@ def format_msgs(
 
         # get terminal width
         max_len = shutil.get_terminal_size().columns - len(userprefix)
+        stripped_content = _strip_think_sig(msg.content)
         output = ""
         if oneline:
-            content = msg.content.replace("\n", "\\n")
+            content = stripped_content.replace("\n", "\\n")
             if highlight:
                 content = escape_markup(content)
             output += textwrap.shorten(content, width=max_len, placeholder="...")
             if len(output) < 20:
                 output = content[:max_len] + "..."
         else:
-            multiline = len(msg.content.split("\n")) > 1
+            multiline = len(stripped_content.split("\n")) > 1
             output += "\n" + indent * " " if multiline else ""
-            for i, block in enumerate(msg.content.split("```")):
+            for i, block in enumerate(stripped_content.split("```")):
                 if i % 2 == 0:
                     # Escape Rich markup in non-code-block content
                     if highlight:
@@ -594,7 +614,7 @@ def print_msg(
             print(s)
     if skipped_hidden:
         console.print(
-            f"[grey30]Skipped {skipped_hidden} hidden system messages, show with --show-hidden[/]"
+            f"[grey30]Skipped {skipped_hidden} hidden system messages, use /log --hidden to show[/]"
         )
 
 

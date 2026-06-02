@@ -782,7 +782,7 @@ def prepare_messages(
     # formatting; strict APIs reject consecutive user/assistant turns.
     msgs_pruned = prune_ephemeral_messages(msgs_reduced)
     if len(msgs_reduced) != len(msgs_pruned):
-        logger.info(
+        logger.debug(
             "Pruned/merged "
             f"{len(msgs_reduced) - len(msgs_pruned)} messages during ephemeral cleanup"
         )
@@ -793,7 +793,7 @@ def prepare_messages(
     if (len_from := len_tokens(msgs, model.model)) != (
         len_to := len_tokens(msgs_pruned, model.model)
     ):
-        logger.info(f"Reduced log from {len_from // 1} to {len_to // 1} tokens")
+        logger.debug(f"Reduced log from {len_from // 1} to {len_to // 1} tokens")
     msgs_limited = limit_log(msgs_pruned)
     if len(msgs_pruned) != len(msgs_limited):
         logger.info(
