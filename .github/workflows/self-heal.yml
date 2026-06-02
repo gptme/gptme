@@ -322,7 +322,8 @@ jobs:
           PASSED=true
           FAILED_CMDS=""
           # Only run commands matching an explicit allowlist to prevent prompt-injection.
-          ALLOWED_PATTERN="^(python3?|pytest|ruff|mypy|make|uv) "
+          # python/python3: restricted to module invocations only (-m MODULE) to block python3 -c "..."
+          ALLOWED_PATTERN="^(pytest|ruff|mypy|make|uv) |^python3? +-m +[a-zA-Z0-9._]"
           while IFS= read -r cmd; do
             [ -z "$cmd" ] && continue
             if ! echo "$cmd" | grep -qE "$ALLOWED_PATTERN"; then

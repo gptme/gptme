@@ -323,7 +323,8 @@ def patch_stats(patch: str) -> PatchStats:
         elif line.startswith(("Binary files ", "GIT binary patch")):
             has_binary = True
         elif line.startswith(("+++", "---")):
-            if line.endswith("/dev/null"):
+            # +++ /dev/null = file deleted; --- /dev/null = new file creation (not a deletion)
+            if line.startswith("+++") and line.endswith("/dev/null"):
                 has_deletions = True
         elif line.startswith(("+", "-")):
             changed_lines += 1
