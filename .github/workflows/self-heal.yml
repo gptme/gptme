@@ -138,7 +138,7 @@ jobs:
           python scripts/github_ci_self_heal.py gate /tmp/analysis.json /tmp/pr-metadata.json /tmp/pr.diff \
             --repository ${{ github.repository }} \
             --json-out /tmp/gate.json
-          ELIGIBLE=$(python3 -c "import json; print(json.load(open('/tmp/gate.json'))['eligible'])" 2>/dev/null || echo "false")
+          ELIGIBLE=$(python3 -c "import json; print(str(json.load(open('/tmp/gate.json'))['eligible']).lower())" 2>/dev/null || echo "false")
           echo "eligible=${ELIGIBLE}" >> "$GITHUB_OUTPUT"
           echo "Gate result: eligible=${ELIGIBLE}"
 
@@ -321,10 +321,18 @@ jobs:
           VALIDATION_COMMANDS=$(python3 -c "import json,sys;a=json.load(open(sys.argv[1]));[print(c) for c in a.get('validation_commands',[])]" "$ANALYSIS_FILE" 2>/dev/null || true)
           PASSED=true
           FAILED_CMDS=""
+          # Only run commands matching an explicit allowlist to prevent prompt-injection.
+          ALLOWED_PATTERN="^(python3?|pytest|ruff|mypy|make|uv) "
           while IFS= read -r cmd; do
             [ -z "$cmd" ] && continue
+            if ! echo "$cmd" | grep -qE "$ALLOWED_PATTERN"; then
+              echo "⚠️ Skipped (not in allowlist): $cmd"
+              PASSED=false
+              FAILED_CMDS="${FAILED_CMDS}${cmd}\n"
+              continue
+            fi
             echo "Running validation: $cmd"
-            if eval "$cmd" 2>&1 | tail -5; then
+            if bash -c "$cmd" 2>&1 | tail -5; then
               echo "✅ $cmd passed"
             else
               echo "❌ $cmd failed"
