@@ -537,8 +537,8 @@ def test_architect_model_unqualified_is_usage_error(
 
 
 def test_empty_model_is_usage_error(runner: CliRunner, runid: int):
-    # --model "" should give a clean UsageError, not silently fall back to the
-    # default model with a warning. An empty string is an obvious user mistake.
+    # --model "" should be caught at parse time by the click callback,
+    # producing a clean BadParameter error (not a late ValueError).
     result = runner.invoke(
         cli.main,
         [
@@ -553,7 +553,30 @@ def test_empty_model_is_usage_error(runner: CliRunner, runid: int):
 
     assert result.exit_code == 2
     assert "Traceback" not in result.output
-    assert "empty" in result.output.lower()
+    assert (
+        "empty" in result.output.lower() or "cannot be empty" in result.output.lower()
+    )
+
+
+def test_whitespace_model_is_usage_error(runner: CliRunner, runid: int):
+    # --model "  " should also be caught at parse time, same as empty string.
+    result = runner.invoke(
+        cli.main,
+        [
+            "--non-interactive",
+            "--name",
+            f"test-whitespace-model-{runid}",
+            "--model",
+            "   ",
+            "hello",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "Traceback" not in result.output
+    assert (
+        "empty" in result.output.lower() or "cannot be empty" in result.output.lower()
+    )
 
 
 def test_unknown_agent_profile_stays_off_stdout_in_json_mode():
