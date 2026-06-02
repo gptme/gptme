@@ -116,7 +116,7 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          python scripts/github_ci_self_heal.py analyze /tmp/failure.log /tmp/pr.diff \
+          python3 scripts/github_ci_self_heal.py analyze /tmp/failure.log /tmp/pr.diff \
             --json-out /tmp/analysis.json \
             --markdown-out /tmp/analysis.md
           echo "Structured analysis: $(wc -c < /tmp/analysis.json) bytes"
@@ -127,7 +127,7 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          python scripts/github_ci_self_heal.py /tmp/failure.log /tmp/pr.diff \
+          python3 scripts/github_ci_self_heal.py /tmp/failure.log /tmp/pr.diff \
             > /tmp/analysis.txt
           echo "Legacy analysis: $(wc -c < /tmp/analysis.txt) bytes"
 
@@ -135,7 +135,7 @@ jobs:
         id: gate
         if: steps.pr.outputs.found == 'true' && steps.analyze_structured.outcome == 'success'
         run: |
-          python scripts/github_ci_self_heal.py gate /tmp/analysis.json /tmp/pr-metadata.json /tmp/pr.diff \
+          python3 scripts/github_ci_self_heal.py gate /tmp/analysis.json /tmp/pr-metadata.json /tmp/pr.diff \
             --repository ${{ github.repository }} \
             --json-out /tmp/gate.json
           ELIGIBLE=$(python3 -c "import json; print(str(json.load(open('/tmp/gate.json'))['eligible']).lower())" 2>/dev/null || echo "false")
@@ -299,15 +299,12 @@ jobs:
           set -eo pipefail
 
           ANALYSIS_FILE=/tmp/artifacts/analysis.json
-          PATCH=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['patch'])" "$ANALYSIS_FILE" 2>/dev/null || echo "")
-          if [ -z "$PATCH" ]; then
+          # Write patch directly from JSON to avoid shell variable mangling.
+          if ! python3 -c "import json,sys; p=json.load(open(sys.argv[1])).get('patch',''); sys.exit(1) if not p else open('/tmp/fix.patch','w').write(p)" "$ANALYSIS_FILE" 2>/dev/null; then
             echo "No patch in analysis — aborting"
             echo "applied=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-
-          # Write patch and apply
-          echo "$PATCH" > /tmp/fix.patch
           cd pr-head
           if ! git apply --check /tmp/fix.patch 2>/dev/null; then
             echo "Patch does not apply cleanly — aborting"
