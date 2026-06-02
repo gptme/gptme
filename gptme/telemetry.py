@@ -317,7 +317,8 @@ def _calculate_llm_cost(
     """Calculate the cost of an LLM request."""
     from .llm.models import get_model  # lazy — breaks telemetry → llm circular dep
 
-    meta = get_model(f"{model}")
+    lookup_model = model if "/" in model else f"{provider}/{model}"
+    meta = get_model(lookup_model)
     if not (meta and input_tokens and output_tokens):
         return 0.0
 

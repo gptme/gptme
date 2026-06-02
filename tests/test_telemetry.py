@@ -24,6 +24,32 @@ def test_telemetry_imports_lazy():
     subprocess.check_call([sys.executable, "-c", code])
 
 
+def test_calculate_llm_cost_resolves_anthropic_short_alias():
+    """Anthropic short aliases should use Anthropic pricing metadata."""
+    from gptme.telemetry import _calculate_llm_cost
+
+    usage = {
+        "input_tokens": 1000,
+        "output_tokens": 100,
+        "cache_creation_tokens": 2000,
+        "cache_read_tokens": 3000,
+    }
+
+    alias_cost = _calculate_llm_cost(
+        provider="anthropic",
+        model="claude-haiku-4-5",
+        **usage,
+    )
+    dated_cost = _calculate_llm_cost(
+        provider="anthropic",
+        model="claude-haiku-4-5-20251001",
+        **usage,
+    )
+
+    assert alias_cost > 0
+    assert alias_cost == pytest.approx(dated_cost)
+
+
 @pytest.mark.skipif(
     not pytest.importorskip(
         "opentelemetry", reason="telemetry dependencies not installed"
