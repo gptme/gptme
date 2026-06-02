@@ -523,6 +523,13 @@ def _reply_stream(
     # Thinking-tag lines are only detectable at the '\n' that closes them, so we
     # must buffer the entire line and then decide whether to emit or suppress it.
     line_buffer: list[str] = []
+    # Buffer chars inside thinking blocks for display purposes.
+    # We emit per-line rather than per-char so that long think-sig lines (hundreds
+    # of base64 chars) never get printed to the terminal: printing char-by-char and
+    # then calling print_clear() only erases the current terminal row, leaving
+    # already-wrapped rows visible.  By buffering and emitting at the newline we
+    # can simply discard think-sig lines without any terminal-clear gymnastics.
+    think_display_buffer: list[str] = []
 
     # Create stream wrapper to capture metadata
     stream = _stream(
@@ -564,8 +571,9 @@ def _reply_stream(
                     are_thinking = True
                 # Check for closing tag
                 elif last_line == "</think>" or last_line == "</thinking>":
-                    print_clear(len(last_line))
-                    # Print styled version
+                    # Chars were buffered in think_display_buffer, not printed;
+                    # no print_clear needed.
+                    think_display_buffer.clear()
                     if not json_mode:
                         rprint(f"[dim]{last_line}[/dim]", end="")
                     are_thinking = False
@@ -580,19 +588,27 @@ def _reply_stream(
                 # survives message serialisation and API round-tripping.
                 elif are_thinking and last_line.startswith("<!-- think-sig:"):
                     in_think_sig = not last_line.endswith("-->")
-                    print_clear(len(last_line))
+                    # Chars were buffered in think_display_buffer, not printed;
+                    # just discard — no print_clear needed.
+                    think_display_buffer.clear()
                     output += char
                     continue
                 elif in_think_sig:
                     # Continuation or closing line of a multiline think-sig comment.
                     if last_line.endswith("-->"):
                         in_think_sig = False
-                    print_clear(len(last_line))
+                    # in_think_sig chars are suppressed (not buffered), so
+                    # think_display_buffer is already empty; clear defensively.
+                    think_display_buffer.clear()
                     output += char
                     continue
 
-                # Now print the newline
+                # Now print the newline, flushing any buffered thinking line first.
                 if not json_mode:
+                    if think_display_buffer:
+                        # Emit the entire buffered line dimly in one shot.
+                        rprint(f"[dim]{''.join(think_display_buffer)}[/dim]", end="")
+                        think_display_buffer.clear()
                     rprint(char, end="")
             else:
                 # Print normal characters
@@ -600,7 +616,11 @@ def _reply_stream(
                     if in_think_sig:
                         pass  # suppress think-sig comment body chars
                     elif are_thinking:
-                        rprint(f"[dim]{char}[/dim]", end="")
+                        # Buffer instead of printing char-by-char.  Per-char dim
+                        # printing causes terminal-wrap issues for long lines
+                        # (print_clear only erases the current row, leaving
+                        # already-wrapped rows visible when think-sig is detected).
+                        think_display_buffer.append(char)
                     else:
                         rprint(char, end="")
 
@@ -665,6 +685,9 @@ def _reply_stream(
 
         # Flush any remaining buffered chars (responses that end without a
         # trailing newline, or partial lines left after a break_on_tooluse break).
+        if not json_mode and think_display_buffer:
+            rprint(f"[dim]{''.join(think_display_buffer)}[/dim]", end="")
+            think_display_buffer.clear()
         if on_token and line_buffer and not are_thinking:
             on_token("".join(line_buffer))
             line_buffer.clear()

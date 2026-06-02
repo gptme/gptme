@@ -724,6 +724,67 @@ def test_reply_stream_multiline_think_sig_suppressed(monkeypatch):
     assert "more_base64" not in received_text
 
 
+def test_reply_stream_think_sig_long_line_not_printed(monkeypatch):
+    """Long think-sig lines must never reach rprint (terminal display).
+
+    The previous fix (#2703) called print_clear() after printing each char
+    dim one-by-one.  For lines longer than the terminal width the content
+    already wrapped, and print_clear() (which only issues \\r + spaces for
+    the current row) could not erase the wrapped rows.
+
+    The fix: buffer thinking-block chars and emit per-line, so think-sig lines
+    are simply discarded from the buffer without ever touching the terminal.
+    """
+    from gptme.llm import _reply_stream
+    from gptme.message import Message
+
+    # A long base64-looking think-sig line that would wrap in an 80-col terminal
+    long_sig = "A" * 300
+    chunks = [
+        "<think>\n",
+        "short reasoning\n",
+        f"<!-- think-sig: {long_sig}\n",  # first line (>80 chars)
+        f"{long_sig} -->\n",  # closing line still long
+        "</think>\n\n",
+        "Answer",
+    ]
+
+    def _fake_gen(c):
+        yield from c
+
+    class _FakeStream:
+        def __init__(self, c):
+            self.gen = _fake_gen(c)
+            self.metadata = {"model": "test/model"}
+
+        def __iter__(self):
+            yield from self.gen
+
+    monkeypatch.setattr(
+        "gptme.llm._stream",
+        lambda *args, **kwargs: _FakeStream(chunks),
+    )
+
+    printed: list[str] = []
+    monkeypatch.setattr("gptme.llm.rprint", lambda *a, **kw: printed.append(str(a)))
+
+    result = _reply_stream(
+        messages=[Message("user", "hi")],
+        model="test/model",
+        tools=None,
+    )
+
+    # The raw signature must survive in stored content for round-tripping
+    assert "think-sig" in result.content
+
+    # No think-sig content must ever have been passed to rprint
+    printed_text = " ".join(printed)
+    assert "think-sig" not in printed_text, (
+        f"think-sig leaked to terminal: {printed_text[:200]}"
+    )
+    assert long_sig not in printed_text, "long sig line leaked to terminal"
+
+
 def test_extract_thinking_content_with_signature():
     """_extract_thinking_content must parse embedded think-sig comments."""
     from gptme.llm.llm_anthropic import _extract_thinking_content
