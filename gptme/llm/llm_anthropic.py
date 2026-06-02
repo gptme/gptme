@@ -870,11 +870,15 @@ def stream(
                     if _partial is not None and chunk.message.usage:
                         usage = chunk.message.usage
                         partial_usage: dict = {}
-                        if v := getattr(usage, "input_tokens", None):
+                        if (v := getattr(usage, "input_tokens", None)) is not None:
                             partial_usage["input_tokens"] = v
-                        if v := getattr(usage, "cache_read_input_tokens", None):
+                        if (
+                            v := getattr(usage, "cache_read_input_tokens", None)
+                        ) is not None:
                             partial_usage["cache_read_tokens"] = v
-                        if v := getattr(usage, "cache_creation_input_tokens", None):
+                        if (
+                            v := getattr(usage, "cache_creation_input_tokens", None)
+                        ) is not None:
                             partial_usage["cache_creation_tokens"] = v
                         if partial_usage:
                             _partial["metadata"] = {
