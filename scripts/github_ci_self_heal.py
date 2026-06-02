@@ -18,8 +18,6 @@ def analyze_failure(failure_log: str, pr_diff: str) -> str:
     """Call Claude to analyze CI failure and propose a minimal fix."""
     import anthropic
 
-    client = anthropic.Anthropic()
-
     # Trim inputs to stay within reasonable token limits
     failure_log = failure_log[-12000:] if len(failure_log) > 12000 else failure_log
     pr_diff = pr_diff[:8000] if len(pr_diff) > 8000 else pr_diff
@@ -45,6 +43,7 @@ Respond in this exact format:
 **Confidence**: high / medium / low — and why"""
 
     try:
+        client = anthropic.Anthropic()
         message = client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=1024,
