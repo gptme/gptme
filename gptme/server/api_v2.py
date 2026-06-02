@@ -862,7 +862,7 @@ def api_conversation_post(conversation_id: str):
             404,
         )
     try:
-        log = LogManager.load(conversation_id, branch=branch)
+        log = LogManager.load(logdir, branch=branch)
     except FileNotFoundError:
         return (
             flask.jsonify({"error": f"Branch not found: {branch}"}),
