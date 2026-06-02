@@ -873,7 +873,23 @@ def api_conversation_post(conversation_id: str):
     files_result = _get_optional_string_list_field(req_json, "files")
     if isinstance(files_result, tuple):
         return files_result
-    file_paths = [Path(f) for f in files_result] if files_result is not None else []
+    file_paths: list[Path] = []
+    if files_result is not None:
+        workspace = log.workspace
+        for f_str in files_result:
+            f = Path(f_str)
+            # Reject absolute paths — they can't be relative to workspace
+            if f.is_absolute():
+                return flask.jsonify(
+                    {"error": f"Absolute file paths are not supported: {f}"}
+                ), 400
+            # Resolve relative to workspace and check it stays within
+            full = (workspace / f).resolve()
+            if not full.is_relative_to(workspace):
+                return flask.jsonify(
+                    {"error": f"File path escapes workspace: {f}"}
+                ), 400
+            file_paths.append(f)
     msg = Message(
         req_json["role"],
         req_json["content"],
