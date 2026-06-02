@@ -608,9 +608,8 @@ def _reply_stream(
                         # Detect think-sig prefix early (before newline) so
                         # we can suppress the long base64 body that would
                         # otherwise wrap across multiple terminal lines and
-                        # resist print_clear.  The already-printed prefix
-                        # (≤14 chars) is short enough that print_clear
-                        # reliably erases it.
+                        # resist print_clear.  "<!-- think-sig:" is exactly
+                        # 15 chars; print_clear(len(current_line)) erases them.
                         current_line = output.rsplit("\n", 1)[-1] + char
                         if current_line.startswith("<!-- think-sig:"):
                             print_clear(len(current_line))

@@ -724,6 +724,65 @@ def test_reply_stream_multiline_think_sig_suppressed(monkeypatch):
     assert "more_base64" not in received_text
 
 
+def test_reply_stream_single_line_think_sig_suppressed(monkeypatch):
+    """Single-line <!-- think-sig: ... --> comment must be suppressed mid-stream.
+
+    This exercises the character-by-character prefix detection added in #2705:
+    when the full "<!-- think-sig:" prefix (15 chars) accumulates in current_line
+    without a preceding newline, print_clear erases it and sets in_think_sig=True.
+    The existing multiline test only exercises the \\n-boundary handler.
+    """
+    from gptme.llm import _reply_stream
+    from gptme.message import Message
+
+    sig = "singlelinebase64ABCD=="
+    # Entire comment on one line — no embedded newlines before -->
+    chunks = [
+        "<think>\n",
+        "some reasoning\n",
+        f"<!-- think-sig: {sig} -->\n",
+        "</think>\n",
+        "\n",
+        "Actual answer",
+    ]
+    full_text = "".join(chunks)
+
+    def _fake_gen(c):
+        yield from c
+
+    class _FakeStream:
+        def __init__(self, c):
+            self.gen = _fake_gen(c)
+            self.metadata = {"model": "test/model"}
+
+        def __iter__(self):
+            yield from self.gen
+
+    monkeypatch.setattr(
+        "gptme.llm._stream",
+        lambda *args, **kwargs: _FakeStream(chunks),
+    )
+
+    collected: list[str] = []
+    result = _reply_stream(
+        messages=[Message("user", "hi")],
+        model="test/model",
+        tools=None,
+        on_token=collected.append,
+    )
+
+    # Full output (stored log) must include the raw comment for round-tripping
+    assert "think-sig" in result.content
+    assert result.content == full_text
+
+    received_text = "".join(collected)
+
+    # Terminal / on_token output must be clean
+    assert received_text == "Actual answer", repr(received_text)
+    assert "think-sig" not in received_text
+    assert sig not in received_text
+
+
 def test_extract_thinking_content_with_signature():
     """_extract_thinking_content must parse embedded think-sig comments."""
     from gptme.llm.llm_anthropic import _extract_thinking_content
