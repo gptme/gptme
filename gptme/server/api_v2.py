@@ -889,7 +889,10 @@ def api_conversation_post(conversation_id: str):
                 return flask.jsonify(
                     {"error": f"File path escapes workspace: {f}"}
                 ), 400
-            file_paths.append(f)
+            # Store the resolved absolute path so the validated path is what
+            # downstream (embed_attached_file_content) actually reads, not a
+            # relative path that resolves differently depending on CWD.
+            file_paths.append(full)
     msg = Message(
         req_json["role"],
         req_json["content"],

@@ -137,6 +137,68 @@ class TestConversationEndpointValidation:
         _assert_traversal_rejected(response)
 
 
+FILE_TRAVERSAL_PAYLOADS = [
+    "/etc/passwd",
+    "../../etc/passwd",
+    "/tmp/secret",
+    "../../../root/.ssh/id_rsa",
+]
+
+
+class TestFileAttachmentPathValidation:
+    """POST /conversations/:id must reject path traversal in the files field."""
+
+    def _make_conv(self, tmp_path, monkeypatch):
+        """Create a minimal conversation and wire up get_logs_dir."""
+        from gptme.logmanager import LogManager
+        from gptme.message import Message
+
+        logs_dir = tmp_path / "logs"
+        conv_logdir = logs_dir / "test-conv"
+        LogManager.load(
+            logdir=conv_logdir,
+            initial_msgs=[Message("user", "hi")],
+            create=True,
+        ).write()
+
+        monkeypatch.setattr(
+            "gptme.server.api_v2.get_logs_dir",
+            lambda: logs_dir,
+        )
+
+    @pytest.mark.parametrize("payload", FILE_TRAVERSAL_PAYLOADS)
+    def test_rejects_traversal_in_files(
+        self, client: FlaskClient, tmp_path, monkeypatch, payload: str
+    ):
+        self._make_conv(tmp_path, monkeypatch)
+        response = client.post(
+            "/api/v2/conversations/test-conv",
+            json={"role": "user", "content": "hello", "files": [payload]},
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert "error" in data
+
+    def test_safe_relative_path_not_rejected_as_traversal(
+        self, client: FlaskClient, tmp_path, monkeypatch
+    ):
+        """A relative path within workspace must not be rejected for traversal.
+
+        The request may still fail (file doesn't exist, etc.) but the 400
+        must not be due to the traversal guard.
+        """
+        self._make_conv(tmp_path, monkeypatch)
+        response = client.post(
+            "/api/v2/conversations/test-conv",
+            json={"role": "user", "content": "hello", "files": ["data.txt"]},
+        )
+        if response.status_code == 400:
+            data = response.get_json()
+            assert data is None or "escapes workspace" not in data.get("error", "")
+            assert data is None or "Absolute file paths" not in data.get("error", "")
+
+
 class TestValidConversationIdAccepted:
     """Valid conversation_ids must not be rejected by path traversal checks."""
 
