@@ -7,15 +7,17 @@
  * `?demo=1` flag wired in `connectionConfig.isDemoMode`).
  *
  * Slice 1 added the structural seam (IApiClient + stub methods).
- * Slice 2 (this file) backs the key read paths with recorded fixtures so a
- * visitor can open the demo, see a real conversation, and browse history
- * without any backend. Write/stream paths remain stubs until slice 3.
+ * Slice 2 backed the key read paths with recorded fixtures so a visitor can
+ * open the demo, see a real conversation, and browse history without any
+ * backend. Slice 3 replays a deterministic chat/tool-call flow for new demo
+ * conversations.
  */
 import { observable } from '@legendapp/state';
 import type { ConnectionProbeResult, IApiClient } from '@/utils/api';
 import type { UserInfo, ConversationResponse, ChatConfig, ServerHealth } from '@/types/api';
-import type { Message, ConversationSummary } from '@/types/conversation';
+import type { Message, ConversationSummary, ToolUse } from '@/types/conversation';
 import { ToolFormat } from '@/types/api';
+import { initConversation, setMaxTokens, setTemperature, setTopP } from '@/stores/conversations';
 
 /** Thrown by demo-client paths that have no recorded fixture yet. */
 export class DemoModeError extends Error {
@@ -109,6 +111,46 @@ const DEMO_CHAT_CONFIG: ChatConfig = {
   mcp: { enabled: false, auto_start: false, servers: [] },
 };
 
+type DemoEventCallbacks = Parameters<IApiClient['subscribeToEvents']>[1];
+
+const DEMO_TOOL_ID = 'demo-python-fibonacci';
+const DEMO_TOOL_USE: ToolUse = {
+  tool: 'shell',
+  args: ['python3', '-c', 'print([0, 1, 1, 2, 3, 5, 8, 13])'],
+  content: "python3 -c 'print([0, 1, 1, 2, 3, 5, 8, 13])'",
+};
+
+const DEMO_TOOL_OUTPUT = '```stdout\n[0, 1, 1, 2, 3, 5, 8, 13]\n```';
+
+function clone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function makeDemoAssistantMessage(content: string): Message {
+  return {
+    role: 'assistant',
+    content,
+    timestamp: new Date().toISOString(),
+    metadata: { model: 'gptme-demo' },
+  };
+}
+
+function makeDemoToolMessage(): Message {
+  return {
+    role: 'tool',
+    content: DEMO_TOOL_OUTPUT,
+    timestamp: new Date().toISOString(),
+  };
+}
+
+function streamAssistant(callbacks: DemoEventCallbacks | undefined, message: Message) {
+  callbacks?.onMessageStart();
+  for (const token of message.content.match(/.{1,24}/gs) ?? [message.content]) {
+    callbacks?.onToken(token);
+  }
+  callbacks?.onMessageComplete(message);
+}
+
 /**
  * Build an offline demo client. Parameter types are inferred from the
  * `IApiClient` contract via contextual typing, so the giant streaming-callback
@@ -125,13 +167,41 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
 
   // In-memory store for conversations created during the demo session.
   const localConversations = new Map<string, ConversationResponse>();
+  const eventCallbacks = new Map<string, DemoEventCallbacks>();
 
   const localSummary = (conv: ConversationResponse): ConversationSummary => ({
     id: conv.id,
     name: conv.name,
     modified: Date.now() / 1000,
     messages: conv.log.length,
+    last_message_role: conv.log.at(-1)?.role === 'user' ? 'user' : 'assistant',
+    last_message_preview: conv.log.at(-1)?.content.slice(0, 96),
   });
+
+  const getLocalConversation = (logfile: string): ConversationResponse => {
+    const existing = localConversations.get(logfile);
+    if (existing) return existing;
+
+    const conv: ConversationResponse = {
+      id: logfile,
+      name: logfile.split('/').pop() ?? logfile,
+      log: [],
+      logfile,
+      branches: { main: [] },
+      workspace: '/demo',
+    };
+    localConversations.set(logfile, conv);
+    return conv;
+  };
+
+  const appendLocalMessage = (logfile: string, message: Message) => {
+    const conv = getLocalConversation(logfile);
+    const cleanMessage = clone(message);
+    delete cleanMessage._status;
+    delete cleanMessage._error;
+    conv.log.push(cleanMessage);
+    conv.branches = { ...conv.branches, main: conv.log };
+  };
 
   const notImpl = (method: string): never => {
     throw new DemoModeError(method);
@@ -152,9 +222,17 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
     },
     cancelPendingRequests: async () => {},
 
-    // Streaming — no SSE in the static bundle; slice 3 will replay fixtures.
-    subscribeToEvents: async () => {},
-    closeEventStream: () => {},
+    // Streaming — replay a deterministic in-memory fixture instead of opening SSE.
+    subscribeToEvents: async (conversationId, callbacks) => {
+      eventCallbacks.set(conversationId, callbacks);
+      const sessionId = `demo-session-${conversationId}`;
+      sessions$.set(conversationId, sessionId);
+      callbacks.onConnectionState?.({ status: 'connected' });
+      callbacks.onConnected?.();
+    },
+    closeEventStream: (conversationId) => {
+      eventCallbacks.delete(conversationId);
+    },
     interruptGeneration: async () => {},
 
     // User / server identity — serve demo stubs.
@@ -198,9 +276,9 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
 
     // Conversation detail — serve the fixture or local in-memory conversations.
     getConversation: async (logfile) => {
-      if (logfile === DEMO_CONV_ID) return JSON.parse(JSON.stringify(DEMO_CONV_RESPONSE));
+      if (logfile === DEMO_CONV_ID) return clone(DEMO_CONV_RESPONSE);
       const local = localConversations.get(logfile);
-      if (local) return local;
+      if (local) return clone(local);
       throw new DemoModeError(`getConversation(${logfile})`);
     },
 
@@ -214,17 +292,18 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
       const conv: ConversationResponse = {
         id: logfile,
         name: logfile.split('/').pop() ?? logfile,
-        log: messages,
+        log: clone(messages),
         logfile,
-        branches: { main: messages },
+        branches: { main: clone(messages) },
         workspace: '/demo',
       };
       if (!existing) {
         localConversations.set(logfile, conv);
       }
+      sessions$.set(logfile, `demo-session-${logfile}`);
       return { status: 'ok', session_id: logfile };
     },
-    createConversationWithPlaceholder: async (userMessage, _opts) => {
+    createConversationWithPlaceholder: async (userMessage, opts) => {
       const logfile = `demo/conv-${Date.now()}`;
       const message: Message = {
         role: 'user',
@@ -240,17 +319,51 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
         workspace: '/demo',
       };
       localConversations.set(logfile, conv);
+      sessions$.set(logfile, `demo-session-${logfile}`);
+      initConversation(logfile, clone(conv), { needsInitialStep: true });
+      if (opts?.maxTokens !== undefined) {
+        setMaxTokens(logfile, opts.maxTokens);
+      }
+      if (opts?.temperature !== undefined) {
+        setTemperature(logfile, opts.temperature);
+      }
+      if (opts?.topP !== undefined) {
+        setTopP(logfile, opts.topP);
+      }
       return logfile;
     },
 
-    // Write / mutation paths — not fixture-backed until slice 3.
-    sendMessage: async () => notImpl('sendMessage'),
+    // Chat replay paths — enough for the core static demo flow.
+    sendMessage: async (logfile, message) => {
+      appendLocalMessage(logfile, message);
+    },
     editMessage: async () => notImpl('editMessage'),
     deleteMessage: async () => notImpl('deleteMessage'),
     rerunTools: async () => notImpl('rerunTools'),
     uploadFiles: async () => notImpl('uploadFiles'),
-    step: async () => notImpl('step'),
-    confirmTool: async () => notImpl('confirmTool'),
+    step: async (logfile) => {
+      const callbacks = eventCallbacks.get(logfile);
+      const intro = makeDemoAssistantMessage(
+        'I can show the shape of this without a live backend. First I will run a small local-style Fibonacci check.'
+      );
+      streamAssistant(callbacks, intro);
+      appendLocalMessage(logfile, intro);
+
+      callbacks?.onToolPending(DEMO_TOOL_ID, DEMO_TOOL_USE, true);
+      callbacks?.onToolExecuting(DEMO_TOOL_ID);
+      callbacks?.onToolOutput?.(DEMO_TOOL_ID, DEMO_TOOL_OUTPUT);
+      callbacks?.onToolComplete?.(DEMO_TOOL_ID, 420, true);
+      const toolMessage = makeDemoToolMessage();
+      callbacks?.onMessageAdded(toolMessage);
+      appendLocalMessage(logfile, toolMessage);
+
+      const final = makeDemoAssistantMessage(
+        'The demo client replayed a tool call from static fixtures and kept the conversation history in memory. A real gptme server is still needed for arbitrary tools, but this path is enough for credential-free product demos.'
+      );
+      streamAssistant(callbacks, final);
+      appendLocalMessage(logfile, final);
+    },
+    confirmTool: async () => {},
     deleteConversation: async () => {},
     createAgent: async () => notImpl('createAgent'),
     deleteSession: async () => {},
