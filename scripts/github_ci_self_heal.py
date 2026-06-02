@@ -210,28 +210,29 @@ def render_analysis_markdown(analysis: SelfHealAnalysis) -> str:
         f"**Failure class**: {analysis.failure_class}",
     ]
     if analysis.patch.strip():
-        lines.extend(["", "```diff", analysis.patch.rstrip(), "```"])
+        # Escape ``` sequences so LLM-provided content cannot break out of the fence.
+        safe_patch = analysis.patch.rstrip().replace("```", "` ``")
+        lines.extend(["", "```diff", safe_patch, "```"])
     if analysis.validation_commands:
         lines.extend(["", "**Validation**:"])
         lines.extend(f"- `{command}`" for command in analysis.validation_commands)
     if analysis.risk_notes:
         lines.extend(["", "**Risk notes**:"])
-        lines.extend(f"- {note}" for note in analysis.risk_notes)
+        # Strip newlines to prevent multiline injection into the list.
+        lines.extend(
+            f"- {note.replace(chr(10), ' ').strip()}" for note in analysis.risk_notes
+        )
     return "\n".join(lines)
 
 
 def changed_paths_from_diff(diff_text: str) -> set[str]:
     paths: set[str] = set()
     for line in diff_text.splitlines():
-        if not line.startswith("diff --git "):
-            continue
-        parts = line.split()
-        if len(parts) < 4:
-            continue
-        for raw_path in parts[2:4]:
-            path = _normalize_diff_path(raw_path)
-            if path and path != "/dev/null":
-                paths.add(path)
+        parsed = _parse_diff_git_header(line)
+        if parsed:
+            for path in parsed:
+                if path and path != "/dev/null":
+                    paths.add(path)
     return paths
 
 
@@ -244,10 +245,9 @@ def patch_stats(patch: str) -> PatchStats:
 
     for line in patch.splitlines():
         if line.startswith("diff --git "):
-            parts = line.split()
-            if len(parts) >= 4:
-                for raw_path in parts[2:4]:
-                    path = _normalize_diff_path(raw_path)
+            parsed = _parse_diff_git_header(line)
+            if parsed:
+                for path in parsed:
                     if path and path != "/dev/null":
                         paths.add(path)
         elif line.startswith("deleted file mode"):
@@ -377,6 +377,29 @@ def _normalize_diff_path(raw_path: str) -> str:
     if path.startswith(("a/", "b/")):
         path = path[2:]
     return path
+
+
+def _parse_diff_git_header(line: str) -> tuple[str, str] | None:
+    """Parse paths from a 'diff --git a/P b/P' header, handling spaces in paths.
+
+    Git guarantees the path is mirrored on both sides, so we find the ' b/'
+    separator by scanning for the position where both halves agree.
+    """
+    prefix = "diff --git a/"
+    if not line.startswith(prefix):
+        return None
+    rest = line[len(prefix) :]  # "P b/P"
+    sep = " b/"
+    pos = 0
+    while True:
+        idx = rest.find(sep, pos)
+        if idx < 0:
+            return None
+        path_a = rest[:idx]
+        path_b = rest[idx + len(sep) :]
+        if path_a == path_b:
+            return path_a, path_b
+        pos = idx + 1
 
 
 def _metadata_author_login(pr_metadata: dict[str, object]) -> str:
@@ -557,12 +580,16 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    if not argv or argv[0] not in {"analyze", "gate"}:
-        return _legacy_main(argv)
-
-    parser = _build_parser()
-    args = parser.parse_args(argv)
-    return args.func(args)
+    if argv and argv[0] in {"analyze", "gate"}:
+        parser = _build_parser()
+        args = parser.parse_args(argv)
+        return args.func(args)
+    # Route flags (--help, --version, unrecognised options) through argparse so
+    # users discover the subcommands instead of getting a confusing legacy error.
+    if not argv or argv[0].startswith("-"):
+        _build_parser().parse_args(argv or ["--help"])
+        return 1  # unreachable for --help (argparse calls sys.exit); other flags error
+    return _legacy_main(argv)
 
 
 if __name__ == "__main__":

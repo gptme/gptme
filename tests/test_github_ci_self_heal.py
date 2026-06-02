@@ -179,6 +179,44 @@ def test_gate_rejects_forbidden_paths() -> None:
     assert "forbidden paths" in result.reason
 
 
+def test_render_analysis_markdown_escapes_backtick_fence() -> None:
+    """Backtick sequences in model-provided patch must not break the fenced block."""
+    analysis = github_ci_self_heal.SelfHealAnalysis(
+        root_cause="root",
+        proposed_fix="fix",
+        confidence="high",
+        failure_class="import_error",
+        patch="diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-```\n+x\n",
+        validation_commands=[],
+        risk_notes=["note with\nnewline"],
+    )
+    md = github_ci_self_heal.render_analysis_markdown(analysis)
+    # The triple-backtick in the patch must not close the outer fence prematurely.
+    assert "```\n```" not in md
+    # Risk note newline must be flattened.
+    assert "note with\nnewline" not in md
+    assert "note with newline" in md
+
+
+def test_parse_diff_git_header_handles_spaces_in_path() -> None:
+    line = "diff --git a/my path/f.py b/my path/f.py"
+    result = github_ci_self_heal._parse_diff_git_header(line)
+    assert result == ("my path/f.py", "my path/f.py")
+
+
+def test_changed_paths_from_diff_handles_spaces() -> None:
+    diff = (
+        "diff --git a/my path/f.py b/my path/f.py\n"
+        "--- a/my path/f.py\n"
+        "+++ b/my path/f.py\n"
+        "@@ -1 +1 @@\n"
+        "-old\n"
+        "+new\n"
+    )
+    paths = github_ci_self_heal.changed_paths_from_diff(diff)
+    assert paths == {"my path/f.py"}
+
+
 def test_gate_cli_writes_json_out(tmp_path: Path) -> None:
     analysis_path = tmp_path / "analysis.json"
     metadata_path = tmp_path / "pr.json"
