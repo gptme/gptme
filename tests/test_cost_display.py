@@ -592,3 +592,142 @@ def test_gather_per_step_costs_skips_user_metadata():
     assert result[0].step_index == 1
     assert result[0].input_tokens == 25000
     assert result[0].output_tokens == 100
+
+
+# --- Tests for request_count consistency with per_step ---
+
+
+def test_request_count_ignores_zero_token_assistant_messages():
+    """Assistant messages with empty usage metadata do not inflate request_count.
+
+    Matches gather_per_step_costs behaviour: only messages with real token data
+    are counted.  Before the fix, empty-metadata assistant messages (e.g. from
+    a prior session that ran before token tracking was added) caused
+    request_count to be larger than the number of Per-Step Breakdown rows.
+    """
+    msgs = [
+        # Old message from a session that did not record tokens
+        Message(
+            role="assistant",
+            content="old response",
+            metadata={"cost": 0.0, "usage": {}},
+        ),
+        # Old message likewise empty
+        Message(
+            role="assistant",
+            content="also old",
+            metadata={"model": "anthropic/claude-haiku-4-5"},
+        ),
+        # Current session request — has real token data
+        Message(
+            role="assistant",
+            content="current response",
+            metadata={
+                "cost": 0.007,
+                "usage": {
+                    "input_tokens": 33_982,
+                    "output_tokens": 203,
+                    "cache_read_tokens": 31_738,
+                    "cache_creation_tokens": 2_234,
+                },
+            },
+        ),
+    ]
+    conv = gather_conversation_costs(msgs)
+    per_step = gather_per_step_costs(msgs)
+
+    assert conv is not None
+    # Only the one message with real token data should count
+    assert conv.total.request_count == 1
+    # Per-step count must match
+    assert len(per_step) == conv.total.request_count
+
+
+def test_request_count_matches_per_step_count():
+    """request_count from gather_conversation_costs equals len(gather_per_step_costs)."""
+    msgs = [
+        Message(
+            role="assistant",
+            content="step 1",
+            metadata={"usage": {"input_tokens": 100, "output_tokens": 50}},
+        ),
+        Message(
+            role="assistant",
+            content="step 2",
+            metadata={"usage": {"input_tokens": 200, "output_tokens": 80}},
+        ),
+        # Zero-token noise message
+        Message(
+            role="assistant",
+            content="noise",
+            metadata={"usage": {}},
+        ),
+    ]
+    conv = gather_conversation_costs(msgs)
+    per_step = gather_per_step_costs(msgs)
+
+    assert conv is not None
+    assert conv.total.request_count == len(per_step) == 2
+
+
+# --- Tests for display_costs deduplication ---
+
+
+def _make_total(requests: int, tokens: int = 1000) -> TotalCosts:
+    return TotalCosts(
+        input_tokens=tokens,
+        output_tokens=100,
+        cache_read_tokens=0,
+        cache_creation_tokens=0,
+        cost=0.01,
+        cache_hit_rate=0.0,
+        request_count=requests,
+    )
+
+
+def test_display_costs_single_total_when_no_prior_history():
+    """When session and conversation have the same request count, only one 'Total'
+    block is shown (no redundant Session Total / Conversation Total split)."""
+    session = CostData(last_request=None, total=_make_total(3), source="session")
+    conversation = CostData(
+        last_request=None, total=_make_total(3), source="conversation"
+    )
+
+    with patch("gptme.util.cost_display.console.log") as log:
+        display_costs(session=session, conversation=conversation)
+
+    output = "\n".join(str(call.args[0]) for call in log.call_args_list)
+    # No session/conversation split when request counts match
+    assert "Session Total" not in output
+    assert "Conversation Total" not in output
+    assert "Total" in output
+
+
+def test_display_costs_shows_split_when_prior_history_exists():
+    """When conversation has more requests than session, both blocks are shown."""
+    session = CostData(last_request=None, total=_make_total(2), source="session")
+    conversation = CostData(
+        last_request=None, total=_make_total(5), source="conversation"
+    )
+
+    with patch("gptme.util.cost_display.console.log") as log:
+        display_costs(session=session, conversation=conversation)
+
+    output = "\n".join(str(call.args[0]) for call in log.call_args_list)
+    assert "Session Total" in output
+    assert "Conversation Total" in output
+
+
+def test_display_costs_only_conversation_when_no_session():
+    """With no session data, Conversation Total is shown without a split label."""
+    conversation = CostData(
+        last_request=None, total=_make_total(3), source="conversation"
+    )
+
+    with patch("gptme.util.cost_display.console.log") as log:
+        display_costs(session=None, conversation=conversation)
+
+    output = "\n".join(str(call.args[0]) for call in log.call_args_list)
+    assert "Session Total" not in output
+    # Shows a total block (either "Total" or "Conversation Total")
+    assert "Total" in output

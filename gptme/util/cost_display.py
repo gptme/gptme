@@ -160,22 +160,26 @@ def gather_conversation_costs(messages: list[Message]) -> CostData | None:
 
             if msg.role == "assistant":
                 last_metadata = msg.metadata
-                request_count += 1
+                # Only count requests that have actual token data — consistent
+                # with gather_per_step_costs so the Requests field matches the
+                # number of rows in the Per-Step Breakdown.
+                if msg_input > 0 or msg_output > 0 or msg_cache_read > 0:
+                    request_count += 1
 
-                turn_input_total = msg_input + msg_cache_read + msg_cache_created
-                if biggest_turn is None or turn_input_total > (
-                    biggest_turn.input_tokens
-                    + biggest_turn.cache_read_tokens
-                    + biggest_turn.cache_creation_tokens
-                ):
-                    biggest_turn = BiggestTurn(
-                        request_index=request_count,
-                        input_tokens=msg_input,
-                        output_tokens=msg_output,
-                        cache_read_tokens=msg_cache_read,
-                        cache_creation_tokens=msg_cache_created,
-                        cost=msg_cost,
-                    )
+                    turn_input_total = msg_input + msg_cache_read + msg_cache_created
+                    if biggest_turn is None or turn_input_total > (
+                        biggest_turn.input_tokens
+                        + biggest_turn.cache_read_tokens
+                        + biggest_turn.cache_creation_tokens
+                    ):
+                        biggest_turn = BiggestTurn(
+                            request_index=request_count,
+                            input_tokens=msg_input,
+                            output_tokens=msg_output,
+                            cache_read_tokens=msg_cache_read,
+                            cache_creation_tokens=msg_cache_created,
+                            cost=msg_cost,
+                        )
 
             total_input += msg_input
             total_output += msg_output
@@ -325,18 +329,29 @@ def display_costs(
         console.log(f"  Cost:    {_format_cost(last_req.cost)}")
         console.log("")
 
-    # Show session total if available
-    if session:
+    # Only show the session/conversation split when there IS prior history that
+    # makes the distinction useful (conversation includes older requests that
+    # aren't in the current session).
+    has_prior_history = (
+        session
+        and conversation
+        and conversation.total.request_count > session.total.request_count
+    )
+
+    if session and has_prior_history:
         console.log("[bold]Session Total:[/bold] (current session)")
         _display_total(session.total)
         console.log("")
 
-    # Show conversation total if available and different from session
-    if conversation and (
-        not session or conversation.total.request_count > session.total.request_count
-    ):
-        console.log("[bold]Conversation Total:[/bold] (all messages)")
+    # Prefer conversation (most complete) when available; fall back to session.
+    if conversation:
+        label = "Conversation Total" if has_prior_history else "Total"
+        suffix = " (all messages)" if has_prior_history else ""
+        console.log(f"[bold]{label}:[/bold]{suffix}")
         _display_total(conversation.total)
+    elif session:
+        console.log("[bold]Total:[/bold]")
+        _display_total(session.total)
 
     # Highlight the largest single-turn input (helps catch context spikes,
     # e.g. when a tool result blows up the next turn's input).

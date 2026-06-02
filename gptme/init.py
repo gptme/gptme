@@ -15,6 +15,7 @@ from .hooks import init_hooks
 from .llm import guess_provider_from_config, init_llm, is_custom_provider
 from .llm.llm_gptme import GptmeAuthError
 from .llm.models import (
+    MODEL_ALIASES,
     PROVIDERS,
     CustomProvider,
     ModelMeta,
@@ -187,7 +188,15 @@ def init_model(
         model_name = get_recommended_model(provider)
     model_full = f"{provider}/{model_name}"
     if not is_output_json():
-        console.log(f"Using model: [green]{model_full}[/green]")
+        # Show the resolved alias if the model name is a known short alias
+        # (e.g. claude-haiku-4-5 → claude-haiku-4-5-20251001).
+        resolved_alias = MODEL_ALIASES.get(str(provider), {}).get(model_name)
+        if resolved_alias:
+            console.log(
+                f"Using model: [green]{model_full}[/green] (→ [dim]{resolved_alias}[/dim])"
+            )
+        else:
+            console.log(f"Using model: [green]{model_full}[/green]")
     try:
         init_llm(provider)
     except GptmeAuthError:
