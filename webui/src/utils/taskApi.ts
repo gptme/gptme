@@ -1,6 +1,7 @@
 import type { Task, CreateTaskRequest, TaskAction } from '@/types/task';
 import { getApiBaseUrl, getAuthHeader } from '@/utils/connectionConfig';
 import { withLocalAddressSpace } from '@/utils/addressSpace';
+import { chatRoute } from '@/utils/routes';
 
 /**
  * Helper function to add auth headers to fetch options.
@@ -178,7 +179,7 @@ export const taskApi = {
    */
   viewTaskConversation(taskId: string): void {
     // Navigate to the conversation page for this task
-    window.location.href = `/chat/${taskId}`;
+    window.location.href = chatRoute(taskId);
   },
 
   /**
