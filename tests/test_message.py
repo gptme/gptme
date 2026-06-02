@@ -116,24 +116,24 @@ def test_format_msgs_preserves_codeblocks():
 
 
 def test_format_msgs_strips_think_sig():
-    """Test that think blocks and think-sig comments are stripped."""
+    """Test that think-sig comments are stripped but think blocks remain."""
     from gptme.message import Message, format_msgs
 
     msg = Message(
         "assistant",
-        "<think>\nreasoning\n<!-- think-sig: sig123 -->\n</think>\n\nActual response",
+        "<think>\nreasoning\n<!-- think-sig: sig123\nwrapped -->\n</think>\n\nActual response",
     )
     outputs = format_msgs([msg])
     content = outputs[0]
 
-    assert "reasoning" not in content
+    assert "reasoning" in content
     assert "think-sig" not in content
     assert "Actual response" in content
-    assert "<think>" not in content
+    assert "<think>" in content
 
 
-def test_format_msgs_think_strips_multiline():
-    """Test that multiline think blocks are stripped."""
+def test_format_msgs_preserves_think_blocks():
+    """Test that multiline think blocks are still shown."""
     from gptme.message import Message, format_msgs
 
     msg = Message(
@@ -142,8 +142,27 @@ def test_format_msgs_think_strips_multiline():
     )
     outputs = format_msgs([msg])
     content = outputs[0]
-    assert "Good, another solid turn" not in content
+    assert "Good, another solid turn" in content
+    assert "<think>" in content
+    assert "</think>" in content
     assert "Clean. Everything works" in content
+
+
+def test_format_msgs_strips_standalone_think_sig():
+    """Test that bare multiline think-sig comments are stripped."""
+    from gptme.message import Message, format_msgs
+
+    msg = Message(
+        "assistant",
+        "Before\n<!-- think-sig: abc123\nwrapped-signature -->\nAfter",
+    )
+    outputs = format_msgs([msg])
+    content = outputs[0]
+
+    assert "Before" in content
+    assert "After" in content
+    assert "think-sig" not in content
+    assert "wrapped-signature" not in content
 
 
 def test_message_files_resolve_to_absolute(tmp_path, monkeypatch):

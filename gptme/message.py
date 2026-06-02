@@ -1,6 +1,7 @@
 import dataclasses
 import json
 import logging
+import re
 import shutil
 import sys
 import textwrap
@@ -469,22 +470,13 @@ timestamp = "{self.timestamp.isoformat()}"
 
 
 def _strip_think_sig(content: str) -> str:
-    """Strip think blocks and think-sig comments from message content.
+    """Strip think-sig comments from message content.
 
-    These are Anthropic extended thinking artifacts serialized into message
-    content. They are implementation noise the user shouldn't see.
+    Anthropic extended thinking signatures may be serialized into message
+    content as multiline comments. They are implementation noise the user
+    shouldn't see, while the surrounding thinking text can still be useful.
     """
-    import re
-
-    lt = chr(60)  # <
-    gt = chr(62)  # >
-    # Strip <think>...</think> blocks (may span lines)
-    think_block = lt + "think" + gt + r".*?" + lt + "/think" + gt + r"\s*"
-    content = re.sub(think_block, "", content, flags=re.DOTALL)
-    # Strip standalone <!-- think-sig: ... --> comments
-    sig_comment = lt + "!-- think-sig:.*?--" + gt + r"\s*"
-    content = re.sub(sig_comment, "", content)
-    return content
+    return re.sub(r"<!--\s*think-sig:.*?-->\s*", "", content, flags=re.DOTALL)
 
 
 def format_msgs(
