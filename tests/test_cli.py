@@ -553,9 +553,7 @@ def test_empty_model_is_usage_error(runner: CliRunner, runid: int):
 
     assert result.exit_code == 2
     assert "Traceback" not in result.output
-    assert (
-        "empty" in result.output.lower() or "cannot be empty" in result.output.lower()
-    )
+    assert "empty" in result.output.lower()
 
 
 def test_whitespace_model_is_usage_error(runner: CliRunner, runid: int):
@@ -574,9 +572,7 @@ def test_whitespace_model_is_usage_error(runner: CliRunner, runid: int):
 
     assert result.exit_code == 2
     assert "Traceback" not in result.output
-    assert (
-        "empty" in result.output.lower() or "cannot be empty" in result.output.lower()
-    )
+    assert "empty" in result.output.lower()
 
 
 def test_unknown_agent_profile_stays_off_stdout_in_json_mode():

@@ -25,16 +25,6 @@ except (ImportError, AttributeError):
 
 import gptme
 
-
-def _validate_model_param(
-    ctx: click.Context, param: click.Parameter, value: str | None
-) -> str | None:
-    """Reject empty --model early so the CLI exits before heavy setup work."""
-    if value is not None and not value.strip():
-        raise click.BadParameter("Model name cannot be empty.", ctx=ctx, param=param)
-    return value
-
-
 from ..chat import chat
 from ..commands import _gen_help
 from ..config import setup_config_from_cli
@@ -61,6 +51,15 @@ from ..util.interrupt import handle_keyboard_interrupt, set_interruptible
 from ..util.prompt import add_history
 
 logger = logging.getLogger(__name__)
+
+
+def _validate_model_param(
+    ctx: click.Context, param: click.Parameter, value: str | None
+) -> str | None:
+    """Reject empty --model early so the CLI exits before heavy setup work."""
+    if value is not None and not value.strip():
+        raise click.BadParameter("Model name cannot be empty.", ctx=ctx, param=param)
+    return value
 
 
 script_path = Path(os.path.realpath(__file__))
