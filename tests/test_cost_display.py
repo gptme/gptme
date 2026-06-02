@@ -1,11 +1,15 @@
 """Tests for util/cost_display.py — cost aggregation and display."""
 
+from unittest.mock import patch
+
 from gptme.message import Message
 from gptme.util.cost_display import (
     BiggestTurn,
     CostData,
     RequestCosts,
+    StepCost,
     TotalCosts,
+    display_costs,
     gather_conversation_costs,
 )
 
@@ -237,6 +241,53 @@ def test_total_costs_dataclass():
     assert tc.input_tokens == 1000
     assert tc.request_count == 5
     assert tc.cache_hit_rate == 0.15
+
+
+def test_display_costs_uses_explicit_cache_columns():
+    """Per-step display labels cache reads/writes separately."""
+    total = TotalCosts(
+        input_tokens=100,
+        output_tokens=50,
+        cache_read_tokens=200,
+        cache_creation_tokens=300,
+        cost=0.00001,
+        cache_hit_rate=0.4,
+        request_count=1,
+    )
+    conversation = CostData(
+        last_request=RequestCosts(
+            input_tokens=100,
+            output_tokens=50,
+            cache_read_tokens=200,
+            cache_creation_tokens=300,
+            cost=0.00001,
+        ),
+        total=total,
+        source="conversation",
+    )
+    per_step = [
+        StepCost(
+            step_index=1,
+            input_tokens=100,
+            output_tokens=50,
+            cache_read_tokens=200,
+            cache_creation_tokens=300,
+            cost=0.00001,
+            model="anthropic/claude-haiku-4-5",
+        )
+    ]
+
+    with patch("gptme.util.cost_display.console.log") as log:
+        display_costs(conversation=conversation, per_step=per_step)
+
+    output = "\n".join(str(call.args[0]) for call in log.call_args_list)
+    assert "TotalIn" in output
+    assert "Uncached" in output
+    assert "CacheR" in output
+    assert "CacheW" in output
+    assert "Cache hit rate" in output
+    assert "<$0.0001" in output
+    assert "$0.0000" not in output
 
 
 def test_cost_data_dataclass():
