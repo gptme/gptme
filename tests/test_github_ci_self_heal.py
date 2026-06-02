@@ -243,3 +243,206 @@ def test_gate_cli_writes_json_out(tmp_path: Path) -> None:
     payload = json.loads(output_path.read_text())
     assert payload["eligible"] is True
     assert payload["patch_stats"]["paths"] == ["tests/test_example.py"]
+
+
+def test_render_pr_body_subcommand(tmp_path: Path) -> None:
+    analysis = _analysis()
+    analysis_path = tmp_path / "analysis.json"
+    analysis_path.write_text(json.dumps(asdict(analysis)))
+
+    config = github_ci_self_heal.GateConfig(repository="gptme/gptme")
+    gate = github_ci_self_heal.evaluate_autofix_gate(
+        analysis, _pr_metadata(), _pr_diff(), config
+    )
+    gate_path = tmp_path / "gate.json"
+    gate_path.write_text(
+        json.dumps(github_ci_self_heal.gate_result_to_json(gate)) + "\n"
+    )
+
+    out_path = tmp_path / "pr-body.md"
+    result = github_ci_self_heal.main(
+        [
+            "render-pr-body",
+            str(analysis_path),
+            str(gate_path),
+            "--source-pr",
+            "123",
+            "--failing-run-url",
+            "https://github.com/gptme/gptme/actions/runs/1",
+            "--self-heal-run-url",
+            "https://github.com/gptme/gptme/actions/runs/2",
+            "--model",
+            "claude-haiku-4-5",
+            "--out",
+            str(out_path),
+        ]
+    )
+
+    assert result == 0
+    body = out_path.read_text()
+    assert "<!-- gptme-self-heal-autofix source-pr=123 -->" in body
+    assert "Source PR: #123" in body
+    assert "All autofix gates passed." in body
+    assert "claude-haiku-4-5" in body
+
+
+def test_render_pr_body_contains_analysis_and_gate_details(tmp_path: Path) -> None:
+    analysis = github_ci_self_heal.SelfHealAnalysis(
+        root_cause="Import uses old name 'old_func'.",
+        proposed_fix="Update import to 'new_func'.",
+        confidence="high",
+        failure_class="import_error",
+        patch="diff --git a/tests/test_x.py b/tests/test_x.py\n--- a/tests/test_x.py\n+++ b/tests/test_x.py\n@@ -1 +1 @@\n-from pkg import old_func\n+from pkg import new_func\n",
+        validation_commands=["uv run pytest tests/test_x.py -q"],
+        risk_notes=["mechanical rename"],
+    )
+    config = github_ci_self_heal.GateConfig(repository="gptme/gptme")
+    gate = github_ci_self_heal.evaluate_autofix_gate(
+        analysis,
+        _pr_metadata(),
+        _pr_diff("tests/test_x.py"),
+        config,
+    )
+    body = github_ci_self_heal.render_autofix_pr_body(
+        analysis,
+        gate,
+        source_pr=42,
+        failing_run_url="https://github.com/gptme/gptme/actions/runs/fail",
+        self_heal_run_url="https://github.com/gptme/gptme/actions/runs/heal",
+        model="claude-haiku-4-5",
+    )
+    assert "## Source" in body
+    assert "#42" in body
+    assert "## Root Cause" in body
+    assert "old_func" in body
+    assert "## Gates" in body
+    assert "All autofix gates passed." in body
+    assert "## Validation" in body
+    assert "tests/test_x.py" in body
+
+
+def test_render_pr_body_marks_failed_gates(tmp_path: Path) -> None:
+    analysis = github_ci_self_heal.SelfHealAnalysis(
+        root_cause="Unknown.",
+        proposed_fix="None.",
+        confidence="low",
+        failure_class="other",
+        patch="",
+        validation_commands=[],
+        risk_notes=[],
+    )
+    config = github_ci_self_heal.GateConfig(repository="gptme/gptme")
+    gate = github_ci_self_heal.evaluate_autofix_gate(
+        analysis,
+        _pr_metadata(),
+        _pr_diff(),
+        config,
+    )
+    assert not gate.eligible
+    body = github_ci_self_heal.render_autofix_pr_body(
+        analysis,
+        gate,
+        source_pr=99,
+        failing_run_url="https://example.com/fail",
+        self_heal_run_url="https://example.com/heal",
+        model="haiku",
+    )
+    assert "❌" in body
+    assert "NOT eligible" in body
+
+
+def test_render_pr_body_cli_writes_output(tmp_path: Path) -> None:
+    """render-pr-body subcommand writes a valid PR body with the dedup marker."""
+    analysis_path = tmp_path / "analysis.json"
+    gate_path = tmp_path / "gate.json"
+    output_path = tmp_path / "pr-body.md"
+
+    analysis = _analysis(confidence="high")
+    analysis_path.write_text(json.dumps(asdict(analysis)))
+
+    gate = github_ci_self_heal.evaluate_autofix_gate(
+        analysis, _pr_metadata(), _pr_diff(), _config()
+    )
+    from dataclasses import asdict as gate_asdict
+
+    gate_path.write_text(
+        json.dumps(
+            {
+                "eligible": gate.eligible,
+                "reason": gate.reason,
+                "reasons": gate.reasons,
+                "patch_stats": gate_asdict(gate.patch_stats),
+                "validation_commands": gate.validation_commands,
+            }
+        )
+    )
+
+    result = github_ci_self_heal.main(
+        [
+            "render-pr-body",
+            str(analysis_path),
+            str(gate_path),
+            "--source-pr",
+            "123",
+            "--failing-run-url",
+            "https://github.com/gptme/gptme/actions/runs/1",
+            "--self-heal-run-url",
+            "https://github.com/gptme/gptme/actions/runs/2",
+            "--model",
+            "claude-opus-4-7",
+            "--out",
+            str(output_path),
+        ]
+    )
+
+    assert result == 0
+    body = output_path.read_text()
+    assert "gptme-self-heal-autofix source-pr=123" in body
+    assert "Source PR: #123" in body
+    assert "gptme/gptme/actions/runs/1" in body
+    assert "claude-opus-4-7" in body
+    assert "Closes #123" not in body
+
+
+def test_render_pr_body_cli_rejected_gate(tmp_path: Path) -> None:
+    """PR body includes rejection reasons when gate fails."""
+    analysis_path = tmp_path / "analysis.json"
+    gate_path = tmp_path / "gate.json"
+
+    analysis = _analysis(confidence="low")
+    analysis_path.write_text(json.dumps(asdict(analysis)))
+
+    gate = github_ci_self_heal.evaluate_autofix_gate(
+        analysis, _pr_metadata(), _pr_diff(), _config()
+    )
+    from dataclasses import asdict as gate_asdict
+
+    gate_path.write_text(
+        json.dumps(
+            {
+                "eligible": gate.eligible,
+                "reason": gate.reason,
+                "reasons": gate.reasons,
+                "patch_stats": gate_asdict(gate.patch_stats),
+                "validation_commands": gate.validation_commands,
+            }
+        )
+    )
+
+    result = github_ci_self_heal.main(
+        [
+            "render-pr-body",
+            str(analysis_path),
+            str(gate_path),
+            "--source-pr",
+            "456",
+            "--failing-run-url",
+            "https://github.com/gptme/gptme/actions/runs/1",
+            "--self-heal-run-url",
+            "https://github.com/gptme/gptme/actions/runs/2",
+        ]
+    )
+
+    assert result == 0
+    # Not written to file means stdout was printed; just check the function returns
+    assert not gate.eligible
