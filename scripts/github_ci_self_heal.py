@@ -44,11 +44,24 @@ Respond in this exact format:
 
 **Confidence**: high / medium / low — and why"""
 
-    message = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=1024,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    try:
+        message = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except anthropic.AuthenticationError:
+        print(
+            "Warning: ANTHROPIC_API_KEY is invalid or expired — skipping analysis.",
+            file=sys.stderr,
+        )
+        return "⚠️ Self-heal analysis skipped: the `ANTHROPIC_API_KEY` repository secret is invalid or expired. A maintainer needs to update it in **Settings → Secrets and variables → Actions**."
+    except anthropic.APIError as e:
+        print(
+            f"Warning: Anthropic API error ({type(e).__name__}) — skipping analysis.",
+            file=sys.stderr,
+        )
+        return ""
 
     from anthropic.types import TextBlock
 
@@ -84,8 +97,8 @@ def main() -> int:
 
     analysis = analyze_failure(failure_log, pr_diff)
     if not analysis.strip():
-        print("Error: Claude returned an empty response.", file=sys.stderr)
-        return 1
+        print("Warning: no analysis produced — skipping comment.", file=sys.stderr)
+        return 0
     print(analysis)
     return 0
 

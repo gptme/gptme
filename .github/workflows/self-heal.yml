@@ -111,6 +111,12 @@ jobs:
           BOT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
         run: |
+          # Skip if analysis produced no content (e.g. transient API error).
+          if [ ! -s /tmp/analysis.txt ]; then
+            echo "No analysis content — skipping comment"
+            exit 0
+          fi
+
           # Dedup: skip if a self-heal comment already exists for this PR.
           # --paginate ensures all pages are checked, not just the first 30.
           EXISTING=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
