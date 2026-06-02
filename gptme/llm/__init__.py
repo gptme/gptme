@@ -548,6 +548,15 @@ def _reply_stream(
                         rprint(f"[dim]{last_line}[/dim]", end="")
                     are_thinking = False
                     just_closed_thinking = True
+                # Suppress Anthropic think-sig comment from display.
+                # The line is still accumulated in `output` so the signature
+                # survives message serialisation and API round-tripping.
+                elif are_thinking and last_line.startswith("<!-- think-sig:"):
+                    print_clear(len(last_line))
+                    # Don't reprint and don't emit the trailing newline so
+                    # this line is completely invisible in the terminal.
+                    output += char
+                    continue
 
                 # Now print the newline
                 if not json_mode:

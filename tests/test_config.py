@@ -1361,17 +1361,41 @@ def test_chat_config_from_logdir_uses_existing_workspace(tmp_path):
     assert (workspace / "existing_file.txt").exists()
 
 
-def test_chat_config_load_or_create_keeps_log_workspace_for_default_cli_config(
+def test_chat_config_load_or_create_uses_cli_cwd_for_new_conversation(
     tmp_path, monkeypatch
 ):
-    """Default CLI config must not override a new conversation workspace."""
-    logdir = tmp_path / "conversation-default-cli"
+    """New conversations use the CLI workspace (cwd), not the auto-created logdir workspace.
+
+    from_logdir creates logdir/workspace as a server-safe default, but CLI sessions
+    should land in the user's current directory, not an isolated per-conversation dir.
+    Server sessions must explicitly pass workspace='@log' in their request config.
+    """
+    logdir = tmp_path / "conversation-new"
+    cli_cwd = tmp_path / "user-project"
+    cli_cwd.mkdir()
+    monkeypatch.chdir(cli_cwd)
+
+    config = ChatConfig.load_or_create(logdir, ChatConfig())
+
+    # CLI workspace (cwd) wins over the auto-created logdir/workspace.
+    assert config.workspace.resolve() == cli_cwd.resolve()
+
+
+def test_chat_config_load_or_create_server_explicit_log_workspace(
+    tmp_path, monkeypatch
+):
+    """Server sessions get logdir/workspace when they explicitly request '@log'."""
+    logdir = tmp_path / "conversation-server"
     server_cwd = tmp_path / "server-cwd"
     server_cwd.mkdir()
     monkeypatch.chdir(server_cwd)
 
-    config = ChatConfig.load_or_create(logdir, ChatConfig())
+    # Simulate what api_v2.py does: explicitly request @log workspace.
+    request_config = ChatConfig.from_dict(
+        {"_logdir": logdir, "chat": {"workspace": "@log"}},
+        create_workspace=False,
+    )
+    config = ChatConfig.load_or_create(logdir, request_config)
 
-    expected_workspace = logdir / "workspace"
-    assert expected_workspace.is_dir()
-    assert config.workspace.resolve() == expected_workspace.resolve()
+    expected_workspace = (logdir / "workspace").resolve()
+    assert config.workspace.resolve() == expected_workspace

@@ -293,6 +293,9 @@ class ChatConfig:
     @classmethod
     def load_or_create(cls, logdir: Path, cli_config: Self) -> Self:
         """Load or create a chat config, applying CLI overrides."""
+        # Check before from_logdir: it may create dirs but never writes config.toml.
+        is_new_conversation = not (logdir / "config.toml").exists()
+
         # Load existing config if it exists
         config = cls.from_logdir(logdir)
         defaults = cls()
@@ -304,8 +307,16 @@ class ChatConfig:
             cli_value = getattr(cli_config, field_name)
             default_value = getattr(defaults, field_name)
 
+            if field_name == "workspace" and is_new_conversation:
+                # For new conversations from_logdir creates logdir/workspace as a
+                # server-safe default, but CLI callers want their own cwd.  Always
+                # use the cli_config workspace for new conversations so the caller
+                # controls where work lands.  Server sessions must pass an explicit
+                # workspace (e.g. "@log" → logdir/workspace) in the request config.
+                logger.debug(f"New conversation: using CLI workspace: {cli_value}")
+                config = replace(config, workspace=cli_value)
             # For optional fields that default to None, check if explicitly provided
-            if (
+            elif (
                 field_name in ["model", "tool_format", "tools", "agent"]
                 and cli_value is not None
             ):

@@ -723,6 +723,11 @@ def api_conversation_put(conversation_id: str):
     # Load or create the chat config, overriding values from request config if provided
     config_dict = dict(config_raw)
     config_dict["_logdir"] = logdir  # Pass logdir for "@log" workspace resolution
+    # Server sessions default to an isolated per-conversation workspace so they
+    # don't inherit the server process's cwd.  Clients can override by passing an
+    # explicit workspace in the request config.
+    config_dict.setdefault("chat", {})
+    config_dict["chat"].setdefault("workspace", "@log")
     try:
         request_config = ChatConfig.from_dict(config_dict, create_workspace=False)
     except ValueError as exc:
