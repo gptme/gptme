@@ -569,6 +569,7 @@ def _reply_stream(
                     if not json_mode:
                         rprint(f"[dim]{last_line}[/dim]", end="")
                     are_thinking = False
+                    in_think_sig = False
                     just_closed_thinking = True
                 # Suppress Anthropic think-sig comment from display.
                 # The comment can span multiple lines:
