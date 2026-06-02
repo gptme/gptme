@@ -28,6 +28,7 @@ import { ApiClientError } from '@/utils/api';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { selectedAgent$ } from '@/stores/sidebar';
+import { chatRoute } from '@/utils/routes';
 
 export interface CreateAgentRequest {
   name: string;
@@ -103,7 +104,7 @@ const CreateAgentDialog: FC<Props> = ({ open, onOpenChange, onAgentCreated }) =>
 
       // Navigate and force a refresh if needed
       const conversationId = response.initial_conversation_id;
-      navigate(`/chat/${conversationId}`);
+      navigate(chatRoute(conversationId));
     } catch (error) {
       console.error('Error creating agent:', error);
 

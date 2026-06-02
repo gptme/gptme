@@ -2,6 +2,7 @@ import { type FC } from 'react';
 import { useParams } from 'react-router-dom';
 import { MenuBar } from '@/components/MenuBar';
 import MainLayout from '@/components/MainLayout';
+import { decodeRouteParam } from '@/utils/routes';
 
 interface Props {
   className?: string;
@@ -9,11 +10,12 @@ interface Props {
 
 const Index: FC<Props> = () => {
   const { id } = useParams<{ id?: string }>();
+  const conversationId = decodeRouteParam(id);
 
   return (
     <div className="flex h-screen flex-col">
       <MenuBar />
-      <MainLayout conversationId={id} />
+      <MainLayout conversationId={conversationId} />
     </div>
   );
 };

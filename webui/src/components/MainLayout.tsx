@@ -17,6 +17,7 @@ import { WorkspacesView } from '@/components/WorkspacesView';
 import { useToast } from '@/components/ui/use-toast';
 import { setDocumentTitle } from '@/utils/title';
 import { toastStepStartError } from '@/utils/stepErrorHandling';
+import { chatRoute } from '@/utils/routes';
 import { useQueryClient } from '@tanstack/react-query';
 import { useConversationsInfiniteQuery } from '@/hooks/useConversationsInfiniteQuery';
 import { useSecondaryServerConversations } from '@/hooks/useMultiServerConversations';
@@ -150,7 +151,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
           const newSearchParams = new URLSearchParams(searchParams);
           newSearchParams.delete('step');
           const queryString = newSearchParams.toString();
-          const url = `/chat/${conversationId}${queryString ? `?${queryString}` : ''}`;
+          const url = chatRoute(conversationId, queryString);
           navigate(url, { replace: true });
         } else {
           setTimeout(checkAndStart, 100);
@@ -296,7 +297,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
         newParams.delete('server');
       }
       const queryString = newParams.toString();
-      const url = `/chat/${id}${queryString ? `?${queryString}` : ''}`;
+      const url = chatRoute(id, queryString);
       navigate(url);
     },
     [queryClient, navigate, searchParams]

@@ -21,6 +21,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useApi } from '@/contexts/ApiContext';
 import { ActivityCalendar } from '@/components/ActivityCalendar';
 import { getRelativeTimeString, toISODate } from '@/utils/time';
+import { chatRoute } from '@/utils/routes';
 import type { ConversationSummary } from '@/types/conversation';
 
 const PAGE_SIZE = 50;
@@ -256,7 +257,7 @@ export const HistoryView: FC = () => {
 
   const handleConversationClick = useCallback(
     (conv: ConversationSummary) => {
-      navigate(`/chat/${conv.id}`);
+      navigate(chatRoute(conv.id));
     },
     [navigate]
   );

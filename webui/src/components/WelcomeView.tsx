@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { withLocalAddressSpace } from '@/utils/addressSpace';
 import { isLikelyChromeCorsPna } from '@/utils/api';
+import { chatRoute } from '@/utils/routes';
 
 const DEFAULT_LOCAL_SERVER_URLS = new Set(['http://127.0.0.1:5700', 'http://localhost:5700']);
 
@@ -106,7 +107,7 @@ export const WelcomeView = () => {
 
       // Navigate immediately - server-side creation happens in background
       // Errors from backend are handled via toast in api.ts
-      navigate(`/chat/${conversationId}`);
+      navigate(chatRoute(conversationId));
 
       // Invalidate conversations query to refresh the list (async, don't block)
       queryClient.invalidateQueries({

@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { useArchiveTaskMutation, useUnarchiveTaskMutation } from '@/stores/tasks';
+import { chatRoute } from '@/utils/routes';
 import type { Task, TaskAction } from '@/types/task';
 
 interface Props {
@@ -250,7 +251,7 @@ const SuggestedActionsPanel: FC<Props> = ({ task }) => {
         // Navigate to conversation view using the latest conversation ID
         const conversationId = getLatestConversationId();
         if (conversationId) {
-          navigate(`/chat/${conversationId}`);
+          navigate(chatRoute(conversationId));
         }
         break;
       }

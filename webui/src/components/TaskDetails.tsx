@@ -19,6 +19,7 @@ import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
 import { SuggestedActionsPanel } from '@/components/SuggestedActionsPanel';
 import { SuggestedActionsTips } from '@/components/SuggestedActionsTips';
+import { chatRoute } from '@/utils/routes';
 import type { Task, TaskStatus } from '@/types/task';
 
 interface Props {
@@ -239,7 +240,7 @@ const TaskDetails: FC<Props> = ({ task }) => {
                         return (
                           <div key={conversationId} className="flex items-center gap-2">
                             <button
-                              onClick={() => navigate(`/chat/${conversationId}`)}
+                              onClick={() => navigate(chatRoute(conversationId))}
                               className={`font-mono text-xs hover:underline ${
                                 isActive
                                   ? 'font-semibold text-blue-600'

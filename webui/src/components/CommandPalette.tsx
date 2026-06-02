@@ -28,6 +28,7 @@ import {
   exportConversationAsJSON,
   getExportableMessages,
 } from '@/utils/exportConversation';
+import { chatRoute } from '@/utils/routes';
 import { toast } from 'sonner';
 import { settingsModal$ } from '@/stores/settingsModal';
 
@@ -322,7 +323,7 @@ export function CommandPalette() {
                   key={`conv-${conv.id}`}
                   value={`conv-${conv.id} ${conv.name}`}
                   onSelect={() => {
-                    navigate(`/chat/${conv.id}`);
+                    navigate(chatRoute(conv.id));
                     setOpen(false);
                   }}
                 >
