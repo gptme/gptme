@@ -727,6 +727,8 @@ def api_conversation_put(conversation_id: str):
     # don't inherit the server process's cwd.  Clients can override by passing an
     # explicit workspace in the request config.
     config_dict.setdefault("chat", {})
+    if not isinstance(config_dict["chat"], dict):
+        return flask.jsonify({"error": "'config.chat' must be an object"}), 400
     config_dict["chat"].setdefault("workspace", "@log")
     try:
         request_config = ChatConfig.from_dict(config_dict, create_workspace=False)
