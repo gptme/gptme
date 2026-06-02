@@ -598,9 +598,25 @@ def _reply_stream(
                 # Print normal characters
                 if not json_mode:
                     if in_think_sig:
-                        pass  # suppress think-sig comment body chars
+                        # Suppress think-sig comment body chars.
+                        # Reset when the closing --> is seen so subsequent
+                        # thinking content renders normally.
+                        current_line = output.rsplit("\n", 1)[-1] + char
+                        if current_line.endswith("-->"):
+                            in_think_sig = False
                     elif are_thinking:
-                        rprint(f"[dim]{char}[/dim]", end="")
+                        # Detect think-sig prefix early (before newline) so
+                        # we can suppress the long base64 body that would
+                        # otherwise wrap across multiple terminal lines and
+                        # resist print_clear.  The already-printed prefix
+                        # (≤14 chars) is short enough that print_clear
+                        # reliably erases it.
+                        current_line = output.rsplit("\n", 1)[-1] + char
+                        if current_line.startswith("<!-- think-sig:"):
+                            print_clear(len(current_line))
+                            in_think_sig = True
+                        else:
+                            rprint(f"[dim]{char}[/dim]", end="")
                     else:
                         rprint(char, end="")
 
