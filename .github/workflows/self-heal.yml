@@ -194,7 +194,7 @@ jobs:
             --body-file /tmp/comment.md
 
       - name: Post legacy analysis as PR comment
-        if: steps.pr.outputs.found == 'true' && success() && steps.analyze.outcome == 'success' && steps.analyze_structured.outcome != 'success'
+        if: steps.pr.outputs.found == 'true' && failure() && steps.analyze.outcome == 'success' && steps.analyze_structured.outcome != 'success'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FAILED_RUN_URL: ${{ github.event.workflow_run.html_url }}
@@ -311,7 +311,7 @@ jobs:
             echo "applied=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          git apply /tmp/fix.patch
+          git apply --index /tmp/fix.patch
           echo "applied=true" >> "$GITHUB_OUTPUT"
 
           # Run validation commands
