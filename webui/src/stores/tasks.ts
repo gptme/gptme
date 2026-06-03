@@ -79,7 +79,7 @@ export function useTasksQuery() {
     queryKey: ['tasks', { includeArchived: showArchived$.get() }],
     queryFn: () => taskApi.listTasks(showArchived$.get()),
     enabled: isConnected && !demo,
-    placeholderData: [],
+    placeholderData: () => [] as Task[],
   });
 
   // Update store when data changes

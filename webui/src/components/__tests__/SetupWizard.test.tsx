@@ -64,6 +64,7 @@ jest.mock('@/hooks/useTauriServerStatus', () => ({
 
 jest.mock('@/utils/connectionConfig', () => ({
   processConnectionFromHash: (...args: unknown[]) => mockProcessConnectionFromHash(...args),
+  isDemoMode: jest.fn(() => false),
 }));
 
 jest.mock('@legendapp/state/react', () => ({

@@ -6,7 +6,7 @@ export async function fetchProviderConfigured(
   authHeader: string | null,
   signal?: AbortSignal
 ): Promise<boolean> {
-  if (isDemoMode()) return false;
+  if (isDemoMode()) return true;
   const headers: Record<string, string> = authHeader ? { Authorization: authHeader } : {};
   const url = `${baseUrl}/api/v2`;
   const response = await fetch(url, withLocalAddressSpace(url, { headers, signal }));
