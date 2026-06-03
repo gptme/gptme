@@ -54,6 +54,33 @@ def _tooluse_break_check_char(char: str) -> bool:
     return char == "\n"
 
 
+def _drain_toolbreak_stream(stream: "_StreamWithMetadata") -> None:
+    """Drain the generator after a break_on_tooluse to capture message_delta.
+
+    When break_on_tooluse fires before message_delta, the output tokens and
+    cost ($0.0000) are lost from the per-step breakdown.  Draining the
+    remaining generator processes the pending events (including message_delta)
+    so the metadata is complete.
+
+    This is safe because after the tool-use break, we discard the drained
+    content — it's only the side-effects (metadata capture) we care about.
+    """
+    discarded = 0
+    try:
+        for _ in stream.gen:
+            discarded += 1
+    except StopIteration as e:
+        # Capture the metadata that the provider generator set as its
+        # return value (e.g. Anthropic message_delta usage, OpenAI
+        # response.completed usage).  This overwrites the partial fallback
+        # (message_start only has input/cache counts) so the per-step
+        # breakdown shows accurate output tokens and cost.
+        if e.value:
+            stream.metadata = e.value
+    if discarded:
+        logger.debug("Drained %d chunks after tool-use break", discarded)
+
+
 # Cheap/fast default model per provider for first-run / fallback scenarios.
 # Azure is intentionally absent: deployments are tenant-specific, so there is
 # no universal default — users must supply a full model name.
@@ -406,7 +433,13 @@ class _StreamWithMetadata:
             while True:
                 yield next(self.gen)
         except StopIteration as e:
-            self.metadata = e.value
+            if self.metadata is None:
+                # Only capture from StopIteration if the drain didn't already
+                # set it.  _drain_toolbreak_stream consumes the generator and
+                # sets metadata from message_delta / response.completed, but
+                # the exhausted generator then raises StopIteration a second
+                # time with value=None — don't overwrite the rich metadata.
+                self.metadata = e.value
         finally:
             if self.metadata is None:
                 # Fall back to partial metadata captured from message_start if
@@ -681,6 +714,11 @@ def _reply_stream(
                 ]
                 if tooluses:
                     logger.debug("Found tool use, breaking")
+                    # Drain remaining stream to capture message_delta (output tokens).
+                    # When break_on_tooluse fires before message_delta, the
+                    # _StreamWithMetadata fallback only has input/cache counts from
+                    # message_start — output tokens and cost are lost.
+                    _drain_toolbreak_stream(stream)
                     break
 
         # Flush any remaining buffered chars (responses that end without a
