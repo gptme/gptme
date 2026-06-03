@@ -67,7 +67,8 @@ def _drain_toolbreak_stream(stream: "_StreamWithMetadata") -> None:
     """
     discarded = 0
     try:
-        for _ in stream.gen:
+        while True:
+            next(stream.gen)
             discarded += 1
     except StopIteration as e:
         # Capture the metadata that the provider generator set as its
