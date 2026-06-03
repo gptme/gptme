@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from gptme.logmanager.manager import (
-    _auto_tag_ephemeral,
     ephemeral_cache_boundary,
     prune_ephemeral_messages,
 )
@@ -117,7 +116,7 @@ def test_recent_ephemeral_message_kept():
 
 def test_expired_ephemeral_message_pruned():
     msgs = _make_convo()
-    # Add two more assistant turns so assistant0 has 3 turns after it (TTL=2 → expire)
+    # Add two more assistant turns so assistant0 has 3 turns after it (TTL=2 → drop)
     msgs += [
         _msg("user", "Question 2"),
         _msg("assistant", "Answer 2"),
@@ -125,16 +124,11 @@ def test_expired_ephemeral_message_pruned():
         _msg("assistant", "Answer 3"),
     ]
     result = prune_ephemeral_messages(msgs)
+    # assistant0 should be gone
     contents = [m.content for m in result]
-    # Thinking block is stripped from the expired message.
     assert "<think>reasoning</think>Answer 0" not in contents
-    assert "<think>" not in "\n".join(contents)
-    # The text response ("Answer 0") is preserved so conversation structure stays intact.
-    assert "Answer 0" in contents
-    # User messages are NOT merged — conversation structure is stable for cache hits.
-    assert "Question 0" in contents
-    assert "Question 1" in contents
-    assert "Question 0\n\nQuestion 1" not in contents
+    # Adjacent user messages on either side of the pruned assistant are merged.
+    assert "Question 0\n\nQuestion 1" in contents
     _assert_no_consecutive_same_role(result)
 
 
@@ -160,27 +154,19 @@ def test_pinned_message_never_pruned():
 
 
 def test_prune_merges_consecutive_roles_after_thinking_only_drop():
-    """Thinking-only messages (no text response) are fully dropped when TTL expires.
-
-    A thinking-only message leaves nothing to preserve after stripping, so it is
-    removed entirely — adjacent user messages are then merged to maintain the
-    strict alternating-role constraint.
-    """
     msgs = [
         _msg("system", "System"),
         _msg("user", "Q0"),
         _msg("assistant", "A0"),
         _msg("user", "Q1"),
-        _msg(
-            "assistant", "<think>x</think>", ttl=0
-        ),  # expires immediately, thinking-only
+        _msg("assistant", "<think>x</think>", ttl=0),  # expires immediately
         _msg("user", "Q2"),
         _msg("assistant", "A2"),
     ]
     result = prune_ephemeral_messages(msgs)
     roles = [m.role for m in result]
-    # Thinking-only message dropped → adjacent user messages merged to avoid
-    # consecutive-same-role rejection.
+    # Should maintain chronological order and merge the user turns around the
+    # pruned assistant so strict providers do not reject the sequence.
     assert roles == ["system", "user", "assistant", "user", "assistant"]
     assert result[3].content == "Q1\n\nQ2"
 
@@ -263,35 +249,20 @@ def test_ephemeral_cache_boundary_none_when_first_msg_is_ephemeral():
     assert ephemeral_cache_boundary(msgs) is None
 
 
-# ---------------------------------------------------------------------------
-# _auto_tag_ephemeral
-# ---------------------------------------------------------------------------
-
-
-def test_auto_tag_thinking_message():
-    msg = _msg("assistant", "Let me think.\n<think>\nreasoning here\n</think>\nAnswer.")
-    tagged = _auto_tag_ephemeral(msg)
-    assert tagged.ephemeral_ttl is not None
-    assert tagged.ephemeral_ttl > 0
-
-
-def test_auto_tag_thinking_tag():
-    msg = _msg("assistant", "<thinking>chain of thought</thinking>Result.")
-    tagged = _auto_tag_ephemeral(msg)
-    assert tagged.ephemeral_ttl is not None
-
-
-def test_auto_tag_no_thinking_unchanged():
-    msg = _msg("assistant", "Plain answer with no thinking block.")
-    tagged = _auto_tag_ephemeral(msg)
-    assert tagged.ephemeral_ttl is None
-
-
-def test_auto_tag_respects_existing_ttl():
-    msg = _msg("assistant", "<think>x</think>", ttl=5)
-    # Should not overwrite existing TTL set by caller
-    tagged = _auto_tag_ephemeral(msg)
-    assert tagged.ephemeral_ttl == 5
+def test_unmarked_thinking_message_not_pruned_by_default():
+    msgs = [
+        _msg("system", "System"),
+        _msg("user", "Q0"),
+        _msg("assistant", "<think>reasoning</think>A0"),
+        _msg("user", "Q1"),
+        _msg("assistant", "A1"),
+        _msg("user", "Q2"),
+        _msg("assistant", "A2"),
+        _msg("user", "Q3"),
+        _msg("assistant", "A3"),
+    ]
+    result = prune_ephemeral_messages(msgs)
+    assert result == msgs
 
 
 # ---------------------------------------------------------------------------
