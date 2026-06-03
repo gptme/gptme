@@ -1,6 +1,10 @@
 import { chatRoute, decodeRouteParam } from '../routes';
 
 describe('chatRoute', () => {
+  beforeEach(() => {
+    window.history.replaceState(null, '', '/');
+  });
+
   it('encodes conversation IDs as one route segment', () => {
     expect(chatRoute('demo/conv-123')).toBe('/chat/demo%2Fconv-123');
     expect(chatRoute('demo/conv-123', 'server=secondary')).toBe(
