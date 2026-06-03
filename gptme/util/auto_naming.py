@@ -50,7 +50,7 @@ def generate_conversation_name(
             # on subsequent turns when more context is available
             name = _generate_llm_name(messages, model, dash_separated)
             if not name:
-                logger.info(
+                logger.debug(
                     "LLM naming failed, returning None to allow retry on next turn"
                 )
                 return None
@@ -217,7 +217,7 @@ Conversation:
         if name:
             # Check for explicit sentinel indicating LLM couldn't generate name
             if name.upper() == no_name_sentinel:
-                logger.info("LLM indicated insufficient context for naming (NO_NAME)")
+                logger.debug("LLM indicated insufficient context for naming (NO_NAME)")
                 return None
             # Validate that the response is a proper title, not an error message
             # (fallback safety net for models that don't follow sentinel instruction)
@@ -336,7 +336,7 @@ def try_auto_name(
             config.save()
             logger.info(f"Auto-generated conversation name: {display_name}")
             return display_name
-        logger.info("Auto-naming returned no result, will retry on next message")
+        logger.debug("Auto-naming returned no result, will retry on next message")
         return None
     except Exception:
         logger.warning("Failed to auto-generate name", exc_info=True)

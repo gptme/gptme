@@ -897,7 +897,7 @@ def extra_body(
                     )
                     reasoning_budget = 0
                 elif available < reasoning_budget:
-                    logger.warning(
+                    logger.debug(
                         "max_tokens=%d cannot accommodate reasoning_budget=%d; "
                         "reducing to %d (reserving %d tokens for response).",
                         max_tokens,
