@@ -690,36 +690,70 @@ class LogManager:
         return d
 
 
-def prune_ephemeral_messages(msgs: list[Message]) -> list[Message]:
-    """Remove messages whose ephemeral_ttl has been exceeded.
+def _strip_thinking_blocks(content: str) -> str:
+    """Remove <think>/<thinking> blocks from assistant message content.
 
-    ``ephemeral_ttl=N`` means: keep the message for N later assistant turns, then drop it.
-    Walk backward counting assistant messages seen *after* each message; drop
-    ephemeral messages once the count exceeds their TTL.  Pinned messages are
-    never dropped regardless of TTL.
+    Returns the cleaned text (may be empty if the message was thinking-only).
+    """
+    import re
+
+    cleaned = re.sub(r"<think>.*?</think>\s*", "", content, flags=re.DOTALL)
+    cleaned = re.sub(r"<thinking>.*?</thinking>\s*", "", cleaned, flags=re.DOTALL)
+    return cleaned.strip()
+
+
+def prune_ephemeral_messages(msgs: list[Message]) -> list[Message]:
+    """Prune expired ephemeral messages from the context window.
+
+    ``ephemeral_ttl=N`` means: keep the message for N later assistant turns, then
+    strip its ephemeral content.  For assistant messages this means removing
+    ``<think>/<thinking>`` blocks while preserving the text response — keeping the
+    conversation structure intact so that cached prefixes remain valid.  Pinned
+    messages are never pruned regardless of TTL.
+
+    Preserving conversation structure (rather than removing whole messages) is
+    critical for Anthropic prompt-cache hit rates: removing an assistant turn causes
+    adjacent user messages to be merged, changing the prefix hash and invalidating
+    all subsequent cache entries.  Stripping only the thinking content avoids this.
     """
     assistant_turns_after = 0
-    kept_reversed: list[Message] = []
+    result_reversed: list[Message] = []
 
     for msg in reversed(msgs):
         if msg.pinned:
-            kept_reversed.append(msg)
+            result_reversed.append(msg)
             if msg.role == "assistant":
                 assistant_turns_after += 1
             continue
 
         ttl = msg.ephemeral_ttl
         if ttl is not None and assistant_turns_after > ttl:
-            # Expired — drop from context window (not from the log on disk).
-            # Do NOT increment assistant_turns_after: dropped messages must not
-            # inflate the turn count seen by earlier messages with longer TTLs.
+            # TTL expired — strip ephemeral (thinking) content, keep the rest.
+            # For assistant messages that contain thinking blocks: remove <think>
+            # tags but preserve the text response.  This keeps the conversation
+            # structure stable so that Anthropic prompt-cache prefixes remain
+            # valid across turns (removing a whole message causes adjacent user
+            # messages to merge, invalidating all cached prefixes).
+            # For messages without thinking content, or non-assistant roles: drop
+            # the message entirely (old behavior — no cache-stable content to keep).
+            # Do NOT increment assistant_turns_after for dropped messages: pruned
+            # messages must not inflate the turn count seen by earlier messages.
+            if msg.role == "assistant" and _THINKING_PATTERN.search(msg.content):
+                stripped = _strip_thinking_blocks(msg.content)
+                if stripped:
+                    result_reversed.append(
+                        msg.replace(content=stripped, ephemeral_ttl=None)
+                    )
+                    assistant_turns_after += 1
+                # If nothing survives stripping (thinking-only message), drop
+                # entirely; _merge_consecutive_messages handles the adjacency gap.
             continue
 
-        kept_reversed.append(msg)
+        result_reversed.append(msg)
         if msg.role == "assistant":
             assistant_turns_after += 1
 
-    pruned = list(reversed(kept_reversed))
+    pruned = list(reversed(result_reversed))
     return _merge_consecutive_messages(pruned)
 
 

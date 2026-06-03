@@ -117,7 +117,7 @@ def test_recent_ephemeral_message_kept():
 
 def test_expired_ephemeral_message_pruned():
     msgs = _make_convo()
-    # Add two more assistant turns so assistant0 has 3 turns after it (TTL=2 → drop)
+    # Add two more assistant turns so assistant0 has 3 turns after it (TTL=2 → expire)
     msgs += [
         _msg("user", "Question 2"),
         _msg("assistant", "Answer 2"),
@@ -125,11 +125,16 @@ def test_expired_ephemeral_message_pruned():
         _msg("assistant", "Answer 3"),
     ]
     result = prune_ephemeral_messages(msgs)
-    # assistant0 should be gone
     contents = [m.content for m in result]
+    # Thinking block is stripped from the expired message.
     assert "<think>reasoning</think>Answer 0" not in contents
-    # Adjacent user messages on either side of the pruned assistant are merged.
-    assert "Question 0\n\nQuestion 1" in contents
+    assert "<think>" not in "\n".join(contents)
+    # The text response ("Answer 0") is preserved so conversation structure stays intact.
+    assert "Answer 0" in contents
+    # User messages are NOT merged — conversation structure is stable for cache hits.
+    assert "Question 0" in contents
+    assert "Question 1" in contents
+    assert "Question 0\n\nQuestion 1" not in contents
     _assert_no_consecutive_same_role(result)
 
 
@@ -154,20 +159,28 @@ def test_pinned_message_never_pruned():
     assert len(pinned_msgs) == 1
 
 
-def test_prune_merges_consecutive_roles_after_drop():
+def test_prune_merges_consecutive_roles_after_thinking_only_drop():
+    """Thinking-only messages (no text response) are fully dropped when TTL expires.
+
+    A thinking-only message leaves nothing to preserve after stripping, so it is
+    removed entirely — adjacent user messages are then merged to maintain the
+    strict alternating-role constraint.
+    """
     msgs = [
         _msg("system", "System"),
         _msg("user", "Q0"),
         _msg("assistant", "A0"),
         _msg("user", "Q1"),
-        _msg("assistant", "<think>x</think>", ttl=0),  # expires immediately
+        _msg(
+            "assistant", "<think>x</think>", ttl=0
+        ),  # expires immediately, thinking-only
         _msg("user", "Q2"),
         _msg("assistant", "A2"),
     ]
     result = prune_ephemeral_messages(msgs)
     roles = [m.role for m in result]
-    # Should maintain chronological order and merge the user turns around the
-    # pruned assistant so strict providers do not reject the sequence.
+    # Thinking-only message dropped → adjacent user messages merged to avoid
+    # consecutive-same-role rejection.
     assert roles == ["system", "user", "assistant", "user", "assistant"]
     assert result[3].content == "Q1\n\nQ2"
 
