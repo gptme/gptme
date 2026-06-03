@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { use$ } from '@legendapp/state/react';
 import { useApi } from '@/contexts/ApiContext';
 import { buildModelsFetchError } from '@/utils/modelsError';
+import { isDemoMode } from '@/utils/connectionConfig';
 
 export interface ModelInfo {
   id: string;
@@ -32,7 +33,7 @@ export function useModels() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isConnected) {
+    if (!isConnected || isDemoMode()) {
       setIsLoading(false);
       return;
     }

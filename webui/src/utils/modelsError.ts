@@ -8,7 +8,12 @@
  * available, the server-provided error body (e.g.
  * `{"error":"Missing authentication credentials"}`).
  */
+import { isDemoMode } from '@/utils/connectionConfig';
+
 export async function buildModelsFetchError(response: Response): Promise<Error> {
+  if (isDemoMode()) {
+    return new Error('Demo mode: models fetch suppressed (no live backend)');
+  }
   let detail = response.statusText;
   try {
     const body = await response.clone().json();

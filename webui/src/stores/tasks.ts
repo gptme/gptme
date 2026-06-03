@@ -4,6 +4,7 @@ import { use$ } from '@legendapp/state/react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { taskApi } from '@/utils/taskApi';
 import { useApi } from '@/contexts/ApiContext';
+import { isDemoMode } from '@/utils/connectionConfig';
 import type { Task, CreateTaskRequest } from '@/types/task';
 
 export interface TaskState {
@@ -73,10 +74,12 @@ export function updateTasks(newTasks: Task[]) {
 export function useTasksQuery() {
   const { isConnected$ } = useApi();
   const isConnected = use$(isConnected$);
+  const demo = isDemoMode();
   const query = useQuery({
     queryKey: ['tasks', { includeArchived: showArchived$.get() }],
     queryFn: () => taskApi.listTasks(showArchived$.get()),
-    enabled: isConnected,
+    enabled: isConnected && !demo,
+    placeholderData: [],
   });
 
   // Update store when data changes
@@ -90,10 +93,11 @@ export function useTasksQuery() {
 }
 
 export function useTaskQuery(taskId: string | null) {
+  const demo = isDemoMode();
   const query = useQuery({
     queryKey: ['task', taskId],
     queryFn: () => taskApi.getTask(taskId!),
-    enabled: !!taskId,
+    enabled: !!taskId && !demo,
   });
 
   // Update store when data changes

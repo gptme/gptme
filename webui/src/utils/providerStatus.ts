@@ -1,10 +1,12 @@
 import { withLocalAddressSpace } from '@/utils/addressSpace';
+import { isDemoMode } from '@/utils/connectionConfig';
 
 export async function fetchProviderConfigured(
   baseUrl: string,
   authHeader: string | null,
   signal?: AbortSignal
 ): Promise<boolean> {
+  if (isDemoMode()) return false;
   const headers: Record<string, string> = authHeader ? { Authorization: authHeader } : {};
   const url = `${baseUrl}/api/v2`;
   const response = await fetch(url, withLocalAddressSpace(url, { headers, signal }));
