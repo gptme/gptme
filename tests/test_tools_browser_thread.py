@@ -136,8 +136,13 @@ class TestConnectOrLaunchBrowser:
 
 
 @pytest.fixture
-def mock_playwright():
+def mock_playwright(monkeypatch):
     """Mock playwright to avoid needing a real browser."""
+    # Remove real CDP URL from env so tests default to the launch path.
+    # Tests that need CDP (e.g. test_connects_over_cdp_from_env) can
+    # monkeypatch.setenv() to override.
+    monkeypatch.delenv("GPTME_BROWSER_CDP_URL", raising=False)
+
     mock_pw_instance = MagicMock()
     mock_browser = MagicMock()
     mock_pw_instance.chromium.launch.return_value = mock_browser
@@ -145,7 +150,16 @@ def mock_playwright():
     mock_pw_ctx = MagicMock()
     mock_pw_ctx.start.return_value = mock_pw_instance
 
-    with patch("gptme.tools._browser_thread.sync_playwright", return_value=mock_pw_ctx):
+    with (
+        patch("gptme.tools._browser_thread.sync_playwright", return_value=mock_pw_ctx),
+        patch("gptme.tools._browser_thread.get_config") as mock_config,
+    ):
+        # Make get_env read from os.environ with GPTME_ prefix (like the real impl)
+        import os
+
+        mock_config.return_value.get_env.side_effect = lambda key: os.environ.get(
+            f"GPTME_{key}"
+        )
         yield mock_pw_instance, mock_browser
 
 

@@ -7,7 +7,7 @@ from queue import Empty, Queue
 from threading import Event, Lock, Thread
 from typing import Any, Literal, TypeVar
 
-from playwright.sync_api import Browser, Playwright, sync_playwright
+from playwright.sync_api import Browser, BrowserContext, Playwright, sync_playwright
 
 from gptme.config import get_config
 
@@ -64,6 +64,9 @@ class BrowserThread:
         self.lock = Lock()
         self.ready = Event()
         self._init_error: Exception | None = None
+        # Session-scoped context for CDP connections — isolates this gptme
+        # session from other agents/tabs sharing the same browser.
+        self._session_context: BrowserContext | None = None
         self.thread = Thread(target=self._run, daemon=True)
         self.thread.start()
         # Wait for browser to be ready
@@ -94,7 +97,7 @@ class BrowserThread:
             except Exception as e:
                 browser = None  # Ensure browser is None after failed launch
                 error: Exception
-                
+
                 if "Executable doesn't exist" in str(e):
                     pw_version = importlib.metadata.version("playwright")
                     error = RuntimeError(
@@ -112,6 +115,12 @@ class BrowserThread:
                 self._init_error = init_error
                 self.ready.set()
                 return
+
+            # For CDP connections, create an isolated session context so
+            # parallel gptme instances don't share cookies/tabs.
+            if self.cdp_url and browser is not None:
+                self._session_context = browser.new_context()
+                logger.info("Created isolated session context for CDP connection")
 
             self.ready.set()  # Signal successful init
 
@@ -163,6 +172,14 @@ class BrowserThread:
             self.ready.set()  # Prevent hanging in __init__
             raise
         finally:
+            # Close session context before browser
+            if self._session_context is not None:
+                try:
+                    self._session_context.close()
+                except Exception:
+                    logger.debug("Error closing session context during cleanup")
+                self._session_context = None
+
             # Close browser with isolated error handling
             if browser is not None:
                 try:
