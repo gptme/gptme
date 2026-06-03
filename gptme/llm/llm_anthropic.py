@@ -779,7 +779,7 @@ def stream(
 
     _temperature = temperature if temperature is not None else TEMPERATURE
     _top_p = top_p if top_p is not None else TOP_P
-    with _anthropic.messages.stream(  # type: ignore[call-arg, arg-type, misc]
+    with _anthropic.messages.stream(  # type: ignore[call-arg, misc]
         model=api_model,
         messages=messages_dicts,
         system=system_messages,
