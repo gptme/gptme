@@ -585,7 +585,7 @@ jobs:
           NDK_HOME: ${{ env.NDK_HOME }}
 
       - name: Upload Android artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: android-build
           path: |
