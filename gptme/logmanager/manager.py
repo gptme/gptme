@@ -695,10 +695,13 @@ def _strip_thinking_blocks(content: str) -> str:
 
     Returns the cleaned text (may be empty if the message was thinking-only).
     """
-    import re
 
-    cleaned = re.sub(r"<think>.*?</think>\s*", "", content, flags=re.DOTALL)
-    cleaned = re.sub(r"<thinking>.*?</thinking>\s*", "", cleaned, flags=re.DOTALL)
+    cleaned = re.sub(
+        r"<think>.*?</think>\s*", "", content, flags=re.DOTALL | re.IGNORECASE
+    )
+    cleaned = re.sub(
+        r"<thinking>.*?</thinking>\s*", "", cleaned, flags=re.DOTALL | re.IGNORECASE
+    )
     return cleaned.strip()
 
 
