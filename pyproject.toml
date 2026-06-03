@@ -61,7 +61,7 @@ pypdf = ">=6.7.3"  # For PDF text extraction in browser tool (CVE fix: RAM exhau
 requests = "^2.34"  # For HTTP requests in browser tool (PDF detection)
 json-repair = "^0.32.0"
 mcp = "^1.13.0"
-questionary = "^2.1.0"
+questionary = "^2.1.1"
 python-dateutil = "^2.9.0.post0"
 pyyaml = "^6.0.3"
 
