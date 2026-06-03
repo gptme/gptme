@@ -246,9 +246,17 @@ def _maybe_authenticate_gptme_interactively(
 
 
 def init_logging(verbose, *, stderr: bool = True):
-    handler = RichHandler(
-        console=Console(stderr=stderr, log_path=False)
-    )  # show_time=False
+    if not stderr:
+        # Use the shared Rich Console (same instance rprint uses) so log
+        # output is serialized with streaming assistant output through a
+        # single Console, preventing stderr/stdout interleave mid-stream.
+        from rich import get_console as _get_console
+
+        handler = RichHandler(console=_get_console())
+    else:
+        handler = RichHandler(
+            console=Console(stderr=True, log_path=False)
+        )  # show_time=False
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(message)s",

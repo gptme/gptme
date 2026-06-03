@@ -1555,6 +1555,28 @@ class TestInitLogging:
         )
         assert handler.console.stderr is True
 
+    def test_rich_handler_stderr_false_uses_shared_console(self):
+        """stderr=False should use the shared rich Console for single-console output."""
+        import sys
+
+        from rich import get_console as _get_console
+        from rich.logging import RichHandler as _RichHandler
+
+        from gptme.init import init_logging
+
+        init_logging(verbose=False, stderr=False)
+        handler = next(
+            h for h in logging.getLogger().handlers if isinstance(h, _RichHandler)
+        )
+        shared = _get_console()
+        assert handler.console is shared, (
+            "RichHandler should reuse the shared Console when stderr=False"
+        )
+        # Should NOT be writing to stderr directly
+        assert handler.console.file != sys.stderr, (
+            "should not use stderr when stderr=False"
+        )
+
     def test_atexit_cleanup_registered(self):
         """An atexit cleanup handler should be registered."""
         from gptme.init import init_logging

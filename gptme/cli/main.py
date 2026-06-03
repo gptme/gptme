@@ -642,7 +642,11 @@ def main(
         interactive = False
 
     # init logging
-    init_logging(verbose)
+    # Route log output through stdout (via shared Rich Console) when in a TTY
+    # so that logging and streaming assistant output are serialized through the
+    # same Console, preventing stderr/stdout interleave mid-stream.
+    # In non-interactive/pipe modes, keep traditional stderr routing.
+    init_logging(verbose, stderr=not sys.stdout.isatty())
 
     if not interactive:
         no_confirm = True
