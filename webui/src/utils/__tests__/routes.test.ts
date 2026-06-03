@@ -21,6 +21,16 @@ describe('chatRoute', () => {
     window.history.replaceState(null, '', '/?demo=1');
     expect(chatRoute('demo/conv-123', '')).toBe('/chat/demo%2Fconv-123');
   });
+
+  it('does not forward ephemeral params like step=true', () => {
+    window.history.replaceState(null, '', '/?step=true');
+    expect(chatRoute('conv-123')).toBe('/chat/conv-123');
+  });
+
+  it('forwards demo but strips step when both are present', () => {
+    window.history.replaceState(null, '', '/?demo=1&step=true');
+    expect(chatRoute('demo/conv-123')).toBe('/chat/demo%2Fconv-123?demo=1');
+  });
 });
 
 describe('decodeRouteParam', () => {
