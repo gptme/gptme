@@ -1,5 +1,6 @@
 import copy
 import random
+from pathlib import Path
 
 import pytest
 
@@ -527,3 +528,29 @@ def test_http_errors_return_json(client: FlaskClient):
     data = response.get_json()
     assert data is not None
     assert "error" in data
+
+
+def test_spa_fallback_api_returns_json(tmp_path: Path):
+    """In custom-webui mode, unknown api/ paths return JSON 404 (not index.html).
+
+    The spa_fallback catch-all route guards api/ prefixes explicitly so that
+    API clients don't receive index.html when they hit an unknown endpoint.
+    """
+    # Minimal webui build: any directory != static_path triggers is_custom_webui=True
+    (tmp_path / "index.html").write_text("<html></html>")
+
+    from gptme.server.app import create_app  # fmt: skip
+
+    app = create_app(webui_dir=tmp_path)
+    with app.test_client() as c:
+        # api/ path → JSON 404, never index.html
+        response = c.get("/api/v2/this-does-not-exist")
+        assert response.status_code == 404
+        assert response.content_type.startswith("application/json")
+        data = response.get_json()
+        assert data is not None
+        assert "error" in data
+
+        # non-api path → SPA fallback serves index.html
+        response = c.get("/some/deep/link")
+        assert response.status_code == 200
