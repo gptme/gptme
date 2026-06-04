@@ -1,6 +1,7 @@
 """Complete tool - signals that the autonomous session is finished."""
 
 import logging
+import os
 from collections.abc import Generator
 from typing import TYPE_CHECKING, Any
 
@@ -170,6 +171,136 @@ def auto_reply_hook(
         )
 
 
+def _env_flag(name: str, default: str) -> bool:
+    return os.environ.get(name, default).lower() in ("1", "true", "yes")
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning("Invalid int for %s=%r, using default %d", name, raw, default)
+        return default
+
+
+STUCK_MARKER = "appear stuck"
+
+
+def _turn_fingerprint(msg: "Message") -> tuple | None:
+    """Fingerprint an assistant turn's tool uses for stuck detection.
+
+    Returns a sorted, order-independent multiset of (tool, args, body) for all
+    tool uses in the message, or None if the message has no tool uses. Two turns
+    with identical fingerprints reissue exactly the same action(s); a different
+    file, arg, or body produces a different fingerprint and resets the count.
+    """
+    uses = list(ToolUse.iter_from_content(msg.content))
+    if not uses:
+        return None
+    return tuple(
+        sorted(
+            (u.tool or "", tuple(u.args or ()), (u.content or "").strip()) for u in uses
+        )
+    )
+
+
+def stuck_detect_hook(
+    manager: "LogManager", interactive: bool, prompt_queue: Any
+) -> Generator[Message | StopPropagation, None, None]:
+    """Detect a stuck agent that keeps issuing the same tool call(s).
+
+    Unlike ``auto_reply_hook`` (which only acts when the last assistant message
+    has *no* tool uses), this hook fires when the agent *does* emit tool uses but
+    keeps repeating an identical action without progress — a silent failing loop
+    that would otherwise run until the budget or session timeout is hit.
+
+    Registered as a separate LOOP_CONTINUE hook at higher priority than
+    ``auto_reply_hook`` so it can observe the yes-tool-but-repeating case the
+    latter early-returns on. Mutates nothing; only yields a system nudge and,
+    after repeated escalations, raises SessionCompleteException.
+
+    See gptme/gptme#2725 and the design note in Bob's workspace.
+    """
+    # Only run in non-interactive mode — a human can break their own loop.
+    if interactive:
+        return
+
+    if not _env_flag("GPTME_STUCK_DETECT", "1"):
+        return
+
+    # Skip if there are queued prompts (mirrors auto_reply_hook).
+    if prompt_queue:
+        return
+
+    repeat_threshold = _env_int("GPTME_STUCK_REPEAT_THRESHOLD", 3)
+    escalate_max = _env_int("GPTME_STUCK_ESCALATE_MAX", 2)
+    if repeat_threshold < 2:
+        return  # detection disabled by config
+
+    # Fingerprint the most recent consecutive run of assistant turns.
+    assistant_msgs = [
+        m for m in reversed(manager.log.messages) if m.role == "assistant"
+    ]
+    if len(assistant_msgs) < repeat_threshold:
+        return
+
+    latest_fp = _turn_fingerprint(assistant_msgs[0])
+    if latest_fp is None:
+        return  # no tool uses → auto_reply_hook's concern, not ours
+
+    repeats = 1
+    for msg in assistant_msgs[1:]:
+        if _turn_fingerprint(msg) == latest_fp:
+            repeats += 1
+        else:
+            break
+    if repeats < repeat_threshold:
+        return
+
+    # Count how many times we've already escalated this stuck run (walk back over
+    # injected stuck markers, stopping at the first non-matching assistant turn).
+    escalation_count = 0
+    for msg in reversed(manager.log.messages):
+        if msg.role == "user" and STUCK_MARKER in msg.content:
+            escalation_count += 1
+        elif msg.role == "assistant":
+            if _turn_fingerprint(msg) != latest_fp:
+                break
+        else:
+            break
+
+    repeated_tool = latest_fp[0][0] if latest_fp else "?"
+
+    if escalation_count >= escalate_max:
+        logger.warning(
+            "Stuck loop not broken after %d escalations (repeated `%s`). Exiting.",
+            escalate_max,
+            repeated_tool,
+        )
+        raise SessionCompleteException(
+            f"Stuck loop not broken after {escalate_max} escalations"
+        )
+
+    logger.warning(
+        "Stuck detected: `%s` repeated %d times without progress. Nudging.",
+        repeated_tool,
+        repeats,
+    )
+    yield Message(
+        "user",
+        (
+            f"<system>You appear stuck: the same action (`{repeated_tool}`) was "
+            f"repeated {repeats} times without progress. Try a different approach, "
+            f"fix the underlying error, or use the `complete` tool if you are "
+            f"genuinely blocked.</system>"
+        ),
+        quiet=False,
+    )
+
+
 tool = ToolSpec(
     name="complete",
     desc="Signal that the autonomous session is finished",
@@ -204,5 +335,10 @@ Use only after all requested work is done and committed. Do not call it mid-task
             auto_reply_hook,
             999,
         ),  # Run after complete check (lower priority)
+        "stuck_detect": (
+            HookType.LOOP_CONTINUE,
+            stuck_detect_hook,
+            1000,
+        ),  # Run before auto_reply: catches repeating-tool loops it can't see
     },
 )
