@@ -210,6 +210,7 @@ class LoopContinueHook(Protocol):
         manager: Conversation manager with log and workspace
         interactive: Whether in interactive mode
         prompt_queue: Queue of pending prompts
+        no_confirm: Whether tool confirmations are skipped (-y mode)
     """
 
     def __call__(
@@ -217,6 +218,8 @@ class LoopContinueHook(Protocol):
         manager: "LogManager",
         interactive: bool,
         prompt_queue: Any,
+        no_confirm: bool = False,
+        **kwargs: Any,
     ) -> Generator[Message | StopPropagation, None, None]: ...
 
 

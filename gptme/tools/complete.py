@@ -144,6 +144,8 @@ def auto_reply_hook(
         for msg in reversed(manager.log.messages):
             if msg.role == "user" and "No tool call detected" in msg.content:
                 nudge_count += 1
+            elif msg.role == "user":
+                break  # A real user message starts a fresh think-only streak
             elif msg.role == "assistant" and list(
                 ToolUse.iter_from_content(msg.content)
             ):
