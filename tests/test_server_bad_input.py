@@ -208,9 +208,11 @@ def test_step_no_session():
 
 
 def test_step_malformed_json():
-    """Stepping with malformed JSON body should return 4xx."""
-    status, data = _req("POST", "/api/v2/conversations/nonexistent/events", "not json")
-    assert 400 <= status < 500, f"expected 4xx for malformed JSON, got {status}: {data}"
+    """Stepping with malformed JSON body should return 400 (bad JSON, not 404)."""
+    # POST to /step: JSON is parsed before conversation-existence check, so
+    # malformed body yields 400 regardless of whether the conversation exists.
+    status, data = _req("POST", "/api/v2/conversations/nonexistent/step", "not json")
+    assert status == 400, f"expected 400 for malformed JSON, got {status}: {data}"
     print(f"  PASS: malformed JSON step returned {status}")
 
 
