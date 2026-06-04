@@ -166,6 +166,67 @@ class TestAutoReplyHook:
             assert len(result) == 0
 
 
+class TestInteractiveNoConfirmNudge:
+    """Tests for interactive + no_confirm (-y mode) nudge behavior."""
+
+    def test_interactive_no_confirm_notool_nudge(self):
+        """Should yield a single gentle nudge in -y mode when no tools used."""
+        messages = [
+            Message("assistant", "Let me think about this..."),
+        ]
+
+        manager = MagicMock()
+        manager.log = Log(messages)
+
+        result = list(
+            auto_reply_hook(
+                manager, interactive=True, no_confirm=True, prompt_queue=None
+            )
+        )
+        assert len(result) == 1
+        assert isinstance(result[0], Message)
+        assert "No tool call detected" in result[0].content
+        assert result[0].quiet is True
+
+    def test_interactive_no_confirm_no_repeat_nudge(self):
+        """Should not nudge again after already nudging once in -y mode."""
+        messages = [
+            Message("assistant", "Let me think about this..."),
+            Message(
+                "user",
+                "<system>No tool call detected. Please continue with a tool call, or use the `complete` tool if done.</system>",
+                quiet=True,
+            ),
+            Message("assistant", "Still thinking..."),
+        ]
+
+        manager = MagicMock()
+        manager.log = Log(messages)
+
+        result = list(
+            auto_reply_hook(
+                manager, interactive=True, no_confirm=True, prompt_queue=None
+            )
+        )
+        assert len(result) == 0  # No additional nudge in -y mode
+
+    def test_plain_interactive_no_nudge(self):
+        """Plain interactive (no -y) should never nudge even without tools."""
+        messages = [
+            Message("assistant", "Response without tools"),
+        ]
+
+        manager = MagicMock()
+        manager.log = Log(messages)
+
+        result = list(
+            auto_reply_hook(
+                manager, interactive=True, no_confirm=False, prompt_queue=None
+            )
+        )
+        assert len(result) == 0  # Preserves existing no-nudge behavior
+
+
 class TestTodoContinuationEnforcer:
     """Tests for todo-based continuation enforcement."""
 

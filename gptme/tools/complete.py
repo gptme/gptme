@@ -97,7 +97,11 @@ def complete_hook(
 
 
 def auto_reply_hook(
-    manager: "LogManager", interactive: bool, prompt_queue: Any
+    manager: "LogManager",
+    interactive: bool,
+    prompt_queue: Any,
+    no_confirm: bool = False,
+    **kwargs: Any,
 ) -> Generator[Message | StopPropagation, None, None]:
     """
     Hook that implements auto-reply mechanism for autonomous operation.
@@ -105,15 +109,19 @@ def auto_reply_hook(
     If in non-interactive mode and last assistant message had no tools,
     inject an auto-reply to ensure the assistant does work.
 
+    Also handles interactive + no_confirm (-y) mode: one gentle nudge without
+    the 2x exit mechanism.
+
     This is called via LOOP_CONTINUE hook, which receives interactive and prompt_queue.
 
     Args:
         manager: Conversation manager with log and workspace
         interactive: Whether in interactive mode
+        no_confirm: Whether in no-confirm (-y) mode; enables nudge in interactive mode
         prompt_queue: Queue of pending prompts
     """
-    # Only run in non-interactive mode
-    if interactive:
+    # Skip for real interactive sessions (human at keyboard, no -y flag)
+    if interactive and not no_confirm:
         return
 
     # Skip if there are queued prompts
@@ -130,7 +138,27 @@ def auto_reply_hook(
     if tool_uses:
         return  # Has tools, no need to prompt
 
-    # Count consecutive auto-replies
+    # In interactive + no_confirm (-y) mode: one gentle nudge, no forced exit
+    if interactive and no_confirm:
+        nudge_count = 0
+        for msg in reversed(manager.log.messages):
+            if msg.role == "user" and "No tool call detected" in msg.content:
+                nudge_count += 1
+            elif msg.role == "assistant" and list(
+                ToolUse.iter_from_content(msg.content)
+            ):
+                break  # Stop at last tool-using assistant message
+        if nudge_count >= 1:
+            return  # One nudge per think-only streak is enough
+        logger.info("Auto-nudge: think-only in -y mode, injecting continuation hint")
+        yield Message(
+            "user",
+            "<system>No tool call detected. Please continue with a tool call, or use the `complete` tool if done.</system>",
+            quiet=True,
+        )
+        return
+
+    # Non-interactive: count consecutive auto-replies
     auto_reply_count = 0
     for msg in reversed(manager.log.messages):
         if msg.role == "user" and "use the `complete` tool" in msg.content:

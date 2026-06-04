@@ -54,6 +54,7 @@ def _subagent_completion_hook(
     manager: "LogManager",
     interactive: bool,
     prompt_queue: object,
+    **kwargs: object,
 ) -> Generator[Message, None, None]:
     """Check for completed subagents and yield notification messages.
 
