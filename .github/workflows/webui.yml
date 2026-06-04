@@ -61,6 +61,8 @@ jobs:
       name: chat-gptme-org
       url: https://chat.gptme.org
     steps:
+    - uses: actions/checkout@v6
+
     - name: Download dist artifact
       uses: actions/download-artifact@v6
       with:
@@ -73,6 +75,13 @@ jobs:
         apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         command: pages deploy dist --project-name=gptme-webui
+
+    - name: Smoke test deployed deep links
+      working-directory: .
+      run: |
+        python3 scripts/verify_cloudflare_pages_deep_links.py \
+          --redirects-path dist/_redirects \
+          --base-url https://chat.gptme.org
 
   e2e:
     runs-on: ubuntu-latest
