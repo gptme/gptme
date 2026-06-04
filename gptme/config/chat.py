@@ -132,7 +132,9 @@ class ChatConfig:
                     f"chat.{field_name} must be a number, got {type(val).__name__}"
                 )
         max_tokens_val = chat_data.get("max_tokens")
-        if max_tokens_val is not None and not isinstance(max_tokens_val, int):
+        if max_tokens_val is not None and (
+            not isinstance(max_tokens_val, int) or isinstance(max_tokens_val, bool)
+        ):
             raise ValueError(
                 f"chat.max_tokens must be an integer, got {type(max_tokens_val).__name__}"
             )

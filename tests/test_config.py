@@ -586,9 +586,11 @@ def test_chat_config_numeric_fields_reject_wrong_types():
         ChatConfig.from_dict({"chat": {"top_p": "high"}})
     with pytest.raises(ValueError, match="max_tokens"):
         ChatConfig.from_dict({"chat": {"max_tokens": "a lot"}})
-    # booleans are a subtype of int — accept them (edge case)
-    cfg = ChatConfig.from_dict({"chat": {"max_tokens": True}})
-    assert cfg.max_tokens is True
+    # booleans are a subtype of int but semantically wrong for max_tokens (0 or 1 token)
+    with pytest.raises(ValueError, match="max_tokens"):
+        ChatConfig.from_dict({"chat": {"max_tokens": True}})
+    with pytest.raises(ValueError, match="max_tokens"):
+        ChatConfig.from_dict({"chat": {"max_tokens": False}})
 
 
 def test_project_config_loaded_from_toml():
