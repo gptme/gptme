@@ -157,6 +157,12 @@ class ConversationName(click.ParamType):
     def convert(self, value, param, ctx):
         if value == "random":
             return value
+        # Empty/whitespace-only names silently default to "random" instead of
+        # crashing with a validation error. This guards against Click version
+        # and shell edge cases where --name "" bypasses the ParamType's
+        # convert method and passes an empty string straight to main().
+        if not value or not value.strip():
+            return "random"
         if error := conversation_name_error(value):
             self.fail(error, param, ctx)
         return value

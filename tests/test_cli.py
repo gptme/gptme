@@ -155,13 +155,26 @@ def test_name_rejects_path_traversal(bad_name: str, runner: CliRunner):
 
 
 @pytest.mark.parametrize("bad_name", ["", " ", "   ", "\t"])
-def test_name_rejects_empty_or_whitespace_only_values(bad_name: str, runner: CliRunner):
+def test_name_defaults_to_random_for_empty_or_whitespace(
+    bad_name: str, runner: CliRunner
+):
     result = runner.invoke(
         cli.main,
         ["--name", bad_name, "--non-interactive", "hello"],
     )
-    assert result.exit_code == 2
-    assert "conversation name cannot be empty" in result.output
+    # Empty/whitespace names default to "random" to guard against Click/shell
+    # edge cases where --name "" bypasses the ParamType and reaches main() empty
+    assert result.exit_code == 0
+
+
+def test_name_empty_before_output_format(runner: CliRunner):
+    """Regression: --name "" with later flags must not crash with a raw stack trace."""
+    result = runner.invoke(
+        cli.main,
+        ["--name", "", "--output-format", "json", "--non-interactive", "hello"],
+    )
+    # Must not crash with SystemExit(2) or traceback
+    assert result.exit_code == 0
 
 
 @pytest.mark.parametrize(
