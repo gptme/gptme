@@ -183,6 +183,18 @@ def create_app(
                 return app.send_static_file(path)
             return app.send_static_file("index.html")
 
+    # Register JSON error handlers so all API errors return JSON instead of HTML.
+    # Without these, Flask's default handlers return HTML for 404/405/500 etc.,
+    # which breaks webui clients that expect JSON from every /api/* response.
+    from werkzeug.exceptions import HTTPException  # fmt: skip
+
+    @app.errorhandler(HTTPException)
+    def handle_http_exception(e: HTTPException) -> flask.Response:
+        response = e.get_response()
+        response.data = flask.json.dumps({"error": e.description})
+        response.content_type = "application/json"
+        return response
+
     # Server confirmation hook is now registered via init_hooks(server=True)
     # in server/cli.py
 

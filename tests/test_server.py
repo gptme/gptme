@@ -493,3 +493,34 @@ def test_auth_query_param_still_works(auth_client):
 
     response = client.get(f"/api/v2/conversations?token={token}")
     assert response.status_code == 200
+
+
+def test_http_errors_return_json(client: FlaskClient):
+    """HTTP errors from Flask (404, 405) must return JSON, not HTML.
+
+    Without registered error handlers, Flask returns HTML error pages for routing
+    errors. The webui expects JSON from all /api/* responses, so HTML breaks client
+    error handling.
+    """
+    # 404: nonexistent API route
+    response = client.get("/api/v2/this-does-not-exist")
+    assert response.status_code == 404
+    assert response.content_type.startswith("application/json")
+    data = response.get_json()
+    assert data is not None
+    assert "error" in data
+
+    # 405: valid route but wrong HTTP method
+    response = client.post("/api/v2/models")
+    assert response.status_code == 405
+    assert response.content_type.startswith("application/json")
+    data = response.get_json()
+    assert data is not None
+    assert "error" in data
+
+    # 404: invalid message index type (-1 doesn't match <int:index> pattern)
+    response = client.delete("/api/v2/conversations/any-conv/messages/-1")
+    assert response.status_code in (404, 405)
+    assert response.content_type.startswith("application/json"), (
+        f"Expected JSON, got {response.content_type}: {response.data[:200]}"
+    )
