@@ -498,6 +498,11 @@ def main(
 ):
     """Main entrypoint for the CLI."""
 
+    # Defense-in-depth: handle empty/whitespace names in case Click bypasses convert()
+    # (observed to occur in some Click versions when --name "" is passed)
+    if not name or not name.strip():
+        name = "random"
+
     # Apply agent profile if specified
     selected_profile = None
     if agent_profile:
