@@ -176,8 +176,16 @@ def create_app(
         # Router deep-links (/settings, /conversations/xyz, …) work correctly.
         # Actual static assets (JS/CSS/images) are served first because their
         # paths exist in static_folder; only truly unknown paths fall through.
+        # API paths that reach here (unknown routes, bad URL segments) get a
+        # JSON 404 so clients don't receive index.html as an API response.
         @app.route("/<path:path>")
         def spa_fallback(path: str):
+            if path.startswith("api/"):
+                return flask.Response(
+                    response=flask.json.dumps({"error": "Not Found"}),
+                    status=404,
+                    content_type="application/json",
+                )
             asset = static_folder / path
             if asset.is_file():
                 return app.send_static_file(path)
@@ -190,10 +198,11 @@ def create_app(
 
     @app.errorhandler(HTTPException)
     def handle_http_exception(e: HTTPException) -> flask.Response:
-        response = e.get_response()
-        response.data = flask.json.dumps({"error": e.description})
-        response.content_type = "application/json"
-        return response
+        return flask.Response(
+            response=flask.json.dumps({"error": e.description}),
+            status=e.code,
+            content_type="application/json",
+        )
 
     # Server confirmation hook is now registered via init_hooks(server=True)
     # in server/cli.py

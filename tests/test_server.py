@@ -524,3 +524,6 @@ def test_http_errors_return_json(client: FlaskClient):
     assert response.content_type.startswith("application/json"), (
         f"Expected JSON, got {response.content_type}: {response.data[:200]}"
     )
+    data = response.get_json()
+    assert data is not None
+    assert "error" in data
