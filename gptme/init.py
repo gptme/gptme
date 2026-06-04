@@ -180,8 +180,26 @@ def init_model(
             model_name = "/".join(
                 model_meta.model.split("/")[1:]
             )  # Strip provider prefix
-        else:
+        elif model in PROVIDERS:
+            # Bare builtin provider name (e.g. "anthropic"): use its
+            # recommended model below via get_recommended_model().
             provider, model_name = cast(tuple[Provider, str], (model, None))
+        else:
+            # Not a provider at all - treat as a bare model name and resolve it
+            # via get_model() (e.g. "gpt-4o" -> openai/gpt-4o). Previously this
+            # blindly cast the model name to a provider, then crashed in
+            # get_recommended_model() with the misleading "Provider 'X' requires
+            # specifying a model" message. Mirrors the slash-path handling above.
+            resolved = get_model(model)
+            if resolved.provider == "unknown":
+                raise ValueError(
+                    f"Unknown model {model!r}. Use 'provider/model' with a known "
+                    f"provider (e.g. 'openai/{model}'), or configure a custom "
+                    f"provider. Run 'gptme-util models list' to see available models."
+                )
+            provider = resolved.provider
+            model_name = resolved.model
+            _resolved_meta = resolved  # reuse below; avoids a redundant second lookup
 
     # set up API_KEY and API_BASE, needs to be done before loading history to avoid saving API_KEY
     if model_name is None:

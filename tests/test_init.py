@@ -639,6 +639,83 @@ class TestInitModelParsing:
     @patch("gptme.init.set_default_model")
     @patch("gptme.init.get_model")
     @patch("gptme.init.init_llm")
+    @patch("gptme.init.get_recommended_model")
+    @patch("gptme.init.is_custom_provider", return_value=False)
+    @patch("gptme.init.get_config")
+    @patch("gptme.init.console")
+    def test_bare_model_name_without_slash_resolved_via_get_model(
+        self,
+        mock_console,
+        mock_config_fn,
+        mock_custom,
+        mock_recommend,
+        mock_init_llm,
+        mock_get_model,
+        mock_set_default,
+        dummy_model_meta,
+    ):
+        """A bare model name without a slash (e.g. 'gpt-4o') that get_model()
+        resolves should be treated as a model, not a provider. Regression test:
+        the no-slash path previously cast the whole string to a provider and
+        crashed in get_recommended_model() with the misleading
+        'Provider X requires specifying a model' message."""
+        from gptme.init import init_model
+
+        mock_config_fn.return_value = MagicMock(
+            chat=MagicMock(model=None), get_env=MagicMock(return_value=None)
+        )
+        mock_get_model.return_value = ModelMeta(
+            provider="openai",
+            model="gpt-4o",
+            context=128_000,
+        )
+
+        init_model(model="gpt-4o")
+
+        # Provider resolved from get_model, model_name already known so the
+        # recommended-model fallback is never reached.
+        mock_init_llm.assert_called_once_with("openai")
+        mock_recommend.assert_not_called()
+
+    @patch("gptme.init.set_default_model")
+    @patch("gptme.init.get_model")
+    @patch("gptme.init.init_llm")
+    @patch("gptme.init.get_recommended_model")
+    @patch("gptme.init.is_custom_provider", return_value=False)
+    @patch("gptme.init.get_config")
+    @patch("gptme.init.console")
+    def test_bare_unknown_model_without_slash_raises_clear_error(
+        self,
+        mock_console,
+        mock_config_fn,
+        mock_custom,
+        mock_recommend,
+        mock_init_llm,
+        mock_get_model,
+        mock_set_default,
+        dummy_model_meta,
+    ):
+        """A bare unresolvable model name (get_model falls back to
+        provider='unknown') should raise the clear 'Unknown model' error, not
+        the misleading 'provider requires a model' crash. This is the no-slash
+        sibling of test_unresolvable_model_raises_clear_error."""
+        from gptme.init import init_model
+
+        mock_config_fn.return_value = MagicMock(
+            chat=MagicMock(model=None), get_env=MagicMock(return_value=None)
+        )
+        mock_get_model.return_value = ModelMeta(
+            provider="unknown",
+            model="claude-sonnet",
+            context=128_000,
+        )
+
+        with pytest.raises(ValueError, match="Unknown model"):
+            init_model(model="claude-sonnet")
+
+    @patch("gptme.init.set_default_model")
+    @patch("gptme.init.get_model")
+    @patch("gptme.init.init_llm")
     @patch("gptme.init.get_recommended_model", return_value="gemini-pro")
     @patch("gptme.init.is_custom_provider", return_value=False)
     @patch("gptme.init.get_config")
