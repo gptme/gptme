@@ -123,6 +123,20 @@ class ChatConfig:
             raise ValueError("mcp must be an object")
         mcp = MCPConfig.from_dict(mcp_data) if mcp_data is not None else None
 
+        # Type-validate numeric fields so wrong-type values raise ValueError here
+        # (at the API boundary) instead of silently storing bad types that crash later.
+        for field_name in ("temperature", "top_p"):
+            val = chat_data.get(field_name)
+            if val is not None and not isinstance(val, (int, float)):
+                raise ValueError(
+                    f"chat.{field_name} must be a number, got {type(val).__name__}"
+                )
+        max_tokens_val = chat_data.get("max_tokens")
+        if max_tokens_val is not None and not isinstance(max_tokens_val, int):
+            raise ValueError(
+                f"chat.max_tokens must be an integer, got {type(max_tokens_val).__name__}"
+            )
+
         # Check for unknown keys
         if config_data:
             logger.warning(f"Unknown keys in chat config: {config_data.keys()}")
