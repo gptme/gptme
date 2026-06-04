@@ -1,5 +1,7 @@
 """Tests for the tool confirmation hook system."""
 
+from pathlib import Path
+
 import pytest
 
 from gptme.hooks import HookType, get_hooks, register_hook, unregister_hook
@@ -83,7 +85,11 @@ class TestGetConfirmation:
             content="test content",
         )
 
-        def test_hook(tool_use, preview, workspace):
+        def test_hook(
+            tool_use: ToolUse,
+            preview: str | None = None,
+            workspace: Path | None = None,
+        ) -> ConfirmationResult | None:
             return ConfirmationResult.confirm()
 
         register_hook(
@@ -104,7 +110,11 @@ class TestGetConfirmation:
             content="test content",
         )
 
-        def test_hook(tool_use, preview, workspace):
+        def test_hook(
+            tool_use: ToolUse,
+            preview: str | None = None,
+            workspace: Path | None = None,
+        ) -> ConfirmationResult | None:
             return ConfirmationResult.skip("Test skip")
 
         register_hook(
@@ -126,7 +136,11 @@ class TestGetConfirmation:
             content="original content",
         )
 
-        def test_hook(tool_use, preview, workspace):
+        def test_hook(
+            tool_use: ToolUse,
+            preview: str | None = None,
+            workspace: Path | None = None,
+        ) -> ConfirmationResult | None:
             return ConfirmationResult.edit("modified content")
 
         register_hook(
@@ -151,7 +165,7 @@ class TestGetConfirmation:
         def bool_hook(tool_use, preview, workspace):
             return True
 
-        register_hook(
+        register_hook(  # type: ignore[call-overload]
             name="bool_hook",
             hook_type=HookType.TOOL_CONFIRM,
             func=bool_hook,
@@ -172,7 +186,7 @@ class TestGetConfirmation:
         def bool_hook(tool_use, preview, workspace):
             return False
 
-        register_hook(
+        register_hook(  # type: ignore[call-overload]
             name="bool_hook_false",
             hook_type=HookType.TOOL_CONFIRM,
             func=bool_hook,
