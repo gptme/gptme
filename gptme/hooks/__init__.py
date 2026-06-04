@@ -257,3 +257,9 @@ def init_hooks(
                 logger.warning(
                     "Failed to register hooks for plugin %r: %s", plugin.name, e
                 )
+
+    # Inform the auto_reply_hook about the current mode without threading it
+    # through the hook protocol on every loop iteration.
+    from ..tools.complete import set_no_confirm  # fmt: skip
+
+    set_no_confirm(no_confirm)

@@ -8,7 +8,11 @@ from gptme.logmanager import Log
 from gptme.message import Message
 from gptme.tools import todo
 from gptme.tools.base import ToolUse
-from gptme.tools.complete import SessionCompleteException, auto_reply_hook
+from gptme.tools.complete import (
+    SessionCompleteException,
+    auto_reply_hook,
+    set_no_confirm,
+)
 
 
 class TestAutoReplyHook:
@@ -169,8 +173,12 @@ class TestAutoReplyHook:
 class TestInteractiveNoConfirmNudge:
     """Tests for interactive + no_confirm (-y mode) nudge behavior."""
 
+    def teardown_method(self):
+        set_no_confirm(False)
+
     def test_interactive_no_confirm_notool_nudge(self):
         """Should yield a single gentle nudge in -y mode when no tools used."""
+        set_no_confirm(True)
         messages = [
             Message("assistant", "Let me think about this..."),
         ]
@@ -178,11 +186,7 @@ class TestInteractiveNoConfirmNudge:
         manager = MagicMock()
         manager.log = Log(messages)
 
-        result = list(
-            auto_reply_hook(
-                manager, interactive=True, no_confirm=True, prompt_queue=None
-            )
-        )
+        result = list(auto_reply_hook(manager, interactive=True, prompt_queue=None))
         assert len(result) == 1
         assert isinstance(result[0], Message)
         assert "No tool call detected" in result[0].content
@@ -190,6 +194,7 @@ class TestInteractiveNoConfirmNudge:
 
     def test_interactive_no_confirm_no_repeat_nudge(self):
         """Should not nudge again after already nudging once in -y mode."""
+        set_no_confirm(True)
         messages = [
             Message("assistant", "Let me think about this..."),
             Message(
@@ -203,15 +208,12 @@ class TestInteractiveNoConfirmNudge:
         manager = MagicMock()
         manager.log = Log(messages)
 
-        result = list(
-            auto_reply_hook(
-                manager, interactive=True, no_confirm=True, prompt_queue=None
-            )
-        )
+        result = list(auto_reply_hook(manager, interactive=True, prompt_queue=None))
         assert len(result) == 0  # No additional nudge in -y mode
 
     def test_interactive_no_confirm_real_user_resets_nudge(self):
         """A real user follow-up should start a fresh -y nudge streak."""
+        set_no_confirm(True)
         messages = [
             Message("assistant", "Let me think about this..."),
             Message(
@@ -227,11 +229,7 @@ class TestInteractiveNoConfirmNudge:
         manager = MagicMock()
         manager.log = Log(messages)
 
-        result = list(
-            auto_reply_hook(
-                manager, interactive=True, no_confirm=True, prompt_queue=None
-            )
-        )
+        result = list(auto_reply_hook(manager, interactive=True, prompt_queue=None))
         assert len(result) == 1
         assert isinstance(result[0], Message)
         assert "No tool call detected" in result[0].content
@@ -239,6 +237,7 @@ class TestInteractiveNoConfirmNudge:
 
     def test_plain_interactive_no_nudge(self):
         """Plain interactive (no -y) should never nudge even without tools."""
+        set_no_confirm(False)
         messages = [
             Message("assistant", "Response without tools"),
         ]
@@ -246,11 +245,7 @@ class TestInteractiveNoConfirmNudge:
         manager = MagicMock()
         manager.log = Log(messages)
 
-        result = list(
-            auto_reply_hook(
-                manager, interactive=True, no_confirm=False, prompt_queue=None
-            )
-        )
+        result = list(auto_reply_hook(manager, interactive=True, prompt_queue=None))
         assert len(result) == 0  # Preserves existing no-nudge behavior
 
 

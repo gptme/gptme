@@ -14,6 +14,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Set by init_hooks() when -y / no_confirm mode is active.
+# Avoids threading the flag through the hook protocol on every loop iteration.
+_no_confirm: bool = False
+
+
+def set_no_confirm(value: bool) -> None:
+    global _no_confirm
+    _no_confirm = value
+
 
 class SessionCompleteException(Exception):
     """Exception raised to signal that the session should end."""
@@ -100,7 +109,6 @@ def auto_reply_hook(
     manager: "LogManager",
     interactive: bool,
     prompt_queue: Any,
-    no_confirm: bool = False,
     **kwargs: Any,
 ) -> Generator[Message | StopPropagation, None, None]:
     """
@@ -110,18 +118,18 @@ def auto_reply_hook(
     inject an auto-reply to ensure the assistant does work.
 
     Also handles interactive + no_confirm (-y) mode: one gentle nudge without
-    the 2x exit mechanism.
+    the 2x exit mechanism. The no_confirm flag is read from the module-level
+    _no_confirm variable (set by set_no_confirm() during init_hooks()).
 
     This is called via LOOP_CONTINUE hook, which receives interactive and prompt_queue.
 
     Args:
         manager: Conversation manager with log and workspace
         interactive: Whether in interactive mode
-        no_confirm: Whether in no-confirm (-y) mode; enables nudge in interactive mode
         prompt_queue: Queue of pending prompts
     """
     # Skip for real interactive sessions (human at keyboard, no -y flag)
-    if interactive and not no_confirm:
+    if interactive and not _no_confirm:
         return
 
     # Skip if there are queued prompts
@@ -139,7 +147,7 @@ def auto_reply_hook(
         return  # Has tools, no need to prompt
 
     # In interactive + no_confirm (-y) mode: one gentle nudge, no forced exit
-    if interactive and no_confirm:
+    if interactive and _no_confirm:
         nudge_count = 0
         for msg in reversed(manager.log.messages):
             if msg.role == "user" and "No tool call detected" in msg.content:

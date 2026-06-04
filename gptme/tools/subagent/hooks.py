@@ -7,7 +7,7 @@ completions are delivered via the LOOP_CONTINUE hook as system messages.
 import logging
 import queue
 from collections.abc import Generator
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from ...message import Message
 from .types import Status, _completion_queue
@@ -53,9 +53,7 @@ def notify_completion(agent_id: str, status: Status, summary: str) -> None:
 def _subagent_completion_hook(
     manager: "LogManager",
     interactive: bool,
-    prompt_queue: Any,
-    no_confirm: bool = False,
-    **kwargs: Any,
+    prompt_queue: object,
 ) -> Generator[Message, None, None]:
     """Check for completed subagents and yield notification messages.
 
