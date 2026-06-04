@@ -2,6 +2,7 @@ import './polyfills';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
+import { isDemoMode } from './utils/connectionConfig';
 import { setupLogging } from './utils/logging';
 
 // Initialize logging as early as possible
@@ -18,7 +19,7 @@ setupLogging()
 // See: gptme/gptme#2236
 (function probeLocalhost() {
   // Only probe in Tauri desktop app; skip in regular browsers
-  if (typeof window === 'undefined' || !window.__TAURI__) {
+  if (typeof window === 'undefined' || !window.__TAURI__ || isDemoMode()) {
     return;
   }
 

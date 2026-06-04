@@ -20,7 +20,7 @@ import {
 } from '@/utils/apiKeyProviders';
 import { fetchProviderConfigured } from '@/utils/providerStatus';
 import { isTauriEnvironment, invokeTauri } from '@/utils/tauri';
-import { processConnectionFromHash } from '@/utils/connectionConfig';
+import { isDemoMode, processConnectionFromHash } from '@/utils/connectionConfig';
 import {
   bumpProviderStatusVersion,
   setupWizard$,
@@ -87,6 +87,7 @@ export function SetupWizard() {
   const { settings, updateSettings } = useSettings();
   const { api, isConnected$, connect, connectionConfig } = useApi();
   const isConnected = use$(isConnected$);
+  const demoMode = isDemoMode();
   const [step, setStep] = useState<SetupStep>('welcome');
   // isOpen is a one-time snapshot of hasCompletedSetup taken at mount. It is intentionally
   // NOT derived from settings on subsequent renders — the wizard manages its own visibility
@@ -95,7 +96,7 @@ export function SetupWizard() {
   // Also avoids React batching issues: completeSetup() + setStep('complete') update two separate
   // state atoms in the same event handler; a derived signal would close the dialog before the
   // 'complete' step could render.
-  const [isOpen, setIsOpen] = useState(!settings.hasCompletedSetup);
+  const [isOpen, setIsOpen] = useState(!demoMode && !settings.hasCompletedSetup);
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [cloudLoginStarted, setCloudLoginStarted] = useState(false);
@@ -296,7 +297,10 @@ export function SetupWizard() {
   }, [checkProviderAndAdvance, connectionConfig.baseUrl, isConnected, isOpen, step]);
 
   useEffect(() => {
-    if (!externalOpen) {
+    if (!externalOpen || demoMode) {
+      if (demoMode && externalOpen) {
+        setupWizard$.open.set(false);
+      }
       return;
     }
 
@@ -307,7 +311,7 @@ export function SetupWizard() {
     setStep(externalStep);
     setIsOpen(true);
     setupWizard$.open.set(false);
-  }, [externalOpen, externalStep]);
+  }, [demoMode, externalOpen, externalStep]);
 
   useEffect(() => {
     if (!cloudLoginStarted || step !== 'cloud' || isConnected) {

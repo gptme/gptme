@@ -10,6 +10,7 @@ const mockOpen = jest.fn();
 const mockFetch = jest.fn();
 const mockInvokeTauri = jest.fn();
 const mockProcessConnectionFromHash = jest.fn();
+const mockIsDemoMode = jest.fn(() => false);
 const isConnected$ = observable(false);
 const mockIsTauriEnvironment = jest.fn(() => false);
 const CLOUD_AUTH_BASE_URL = process.env['VITE_GPTME_CLOUD_BASE_URL'] || 'https://gptme.ai';
@@ -64,7 +65,7 @@ jest.mock('@/hooks/useTauriServerStatus', () => ({
 
 jest.mock('@/utils/connectionConfig', () => ({
   processConnectionFromHash: (...args: unknown[]) => mockProcessConnectionFromHash(...args),
-  isDemoMode: jest.fn(() => false),
+  isDemoMode: () => mockIsDemoMode(),
 }));
 
 jest.mock('@legendapp/state/react', () => ({
@@ -153,6 +154,7 @@ describe('SetupWizard', () => {
     mockFetch.mockReset();
     mockInvokeTauri.mockReset();
     mockProcessConnectionFromHash.mockReset();
+    mockIsDemoMode.mockReturnValue(false);
     mockFetch.mockResolvedValue({
       ok: true,
       status: 200,
@@ -177,6 +179,19 @@ describe('SetupWizard', () => {
       writable: true,
       value: mockOpen,
     });
+  });
+
+  it('stays closed in demo mode even for first-time users', () => {
+    mockIsDemoMode.mockReturnValue(true);
+
+    render(
+      <SettingsProvider>
+        <SetupWizard />
+      </SettingsProvider>
+    );
+
+    expect(screen.queryByRole('heading', { name: /welcome to gptme/i })).not.toBeInTheDocument();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it('closes the wizard via Skip on the welcome step and persists hasCompletedSetup', async () => {

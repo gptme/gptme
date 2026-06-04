@@ -10,6 +10,7 @@ const mockNavigate = jest.fn();
 const mockInvalidateQueries = jest.fn();
 const mockConnect = jest.fn();
 const mockFetch = jest.fn();
+const mockIsDemoMode = jest.fn(() => false);
 const isConnected$ = observable(true);
 const lastConnectionResult$ = observable<null | {
   ok: false;
@@ -37,6 +38,10 @@ const setLocation = (href: string) => {
 
 jest.mock('@/utils/api', () => ({
   isLikelyChromeCorsPna: (...args: unknown[]) => mockIsLikelyChromeCorsPna(...args),
+}));
+
+jest.mock('@/utils/connectionConfig', () => ({
+  isDemoMode: () => mockIsDemoMode(),
 }));
 
 jest.mock('react-router-dom', () => {
@@ -110,12 +115,29 @@ describe('WelcomeView', () => {
     mockNavigate.mockClear();
     mockInvalidateQueries.mockClear();
     mockFetch.mockReset();
+    mockIsDemoMode.mockReturnValue(false);
     mockIsLikelyChromeCorsPna.mockReturnValue(false);
     mockFetch.mockImplementation(() => new Promise(() => {}));
     Object.defineProperty(window, 'fetch', {
       writable: true,
       value: mockFetch,
     });
+  });
+
+  it('does not show first-run setup CTA or probe localhost in demo mode', () => {
+    setLocation('https://chat.gptme.org/?demo=1');
+    isConnected$.set(false);
+    mockIsDemoMode.mockReturnValue(true);
+
+    render(
+      <SettingsProvider>
+        <WelcomeView />
+      </SettingsProvider>
+    );
+
+    expect(screen.queryByRole('button', { name: /get started/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/The setup guide walks you through/i)).not.toBeInTheDocument();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it('renders the refreshed new chat copy and quick suggestions', () => {
