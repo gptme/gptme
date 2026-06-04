@@ -198,7 +198,7 @@ def test_step_no_session():
     cid = _create_conversation()[0]
     status, data = _req(
         "POST",
-        f"/api/v2/conversations/{cid}/events",
+        f"/api/v2/conversations/{cid}/step",
         {"session_id": "invalid-session"},
     )
     assert status in (400, 404), (
