@@ -174,6 +174,73 @@ def test_generation_error_persists_system_message(
 
 
 @pytest.mark.timeout(30)
+def test_append_write_failure_blocks_generation_complete_and_persists_error(
+    setup_conversation, event_listener, mock_generation, wait_for_event
+):
+    """A failed assistant append must not emit generation_complete."""
+    from gptme.logmanager.manager import LogManager
+
+    port, conversation_id, session_id = setup_conversation
+    assistant_reply = "x" * 25  # force an early generation_progress event
+
+    requests.post(
+        f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "Say hello"},
+    )
+
+    original_write = LogManager.write
+    write_failed = False
+
+    def flaky_write(self, *args, **kwargs):
+        nonlocal write_failed
+        if not write_failed and any(
+            msg.role == "assistant" and msg.content == assistant_reply
+            for msg in self.log.messages
+        ):
+            write_failed = True
+            raise OSError("disk write failed")
+        return original_write(self, *args, **kwargs)
+
+    with (
+        unittest.mock.patch(
+            "gptme.server.session_step._stream", mock_generation([assistant_reply])
+        ),
+        unittest.mock.patch(
+            "gptme.logmanager.manager.LogManager.write",
+            autospec=True,
+            side_effect=flaky_write,
+        ),
+    ):
+        requests.post(
+            f"http://localhost:{port}/api/v2/conversations/{conversation_id}/step",
+            json={
+                "session_id": session_id,
+                "model": "openai/mock-model",
+            },
+        )
+
+        assert wait_for_event(event_listener, "generation_started")
+        assert not wait_for_event(event_listener, "generation_complete", timeout=2)
+        # Assistant message_added never fires because manager.append() writes
+        # before emitting SSE. The recovery path appends a visible system error.
+        assert wait_for_event(event_listener, "message_added")
+        assert wait_for_event(event_listener, "error")
+
+    resp = requests.get(
+        f"http://localhost:{port}/api/v2/conversations/{conversation_id}",
+    )
+    assert resp.status_code == 200
+
+    data = resp.json()
+    messages = data["log"]
+    assert messages[-2]["role"] == "assistant"
+    assert messages[-2]["content"] == assistant_reply
+    assert messages[-1]["role"] == "system"
+    assert messages[-1]["content"] == "Error: disk write failed"
+    assert data["session"]["last_error"] == "disk write failed"
+
+
+@pytest.mark.timeout(30)
 def test_multi_tool_per_message(
     init_, setup_conversation, event_listener, mock_generation, wait_for_event, tmp_path
 ):
