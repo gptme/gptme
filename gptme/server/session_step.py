@@ -751,9 +751,11 @@ def step(
         # Persist the assistant message
         msg = Message("assistant", output, metadata=metadata)
 
-        # Signal generation_complete BEFORE expensive disk/hook post-processing,
-        # so the frontend receives the completion event immediately instead of
-        # stalling on the last visible character while we write to disk.
+        _append_and_notify(manager, session, msg)
+
+        # Signal generation_complete AFTER message_added but BEFORE expensive
+        # disk writes, so the frontend receives the completion event as early
+        # as possible without stalling on message persistence.
         logger.debug("Generation complete")
         SessionManager.add_event(
             conversation_id,
@@ -763,7 +765,6 @@ def step(
             },
         )
 
-        _append_and_notify(manager, session, msg)
         # Write immediately after assistant message to ensure it's persisted
         manager.write()
         logger.debug("Persisted assistant message and wrote to disk")
