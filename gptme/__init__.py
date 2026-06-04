@@ -1,5 +1,15 @@
 from __future__ import annotations
 
+import warnings
+
+# Suppress requests' overly-strict version-compatibility warning.
+# Newer urllib3/chardet/charset_normalizer work fine with requests;
+# the warning just pollutes every gptme command output.
+warnings.filterwarnings(
+    "ignore",
+    message=r"urllib3 .* or chardet.*charset_normalizer .* doesn't match a supported version",
+)
+
 __all__ = ["Codeblock", "LogManager", "Message", "__version__", "chat", "get_prompt"]
 
 _lazy: dict[str, tuple[str, str]] = {
