@@ -219,7 +219,6 @@ class LoopContinueHook(Protocol):
         interactive: bool,
         prompt_queue: Any,
         no_confirm: bool = False,
-        **kwargs: Any,
     ) -> Generator[Message | StopPropagation, None, None]: ...
 
 
