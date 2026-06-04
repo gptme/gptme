@@ -11,5 +11,7 @@ if ! command -v gptme-codegraph-commit-map &>/dev/null; then
 fi
 
 gptme-codegraph-commit-map "$REPO_ROOT" --refresh >/dev/null
-git -C "$REPO_ROOT" add "$ARTIFACT"
-echo "Refreshed $ARTIFACT"
+if ! git -C "$REPO_ROOT" diff --quiet -- "$ARTIFACT"; then
+    git -C "$REPO_ROOT" add "$ARTIFACT"
+    echo "Refreshed $ARTIFACT"
+fi
