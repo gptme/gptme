@@ -24,5 +24,5 @@ export const cloudflareSpaRedirectRules = [
   `${appRoutes.externalSessions} / 200`,
   `${appRoutes.admin} / 200`,
   `${appRoutes.health} / 200`,
-  '/workspace/* / 200',
+  `${appRoutes.workspace.replace(/\/:[^/]+$/, '/*')} / 200`,
 ] as const;
