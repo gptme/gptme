@@ -9,18 +9,39 @@ Run:
 import http.client
 import json
 import os
+import socket
 import urllib.error
 import urllib.request
 import uuid
+from urllib.parse import urlparse
+
+import pytest
 
 SERVER_URL = os.environ.get("GPTME_TEST_SERVER_URL", "http://127.0.0.1:5001")
 TIMEOUT = 10
 
+pytestmark = pytest.mark.integration
 
-def _req(method: str, path: str, body: dict | None = None) -> tuple[int, dict | bytes]:
+# Skip tests in CI when no live server is running
+_parsed = urlparse(SERVER_URL)
+try:
+    _sock = socket.create_connection(
+        (_parsed.hostname or "127.0.0.1", _parsed.port or 5001), timeout=2
+    )
+    _sock.close()
+except OSError:
+    pytest.skip(f"No gptme server reachable at {SERVER_URL}", allow_module_level=True)
+
+
+def _req(
+    method: str, path: str, body: dict | str | None = None
+) -> tuple[int, dict | str]:
     """Make HTTP request to the server and return (status, parsed_json_or_raw)."""
     url = f"{SERVER_URL}{path}"
-    data = json.dumps(body).encode() if body is not None else None
+    # If body is a string, send it directly as the JSON payload
+    # (testing that strings are rejected by the server)
+    to_send = body if isinstance(body, str) else json.dumps(body)
+    data = to_send.encode() if body is not None else None
     req = urllib.request.Request(
         url,
         data=data,
@@ -33,13 +54,13 @@ def _req(method: str, path: str, body: dict | None = None) -> tuple[int, dict | 
             try:
                 return resp.status, json.loads(raw)
             except (json.JSONDecodeError, UnicodeDecodeError):
-                return resp.status, raw
+                return resp.status, raw.decode()
     except urllib.error.HTTPError as e:
         raw = e.read()
         try:
             return e.code, json.loads(raw)
         except (json.JSONDecodeError, UnicodeDecodeError):
-            return e.code, raw
+            return e.code, raw.decode()
     except urllib.error.URLError as e:
         return 0, {"error": f"Connection failed: {e.reason}"}
 
@@ -49,6 +70,7 @@ def _create_conversation(cid: str | None = None) -> tuple[str, str, int]:
     cid = cid or f"test-{uuid.uuid4().hex[:12]}"
     status, data = _req("PUT", f"/api/v2/conversations/{cid}", {"config": {}})
     if status == 200:
+        assert isinstance(data, dict)
         return cid, data.get("session_id", ""), status
     return cid, "", status
 
@@ -61,6 +83,7 @@ def _create_conversation(cid: str | None = None) -> tuple[str, str, int]:
 def test_health():
     status, data = _req("GET", "/api/v2/server/health")
     assert status == 200, f"health check failed: {data}"
+    assert isinstance(data, dict), f"expected dict, got {type(data)}"
     assert data.get("health") == "green", f"unexpected health: {data}"
     print("  PASS: /health")
 
@@ -164,11 +187,11 @@ def test_step_malformed_json():
     )
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-            resp.read()
+            body = resp.read()
             print(f"  NOTE: malformed JSON step returned {resp.status}: {body}")
     except urllib.error.HTTPError as e:
         raw = e.read()
-        print(f"  PASS: malformed JSON step returned {e.code}: {raw}")
+        print(f"  PASS: malformed JSON step returned {e.code}: {raw!r}")
 
 
 def test_missing_content_type():
@@ -184,7 +207,7 @@ def test_missing_content_type():
             print(f"  NOTE: text/plain step returned {resp.status}")
     except urllib.error.HTTPError as e:
         raw = e.read()
-        print(f"  PASS: text/plain step returned {e.code}: {raw}")
+        print(f"  PASS: text/plain step returned {e.code}: {raw!r}")
 
 
 def test_put_invalid_auto_confirm():
@@ -247,7 +270,10 @@ def _events_quick_status(path: str) -> int:
     the status line and immediately close the connection.
     """
     try:
-        conn = http.client.HTTPConnection("127.0.0.1", 5001, timeout=3)
+        parsed = urlparse(SERVER_URL)
+        host = parsed.hostname or "127.0.0.1"
+        port = parsed.port or 5001
+        conn = http.client.HTTPConnection(host, port, timeout=3)
         conn.request("GET", path, headers={"Accept": "text/event-stream"})
         resp = conn.getresponse()
         # Don't read the body — SSE streams indefinitely.
@@ -281,7 +307,11 @@ def test_events_valid_conversation():
 
 
 def _expect_error(
-    method: str, path: str, body: dict | None, expected_status: int, label: str
+    method: str,
+    path: str,
+    body: dict | str | None,
+    expected_status: int,
+    label: str,
 ) -> None:
     """Shorthand: assert that a bad request returns the expected error."""
     s, d = _req(method, path, body)
