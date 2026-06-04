@@ -105,7 +105,7 @@ def snapshot_text(text: str) -> list[LineAnchor]:
 def _split_block(text: str | None) -> list[str]:
     if text is None:
         return []
-    return text.split("\n")
+    return text.splitlines()
 
 
 def apply_operations(text: str, operations: list[EditOperation]) -> str:
@@ -132,6 +132,14 @@ def apply_operations(text: str, operations: list[EditOperation]) -> str:
                 f"Multiple operations target the same anchor: {operation.anchor}"
             )
         seen_anchors.add(operation.anchor)
+
+        if (
+            operation.op in ("replace", "insert_before", "insert_after")
+            and operation.text is None
+        ):
+            raise ValueError(
+                f"Operation '{operation.op}' requires text but got None for anchor {operation.anchor}"
+            )
 
         line_index = anchor.line_no - 1
         if operation.expected is not None and lines[line_index] != operation.expected:

@@ -245,3 +245,47 @@ class TestApplyOperations:
             [EditOperation(anchor=anchors[1].anchor, op="replace", text="B1\nB2\nB3")],
         )
         assert updated == "alpha\nB1\nB2\nB3\ngamma\n"
+
+    def test_text_with_trailing_newline_no_spurious_blank(self) -> None:
+        """EditOperation.text ending with \\n must not insert a spurious blank line."""
+        original = "alpha\nbeta\ngamma\n"
+        anchors = snapshot_text(original)
+        updated = apply_operations(
+            original,
+            [EditOperation(anchor=anchors[1].anchor, op="replace", text="B1\nB2\n")],
+        )
+        assert updated == "alpha\nB1\nB2\ngamma\n"
+
+    def test_replace_with_none_text_raises(self) -> None:
+        """replace op with text=None must raise ValueError, not silently delete."""
+        original = "alpha\nbeta\ngamma\n"
+        anchors = snapshot_text(original)
+        with pytest.raises(ValueError, match="requires text"):
+            apply_operations(
+                original,
+                [EditOperation(anchor=anchors[1].anchor, op="replace", text=None)],
+            )
+
+    def test_insert_before_with_none_text_raises(self) -> None:
+        """insert_before op with text=None must raise ValueError."""
+        original = "alpha\nbeta\n"
+        anchors = snapshot_text(original)
+        with pytest.raises(ValueError, match="requires text"):
+            apply_operations(
+                original,
+                [
+                    EditOperation(
+                        anchor=anchors[0].anchor, op="insert_before", text=None
+                    )
+                ],
+            )
+
+    def test_insert_after_with_none_text_raises(self) -> None:
+        """insert_after op with text=None must raise ValueError."""
+        original = "alpha\nbeta\n"
+        anchors = snapshot_text(original)
+        with pytest.raises(ValueError, match="requires text"):
+            apply_operations(
+                original,
+                [EditOperation(anchor=anchors[0].anchor, op="insert_after", text=None)],
+            )
