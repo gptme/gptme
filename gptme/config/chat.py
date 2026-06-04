@@ -127,7 +127,7 @@ class ChatConfig:
         # (at the API boundary) instead of silently storing bad types that crash later.
         for field_name in ("temperature", "top_p"):
             val = chat_data.get(field_name)
-            if val is not None and not isinstance(val, (int, float)):
+            if val is not None and not isinstance(val, int | float):
                 raise ValueError(
                     f"chat.{field_name} must be a number, got {type(val).__name__}"
                 )
