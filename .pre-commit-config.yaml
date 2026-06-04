@@ -34,6 +34,14 @@ repos:
     language: system
     files: ^(pyproject\.toml|poetry\.lock)$
     pass_filenames: false
+  - id: refresh-codegraph-artifact
+    name: Refresh committed codegraph artifact
+    description: Regenerate .gptme-codegraph-map.json when staged source files change (skips if gptme-codegraph not installed)
+    entry: scripts/refresh-codegraph-artifact.sh
+    language: script
+    files: \.(py|ts|tsx|js|rs)$
+    pass_filenames: false
+    require_serial: true
 #- repo: local
 #  hooks:
 #  - id: pytest

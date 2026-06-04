@@ -1,0 +1,1204 @@
+{
+  "directory": ".",
+  "files": [
+    {
+      "displayed_symbol_count": 12,
+      "outline": [
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "ConversationListItem"
+        },
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "Message"
+        },
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "Conversation"
+        },
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "MessageCreateRequest"
+        },
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "GenerateRequest"
+        },
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "FileMetadata"
+        },
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "ErrorResponse"
+        },
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "StatusResponse"
+        },
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "ConversationResponse"
+        },
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "ConversationListResponse"
+        },
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "ConversationCreateRequest"
+        },
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "GenerateResponse"
+        }
+      ],
+      "path": "gptme/server/openapi_docs.py",
+      "symbol_count": 59,
+      "truncated": true
+    },
+    {
+      "displayed_symbol_count": 12,
+      "outline": [
+        {
+          "kind": "function",
+          "name": "correct_output_hello_world"
+        },
+        {
+          "kind": "function",
+          "name": "correct_output_hello_human"
+        },
+        {
+          "kind": "function",
+          "name": "check_exists_hello"
+        },
+        {
+          "kind": "function",
+          "name": "check_exists_main"
+        },
+        {
+          "kind": "function",
+          "name": "check_prime_exists"
+        },
+        {
+          "kind": "function",
+          "name": "check_prime_output"
+        },
+        {
+          "kind": "function",
+          "name": "check_output_hello_ask"
+        },
+        {
+          "kind": "function",
+          "name": "check_fix_bug_output"
+        },
+        {
+          "kind": "function",
+          "name": "check_fix_bug_file"
+        },
+        {
+          "kind": "function",
+          "name": "check_fix_bug_no_recursion_error"
+        },
+        {
+          "kind": "function",
+          "name": "check_read_modify_output"
+        },
+        {
+          "kind": "function",
+          "name": "check_read_modify_file"
+        }
+      ],
+      "path": "gptme/eval/suites/basic.py",
+      "symbol_count": 53,
+      "truncated": true
+    },
+    {
+      "displayed_symbol_count": 12,
+      "outline": [
+        {
+          "kind": "function",
+          "name": "conversation_name_error"
+        },
+        {
+          "kind": "class",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "__getitem__"
+            },
+            {
+              "kind": "method",
+              "name": "__len__"
+            },
+            {
+              "kind": "method",
+              "name": "len_tokens"
+            },
+            {
+              "kind": "method",
+              "name": "__iter__"
+            },
+            {
+              "kind": "method",
+              "name": "__repr__"
+            },
+            {
+              "kind": "method",
+              "name": "replace"
+            },
+            {
+              "kind": "method",
+              "name": "append"
+            },
+            {
+              "kind": "method",
+              "name": "pop"
+            },
+            {
+              "kind": "method",
+              "name": "read_jsonl"
+            },
+            {
+              "kind": "method",
+              "name": "write_jsonl"
+            }
+          ],
+          "name": "Log"
+        }
+      ],
+      "path": "gptme/logmanager/manager.py",
+      "symbol_count": 51,
+      "truncated": true
+    },
+    {
+      "displayed_symbol_count": 12,
+      "outline": [
+        {
+          "kind": "class",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "key"
+            },
+            {
+              "kind": "method",
+              "name": "type_text"
+            },
+            {
+              "kind": "method",
+              "name": "mouse_move"
+            },
+            {
+              "kind": "method",
+              "name": "left_click"
+            },
+            {
+              "kind": "method",
+              "name": "right_click"
+            },
+            {
+              "kind": "method",
+              "name": "middle_click"
+            },
+            {
+              "kind": "method",
+              "name": "double_click"
+            },
+            {
+              "kind": "method",
+              "name": "left_click_drag"
+            },
+            {
+              "kind": "method",
+              "name": "screenshot"
+            },
+            {
+              "kind": "method",
+              "name": "cursor_position"
+            },
+            {
+              "kind": "method",
+              "name": "close"
+            }
+          ],
+          "name": "ComputerTransport"
+        }
+      ],
+      "path": "gptme/tools/computer_transport.py",
+      "symbol_count": 48,
+      "truncated": true
+    },
+    {
+      "displayed_symbol_count": 12,
+      "outline": [
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "ServiceStatus"
+        },
+        {
+          "kind": "function",
+          "name": "detect_service_manager"
+        },
+        {
+          "kind": "class",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "install"
+            },
+            {
+              "kind": "method",
+              "name": "uninstall"
+            },
+            {
+              "kind": "method",
+              "name": "start"
+            },
+            {
+              "kind": "method",
+              "name": "stop"
+            },
+            {
+              "kind": "method",
+              "name": "restart"
+            },
+            {
+              "kind": "method",
+              "name": "run"
+            },
+            {
+              "kind": "method",
+              "name": "status"
+            },
+            {
+              "kind": "method",
+              "name": "logs"
+            },
+            {
+              "kind": "method",
+              "name": "list_agents"
+            }
+          ],
+          "name": "ServiceManager"
+        }
+      ],
+      "path": "gptme/agent/service.py",
+      "symbol_count": 46,
+      "truncated": true
+    },
+    {
+      "displayed_symbol_count": 12,
+      "outline": [
+        {
+          "kind": "class",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "constructor"
+            },
+            {
+              "kind": "method",
+              "name": "isApiError"
+            }
+          ],
+          "name": "ApiClientError"
+        },
+        {
+          "kind": "function",
+          "name": "getApiErrorPresentation"
+        },
+        {
+          "kind": "function",
+          "name": "isApiErrorResponse"
+        },
+        {
+          "kind": "function",
+          "name": "normalizeApiError"
+        },
+        {
+          "kind": "function",
+          "name": "isLikelyChromeCorsPna"
+        },
+        {
+          "kind": "class",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "constructor"
+            },
+            {
+              "kind": "method",
+              "name": "isBaseUrlCrossOrigin"
+            },
+            {
+              "kind": "method",
+              "name": "resetAuthCookie"
+            },
+            {
+              "kind": "method",
+              "name": "ensureAuthCookie"
+            }
+          ],
+          "name": "ApiClient"
+        }
+      ],
+      "path": "webui/src/utils/api.ts",
+      "symbol_count": 46,
+      "truncated": true
+    },
+    {
+      "displayed_symbol_count": 12,
+      "outline": [
+        {
+          "kind": "function",
+          "name": "is_port_available"
+        },
+        {
+          "kind": "function",
+          "name": "is_server_responsive"
+        },
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "ServerProbe"
+        },
+        {
+          "kind": "function",
+          "name": "parse_http_status"
+        },
+        {
+          "kind": "function",
+          "name": "probe_server"
+        },
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "ServerProcess"
+        },
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "ServerStatus"
+        },
+        {
+          "kind": "function",
+          "name": "get_server_status"
+        },
+        {
+          "kind": "function",
+          "name": "get_server_status"
+        },
+        {
+          "kind": "function",
+          "name": "stop_server"
+        },
+        {
+          "kind": "function",
+          "name": "stop_server"
+        },
+        {
+          "kind": "function",
+          "name": "start_server"
+        }
+      ],
+      "path": "tauri/src-tauri/src/lib.rs",
+      "symbol_count": 44,
+      "truncated": true
+    },
+    {
+      "displayed_symbol_count": 12,
+      "outline": [
+        {
+          "kind": "function",
+          "name": "strip_ansi_codes"
+        },
+        {
+          "kind": "function",
+          "name": "examples"
+        },
+        {
+          "kind": "class",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "__init__"
+            },
+            {
+              "kind": "method",
+              "name": "_init"
+            },
+            {
+              "kind": "method",
+              "name": "run"
+            },
+            {
+              "kind": "method",
+              "name": "_needs_tty"
+            },
+            {
+              "kind": "method",
+              "name": "_run_with_tty"
+            },
+            {
+              "kind": "method",
+              "name": "_run"
+            },
+            {
+              "kind": "method",
+              "name": "_run_pipe"
+            },
+            {
+              "kind": "method",
+              "name": "_read_output_windows"
+            },
+            {
+              "kind": "method",
+              "name": "_read_output_unix"
+            }
+          ],
+          "name": "ShellSession"
+        }
+      ],
+      "path": "gptme/tools/shell.py",
+      "symbol_count": 43,
+      "truncated": true
+    },
+    {
+      "displayed_symbol_count": 12,
+      "outline": [
+        {
+          "kind": "function",
+          "name": "find_json_end"
+        },
+        {
+          "kind": "function",
+          "name": "_codeblock_char_ranges"
+        },
+        {
+          "kind": "function",
+          "name": "extract_json"
+        },
+        {
+          "kind": "function",
+          "name": "get_current_tool_use"
+        },
+        {
+          "kind": "function",
+          "name": "set_tool_format"
+        },
+        {
+          "kind": "function",
+          "name": "get_tool_format"
+        },
+        {
+          "kind": "class",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "__call__"
+            }
+          ],
+          "name": "ExecuteFuncGen"
+        },
+        {
+          "kind": "class",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "__call__"
+            }
+          ],
+          "name": "ExecuteFuncMsg"
+        },
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "Parameter"
+        },
+        {
+          "kind": "function",
+          "name": "derive_type"
+        }
+      ],
+      "path": "gptme/tools/base.py",
+      "symbol_count": 42,
+      "truncated": true
+    },
+    {
+      "displayed_symbol_count": 12,
+      "outline": [
+        {
+          "kind": "function",
+          "name": "get_model_list"
+        },
+        {
+          "kind": "function",
+          "name": "list_models"
+        },
+        {
+          "kind": "function",
+          "name": "model_to_dict"
+        },
+        {
+          "kind": "function",
+          "name": "get_config"
+        },
+        {
+          "kind": "class",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "list_commands"
+            },
+            {
+              "kind": "method",
+              "name": "get_command"
+            }
+          ],
+          "name": "LazyGroup"
+        },
+        {
+          "kind": "function",
+          "name": "main"
+        },
+        {
+          "kind": "function",
+          "name": "providers"
+        },
+        {
+          "kind": "function",
+          "name": "providers_list"
+        },
+        {
+          "kind": "function",
+          "name": "providers_test"
+        },
+        {
+          "kind": "function",
+          "name": "tokens"
+        }
+      ],
+      "path": "gptme/cli/util.py",
+      "symbol_count": 40,
+      "truncated": true
+    },
+    {
+      "displayed_symbol_count": 12,
+      "outline": [
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "AgentInfo"
+        },
+        {
+          "kind": "function",
+          "name": "_split_windows_cmdline"
+        },
+        {
+          "kind": "function",
+          "name": "_configure_windows_kernel32_process_functions"
+        },
+        {
+          "kind": "function",
+          "name": "_get_windows_process_strings"
+        },
+        {
+          "kind": "function",
+          "name": "_get_windows_pids"
+        },
+        {
+          "kind": "function",
+          "name": "_get_windows_process_timing"
+        },
+        {
+          "kind": "function",
+          "name": "_get_windows_process_memory_mb"
+        },
+        {
+          "kind": "function",
+          "name": "_get_process_cwd"
+        },
+        {
+          "kind": "function",
+          "name": "_get_process_cmdline"
+        },
+        {
+          "kind": "function",
+          "name": "_get_all_pids"
+        },
+        {
+          "kind": "function",
+          "name": "_get_process_timing"
+        },
+        {
+          "kind": "function",
+          "name": "_get_process_memory_mb"
+        }
+      ],
+      "path": "gptme/hooks/workspace_agents.py",
+      "symbol_count": 39,
+      "truncated": true
+    },
+    {
+      "displayed_symbol_count": 12,
+      "outline": [
+        {
+          "kind": "function",
+          "name": "_is_valid_image_content"
+        },
+        {
+          "kind": "function",
+          "name": "_validate_model_input"
+        },
+        {
+          "kind": "function",
+          "name": "_get_optional_string_list_field"
+        },
+        {
+          "kind": "function",
+          "name": "_persist_default_model"
+        },
+        {
+          "kind": "function",
+          "name": "_validate_api_key_input"
+        },
+        {
+          "kind": "function",
+          "name": "_get_user_config_file_response"
+        },
+        {
+          "kind": "function",
+          "name": "_read_user_config_file_text"
+        },
+        {
+          "kind": "function",
+          "name": "_validate_config_key_path"
+        },
+        {
+          "kind": "function",
+          "name": "api_sessions_list"
+        },
+        {
+          "kind": "function",
+          "name": "api_session_delete"
+        },
+        {
+          "kind": "function",
+          "name": "api_server_health"
+        },
+        {
+          "kind": "function",
+          "name": "api_root"
+        }
+      ],
+      "path": "gptme/server/api_v2.py",
+      "symbol_count": 38,
+      "truncated": true
+    },
+    {
+      "displayed_symbol_count": 12,
+      "outline": [
+        {
+          "kind": "function",
+          "name": "_get_provider_api_key"
+        },
+        {
+          "kind": "function",
+          "name": "_record_usage"
+        },
+        {
+          "kind": "function",
+          "name": "_make_response_format"
+        },
+        {
+          "kind": "function",
+          "name": "_responses_api_enabled"
+        },
+        {
+          "kind": "function",
+          "name": "_should_use_responses_api"
+        },
+        {
+          "kind": "function",
+          "name": "_make_responses_text_config"
+        },
+        {
+          "kind": "function",
+          "name": "_prepare_messages_for_responses_api"
+        },
+        {
+          "kind": "function",
+          "name": "_log_responses_reasoning"
+        },
+        {
+          "kind": "function",
+          "name": "_init_openai_client"
+        },
+        {
+          "kind": "function",
+          "name": "reinit"
+        },
+        {
+          "kind": "function",
+          "name": "init"
+        },
+        {
+          "kind": "function",
+          "name": "get_client"
+        }
+      ],
+      "path": "gptme/llm/llm_openai.py",
+      "symbol_count": 37,
+      "truncated": true
+    },
+    {
+      "displayed_symbol_count": 12,
+      "outline": [
+        {
+          "kind": "function",
+          "name": "_restart_browser"
+        },
+        {
+          "kind": "function",
+          "name": "get_browser"
+        },
+        {
+          "kind": "function",
+          "name": "_execute_with_retry"
+        },
+        {
+          "kind": "function",
+          "name": "_load_page"
+        },
+        {
+          "kind": "function",
+          "name": "_extract_main_content"
+        },
+        {
+          "kind": "function",
+          "name": "read_url"
+        },
+        {
+          "kind": "function",
+          "name": "read_logs"
+        },
+        {
+          "kind": "function",
+          "name": "_search_google"
+        },
+        {
+          "kind": "function",
+          "name": "search_google"
+        },
+        {
+          "kind": "function",
+          "name": "_search_duckduckgo"
+        },
+        {
+          "kind": "function",
+          "name": "search_duckduckgo"
+        },
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "Element"
+        }
+      ],
+      "path": "gptme/tools/_browser_playwright.py",
+      "symbol_count": 37,
+      "truncated": true
+    },
+    {
+      "displayed_symbol_count": 12,
+      "outline": [
+        {
+          "kind": "function",
+          "name": "_record_sync_hook_call"
+        },
+        {
+          "kind": "class",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "__init__"
+            },
+            {
+              "kind": "method",
+              "name": "register"
+            },
+            {
+              "kind": "method",
+              "name": "unregister"
+            },
+            {
+              "kind": "method",
+              "name": "trigger"
+            },
+            {
+              "kind": "method",
+              "name": "_run_async_hook"
+            },
+            {
+              "kind": "method",
+              "name": "get_hooks"
+            },
+            {
+              "kind": "method",
+              "name": "enable_hook"
+            },
+            {
+              "kind": "method",
+              "name": "disable_hook"
+            }
+          ],
+          "name": "HookRegistry"
+        },
+        {
+          "kind": "function",
+          "name": "_thread_safe_init"
+        },
+        {
+          "kind": "function",
+          "name": "get_registry"
+        }
+      ],
+      "path": "gptme/hooks/registry.py",
+      "symbol_count": 35,
+      "truncated": true
+    },
+    {
+      "displayed_symbol_count": 12,
+      "outline": [
+        {
+          "kind": "function",
+          "name": "set_output_format"
+        },
+        {
+          "kind": "function",
+          "name": "get_output_format"
+        },
+        {
+          "kind": "function",
+          "name": "is_output_json"
+        },
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "UsageData"
+        },
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "ArtifactDescriptor"
+        },
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "MessageMetadata"
+        },
+        {
+          "kind": "function",
+          "name": "_migrate_metadata"
+        },
+        {
+          "kind": "function",
+          "name": "_format_toml_value"
+        },
+        {
+          "kind": "function",
+          "name": "_format_toml_inline_table"
+        },
+        {
+          "kind": "function",
+          "name": "_format_toml_array"
+        },
+        {
+          "kind": "function",
+          "name": "_format_toml_member"
+        },
+        {
+          "kind": "function",
+          "name": "_format_metadata_toml"
+        }
+      ],
+      "path": "gptme/message.py",
+      "symbol_count": 35,
+      "truncated": true
+    },
+    {
+      "displayed_symbol_count": 12,
+      "outline": [
+        {
+          "kind": "function",
+          "name": "has_playwright"
+        },
+        {
+          "kind": "function",
+          "name": "has_lynx"
+        },
+        {
+          "kind": "function",
+          "name": "_has_imagemagick"
+        },
+        {
+          "kind": "function",
+          "name": "_has_pdftoppm"
+        },
+        {
+          "kind": "function",
+          "name": "_has_vips"
+        },
+        {
+          "kind": "function",
+          "name": "_get_pdf_to_image_hints"
+        },
+        {
+          "kind": "function",
+          "name": "pdf_to_images"
+        },
+        {
+          "kind": "function",
+          "name": "_convert_with_pdftoppm"
+        },
+        {
+          "kind": "function",
+          "name": "_convert_with_imagemagick"
+        },
+        {
+          "kind": "function",
+          "name": "_convert_with_vips"
+        },
+        {
+          "kind": "function",
+          "name": "_available_search_engines"
+        },
+        {
+          "kind": "function",
+          "name": "_search_with_engine"
+        }
+      ],
+      "path": "gptme/tools/browser.py",
+      "symbol_count": 35,
+      "truncated": true
+    },
+    {
+      "displayed_symbol_count": 12,
+      "outline": [
+        {
+          "kind": "function",
+          "name": "_inject_schema_instruction"
+        },
+        {
+          "kind": "function",
+          "name": "_extract_schema_result"
+        },
+        {
+          "kind": "function",
+          "name": "_record_usage"
+        },
+        {
+          "kind": "function",
+          "name": "_resolve_thinking_budget"
+        },
+        {
+          "kind": "function",
+          "name": "_fast_mode_kwargs"
+        },
+        {
+          "kind": "function",
+          "name": "_normalize_effort_level"
+        },
+        {
+          "kind": "function",
+          "name": "_resolve_effort_level"
+        },
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "_OutputConfig"
+        },
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "_OutputConfigKwargs"
+        },
+        {
+          "kind": "function",
+          "name": "_output_config_kwargs"
+        },
+        {
+          "kind": "function",
+          "name": "_requires_adaptive_thinking"
+        },
+        {
+          "kind": "function",
+          "name": "_build_thinking_param"
+        }
+      ],
+      "path": "gptme/llm/llm_anthropic.py",
+      "symbol_count": 33,
+      "truncated": true
+    },
+    {
+      "displayed_symbol_count": 12,
+      "outline": [
+        {
+          "kind": "function",
+          "name": "_check_acp_import"
+        },
+        {
+          "kind": "function",
+          "name": "_import_acp"
+        },
+        {
+          "kind": "function",
+          "name": "_agent_info"
+        },
+        {
+          "kind": "function",
+          "name": "_cwd_session_id"
+        },
+        {
+          "kind": "class",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "__init__"
+            },
+            {
+              "kind": "method",
+              "name": "on_connect"
+            },
+            {
+              "kind": "method",
+              "name": "_create_background_task"
+            },
+            {
+              "kind": "method",
+              "name": "_report_tool_call"
+            },
+            {
+              "kind": "method",
+              "name": "_update_tool_call"
+            },
+            {
+              "kind": "method",
+              "name": "_request_tool_permission"
+            },
+            {
+              "kind": "method",
+              "name": "_create_confirm_with_tools"
+            }
+          ],
+          "name": "GptmeAgent"
+        }
+      ],
+      "path": "gptme/acp/agent.py",
+      "symbol_count": 32,
+      "truncated": true
+    },
+    {
+      "displayed_symbol_count": 12,
+      "outline": [
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "ToolExecuteData"
+        },
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "ToolExecutePreData"
+        },
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "ToolExecutePostData"
+        },
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "StopPropagation"
+        },
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "HookType"
+        },
+        {
+          "kind": "class",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "__call__"
+            }
+          ],
+          "name": "SessionStartHook"
+        },
+        {
+          "kind": "class",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "__call__"
+            }
+          ],
+          "name": "SessionEndHook"
+        },
+        {
+          "kind": "class",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "__call__"
+            }
+          ],
+          "name": "ToolExecutePreHook"
+        },
+        {
+          "kind": "class",
+          "methods": [],
+          "name": "ToolExecutePostHook"
+        }
+      ],
+      "path": "gptme/hooks/types.py",
+      "symbol_count": 31,
+      "truncated": true
+    }
+  ],
+  "files_scanned": 926,
+  "files_shown": 20,
+  "files_with_symbols": 809,
+  "generated": "2026-06-04T17:09:55.033629+00:00",
+  "generator": "gptme-codegraph-commit-map",
+  "git_sha": "6a29d3f932052b2890ef93e2b50b79226fea4fdf",
+  "max_files": 20,
+  "max_symbols_per_file": 12,
+  "missing_grammars": [
+    {
+      "code": "missing-grammar",
+      "files_skipped": 6,
+      "language": "kotlin",
+      "message": "Missing tree-sitter grammar for kotlin (tree_sitter_kotlin). Install gptme-codegraph[treesitter] or add tree-sitter-kotlin to the environment."
+    }
+  ],
+  "source_digest": "55ad47fed66593534c03ddc161016b9a1f2802d4303b71ba9497af305bbf627c",
+  "source_file_count": 919,
+  "symbols_shown": 240,
+  "symbols_total": 12622,
+  "version": 1
+}

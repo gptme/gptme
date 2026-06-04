@@ -77,3 +77,6 @@ scripts/changelog_contributors_twitter.csv
 
 # Keep the compose example env template tracked
 !.env.example
+
+# gptme-codegraph cache (SQLite, local only — .gptme-codegraph-map.json is committed instead)
+.gptme-codegraph-cache.db
