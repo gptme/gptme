@@ -1,36 +1,65 @@
 """Test gptme server API with bad/malformed input.
 
-Requires a running server on port 5001 (or GPTME_TEST_SERVER_URL).
-Run:
+Can also be run as a standalone script against a live server:
     uv run gptme-server serve --port 5001 --tools "" &
-    uv run python3 tests/test_server_bad_input.py
+    GPTME_TEST_SERVER_URL=http://127.0.0.1:5001 uv run python3 tests/test_server_bad_input.py
 """
 
 import http.client
 import json
 import os
 import socket
+import threading
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
-from urllib.parse import urlparse
 
 import pytest
+
+# Skip all tests if flask (server extras) not installed
+pytest.importorskip(
+    "flask", reason="flask not installed, install server extras (-E server)"
+)
+
+pytestmark = [pytest.mark.timeout(30), pytest.mark.integration]
 
 SERVER_URL = os.environ.get("GPTME_TEST_SERVER_URL", "http://127.0.0.1:5001")
 TIMEOUT = 10
 
-pytestmark = pytest.mark.integration
 
-# Skip tests in CI when no live server is running
-_parsed = urlparse(SERVER_URL)
-try:
-    _sock = socket.create_connection(
-        (_parsed.hostname or "127.0.0.1", _parsed.port or 5001), timeout=2
-    )
-    _sock.close()
-except OSError:
-    pytest.skip(f"No gptme server reachable at {SERVER_URL}", allow_module_level=True)
+@pytest.fixture(scope="module", autouse=True)
+def _start_server():
+    """Start gptme server once for all tests in this module.
+
+    If GPTME_TEST_SERVER_URL is set, assumes an external server and skips startup.
+    """
+    if os.environ.get("GPTME_TEST_SERVER_URL"):
+        return  # Use the externally provided server
+
+    from gptme.server.app import create_app  # fmt: skip
+
+    app = create_app()
+    app.config["TESTING"] = True
+
+    # Bind to an OS-assigned free port
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    app.config["SERVER_NAME"] = f"127.0.0.1:{port}"
+
+    def run():
+        with app.app_context():
+            app.run(host="127.0.0.1", port=port, threaded=True, use_reloader=False)
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    time.sleep(0.5)  # Allow the server time to bind
+
+    global SERVER_URL
+    SERVER_URL = f"http://127.0.0.1:{port}"
 
 
 def _req(
@@ -270,7 +299,7 @@ def _events_quick_status(path: str) -> int:
     the status line and immediately close the connection.
     """
     try:
-        parsed = urlparse(SERVER_URL)
+        parsed = urllib.parse.urlparse(SERVER_URL)
         host = parsed.hostname or "127.0.0.1"
         port = parsed.port or 5001
         conn = http.client.HTTPConnection(host, port, timeout=3)
