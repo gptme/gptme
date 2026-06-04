@@ -144,14 +144,14 @@ def auto_reply_hook(
 
     # Exit after 2 consecutive auto-replies without tools
     if auto_reply_count >= 2:
-        logger.info("Autonomous mode: No tools used after 2 confirmations. Exiting.")
+        logger.warning("Autonomous mode: No tools used after 2 confirmations. Exiting.")
         raise SessionCompleteException("No tools used after 2 auto-reply confirmations")
 
     # First time - inject auto-reply
     # Check for incomplete todos - if present, remind about them instead of asking about completion
     if has_incomplete_todos():
         incomplete_summary = get_incomplete_todos_summary()
-        logger.info(
+        logger.warning(
             "Auto-reply: Assistant had no tools but has incomplete todos. Reminding to continue..."
         )
         yield Message(
@@ -160,7 +160,7 @@ def auto_reply_hook(
             quiet=False,
         )
     else:
-        logger.info(
+        logger.warning(
             "Auto-reply: Assistant message had no tools. Asking for confirmation..."
         )
         yield Message(
