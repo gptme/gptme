@@ -112,6 +112,32 @@ class TestSessionCosts:
         expected = 800 / (200 + 800 + 200)
         assert abs(session.cache_hit_rate - expected) < 0.0001
 
+    def test_record_extra_accumulates(self):
+        """Test that record_extra accumulates plugin annotations."""
+        session = SessionCosts(session_id="test-session")
+        assert session.extras == {}
+
+        session.record_extra(
+            "headroom_compressor", compressed_count=3, chars_saved=5000
+        )
+        session.record_extra(
+            "headroom_compressor", compressed_count=1, chars_saved=1200
+        )
+
+        assert "headroom_compressor" in session.extras
+        entries = session.extras["headroom_compressor"]
+        assert len(entries) == 2
+        assert entries[0] == {"compressed_count": 3, "chars_saved": 5000}
+        assert entries[1] == {"compressed_count": 1, "chars_saved": 1200}
+
+    def test_record_extra_multiple_keys(self):
+        """Different plugin keys are stored independently."""
+        session = SessionCosts(session_id="test-session")
+        session.record_extra("plugin_a", value=1)
+        session.record_extra("plugin_b", value=2)
+
+        assert set(session.extras.keys()) == {"plugin_a", "plugin_b"}
+
 
 class TestCostTracker:
     """Tests for CostTracker context-safe tracking."""

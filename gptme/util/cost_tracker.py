@@ -6,8 +6,11 @@ enabling cost awareness during sessions and eval framework integration.
 See Issue #935 for design context.
 """
 
+from __future__ import annotations
+
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -40,7 +43,7 @@ class CostSummary:
     request_count: int
 
     @classmethod
-    def from_dict(cls, data: dict) -> "CostSummary":
+    def from_dict(cls, data: dict) -> CostSummary:
         """Create CostSummary from dictionary."""
         return cls(
             session_id=data.get("session_id", ""),
@@ -73,6 +76,18 @@ class SessionCosts:
 
     session_id: str
     entries: list[CostEntry] = field(default_factory=list)
+    # Plugin-provided annotations keyed by plugin name.
+    # Each key maps to a list of dicts recorded via record_extra().
+    extras: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+
+    def record_extra(self, key: str, **kwargs: Any) -> None:
+        """Store plugin-level annotations alongside cost data.
+
+        Args:
+            key: Plugin identifier (e.g. "headroom_compressor").
+            **kwargs: Arbitrary key-value pairs to store.
+        """
+        self.extras.setdefault(key, []).append(kwargs)
 
     @property
     def total_cost(self) -> float:
