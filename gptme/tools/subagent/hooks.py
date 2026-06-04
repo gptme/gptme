@@ -9,7 +9,6 @@ import queue
 from collections.abc import Generator
 from typing import TYPE_CHECKING, Any
 
-from ...hooks import StopPropagation
 from ...message import Message
 from .types import Status, _completion_queue
 
@@ -57,7 +56,7 @@ def _subagent_completion_hook(
     prompt_queue: Any,
     no_confirm: bool = False,
     **kwargs: Any,
-) -> Generator[Message | StopPropagation, None, None]:
+) -> Generator[Message, None, None]:
     """Check for completed subagents and yield notification messages.
 
     This hook is triggered during each chat loop iteration via LOOP_CONTINUE.
