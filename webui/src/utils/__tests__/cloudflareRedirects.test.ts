@@ -32,4 +32,22 @@ describe('Cloudflare Pages redirect rules', () => {
 
     expect(notFoundPage).toContain('<h1>404 Not Found</h1>');
   });
+
+  it('declares baseline security headers on the SPA shell', () => {
+    const headersPath = path.resolve(__dirname, '../../../public/_headers');
+    const headers = fs.readFileSync(headersPath, 'utf8');
+    const lines = headers
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith('#'));
+
+    expect(lines).toEqual(
+      expect.arrayContaining([
+        'X-Frame-Options: SAMEORIGIN',
+        'Strict-Transport-Security: max-age=31536000',
+        'X-Content-Type-Options: nosniff',
+        'Referrer-Policy: strict-origin-when-cross-origin',
+      ])
+    );
+  });
 });
