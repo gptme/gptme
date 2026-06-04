@@ -1,27 +1,17 @@
 import fs from 'fs';
 import path from 'path';
+import { cloudflareSpaRedirectRules } from '@/appRoutes';
 
 describe('Cloudflare Pages redirect rules', () => {
-  it('keeps API paths out of the SPA fallback', () => {
+  it('covers every SPA deep-link route without catching API paths', () => {
     const redirectsPath = path.resolve(__dirname, '../../../public/_redirects');
     const redirects = fs.readFileSync(redirectsPath, 'utf8');
     const rules = redirects
       .split('\n')
       .map((line) => line.trim())
       .filter((line) => line && !line.startsWith('#'));
-    const expectedSpaRules = [
-      '/chat / 200',
-      '/chat/* / 200',
-      '/tasks / 200',
-      '/tasks/* / 200',
-      '/agents / 200',
-      '/workspaces / 200',
-      '/history / 200',
-      '/external-sessions / 200',
-      '/workspace/* / 200',
-    ];
 
-    expect(rules).toEqual(expect.arrayContaining(expectedSpaRules));
+    expect(rules).toEqual(expect.arrayContaining(cloudflareSpaRedirectRules));
     expect(rules.some((rule) => rule.startsWith('/* '))).toBe(false);
     expect(rules.some((rule) => rule.startsWith('/api'))).toBe(false);
   });

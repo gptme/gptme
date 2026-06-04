@@ -12,6 +12,7 @@ import { CommandPalette } from './components/CommandPalette';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ShortcutsDialog } from './components/ShortcutsDialog';
 import { SetupWizard } from './components/SetupWizard';
+import { appRoutes } from './appRoutes';
 
 // Lazy-loaded route pages — code-split at route boundaries for smaller initial bundle
 const Index = lazy(() => import('./pages/Index'));
@@ -78,18 +79,18 @@ const App: FC = () => {
                   <ErrorBoundary>
                     <Suspense fallback={<RouteLoader />}>
                       <Routes>
-                        <Route path="/" element={<Index />} />
-                        <Route path="/chat" element={<Index />} />
-                        <Route path="/chat/:id" element={<Index />} />
-                        <Route path="/tasks" element={<Tasks />} />
-                        <Route path="/tasks/:id" element={<Tasks />} />
-                        <Route path="/agents" element={<Agents />} />
-                        <Route path="/workspaces" element={<Workspaces />} />
-                        <Route path="/history" element={<History />} />
-                        <Route path="/external-sessions" element={<ExternalSessions />} />
-                        <Route path="/admin" element={<Admin />} />
-                        <Route path="/health" element={<Health />} />
-                        <Route path="/workspace/:id" element={<Workspace />} />
+                        <Route path={appRoutes.root} element={<Index />} />
+                        <Route path={appRoutes.chat} element={<Index />} />
+                        <Route path={appRoutes.chatConversation} element={<Index />} />
+                        <Route path={appRoutes.tasks} element={<Tasks />} />
+                        <Route path={appRoutes.taskDetails} element={<Tasks />} />
+                        <Route path={appRoutes.agents} element={<Agents />} />
+                        <Route path={appRoutes.workspaces} element={<Workspaces />} />
+                        <Route path={appRoutes.history} element={<History />} />
+                        <Route path={appRoutes.externalSessions} element={<ExternalSessions />} />
+                        <Route path={appRoutes.admin} element={<Admin />} />
+                        <Route path={appRoutes.health} element={<Health />} />
+                        <Route path={appRoutes.workspace} element={<Workspace />} />
                         <Route path="*" element={<NotFound />} />
                       </Routes>
                     </Suspense>

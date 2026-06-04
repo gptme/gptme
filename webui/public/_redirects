@@ -12,4 +12,6 @@
 /workspaces / 200
 /history / 200
 /external-sessions / 200
+/admin / 200
+/health / 200
 /workspace/* / 200
