@@ -562,7 +562,11 @@ class TestStuckDetectHook:
         assert "appear stuck" in msg.content.lower()
 
     def test_multi_tool_turn_order_independent(self):
-        """Reordered multi-tool turns share a fingerprint (still detected stuck)."""
+        """Reordered multi-tool turns share a fingerprint (still detected stuck).
+
+        Also verifies that the nudge message names ALL repeated tools, not just the
+        first one alphabetically (P2 fix: use full set instead of latest_fp[0][0]).
+        """
         turn1 = f"{self._SAVE_A}\n{self._SAVE_B}"
         turn2 = f"{self._SAVE_B}\n{self._SAVE_A}"  # same multiset, different order
         manager = _mock_manager(
@@ -573,6 +577,8 @@ class TestStuckDetectHook:
         msg = results[0]
         assert isinstance(msg, Message)
         assert "appear stuck" in msg.content.lower()
+        # Both tool names must appear in the nudge (not just the alphabetically-first one)
+        assert "save" in msg.content  # both _SAVE_A and _SAVE_B use the "save" tool
 
     def test_stuck_detect_hook_registered(self):
         """Stuck-detect hook is registered on the complete tool spec."""

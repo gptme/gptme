@@ -274,13 +274,16 @@ def stuck_detect_hook(
         else:
             break
 
-    repeated_tool = latest_fp[0][0] if latest_fp else "?"
+    # Collect all unique tool names from the repeated fingerprint (multi-tool turns
+    # would show only the first alphabetically if we used latest_fp[0][0]).
+    repeated_tools = sorted({fp[0] for fp in latest_fp}) if latest_fp else ["?"]
+    repeated_tool_str = "/".join(repeated_tools)
 
     if escalation_count >= escalate_max:
         logger.warning(
             "Stuck loop not broken after %d escalations (repeated `%s`). Exiting.",
             escalate_max,
-            repeated_tool,
+            repeated_tool_str,
         )
         raise SessionCompleteException(
             f"Stuck loop not broken after {escalate_max} escalations"
@@ -288,13 +291,13 @@ def stuck_detect_hook(
 
     logger.warning(
         "Stuck detected: `%s` repeated %d times without progress. Nudging.",
-        repeated_tool,
+        repeated_tool_str,
         repeats,
     )
     yield Message(
         "user",
         (
-            f"<system>You appear stuck: the same action (`{repeated_tool}`) was "
+            f"<system>You appear stuck: the same tool call (`{repeated_tool_str}`) was "
             f"repeated {repeats} times without progress. Try a different approach, "
             f"fix the underlying error, or use the `complete` tool if you are "
             f"genuinely blocked.</system>"
