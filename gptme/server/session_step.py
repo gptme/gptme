@@ -675,6 +675,25 @@ def step(
         tooluses = []
         # Handle streaming vs non-streaming differently
         metadata = None
+
+        # Batch settings for SSE events: accumulate chars and flush at a
+        # batch boundary (~20 chars) or on newline, to dramatically reduce
+        # SSE event volume (10K events → ~500 for a typical response).
+        _SSE_BATCH_SIZE = 20
+        sse_token_batch: list[str] = []
+
+        def _flush_sse_batch() -> None:
+            if not sse_token_batch:
+                return
+            SessionManager.add_event(
+                conversation_id,
+                {
+                    "type": "generation_progress",
+                    "token": "".join(sse_token_batch),
+                },
+            )
+            sse_token_batch.clear()
+
         if stream:
             stream_wrapper = _stream(
                 msgs,
@@ -704,18 +723,22 @@ def step(
                 break
 
             output += token
+            sse_token_batch.append(token)
 
-            # Send token to clients
-            SessionManager.add_event(
-                conversation_id, {"type": "generation_progress", "token": token}
-            )
+            # Flush batch: on newline (tool detection needs it) or at batch cap
+            if token == "\n" or len(sse_token_batch) >= _SSE_BATCH_SIZE:
+                _flush_sse_batch()
 
             # Check for complete tool uses on \n
             if "\n" in token:
                 if tooluses := list(ToolUse.iter_from_content(output)):
+                    _flush_sse_batch()  # flush remaining before break
                     break
         else:
             tooluses = list(ToolUse.iter_from_content(output))
+
+        # Flush any remaining buffered tokens before completion
+        _flush_sse_batch()
 
         # Capture metadata from stream after iteration completes
         if (
@@ -727,6 +750,19 @@ def step(
 
         # Persist the assistant message
         msg = Message("assistant", output, metadata=metadata)
+
+        # Signal generation_complete BEFORE expensive disk/hook post-processing,
+        # so the frontend receives the completion event immediately instead of
+        # stalling on the last visible character while we write to disk.
+        logger.debug("Generation complete")
+        SessionManager.add_event(
+            conversation_id,
+            {
+                "type": "generation_complete",
+                "message": msg2dict(msg, manager.workspace, manager.logdir),
+            },
+        )
+
         _append_and_notify(manager, session, msg)
         # Write immediately after assistant message to ensure it's persisted
         manager.write()
@@ -744,16 +780,6 @@ def step(
         # This fixes race condition where messages might not be available when log is retrieved
         manager.write()
         logger.debug("Wrote messages to disk")
-
-        # Signal message generation complete
-        logger.debug("Generation complete")
-        SessionManager.add_event(
-            conversation_id,
-            {
-                "type": "generation_complete",
-                "message": msg2dict(msg, manager.workspace, manager.logdir),
-            },
-        )
 
         # Auto-generate display name AFTER signaling generation_complete,
         # so the event isn't blocked by a potentially slow LLM call.
