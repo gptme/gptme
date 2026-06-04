@@ -289,3 +289,18 @@ class TestApplyOperations:
                 original,
                 [EditOperation(anchor=anchors[0].anchor, op="insert_after", text=None)],
             )
+
+    def test_crlf_line_endings_preserved(self) -> None:
+        """CRLF line endings survive a round-trip — empty ops return text unchanged."""
+        original = "alpha\r\nbeta\r\ngamma\r\n"
+        assert apply_operations(original, []) == original
+
+    def test_crlf_line_endings_preserved_through_edit(self) -> None:
+        """CRLF line endings are preserved when an edit is applied."""
+        original = "alpha\r\nbeta\r\ngamma\r\n"
+        anchors = snapshot_text(original)
+        updated = apply_operations(
+            original,
+            [EditOperation(anchor=anchors[1].anchor, op="replace", text="BETA")],
+        )
+        assert updated == "alpha\r\nBETA\r\ngamma\r\n"

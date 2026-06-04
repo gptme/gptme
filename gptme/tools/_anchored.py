@@ -117,6 +117,7 @@ def apply_operations(text: str, operations: list[EditOperation]) -> str:
     and ``text`` is returned unchanged.
     """
     had_trailing_newline = text.endswith("\n")
+    crlf = "\r\n" in text
     lines = text.splitlines()
     anchors = {item.anchor: item for item in snapshot_text(text)}
 
@@ -168,4 +169,6 @@ def apply_operations(text: str, operations: list[EditOperation]) -> str:
     result = "\n".join(lines)
     if had_trailing_newline:
         result += "\n"
+    if crlf:
+        result = result.replace("\n", "\r\n")
     return result
