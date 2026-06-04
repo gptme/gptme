@@ -137,6 +137,8 @@ class TestSessionCosts:
         session.record_extra("plugin_b", value=2)
 
         assert set(session.extras.keys()) == {"plugin_a", "plugin_b"}
+        assert session.extras["plugin_a"] == [{"value": 1}]
+        assert session.extras["plugin_b"] == [{"value": 2}]
 
 
 class TestCostTracker:
