@@ -527,6 +527,30 @@ class TestStuckDetectHook:
         with pytest.raises(SessionCompleteException, match="escalations"):
             list(stuck_detect_hook(manager, interactive=False, prompt_queue=None))
 
+    def test_raises_after_escalate_max_with_system_msgs(self):
+        """Raises SessionCompleteException with a realistic log that includes system messages.
+
+        In real sessions LOOP_CONTINUE fires after tool execution, so the log
+        always ends with a system message (tool result). The escalation counter
+        must skip those instead of stopping at them, otherwise escalation_count
+        stays 0 and SessionCompleteException never fires.
+        """
+        marker = "<system>You appear stuck: same action repeated.</system>"
+        manager = _mock_manager(
+            [
+                _assistant(self._SAVE_A),
+                _system("Output: hello"),  # tool result after first repeat
+                _user(marker),
+                _assistant(self._SAVE_A),
+                _system("Output: hello"),  # tool result after second repeat
+                _user(marker),
+                _assistant(self._SAVE_A),
+                _system("Output: hello"),  # tool result present when hook fires
+            ]
+        )
+        with pytest.raises(SessionCompleteException, match="escalations"):
+            list(stuck_detect_hook(manager, interactive=False, prompt_queue=None))
+
     def test_custom_threshold_via_env(self, monkeypatch):
         """Repeat threshold is configurable; 2 identical turns trip a lower one."""
         monkeypatch.setenv("GPTME_STUCK_REPEAT_THRESHOLD", "2")

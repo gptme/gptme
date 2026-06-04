@@ -269,6 +269,8 @@ def stuck_detect_hook(
         elif msg.role == "assistant":
             if _turn_fingerprint(msg) != latest_fp:
                 break
+        elif msg.role == "system":
+            continue  # skip tool results — always present between turns in real sessions
         else:
             break
 
