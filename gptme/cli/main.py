@@ -161,6 +161,7 @@ class ConversationName(click.ParamType):
         # crashing with a validation error. This guards against Click version
         # and shell edge cases where --name "" bypasses the ParamType's
         # convert method and passes an empty string straight to main().
+        # Non-empty values still go through conversation_name_error() below.
         if not value or not value.strip():
             return "random"
         if error := conversation_name_error(value):

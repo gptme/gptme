@@ -156,30 +156,76 @@ def test_name_rejects_path_traversal(bad_name: str, runner: CliRunner):
 
 @pytest.mark.parametrize("bad_name", ["", " ", "   ", "\t"])
 def test_name_defaults_to_random_for_empty_or_whitespace(
-    bad_name: str, runner: CliRunner
+    monkeypatch, tmp_path: Path, bad_name: str, runner: CliRunner
 ):
-    # No prompt: exits early at "non-interactive requires a prompt" (before LLM call).
-    # This keeps the test fast and avoids requiring an API key.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+
+    logdir = tmp_path / "existing-conversation"
+    logdir.mkdir()
+    (logdir / "conversation.jsonl").write_text('{"role":"user","content":"hello"}\n')
+
+    selected_names: list[str] = []
+    selected_logdirs: list[Path] = []
+
+    def fake_get_logdir(name: str) -> Path:
+        selected_names.append(name)
+        return logdir
+
+    def fake_chat(prompt_msgs, initial_msgs, chat_logdir, *args, **kwargs):
+        selected_logdirs.append(chat_logdir)
+
+    monkeypatch.setattr(cli, "get_logdir", fake_get_logdir)
+    monkeypatch.setattr(cli, "chat", fake_chat)
+
     result = runner.invoke(
         cli.main,
-        ["--name", bad_name, "--non-interactive"],
+        ["--name", bad_name, "--non-interactive", "hello"],
+        catch_exceptions=False,
     )
-    # Must not raise a Click name-validation error (exit 2 = UsageError)
-    assert result.exit_code != 2
-    assert "conversation name cannot" not in (result.output or "")
+
+    assert result.exit_code == 0
+    assert "Traceback" not in result.output
+    assert selected_names == ["random"]
+    assert selected_logdirs == [logdir]
 
 
-def test_name_empty_before_output_format(runner: CliRunner):
-    """Regression: --name "" with later flags must not crash with a raw stack trace."""
-    # No prompt: exits early before LLM call, keeping test fast without API key.
+def test_name_empty_before_output_format(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """Regression: --name "" with later flags must still normalize to random."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+
+    logdir = tmp_path / "existing-conversation"
+    logdir.mkdir()
+    (logdir / "conversation.jsonl").write_text('{"role":"user","content":"hello"}\n')
+
+    selected_names: list[str] = []
+    selected_logdirs: list[Path] = []
+
+    def fake_get_logdir(name: str) -> Path:
+        selected_names.append(name)
+        return logdir
+
+    def fake_chat(prompt_msgs, initial_msgs, chat_logdir, *args, **kwargs):
+        selected_logdirs.append(chat_logdir)
+
+    monkeypatch.setattr(cli, "get_logdir", fake_get_logdir)
+    monkeypatch.setattr(cli, "chat", fake_chat)
+
     result = runner.invoke(
         cli.main,
-        ["--name", "", "--output-format", "json", "--non-interactive"],
+        ["--name", "", "--output-format", "json", "--non-interactive", "hello"],
+        catch_exceptions=False,
     )
-    # Must not crash with a name-validation error or raw traceback
-    assert result.exit_code != 2
-    assert "conversation name cannot" not in (result.output or "")
-    assert result.exception is None or isinstance(result.exception, SystemExit)
+
+    assert result.exit_code == 0
+    assert "Traceback" not in result.output
+    assert selected_names == ["random"]
+    assert selected_logdirs == [logdir]
 
 
 @pytest.mark.parametrize(
