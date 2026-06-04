@@ -194,49 +194,40 @@ def test_create_existing_conversation_duplicate():
 
 
 def test_step_no_session():
-    """Stepping without a session_id should return 400 or 404."""
+    """Stepping with an invalid session_id should return 400 or 404."""
     cid = _create_conversation()[0]
     status, data = _req(
         "POST",
         f"/api/v2/conversations/{cid}/events",
         {"session_id": "invalid-session"},
     )
-    print(f"  NOTE: step with bad session returned {status}: {data}")
+    assert status in (400, 404), (
+        f"expected 400 or 404 for invalid session, got {status}: {data}"
+    )
+    print(f"  PASS: step with bad session returned {status}")
 
 
 def test_step_malformed_json():
-    """Stepping with malformed JSON (non-object) should return 400."""
-    url = f"{SERVER_URL}/api/v2/conversations/nonexistent/events"
-    data = b"not json"
-    req = urllib.request.Request(
-        url,
-        data=data,
-        method="POST",
-        headers={"Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-            body = resp.read()
-            print(f"  NOTE: malformed JSON step returned {resp.status}: {body}")
-    except urllib.error.HTTPError as e:
-        raw = e.read()
-        print(f"  PASS: malformed JSON step returned {e.code}: {raw!r}")
+    """Stepping with malformed JSON body should return 4xx."""
+    status, data = _req("POST", "/api/v2/conversations/nonexistent/events", "not json")
+    assert status >= 400, f"expected 4xx for malformed JSON, got {status}: {data}"
+    print(f"  PASS: malformed JSON step returned {status}")
 
 
 def test_missing_content_type():
-    """Request without Content-Type should be handled gracefully."""
+    """Request with wrong Content-Type should be handled gracefully (no 5xx)."""
     cid, session_id, _ = _create_conversation()
     url = f"{SERVER_URL}/api/v2/conversations/{cid}/events"
-    data = json.dumps({"session_id": session_id}).encode()
-    req = urllib.request.Request(url, data=data, method="POST")
+    body = json.dumps({"session_id": session_id}).encode()
+    req = urllib.request.Request(url, data=body, method="POST")
     req.add_header("Content-Type", "text/plain")
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-            resp.read()
-            print(f"  NOTE: text/plain step returned {resp.status}")
+            code = resp.status
     except urllib.error.HTTPError as e:
-        raw = e.read()
-        print(f"  PASS: text/plain step returned {e.code}: {raw!r}")
+        code = e.code
+    assert code < 500, f"text/plain Content-Type caused a server error: {code}"
+    print(f"  PASS: text/plain step returned {code} (no 5xx)")
 
 
 def test_put_invalid_auto_confirm():
