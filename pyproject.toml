@@ -37,6 +37,7 @@ gptme-checkpoint = "gptme.cli.checkpoint:main"
 gptme-init = "gptme.cli.cmd_init:main"
 gptme-dspy = "gptme.eval.dspy:main"
 gptme-eval-trends = "gptme.eval.trends:main"
+gptme-status = "gptme.cli.cmd_status:status"
 
 [tool.poetry]
 packages = [
