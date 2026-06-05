@@ -29,6 +29,7 @@ type Action =
   | { type: 'CONNECTED' }
   | { type: 'DISCONNECTED'; reason: string }
   | { type: 'ADD_MESSAGE'; msg: Message }
+  | { type: 'STREAM_START' }
   | { type: 'STREAM_TOKEN'; token: string }
   | { type: 'STREAM_DONE' }
   | { type: 'STREAM_ERROR'; error: string }
@@ -60,6 +61,8 @@ function reducer(state: State, action: Action): State {
       return { ...state, online: false, status: action.reason };
     case 'ADD_MESSAGE':
       return { ...state, msgs: [...state.msgs, action.msg] };
+    case 'STREAM_START':
+      return { ...state, stream: { generating: true, buffer: '' } };
     case 'STREAM_TOKEN':
       return {
         ...state,
@@ -68,9 +71,12 @@ function reducer(state: State, action: Action): State {
     case 'STREAM_DONE':
       return {
         ...state,
-        msgs: state.stream.buffer
-          ? [...state.msgs, { role: 'assistant' as const, content: state.stream.buffer }]
-          : state.msgs,
+        msgs: [
+          ...state.msgs,
+          state.stream.buffer
+            ? { role: 'assistant' as const, content: state.stream.buffer }
+            : { role: 'system' as const, content: 'No response received.' },
+        ],
         stream: { generating: false, buffer: '' },
       };
     case 'STREAM_ERROR':
@@ -178,6 +184,7 @@ export default function ExtensionChat() {
       content = `[Page context]\nSelected text:\n> ${state.selection}\n\n${text}`;
     }
     dispatch({ type: 'ADD_MESSAGE', msg: { role: 'user', content: text } });
+    dispatch({ type: 'STREAM_START' });
 
     try {
       const resp = await sendToBg({ type: 'SEND_AND_STEP', convId: state.convId, content });
@@ -253,11 +260,13 @@ export default function ExtensionChat() {
             </span>
           </div>
         ))}
-        {state.stream.generating && state.stream.buffer && (
+        {state.stream.generating && (
           <div className="text-sm">
             <p className="mb-0.5 text-xs text-muted-foreground">gptme</p>
             <span className="inline-block rounded-lg bg-muted px-3 py-1.5 text-foreground">
-              {state.stream.buffer}
+              {state.stream.buffer || (
+                <span className="text-muted-foreground">Waiting for response</span>
+              )}
               <span className="animate-pulse">▌</span>
             </span>
           </div>

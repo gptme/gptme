@@ -7,41 +7,38 @@ EXT_DIR="$SCRIPT_DIR"
 OUT_DIR="$EXT_DIR/dist"
 
 # Handle optional --watch flag
-WATCH=""
+WATCH=0
 for arg in "$@"; do
-  if [ "$arg" = "--watch" ]; then
-    WATCH="--watch"
-  fi
+  case "$arg" in
+    --watch)
+      WATCH=1
+      ;;
+    *)
+      echo "Unknown argument: $arg" >&2
+      exit 2
+      ;;
+  esac
 done
 
-# When watching, build worker/content scripts first (Vite will spin forever in watch mode).
-# When building normally, Vite runs first (--emptyOutDir clears dist/panel/ only, safe).
-if [ -n "$WATCH" ]; then
-  echo "→ Building extension worker + content script (esbuild)..."
-  cd "$EXT_DIR"
-  npx esbuild background.ts --bundle --outfile="$OUT_DIR/background.js" --platform=browser --format=esm --tsconfig=tsconfig.json
-  npx esbuild content/content.ts --bundle --outfile="$OUT_DIR/content/content.js" --platform=browser --format=iife --tsconfig=tsconfig.json --external:chrome
-  npx esbuild options/options.ts --bundle --outfile="$OUT_DIR/options/options.js" --platform=browser --format=iife --tsconfig=tsconfig.json
-  cp manifest.json "$OUT_DIR/"
-  cp options/options.html "$OUT_DIR/options/"
-  cp -r "$WEBUI_DIR/public/icons" "$OUT_DIR/icons" 2>/dev/null || mkdir -p "$OUT_DIR/icons"
-fi
+WATCH_PIDS=()
 
-echo "→ Building webui panel (Vite)..."
-cd "$WEBUI_DIR"
-VITE_EXTENSION_BUILD=1 npx vite build --outDir "$OUT_DIR/panel" --emptyOutDir $WATCH
+cleanup_watchers() {
+  if [ "${#WATCH_PIDS[@]}" -gt 0 ]; then
+    for pid in "${WATCH_PIDS[@]}"; do
+      pkill -TERM -P "$pid" 2>/dev/null || true
+    done
+    kill "${WATCH_PIDS[@]}" 2>/dev/null || true
+    wait "${WATCH_PIDS[@]}" 2>/dev/null || true
+  fi
+}
 
-if [ -z "$WATCH" ]; then
-  echo "→ Building extension worker + content script (esbuild)..."
-  cd "$EXT_DIR"
-  npx esbuild background.ts --bundle --outfile="$OUT_DIR/background.js" --platform=browser --format=esm --tsconfig=tsconfig.json
-  npx esbuild content/content.ts --bundle --outfile="$OUT_DIR/content/content.js" --platform=browser --format=iife --tsconfig=tsconfig.json --external:chrome
-  npx esbuild options/options.ts --bundle --outfile="$OUT_DIR/options/options.js" --platform=browser --format=iife --tsconfig=tsconfig.json
-
-  # Copy static assets
-  cp manifest.json "$OUT_DIR/"
-  cp options/options.html "$OUT_DIR/options/"
-  cp -r "$WEBUI_DIR/public/icons" "$OUT_DIR/icons" 2>/dev/null || mkdir -p "$OUT_DIR/icons"
+copy_static_assets() {
+  mkdir -p "$OUT_DIR/options" "$OUT_DIR/icons"
+  cp "$EXT_DIR/manifest.json" "$OUT_DIR/"
+  cp "$EXT_DIR/options/options.html" "$OUT_DIR/options/"
+  if [ -d "$WEBUI_DIR/public/icons" ]; then
+    cp -R "$WEBUI_DIR/public/icons/." "$OUT_DIR/icons/"
+  fi
 
   # Generate placeholder icons if none exist (Chrome rejects extensions with missing icon paths)
   for size in 16 48 128; do
@@ -65,6 +62,40 @@ with open(sys.argv[2], 'wb') as f:
 PYEOF
     fi
   done
+}
+
+build_esbuild_once() {
+  echo "→ Building extension worker + content script (esbuild)..."
+  cd "$EXT_DIR"
+  npx esbuild background.ts --bundle --outfile="$OUT_DIR/background.js" --platform=browser --format=esm --tsconfig=tsconfig.json
+  npx esbuild content/content.ts --bundle --outfile="$OUT_DIR/content/content.js" --platform=browser --format=iife --tsconfig=tsconfig.json --external:chrome
+  npx esbuild options/options.ts --bundle --outfile="$OUT_DIR/options/options.js" --platform=browser --format=iife --tsconfig=tsconfig.json
+}
+
+start_esbuild_watchers() {
+  echo "→ Watching extension worker + content script (esbuild)..."
+  cd "$EXT_DIR"
+  npx esbuild background.ts --bundle --outfile="$OUT_DIR/background.js" --platform=browser --format=esm --tsconfig=tsconfig.json --watch=forever &
+  WATCH_PIDS+=("$!")
+  npx esbuild content/content.ts --bundle --outfile="$OUT_DIR/content/content.js" --platform=browser --format=iife --tsconfig=tsconfig.json --external:chrome --watch=forever &
+  WATCH_PIDS+=("$!")
+  npx esbuild options/options.ts --bundle --outfile="$OUT_DIR/options/options.js" --platform=browser --format=iife --tsconfig=tsconfig.json --watch=forever &
+  WATCH_PIDS+=("$!")
+}
+
+echo "→ Building webui panel (Vite)..."
+cd "$WEBUI_DIR"
+if [ "$WATCH" -eq 1 ]; then
+  copy_static_assets
+  start_esbuild_watchers
+  trap cleanup_watchers EXIT
+  trap 'cleanup_watchers; exit 130' INT TERM
+  cd "$WEBUI_DIR"
+  VITE_EXTENSION_BUILD=1 npx vite build --outDir "$OUT_DIR/panel" --emptyOutDir --watch
+else
+  VITE_EXTENSION_BUILD=1 npx vite build --outDir "$OUT_DIR/panel" --emptyOutDir
+  build_esbuild_once
+  copy_static_assets
 
   echo "✓ Extension built to $OUT_DIR"
   echo "  Load $OUT_DIR in chrome://extensions (Developer mode → Load unpacked)"
