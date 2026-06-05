@@ -5,6 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WEBUI_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 EXT_DIR="$SCRIPT_DIR"
 OUT_DIR="$EXT_DIR/dist"
+VITE_BIN="$WEBUI_DIR/node_modules/.bin/vite"
+ESBUILD_BIN="$EXT_DIR/node_modules/.bin/esbuild"
 
 # Handle optional --watch flag
 WATCH=0
@@ -21,6 +23,17 @@ for arg in "$@"; do
 done
 
 WATCH_PIDS=()
+
+require_node_deps() {
+  if [ ! -x "$VITE_BIN" ]; then
+    echo "Missing webui dependencies. Run: cd $WEBUI_DIR && npm install" >&2
+    exit 1
+  fi
+  if [ ! -x "$ESBUILD_BIN" ]; then
+    echo "Missing extension dependencies. Run: cd $EXT_DIR && npm install" >&2
+    exit 1
+  fi
+}
 
 cleanup_watchers() {
   if [ "${#WATCH_PIDS[@]}" -gt 0 ]; then
@@ -67,22 +80,23 @@ PYEOF
 build_esbuild_once() {
   echo "→ Building extension worker + content script (esbuild)..."
   cd "$EXT_DIR"
-  npx esbuild background.ts --bundle --outfile="$OUT_DIR/background.js" --platform=browser --format=esm --tsconfig=tsconfig.json
-  npx esbuild content/content.ts --bundle --outfile="$OUT_DIR/content/content.js" --platform=browser --format=iife --tsconfig=tsconfig.json --external:chrome
-  npx esbuild options/options.ts --bundle --outfile="$OUT_DIR/options/options.js" --platform=browser --format=iife --tsconfig=tsconfig.json
+  "$ESBUILD_BIN" background.ts --bundle --outfile="$OUT_DIR/background.js" --platform=browser --format=esm --tsconfig=tsconfig.json
+  "$ESBUILD_BIN" content/content.ts --bundle --outfile="$OUT_DIR/content/content.js" --platform=browser --format=iife --tsconfig=tsconfig.json --external:chrome
+  "$ESBUILD_BIN" options/options.ts --bundle --outfile="$OUT_DIR/options/options.js" --platform=browser --format=iife --tsconfig=tsconfig.json
 }
 
 start_esbuild_watchers() {
   echo "→ Watching extension worker + content script (esbuild)..."
   cd "$EXT_DIR"
-  npx esbuild background.ts --bundle --outfile="$OUT_DIR/background.js" --platform=browser --format=esm --tsconfig=tsconfig.json --watch=forever &
+  "$ESBUILD_BIN" background.ts --bundle --outfile="$OUT_DIR/background.js" --platform=browser --format=esm --tsconfig=tsconfig.json --watch=forever &
   WATCH_PIDS+=("$!")
-  npx esbuild content/content.ts --bundle --outfile="$OUT_DIR/content/content.js" --platform=browser --format=iife --tsconfig=tsconfig.json --external:chrome --watch=forever &
+  "$ESBUILD_BIN" content/content.ts --bundle --outfile="$OUT_DIR/content/content.js" --platform=browser --format=iife --tsconfig=tsconfig.json --external:chrome --watch=forever &
   WATCH_PIDS+=("$!")
-  npx esbuild options/options.ts --bundle --outfile="$OUT_DIR/options/options.js" --platform=browser --format=iife --tsconfig=tsconfig.json --watch=forever &
+  "$ESBUILD_BIN" options/options.ts --bundle --outfile="$OUT_DIR/options/options.js" --platform=browser --format=iife --tsconfig=tsconfig.json --watch=forever &
   WATCH_PIDS+=("$!")
 }
 
+require_node_deps
 echo "→ Building webui panel (Vite)..."
 cd "$WEBUI_DIR"
 if [ "$WATCH" -eq 1 ]; then
@@ -91,9 +105,9 @@ if [ "$WATCH" -eq 1 ]; then
   trap cleanup_watchers EXIT
   trap 'cleanup_watchers; exit 130' INT TERM
   cd "$WEBUI_DIR"
-  VITE_EXTENSION_BUILD=1 npx vite build --outDir "$OUT_DIR/panel" --emptyOutDir --watch
+  VITE_EXTENSION_BUILD=1 "$VITE_BIN" build --outDir "$OUT_DIR/panel" --emptyOutDir --watch
 else
-  VITE_EXTENSION_BUILD=1 npx vite build --outDir "$OUT_DIR/panel" --emptyOutDir
+  VITE_EXTENSION_BUILD=1 "$VITE_BIN" build --outDir "$OUT_DIR/panel" --emptyOutDir
   build_esbuild_once
   copy_static_assets
 

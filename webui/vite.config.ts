@@ -3,9 +3,12 @@ import react from '@vitejs/plugin-react-swc';
 import { fileURLToPath } from 'url';
 import { componentTagger } from 'lovable-tagger';
 
+const isExtensionBuild = process.env.VITE_EXTENSION_BUILD === '1';
+
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
   //base: '/gptme-webui/',  // Add base URL for GitHub Pages (when served under user/org, not as its own subdomain)
+  base: isExtensionBuild ? './' : undefined,
   server:
     mode === 'development'
       ? {
@@ -21,13 +24,12 @@ export default defineConfig(({ mode }) => ({
   },
   build: {
     rollupOptions: {
-      input:
-        process.env.VITE_EXTENSION_BUILD === '1'
-          ? { panel: fileURLToPath(new URL('./panel.html', import.meta.url)) }
-          : {
-              main: fileURLToPath(new URL('./index.html', import.meta.url)),
-              panel: fileURLToPath(new URL('./panel.html', import.meta.url)),
-            },
+      input: isExtensionBuild
+        ? { panel: fileURLToPath(new URL('./panel.html', import.meta.url)) }
+        : {
+            main: fileURLToPath(new URL('./index.html', import.meta.url)),
+            panel: fileURLToPath(new URL('./panel.html', import.meta.url)),
+          },
       output: {
         manualChunks: {
           vendor: ['react', 'react-dom', 'react-router-dom', '@tanstack/react-query'],

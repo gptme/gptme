@@ -29,7 +29,9 @@ TypeScript compiled with esbuild (no React needed in the background).
 ## Build
 
 ```bash
-cd webui/extension
+cd webui
+npm install
+cd extension
 npm install
 ./build.sh
 # Load webui/extension/dist/ in chrome://extensions
