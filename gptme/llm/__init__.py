@@ -760,6 +760,11 @@ def _reply_stream(
             line_buffer.clear()
 
     except KeyboardInterrupt:
+        # Flush any chars buffered since the last chunk boundary so the terminal
+        # shows everything received before the interrupt.
+        if not json_mode and normal_display_buffer:
+            rprint("".join(normal_display_buffer), end="")
+            normal_display_buffer.clear()
         # Flush partial line before the interrupt suffix so callers see the
         # content that was streamed up to the interrupt point.
         if on_token and line_buffer:
