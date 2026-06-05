@@ -20,7 +20,7 @@ interface StorageSession {
 class GptmeClient {
   constructor(
     private readonly baseUrl: string,
-    private readonly apiKey?: string,
+    private readonly apiKey?: string
   ) {}
 
   private headers(): Record<string, string> {
@@ -76,7 +76,7 @@ class GptmeClient {
     convId: string,
     onToken: (text: string) => void,
     onComplete: () => void,
-    onError: (msg: string) => void,
+    onError: (msg: string) => void
   ): () => void {
     const controller = new AbortController();
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
@@ -98,52 +98,54 @@ class GptmeClient {
     fetch(`${this.baseUrl}/api/v2/conversations/${convId}/events`, {
       headers: { ...this.headers(), Accept: 'text/event-stream' },
       signal: controller.signal,
-    }).then(async (resp) => {
-      if (!resp.ok || !resp.body) {
-        onError(`SSE request failed: ${resp.status}`);
-        return;
-      }
-      reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          if (!closed) {
-            await closeStream();
-            onComplete();
-          }
+    })
+      .then(async (resp) => {
+        if (!resp.ok || !resp.body) {
+          onError(`SSE request failed: ${resp.status}`);
           return;
         }
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
+        reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
 
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          try {
-            const data = JSON.parse(line.slice(6)) as {
-              type: string;
-              data?: { content?: string };
-            };
-            if (data.type === 'generation_progress' && data.data?.content) {
-              onToken(data.data.content);
-            } else if (data.type === 'generation_complete') {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            if (!closed) {
               await closeStream();
               onComplete();
-              return;
             }
-          } catch {
-            // skip non-JSON lines
+            return;
+          }
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const data = JSON.parse(line.slice(6)) as {
+                type: string;
+                data?: { content?: string };
+              };
+              if (data.type === 'generation_progress' && data.data?.content) {
+                onToken(data.data.content);
+              } else if (data.type === 'generation_complete') {
+                await closeStream();
+                onComplete();
+                return;
+              }
+            } catch {
+              // skip non-JSON lines
+            }
           }
         }
-      }
-    }).catch((err: Error) => {
-      if (!closed && err.name !== 'AbortError') {
-        onError('SSE connection lost');
-      }
-    });
+      })
+      .catch((err: Error) => {
+        if (!closed && err.name !== 'AbortError') {
+          onError('SSE connection lost');
+        }
+      });
 
     return () => {
       void closeStream();
@@ -177,14 +179,102 @@ async function getClient(): Promise<GptmeClient> {
   return new GptmeClient(data.serverUrl, data.apiKey);
 }
 
+interface ActiveStream {
+  cancel: () => void;
+  port: chrome.runtime.Port;
+}
+
 // Active SSE subscriptions keyed by conversationId
-const activeStreams = new Map<string, () => void>();
+const activeStreams = new Map<string, ActiveStream>();
+
+function stopActiveStream(convId: string) {
+  activeStreams.get(convId)?.cancel();
+  activeStreams.delete(convId);
+}
+
+function postToPort(port: chrome.runtime.Port, msg: Record<string, unknown>): boolean {
+  try {
+    port.postMessage(msg);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== 'gptme-stream') return;
+
+  let convId: string | null = null;
+
+  port.onDisconnect.addListener(() => {
+    if (convId && activeStreams.get(convId)?.port === port) {
+      stopActiveStream(convId);
+    }
+  });
+
+  port.onMessage.addListener((msg: Record<string, unknown>) => {
+    if (msg.type === 'CANCEL') {
+      if (convId) stopActiveStream(convId);
+      return;
+    }
+
+    if (msg.type !== 'SEND_AND_STEP') {
+      postToPort(port, { type: 'ERROR', error: `Unknown type: ${String(msg.type)}` });
+      return;
+    }
+
+    void (async () => {
+      convId = String(msg.convId ?? '');
+      const content = typeof msg.content === 'string' ? msg.content : '';
+      if (!convId || !content) {
+        postToPort(port, { type: 'ERROR', convId, error: 'Missing conversation id or content' });
+        return;
+      }
+
+      try {
+        const cl = await getClient();
+        await cl.postMessage(convId, content);
+
+        // Cancel any existing stream, then subscribe BEFORE step so early tokens aren't missed.
+        stopActiveStream(convId);
+
+        const unsub = cl.subscribeEvents(
+          convId,
+          (token) => {
+            if (!postToPort(port, { type: 'TOKEN', convId, token })) {
+              stopActiveStream(convId);
+            }
+          },
+          () => {
+            if (activeStreams.get(convId!)?.port === port) activeStreams.delete(convId!);
+            postToPort(port, { type: 'DONE', convId });
+          },
+          (error) => {
+            if (activeStreams.get(convId!)?.port === port) activeStreams.delete(convId!);
+            postToPort(port, { type: 'ERROR', convId, error });
+          }
+        );
+        activeStreams.set(convId, { cancel: unsub, port });
+
+        await cl.step(convId);
+        postToPort(port, { type: 'STARTED', convId });
+      } catch (e) {
+        stopActiveStream(convId);
+        postToPort(port, {
+          type: 'ERROR',
+          convId,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    })();
+  });
+});
 
 chrome.runtime.onMessage.addListener(
   (
     msg: Record<string, unknown>,
     _sender: chrome.runtime.MessageSender,
-    sendResponse: (r: unknown) => void,
+    sendResponse: (r: unknown) => void
   ) => {
     (async () => {
       if (msg.type === 'PING') {
@@ -205,46 +295,9 @@ chrome.runtime.onMessage.addListener(
         return;
       }
 
-      if (msg.type === 'SEND_AND_STEP') {
-        const convId = msg.convId as string;
-        try {
-          const cl = await getClient();
-          await cl.postMessage(convId, msg.content as string);
-
-          // Cancel any existing stream, then subscribe BEFORE step so early tokens aren't missed
-          activeStreams.get(convId)?.();
-
-          const unsub = cl.subscribeEvents(
-            convId,
-            (token) => {
-              chrome.runtime.sendMessage({ type: 'TOKEN', convId, token }).catch(() => {});
-            },
-            () => {
-              chrome.runtime.sendMessage({ type: 'DONE', convId }).catch(() => {});
-              activeStreams.delete(convId);
-            },
-            (error) => {
-              chrome.runtime.sendMessage({ type: 'ERROR', convId, error }).catch(() => {});
-              activeStreams.delete(convId);
-            },
-          );
-          activeStreams.set(convId, unsub);
-
-          await cl.step(convId);
-          sendResponse({ ok: true });
-        } catch (e) {
-          // Clean up any stream we may have started before failing
-          activeStreams.get(convId)?.();
-          activeStreams.delete(convId);
-          sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) });
-        }
-        return;
-      }
-
       if (msg.type === 'CANCEL') {
         const convId = msg.convId as string;
-        activeStreams.get(convId)?.();
-        activeStreams.delete(convId);
+        stopActiveStream(convId);
         sendResponse({ ok: true });
         return;
       }
@@ -257,12 +310,14 @@ chrome.runtime.onMessage.addListener(
           lastSelectionTitle: msg.title as string | undefined,
         } satisfies StorageSession);
         // Broadcast to open panels
-        chrome.runtime.sendMessage({
-          type: 'SELECTION_UPDATE',
-          selection: msg.selection,
-          url: msg.url,
-          title: msg.title,
-        }).catch(() => {});
+        chrome.runtime
+          .sendMessage({
+            type: 'SELECTION_UPDATE',
+            selection: msg.selection,
+            url: msg.url,
+            title: msg.title,
+          })
+          .catch(() => {});
         sendResponse({ ok: true });
         return;
       }
@@ -281,7 +336,7 @@ chrome.runtime.onMessage.addListener(
       sendResponse({ ok: false, error: `Unknown type: ${String(msg.type)}` });
     })();
     return true; // keep channel open for async sendResponse
-  },
+  }
 );
 
 // Open side panel on action click

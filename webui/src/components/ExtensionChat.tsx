@@ -108,6 +108,7 @@ export default function ExtensionChat() {
   const [state, dispatch] = useReducer(reducer, INIT);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const msgsEndRef = useRef<HTMLDivElement>(null);
+  const streamPortRef = useRef<chrome.runtime.Port | null>(null);
   // Guards against double-send during the window between ADD_MESSAGE dispatch
   // and the first STREAM_TOKEN (when state.stream.generating becomes true).
   const pendingRef = useRef(false);
@@ -117,22 +118,16 @@ export default function ExtensionChat() {
     msgsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [state.msgs, state.stream.buffer]);
 
-  // Listen for background messages
+  // Listen for selection updates from the content script.
   useEffect(() => {
     function handler(msg: Record<string, unknown>) {
-      if (msg.type === 'TOKEN' && msg.convId === state.convId) {
-        dispatch({ type: 'STREAM_TOKEN', token: msg.token as string });
-      } else if (msg.type === 'DONE' && msg.convId === state.convId) {
-        dispatch({ type: 'STREAM_DONE' });
-      } else if (msg.type === 'ERROR' && msg.convId === state.convId) {
-        dispatch({ type: 'STREAM_ERROR', error: String(msg.error) });
-      } else if (msg.type === 'SELECTION_UPDATE') {
+      if (msg.type === 'SELECTION_UPDATE') {
         dispatch({ type: 'SET_SELECTION', text: msg.selection as string | null });
       }
     }
     chrome.runtime.onMessage.addListener(handler);
     return () => chrome.runtime.onMessage.removeListener(handler);
-  }, [state.convId]);
+  }, []);
 
   // Connect on mount
   useEffect(() => {
@@ -171,7 +166,7 @@ export default function ExtensionChat() {
     })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const send = useCallback(async () => {
+  const send = useCallback(() => {
     const input = inputRef.current;
     if (!input || !state.online || state.stream.generating || pendingRef.current) return;
     const text = input.value.trim();
@@ -186,15 +181,59 @@ export default function ExtensionChat() {
     dispatch({ type: 'ADD_MESSAGE', msg: { role: 'user', content: text } });
     dispatch({ type: 'STREAM_START' });
 
-    try {
-      const resp = await sendToBg({ type: 'SEND_AND_STEP', convId: state.convId, content });
-      if (!resp.ok) {
-        dispatch({ type: 'STREAM_ERROR', error: String(resp.error ?? 'send failed') });
+    streamPortRef.current?.disconnect();
+    const port = chrome.runtime.connect({ name: 'gptme-stream' });
+    streamPortRef.current = port;
+    let finished = false;
+
+    const cleanup = () => {
+      if (streamPortRef.current === port) streamPortRef.current = null;
+      pendingRef.current = false;
+      port.onMessage.removeListener(handleMessage);
+      port.onDisconnect.removeListener(handleDisconnect);
+    };
+
+    const finish = () => {
+      finished = true;
+      cleanup();
+      try {
+        port.disconnect();
+      } catch {
+        // ignore disconnect races during panel teardown
       }
+    };
+
+    function handleMessage(msg: Record<string, unknown>) {
+      if (msg.convId && msg.convId !== state.convId) return;
+      if (msg.type === 'STARTED') {
+        pendingRef.current = false;
+      } else if (msg.type === 'TOKEN') {
+        pendingRef.current = false;
+        dispatch({ type: 'STREAM_TOKEN', token: String(msg.token ?? '') });
+      } else if (msg.type === 'DONE') {
+        dispatch({ type: 'STREAM_DONE' });
+        finish();
+      } else if (msg.type === 'ERROR') {
+        dispatch({ type: 'STREAM_ERROR', error: String(msg.error ?? 'send failed') });
+        finish();
+      }
+    }
+
+    function handleDisconnect() {
+      cleanup();
+      if (!finished) {
+        dispatch({ type: 'STREAM_ERROR', error: 'Extension stream disconnected — retry message' });
+      }
+    }
+
+    port.onMessage.addListener(handleMessage);
+    port.onDisconnect.addListener(handleDisconnect);
+
+    try {
+      port.postMessage({ type: 'SEND_AND_STEP', convId: state.convId, content });
     } catch (e) {
       dispatch({ type: 'STREAM_ERROR', error: e instanceof Error ? e.message : 'send failed' });
-    } finally {
-      pendingRef.current = false;
+      finish();
     }
   }, [state.online, state.stream.generating, state.selection, state.convId]);
 
@@ -209,6 +248,8 @@ export default function ExtensionChat() {
   );
 
   const clear = useCallback(() => {
+    streamPortRef.current?.postMessage({ type: 'CANCEL', convId: state.convId });
+    streamPortRef.current?.disconnect();
     sendToBg({ type: 'CANCEL', convId: state.convId }).catch(() => {});
     dispatch({ type: 'SET_SELECTION', text: null });
     window.location.reload(); // simplest reset for the side panel
