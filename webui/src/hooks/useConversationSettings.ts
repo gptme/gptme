@@ -187,8 +187,9 @@ export const useConversationSettings = (conversationId: string) => {
       const mcpServersChanged =
         JSON.stringify(originalConfig.mcp?.servers?.slice().sort()) !==
         JSON.stringify(newConfig.mcp?.servers?.slice().sort());
+      const systemPromptChanged = originalSystemPrompt !== (newConfig.chat.system_prompt || '');
 
-      if (toolsChanged || mcpChanged || mcpServersChanged) {
+      if (toolsChanged || mcpChanged || mcpServersChanged || systemPromptChanged) {
         const conversationData = await api.getConversation(conversationId);
         updateConversation(conversationId, { data: conversationData, chatConfig: newConfig });
       } else {
