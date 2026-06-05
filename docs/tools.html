@@ -4056,6 +4056,21 @@ not manager as the Protocol suggests. This is a known type safety issue.</p>
 <dd><p>Signal that the autonomous session is complete and ready to exit.</p>
 </dd></dl>
 
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.complete.</span></span><span class="sig-name descname"><span class="pre">stuck_detect_hook</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">manager</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="api.html#gptme.logmanager.LogManager" title="gptme.logmanager.LogManager"><span class="pre">LogManager</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">interactive</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">prompt_queue</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><span class="pre">Any</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Generator" title="(in Python v3.14)"><span class="pre">Generator</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">StopPropagation</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span></dt>
+<dd><p>Detect a stuck agent that keeps issuing the same tool call(s).</p>
+<p>Unlike <code class="docutils literal notranslate"><span class="pre">auto_reply_hook</span></code> (which only acts when the last assistant message
+has <em>no</em> tool uses), this hook fires when the agent <em>does</em> emit tool uses but
+keeps repeating an identical action without progress — a silent failing loop
+that would otherwise run until the budget or session timeout is hit.</p>
+<p>Registered as a separate LOOP_CONTINUE hook at higher priority than
+<code class="docutils literal notranslate"><span class="pre">auto_reply_hook</span></code> so it can observe the yes-tool-but-repeating case the
+latter early-returns on. Mutates nothing; only yields a system nudge and,
+after repeated escalations, raises SessionCompleteException.</p>
+<p>See gptme/gptme#2725 and the design note in Bob’s workspace.</p>
+</dd></dl>
+
 </section>
 <section id="restart">
 <h2>Restart<a class="headerlink" href="#restart" title="Link to this heading">#</a></h2>
