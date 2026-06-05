@@ -4,7 +4,7 @@ Provides ``gptme-util status`` (via lazy registration in ``util.py``) and
 ``gptme-status`` (standalone entry point registered in ``pyproject.toml``).
 
 Produces a compact, human-readable briefing: active work, PR queue, service
-health, blockers, and ready-next tasks.
+health, blockers, and ready backlog items.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -33,17 +34,22 @@ def _run(cmd: list[str], *, timeout: int = 10) -> str:
         return ""
 
 
+def _git_root() -> Path | None:
+    raw = _run(["git", "rev-parse", "--show-toplevel"])
+    return Path(raw) if raw else None
+
+
+def _gh_user() -> str:
+    """Return the current gh CLI authenticated username."""
+    return _run(["gh", "api", "user", "--jq", ".login"], timeout=10)
+
+
 def _is_bob_workspace() -> bool:
     """Detect if we are inside Bob's workspace by checking for Bob-specific files."""
     root = _git_root()
     if not root:
         return False
-    return (root / "tasks").is_dir() and (root / "gptme.toml").is_dir()
-
-
-def _git_root() -> Path | None:
-    raw = _run(["git", "rev-parse", "--show-toplevel"])
-    return Path(raw) if raw else None
+    return (root / "tasks").is_dir() and (root / "gptme.toml").is_file()
 
 
 def _active_tasks(lines: int = 3) -> list[dict]:
@@ -57,9 +63,12 @@ def _active_tasks(lines: int = 3) -> list[dict]:
         # Lines look like "  task-id  Title text here  (N ago)"
         if not line or line.startswith("📋") or "0 tasks" in line or "Summary" in line:
             continue
-        parts = line.split(None, 2)
+        parts = line.split(None, 1)
         if len(parts) >= 2:
-            tasks.append({"_id": parts[0], "title": parts[1] if len(parts) > 1 else ""})
+            task_id = parts[0]
+            # Strip trailing " (N unit ago)" timestamp to get the full title
+            title = re.sub(r"\s+\(\d+\s+\w+\s+ago\)\s*$", "", parts[1]).strip()
+            tasks.append({"_id": task_id, "title": title})
     return tasks[:lines]
 
 
@@ -68,7 +77,11 @@ def _recent_commits(n: int = 3) -> list[str]:
     return raw.splitlines() if raw else []
 
 
-def _pr_queue(repos: list[tuple[str, int | None]]) -> list[dict[str, str]]:
+def _pr_queue(
+    repos: list[tuple[str, int | None]], author: str | None = None
+) -> list[dict[str, str]]:
+    if author is None:
+        author = _gh_user() or "TimeToBuildBob"
     rows: list[dict[str, str]] = []
     for repo, cap in repos:
         prs_json = _run(
@@ -79,7 +92,7 @@ def _pr_queue(repos: list[tuple[str, int | None]]) -> list[dict[str, str]]:
                 "--repo",
                 repo,
                 "--author",
-                "TimeToBuildBob",
+                author,
                 "--state",
                 "open",
                 "--json",
@@ -157,22 +170,38 @@ def _ready_tasks(limit: int = 3) -> list[dict]:
     return tasks[:limit]
 
 
+def _strip_markdown(doc: str) -> str:
+    """Strip Markdown formatting for plain-text output."""
+    lines = []
+    for line in doc.splitlines():
+        line = re.sub(r"^#+\s+", "", line)  # Remove headings
+        line = re.sub(r"\*+([^*]*)\*+", r"\1", line)  # Remove bold/italic
+        line = re.sub(r"`([^`]*)`", r"\1", line)  # Remove inline code
+        if re.match(r"^[|\s\-:]+$", line):  # Skip table dividers
+            continue
+        lines.append(line)
+    return "\n".join(lines)
+
+
 # ── sections ──────────────────────────────────────────────────────────
 
 
 def section_header() -> str:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     model = os.environ.get("CLAUDE_MODEL", os.environ.get("CC_MODEL", "unknown"))
-    return f"# gptme Status — {now}\n\n**Agent**: Bob | **Model**: {model}\n"
+    agent_name = os.environ.get("GPTME_AGENT_NAME", "")
+    agent_part = f" | **Agent**: {agent_name}" if agent_name else ""
+    return f"# gptme Status — {now}\n\n**Model**: {model}{agent_part}\n"
 
 
-def section_active_work() -> str:
+def section_active_work(is_bob: bool = False) -> str:
     lines = ["## Active Work"]
-    tasks = _active_tasks(3)
-    if tasks:
-        lines.extend(
-            f"- **Task**: `{t['_id']}` — {t.get('title', '')[:60]}" for t in tasks
-        )
+    if is_bob:
+        tasks = _active_tasks(3)
+        if tasks:
+            lines.extend(
+                f"- **Task**: `{t['_id']}` — {t.get('title', '')[:60]}" for t in tasks
+            )
     commits = _recent_commits(3)
     if commits:
         lines.append("- **Recent commits** (last 3):")
@@ -240,14 +269,20 @@ def section_ready_next() -> str:
 
 
 def build_document() -> str:
-    sections = [
+    is_bob = _is_bob_workspace()
+    sections: list[str] = [
         section_header(),
-        section_active_work(),
+        section_active_work(is_bob=is_bob),
         section_pr_queue(),
-        section_services(),
-        section_blockers(),
-        section_ready_next(),
     ]
+    if is_bob:
+        sections.extend(
+            [
+                section_services(),
+                section_blockers(),
+                section_ready_next(),
+            ]
+        )
     doc = "\n\n".join(sections)
     token_est = len(doc) // 4
     doc += f"\n\n---\n*~{token_est} tokens*"
@@ -272,10 +307,9 @@ def build_document() -> str:
     help="Output file path (implies --write).",
 )
 @click.option(
-    "--markdown",
-    is_flag=True,
+    "--markdown/--no-markdown",
     default=True,
-    help="Output as Markdown (default: enabled).",
+    help="Output as Markdown (default: enabled). Use --no-markdown for plain text.",
 )
 def status(write: bool, output: str | None, markdown: bool):
     """Generate a portable operator handoff / session-status document.
@@ -291,8 +325,12 @@ def status(write: bool, output: str | None, markdown: bool):
         gptme-util status --write               # write to status.md
 
         gptme-util status -o /tmp/handoff.md    # write to custom path
+
+        gptme-util status --no-markdown         # plain-text output
     """
     doc = build_document()
+    if not markdown:
+        doc = _strip_markdown(doc)
     out_path: Path | None = None
 
     if output:
