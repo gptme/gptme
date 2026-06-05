@@ -249,8 +249,8 @@ String together multiple gptme invocations for complex workflows:
            exit 0
        fi
 
-       # Let gptme diagnose and fix
-       echo "$test_output" | gptme -n "These tests are failing. Diagnose the root cause and fix it."
+       # Let gptme diagnose and fix (|| true prevents set -e from aborting the loop on gptme failure)
+       echo "$test_output" | gptme -n "These tests are failing. Diagnose the root cause and fix it." || true
    done
 
    echo "❌ Could not fix tests after $MAX_ATTEMPTS attempts"
