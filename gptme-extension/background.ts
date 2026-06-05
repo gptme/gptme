@@ -149,37 +149,49 @@ chrome.runtime.onMessage.addListener(
       }
 
       if (msg.type === 'CREATE_CONV') {
-        const cl = await getClient();
-        await cl.createConversation(msg.convId as string, msg.systemMsg as string | undefined);
-        sendResponse({ ok: true });
+        try {
+          const cl = await getClient();
+          await cl.createConversation(msg.convId as string, msg.systemMsg as string | undefined);
+          sendResponse({ ok: true });
+        } catch (e) {
+          sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) });
+        }
         return;
       }
 
       if (msg.type === 'SEND_AND_STEP') {
-        const cl = await getClient();
         const convId = msg.convId as string;
-        await cl.postMessage(convId, msg.content as string);
-        await cl.step(convId);
-        sendResponse({ ok: true });
+        try {
+          const cl = await getClient();
+          await cl.postMessage(convId, msg.content as string);
 
-        // Cancel any existing stream for this conversation
-        activeStreams.get(convId)?.();
+          // Cancel any existing stream, then subscribe BEFORE step so early tokens aren't missed
+          activeStreams.get(convId)?.();
 
-        const unsub = cl.subscribeEvents(
-          convId,
-          (token) => {
-            chrome.runtime.sendMessage({ type: 'TOKEN', convId, token }).catch(() => {});
-          },
-          () => {
-            chrome.runtime.sendMessage({ type: 'DONE', convId }).catch(() => {});
-            activeStreams.delete(convId);
-          },
-          (error) => {
-            chrome.runtime.sendMessage({ type: 'ERROR', convId, error }).catch(() => {});
-            activeStreams.delete(convId);
-          },
-        );
-        activeStreams.set(convId, unsub);
+          const unsub = cl.subscribeEvents(
+            convId,
+            (token) => {
+              chrome.runtime.sendMessage({ type: 'TOKEN', convId, token }).catch(() => {});
+            },
+            () => {
+              chrome.runtime.sendMessage({ type: 'DONE', convId }).catch(() => {});
+              activeStreams.delete(convId);
+            },
+            (error) => {
+              chrome.runtime.sendMessage({ type: 'ERROR', convId, error }).catch(() => {});
+              activeStreams.delete(convId);
+            },
+          );
+          activeStreams.set(convId, unsub);
+
+          await cl.step(convId);
+          sendResponse({ ok: true });
+        } catch (e) {
+          // Clean up any stream we may have started before failing
+          activeStreams.get(convId)?.();
+          activeStreams.delete(convId);
+          sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) });
+        }
         return;
       }
 

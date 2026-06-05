@@ -6,6 +6,7 @@ interface State {
   serverOnline: boolean;
   generating: boolean;
   currentAssistantText: string;
+  currentAssistantDiv: HTMLElement | null;
   selection: string | null;
 }
 
@@ -14,6 +15,7 @@ const state: State = {
   serverOnline: false,
   generating: false,
   currentAssistantText: '',
+  currentAssistantDiv: null,
   selection: null,
 };
 
@@ -112,12 +114,24 @@ async function sendMessage(): Promise<void> {
   const assistantDiv = appendMessage('assistant', '');
   const textEl = assistantDiv.querySelector('.text') as HTMLElement;
   state.currentAssistantText = '';
+  state.currentAssistantDiv = assistantDiv;
 
   chrome.runtime.sendMessage({
     type: 'SEND_AND_STEP',
     convId: state.convId,
     content,
+  }).then((resp: { ok: boolean; error?: string } | undefined) => {
+    if (resp && !resp.ok) {
+      assistantDiv.remove();
+      state.currentAssistantDiv = null;
+      appendMessage('system', `Failed: ${resp.error ?? 'server error'}`);
+      state.generating = false;
+      el<HTMLButtonElement>('send-btn').disabled = false;
+    }
+    // ok: true → wait for TOKEN/DONE/ERROR from background
   }).catch(() => {
+    assistantDiv.remove();
+    state.currentAssistantDiv = null;
     appendMessage('system', 'Failed to send message. Is the server running?');
     state.generating = false;
     el<HTMLButtonElement>('send-btn').disabled = false;
@@ -129,6 +143,7 @@ function clearConversation(): void {
   state.convId = `gptme-ext-${Date.now()}`;
   state.generating = false;
   state.currentAssistantText = '';
+  state.currentAssistantDiv = null;
   el('messages').innerHTML = '';
   el<HTMLButtonElement>('send-btn').disabled = false;
   setSelectionBar(null);
@@ -150,12 +165,18 @@ chrome.runtime.onMessage.addListener((msg: Record<string, unknown>) => {
 
   if (msg.type === 'DONE' && msg.convId === state.convId) {
     state.generating = false;
+    state.currentAssistantDiv = null;
     el<HTMLButtonElement>('send-btn').disabled = false;
     el<HTMLTextAreaElement>('input').focus();
     return;
   }
 
   if (msg.type === 'ERROR' && msg.convId === state.convId) {
+    // Remove empty assistant bubble (no tokens received) before showing error
+    if (state.currentAssistantDiv && !state.currentAssistantText) {
+      state.currentAssistantDiv.remove();
+    }
+    state.currentAssistantDiv = null;
     state.generating = false;
     el<HTMLButtonElement>('send-btn').disabled = false;
     appendMessage('system', `Error: ${String(msg.error)}`);
