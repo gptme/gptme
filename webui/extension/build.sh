@@ -8,7 +8,7 @@ OUT_DIR="$EXT_DIR/dist"
 
 echo "→ Building webui panel (Vite)..."
 cd "$WEBUI_DIR"
-npx vite build --outDir "$EXT_DIR/panel" --emptyOutDir
+npx vite build --outDir "$OUT_DIR/panel" --emptyOutDir
 
 echo "→ Building extension worker + content script (esbuild)..."
 cd "$EXT_DIR"
