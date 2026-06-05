@@ -438,7 +438,9 @@
 <button class="btn btn-sm pst-navbar-icon search-button search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
     <i class="fa-solid fa-magnifying-glass fa-lg"></i>
 </button>
-
+<button class="sidebar-toggle secondary-toggle btn btn-sm" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="fa-solid fa-list"></span>
+</button>
 </div></div>
       
     </div>
@@ -454,6 +456,32 @@
     <div id="print-main-content">
         <div id="jb-print-toc">
             
+            <div>
+                <h2> Contents </h2>
+            </div>
+            <nav aria-label="Page">
+                <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#non-interactive-mode">Non-Interactive Mode</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#capturing-output">Capturing Output</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#exit-codes">Exit Codes</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ci-cd-integration">CI/CD Integration</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#github-actions">GitHub Actions</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pre-commit-hook">Pre-commit Hook</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-implement-feature-from-issue">Example: Implement Feature from Issue</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#scheduled-automation">Scheduled Automation</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#cron">cron</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#systemd-timer">systemd Timer</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#multi-step-pipelines">Multi-Step Pipelines</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#using-gptme-as-a-library">Using gptme as a Library</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#best-practices">Best Practices</a></li>
+</ul>
+            </nav>
         </div>
     </div>
 </div>
@@ -465,16 +493,166 @@
                   
   <section id="automation">
 <h1>Automation<a class="headerlink" href="#automation" title="Link to this heading">#</a></h1>
-<p>gptme can be used to create powerful yet simple automated workflows. Here we showcase small but powerful examples that demonstrate the capabilities of gptme in various workflows and automation scenarios.</p>
-<p>We will be using shell scripts, cron jobs, and other tools to automate the workflows.</p>
+<p>gptme can be used to create powerful automated workflows.
+This page covers non-interactive usage patterns, CI/CD integration,
+and scheduling strategies.</p>
+<nav class="contents local" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="#non-interactive-mode" id="id1">Non-Interactive Mode</a></p>
+<ul>
+<li><p><a class="reference internal" href="#capturing-output" id="id2">Capturing Output</a></p></li>
+<li><p><a class="reference internal" href="#exit-codes" id="id3">Exit Codes</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#ci-cd-integration" id="id4">CI/CD Integration</a></p>
+<ul>
+<li><p><a class="reference internal" href="#github-actions" id="id5">GitHub Actions</a></p></li>
+<li><p><a class="reference internal" href="#pre-commit-hook" id="id6">Pre-commit Hook</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#example-implement-feature-from-issue" id="id7">Example: Implement Feature from Issue</a></p></li>
+<li><p><a class="reference internal" href="#scheduled-automation" id="id8">Scheduled Automation</a></p>
+<ul>
+<li><p><a class="reference internal" href="#cron" id="id9">cron</a></p></li>
+<li><p><a class="reference internal" href="#systemd-timer" id="id10">systemd Timer</a></p></li>
+</ul>
+</li>
+<li><p><a class="reference internal" href="#multi-step-pipelines" id="id11">Multi-Step Pipelines</a></p></li>
+<li><p><a class="reference internal" href="#using-gptme-as-a-library" id="id12">Using gptme as a Library</a></p></li>
+<li><p><a class="reference internal" href="#best-practices" id="id13">Best Practices</a></p></li>
+</ul>
+</nav>
+<section id="non-interactive-mode">
+<h2><a class="toc-backref" href="#id1" role="doc-backlink">Non-Interactive Mode</a><a class="headerlink" href="#non-interactive-mode" title="Link to this heading">#</a></h2>
+<p>The simplest way to automate gptme is with the <code class="docutils literal notranslate"><span class="pre">-n</span></code>/<code class="docutils literal notranslate"><span class="pre">--non-interactive</span></code> flag,
+which runs a prompt non-interactively and exits:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;summarize this&quot;</span><span class="w"> </span>README.md
+gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;what bugs can you spot?&quot;</span><span class="w"> </span>src/main.py
+</pre></div>
+</div>
+<p>For longer tasks that involve multiple files or steps, chain prompts with <code class="docutils literal notranslate"><span class="pre">-</span></code>
+separators (each <code class="docutils literal notranslate"><span class="pre">-</span></code> starts a new turn that triggers another assistant response):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;read the failing test&quot;</span><span class="w"> </span>-<span class="w"> </span><span class="s2">&quot;fix the implementation&quot;</span><span class="w"> </span>-<span class="w"> </span><span class="s2">&quot;run the tests&quot;</span>
+</pre></div>
+</div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>This is a work in progress. We intend to make gptme more powerful for automations, see <a class="reference external" href="https://github.com/gptme/gptme/issues/143">issue #143</a> for more details on this plan.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">-n</span></code> / <code class="docutils literal notranslate"><span class="pre">--non-interactive</span></code> flag skips all confirmation prompts and
+exits when done. For interactive sessions that start with a pre-filled prompt,
+omit <code class="docutils literal notranslate"><span class="pre">-n</span></code>.</p>
 </div>
-<p class="rubric">Example: Implement feature</p>
-<p>This example demonstrates how to implement a feature in a codebase using gptme, making sure the code is correct before creating a pull request.</p>
-<p>Given a GitHub issue it will check out a new branch, look up relevant files, make changes, typecheck/test them, and create a pull request if everything is correct.</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>gptme<span class="w"> </span><span class="s1">&#39;read &lt;url&gt;&#39;</span><span class="w"> </span><span class="s1">&#39;-&#39;</span><span class="w"> </span><span class="s1">&#39;create a branch&#39;</span><span class="w"> </span><span class="s1">&#39;-&#39;</span><span class="w"> </span><span class="s1">&#39;look up relevant files&#39;</span><span class="w"> </span><span class="s1">&#39;-&#39;</span><span class="w"> </span><span class="s1">&#39;make changes&#39;</span><span class="w"> </span><span class="s1">&#39;-&#39;</span><span class="w"> </span><span class="s1">&#39;typecheck it&#39;</span><span class="w"> </span><span class="s1">&#39;-&#39;</span><span class="w"> </span><span class="s1">&#39;test it&#39;</span><span class="w"> </span><span class="s1">&#39;-&#39;</span><span class="w"> </span><span class="s1">&#39;create a pull request&#39;</span>
+<section id="capturing-output">
+<h3><a class="toc-backref" href="#id2" role="doc-backlink">Capturing Output</a><a class="headerlink" href="#capturing-output" title="Link to this heading">#</a></h3>
+<p>gptme’s non-interactive mode writes assistant responses to stdout:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Save the output to a file</span>
+gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;summarize this codebase in 3 bullet points&quot;</span><span class="w"> </span>README.md<span class="w"> </span>&gt;<span class="w"> </span>summary.txt
+
+<span class="c1"># Use in a pipeline (mapfile avoids word-splitting on paths with spaces)</span>
+mapfile<span class="w"> </span>-t<span class="w"> </span>pyfiles<span class="w"> </span>&lt;<span class="w"> </span>&lt;<span class="o">(</span>find<span class="w"> </span>.<span class="w"> </span>-name<span class="w"> </span><span class="s2">&quot;*.py&quot;</span><span class="o">)</span>
+gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;extract all TODO comments&quot;</span><span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">pyfiles</span><span class="p">[@]</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>tee<span class="w"> </span>todos.txt
+
+<span class="c1"># Exit code reflects success (0) or failure (non-zero)</span>
+<span class="k">if</span><span class="w"> </span>gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;run the tests and report pass/fail&quot;</span><span class="p">;</span><span class="w"> </span><span class="k">then</span>
+<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;Tests passed&quot;</span>
+<span class="k">fi</span>
+
+<span class="c1"># --output-format json gives structured output (one JSON object per message)</span>
+gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;check the logs&quot;</span><span class="w"> </span>app.log<span class="w"> </span>--output-format<span class="w"> </span>json
+</pre></div>
+</div>
+</section>
+<section id="exit-codes">
+<h3><a class="toc-backref" href="#id3" role="doc-backlink">Exit Codes</a><a class="headerlink" href="#exit-codes" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">0</span></code>: Task completed successfully</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">1</span></code>: Task failed (error during execution)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">2</span></code>: Invalid arguments</p></li>
+</ul>
+</section>
+</section>
+<section id="ci-cd-integration">
+<h2><a class="toc-backref" href="#id4" role="doc-backlink">CI/CD Integration</a><a class="headerlink" href="#ci-cd-integration" title="Link to this heading">#</a></h2>
+<section id="github-actions">
+<h3><a class="toc-backref" href="#id5" role="doc-backlink">GitHub Actions</a><a class="headerlink" href="#github-actions" title="Link to this heading">#</a></h3>
+<p>Run gptme as a step in your GitHub Actions workflow:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">AI Code Review</span>
+
+<span class="nt">on</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">pull_request</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">types</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">opened</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">synchronize</span><span class="p p-Indicator">]</span>
+
+<span class="nt">jobs</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">review</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">runs-on</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ubuntu-latest</span>
+<span class="w">    </span><span class="nt">steps</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">uses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">actions/checkout@v4</span>
+<span class="w">        </span><span class="nt">with</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">fetch-depth</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Install gptme</span>
+<span class="w">        </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pipx install gptme</span>
+
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Review PR diff</span>
+<span class="w">        </span><span class="nt">env</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">ANTHROPIC_API_KEY</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${{ secrets.ANTHROPIC_API_KEY }}</span>
+<span class="w">          </span><span class="nt">GH_TOKEN</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${{ secrets.GITHUB_TOKEN }}</span>
+<span class="w">        </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+<span class="w">          </span><span class="no">diff=$(gh pr diff ${{ github.event.pull_request.number }})</span>
+<span class="w">          </span><span class="no">review=$(echo &quot;$diff&quot; | gptme -n &quot;Review this PR diff for bugs, code quality issues, and security concerns. Be concise.&quot;)</span>
+<span class="w">          </span><span class="no">body=&quot;## AI Code Review&quot;$&#39;\n&#39;&quot;$review&quot;$&#39;\n&#39;&quot;*Generated by gptme*&quot;</span>
+<span class="w">          </span><span class="no">gh pr comment ${{ github.event.pull_request.number }} --body &quot;$body&quot;</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Store your API key (e.g. <code class="docutils literal notranslate"><span class="pre">ANTHROPIC_API_KEY</span></code>) as a GitHub secret.
+Never hard-code keys in workflow files.</p>
+</div>
+</section>
+<section id="pre-commit-hook">
+<h3><a class="toc-backref" href="#id6" role="doc-backlink">Pre-commit Hook</a><a class="headerlink" href="#pre-commit-hook" title="Link to this heading">#</a></h3>
+<p>Use gptme as a pre-commit hook to catch issues before they land:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># .git/hooks/pre-commit</span>
+<span class="c1">#!/bin/bash</span>
+<span class="nb">set</span><span class="w"> </span>-e
+
+<span class="c1"># Only run on staged Python files</span>
+mapfile<span class="w"> </span>-t<span class="w"> </span>staged<span class="w"> </span>&lt;<span class="w"> </span>&lt;<span class="o">(</span>git<span class="w"> </span>diff<span class="w"> </span>--cached<span class="w"> </span>--name-only<span class="w"> </span>--diff-filter<span class="o">=</span>ACM<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span><span class="s1">&#39;\.py$&#39;</span><span class="o">)</span>
+<span class="o">[</span><span class="w"> </span><span class="si">${#</span><span class="nv">staged</span><span class="p">[@]</span><span class="si">}</span><span class="w"> </span>-eq<span class="w"> </span><span class="m">0</span><span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">exit</span><span class="w"> </span><span class="m">0</span>
+
+<span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;Running AI review on staged files...&quot;</span>
+<span class="nv">issues</span><span class="o">=</span><span class="k">$(</span>gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;List any bugs or serious issues in these files. Output nothing if clean.&quot;</span><span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">staged</span><span class="p">[@]</span><span class="si">}</span><span class="s2">&quot;</span><span class="k">)</span>
+
+<span class="k">if</span><span class="w"> </span><span class="o">[</span><span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$issues</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">then</span>
+<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;⚠️  Potential issues found:&quot;</span>
+<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$issues</span><span class="s2">&quot;</span>
+<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;&quot;</span>
+<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;Review and fix before committing, or use git commit --no-verify to skip.&quot;</span>
+<span class="w">    </span><span class="nb">exit</span><span class="w"> </span><span class="m">1</span>
+<span class="k">fi</span>
+</pre></div>
+</div>
+<p>Make this executable with <code class="docutils literal notranslate"><span class="pre">chmod</span> <span class="pre">+x</span> <span class="pre">.git/hooks/pre-commit</span></code>.</p>
+</section>
+</section>
+<section id="example-implement-feature-from-issue">
+<h2><a class="toc-backref" href="#id7" role="doc-backlink">Example: Implement Feature from Issue</a><a class="headerlink" href="#example-implement-feature-from-issue" title="Link to this heading">#</a></h2>
+<p>Given a GitHub issue URL, this script checks out a branch, implements the
+feature, runs tests, and creates a pull request:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="ch">#!/bin/bash</span>
+<span class="c1"># Usage: ./implement-issue.sh &lt;issue-url&gt;</span>
+<span class="nb">set</span><span class="w"> </span>-e
+
+<span class="nv">issue_url</span><span class="o">=</span><span class="nv">$1</span>
+<span class="nv">issue_number</span><span class="o">=</span><span class="k">$(</span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$issue_url</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-oE<span class="w"> </span><span class="s1">&#39;[0-9]+$&#39;</span><span class="k">)</span>
+
+gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;Read this GitHub issue: </span><span class="nv">$issue_url</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">      </span>-<span class="w"> </span><span class="s2">&quot;Create a new branch called fix/issue-</span><span class="nv">$issue_number</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">      </span>-<span class="w"> </span><span class="s2">&quot;Look up the relevant source files for this issue&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">      </span>-<span class="w"> </span><span class="s2">&quot;Implement the fix described in the issue&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">      </span>-<span class="w"> </span><span class="s2">&quot;Run the tests to make sure nothing is broken&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">      </span>-<span class="w"> </span><span class="s2">&quot;Create a pull request that closes issue #</span><span class="nv">$issue_number</span><span class="s2">&quot;</span>
 </pre></div>
 </div>
 <p class="rubric">Example: Automated Code Review</p>
@@ -613,6 +791,132 @@ generate_daily_summary<span class="o">()</span><span class="w"> </span><span cla
 </div>
 <p>This automation will provide you with daily insights into your computer usage and productivity patterns from the previous day, leveraging the power of gptme to analyze and summarize the data collected by ActivityWatch.</p>
 </section>
+<section id="scheduled-automation">
+<h2><a class="toc-backref" href="#id8" role="doc-backlink">Scheduled Automation</a><a class="headerlink" href="#scheduled-automation" title="Link to this heading">#</a></h2>
+<section id="cron">
+<h3><a class="toc-backref" href="#id9" role="doc-backlink">cron</a><a class="headerlink" href="#cron" title="Link to this heading">#</a></h3>
+<p>Run gptme on a schedule using cron:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Edit your crontab</span>
+crontab<span class="w"> </span>-e
+
+<span class="c1"># Run a daily summary every day at 8 AM</span>
+<span class="m">0</span><span class="w"> </span><span class="m">8</span><span class="w"> </span>*<span class="w"> </span>*<span class="w"> </span>*<span class="w"> </span><span class="nb">cd</span><span class="w"> </span>/path/to/project<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;summarize yesterday&#39;s git activity and open issues&quot;</span><span class="w"> </span>&gt;&gt;<span class="w"> </span>/var/log/gptme-daily.log<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span>
+
+<span class="c1"># Weekly dependency audit every Monday at 9 AM</span>
+<span class="m">0</span><span class="w"> </span><span class="m">9</span><span class="w"> </span>*<span class="w"> </span>*<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="nb">cd</span><span class="w"> </span>/path/to/project<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;check for outdated dependencies and security advisories. Output a summary.&quot;</span><span class="w"> </span>&gt;&gt;<span class="w"> </span>/var/log/gptme-weekly.log<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span>
+</pre></div>
+</div>
+</section>
+<section id="systemd-timer">
+<h3><a class="toc-backref" href="#id10" role="doc-backlink">systemd Timer</a><a class="headerlink" href="#systemd-timer" title="Link to this heading">#</a></h3>
+<p>For more robust scheduling, use systemd user timers:</p>
+<div class="highlight-ini notranslate"><div class="highlight"><pre><span></span><span class="c1"># ~/.config/systemd/user/gptme-daily.service</span>
+<span class="k">[Unit]</span>
+<span class="na">Description</span><span class="o">=</span><span class="s">Daily gptme summary</span>
+
+<span class="k">[Service]</span>
+<span class="na">Type</span><span class="o">=</span><span class="s">oneshot</span>
+<span class="na">WorkingDirectory</span><span class="o">=</span><span class="s">%h/myproject</span>
+<span class="na">Environment</span><span class="o">=</span><span class="s">ANTHROPIC_API_KEY=&lt;your-key&gt;</span>
+<span class="na">ExecStart</span><span class="o">=</span><span class="s">gptme -n &quot;summarize today&#39;s commits and open issues&quot;</span>
+<span class="na">StandardOutput</span><span class="o">=</span><span class="s">append:%h/logs/gptme-daily.log</span>
+</pre></div>
+</div>
+<div class="highlight-ini notranslate"><div class="highlight"><pre><span></span><span class="c1"># ~/.config/systemd/user/gptme-daily.timer</span>
+<span class="k">[Unit]</span>
+<span class="na">Description</span><span class="o">=</span><span class="s">Run gptme daily summary</span>
+
+<span class="k">[Timer]</span>
+<span class="na">OnCalendar</span><span class="o">=</span><span class="s">daily</span>
+<span class="na">Persistent</span><span class="o">=</span><span class="s">true</span>
+
+<span class="k">[Install]</span>
+<span class="na">WantedBy</span><span class="o">=</span><span class="s">timers.target</span>
+</pre></div>
+</div>
+<p>Enable with:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>systemctl<span class="w"> </span>--user<span class="w"> </span><span class="nb">enable</span><span class="w"> </span>--now<span class="w"> </span>gptme-daily.timer
+</pre></div>
+</div>
+</section>
+</section>
+<section id="multi-step-pipelines">
+<h2><a class="toc-backref" href="#id11" role="doc-backlink">Multi-Step Pipelines</a><a class="headerlink" href="#multi-step-pipelines" title="Link to this heading">#</a></h2>
+<p>String together multiple gptme invocations for complex workflows:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="ch">#!/bin/bash</span>
+<span class="c1"># Automated test-and-fix loop</span>
+<span class="nb">set</span><span class="w"> </span>-euo<span class="w"> </span>pipefail
+
+<span class="nv">MAX_ATTEMPTS</span><span class="o">=</span><span class="m">3</span>
+<span class="nv">attempt</span><span class="o">=</span><span class="m">0</span>
+
+<span class="k">while</span><span class="w"> </span><span class="o">[</span><span class="w"> </span><span class="nv">$attempt</span><span class="w"> </span>-lt<span class="w"> </span><span class="nv">$MAX_ATTEMPTS</span><span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<span class="w">    </span><span class="nv">attempt</span><span class="o">=</span><span class="k">$((</span><span class="nv">attempt</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="m">1</span><span class="k">))</span>
+<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;Attempt </span><span class="nv">$attempt</span><span class="s2">/</span><span class="nv">$MAX_ATTEMPTS</span><span class="s2">&quot;</span>
+
+<span class="w">    </span><span class="c1"># Run tests, capture failures</span>
+<span class="w">    </span><span class="nv">test_output</span><span class="o">=</span><span class="k">$(</span>python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>--tb<span class="o">=</span>short<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nb">true</span><span class="k">)</span>
+
+<span class="w">    </span><span class="c1"># Check if tests passed</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$test_output</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-q<span class="w"> </span><span class="s2">&quot;passed&quot;</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>!<span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$test_output</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-q<span class="w"> </span><span class="s2">&quot;failed&quot;</span><span class="p">;</span><span class="w"> </span><span class="k">then</span>
+<span class="w">        </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;✅ All tests pass&quot;</span>
+<span class="w">        </span><span class="nb">exit</span><span class="w"> </span><span class="m">0</span>
+<span class="w">    </span><span class="k">fi</span>
+
+<span class="w">    </span><span class="c1"># Let gptme diagnose and fix (|| true prevents set -e from aborting the loop on gptme failure)</span>
+<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$test_output</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;These tests are failing. Diagnose the root cause and fix it.&quot;</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nb">true</span>
+<span class="k">done</span>
+
+<span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;❌ Could not fix tests after </span><span class="nv">$MAX_ATTEMPTS</span><span class="s2"> attempts&quot;</span>
+<span class="nb">exit</span><span class="w"> </span><span class="m">1</span>
+</pre></div>
+</div>
+</section>
+<section id="using-gptme-as-a-library">
+<h2><a class="toc-backref" href="#id12" role="doc-backlink">Using gptme as a Library</a><a class="headerlink" href="#using-gptme-as-a-library" title="Link to this heading">#</a></h2>
+<p>For tighter integration, use the gptme Python API directly:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">subprocess</span>
+<span class="kn">import</span> <span class="nn">json</span>
+
+<span class="c1"># Run gptme non-interactively and capture structured output</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
+    <span class="p">[</span><span class="s2">&quot;gptme&quot;</span><span class="p">,</span> <span class="s2">&quot;-n&quot;</span><span class="p">,</span> <span class="s2">&quot;--output-format&quot;</span><span class="p">,</span> <span class="s2">&quot;json&quot;</span><span class="p">,</span>
+     <span class="s2">&quot;List the files in the current directory&quot;</span><span class="p">],</span>
+    <span class="n">capture_output</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">text</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">result</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">splitlines</span><span class="p">():</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">():</span>
+        <span class="k">continue</span>
+    <span class="n">msg</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">msg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;role&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;assistant&quot;</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="n">msg</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;content&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">))</span>
+</pre></div>
+</div>
+<p>See the <a class="reference internal" href="api.html"><span class="doc">API Reference</span></a> reference for the full Python interface.</p>
+</section>
+<section id="best-practices">
+<h2><a class="toc-backref" href="#id13" role="doc-backlink">Best Practices</a><a class="headerlink" href="#best-practices" title="Link to this heading">#</a></h2>
+<p><strong>Be specific in prompts</strong>: Vague prompts lead to vague actions.
+Instead of “fix issues”, try “fix the type error in <code class="docutils literal notranslate"><span class="pre">src/user.py</span></code> line 42”.</p>
+<p><strong>Use ``-n`` / ``–non-interactive`` explicitly</strong>: When running in scripts,
+pass <code class="docutils literal notranslate"><span class="pre">-n</span></code> to ensure non-interactive mode is always active.</p>
+<p><strong>Limit tool access</strong>: Use <code class="docutils literal notranslate"><span class="pre">TOOL_ALLOWLIST</span></code> to restrict which tools
+gptme can use in automated contexts:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">TOOL_ALLOWLIST</span><span class="o">=</span>read,shell<span class="w"> </span>gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;audit the codebase for security issues&quot;</span>
+</pre></div>
+</div>
+<p><strong>Log everything</strong>: Redirect stdout and stderr to log files so you
+can review what gptme did:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;task&quot;</span><span class="w"> </span>&gt;&gt;<span class="w"> </span>/var/log/gptme.log<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span>
+</pre></div>
+</div>
+<p><strong>Test your prompts interactively first</strong>: Run the prompt interactively
+to verify it works before automating it.</p>
+<p><strong>Handle errors</strong>: Always check exit codes in scripts.
+gptme exits non-zero if it cannot complete the task.</p>
+</section>
+</section>
 
 
                 </article>
@@ -649,6 +953,40 @@ generate_daily_summary<span class="o">()</span><span class="w"> </span><span cla
             </div>
             
             
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+  <div class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> Contents
+  </div>
+  <nav class="bd-toc-nav page-toc">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#non-interactive-mode">Non-Interactive Mode</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#capturing-output">Capturing Output</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#exit-codes">Exit Codes</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ci-cd-integration">CI/CD Integration</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#github-actions">GitHub Actions</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pre-commit-hook">Pre-commit Hook</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#example-implement-feature-from-issue">Example: Implement Feature from Issue</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#scheduled-automation">Scheduled Automation</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#cron">cron</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#systemd-timer">systemd Timer</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#multi-step-pipelines">Multi-Step Pipelines</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#using-gptme-as-a-library">Using gptme as a Library</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#best-practices">Best Practices</a></li>
+</ul>
+  </nav></div>
+
+</div></div>
               
             
           </div>
