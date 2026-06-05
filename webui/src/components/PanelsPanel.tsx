@@ -10,7 +10,12 @@ import type { FC } from 'react';
 import { LayoutDashboard, Loader2, Monitor, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SandboxedIframePanel } from '@/components/SandboxedIframePanel';
-import type { PanelEntry, LiveAppPanelEntry, IframePanelEntry } from '@/types/panels';
+import type {
+  PanelEntry,
+  LiveAppPanelEntry,
+  LiveAppStatus,
+  IframePanelEntry,
+} from '@/types/panels';
 import type { IframePanelDescriptor } from '@/types/panel';
 import { usePanelsApi } from '@/utils/panelsApi';
 
@@ -19,7 +24,7 @@ interface PanelsPanelProps {
 }
 
 /** Status indicator color for a live app panel. */
-function statusColor(status: string): string {
+function statusTextColor(status: LiveAppStatus): string {
   switch (status) {
     case 'running':
       return 'text-green-500';
@@ -29,6 +34,19 @@ function statusColor(status: string): string {
       return 'text-muted-foreground';
     default:
       return 'text-yellow-500';
+  }
+}
+
+function statusDotColor(status: LiveAppStatus): string {
+  switch (status) {
+    case 'running':
+      return 'bg-green-500';
+    case 'error':
+      return 'bg-destructive';
+    case 'stopped':
+      return 'bg-muted-foreground';
+    default:
+      return 'bg-yellow-500';
   }
 }
 
@@ -149,7 +167,7 @@ export const PanelsPanel: FC<PanelsPanelProps> = ({ conversationId }) => {
             >
               <span>{p.title}</span>
               {isLiveApp(p) && (
-                <span className={`h-1.5 w-1.5 rounded-full ${statusColor(p.status)}`} />
+                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotColor(p.status)}`} />
               )}
             </button>
           ))}
@@ -163,9 +181,12 @@ export const PanelsPanel: FC<PanelsPanelProps> = ({ conversationId }) => {
             <Monitor className="h-8 w-8 opacity-40" />
             <div className="space-y-1">
               <p className="font-medium text-foreground">{selected.title}</p>
-              <p className={`${statusColor(selected.status)}`}>
+              <p className={statusTextColor(selected.status)}>
                 Status: <span className="capitalize">{selected.status}</span>
               </p>
+              {selected.status_message && (
+                <p className="max-w-md text-muted-foreground">{selected.status_message}</p>
+              )}
               {selected.url && selected.status === 'stopped' && (
                 <p className="text-muted-foreground">{selected.url}</p>
               )}
