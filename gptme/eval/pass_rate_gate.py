@@ -81,7 +81,7 @@ def _normalize_model_key(model: str, lookup: dict) -> str:
     Tries an exact match first, then retries after stripping known router
     prefixes (e.g. ``openrouter/anthropic/X`` → ``anthropic/X``). This
     handles the case where gate data was collected via the direct API but
-    evals are executed via an OpenRouter backend, or vice versa.
+    evals are executed via an OpenRouter backend.
     """
     if model in lookup:
         return model
