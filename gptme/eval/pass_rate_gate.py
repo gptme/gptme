@@ -72,6 +72,32 @@ def load_pass_rate_data(path: Path | str | None = None) -> dict | None:
     return data
 
 
+_ROUTER_PREFIXES = ("openrouter/",)
+
+
+def _normalize_model_key(model: str, lookup: dict) -> str:
+    """Return the best matching key for *model* in *lookup*.
+
+    Tries an exact match first, then retries after stripping known router
+    prefixes (e.g. ``openrouter/anthropic/X`` → ``anthropic/X``). This
+    handles the case where gate data was collected via the direct API but
+    evals are executed via an OpenRouter backend, or vice versa.
+    """
+    if model in lookup:
+        return model
+    for prefix in _ROUTER_PREFIXES:
+        if model.startswith(prefix):
+            candidate = model[len(prefix) :]
+            if candidate in lookup:
+                logger.debug(
+                    "Pass-rate gate: matched '%s' via normalized key '%s'",
+                    model,
+                    candidate,
+                )
+                return candidate
+    return model  # return original; lookup miss handled by caller
+
+
 def get_gate_recommendation(
     model: str,
     eval_name: str,
@@ -81,11 +107,15 @@ def get_gate_recommendation(
 
     Returns ``"default"`` when no data is loaded or the pair is not present —
     callers should treat that as "no override; use existing logic".
+
+    Normalizes the model key by stripping known router prefixes when an exact
+    match is absent (e.g. ``openrouter/anthropic/X`` → ``anthropic/X``).
     """
     if not data:
         return "default"
     lookup = data.get("lookup", {})
-    rec = lookup.get(model, {}).get(eval_name, {}).get("gate_recommendation")
+    key = _normalize_model_key(model, lookup)
+    rec = lookup.get(key, {}).get(eval_name, {}).get("gate_recommendation")
     if rec in ("inject", "suppress"):
         return rec  # type: ignore[return-value]
     return "default"

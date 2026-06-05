@@ -163,3 +163,36 @@ def test_apply_gate_unknown_pair_passes_through(sample_data):
 def test_invalid_gate_value_treated_as_default(sample_data):
     sample_data["lookup"]["m1"]["e1"]["gate_recommendation"] = "weird"
     assert get_gate_recommendation("m1", "e1", sample_data) == "default"
+
+
+def test_get_gate_recommendation_openrouter_prefix_fallback(sample_data):
+    """Gate data collected via direct API should still apply when eval runs via OpenRouter."""
+    # Gate file has "m1" but eval passes "openrouter/m1"
+    assert get_gate_recommendation("openrouter/m1", "e1", sample_data) == "inject"
+    assert get_gate_recommendation("openrouter/m1", "e2", sample_data) == "suppress"
+    assert get_gate_recommendation("openrouter/m1", "e3", sample_data) == "default"
+
+
+def test_get_gate_recommendation_openrouter_prefix_exact_match_wins():
+    """Exact match takes priority over prefix-stripped fallback."""
+    data = {
+        "lookup": {
+            "openrouter/m1": {
+                "e1": {"gate_recommendation": "suppress"},
+            },
+            "m1": {
+                "e1": {"gate_recommendation": "inject"},
+            },
+        }
+    }
+    # Exact match "openrouter/m1" → suppress (not the fallback "m1" → inject)
+    assert get_gate_recommendation("openrouter/m1", "e1", data) == "suppress"
+
+
+def test_apply_gate_openrouter_prefix_fallback(sample_data):
+    """apply_gate resolves inject/suppress via normalized model key."""
+    eff, decision = apply_gate(
+        model="openrouter/m1", eval_name="e1", no_lessons=True, data=sample_data
+    )
+    assert eff is False
+    assert decision == "inject"
