@@ -73,23 +73,31 @@ function setSelectionBar(text: string | null): void {
 
 async function ping(): Promise<void> {
   setStatus('● Connecting…', 'checking');
+  state.serverOnline = false;
   try {
-    const resp = await chrome.runtime.sendMessage({ type: 'PING' }) as { ok: boolean };
-    if (resp.ok) {
-      setStatus('● Connected', 'online');
-      state.serverOnline = true;
-      await chrome.runtime.sendMessage({
-        type: 'CREATE_CONV',
-        convId: state.convId,
-        systemMsg: 'You are a helpful assistant. You are accessible via a browser extension called gptme. Be concise.',
-      });
-    } else {
+    const pingResp = await chrome.runtime.sendMessage({ type: 'PING' }) as { ok: boolean };
+    if (!pingResp.ok) {
       setStatus('● Server offline — run `gptme server`', 'offline');
-      state.serverOnline = false;
+      return;
     }
+
+    const createResp = await chrome.runtime.sendMessage({
+      type: 'CREATE_CONV',
+      convId: state.convId,
+      systemMsg: 'You are a helpful assistant. You are accessible via a browser extension called gptme. Be concise.',
+    }) as { ok: boolean; error?: string };
+    if (!createResp.ok) {
+      setStatus(
+        `● Server error — ${createResp.error ?? 'failed to create conversation'}`,
+        'offline',
+      );
+      return;
+    }
+
+    setStatus('● Connected', 'online');
+    state.serverOnline = true;
   } catch {
     setStatus('● Connection error', 'offline');
-    state.serverOnline = false;
   }
 }
 
