@@ -102,6 +102,9 @@ export default function ExtensionChat() {
   const [state, dispatch] = useReducer(reducer, INIT);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const msgsEndRef = useRef<HTMLDivElement>(null);
+  // Guards against double-send during the window between ADD_MESSAGE dispatch
+  // and the first STREAM_TOKEN (when state.stream.generating becomes true).
+  const pendingRef = useRef(false);
 
   // Auto-scroll on new content
   useEffect(() => {
@@ -157,10 +160,11 @@ export default function ExtensionChat() {
 
   const send = useCallback(async () => {
     const input = inputRef.current;
-    if (!input || !state.online || state.stream.generating) return;
+    if (!input || !state.online || state.stream.generating || pendingRef.current) return;
     const text = input.value.trim();
     if (!text) return;
 
+    pendingRef.current = true;
     input.value = '';
     let content = text;
     if (state.selection) {
@@ -168,9 +172,13 @@ export default function ExtensionChat() {
     }
     dispatch({ type: 'ADD_MESSAGE', msg: { role: 'user', content: text } });
 
-    const resp = await sendToBg({ type: 'SEND_AND_STEP', convId: state.convId, content });
-    if (!resp.ok) {
-      dispatch({ type: 'STREAM_ERROR', error: String(resp.error ?? 'send failed') });
+    try {
+      const resp = await sendToBg({ type: 'SEND_AND_STEP', convId: state.convId, content });
+      if (!resp.ok) {
+        dispatch({ type: 'STREAM_ERROR', error: String(resp.error ?? 'send failed') });
+      }
+    } finally {
+      pendingRef.current = false;
     }
   }, [state.online, state.stream.generating, state.selection, state.convId]);
 
