@@ -45,8 +45,9 @@ gptme's non-interactive mode writes assistant responses to stdout:
    # Save the output to a file
    gptme -n "summarize this codebase in 3 bullet points" README.md > summary.txt
 
-   # Use in a pipeline
-   gptme -n "extract all TODO comments" $(find . -name "*.py") | tee todos.txt
+   # Use in a pipeline (mapfile avoids word-splitting on paths with spaces)
+   mapfile -t pyfiles < <(find . -name "*.py")
+   gptme -n "extract all TODO comments" "${pyfiles[@]}" | tee todos.txt
 
    # Exit code reflects success (0) or failure (non-zero)
    if gptme -n "run the tests and report pass/fail"; then
