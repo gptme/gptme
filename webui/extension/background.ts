@@ -1,5 +1,7 @@
 // background.ts — service worker: GptmeClient + message bus
 
+import { parseExtensionStreamLine } from '../src/utils/extensionStreamEvents';
+
 const DEFAULT_SERVER_URL = 'http://localhost:5700';
 
 interface StorageSync {
@@ -122,22 +124,21 @@ class GptmeClient {
           buffer = lines.pop() ?? '';
 
           for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            try {
-              const data = JSON.parse(line.slice(6)) as {
-                type: string;
-                data?: { content?: string };
-              };
-              if (data.type === 'generation_progress' && data.data?.content) {
-                onToken(data.data.content);
-              } else if (data.type === 'generation_complete') {
-                await closeStream();
-                onComplete();
-                return;
-              }
-            } catch {
-              // skip non-JSON lines
+            const event = parseExtensionStreamLine(line);
+            if (!event) continue;
+
+            if (event.type === 'token') {
+              onToken(event.token);
+              continue;
             }
+
+            await closeStream();
+            if (event.type === 'complete') {
+              onComplete();
+            } else {
+              onError(event.error);
+            }
+            return;
           }
         }
       })
