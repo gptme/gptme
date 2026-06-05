@@ -564,6 +564,11 @@ def _reply_stream(
     # already-wrapped rows visible.  By buffering and emitting at the newline we
     # can simply discard think-sig lines without any terminal-clear gymnastics.
     think_display_buffer: list[str] = []
+    # Buffer for normal (non-thinking) chars accumulated within a stream chunk.
+    # Flushed at chunk boundaries and before each newline.  Reduces rprint() and
+    # sys.stdout.flush() calls from O(chars) to O(chunks) — the main source of
+    # bursty terminal rendering (gptme/gptme#2717 terminal side).
+    normal_display_buffer: list[str] = []
 
     # Create stream wrapper to capture metadata
     stream = _stream(
@@ -576,8 +581,15 @@ def _reply_stream(
         top_p=top_p,
     )
 
+    def _chars_with_chunk_end(text_chunks):
+        """Yield (char, is_last_in_chunk) — lets the loop flush once per chunk."""
+        for chunk in text_chunks:
+            n = len(chunk)
+            for i, c in enumerate(chunk):
+                yield c, i == n - 1
+
     try:
-        for char in (char for chunk in stream for char in chunk):
+        for char, _is_chunk_end in _chars_with_chunk_end(stream):
             if not output:  # first character
                 first_token_time = time.time()
                 print_clear()
@@ -637,8 +649,13 @@ def _reply_stream(
                     output += char
                     continue
 
-                # Now print the newline, flushing any buffered thinking line first.
+                # Now print the newline, flushing any buffered content first.
                 if not json_mode:
+                    if normal_display_buffer:
+                        # Flush buffered normal chars before the newline so the
+                        # line content appears before the line ending.
+                        rprint("".join(normal_display_buffer), end="")
+                        normal_display_buffer.clear()
                     if think_display_buffer:
                         # Emit the entire buffered line dimly in one shot.
                         rprint(f"[dim]{''.join(think_display_buffer)}[/dim]", end="")
@@ -656,7 +673,10 @@ def _reply_stream(
                         # already-wrapped rows visible when think-sig is detected).
                         think_display_buffer.append(char)
                     else:
-                        rprint(char, end="")
+                        # Accumulate in normal_display_buffer; flushed at chunk
+                        # boundaries and before each newline.  This reduces
+                        # rprint() calls from O(chars) to O(chunks).
+                        normal_display_buffer.append(char)
 
             assert len(char) == 1
             output += char
@@ -696,8 +716,13 @@ def _reply_stream(
                     line_buffer.append(char)
                 # else: are_thinking is True — skip thinking content
 
-            # need to flush stdout to get the print to show up
-            if not json_mode:
+            # Flush buffered normal chars and sync stdout once per chunk.
+            # Moving flush from O(chars) to O(chunks) eliminates the main source
+            # of bursty terminal rendering (per-char syscall overhead).
+            if _is_chunk_end and not json_mode:
+                if normal_display_buffer:
+                    rprint("".join(normal_display_buffer), end="")
+                    normal_display_buffer.clear()
                 sys.stdout.flush()
 
             # Trigger tool detection at cheap format-specific breakpoints.
@@ -724,6 +749,9 @@ def _reply_stream(
 
         # Flush any remaining buffered chars (responses that end without a
         # trailing newline, or partial lines left after a break_on_tooluse break).
+        if not json_mode and normal_display_buffer:
+            rprint("".join(normal_display_buffer), end="")
+            normal_display_buffer.clear()
         if not json_mode and think_display_buffer:
             rprint(f"[dim]{''.join(think_display_buffer)}[/dim]", end="")
             think_display_buffer.clear()
