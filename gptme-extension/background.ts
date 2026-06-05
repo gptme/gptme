@@ -7,6 +7,10 @@ interface StorageSync {
   apiKey?: string;
 }
 
+interface StorageLocal {
+  apiKey?: string;
+}
+
 interface StorageSession {
   lastSelection?: string;
   lastSelectionUrl?: string;
@@ -75,6 +79,21 @@ class GptmeClient {
     onError: (msg: string) => void,
   ): () => void {
     const controller = new AbortController();
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    let closed = false;
+
+    const closeStream = async () => {
+      if (closed) return;
+      closed = true;
+      if (reader) {
+        try {
+          await reader.cancel();
+        } catch {
+          // ignore stream-close errors during teardown
+        }
+      }
+      controller.abort();
+    };
 
     fetch(`${this.baseUrl}/api/v2/conversations/${convId}/events`, {
       headers: { ...this.headers(), Accept: 'text/event-stream' },
@@ -84,15 +103,18 @@ class GptmeClient {
         onError(`SSE request failed: ${resp.status}`);
         return;
       }
-      const reader = resp.body.getReader();
+      reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) {
-          onComplete();
-          break;
+          if (!closed) {
+            await closeStream();
+            onComplete();
+          }
+          return;
         }
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
@@ -108,6 +130,7 @@ class GptmeClient {
             if (data.type === 'generation_progress' && data.data?.content) {
               onToken(data.data.content);
             } else if (data.type === 'generation_complete') {
+              await closeStream();
               onComplete();
               return;
             }
@@ -117,18 +140,41 @@ class GptmeClient {
         }
       }
     }).catch((err: Error) => {
-      if (err.name !== 'AbortError') {
+      if (!closed && err.name !== 'AbortError') {
         onError('SSE connection lost');
       }
     });
 
-    return () => controller.abort();
+    return () => {
+      void closeStream();
+    };
   }
 }
 
+async function getSettings(): Promise<{ serverUrl: string; apiKey?: string }> {
+  const [syncData, localData] = await Promise.all([
+    chrome.storage.sync.get(['serverUrl', 'apiKey']) as Promise<StorageSync>,
+    chrome.storage.local.get(['apiKey']) as Promise<StorageLocal>,
+  ]);
+
+  let apiKey = localData.apiKey;
+  if (!apiKey && syncData.apiKey) {
+    apiKey = syncData.apiKey;
+    await chrome.storage.local.set({ apiKey });
+  }
+  if (syncData.apiKey) {
+    await chrome.storage.sync.remove('apiKey');
+  }
+
+  return {
+    serverUrl: syncData.serverUrl ?? DEFAULT_SERVER_URL,
+    apiKey,
+  };
+}
+
 async function getClient(): Promise<GptmeClient> {
-  const data = (await chrome.storage.sync.get(['serverUrl', 'apiKey'])) as StorageSync;
-  return new GptmeClient(data.serverUrl ?? DEFAULT_SERVER_URL, data.apiKey);
+  const data = await getSettings();
+  return new GptmeClient(data.serverUrl, data.apiKey);
 }
 
 // Active SSE subscriptions keyed by conversationId
