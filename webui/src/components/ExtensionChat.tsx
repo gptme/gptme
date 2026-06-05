@@ -131,29 +131,36 @@ export default function ExtensionChat() {
   // Connect on mount
   useEffect(() => {
     (async () => {
-      const pingResp = await sendToBg({ type: 'PING' });
-      if (!pingResp.ok) {
-        dispatch({ type: 'DISCONNECTED', reason: '● Server offline — run `gptme server`' });
-        return;
-      }
-      const createResp = await sendToBg({
-        type: 'CREATE_CONV',
-        convId: state.convId,
-        systemMsg: 'You are a helpful assistant accessible via a browser extension. Be concise.',
-      });
-      if (!createResp.ok) {
+      try {
+        const pingResp = await sendToBg({ type: 'PING' });
+        if (!pingResp.ok) {
+          dispatch({ type: 'DISCONNECTED', reason: '● Server offline — run `gptme server`' });
+          return;
+        }
+        const createResp = await sendToBg({
+          type: 'CREATE_CONV',
+          convId: state.convId,
+          systemMsg: 'You are a helpful assistant accessible via a browser extension. Be concise.',
+        });
+        if (!createResp.ok) {
+          dispatch({
+            type: 'DISCONNECTED',
+            reason: `● Server error — ${String(createResp.error ?? 'failed')}`,
+          });
+          return;
+        }
+        dispatch({ type: 'CONNECTED' });
+        // Load initial selection inside the IIFE so it's guaranteed to run before
+        // any user interaction that reads state.selection.
+        const selData = await sendToBg({ type: 'GET_SELECTION' });
+        if (selData.lastSelection) {
+          dispatch({ type: 'SET_SELECTION', text: selData.lastSelection as string });
+        }
+      } catch (e) {
         dispatch({
           type: 'DISCONNECTED',
-          reason: `● Server error — ${String(createResp.error ?? 'failed')}`,
+          reason: e instanceof Error ? e.message : '● Server offline — run `gptme server`',
         });
-        return;
-      }
-      dispatch({ type: 'CONNECTED' });
-      // Load initial selection inside the IIFE so it's guaranteed to run before
-      // any user interaction that reads state.selection.
-      const selData = await sendToBg({ type: 'GET_SELECTION' });
-      if (selData.lastSelection) {
-        dispatch({ type: 'SET_SELECTION', text: selData.lastSelection as string });
       }
     })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps

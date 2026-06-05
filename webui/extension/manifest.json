@@ -9,7 +9,7 @@
     "service_worker": "background.js",
     "type": "module"
   },
-  "side_panel": { "default_path": "panel/index.html" },
+  "side_panel": { "default_path": "panel/panel.html" },
   "options_ui": {
     "page": "options/options.html",
     "open_in_tab": true

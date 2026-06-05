@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "build": "bash build.sh",
-    "watch": "bash build.sh"
+    "watch": "bash build.sh --watch"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.300",
