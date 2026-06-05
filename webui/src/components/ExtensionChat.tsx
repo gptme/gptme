@@ -177,6 +177,8 @@ export default function ExtensionChat() {
       if (!resp.ok) {
         dispatch({ type: 'STREAM_ERROR', error: String(resp.error ?? 'send failed') });
       }
+    } catch (e) {
+      dispatch({ type: 'STREAM_ERROR', error: e instanceof Error ? e.message : 'send failed' });
     } finally {
       pendingRef.current = false;
     }
