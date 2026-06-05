@@ -275,6 +275,8 @@ For tighter integration, use the gptme Python API directly:
        text=True,
    )
    for line in result.stdout.splitlines():
+       if not line.strip():
+           continue
        msg = json.loads(line)
        if msg.get("role") == "assistant":
            print(msg.get("content", ""))
