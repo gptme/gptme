@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "Ask gptme about anything on the web",
   "permissions": ["storage", "sidePanel", "activeTab"],
-  "host_permissions": ["http://localhost/*"],
+  "host_permissions": ["http://localhost/*", "https://localhost/*"],
   "background": {
     "service_worker": "background.js",
     "type": "module"
