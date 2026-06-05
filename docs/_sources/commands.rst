@@ -214,6 +214,18 @@ becomes immediately aware of the new capability.
 
 Tab completion is available for tool names.
 
+/doctor
+^^^^^^^
+
+Run system diagnostics to check gptme health.
+
+Checks for common issues such as missing dependencies, misconfigured providers,
+and tool availability. Run this when something feels off or after a fresh install.
+
+.. code-block:: text
+
+   /doctor
+
 /help
 ^^^^^
 
@@ -222,6 +234,28 @@ Show the help message with available commands and keyboard shortcuts.
 .. code-block:: text
 
    /help
+
+
+Providers & Account
+~~~~~~~~~~~~~~~~~~~
+
+/account
+^^^^^^^^
+
+Show account status and set up API providers.
+
+**Alias:** ``/creds``
+
+Use this to check which providers are configured or run the interactive setup
+wizard to add or change a provider (Anthropic, OpenAI, OpenRouter, etc.).
+
+.. code-block:: text
+
+   /account               # Show configured providers and active one
+   /account list          # Same as above
+   /account setup         # Interactive: choose and configure a provider
+   /account setup openrouter    # Set up OpenRouter via OAuth
+   /account setup anthropic     # Set up Anthropic with an API key
 
 
 Session Control
@@ -302,6 +336,28 @@ Manage gptme plugins.
 
    /plugin list           # List discovered plugins
    /plugin info <name>    # Show details about a plugin
+
+/checkpoint
+^^^^^^^^^^^
+
+Manage workspace checkpoints for recovery.
+
+Records the current git HEAD as a named checkpoint so you can diff or restore
+the workspace to that state later — useful before letting the assistant make
+large-scale changes or when experimenting with destructive operations.
+
+Requires a git workspace to be configured for the session (``--workspace``).
+
+.. code-block:: text
+
+   /checkpoint create                  # Record a checkpoint at current HEAD
+   /checkpoint create --include-dirty  # Also snapshot uncommitted changes
+   /checkpoint list                    # List all recorded checkpoints
+   /checkpoint diff <id>               # Diff current state vs a checkpoint
+   /checkpoint restore <id>                    # Restore workspace to a checkpoint
+   /checkpoint restore <id> --include-dirty    # Restore even with uncommitted changes (discards them)
+
+The ``<id>`` can be a checkpoint number (1-based index) from ``/checkpoint list`` or a HEAD SHA prefix.
 
 
 Tool Commands
