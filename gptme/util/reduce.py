@@ -292,6 +292,16 @@ def limit_log(log: list[Message]) -> list[Message]:
         idx = log_by_id.get(id(msg))
         if idx is None or idx == 0:
             return False
-        return id(log[idx - 1]) not in result_id_set
+        # Walk backward through the original log to find the nearest
+        # non-system anchor message. System messages are tool results;
+        # their anchor is the assistant (or user) message that produced
+        # them. If that anchor was dropped by the context limit, this
+        # result is orphaned.
+        for j in range(idx - 1, -1, -1):
+            if log[j].role != "system":
+                return id(log[j]) not in result_id_set
+        # No non-system predecessor found — shouldn't happen for a
+        # non-initial system message, but treat as not orphaned.
+        return False
 
     return [m for m in result if not _is_orphaned(m)]

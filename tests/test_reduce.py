@@ -279,25 +279,88 @@ def test_limit_log_tool_pair_atomicity():
     tool result with no preceding call. limit_log should drop it rather than
     return an incoherent log.
     """
-    # Context=10: fits system prompt (2 tok) + tool result (1 tok) but not the
-    # assistant tool-use (13 tok) on top of that.
-    tiny_model = ModelMeta(provider="unknown", model="gpt-4", context=10)
-    set_default_model(tiny_model)
+    from gptme.llm.models.resolution import _default_model_var
 
-    # assistant message with a shell tool call (13 tokens)
-    tool_use_content = "I will run a command.\n```shell\necho hello\n```"
-    msgs = [
-        Message("system", "system prompt"),  # 2 tok — initial system msg
-        Message("assistant", tool_use_content),  # 13 tok — tool use
-        Message("system", "hello"),  # 1 tok — tool result
-    ]
+    # Save and restore default model to avoid ContextVar contamination.
+    original_model = _default_model_var.get()
+    try:
+        # Context=10: fits system prompt (2 tok) + tool result (1 tok) but not the
+        # assistant tool-use (13 tok) on top of that.
+        tiny_model = ModelMeta(provider="unknown", model="gpt-4", context=10)
+        set_default_model(tiny_model)
 
-    result = limit_log(msgs)
+        # assistant message with a shell tool call (13 tokens)
+        tool_use_content = "I will run a command.\n```shell\necho hello\n```"
+        msgs = [
+            Message("system", "system prompt"),  # 2 tok — initial system msg
+            Message("assistant", tool_use_content),  # 13 tok — tool use
+            Message("system", "hello"),  # 1 tok — tool result
+        ]
 
-    # The orphaned tool result ("hello") must not appear without its tool use.
-    result_contents = [m.content for m in result]
-    assert "hello" not in result_contents, (
-        "Orphaned tool result should be dropped when its tool-use was not included"
-    )
-    # The initial system prompt must always be kept.
-    assert any(m.content == "system prompt" for m in result)
+        result = limit_log(msgs)
+
+        # The orphaned tool result ("hello") must not appear without its tool use.
+        result_contents = [m.content for m in result]
+        assert "hello" not in result_contents, (
+            "Orphaned tool result should be dropped when its tool-use was not included"
+        )
+        # The initial system prompt must always be kept.
+        assert any(m.content == "system prompt" for m in result)
+    finally:
+        set_default_model(original_model) if original_model else _default_model_var.set(
+            None
+        )
+
+
+def test_limit_log_cascading_orphans():
+    """limit_log drops ALL tool results when their shared anchor is dropped.
+
+    When break_on_tooluse=False causes multiple consecutive system messages
+    (tool results) after a single assistant message that gets dropped by the
+    context limit, ALL of them should be orphaned — not just the first one
+    whose immediate predecessor is the dropped assistant.
+
+    Regression: before the anchor-walking fix in limit_log, only the first
+    orphaned result was caught; the remaining tool results had their immediate
+    predecessor (another system message) present in the result set and survived
+    the filter.
+    """
+    from gptme.llm.models.resolution import _default_model_var
+
+    original_model = _default_model_var.get()
+    try:
+        # Context=12: fits system prompt (2 tok) + both tool results (1+1 tok)
+        # but not the assistant tool-use (~20 tok) on top of that.
+        tiny_model = ModelMeta(provider="unknown", model="gpt-4", context=12)
+        set_default_model(tiny_model)
+
+        # Assistant message with two tool calls (simulating break_on_tooluse=False)
+        tool_use_content = (
+            "I will run two commands.\n"
+            "```shell\necho hello\n```\n"
+            "```shell\necho world\n```"
+        )
+        msgs = [
+            Message("system", "system prompt"),  # 2 tok — initial system msg
+            Message("assistant", tool_use_content),  # ~20 tok — tool use (both)
+            Message("system", "hello"),  # 1 tok — first tool result
+            Message("system", "world"),  # 1 tok — second tool result
+        ]
+
+        result = limit_log(msgs)
+
+        # Neither orphaned tool result should survive.
+        result_contents = [m.content for m in result]
+        assert "hello" not in result_contents, (
+            "First orphaned tool result should be dropped"
+        )
+        assert "world" not in result_contents, (
+            "Second orphaned tool result should be dropped (regression: "
+            "immediate-predecessor check missed cascading orphans)"
+        )
+        # The initial system prompt must always be kept.
+        assert any(m.content == "system prompt" for m in result)
+    finally:
+        set_default_model(original_model) if original_model else _default_model_var.set(
+            None
+        )
