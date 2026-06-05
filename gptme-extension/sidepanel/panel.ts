@@ -125,12 +125,14 @@ async function sendMessage(): Promise<void> {
 }
 
 function clearConversation(): void {
+  const oldConvId = state.convId;
   state.convId = `gptme-ext-${Date.now()}`;
   state.generating = false;
   state.currentAssistantText = '';
   el('messages').innerHTML = '';
   el<HTMLButtonElement>('send-btn').disabled = false;
   setSelectionBar(null);
+  chrome.runtime.sendMessage({ type: 'CANCEL', convId: oldConvId }).catch(() => {});
   ping();
 }
 

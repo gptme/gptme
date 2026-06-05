@@ -40,62 +40,89 @@ class GptmeClient {
   async createConversation(id: string, systemMsg?: string): Promise<void> {
     const body: Record<string, unknown> = {};
     if (systemMsg) body.system = systemMsg;
-    await fetch(`${this.baseUrl}/api/v2/conversations/${id}`, {
+    const resp = await fetch(`${this.baseUrl}/api/v2/conversations/${id}`, {
       method: 'PUT',
       headers: this.headers(),
       body: JSON.stringify(body),
     });
+    if (!resp.ok) throw new Error(`createConversation failed: ${resp.status}`);
   }
 
   async postMessage(convId: string, content: string, role = 'user'): Promise<void> {
-    await fetch(`${this.baseUrl}/api/v2/conversations/${convId}`, {
+    const resp = await fetch(`${this.baseUrl}/api/v2/conversations/${convId}`, {
       method: 'POST',
       headers: this.headers(),
       body: JSON.stringify({ role, content }),
     });
+    if (!resp.ok) throw new Error(`postMessage failed: ${resp.status}`);
   }
 
   async step(convId: string): Promise<void> {
-    await fetch(`${this.baseUrl}/api/v2/conversations/${convId}/step`, {
+    const resp = await fetch(`${this.baseUrl}/api/v2/conversations/${convId}/step`, {
       method: 'POST',
       headers: this.headers(),
     });
+    if (!resp.ok) throw new Error(`step failed: ${resp.status}`);
   }
 
+  // Uses fetch instead of EventSource so the Authorization header can be sent
+  // (EventSource does not support custom headers, which would force the API key
+  // into the URL query string where it appears in server logs).
   subscribeEvents(
     convId: string,
     onToken: (text: string) => void,
     onComplete: () => void,
     onError: (msg: string) => void,
   ): () => void {
-    const url = new URL(`${this.baseUrl}/api/v2/conversations/${convId}/events`);
-    if (this.apiKey) url.searchParams.set('api_key', this.apiKey);
+    const controller = new AbortController();
 
-    const source = new EventSource(url.toString());
-
-    source.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data as string) as {
-          type: string;
-          data?: { content?: string };
-        };
-        if (data.type === 'generation_progress' && data.data?.content) {
-          onToken(data.data.content);
-        } else if (data.type === 'generation_complete') {
-          onComplete();
-          source.close();
-        }
-      } catch {
-        // skip non-JSON events
+    fetch(`${this.baseUrl}/api/v2/conversations/${convId}/events`, {
+      headers: { ...this.headers(), Accept: 'text/event-stream' },
+      signal: controller.signal,
+    }).then(async (resp) => {
+      if (!resp.ok || !resp.body) {
+        onError(`SSE request failed: ${resp.status}`);
+        return;
       }
-    };
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
 
-    source.onerror = () => {
-      onError('SSE connection lost');
-      source.close();
-    };
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          onComplete();
+          break;
+        }
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
 
-    return () => source.close();
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const data = JSON.parse(line.slice(6)) as {
+              type: string;
+              data?: { content?: string };
+            };
+            if (data.type === 'generation_progress' && data.data?.content) {
+              onToken(data.data.content);
+            } else if (data.type === 'generation_complete') {
+              onComplete();
+              return;
+            }
+          } catch {
+            // skip non-JSON lines
+          }
+        }
+      }
+    }).catch((err: Error) => {
+      if (err.name !== 'AbortError') {
+        onError('SSE connection lost');
+      }
+    });
+
+    return () => controller.abort();
   }
 }
 
@@ -191,6 +218,9 @@ chrome.runtime.onMessage.addListener(
         sendResponse(data);
         return;
       }
+
+      // Unknown message type — reply immediately so the channel closes
+      sendResponse({ ok: false, error: `Unknown type: ${String(msg.type)}` });
     })();
     return true; // keep channel open for async sendResponse
   },
