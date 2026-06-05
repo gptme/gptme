@@ -196,3 +196,16 @@ def test_apply_gate_openrouter_prefix_fallback(sample_data):
     )
     assert eff is False
     assert decision == "inject"
+
+
+def test_get_gate_recommendation_openrouter_prefix_no_match(sample_data):
+    """When prefix is stripped but the base key is also absent, returns default."""
+    # "openrouter/unknown" has the prefix, but "unknown" is not in the lookup either
+    assert get_gate_recommendation("openrouter/unknown", "e1", sample_data) == "default"
+
+
+def test_get_gate_recommendation_empty_lookup():
+    """Empty lookup always returns default without errors."""
+    data: dict = {"lookup": {}}
+    assert get_gate_recommendation("openrouter/m1", "e1", data) == "default"
+    assert get_gate_recommendation("m1", "e1", data) == "default"
