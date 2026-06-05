@@ -18,6 +18,8 @@ pytest.importorskip(
 )
 
 from gptme.server.panels_api import (  # fmt: skip
+    IframePanelOut,
+    LiveAppPanelOut,
     _is_allowed_src,
     _resolve_sandbox,
     panels_from_messages,
@@ -135,11 +137,13 @@ class TestPanelsFromMessages:
         )
         panels = panels_from_messages(manager)
         assert len(panels) == 1
-        assert panels[0].id == "my-panel"
-        assert panels[0].title == "My Panel"
-        assert panels[0].src == "/demos/my-panel/"
-        assert panels[0].sandbox == ["allow-scripts"]
-        assert panels[0].message_index == 0
+        panel = panels[0]
+        assert isinstance(panel, IframePanelOut)
+        assert panel.id == "my-panel"
+        assert panel.title == "My Panel"
+        assert panel.src == "/demos/my-panel/"
+        assert panel.sandbox == ["allow-scripts"]
+        assert panel.message_index == 0
 
     def test_disallowed_src_is_dropped(self):
         manager = _make_manager(
@@ -258,7 +262,9 @@ class TestPanelsFromMessages:
             ]
         )
         panels = panels_from_messages(manager)
-        assert panels[0].bootstrap == {"token": "abc123"}
+        panel = panels[0]
+        assert isinstance(panel, IframePanelOut)
+        assert panel.bootstrap == {"token": "abc123"}
 
     def test_opaque_origin_warning_on_server_relative_with_scripts(self):
         """Server-relative src + allow-scripts sandbox emits a warning."""
@@ -281,8 +287,10 @@ class TestPanelsFromMessages:
         )
         panels = panels_from_messages(manager)
         assert len(panels) == 1
-        assert len(panels[0].warnings) == 1
-        assert "opaque origin" in panels[0].warnings[0]
+        panel = panels[0]
+        assert isinstance(panel, IframePanelOut)
+        assert len(panel.warnings) == 1
+        assert "opaque origin" in panel.warnings[0]
 
     def test_no_warning_for_localhost_absolute_src(self):
         """localhost absolute URL with allow-scripts gets no warning."""
@@ -304,7 +312,9 @@ class TestPanelsFromMessages:
             ]
         )
         panels = panels_from_messages(manager)
-        assert panels[0].warnings == []
+        panel = panels[0]
+        assert isinstance(panel, IframePanelOut)
+        assert panel.warnings == []
 
 
 class TestLiveAppPanels:
@@ -332,6 +342,7 @@ class TestLiveAppPanels:
         panels = panels_from_messages(manager)
         assert len(panels) == 1
         p = panels[0]
+        assert isinstance(p, LiveAppPanelOut)
         assert p.id == "my-app"
         assert p.kind == "live_app"
         assert p.title == "Flask Server"
@@ -359,6 +370,7 @@ class TestLiveAppPanels:
             ]
         )
         panels = panels_from_messages(manager)
+        assert isinstance(panels[0], LiveAppPanelOut)
         assert panels[0].status == "loading"
 
     def test_live_app_invalid_status_falls_back_to_loading(self):
@@ -382,6 +394,7 @@ class TestLiveAppPanels:
             ]
         )
         panels = panels_from_messages(manager)
+        assert isinstance(panels[0], LiveAppPanelOut)
         assert panels[0].status == "loading"
 
     def test_live_app_rejected_src_dropped(self):
@@ -440,8 +453,10 @@ class TestLiveAppPanels:
             ]
         )
         panels = panels_from_messages(manager)
-        assert panels[0].title == "First"
-        assert panels[0].url == "http://localhost:3001"
+        p = panels[0]
+        assert isinstance(p, LiveAppPanelOut)
+        assert p.title == "First"
+        assert p.url == "http://localhost:3001"
 
     def test_mixed_iframe_and_live_app(self):
         """Both kinds can coexist in the same conversation."""
@@ -495,7 +510,9 @@ class TestLiveAppPanels:
             ]
         )
         panels = panels_from_messages(manager)
-        assert panels[0].warnings == []
+        p = panels[0]
+        assert isinstance(p, IframePanelOut)
+        assert p.warnings == []
 
     def test_allow_attribute_stripped_with_warning(self):
         """The `allow` (Permissions-Policy) attribute is never forwarded; a warning is emitted."""
@@ -519,8 +536,10 @@ class TestLiveAppPanels:
         )
         panels = panels_from_messages(manager)
         assert len(panels) == 1
-        assert panels[0].allow is None
-        assert any("allow" in w.lower() for w in panels[0].warnings)
+        p = panels[0]
+        assert isinstance(p, IframePanelOut)
+        assert p.allow is None
+        assert any("allow" in w.lower() for w in p.warnings)
 
     def test_allow_none_is_fine(self):
         """No `allow` key in the hint is fine — no warning emitted."""
@@ -542,8 +561,10 @@ class TestLiveAppPanels:
             ]
         )
         panels = panels_from_messages(manager)
-        assert panels[0].allow is None
-        assert panels[0].warnings == []
+        p = panels[0]
+        assert isinstance(p, IframePanelOut)
+        assert p.allow is None
+        assert p.warnings == []
 
     def test_missing_id_skipped(self):
         manager = _make_manager(

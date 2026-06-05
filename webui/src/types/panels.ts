@@ -9,7 +9,7 @@
 import type { IframeSandboxToken } from '@/types/panel';
 
 /** Lifecycle status for a live_app panel. */
-export type LiveAppStatus = 'running' | 'stopped' | 'error' | 'loading';
+export type LiveAppStatus = 'running' | 'stopped' | 'error' | 'loading' | 'unavailable';
 
 export interface LiveAppPanelEntry {
   id: string;
@@ -19,6 +19,8 @@ export interface LiveAppPanelEntry {
   url: string;
   /** Current lifecycle status of the app. */
   status: LiveAppStatus;
+  /** Human-readable status line shown in the panel header. */
+  status_message?: string | null;
   /** Sandbox tokens for the iframe that hosts the app. */
   sandbox: IframeSandboxToken[];
   icon?: string | null;

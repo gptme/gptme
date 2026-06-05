@@ -176,13 +176,16 @@ def panels_from_messages(manager: LogManager) -> list[IframePanelOut | LiveAppPa
             if not _is_allowed_src(src_or_url):
                 logger.debug(
                     "Panel %s (%s) rejected: src/url not allowed: %s",
-                    panel_id, kind, src_or_url,
+                    panel_id,
+                    kind,
+                    src_or_url,
                 )
                 continue
 
             seen_ids.add(panel_id)
             title = str(hint.get("title") or panel_id)
 
+            panel: IframePanelOut | LiveAppPanelOut
             if kind == "iframe":
                 panel = _build_iframe_panel(hint, idx, panel_id, title)
             else:
@@ -225,9 +228,7 @@ def _build_iframe_panel(
         src=stripped_src,
         sandbox=sandbox,
         allow=None,
-        resize=hint.get("resize")
-        if hint.get("resize") in ("auto", "fixed")
-        else None,
+        resize=hint.get("resize") if hint.get("resize") in ("auto", "fixed") else None,
         bootstrap=bootstrap,
         icon=hint.get("icon") if isinstance(hint.get("icon"), str) else None,
         message_index=idx,

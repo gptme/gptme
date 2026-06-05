@@ -184,7 +184,7 @@ export const PanelsPanel: FC<PanelsPanelProps> = ({ conversationId }) => {
               id: selected.id,
               kind: 'iframe',
               title: selected.title,
-              src: selected.url ?? selected.src,
+              src: selected.url,
               sandbox: selected.sandbox,
               resize: 'auto',
             }}
