@@ -21,12 +21,26 @@ cp manifest.json "$OUT_DIR/"
 cp options/options.html "$OUT_DIR/options/"
 cp -r "$WEBUI_DIR/public/icons" "$OUT_DIR/icons" 2>/dev/null || mkdir -p "$OUT_DIR/icons"
 
-# Generate placeholder icons if none exist
+# Generate placeholder icons if none exist (Chrome rejects extensions with missing icon paths)
 for size in 16 48 128; do
   if [ ! -f "$OUT_DIR/icons/icon${size}.png" ]; then
-    # Create a minimal 1x1 PNG placeholder
-    # In production, replace with real icons
-    echo "⚠ No icon${size}.png — creating placeholder (replace with real icons)"
+    echo "⚠ No icon${size}.png — creating ${size}×${size} placeholder (replace with real icons)"
+    python3 - "$size" "$OUT_DIR/icons/icon${size}.png" <<'PYEOF'
+import struct, zlib, sys
+
+def make_png(w, h, color=(100, 100, 200)):
+    def chunk(tag, data):
+        crc = zlib.crc32(tag + data) & 0xFFFFFFFF
+        return struct.pack('>I', len(data)) + tag + data + struct.pack('>I', crc)
+    ihdr = struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)
+    row = b'\x00' + bytes(color) * w
+    idat = zlib.compress(row * h)
+    return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', ihdr) + chunk(b'IDAT', idat) + chunk(b'IEND', b'')
+
+size = int(sys.argv[1])
+with open(sys.argv[2], 'wb') as f:
+    f.write(make_png(size, size))
+PYEOF
   fi
 done
 

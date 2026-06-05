@@ -61,7 +61,10 @@ function reducer(state: State, action: Action): State {
     case 'ADD_MESSAGE':
       return { ...state, msgs: [...state.msgs, action.msg] };
     case 'STREAM_TOKEN':
-      return { ...state, stream: { ...state.stream, generating: true, buffer: state.stream.buffer + action.token } };
+      return {
+        ...state,
+        stream: { ...state.stream, generating: true, buffer: state.stream.buffer + action.token },
+      };
     case 'STREAM_DONE':
       return {
         ...state,
@@ -136,17 +139,20 @@ export default function ExtensionChat() {
         systemMsg: 'You are a helpful assistant accessible via a browser extension. Be concise.',
       });
       if (!createResp.ok) {
-        dispatch({ type: 'DISCONNECTED', reason: `● Server error — ${String(createResp.error ?? 'failed')}` });
+        dispatch({
+          type: 'DISCONNECTED',
+          reason: `● Server error — ${String(createResp.error ?? 'failed')}`,
+        });
         return;
       }
       dispatch({ type: 'CONNECTED' });
-    })();
-    // Load initial selection
-    sendToBg({ type: 'GET_SELECTION' }).then((data) => {
-      if (data.lastSelection) {
-        dispatch({ type: 'SET_SELECTION', text: data.lastSelection as string });
+      // Load initial selection inside the IIFE so it's guaranteed to run before
+      // any user interaction that reads state.selection.
+      const selData = await sendToBg({ type: 'GET_SELECTION' });
+      if (selData.lastSelection) {
+        dispatch({ type: 'SET_SELECTION', text: selData.lastSelection as string });
       }
-    });
+    })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const send = useCallback(async () => {
@@ -175,7 +181,7 @@ export default function ExtensionChat() {
         void send();
       }
     },
-    [send],
+    [send]
   );
 
   const clear = useCallback(() => {
@@ -185,20 +191,20 @@ export default function ExtensionChat() {
   }, [state.convId]);
 
   return (
-    <div className="flex flex-col h-screen bg-background text-foreground">
+    <div className="flex h-screen flex-col bg-background text-foreground">
       {/* Status bar */}
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border text-xs shrink-0">
+      <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-1.5 text-xs">
         <span className={state.online ? 'text-green-500' : 'text-muted-foreground'}>
           {state.status}
         </span>
         {state.selection && (
-          <span className="text-muted-foreground truncate max-w-[200px]" title={state.selection}>
+          <span className="max-w-[200px] truncate text-muted-foreground" title={state.selection}>
             📄 {state.selection.slice(0, 40)}…
           </span>
         )}
         <button
           onClick={clear}
-          className="text-muted-foreground hover:text-foreground transition-colors"
+          className="text-muted-foreground transition-colors hover:text-foreground"
           title="New conversation"
         >
           ✕
@@ -206,16 +212,16 @@ export default function ExtensionChat() {
       </div>
 
       {/* Messages area */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+      <div className="flex-1 space-y-3 overflow-y-auto p-3">
         {state.msgs.length === 0 && !state.stream.generating && (
-          <p className="text-muted-foreground text-sm text-center mt-8">
+          <p className="mt-8 text-center text-sm text-muted-foreground">
             Ask gptme about anything on this page
           </p>
         )}
         {state.msgs.map((msg, i) => (
           <div key={i} className={`text-sm ${msg.role === 'user' ? 'text-right' : ''}`}>
             {msg.role !== 'user' && msg.role !== 'system' && (
-              <p className="text-xs text-muted-foreground mb-0.5">gptme</p>
+              <p className="mb-0.5 text-xs text-muted-foreground">gptme</p>
             )}
             <span
               className={`inline-block rounded-lg px-3 py-1.5 ${
@@ -232,8 +238,8 @@ export default function ExtensionChat() {
         ))}
         {state.stream.generating && state.stream.buffer && (
           <div className="text-sm">
-            <p className="text-xs text-muted-foreground mb-0.5">gptme</p>
-            <span className="inline-block rounded-lg px-3 py-1.5 bg-muted text-foreground">
+            <p className="mb-0.5 text-xs text-muted-foreground">gptme</p>
+            <span className="inline-block rounded-lg bg-muted px-3 py-1.5 text-foreground">
               {state.stream.buffer}
               <span className="animate-pulse">▌</span>
             </span>
@@ -248,9 +254,7 @@ export default function ExtensionChat() {
           <textarea
             ref={inputRef}
             onKeyDown={handleKeyDown}
-            placeholder={
-              state.online ? 'Ask gptme…' : 'Connect to server to chat…'
-            }
+            placeholder={state.online ? 'Ask gptme…' : 'Connect to server to chat…'}
             disabled={!state.online || state.stream.generating}
             className="flex-1 resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm
                        placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring
@@ -260,8 +264,8 @@ export default function ExtensionChat() {
           <button
             onClick={() => void send()}
             disabled={!state.online || state.stream.generating}
-            className="self-end rounded-lg bg-primary text-primary-foreground px-4 py-2 text-sm font-medium
-                       hover:bg-primary/90 transition-colors disabled:opacity-50"
+            className="self-end rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground
+                       transition-colors hover:bg-primary/90 disabled:opacity-50"
           >
             Send
           </button>
