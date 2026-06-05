@@ -306,6 +306,175 @@ class TestPanelsFromMessages:
         panels = panels_from_messages(manager)
         assert panels[0].warnings == []
 
+
+class TestLiveAppPanels:
+    """Tests for kind: 'live_app' panel parsing."""
+
+    def test_basic_live_app_panel(self):
+        manager = _make_manager(
+            [
+                {
+                    "metadata": {
+                        "panel_hints": [
+                            {
+                                "id": "my-app",
+                                "kind": "live_app",
+                                "title": "Flask Server",
+                                "url": "http://localhost:8080",
+                                "status": "running",
+                                "sandbox": ["allow-scripts", "allow-forms"],
+                            }
+                        ]
+                    }
+                }
+            ]
+        )
+        panels = panels_from_messages(manager)
+        assert len(panels) == 1
+        p = panels[0]
+        assert p.id == "my-app"
+        assert p.kind == "live_app"
+        assert p.title == "Flask Server"
+        assert p.url == "http://localhost:8080"
+        assert p.status == "running"
+        assert p.sandbox == ["allow-scripts", "allow-forms"]
+
+    def test_live_app_default_status_to_loading(self):
+        """Missing status defaults to 'loading'."""
+        manager = _make_manager(
+            [
+                {
+                    "metadata": {
+                        "panel_hints": [
+                            {
+                                "id": "a",
+                                "kind": "live_app",
+                                "title": "App",
+                                "url": "http://localhost:5000",
+                                "sandbox": [],
+                            }
+                        ]
+                    }
+                }
+            ]
+        )
+        panels = panels_from_messages(manager)
+        assert panels[0].status == "loading"
+
+    def test_live_app_invalid_status_falls_back_to_loading(self):
+        """Unrecognized status string falls back to 'loading'."""
+        manager = _make_manager(
+            [
+                {
+                    "metadata": {
+                        "panel_hints": [
+                            {
+                                "id": "a",
+                                "kind": "live_app",
+                                "title": "App",
+                                "url": "http://localhost:5000",
+                                "status": "crashed-badly",
+                                "sandbox": [],
+                            }
+                        ]
+                    }
+                }
+            ]
+        )
+        panels = panels_from_messages(manager)
+        assert panels[0].status == "loading"
+
+    def test_live_app_rejected_src_dropped(self):
+        """Non-localhost URL for live_app is rejected."""
+        manager = _make_manager(
+            [
+                {
+                    "metadata": {
+                        "panel_hints": [
+                            {
+                                "id": "a",
+                                "kind": "live_app",
+                                "title": "Bad",
+                                "url": "https://evil.example.com/app",
+                                "status": "running",
+                                "sandbox": [],
+                            }
+                        ]
+                    }
+                }
+            ]
+        )
+        assert panels_from_messages(manager) == []
+
+    def test_live_app_duplicate_id_first_wins(self):
+        manager = _make_manager(
+            [
+                {
+                    "metadata": {
+                        "panel_hints": [
+                            {
+                                "id": "shared-id",
+                                "kind": "live_app",
+                                "title": "First",
+                                "url": "http://localhost:3001",
+                                "status": "running",
+                                "sandbox": [],
+                            }
+                        ]
+                    }
+                },
+                {
+                    "metadata": {
+                        "panel_hints": [
+                            {
+                                "id": "shared-id",
+                                "kind": "live_app",
+                                "title": "Second",
+                                "url": "http://localhost:3002",
+                                "status": "loading",
+                                "sandbox": [],
+                            }
+                        ]
+                    }
+                },
+            ]
+        )
+        panels = panels_from_messages(manager)
+        assert panels[0].title == "First"
+        assert panels[0].url == "http://localhost:3001"
+
+    def test_mixed_iframe_and_live_app(self):
+        """Both kinds can coexist in the same conversation."""
+        manager = _make_manager(
+            [
+                {
+                    "metadata": {
+                        "panel_hints": [
+                            {
+                                "id": "iframe-1",
+                                "kind": "iframe",
+                                "title": "Dashboard",
+                                "src": "/dashboard/",
+                                "sandbox": ["allow-scripts"],
+                            },
+                            {
+                                "id": "app-1",
+                                "kind": "live_app",
+                                "title": "Server",
+                                "url": "http://localhost:8081",
+                                "status": "running",
+                                "sandbox": [],
+                            },
+                        ]
+                    }
+                }
+            ]
+        )
+        panels = panels_from_messages(manager)
+        assert len(panels) == 2
+        kinds = {p.kind for p in panels}
+        assert kinds == {"iframe", "live_app"}
+
     def test_no_warning_for_server_relative_without_scripts(self):
         """Server-relative src without allow-scripts gets no warning."""
         manager = _make_manager(

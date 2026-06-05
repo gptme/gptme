@@ -1,14 +1,18 @@
 """
-Panel registry API endpoints for conversation-scoped iframe panels.
+Panel registry API endpoints for conversation-scoped iframe and live_app panels.
 
 Phase 3b of the webui artifact surface (#830): parse ``panel_hints`` from
 message metadata and expose them as a typed per-conversation panel registry.
 Tools declare iframe panels at runtime; the server validates src and sandbox
 tokens and the webui renders each via ``SandboxedIframePanel``.
+
+Since #830 peer-follow-on-3, the registry also supports ``kind: "live_app"``
+panels with lifecycle state (running/stopped/error), distinct from the generic
+iframe panel.
 """
 
 import logging
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 import flask
@@ -74,7 +78,7 @@ class IframePanelOut(BaseModel):
     """A validated iframe panel descriptor ready for the webui to render."""
 
     id: str = Field(..., description="Unique panel id within the conversation")
-    kind: str = Field("iframe", description="Discriminator; always 'iframe' for now")
+    kind: str = Field("iframe", description="Discriminator; always 'iframe'")
     title: str = Field(..., description="Tab label shown in the sidebar")
     src: str = Field(..., description="Validated iframe src URL")
     sandbox: list[str] = Field(
@@ -96,21 +100,57 @@ class IframePanelOut(BaseModel):
     )
 
 
+class LiveAppPanelOut(BaseModel):
+    """A validated live app preview panel descriptor.
+
+    A live app panel represents a durably running process with a listen
+    address, lifecycle state (running/stopped/error), and health signal.
+    It is a distinct semantic from the generic iframe panel — the webui
+    renders it with a status header bar.
+    """
+
+    id: str = Field(..., description="Unique panel id within the conversation")
+    kind: str = Field("live_app", description="Discriminator; always 'live_app'")
+    title: str = Field(..., description="Tab label shown in the sidebar")
+    url: str = Field(
+        ..., description="Validated URL of the running app (same allowlist as iframe)"
+    )
+    status: Literal["loading", "running", "stopped", "error", "unavailable"] = Field(
+        ..., description="Current app lifecycle state"
+    )
+    status_message: str | None = Field(
+        None, description="Human-readable status line shown in the panel header"
+    )
+    sandbox: list[str] = Field(
+        default_factory=list,
+        description="Sandbox tokens (same allowlist as iframe panels)",
+    )
+    icon: str | None = Field(None, description="Lucide icon name hint for the tab")
+    message_index: int | None = Field(
+        None, description="Index of the first message that declared this panel"
+    )
+
+
 class PanelListResponse(BaseModel):
-    """Response containing the conversation's declared iframe panels."""
+    """Response containing the conversation's declared panels."""
 
-    panels: list[IframePanelOut] = Field(..., description="Validated panel descriptors")
+    panels: list[IframePanelOut | LiveAppPanelOut] = Field(
+        ..., description="Validated panel descriptors (iframe + live_app)"
+    )
 
 
-def panels_from_messages(manager: LogManager) -> list[IframePanelOut]:
-    """Collect iframe panel hints from ``metadata.panel_hints`` in each message.
+def panels_from_messages(manager: LogManager) -> list[IframePanelOut | LiveAppPanelOut]:
+    """Collect panel hints from ``metadata.panel_hints`` in each message.
+
+    Supports ``kind: "iframe"`` (generic sandboxed iframe UI) and
+    ``kind: "live_app"`` (running app preview with lifecycle state).
 
     Later declarations with a duplicate ``id`` are dropped — the first
-    declaration wins. The src and sandbox tokens are validated server-side
+    declaration wins. The src/url and sandbox tokens are validated server-side
     before the descriptor reaches the webui.
     """
     seen_ids: set[str] = set()
-    out: list[IframePanelOut] = []
+    out: list[IframePanelOut | LiveAppPanelOut] = []
 
     for idx, msg in enumerate(manager.log):
         meta: Any = msg.metadata or {}
@@ -121,7 +161,8 @@ def panels_from_messages(manager: LogManager) -> list[IframePanelOut]:
         for hint in hints:
             if not isinstance(hint, dict):
                 continue
-            if hint.get("kind") != "iframe":
+            kind = hint.get("kind")
+            if kind not in ("iframe", "live_app"):
                 continue
 
             panel_id = hint.get("id")
@@ -130,64 +171,95 @@ def panels_from_messages(manager: LogManager) -> list[IframePanelOut]:
             if panel_id in seen_ids:
                 continue
 
-            src = hint.get("src", "")
-            if not _is_allowed_src(src):
-                logger.debug("Panel %s rejected: src not allowed: %s", panel_id, src)
+            # Both kinds validate against the same src/url allowlist.
+            src_or_url = hint.get("src") if kind == "iframe" else hint.get("url")
+            if not _is_allowed_src(src_or_url):
+                logger.debug(
+                    "Panel %s (%s) rejected: src/url not allowed: %s",
+                    panel_id, kind, src_or_url,
+                )
                 continue
 
             seen_ids.add(panel_id)
+            title = str(hint.get("title") or panel_id)
 
-            title = hint.get("title") or panel_id
-            sandbox = _resolve_sandbox(hint.get("sandbox"))
-
-            bootstrap = hint.get("bootstrap")
-            if not isinstance(bootstrap, dict):
-                bootstrap = None
-
-            # Phase 3c: warn about server-relative src with allow-scripts
-            # producing an opaque sandbox origin ("null") that breaks the
-            # postMessage bootstrap handshake.
-            warnings: list[str] = []
-            stripped_src = str(src).strip()
-            if stripped_src.startswith("/") and "allow-scripts" in sandbox:
-                warnings.append(
-                    "Server-relative src with 'allow-scripts' sandbox has opaque origin; "
-                    "postMessage bootstrap handshake will not work. "
-                    "Use a localhost absolute URL for full functionality."
-                )
-
-            # Security: never forward the `allow` (Permissions-Policy) attribute.
-            # The sandbox is the primary security boundary; `allow` can grant
-            # hardware permissions (camera, microphone, geolocation) that
-            # bypass the sandbox. Tools that need capabilities should use the
-            # postMessage bootstrap protocol instead.
-            if isinstance(hint.get("allow"), str):
-                warnings.append(
-                    "The 'allow' attribute is not forwarded for security. "
-                    "Use the postMessage bootstrap handshake for controlled capabilities."
-                )
-
-            out.append(
-                IframePanelOut(
-                    id=panel_id,
-                    kind="iframe",
-                    title=str(title),
-                    src=stripped_src,
-                    sandbox=sandbox,
-                    allow=None,
-                    resize=hint.get("resize")
-                    if hint.get("resize") in ("auto", "fixed")
-                    else None,
-                    bootstrap=bootstrap,
-                    icon=hint.get("icon")
-                    if isinstance(hint.get("icon"), str)
-                    else None,
-                    message_index=idx,
-                    warnings=warnings,
-                )
-            )
+            if kind == "iframe":
+                panel = _build_iframe_panel(hint, idx, panel_id, title)
+            else:
+                panel = _build_live_app_panel(hint, idx, panel_id, title)
+            out.append(panel)
 
     return out
+
+
+def _build_iframe_panel(
+    hint: dict[str, Any], idx: int, panel_id: str, title: str
+) -> IframePanelOut:
+    """Build an IframePanelOut from a validated hint dict."""
+    src = hint.get("src", "")
+    sandbox = _resolve_sandbox(hint.get("sandbox"))
+
+    bootstrap = hint.get("bootstrap")
+    if not isinstance(bootstrap, dict):
+        bootstrap = None
+
+    warnings: list[str] = []
+    stripped_src = str(src).strip()
+    if stripped_src.startswith("/") and "allow-scripts" in sandbox:
+        warnings.append(
+            "Server-relative src with 'allow-scripts' sandbox has opaque origin; "
+            "postMessage bootstrap handshake will not work. "
+            "Use a localhost absolute URL for full functionality."
+        )
+
+    if isinstance(hint.get("allow"), str):
+        warnings.append(
+            "The 'allow' attribute is not forwarded for security. "
+            "Use the postMessage bootstrap handshake for controlled capabilities."
+        )
+
+    return IframePanelOut(
+        id=panel_id,
+        kind="iframe",
+        title=title,
+        src=stripped_src,
+        sandbox=sandbox,
+        allow=None,
+        resize=hint.get("resize")
+        if hint.get("resize") in ("auto", "fixed")
+        else None,
+        bootstrap=bootstrap,
+        icon=hint.get("icon") if isinstance(hint.get("icon"), str) else None,
+        message_index=idx,
+        warnings=warnings,
+    )
+
+
+def _build_live_app_panel(
+    hint: dict[str, Any], idx: int, panel_id: str, title: str
+) -> LiveAppPanelOut:
+    """Build a LiveAppPanelOut from a validated hint dict."""
+    url = str(hint.get("url", ""))
+    sandbox = _resolve_sandbox(hint.get("sandbox"))
+
+    valid_statuses = {"loading", "running", "stopped", "error", "unavailable"}
+    status: str = hint.get("status", "loading")
+    if status not in valid_statuses:
+        status = "loading"
+
+    return LiveAppPanelOut(
+        id=panel_id,
+        kind="live_app",
+        title=title,
+        url=url.strip(),
+        status=status,  # type: ignore
+        status_message=str(hint["status_message"])
+        if isinstance(hint.get("status_message"), str)
+        else None,
+        sandbox=sandbox,
+        icon=hint.get("icon") if isinstance(hint.get("icon"), str) else None,
+        message_index=idx,
+    )
 
 
 @panels_api.route("/api/v2/conversations/<string:conversation_id>/panels")
@@ -201,13 +273,19 @@ def panels_from_messages(manager: LogManager) -> list[IframePanelOut]:
     tags=["panels"],
 )
 def list_panels(conversation_id: str):
-    """List iframe panels declared by tools in message metadata.
+    """List panels declared by tools in message metadata.
 
-    Tools emit ``panel_hints`` in their message metadata. The server validates
-    each descriptor's src against the localhost/server-relative allowlist,
-    filters the sandbox tokens, and drops the dangerous
-    ``allow-scripts + allow-same-origin`` combination. The webui renders each
-    validated panel as a ``SandboxedIframePanel`` tab in the right sidebar.
+    Tools emit ``panel_hints`` in their message metadata. Supports two kinds:
+
+    - ``kind: "iframe"`` — generic sandboxed iframe panels for plugin-owned
+      custom UI. The server validates src against the localhost/server-relative
+      allowlist, filters sandbox tokens, and drops the dangerous
+      ``allow-scripts + allow-same-origin`` combination.
+    - ``kind: "live_app"`` — running app preview panels with explicit lifecycle
+      state (running/stopped/error). Uses the same URL allowlist but carries
+      a ``status`` field and no ``allow`` / ``resize`` / ``bootstrap`` fields.
+
+    The webui renders each validated panel as a tab in the right sidebar.
     """
     if error := _validate_conversation_id(conversation_id):
         return error

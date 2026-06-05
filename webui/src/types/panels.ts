@@ -8,6 +8,23 @@
 
 import type { IframeSandboxToken } from '@/types/panel';
 
+/** Lifecycle status for a live_app panel. */
+export type LiveAppStatus = 'running' | 'stopped' | 'error' | 'loading';
+
+export interface LiveAppPanelEntry {
+  id: string;
+  kind: 'live_app';
+  title: string;
+  /** The URL of the running app. Validated against the src allowlist. */
+  url: string;
+  /** Current lifecycle status of the app. */
+  status: LiveAppStatus;
+  /** Sandbox tokens for the iframe that hosts the app. */
+  sandbox: IframeSandboxToken[];
+  icon?: string | null;
+  message_index?: number | null;
+}
+
 export interface IframePanelEntry {
   id: string;
   kind: 'iframe';
@@ -21,6 +38,9 @@ export interface IframePanelEntry {
   message_index?: number | null;
 }
 
+/** Union of all panel entry kinds the webui can render. */
+export type PanelEntry = IframePanelEntry | LiveAppPanelEntry;
+
 export interface PanelListResponse {
-  panels: IframePanelEntry[];
+  panels: PanelEntry[];
 }

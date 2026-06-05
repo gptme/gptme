@@ -7,15 +7,29 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FC } from 'react';
-import { LayoutDashboard, Loader2, RefreshCw } from 'lucide-react';
+import { LayoutDashboard, Loader2, Monitor, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SandboxedIframePanel } from '@/components/SandboxedIframePanel';
-import type { IframePanelEntry } from '@/types/panels';
+import type { PanelEntry, LiveAppPanelEntry, IframePanelEntry } from '@/types/panels';
 import type { IframePanelDescriptor } from '@/types/panel';
 import { usePanelsApi } from '@/utils/panelsApi';
 
 interface PanelsPanelProps {
   conversationId: string;
+}
+
+/** Status indicator color for a live app panel. */
+function statusColor(status: string): string {
+  switch (status) {
+    case 'running':
+      return 'text-green-500';
+    case 'error':
+      return 'text-destructive';
+    case 'stopped':
+      return 'text-muted-foreground';
+    default:
+      return 'text-yellow-500';
+  }
 }
 
 function toDescriptor(entry: IframePanelEntry): IframePanelDescriptor {
@@ -32,8 +46,16 @@ function toDescriptor(entry: IframePanelEntry): IframePanelDescriptor {
   };
 }
 
+function isLiveApp(entry: PanelEntry): entry is LiveAppPanelEntry {
+  return entry.kind === 'live_app';
+}
+
+function isIframe(entry: PanelEntry): entry is IframePanelEntry {
+  return entry.kind === 'iframe';
+}
+
 export const PanelsPanel: FC<PanelsPanelProps> = ({ conversationId }) => {
-  const [panels, setPanels] = useState<IframePanelEntry[]>([]);
+  const [panels, setPanels] = useState<PanelEntry[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -102,7 +124,7 @@ export const PanelsPanel: FC<PanelsPanelProps> = ({ conversationId }) => {
         <LayoutDashboard className="h-8 w-8 opacity-40" />
         <p className="font-medium text-foreground">No panels</p>
         <p>
-          Tools can declare iframe panels via{' '}
+          Tools can declare iframe or live app panels via{' '}
           <code className="rounded bg-muted px-1">panel_hints</code> in message metadata.
         </p>
       </div>
@@ -119,23 +141,53 @@ export const PanelsPanel: FC<PanelsPanelProps> = ({ conversationId }) => {
               key={p.id}
               type="button"
               onClick={() => setSelectedId(p.id)}
-              className={`rounded px-2 py-1 text-xs font-medium transition-colors ${
+              className={`flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium transition-colors ${
                 selected?.id === p.id
                   ? 'bg-accent text-accent-foreground'
                   : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
               }`}
             >
-              {p.title}
+              <span>{p.title}</span>
+              {isLiveApp(p) && (
+                <span className={`h-1.5 w-1.5 rounded-full ${statusColor(p.status)}`} />
+              )}
             </button>
           ))}
         </div>
       )}
 
-      {/* Iframe content */}
+      {/* Panel content area */}
       <div className="min-h-0 flex-1">
-        {selected && (
+        {selected && isLiveApp(selected) && selected.status !== 'running' && (
+          <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-sm">
+            <Monitor className="h-8 w-8 opacity-40" />
+            <div className="space-y-1">
+              <p className="font-medium text-foreground">{selected.title}</p>
+              <p className={`${statusColor(selected.status)}`}>
+                Status: <span className="capitalize">{selected.status}</span>
+              </p>
+              {selected.url && selected.status === 'stopped' && (
+                <p className="text-muted-foreground">{selected.url}</p>
+              )}
+            </div>
+          </div>
+        )}
+        {selected && isIframe(selected) && (
           <SandboxedIframePanel
             descriptor={toDescriptor(selected)}
+            conversationId={conversationId}
+          />
+        )}
+        {selected && isLiveApp(selected) && selected.status === 'running' && (
+          <SandboxedIframePanel
+            descriptor={{
+              id: selected.id,
+              kind: 'iframe',
+              title: selected.title,
+              src: selected.url ?? selected.src,
+              sandbox: selected.sandbox,
+              resize: 'auto',
+            }}
             conversationId={conversationId}
           />
         )}
