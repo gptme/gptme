@@ -246,8 +246,8 @@ Show account status and set up API providers.
 
 **Alias:** ``/creds``
 
-Use this to check which providers are configured, switch providers, or run the
-interactive setup wizard for a new provider (Anthropic, OpenAI, OpenRouter, etc.).
+Use this to check which providers are configured or run the interactive setup
+wizard to add or change a provider (Anthropic, OpenAI, OpenRouter, etc.).
 
 .. code-block:: text
 
@@ -354,9 +354,10 @@ Requires a git workspace to be configured for the session (``--workspace``).
    /checkpoint create --include-dirty  # Also snapshot uncommitted changes
    /checkpoint list                    # List all recorded checkpoints
    /checkpoint diff <id>               # Diff current state vs a checkpoint
-   /checkpoint restore <id> --include-dirty  # Restore workspace to a checkpoint
+   /checkpoint restore <id>                    # Restore workspace to a checkpoint
+   /checkpoint restore <id> --include-dirty    # Restore even with uncommitted changes (discards them)
 
-The ``<id>`` can be a checkpoint number from ``/checkpoint list`` or a SHA prefix.
+The ``<id>`` can be a checkpoint number (1-based index) from ``/checkpoint list`` or a HEAD SHA prefix.
 
 
 Tool Commands
