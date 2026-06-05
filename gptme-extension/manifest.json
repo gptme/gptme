@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "gptme",
+  "version": "0.1.0",
+  "description": "Ask gptme about anything on the web",
+  "permissions": ["storage", "sidePanel", "activeTab"],
+  "host_permissions": ["http://localhost/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "side_panel": { "default_path": "sidepanel/index.html" },
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
+  },
+  "action": {
+    "default_title": "Open gptme",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [{
+    "matches": ["<all_urls>"],
+    "js": ["content/content.js"]
+  }]
+}

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>gptme</title>
+  <link rel="stylesheet" href="panel.css" />
+</head>
+<body>
+  <header>
+    <span class="logo">gptme</span>
+    <span id="status" class="status checking">● Connecting…</span>
+    <a href="../options/options.html" target="_blank" class="icon-btn" title="Settings">⚙</a>
+    <button id="clear-btn" class="icon-btn" title="New conversation">✕</button>
+  </header>
+
+  <div id="selection-bar" class="selection-bar hidden">
+    <span id="selection-label">Context: </span>
+    <button id="clear-selection" title="Remove context">×</button>
+  </div>
+
+  <div id="messages" class="messages"></div>
+
+  <footer>
+    <textarea id="input" placeholder="Ask gptme… (Enter to send, Shift+Enter for newline)" rows="2"></textarea>
+    <button id="send-btn">Send</button>
+  </footer>
+
+  <script type="module" src="panel.js"></script>
+</body>
+</html>

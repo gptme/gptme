@@ -1,0 +1,15 @@
+{
+  "name": "gptme-extension",
+  "version": "0.1.0",
+  "description": "gptme browser extension — ask gptme about anything on the web",
+  "private": true,
+  "scripts": {
+    "build": "bash build.sh",
+    "watch": "bash build.sh --watch"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.300",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0"
+  }
+}

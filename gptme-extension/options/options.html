@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>gptme Settings</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 420px;
+      margin: 48px auto;
+      padding: 0 20px;
+      color: #333;
+      line-height: 1.5;
+    }
+    h1 { font-size: 20px; margin-bottom: 6px; }
+    p.hint { font-size: 12px; color: #777; margin-bottom: 24px; }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+    input {
+      width: 100%;
+      padding: 8px 10px;
+      font-size: 14px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      margin-bottom: 6px;
+      box-sizing: border-box;
+    }
+    input:focus { outline: none; border-color: #569cd6; box-shadow: 0 0 0 2px #569cd620; }
+    .field-hint { font-size: 11px; color: #888; margin-bottom: 16px; }
+    button {
+      background: #569cd6;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 9px 20px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:hover { background: #4a8bc0; }
+    #saved { margin-left: 12px; color: #2a9d8f; font-size: 13px; opacity: 0; transition: opacity 0.3s; }
+    #saved.visible { opacity: 1; }
+  </style>
+</head>
+<body>
+  <h1>gptme Settings</h1>
+  <p class="hint">
+    Configure the connection to your local gptme server.
+    Start the server with <code>gptme server</code>.
+  </p>
+
+  <label for="serverUrl">Server URL</label>
+  <input type="url" id="serverUrl" placeholder="http://localhost:5700" autocomplete="url" />
+  <div class="field-hint">Default: http://localhost:5700</div>
+
+  <label for="apiKey">API Key <span style="font-weight: normal; color: #888;">(optional)</span></label>
+  <input type="password" id="apiKey" placeholder="Leave blank for unauthenticated local server" autocomplete="off" />
+  <div class="field-hint">Only required if you started gptme server with <code>--auth</code>.</div>
+
+  <button id="save-btn">Save</button>
+  <span id="saved">Saved ✓</span>
+
+  <script type="module" src="options.js"></script>
+</body>
+</html>
