@@ -354,9 +354,9 @@ Requires a git workspace to be configured for the session (``--workspace``).
    /checkpoint create --include-dirty  # Also snapshot uncommitted changes
    /checkpoint list                    # List all recorded checkpoints
    /checkpoint diff <id>               # Diff current state vs a checkpoint
-   /checkpoint restore <id>            # Restore workspace to a checkpoint
+   /checkpoint restore <id> --include-dirty  # Restore workspace to a checkpoint
 
-The ``<id>`` can be a checkpoint number from ``/checkpoint list`` or a session ID.
+The ``<id>`` can be a checkpoint number from ``/checkpoint list`` or a SHA prefix.
 
 
 Tool Commands
