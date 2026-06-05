@@ -275,4 +275,23 @@ def limit_log(log: list[Message]) -> list[Message]:
         # skip the last message
         msgs.pop()
 
-    return initial_system_msgs + list(reversed(msgs))
+    result = initial_system_msgs + list(reversed(msgs))
+
+    # Ensure tool_use/tool_result atomicity: if a non-initial system message's
+    # immediate predecessor in the original log was dropped by the context limit,
+    # drop the system message too. System messages that follow a dropped message
+    # are almost certainly orphaned tool results — keeping them without their
+    # tool-use anchor produces an incoherent log.
+    result_id_set = {id(m) for m in result}
+    log_by_id = {id(m): i for i, m in enumerate(log)}
+    initial_id_set = {id(m) for m in initial_system_msgs}
+
+    def _is_orphaned(msg: Message) -> bool:
+        if msg.role != "system" or id(msg) in initial_id_set:
+            return False
+        idx = log_by_id.get(id(msg))
+        if idx is None or idx == 0:
+            return False
+        return id(log[idx - 1]) not in result_id_set
+
+    return [m for m in result if not _is_orphaned(m)]

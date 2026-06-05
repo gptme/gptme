@@ -2,8 +2,15 @@ from pathlib import Path
 
 import pytest
 
+from gptme.llm.models.resolution import set_default_model
+from gptme.llm.models.types import ModelMeta
 from gptme.message import Message, len_tokens
-from gptme.util.reduce import _truncate_details_blocks, reduce_log, truncate_msg
+from gptme.util.reduce import (
+    _truncate_details_blocks,
+    limit_log,
+    reduce_log,
+    truncate_msg,
+)
 
 # Project root
 root = Path(__file__).parent.parent
@@ -262,3 +269,35 @@ def test_reduce_log():
 
     assert len_pre > len_post
     assert len_post < limit
+
+
+def test_limit_log_tool_pair_atomicity():
+    """limit_log should drop orphaned tool results instead of splitting pairs.
+
+    When the context limit causes the assistant tool-use message to be dropped
+    but the subsequent system tool-result message fits, the result is an orphaned
+    tool result with no preceding call. limit_log should drop it rather than
+    return an incoherent log.
+    """
+    # Context=10: fits system prompt (2 tok) + tool result (1 tok) but not the
+    # assistant tool-use (13 tok) on top of that.
+    tiny_model = ModelMeta(provider="unknown", model="gpt-4", context=10)
+    set_default_model(tiny_model)
+
+    # assistant message with a shell tool call (13 tokens)
+    tool_use_content = "I will run a command.\n```shell\necho hello\n```"
+    msgs = [
+        Message("system", "system prompt"),  # 2 tok — initial system msg
+        Message("assistant", tool_use_content),  # 13 tok — tool use
+        Message("system", "hello"),  # 1 tok — tool result
+    ]
+
+    result = limit_log(msgs)
+
+    # The orphaned tool result ("hello") must not appear without its tool use.
+    result_contents = [m.content for m in result]
+    assert "hello" not in result_contents, (
+        "Orphaned tool result should be dropped when its tool-use was not included"
+    )
+    # The initial system prompt must always be kept.
+    assert any(m.content == "system prompt" for m in result)
