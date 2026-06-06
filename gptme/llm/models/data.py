@@ -486,7 +486,11 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
         },
     },
     "moonshot": {
-        # https://platform.moonshot.ai/docs
+        # https://platform.kimi.ai/docs/models
+        # https://platform.kimi.ai/docs/api/chat
+        # Kimi docs list 256K context for k2.6/k2.5. max_completion_tokens
+        # is constrained by input + output fitting within that context; the
+        # 32K K2.5 guide value is a default, not a documented hard output cap.
         # All kimi models require temperature=1; handled in llm_openai.py
         "kimi-k2.6": {
             "context": 262_144,
