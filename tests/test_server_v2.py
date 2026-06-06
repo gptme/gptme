@@ -1245,6 +1245,17 @@ def _normalize_config_for_comparison(config_dict: dict) -> dict:
     return result
 
 
+def test_v2_conversation_put_injects_system_prompt(client: FlaskClient):
+    """Creating a conversation with system_prompt should inject it via api_conversation_put."""
+    config = ChatConfig(system_prompt="Answer in bullet points.")
+    conversation = create_conversation(client, config=config)
+    conversation_id = conversation["conversation_id"]
+
+    data = client.get(f"/api/v2/conversations/{conversation_id}").get_json()
+    system_messages = [m["content"] for m in data["log"] if m["role"] == "system"]
+    assert "Answer in bullet points." in system_messages
+
+
 def test_v2_chat_config_saved_on_conversation_create(client: FlaskClient):
     """Test that the chat config is saved on conversation create."""
     input_config = ChatConfig(model="openai/gpt-4o")

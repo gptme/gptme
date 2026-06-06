@@ -1,6 +1,7 @@
 from dataclasses import replace as dc_replace
 from pathlib import Path
 
+import pytest
 import tomlkit
 
 from gptme.config import ChatConfig
@@ -132,3 +133,12 @@ def test_chat_config_load_or_create_empty_system_prompt_clears_existing(tmp_path
     cleared = ChatConfig.load_or_create(tmp_path, ChatConfig(system_prompt="")).save()
     assert cleared.system_prompt is None
     assert "system_prompt" not in cleared.to_dict()["chat"]
+
+
+def test_chat_config_system_prompt_from_dict_validation(tmp_path: Path):
+    """Non-string system_prompt in from_dict raises ValueError."""
+    config = ChatConfig(_logdir=tmp_path)
+    data = config.to_dict()
+    data["chat"]["system_prompt"] = {"nested": "dict"}
+    with pytest.raises(ValueError, match="chat.system_prompt must be a string"):
+        ChatConfig.from_dict(data)
