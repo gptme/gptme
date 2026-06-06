@@ -81,7 +81,10 @@ def _summarize_child_output(
         content = event.get("content")
         if isinstance(content, str):
             tool_calls += _count_tool_calls(content)
-            if content.startswith("Stopped: reached max steps limit"):
+            # Detection uses substring match to tolerate message format changes.
+            # The canonical source is chat.py:
+            #   Message("system", f"Stopped: reached max steps limit ({...})")
+            if "reached max steps" in content:
                 exit_reason = "max_turns"
 
     record: dict[str, Any] = {
@@ -131,6 +134,7 @@ def _run_one_prompt(
             text=True,
             timeout=timeout,
             env=env,
+            stdin=subprocess.DEVNULL,
             check=False,
         )
     except subprocess.TimeoutExpired:

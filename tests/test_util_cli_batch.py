@@ -144,3 +144,85 @@ def test_summarize_child_output_reports_error_tail():
     assert record["exit_reason"] == "error"
     assert record["returncode"] == 2
     assert record["error"] == "last line"
+
+
+def test_usage_tokens_handles_missing_usage():
+    """Usage key=None should return 0 tokens."""
+    assert cmd_batch._usage_tokens({"usage": None}) == 0  # type: ignore[arg-type]
+    assert cmd_batch._usage_tokens({}) == 0
+
+
+def test_usage_tokens_handles_non_int_values():
+    """Non-int token values should be skipped."""
+    record = {"usage": {"input_tokens": "10", "output_tokens": 5}}  # type: ignore[dict-item]
+    assert cmd_batch._usage_tokens(record) == 5
+
+
+def test_iter_json_events_skips_non_dict_and_invalid():
+    lines = [
+        json.dumps({"type": "message"}),
+        "not json at all",
+        json.dumps("just a string, not a dict"),
+        "",
+        json.dumps(["a list"]),
+        json.dumps({"type": "system"}),
+    ]
+    events = list(cmd_batch._iter_json_events("\n".join(lines)))
+    assert len(events) == 2
+    assert events[0]["type"] == "message"
+    assert events[1]["type"] == "system"
+
+
+def test_summarize_child_output_error_no_stderr():
+    """Non-zero exit but no stderr — still reports error, no error key."""
+    record = cmd_batch._summarize_child_output(
+        index=0,
+        prompt="crash",
+        duration_s=1.0,
+        returncode=1,
+        stdout="",
+        stderr="",
+    )
+    assert record["exit_reason"] == "error"
+    assert record["returncode"] == 1
+    assert "error" not in record
+
+
+def test_summarize_child_output_counts_tool_calls():
+    """_count_tool_calls should detect ToolUse blocks in content."""
+    # Simulate a message that contains tool-use markers
+    content_with_tools = (
+        "Let me check that.\n\n"
+        "```shell\nls\n```\n\n"
+        "Now I'll save.\n\n"
+        "```save test.txt\nhello\n```"
+    )
+    count = cmd_batch._count_tool_calls(content_with_tools)
+    # ToolUse.iter_from_content parses fenced code blocks as tool calls
+    assert count == 2
+
+
+def test_batch_without_jsonl_only_outputs_progress(monkeypatch):
+    """--jsonl-only off (default) emits stderr progress."""
+
+    def fake_run_one_prompt(**kwargs):
+        return {
+            "index": kwargs["index"],
+            "prompt": kwargs["prompt"],
+            "exit_reason": "done",
+            "tokens": 0,
+            "duration_s": 0.5,
+            "tool_calls": 0,
+        }
+
+    monkeypatch.setattr(cmd_batch, "_run_one_prompt", fake_run_one_prompt)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        util_main, ["batch", "--model", "test/model"], input="hello\n"
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "[1/1]" in result.stderr
+    assert "done" in result.stderr
+    assert "0.5s" in result.stderr

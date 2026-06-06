@@ -6,6 +6,7 @@ Command groups are split into separate modules for maintainability:
 - cmd_chats.py: Chat/conversation management (list, search, export, clean, stats)
 - cmd_hooks.py: Claude Code hook installation and execution
 - cmd_mcp.py: MCP server management (list, test, info, search)
+- cmd_batch.py: Batch runner for stdin prompts as fresh non-interactive sessions
 - cmd_skills.py: Skills and lessons (list, show, search, install, validate, etc.)
 
 Inline command groups (smaller, live in this file):
