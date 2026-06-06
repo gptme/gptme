@@ -452,6 +452,52 @@ class TestAutoReplyHook:
         results = list(gen)
         assert results == []
 
+    def test_interactive_no_confirm_noop_when_no_assistant_msg(self):
+        """Early return in _auto_reply_nudge_interactive when no assistant message exists."""
+        manager = _mock_manager(
+            [
+                _user("do something"),
+            ]
+        )
+        gen = auto_reply_hook(
+            manager, interactive=True, prompt_queue=None, no_confirm=True
+        )
+        results = list(gen)
+        assert results == []
+
+    def test_interactive_no_confirm_nudge_stops_at_prior_tool_use(self):
+        """Nudge counting loop stops at a prior assistant message with tools.
+
+        The backward nudge scan walks past nudges and think-only assistant messages,
+        and when it reaches a prior assistant turn that DID use tools, it breaks
+        without iterating further.
+        """
+        manager = _mock_manager(
+            [
+                _user("write a file"),
+                _assistant(
+                    "```save hello.txt\nworld\n```"
+                ),  # has tools — scan boundary
+                # First think-only sequence: nudged
+                _user(
+                    "<system>No tool call detected. Please continue with a tool call, or use `complete` if done.</system>"
+                ),
+                _assistant("I'm thinking..."),
+                # Second think-only sequence: nudged again (previous was different)
+                _user(
+                    "<system>No tool call detected. Please continue with a tool call, or use `complete` if done.</system>"
+                ),
+                _assistant("Still thinking..."),
+                # Third think-only: should NOT nudge (already 2 nudges in sequence)
+            ]
+        )
+        gen = auto_reply_hook(
+            manager, interactive=True, prompt_queue=None, no_confirm=True
+        )
+        results = list(gen)
+        # Already nudged twice, scan reaches the save tool use and breaks → no more nudges
+        assert results == []
+
 
 class TestToolSpec:
     """Tests for the complete tool spec configuration."""
