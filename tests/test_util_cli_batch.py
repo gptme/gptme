@@ -225,7 +225,7 @@ def test_run_one_prompt_invokes_child_process(monkeypatch):
 
     record = cmd_batch._run_one_prompt(
         index=2,
-        prompt="say hello",
+        prompt="--help",
         model="test/model",
         max_turns=4,
         timeout=9.5,
@@ -235,7 +235,7 @@ def test_run_one_prompt_invokes_child_process(monkeypatch):
         "duration_s": 2.25,
         "exit_reason": "done",
         "index": 2,
-        "prompt": "say hello",
+        "prompt": "--help",
         "tokens": 0,
         "tool_calls": 0,
     }
@@ -251,7 +251,8 @@ def test_run_one_prompt_invokes_child_process(monkeypatch):
         "--no-stream",
         "--model",
         "test/model",
-        "say hello",
+        "--",
+        "--help",
     ]
     assert kwargs["capture_output"] is True
     assert kwargs["text"] is True

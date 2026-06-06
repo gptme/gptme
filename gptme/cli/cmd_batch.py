@@ -124,7 +124,7 @@ def _run_one_prompt(
     ]
     if model:
         cmd.extend(["--model", model])
-    cmd.append(prompt)
+    cmd.extend(["--", prompt])
 
     start = time.monotonic()
     try:
