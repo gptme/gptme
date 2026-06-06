@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 
 from click.testing import CliRunner
 
@@ -104,6 +105,13 @@ def test_summarize_child_output_counts_tokens_and_max_turns():
             ),
             json.dumps(
                 {
+                    "type": "system",
+                    "content": "ignored content",
+                    "metadata": {"usage": {"input_tokens": 3}},
+                }
+            ),
+            json.dumps(
+                {
                     "type": "message",
                     "role": "system",
                     "content": "Stopped: reached max steps limit (1)",
@@ -126,7 +134,7 @@ def test_summarize_child_output_counts_tokens_and_max_turns():
         "exit_reason": "max_turns",
         "index": 4,
         "prompt": "do it",
-        "tokens": 18,
+        "tokens": 21,
         "tool_calls": 0,
     }
 
@@ -200,6 +208,86 @@ def test_summarize_child_output_counts_tool_calls():
     count = cmd_batch._count_tool_calls(content_with_tools)
     # ToolUse.iter_from_content parses fenced code blocks as tool calls
     assert count == 2
+
+
+def test_run_one_prompt_invokes_child_process(monkeypatch):
+    calls = []
+    times = iter([10.0, 12.25])
+
+    def fake_run(cmd, **kwargs):
+        calls.append((cmd, kwargs))
+        stdout = json.dumps({"type": "message", "content": "done"}) + "\n"
+        return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(cmd_batch.subprocess, "run", fake_run)
+    monkeypatch.setattr(cmd_batch.sys, "executable", "/usr/bin/python-test")
+    monkeypatch.setattr(cmd_batch.time, "monotonic", lambda: next(times))
+
+    record = cmd_batch._run_one_prompt(
+        index=2,
+        prompt="say hello",
+        model="test/model",
+        max_turns=4,
+        timeout=9.5,
+    )
+
+    assert record == {
+        "duration_s": 2.25,
+        "exit_reason": "done",
+        "index": 2,
+        "prompt": "say hello",
+        "tokens": 0,
+        "tool_calls": 0,
+    }
+    assert len(calls) == 1
+    cmd, kwargs = calls[0]
+    assert cmd == [
+        "/usr/bin/python-test",
+        "-m",
+        "gptme",
+        "--non-interactive",
+        "--output-format",
+        "json",
+        "--no-stream",
+        "--model",
+        "test/model",
+        "say hello",
+    ]
+    assert kwargs["capture_output"] is True
+    assert kwargs["text"] is True
+    assert kwargs["timeout"] == 9.5
+    assert kwargs["stdin"] is subprocess.DEVNULL
+    assert kwargs["check"] is False
+    assert kwargs["env"]["GPTME_MAX_STEPS"] == "4"
+
+
+def test_run_one_prompt_reports_timeout(monkeypatch):
+    times = iter([1.0, 4.4567])
+
+    def fake_run(cmd, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=cmd, timeout=kwargs["timeout"])
+
+    monkeypatch.setattr(cmd_batch.subprocess, "run", fake_run)
+    monkeypatch.setattr(cmd_batch.time, "monotonic", lambda: next(times))
+
+    record = cmd_batch._run_one_prompt(
+        index=1,
+        prompt="slow",
+        model=None,
+        max_turns=2,
+        timeout=2.5,
+    )
+
+    assert record == {
+        "duration_s": 3.457,
+        "error": "timed out after 2.5s",
+        "exit_reason": "timeout",
+        "index": 1,
+        "prompt": "slow",
+        "returncode": None,
+        "tokens": 0,
+        "tool_calls": 0,
+    }
 
 
 def test_batch_without_jsonl_only_outputs_progress(monkeypatch):
