@@ -167,6 +167,36 @@ def test_hook_with_arguments():
     assert received_args["workspace"] is None
 
 
+def test_trigger_hook_filters_unknown_kwargs_for_legacy_hooks():
+    """Extra trigger kwargs don't break older fixed-signature hook callables."""
+    calls = []
+
+    def legacy_loop_hook(manager, interactive, prompt_queue):
+        calls.append((manager, interactive, prompt_queue))
+        yield Message("system", "legacy hook ran")
+
+    register_hook(  # type: ignore[call-overload]
+        "legacy_loop",
+        HookType.LOOP_CONTINUE,
+        legacy_loop_hook,
+    )
+
+    prompt_queue: list[Message] = []
+    results = list(
+        trigger_hook(
+            HookType.LOOP_CONTINUE,
+            manager=None,
+            interactive=True,
+            prompt_queue=prompt_queue,
+            no_confirm=True,
+        )
+    )
+
+    assert calls == [(None, True, prompt_queue)]
+    assert len(results) == 1
+    assert results[0].content == "legacy hook ran"
+
+
 def test_hook_generator():
     """Test hooks can yield multiple messages."""
 
