@@ -311,6 +311,9 @@ def test_batch_without_jsonl_only_outputs_progress(monkeypatch):
     )
 
     assert result.exit_code == 0, result.output
-    assert "[1/1]" in result.stderr
-    assert "done" in result.stderr
-    assert "0.5s" in result.stderr
+    progress_output = (
+        result.stderr if result.stderr_bytes is not None else result.output
+    )
+    assert "[1/1]" in progress_output
+    assert "done" in progress_output
+    assert "0.5s" in progress_output
