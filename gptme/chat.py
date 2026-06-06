@@ -152,6 +152,7 @@ def chat(
             tool_format=tool_format,
             model=None,  # Pass None to allow dynamic model switching via /model command
             interactive=interactive,
+            no_confirm=no_confirm,
             logdir=logdir,
             output_schema=output_schema,
         )
@@ -178,6 +179,7 @@ def _run_chat_loop(
     tool_format=None,
     model=None,
     interactive=True,
+    no_confirm=False,
     logdir=None,
     output_schema=None,
 ):
@@ -280,6 +282,7 @@ def _run_chat_loop(
                 manager=manager,
                 interactive=interactive,
                 prompt_queue=prompt_queue,
+                no_confirm=no_confirm,
             ):
                 for msg in loop_msgs:
                     # Add hook-generated messages to prompt queue with size limit

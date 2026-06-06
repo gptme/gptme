@@ -97,8 +97,56 @@ def complete_hook(
     logger.debug("complete_hook: complete tool not detected")
 
 
+def _auto_reply_nudge_interactive(
+    manager: "LogManager",
+) -> Generator[Message | StopPropagation, None, None]:
+    """Gentle nudge for think-only responses in interactive+no_confirm mode.
+
+    Injects a single quiet nudge message when the assistant produces a
+    think-only response in -y mode, then returns without exit logic.
+    Only nudges once per conversation — after a nudge, subsequent
+    think-only responses are silently ignored (the user can type "continue"
+    themselves without being spammed).
+    """
+    last_assistant_msg = next(
+        (m for m in reversed(manager.log.messages) if m.role == "assistant"), None
+    )
+    if not last_assistant_msg:
+        return
+
+    tool_uses = list(ToolUse.iter_from_content(last_assistant_msg.content))
+    if tool_uses:
+        return  # Has tools, no need to nudge
+
+    # Count existing nudges — only nudge once per think-only sequence
+    nudge_count = 0
+    for msg in reversed(manager.log.messages):
+        if msg.role == "user" and "No tool call detected" in msg.content:
+            nudge_count += 1
+        elif msg.role == "assistant":
+            # Stop counting when we hit an assistant message with tools
+            if list(ToolUse.iter_from_content(msg.content)):
+                break
+        else:
+            break
+
+    # Only nudge once — if a nudge was already injected, don't pile on
+    if nudge_count >= 1:
+        return
+
+    logger.info("Auto-nudge: think-only in -y mode, injecting continuation hint")
+    yield Message(
+        "user",
+        "<system>No tool call detected. Please continue with a tool call, or use `complete` if done.</system>",
+        quiet=True,
+    )
+
+
 def auto_reply_hook(
-    manager: "LogManager", interactive: bool, prompt_queue: Any
+    manager: "LogManager",
+    interactive: bool,
+    prompt_queue: Any,
+    no_confirm: bool = False,
 ) -> Generator[Message | StopPropagation, None, None]:
     """
     Hook that implements auto-reply mechanism for autonomous operation.
@@ -106,16 +154,28 @@ def auto_reply_hook(
     If in non-interactive mode and last assistant message had no tools,
     inject an auto-reply to ensure the assistant does work.
 
-    This is called via LOOP_CONTINUE hook, which receives interactive and prompt_queue.
+    In interactive + no_confirm mode (gptme -y), inject a quiet nudge once
+    to avoid piling on, then let the loop continue naturally.
+
+    This is called via LOOP_CONTINUE hook, which receives interactive, prompt_queue,
+    and no_confirm.
 
     Args:
         manager: Conversation manager with log and workspace
         interactive: Whether in interactive mode
         prompt_queue: Queue of pending prompts
+        no_confirm: Whether tool confirmations are skipped (--no-confirm / -y mode)
     """
-    # Only run in non-interactive mode
-    if interactive:
+    # In interactive mode without -y, skip (real human conversation)
+    if interactive and not no_confirm:
         return
+
+    # In interactive + no_confirm mode: gentle nudge, no exit path
+    if interactive and no_confirm:
+        yield from _auto_reply_nudge_interactive(manager)
+        return
+
+    # Non-interactive mode: existing auto-reply logic with 2x exit
 
     # Skip if there are queued prompts
     if prompt_queue:
@@ -208,7 +268,10 @@ def _turn_fingerprint(msg: "Message") -> tuple | None:
 
 
 def stuck_detect_hook(
-    manager: "LogManager", interactive: bool, prompt_queue: Any
+    manager: "LogManager",
+    interactive: bool,
+    prompt_queue: Any,
+    no_confirm: bool = False,
 ) -> Generator[Message | StopPropagation, None, None]:
     """Detect a stuck agent that keeps issuing the same tool call(s).
 

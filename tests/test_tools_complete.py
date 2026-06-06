@@ -377,8 +377,80 @@ class TestAutoReplyHook:
         assert isinstance(msg, Message)
         assert msg.role == "user"
 
+    # ── TestToolSpec ──────────────────────���───────────────────────────────────
 
-# ── TestToolSpec ──────────────────────���───────────────────────────────────
+    # ── Interactive + no_confirm mode tests ──
+
+    def test_interactive_no_confirm_nudges_think_only(self):
+        """In interactive+no_confirm mode, injects a quiet nudge on think-only."""
+        manager = _mock_manager(
+            [
+                _user("implement feature X"),
+                _assistant("Let me think about the best approach for X..."),
+            ]
+        )
+        gen = auto_reply_hook(
+            manager, interactive=True, prompt_queue=None, no_confirm=True
+        )
+        results = list(gen)
+        assert len(results) == 1
+        msg = results[0]
+        assert isinstance(msg, Message)
+        assert msg.role == "user"
+        assert "No tool call detected" in msg.content
+        assert msg.quiet is True
+
+    def test_interactive_no_confirm_noop_when_has_tools(self):
+        """In interactive+no_confirm mode, no nudge when assistant used tools."""
+        manager = _mock_manager(
+            [
+                _user("save a file"),
+                _assistant("```save test.txt\nhello\n```"),
+            ]
+        )
+        gen = auto_reply_hook(
+            manager, interactive=True, prompt_queue=None, no_confirm=True
+        )
+        results = list(gen)
+        assert results == []
+
+    def test_interactive_no_confirm_noop_on_second_nudge(self):
+        """In interactive+no_confirm mode, only nudges once per think-only sequence."""
+        manager = _mock_manager(
+            [
+                _user("implement feature X"),
+                _assistant("Let me think about this..."),
+                _user(
+                    "<system>No tool call detected. Please continue with a tool call, or use `complete` if done.</system>"
+                ),
+                _assistant("I'm still thinking about the approach..."),
+            ]
+        )
+        gen = auto_reply_hook(
+            manager, interactive=True, prompt_queue=None, no_confirm=True
+        )
+        results = list(gen)
+        # Second think-only after nudge should be silent (no pile-on)
+        assert results == []
+
+    def test_interactive_no_confirm_does_not_exit(self):
+        """Interactive+no_confirm nudge has no exit logic (no SessionCompleteException)."""
+        manager = _mock_manager(
+            [
+                _user("do something"),
+                _assistant("I'm thinking..."),
+                _user(
+                    "<system>No tool call detected. Please continue with a tool call, or use `complete` if done.</system>"
+                ),
+                _assistant("Still thinking about the best approach..."),
+            ]
+        )
+        # Should not raise an exception regardless of how many think-only responses
+        gen = auto_reply_hook(
+            manager, interactive=True, prompt_queue=None, no_confirm=True
+        )
+        results = list(gen)
+        assert results == []
 
 
 class TestToolSpec:
