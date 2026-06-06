@@ -86,7 +86,7 @@ class TestGetConfirmation:
         def test_hook(tool_use, preview, workspace):
             return ConfirmationResult.confirm()
 
-        register_hook(
+        register_hook(  # type: ignore[call-overload]
             name="test_confirm",
             hook_type=HookType.TOOL_CONFIRM,
             func=test_hook,
@@ -107,7 +107,7 @@ class TestGetConfirmation:
         def test_hook(tool_use, preview, workspace):
             return ConfirmationResult.skip("Test skip")
 
-        register_hook(
+        register_hook(  # type: ignore[call-overload]
             name="test_skip",
             hook_type=HookType.TOOL_CONFIRM,
             func=test_hook,
@@ -129,7 +129,7 @@ class TestGetConfirmation:
         def test_hook(tool_use, preview, workspace):
             return ConfirmationResult.edit("modified content")
 
-        register_hook(
+        register_hook(  # type: ignore[call-overload]
             name="test_edit",
             hook_type=HookType.TOOL_CONFIRM,
             func=test_hook,
@@ -151,7 +151,7 @@ class TestGetConfirmation:
         def bool_hook(tool_use, preview, workspace):
             return True
 
-        register_hook(
+        register_hook(  # type: ignore[call-overload]
             name="bool_hook",
             hook_type=HookType.TOOL_CONFIRM,
             func=bool_hook,
@@ -172,7 +172,7 @@ class TestGetConfirmation:
         def bool_hook(tool_use, preview, workspace):
             return False
 
-        register_hook(
+        register_hook(  # type: ignore[call-overload]
             name="bool_hook_false",
             hook_type=HookType.TOOL_CONFIRM,
             func=bool_hook,

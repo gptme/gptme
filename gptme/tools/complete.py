@@ -104,9 +104,9 @@ def _auto_reply_nudge_interactive(
 
     Injects a single quiet nudge message when the assistant produces a
     think-only response in -y mode, then returns without exit logic.
-    Only nudges once per conversation — after a nudge, subsequent
-    think-only responses are silently ignored (the user can type "continue"
-    themselves without being spammed).
+    Only nudges once per uninterrupted think-only sequence — if the user
+    sends another message (e.g. "continue") and the assistant still produces
+    no tools, the counter resets and a fresh nudge is injected.
     """
     last_assistant_msg = next(
         (m for m in reversed(manager.log.messages) if m.role == "assistant"), None
@@ -172,7 +172,8 @@ def auto_reply_hook(
 
     # In interactive + no_confirm mode: gentle nudge, no exit path
     if interactive and no_confirm:
-        yield from _auto_reply_nudge_interactive(manager)
+        if not prompt_queue:
+            yield from _auto_reply_nudge_interactive(manager)
         return
 
     # Non-interactive mode: existing auto-reply logic with 2x exit
