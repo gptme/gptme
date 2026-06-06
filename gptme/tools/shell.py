@@ -86,6 +86,22 @@ def strip_ansi_codes(text: str) -> str:
     return ANSI_ESCAPE_PATTERN.sub("", text)
 
 
+def trim_blank_lines(text: str) -> str:
+    """Trim only leading and trailing blank (whitespace-only) lines.
+
+    Interior blank lines are kept. Unlike str.strip(), the first/last
+    contentful lines are returned verbatim, so indentation (e.g. from
+    sed/head/tail of indented code) is preserved.
+    """
+    lines = text.split("\n")
+    start, end = 0, len(lines)
+    while start < end and not lines[start].strip():
+        start += 1
+    while end > start and not lines[end - 1].strip():
+        end -= 1
+    return "\n".join(lines[start:end])
+
+
 logger = logging.getLogger(__name__)
 
 # Default token budgets for shell output truncation (overridable via env vars).
@@ -383,8 +399,12 @@ class ShellSession:
             except subprocess.TimeoutExpired:
                 proc.kill()
                 stdout_data, stderr_data = proc.communicate()
-                stdout_str = stdout_data.decode("utf-8", errors="replace").strip()
-                stderr_str = stderr_data.decode("utf-8", errors="replace").strip()
+                stdout_str = trim_blank_lines(
+                    stdout_data.decode("utf-8", errors="replace")
+                )
+                stderr_str = trim_blank_lines(
+                    stderr_data.decode("utf-8", errors="replace")
+                )
                 return -124, stdout_str, stderr_str
             except KeyboardInterrupt:
                 proc.kill()
@@ -393,8 +413,8 @@ class ShellSession:
         finally:
             tty_stdin.close()
 
-        stdout_str = stdout_data.decode("utf-8", errors="replace").strip()
-        stderr_str = stderr_data.decode("utf-8", errors="replace").strip()
+        stdout_str = trim_blank_lines(stdout_data.decode("utf-8", errors="replace"))
+        stderr_str = trim_blank_lines(stderr_data.decode("utf-8", errors="replace"))
         if output:
             if stdout_str:
                 print(stdout_str, file=sys.stdout)
@@ -600,8 +620,8 @@ class ShellSession:
                         stop_event.set()
                         return (
                             -124,
-                            "".join(stdout).strip(),
-                            "".join(stderr).strip(),
+                            trim_blank_lines("".join(stdout)),
+                            trim_blank_lines("".join(stderr)),
                         )
 
                 # Drain stdout queue
@@ -663,8 +683,8 @@ class ShellSession:
                                     break
                             return (
                                 return_code,
-                                "".join(stdout).strip(),
-                                "".join(stderr).strip(),
+                                trim_blank_lines("".join(stdout)),
+                                trim_blank_lines("".join(stderr)),
                             )
 
                         stdout.append(line)
@@ -691,8 +711,8 @@ class ShellSession:
         except KeyboardInterrupt:
             print()
             logger.info("Process interrupted during output reading")
-            partial_stdout = "".join(stdout).strip()
-            partial_stderr = "".join(stderr).strip()
+            partial_stdout = trim_blank_lines("".join(stdout))
+            partial_stderr = trim_blank_lines("".join(stderr))
             raise KeyboardInterrupt((partial_stdout, partial_stderr)) from None
         finally:
             stop_event.set()
@@ -700,7 +720,11 @@ class ShellSession:
             t_stderr.join(timeout=0.5)
 
         # Fallback: if we get here without finding delimiter, return what we have
-        return (return_code, "".join(stdout).strip(), "".join(stderr).strip())
+        return (
+            return_code,
+            trim_blank_lines("".join(stdout)),
+            trim_blank_lines("".join(stderr)),
+        )
 
     def _read_output_unix(
         self,
@@ -735,8 +759,8 @@ class ShellSession:
                         except Exception as e:
                             logger.warning(f"Error terminating timed-out process: {e}")
 
-                        partial_stdout = "".join(stdout).strip()
-                        partial_stderr = "".join(stderr).strip()
+                        partial_stdout = trim_blank_lines("".join(stdout))
+                        partial_stderr = trim_blank_lines("".join(stderr))
                         return (
                             -124,
                             partial_stdout,
@@ -853,8 +877,8 @@ class ShellSession:
                                     print(drain_data, end="", file=sys.stderr)
                             return (
                                 return_code,
-                                "".join(stdout).strip(),
-                                "".join(stderr).strip(),
+                                trim_blank_lines("".join(stdout)),
+                                trim_blank_lines("".join(stderr)),
                             )
                         if fd == self.stdout_fd:
                             stdout.append(line)
@@ -869,8 +893,8 @@ class ShellSession:
             print()
             # Handle interrupt at the source - return partial output and re-raise
             logger.info("Process interrupted during output reading")
-            partial_stdout = "".join(stdout).strip()
-            partial_stderr = "".join(stderr).strip()
+            partial_stdout = trim_blank_lines("".join(stdout))
+            partial_stderr = trim_blank_lines("".join(stderr))
             raise KeyboardInterrupt((partial_stdout, partial_stderr)) from None
 
     def _terminate_process(self) -> None:
@@ -1449,9 +1473,9 @@ def _execute_preceding_commands(
         # Only report output if there is any
         output_parts = []
         if stdout and stdout.strip():
-            output_parts.append(md_codeblock("stdout", stdout.strip()))
+            output_parts.append(md_codeblock("stdout", stdout))
         if stderr and stderr.strip():
-            output_parts.append(md_codeblock("stderr", stderr.strip()))
+            output_parts.append(md_codeblock("stderr", stderr))
 
         if output_parts:
             yield Message(
