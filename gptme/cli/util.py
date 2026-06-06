@@ -43,6 +43,7 @@ if TYPE_CHECKING:
 
 _LAZY_COMMANDS: dict[str, tuple[str, str]] = {
     "agents": (".cmd_agents", "agents"),
+    "batch": (".cmd_batch", "batch_cmd"),
     "chats": (".cmd_chats", "chats"),
     "hooks": (".cmd_hooks", "hooks"),
     "mcp": (".cmd_mcp", "mcp"),
