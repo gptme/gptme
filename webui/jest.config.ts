@@ -9,11 +9,10 @@ export default {
     '^.+\\.(ts|tsx|js|jsx)$': [
       'ts-jest',
       {
-        useESM: true,
         tsconfig: 'tsconfig.test.json',
       },
     ],
   },
   testPathIgnorePatterns: ['/node_modules/', '/e2e/'],
-  extensionsToTreatAsEsm: ['.ts', '.tsx'],
+  transformIgnorePatterns: ['/node_modules/(?!(ansi-regex|pretty-format|@testing-library)/)'],
 };
