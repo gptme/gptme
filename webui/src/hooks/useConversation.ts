@@ -24,7 +24,6 @@ import {
   initConversation,
   selectedConversation$,
   updateConversationName,
-  setNeedsInitialStep,
   setMaxTokens,
   setTemperature,
   setTopP,
@@ -374,7 +373,10 @@ export function useConversation(conversationId: string, serverId?: string) {
               if (needsStep) {
                 console.log('[useConversation] Triggering initial step after subscription');
                 const initialStepStream = conversation$?.initialStepStream?.get();
-                setNeedsInitialStep(conversationId, false);
+                updateConversation(conversationId, {
+                  needsInitialStep: false,
+                  initialStepStream: undefined,
+                });
                 api
                   .step(
                     conversationId,
