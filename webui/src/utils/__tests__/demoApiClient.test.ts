@@ -88,12 +88,15 @@ describe('createDemoApiClient', () => {
 
   it('createConversationWithPlaceholder returns a logfile and is retrievable', async () => {
     const client = createDemoApiClient();
-    const logfile = await client.createConversationWithPlaceholder('What is gptme?');
+    const logfile = await client.createConversationWithPlaceholder('What is gptme?', {
+      stream: false,
+    });
     expect(typeof logfile).toBe('string');
     expect(logfile.length).toBeGreaterThan(0);
     const conv = await client.getConversation(logfile);
     expect(conv.log[0].content).toBe('What is gptme?');
     expect(conversations$.get(logfile)?.needsInitialStep.get()).toBe(true);
+    expect(conversations$.get(logfile)?.initialStepStream.get()).toBe(false);
   });
 
   it('searches the demo conversation by name', async () => {

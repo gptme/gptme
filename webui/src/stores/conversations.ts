@@ -54,6 +54,9 @@ export interface ConversationState {
   // Whether this conversation needs initial step after connecting
   // Used to fix race condition where step() was called before event subscription
   needsInitialStep: boolean;
+  // Stream setting captured when creating a placeholder conversation.
+  // The initial step starts before chatConfig is always loaded into the store.
+  initialStepStream?: boolean;
   // Currently displayed branch name
   currentBranch: string;
   // Max tokens setting for model responses, persisted across operations.
@@ -91,6 +94,7 @@ export function updateConversation(id: string, update: Partial<ConversationState
       showInitialSystem: false,
       chatConfig: null,
       needsInitialStep: false,
+      initialStepStream: undefined,
       currentBranch: 'main',
     });
   }
@@ -225,7 +229,7 @@ export function setToolComplete(
 export function initConversation(
   id: string,
   data?: ConversationResponse,
-  options?: { needsInitialStep?: boolean }
+  options?: { needsInitialStep?: boolean; initialStepStream?: boolean }
 ) {
   const initial: ConversationState = {
     data: data || {
@@ -250,6 +254,7 @@ export function initConversation(
     showInitialSystem: false,
     chatConfig: null,
     needsInitialStep: options?.needsInitialStep ?? false,
+    initialStepStream: options?.initialStepStream,
     currentBranch: 'main',
   };
   conversations$.set(id, initial);

@@ -1085,7 +1085,7 @@ export class ApiClient {
         branches: {},
         workspace: options?.workspace || '.',
       },
-      { needsInitialStep: true }
+      { needsInitialStep: true, initialStepStream: options?.stream }
     );
     if (options?.maxTokens !== undefined) {
       setMaxTokens(conversationId, options.maxTokens);

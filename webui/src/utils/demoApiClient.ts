@@ -320,7 +320,10 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
       };
       localConversations.set(logfile, conv);
       sessions$.set(logfile, `demo-session-${logfile}`);
-      initConversation(logfile, clone(conv), { needsInitialStep: true });
+      initConversation(logfile, clone(conv), {
+        needsInitialStep: true,
+        initialStepStream: opts?.stream,
+      });
       if (opts?.maxTokens !== undefined) {
         setMaxTokens(logfile, opts.maxTokens);
       }

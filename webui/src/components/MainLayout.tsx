@@ -326,6 +326,39 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
     [createTaskMutation, selectedTaskId, navigate]
   );
 
+  const getSelectedConversationSummary = useCallback(
+    (selectedConversation: string): ConversationSummary => {
+      const conversation = allConversations.find((conv) => conv.id === selectedConversation);
+      if (conversation) return conversation;
+
+      const storeConversation = conversations$.get(selectedConversation)?.get();
+      if (storeConversation) {
+        // Create conversation summary even if no messages yet - let ConversationContent handle loading
+        return {
+          id: selectedConversation,
+          name: storeConversation.data.name || 'New conversation',
+          modified: storeConversation.lastMessage
+            ? new Date(storeConversation.lastMessage.timestamp || Date.now()).getTime()
+            : Date.now(),
+          messages: storeConversation.data.log?.length || 0,
+          workspace: storeConversation.data.workspace || '.',
+          readonly: false,
+        };
+      }
+
+      // Even if not in store yet, create a minimal conversation to trigger ConversationContent loading
+      return {
+        id: selectedConversation,
+        name: 'Loading...',
+        modified: Date.now(),
+        messages: 0,
+        workspace: '.',
+        readonly: false,
+      };
+    },
+    [allConversations]
+  );
+
   // Immediately clear conversation state when no conversationId is provided
   if (!conversationId && !taskId) {
     if (selectedConversation$.get() !== '' || conversation$.get() !== undefined) {
@@ -338,38 +371,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
   // Update conversation$ when selected conversation changes
   useObserveEffect(selectedConversation$, ({ value: selectedConversation }) => {
     if (selectedConversation) {
-      let conversation = allConversations.find((conv) => conv.id === selectedConversation);
-
-      // If not found in allConversations, check the conversations store directly
-      if (!conversation) {
-        const storeConversation = conversations$.get(selectedConversation)?.get();
-
-        if (storeConversation) {
-          // Create conversation summary even if no messages yet - let ConversationContent handle loading
-          conversation = {
-            id: selectedConversation,
-            name: storeConversation.data.name || 'New conversation',
-            modified: storeConversation.lastMessage
-              ? new Date(storeConversation.lastMessage.timestamp || Date.now()).getTime()
-              : Date.now(),
-            messages: storeConversation.data.log?.length || 0,
-            workspace: storeConversation.data.workspace || '.',
-            readonly: false,
-          };
-        } else {
-          // Even if not in store yet, create a minimal conversation to trigger ConversationContent loading
-          conversation = {
-            id: selectedConversation,
-            name: 'Loading...',
-            modified: Date.now(),
-            messages: 0,
-            workspace: '.',
-            readonly: false,
-          };
-        }
-      }
-
-      conversation$.set(conversation);
+      conversation$.set(getSelectedConversationSummary(selectedConversation));
     } else {
       conversation$.set(undefined);
     }
@@ -378,14 +380,13 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
   useEffect(() => {
     const selectedId = selectedConversation$.get();
     if (selectedId) {
-      const selectedConversation = allConversations.find((conv) => conv.id === selectedId);
-      conversation$.set(selectedConversation);
+      conversation$.set(getSelectedConversationSummary(selectedId));
     } else {
       // Ensure conversation is cleared when no conversation is selected
       conversation$.set(undefined);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allConversations]); // conversation$ is an observable we're setting, not reading
+  }, [allConversations, getSelectedConversationSummary]); // conversation$ is an observable we're setting, not reading
 
   // Update document title
   useObserveEffect(conversation$, ({ value: conversation }) => {
