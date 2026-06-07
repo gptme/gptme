@@ -53,7 +53,7 @@ from ..logmanager import Log, LogManager, get_user_conversations
 from ..message import Message
 from ..tools import get_toolchain, get_tools, init_tools
 from ..util.content import is_message_command
-from ..util.uri import FilePath, is_uri, parse_file_reference
+from ..util.uri import URI, FilePath, is_uri, parse_file_reference
 from .api_v2_agents import agents_api
 from .api_v2_common import (
     _abs_to_rel_workspace,
@@ -162,7 +162,19 @@ def _validate_message_file_references(
     file_paths: list[FilePath] = []
     for f_str in files:
         if is_uri(f_str):
-            file_paths.append(parse_file_reference(f_str))
+            uri = parse_file_reference(f_str)
+            assert isinstance(uri, URI)
+            # file:// still points at local server paths and must not bypass workspace checks.
+            if uri.scheme == "file":
+                return (
+                    flask.jsonify(
+                        {
+                            "error": "file:// URIs are not supported for message attachments"
+                        }
+                    ),
+                    400,
+                )
+            file_paths.append(uri)
             continue
 
         f = Path(f_str)
