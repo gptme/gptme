@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 
+import pytest
 from click.testing import CliRunner
 
 from gptme.cli import cmd_batch
@@ -85,7 +86,8 @@ def test_batch_empty_input_outputs_no_records(monkeypatch):
     assert result.output == ""
 
 
-def test_batch_empty_model_rejected_before_child_spawn(monkeypatch):
+@pytest.mark.parametrize("bad_model", ["", " ", "   ", "\t"])
+def test_batch_empty_model_rejected_before_child_spawn(monkeypatch, bad_model):
     monkeypatch.setattr(
         cmd_batch,
         "_run_one_prompt",
@@ -95,7 +97,7 @@ def test_batch_empty_model_rejected_before_child_spawn(monkeypatch):
     runner = CliRunner()
     result = runner.invoke(
         util_main,
-        ["batch", "--model", ""],
+        ["batch", "--model", bad_model],
         input="hello\n",
     )
 
