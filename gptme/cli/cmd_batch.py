@@ -39,6 +39,15 @@ def _usage_tokens(metadata: dict[str, Any]) -> int:
     return total
 
 
+def _validate_model_param(
+    ctx: click.Context, param: click.Parameter, value: str | None
+) -> str | None:
+    """Reject empty --model before spawning child gptme sessions."""
+    if value is not None and not value.strip():
+        raise click.BadParameter("Model name cannot be empty.", ctx=ctx, param=param)
+    return value
+
+
 def _iter_json_events(stdout: str) -> Iterable[dict[str, Any]]:
     for line in stdout.splitlines():
         if not line.strip():
@@ -122,7 +131,7 @@ def _run_one_prompt(
         "json",
         "--no-stream",
     ]
-    if model:
+    if model is not None:
         cmd.extend(["--model", model])
     cmd.extend(["--", prompt])
 
@@ -162,7 +171,12 @@ def _run_one_prompt(
 
 
 @click.command("batch")
-@click.option("--model", default=None, help="Model override for every prompt.")
+@click.option(
+    "--model",
+    default=None,
+    callback=_validate_model_param,
+    help="Model override for every prompt.",
+)
 @click.option(
     "--max-turns",
     default=20,

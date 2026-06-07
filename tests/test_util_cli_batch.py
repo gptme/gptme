@@ -85,6 +85,24 @@ def test_batch_empty_input_outputs_no_records(monkeypatch):
     assert result.output == ""
 
 
+def test_batch_empty_model_rejected_before_child_spawn(monkeypatch):
+    monkeypatch.setattr(
+        cmd_batch,
+        "_run_one_prompt",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("should not run")),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        util_main,
+        ["batch", "--model", ""],
+        input="hello\n",
+    )
+
+    assert result.exit_code != 0
+    assert "Model name cannot be empty." in result.output
+
+
 def test_summarize_child_output_counts_tokens_and_max_turns():
     stdout = "\n".join(
         [
