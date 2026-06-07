@@ -5,19 +5,36 @@
  * via chrome.runtime messages. Reuses the app's CSS but is independent of
  * the webui's React Query, routing, and API client infrastructure.
  *
- * Messages are local to this session — no persistence to the gptme server's
- * conversation log (conversations are created ephemerally).
+ * Conversations are persisted through the gptme server and can be reloaded from
+ * the extension history selector.
  */
 
 import { useCallback, useEffect, useReducer, useRef } from 'react';
+import { Plus, RefreshCw } from 'lucide-react';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
 interface Message {
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
+  hide?: boolean;
+}
+
+interface ConversationSummary {
+  id: string;
+  name: string;
+  modified: number;
+  messages: number;
+  last_message_preview?: string;
+}
+
+interface ConversationResponse {
+  id: string;
+  name: string;
+  log: Message[];
+  logfile: string;
 }
 
 interface StreamState {
@@ -29,6 +46,11 @@ type Action =
   | { type: 'CONNECTED' }
   | { type: 'DISCONNECTED'; reason: string }
   | { type: 'ADD_MESSAGE'; msg: Message }
+  | { type: 'LOAD_CONVERSATION'; convId: string; msgs: Message[] }
+  | { type: 'RESET_CONVERSATION'; convId: string }
+  | { type: 'HISTORY_LOADING' }
+  | { type: 'SET_HISTORY'; conversations: ConversationSummary[] }
+  | { type: 'HISTORY_ERROR'; error: string }
   | { type: 'STREAM_START' }
   | { type: 'STREAM_TOKEN'; token: string }
   | { type: 'STREAM_DONE' }
@@ -41,7 +63,17 @@ interface State {
   online: boolean;
   status: string;
   convId: string;
+  history: ConversationSummary[];
+  historyLoading: boolean;
+  historyError: string | null;
   selection: string | null;
+}
+
+const HISTORY_LIMIT = 20;
+const SYSTEM_PROMPT = 'You are a helpful assistant accessible via a browser extension. Be concise.';
+
+function makeConvId(): string {
+  return `gptme-ext-${Date.now()}`;
 }
 
 const INIT: State = {
@@ -49,7 +81,10 @@ const INIT: State = {
   stream: { generating: false, buffer: '' },
   online: false,
   status: '● Connecting…',
-  convId: `gptme-ext-${Date.now()}`,
+  convId: makeConvId(),
+  history: [],
+  historyLoading: false,
+  historyError: null,
   selection: null,
 };
 
@@ -61,6 +96,35 @@ function reducer(state: State, action: Action): State {
       return { ...state, online: false, status: action.reason };
     case 'ADD_MESSAGE':
       return { ...state, msgs: [...state.msgs, action.msg] };
+    case 'LOAD_CONVERSATION':
+      return {
+        ...state,
+        convId: action.convId,
+        msgs: action.msgs,
+        stream: { generating: false, buffer: '' },
+        online: true,
+        status: '● Connected',
+      };
+    case 'RESET_CONVERSATION':
+      return {
+        ...state,
+        convId: action.convId,
+        msgs: [],
+        stream: { generating: false, buffer: '' },
+        online: true,
+        status: '● Connected',
+      };
+    case 'HISTORY_LOADING':
+      return { ...state, historyLoading: true, historyError: null };
+    case 'SET_HISTORY':
+      return {
+        ...state,
+        history: action.conversations,
+        historyLoading: false,
+        historyError: null,
+      };
+    case 'HISTORY_ERROR':
+      return { ...state, historyLoading: false, historyError: action.error };
     case 'STREAM_START':
       return { ...state, stream: { generating: true, buffer: '' } };
     case 'STREAM_TOKEN':
@@ -100,6 +164,26 @@ async function sendToBg(msg: Record<string, unknown>): Promise<Record<string, un
   return chrome.runtime.sendMessage(msg) as Promise<Record<string, unknown>>;
 }
 
+function normalizeMessages(log: Message[] | undefined): Message[] {
+  return (log ?? [])
+    .filter((msg) => !msg.hide)
+    .map((msg) => ({
+      role: msg.role,
+      content: typeof msg.content === 'string' ? msg.content : String(msg.content ?? ''),
+    }))
+    .filter((msg) => msg.content.trim().length > 0);
+}
+
+function formatConversationLabel(conv: ConversationSummary): string {
+  const name = conv.name || conv.id;
+  if (!Number.isFinite(conv.modified)) return name;
+  const date = new Date(conv.modified * 1000).toLocaleDateString([], {
+    month: 'short',
+    day: 'numeric',
+  });
+  return `${name} · ${date}`;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
@@ -112,6 +196,25 @@ export default function ExtensionChat() {
   // Guards against double-send during the window between ADD_MESSAGE dispatch
   // and the first STREAM_TOKEN (when state.stream.generating becomes true).
   const pendingRef = useRef(false);
+
+  const refreshHistory = useCallback(async () => {
+    dispatch({ type: 'HISTORY_LOADING' });
+    try {
+      const resp = await sendToBg({ type: 'LIST_CONVS', limit: HISTORY_LIMIT });
+      if (!resp.ok || !Array.isArray(resp.conversations)) {
+        throw new Error(String(resp.error ?? 'failed to load conversations'));
+      }
+      dispatch({
+        type: 'SET_HISTORY',
+        conversations: resp.conversations as ConversationSummary[],
+      });
+    } catch (e) {
+      dispatch({
+        type: 'HISTORY_ERROR',
+        error: e instanceof Error ? e.message : 'failed to load conversations',
+      });
+    }
+  }, []);
 
   // Auto-scroll on new content
   useEffect(() => {
@@ -138,10 +241,35 @@ export default function ExtensionChat() {
           dispatch({ type: 'DISCONNECTED', reason: '● Server offline — run `gptme server`' });
           return;
         }
+
+        await refreshHistory();
+
+        // Load initial selection inside the IIFE so it's guaranteed to run before
+        // any user interaction that reads state.selection.
+        const selData = await sendToBg({ type: 'GET_SELECTION' });
+        if (selData.lastSelection) {
+          dispatch({ type: 'SET_SELECTION', text: selData.lastSelection as string });
+        }
+
+        const savedConvId =
+          typeof selData.lastConversationId === 'string' ? selData.lastConversationId : null;
+        if (savedConvId) {
+          const loadResp = await sendToBg({ type: 'LOAD_CONV', convId: savedConvId });
+          if (loadResp.ok && loadResp.conversation) {
+            const conversation = loadResp.conversation as ConversationResponse;
+            dispatch({
+              type: 'LOAD_CONVERSATION',
+              convId: conversation.id || savedConvId,
+              msgs: normalizeMessages(conversation.log),
+            });
+            return;
+          }
+        }
+
         const createResp = await sendToBg({
           type: 'CREATE_CONV',
           convId: state.convId,
-          systemMsg: 'You are a helpful assistant accessible via a browser extension. Be concise.',
+          systemMsg: SYSTEM_PROMPT,
         });
         if (!createResp.ok) {
           dispatch({
@@ -151,12 +279,6 @@ export default function ExtensionChat() {
           return;
         }
         dispatch({ type: 'CONNECTED' });
-        // Load initial selection inside the IIFE so it's guaranteed to run before
-        // any user interaction that reads state.selection.
-        const selData = await sendToBg({ type: 'GET_SELECTION' });
-        if (selData.lastSelection) {
-          dispatch({ type: 'SET_SELECTION', text: selData.lastSelection as string });
-        }
       } catch (e) {
         dispatch({
           type: 'DISCONNECTED',
@@ -164,7 +286,59 @@ export default function ExtensionChat() {
         });
       }
     })();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [refreshHistory]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadConversation = useCallback(
+    async (convId: string) => {
+      if (!state.online || state.stream.generating || convId === state.convId) return;
+      streamPortRef.current?.postMessage({ type: 'CANCEL', convId: state.convId });
+      streamPortRef.current?.disconnect();
+      sendToBg({ type: 'CANCEL', convId: state.convId }).catch(() => {});
+
+      const loadResp = await sendToBg({ type: 'LOAD_CONV', convId });
+      if (!loadResp.ok || !loadResp.conversation) {
+        dispatch({
+          type: 'STREAM_ERROR',
+          error: String(loadResp.error ?? 'failed to load conversation'),
+        });
+        return;
+      }
+
+      const conversation = loadResp.conversation as ConversationResponse;
+      dispatch({
+        type: 'LOAD_CONVERSATION',
+        convId: conversation.id || convId,
+        msgs: normalizeMessages(conversation.log),
+      });
+      inputRef.current?.focus();
+    },
+    [state.online, state.stream.generating, state.convId]
+  );
+
+  const newConversation = useCallback(async () => {
+    if (!state.online || state.stream.generating) return;
+    streamPortRef.current?.postMessage({ type: 'CANCEL', convId: state.convId });
+    streamPortRef.current?.disconnect();
+    sendToBg({ type: 'CANCEL', convId: state.convId }).catch(() => {});
+
+    const convId = makeConvId();
+    const createResp = await sendToBg({
+      type: 'CREATE_CONV',
+      convId,
+      systemMsg: SYSTEM_PROMPT,
+    });
+    if (!createResp.ok) {
+      dispatch({
+        type: 'STREAM_ERROR',
+        error: String(createResp.error ?? 'failed to create conversation'),
+      });
+      return;
+    }
+
+    dispatch({ type: 'RESET_CONVERSATION', convId });
+    await refreshHistory();
+    inputRef.current?.focus();
+  }, [refreshHistory, state.online, state.stream.generating, state.convId]);
 
   const send = useCallback(() => {
     const input = inputRef.current;
@@ -212,6 +386,7 @@ export default function ExtensionChat() {
         dispatch({ type: 'STREAM_TOKEN', token: String(msg.token ?? '') });
       } else if (msg.type === 'DONE') {
         dispatch({ type: 'STREAM_DONE' });
+        void refreshHistory();
         finish();
       } else if (msg.type === 'ERROR') {
         dispatch({ type: 'STREAM_ERROR', error: String(msg.error ?? 'send failed') });
@@ -235,7 +410,7 @@ export default function ExtensionChat() {
       dispatch({ type: 'STREAM_ERROR', error: e instanceof Error ? e.message : 'send failed' });
       finish();
     }
-  }, [state.online, state.stream.generating, state.selection, state.convId]);
+  }, [refreshHistory, state.online, state.stream.generating, state.selection, state.convId]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -247,34 +422,72 @@ export default function ExtensionChat() {
     [send]
   );
 
-  const clear = useCallback(() => {
-    streamPortRef.current?.postMessage({ type: 'CANCEL', convId: state.convId });
-    streamPortRef.current?.disconnect();
-    sendToBg({ type: 'CANCEL', convId: state.convId }).catch(() => {});
-    dispatch({ type: 'SET_SELECTION', text: null });
-    window.location.reload(); // simplest reset for the side panel
-  }, [state.convId]);
+  const selectedHistoryValue = state.history.some((conv) => conv.id === state.convId)
+    ? state.convId
+    : '';
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
       {/* Status bar */}
-      <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-1.5 text-xs">
+      <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5 text-xs">
         <span className={state.online ? 'text-green-500' : 'text-muted-foreground'}>
           {state.status}
         </span>
-        {state.selection && (
-          <span className="max-w-[200px] truncate text-muted-foreground" title={state.selection}>
-            📄 {state.selection.slice(0, 40)}…
-          </span>
-        )}
-        <button
-          onClick={clear}
-          className="text-muted-foreground transition-colors hover:text-foreground"
-          title="New conversation"
-        >
-          ✕
-        </button>
+        <div className="ml-auto flex min-w-0 items-center gap-1">
+          <select
+            aria-label="Conversation history"
+            value={selectedHistoryValue}
+            disabled={!state.online || state.stream.generating || state.historyLoading}
+            onChange={(e) => {
+              if (e.target.value) void loadConversation(e.target.value);
+            }}
+            className="h-7 max-w-[165px] truncate rounded-md border border-input bg-background px-2 text-xs
+                       text-foreground disabled:opacity-50"
+          >
+            <option value="">{state.historyLoading ? 'Loading history' : 'History'}</option>
+            {state.history.map((conv) => (
+              <option key={conv.id} value={conv.id}>
+                {formatConversationLabel(conv)}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={() => void refreshHistory()}
+            disabled={!state.online || state.stream.generating || state.historyLoading}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground
+                       transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+            title="Refresh history"
+            aria-label="Refresh history"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={() => void newConversation()}
+            disabled={!state.online || state.stream.generating}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground
+                       transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+            title="New conversation"
+            aria-label="New conversation"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
+        </div>
       </div>
+      {(state.selection || state.historyError) && (
+        <div className="shrink-0 border-b border-border px-3 py-1 text-xs text-muted-foreground">
+          {state.selection && (
+            <span className="block truncate" title={state.selection}>
+              Selection: {state.selection.slice(0, 80)}
+              {state.selection.length > 80 ? '…' : ''}
+            </span>
+          )}
+          {state.historyError && (
+            <span className="block truncate text-destructive" title={state.historyError}>
+              History unavailable: {state.historyError}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Messages area */}
       <div className="flex-1 space-y-3 overflow-y-auto p-3">
@@ -289,11 +502,11 @@ export default function ExtensionChat() {
               <p className="mb-0.5 text-xs text-muted-foreground">gptme</p>
             )}
             <span
-              className={`inline-block rounded-lg px-3 py-1.5 ${
+              className={`inline-block whitespace-pre-wrap rounded-lg px-3 py-1.5 text-left ${
                 msg.role === 'user'
                   ? 'bg-primary text-primary-foreground'
                   : msg.role === 'system'
-                    ? 'bg-destructive/10 text-destructive'
+                    ? 'bg-muted text-muted-foreground'
                     : 'bg-muted text-foreground'
               }`}
             >

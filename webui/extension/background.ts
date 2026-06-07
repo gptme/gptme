@@ -17,6 +17,28 @@ interface StorageSession {
   lastSelection?: string;
   lastSelectionUrl?: string;
   lastSelectionTitle?: string;
+  lastConversationId?: string;
+}
+
+interface ExtensionMessage {
+  role: 'user' | 'assistant' | 'system' | 'tool';
+  content: string;
+  hide?: boolean;
+}
+
+interface ConversationSummary {
+  id: string;
+  name: string;
+  modified: number;
+  messages: number;
+  last_message_preview?: string;
+}
+
+interface ConversationResponse {
+  id: string;
+  name: string;
+  log: ExtensionMessage[];
+  logfile: string;
 }
 
 class GptmeClient {
@@ -52,6 +74,22 @@ class GptmeClient {
       body: JSON.stringify(body),
     });
     if (!resp.ok) throw new Error(`createConversation failed: ${resp.status}`);
+  }
+
+  async getConversations(limit = 20): Promise<ConversationSummary[]> {
+    const resp = await fetch(`${this.baseUrl}/api/v2/conversations?limit=${limit}`, {
+      headers: this.headers(),
+    });
+    if (!resp.ok) throw new Error(`getConversations failed: ${resp.status}`);
+    return (await resp.json()) as ConversationSummary[];
+  }
+
+  async getConversation(id: string): Promise<ConversationResponse> {
+    const resp = await fetch(`${this.baseUrl}/api/v2/conversations/${encodeURIComponent(id)}`, {
+      headers: this.headers(),
+    });
+    if (!resp.ok) throw new Error(`getConversation failed: ${resp.status}`);
+    return (await resp.json()) as ConversationResponse;
   }
 
   async postMessage(convId: string, content: string, role = 'user'): Promise<void> {
@@ -225,45 +263,55 @@ chrome.runtime.onConnect.addListener((port) => {
     }
 
     void (async () => {
-      convId = String(msg.convId ?? '');
+      const currentConvId = String(msg.convId ?? '');
+      convId = currentConvId;
       const content = typeof msg.content === 'string' ? msg.content : '';
-      if (!convId || !content) {
-        postToPort(port, { type: 'ERROR', convId, error: 'Missing conversation id or content' });
+      if (!currentConvId || !content) {
+        postToPort(port, {
+          type: 'ERROR',
+          convId: currentConvId,
+          error: 'Missing conversation id or content',
+        });
         return;
       }
 
       try {
         const cl = await getClient();
-        await cl.postMessage(convId, content);
+        await cl.postMessage(currentConvId, content);
+        await chrome.storage.session.set({
+          lastConversationId: currentConvId,
+        } satisfies StorageSession);
 
         // Cancel any existing stream, then subscribe BEFORE step so early tokens aren't missed.
-        stopActiveStream(convId);
+        stopActiveStream(currentConvId);
 
         const unsub = cl.subscribeEvents(
-          convId,
+          currentConvId,
           (token) => {
-            if (!postToPort(port, { type: 'TOKEN', convId, token })) {
-              stopActiveStream(convId);
+            if (!postToPort(port, { type: 'TOKEN', convId: currentConvId, token })) {
+              stopActiveStream(currentConvId);
             }
           },
           () => {
-            if (activeStreams.get(convId!)?.port === port) activeStreams.delete(convId!);
-            postToPort(port, { type: 'DONE', convId });
+            if (activeStreams.get(currentConvId)?.port === port)
+              activeStreams.delete(currentConvId);
+            postToPort(port, { type: 'DONE', convId: currentConvId });
           },
           (error) => {
-            if (activeStreams.get(convId!)?.port === port) activeStreams.delete(convId!);
-            postToPort(port, { type: 'ERROR', convId, error });
+            if (activeStreams.get(currentConvId)?.port === port)
+              activeStreams.delete(currentConvId);
+            postToPort(port, { type: 'ERROR', convId: currentConvId, error });
           }
         );
-        activeStreams.set(convId, { cancel: unsub, port });
+        activeStreams.set(currentConvId, { cancel: unsub, port });
 
-        await cl.step(convId);
-        postToPort(port, { type: 'STARTED', convId });
+        await cl.step(currentConvId);
+        postToPort(port, { type: 'STARTED', convId: currentConvId });
       } catch (e) {
-        stopActiveStream(convId);
+        stopActiveStream(currentConvId);
         postToPort(port, {
           type: 'ERROR',
-          convId,
+          convId: currentConvId,
           error: e instanceof Error ? e.message : String(e),
         });
       }
@@ -287,9 +335,38 @@ chrome.runtime.onMessage.addListener(
 
       if (msg.type === 'CREATE_CONV') {
         try {
+          const convId = String(msg.convId ?? '');
+          if (!convId) throw new Error('Missing conversation id');
           const cl = await getClient();
-          await cl.createConversation(msg.convId as string, msg.systemMsg as string | undefined);
+          await cl.createConversation(convId, msg.systemMsg as string | undefined);
+          await chrome.storage.session.set({ lastConversationId: convId } satisfies StorageSession);
           sendResponse({ ok: true });
+        } catch (e) {
+          sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) });
+        }
+        return;
+      }
+
+      if (msg.type === 'LIST_CONVS') {
+        try {
+          const limit = typeof msg.limit === 'number' ? msg.limit : 20;
+          const cl = await getClient();
+          const conversations = await cl.getConversations(limit);
+          sendResponse({ ok: true, conversations });
+        } catch (e) {
+          sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) });
+        }
+        return;
+      }
+
+      if (msg.type === 'LOAD_CONV') {
+        try {
+          const convId = String(msg.convId ?? '');
+          if (!convId) throw new Error('Missing conversation id');
+          const cl = await getClient();
+          const conversation = await cl.getConversation(convId);
+          await chrome.storage.session.set({ lastConversationId: convId } satisfies StorageSession);
+          sendResponse({ ok: true, conversation });
         } catch (e) {
           sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) });
         }
@@ -328,6 +405,7 @@ chrome.runtime.onMessage.addListener(
           'lastSelection',
           'lastSelectionUrl',
           'lastSelectionTitle',
+          'lastConversationId',
         ])) as StorageSession;
         sendResponse(data);
         return;
