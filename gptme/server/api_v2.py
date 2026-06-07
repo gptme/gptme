@@ -53,7 +53,7 @@ from ..logmanager import Log, LogManager, get_user_conversations
 from ..message import Message
 from ..tools import get_toolchain, get_tools, init_tools
 from ..util.content import is_message_command
-from ..util.uri import parse_file_reference
+from ..util.uri import FilePath, is_uri, parse_file_reference
 from .api_v2_agents import agents_api
 from .api_v2_common import (
     _abs_to_rel_workspace,
@@ -153,6 +153,31 @@ def _get_optional_string_list_field(
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         return flask.jsonify({"error": f"{field} must be a list of strings"}), 400
     return value
+
+
+def _validate_message_file_references(
+    files: list[str], workspace: Path
+) -> list[FilePath] | tuple[flask.Response, int]:
+    """Validate local message attachments stay within the conversation workspace."""
+    file_paths: list[FilePath] = []
+    for f_str in files:
+        if is_uri(f_str):
+            file_paths.append(parse_file_reference(f_str))
+            continue
+
+        f = Path(f_str)
+        if f.is_absolute():
+            return (
+                flask.jsonify({"error": f"Absolute file paths are not supported: {f}"}),
+                400,
+            )
+
+        full = (workspace / f).resolve()
+        if not full.is_relative_to(workspace):
+            return flask.jsonify({"error": f"File path escapes workspace: {f}"}), 400
+
+        file_paths.append(full)
+    return file_paths
 
 
 def _persist_default_model(model: str) -> bool:
@@ -881,26 +906,12 @@ def api_conversation_post(conversation_id: str):
     files_result = _get_optional_string_list_field(req_json, "files")
     if isinstance(files_result, tuple):
         return files_result
-    file_paths: list[Path] = []
+    file_paths: list[FilePath] = []
     if files_result is not None:
-        workspace = log.workspace
-        for f_str in files_result:
-            f = Path(f_str)
-            # Reject absolute paths — they can't be relative to workspace
-            if f.is_absolute():
-                return flask.jsonify(
-                    {"error": f"Absolute file paths are not supported: {f}"}
-                ), 400
-            # Resolve relative to workspace and check it stays within
-            full = (workspace / f).resolve()
-            if not full.is_relative_to(workspace):
-                return flask.jsonify(
-                    {"error": f"File path escapes workspace: {f}"}
-                ), 400
-            # Store the resolved absolute path so the validated path is what
-            # downstream (embed_attached_file_content) actually reads, not a
-            # relative path that resolves differently depending on CWD.
-            file_paths.append(full)
+        validated_files = _validate_message_file_references(files_result, log.workspace)
+        if isinstance(validated_files, tuple):
+            return validated_files
+        file_paths = validated_files
     msg = Message(
         req_json["role"],
         req_json["content"],
@@ -1076,7 +1087,12 @@ def api_conversation_edit_message(conversation_id: str, index: int):
         if content_changed:
             replacements["content"] = content
         if files_changed and files is not None:
-            replacements["files"] = [parse_file_reference(f) for f in files]
+            validated_files = _validate_message_file_references(
+                files, manager.workspace
+            )
+            if isinstance(validated_files, tuple):
+                return validated_files
+            replacements["files"] = validated_files
         edited_msg = replace(msgs[index], **replacements)
         new_msgs = msgs[:index] + [edited_msg] + ([] if truncate else msgs[index + 1 :])
     elif truncate:
