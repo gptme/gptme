@@ -1,0 +1,174 @@
+from typing import cast
+
+import pytest
+
+flask = pytest.importorskip(
+    "flask", reason="flask not installed, install server extras (-E server)"
+)
+
+
+def _send_message_request(text: str, request_id: int = 1) -> dict:
+    return {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "method": "SendMessage",
+        "params": {
+            "message": {
+                "role": "ROLE_USER",
+                "parts": [{"text": text}],
+                "messageId": "client-message-1",
+            }
+        },
+    }
+
+
+def test_a2a_agent_card(client):
+    response = client.get("/.well-known/agent-card.json")
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["name"] == "gptme"
+    assert data["supportedInterfaces"][0]["url"].endswith("/api/a2a")
+    assert data["supportedInterfaces"][0]["protocolBinding"] == "JSONRPC"
+    assert data["supportedInterfaces"][0]["protocolVersion"] == "1.0"
+    assert (
+        data["securitySchemes"]["bearerAuth"]["httpAuthSecurityScheme"]["scheme"]
+        == "Bearer"
+    )
+    assert data["skills"][0]["id"] == "gptme-terminal-agent"
+
+
+def test_a2a_legacy_agent_card_alias(client):
+    response = client.get("/.well-known/agent.json")
+
+    assert response.status_code == 200
+    assert response.get_json()["supportedInterfaces"][0]["url"].endswith("/api/a2a")
+
+
+def test_a2a_send_message_and_get_task(client, monkeypatch, tmp_path):
+    import gptme.server.a2a_api as a2a_api_module
+    import gptme.server.session_step as session_step_module
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.server.api_v2_common import EventType
+
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+
+    def fake_prompt(**kwargs):
+        return [Message("system", "test prompt")]
+
+    def fake_start_step_thread(
+        conversation_id,
+        session,
+        model,
+        workspace,
+        branch="main",
+        auto_confirm=False,
+        stream=True,
+    ):
+        manager = LogManager.load(conversation_id, lock=False)
+        msg = Message("assistant", "A2A response")
+        manager.append(msg)
+        session.generating = False
+        session_step_module.SessionManager.add_event(
+            conversation_id,
+            cast(
+                EventType,
+                {
+                    "type": "generation_complete",
+                    "message": {"role": "assistant", "content": "A2A response"},
+                },
+            ),
+        )
+
+    monkeypatch.setattr(a2a_api_module, "get_prompt", fake_prompt)
+    monkeypatch.setattr(
+        a2a_api_module,
+        "_resolve_model",
+        lambda chat_config: "openai/gpt-4o-mini",
+    )
+    monkeypatch.setattr(a2a_api_module, "_start_step_thread", fake_start_step_thread)
+
+    response = client.post("/api/a2a", json=_send_message_request("hello from A2A"))
+
+    assert response.status_code == 200
+    data = response.get_json()
+    task = data["result"]["task"]
+    assert task["id"].startswith("a2a-")
+    assert task["status"]["state"] == "TASK_STATE_COMPLETED"
+    assert task["artifacts"][0]["parts"][0]["text"] == "A2A response"
+
+    get_task_response = client.post(
+        "/api/a2a",
+        json={
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "GetTask",
+            "params": {"id": task["id"], "historyLength": 1},
+        },
+    )
+
+    assert get_task_response.status_code == 200
+    fetched = get_task_response.get_json()["result"]["task"]
+    assert fetched["id"] == task["id"]
+    assert fetched["status"]["state"] == "TASK_STATE_COMPLETED"
+    assert fetched["history"][0]["role"] == "ROLE_AGENT"
+
+
+def test_a2a_get_task_not_found_returns_a2a_error(client, monkeypatch, tmp_path):
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+
+    response = client.post(
+        "/api/a2a",
+        json={
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "GetTask",
+            "params": {"id": "a2a-missing-task"},
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["error"]["code"] == -32001
+    assert data["error"]["data"][0]["reason"] == "TASK_NOT_FOUND"
+
+
+def test_a2a_unknown_method_returns_jsonrpc_error(client):
+    response = client.post(
+        "/api/a2a",
+        json={"jsonrpc": "2.0", "id": 4, "method": "Nope", "params": {}},
+    )
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["error"]["code"] == -32601
+
+
+def test_a2a_malformed_json_returns_parse_error(client):
+    response = client.post("/api/a2a", data="{", content_type="application/json")
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["error"]["code"] == -32700
+
+
+def test_a2a_rpc_requires_auth_on_network_binding(monkeypatch):
+    from gptme.server.app import create_app
+    from gptme.server.auth import init_auth, set_server_token
+
+    app = create_app(host="0.0.0.0")
+    set_server_token("a2a-test-token")
+    init_auth(host="0.0.0.0", display=False)
+
+    with app.test_client() as test_client:
+        missing = test_client.post("/api/a2a", json=_send_message_request("hello"))
+        ok = test_client.post(
+            "/api/a2a",
+            json={"jsonrpc": "2.0", "id": 5, "method": "Nope", "params": {}},
+            headers={"Authorization": "Bearer a2a-test-token"},
+        )
+
+    assert missing.status_code == 401
+    assert ok.status_code == 200
+    assert ok.get_json()["error"]["code"] == -32601

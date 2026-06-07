@@ -83,6 +83,7 @@ def create_app(
 
     # Register v2 API, workspace API, tasks API, and auth API
     # noreorder
+    from .a2a_api import a2a_api  # fmt: skip
     from .api_v2 import v2_api  # fmt: skip
     from .artifacts_api import artifacts_api  # fmt: skip
     from .auth import auth_api  # fmt: skip
@@ -92,6 +93,7 @@ def create_app(
     from .tts_api import tts_api  # fmt: skip
     from .workspace_api import workspace_api  # fmt: skip
 
+    app.register_blueprint(a2a_api)
     app.register_blueprint(v2_api)
     app.register_blueprint(auth_api)
     app.register_blueprint(workspace_api)
