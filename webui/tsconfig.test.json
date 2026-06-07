@@ -5,7 +5,7 @@
     "esModuleInterop": true,
     "target": "ES2020",
     "module": "es2020",
-    "moduleResolution": "bundler",
+    "moduleResolution": "node",
     "isolatedModules": true,
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "types": ["jest", "@testing-library/jest-dom", "vite/client", "node"],
