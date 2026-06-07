@@ -12,7 +12,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: 'html',
   use: {
-    baseURL: 'http://localhost:' + port,
+    baseURL: 'http://127.0.0.1:' + port,
     trace: 'on-first-retry',
     // Skip the first-run setup wizard in all E2E tests by default.
     // Tests that need to verify the wizard itself must override storageState
@@ -21,7 +21,7 @@ export default defineConfig({
       cookies: [],
       origins: [
         {
-          origin: 'http://localhost:' + port,
+          origin: 'http://127.0.0.1:' + port,
           localStorage: [
             {
               name: 'gptme-settings',
