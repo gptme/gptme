@@ -17,6 +17,7 @@ import {
   useState,
   useEffect,
   useRef,
+  useId,
   useCallback,
   type FC,
   type Dispatch,
@@ -367,9 +368,10 @@ const OptionsButton: FC<{ isDisabled: boolean; children: React.ReactNode }> = ({
         size="sm"
         className="h-5 rounded-sm px-1.5 text-[10px] text-muted-foreground transition-all hover:bg-accent hover:text-muted-foreground hover:opacity-100"
         disabled={isDisabled}
+        aria-label="More chat options"
       >
         <Settings className="mr-0.5 h-2.5 w-2.5" />
-        Options
+        <span className="hidden sm:inline">Options</span>
       </Button>
     </PopoverTrigger>
     <PopoverContent className="w-80" align="start">
@@ -387,6 +389,7 @@ const SubmitButton: FC<{ isGenerating: boolean; isDisabled: boolean; hasText: bo
   // When not generating: show "Send"
   const showQueue = isGenerating && hasText;
   const showStop = isGenerating && !hasText;
+  const canSubmit = !isDisabled && (isGenerating || hasText);
 
   return (
     <Button
@@ -398,7 +401,7 @@ const SubmitButton: FC<{ isGenerating: boolean; isDisabled: boolean; hasText: bo
             ? 'bg-blue-600 p-3 text-white hover:bg-blue-700'
             : 'h-8 w-8 bg-green-600 text-green-100'
       }`}
-      disabled={isDisabled}
+      disabled={!canSubmit}
       aria-label={showStop ? 'Stop generation' : showQueue ? 'Queue message' : 'Send message'}
     >
       {showStop ? (
@@ -668,6 +671,7 @@ export const ChatInput: FC<Props> = ({
   );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const inputHelpId = useId();
   // Stable string key derived from editFiles — prevents the useEffect below from
   // firing on every render due to new array references from the parent.
   const editFileKey = editFiles?.join('\0') ?? '';
@@ -1034,7 +1038,11 @@ export const ChatInput: FC<Props> = ({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="p-4">
+    <form onSubmit={handleSubmit} className="p-2 sm:p-4">
+      <p id={inputHelpId} className="sr-only">
+        Press Enter to send, Shift Enter for a new line, and Escape to stop generation or leave the
+        message field.
+      </p>
       {/* Hidden file input */}
       <input
         ref={fileInputRef}
@@ -1117,10 +1125,12 @@ export const ChatInput: FC<Props> = ({
                   onKeyDown={handleKeyDown}
                   onPaste={handlePaste}
                   placeholder={editMode ? 'Edit message...' : placeholder}
+                  aria-label={editMode ? 'Edit message' : 'Chat message'}
+                  aria-describedby={inputHelpId}
                   className={
                     editMode
-                      ? 'max-h-[300px] min-h-[60px] resize-none overflow-y-auto pb-8'
-                      : 'max-h-[400px] min-h-[60px] resize-none overflow-y-auto pb-8 pr-16'
+                      ? 'max-h-[min(42vh,300px)] min-h-[60px] resize-none overflow-y-auto pb-12 sm:pb-8'
+                      : 'max-h-[min(42vh,400px)] min-h-[60px] resize-none overflow-y-auto pb-16 pr-14 sm:pb-8 sm:pr-16'
                   }
                   disabled={isDisabled}
                   autoFocus={editMode}
@@ -1175,7 +1185,7 @@ export const ChatInput: FC<Props> = ({
                 ) : (
                   /* Normal mode: full toolbar */
                   <>
-                    <div className="absolute bottom-1.5 left-1.5 flex items-center gap-2">
+                    <div className="absolute bottom-1.5 left-1.5 right-12 flex max-h-14 flex-wrap items-center gap-1.5 overflow-hidden sm:gap-2">
                       <ModelBadge
                         model={effectiveModel}
                         models={modelInfos}
@@ -1194,9 +1204,10 @@ export const ChatInput: FC<Props> = ({
                         disabled={isDisabled}
                         onClick={() => fileInputRef.current?.click()}
                         title="Attach files"
+                        aria-label="Attach files"
                       >
                         <Paperclip className="mr-0.5 h-2.5 w-2.5" />
-                        Attach
+                        <span className="hidden sm:inline">Attach</span>
                       </Button>
 
                       <OptionsButton isDisabled={isDisabled}>

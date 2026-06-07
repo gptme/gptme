@@ -151,6 +151,31 @@ describe('ChatInput', () => {
     await waitFor(() => expect(screen.queryByText('test.txt')).not.toBeInTheDocument());
   });
 
+  it('labels the composer and disables empty sends', async () => {
+    const autoFocus$ = observable(false);
+    const onSend = jest.fn();
+
+    render(<ChatInput conversationId="conv-a" onSend={onSend} autoFocus$={autoFocus$} />);
+
+    const input = screen.getByRole('textbox', { name: 'Chat message' });
+    expect(input).toHaveAccessibleDescription(/Press Enter to send/);
+
+    const sendButton = screen.getByRole('button', { name: 'Send message' });
+    expect(sendButton).toBeDisabled();
+
+    fireEvent.change(input, { target: { value: 'ship the refresh' } });
+    expect(sendButton).toBeEnabled();
+
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(onSend).toHaveBeenCalledWith(
+        'ship the refresh',
+        expect.objectContaining({ stream: true, workspace: '.' })
+      );
+    });
+  });
+
   it('preserves existing attachments in edit mode', async () => {
     const autoFocus$ = observable(false);
     const onEditSave = jest.fn();
