@@ -4,6 +4,11 @@ import { observable } from '@legendapp/state';
 import { ChatInput } from '../ChatInput';
 
 const mockUploadFiles = jest.fn();
+const mockConversation$ = observable({
+  isGenerating: false,
+  executingTool: null,
+  chatConfig: { chat: {} },
+});
 
 jest.mock('@/contexts/SettingsContext', () => ({
   useSettings: () => ({
@@ -45,16 +50,9 @@ jest.mock('@/stores/sidebar', () => {
 });
 
 jest.mock('@/stores/conversations', () => {
-  const { observable } = jest.requireActual('@legendapp/state');
   return {
     conversations$: {
-      get: jest.fn(() =>
-        observable({
-          isGenerating: false,
-          executingTool: null,
-          chatConfig: { chat: {} },
-        })
-      ),
+      get: jest.fn(() => mockConversation$),
     },
     setMaxTokens: jest.fn(),
     setTemperature: jest.fn(),
@@ -127,6 +125,11 @@ describe('ChatInput', () => {
       ],
     });
     window.localStorage.clear();
+    mockConversation$.set({
+      isGenerating: false,
+      executingTool: null,
+      chatConfig: { chat: {} },
+    });
   });
 
   it('clears attached files when the conversation changes', async () => {
@@ -174,6 +177,28 @@ describe('ChatInput', () => {
         expect.objectContaining({ stream: true, workspace: '.' })
       );
     });
+  });
+
+  it('keeps the stop action enabled while generating without text', () => {
+    const autoFocus$ = observable(false);
+    mockConversation$.set({
+      isGenerating: true,
+      executingTool: null,
+      chatConfig: { chat: {} },
+    });
+
+    render(
+      <ChatInput
+        conversationId="conv-a"
+        onSend={jest.fn()}
+        onInterrupt={jest.fn().mockResolvedValue(undefined)}
+        autoFocus$={autoFocus$}
+      />
+    );
+
+    const stopButton = screen.getByRole('button', { name: 'Stop generation' });
+    expect(stopButton).toBeEnabled();
+    expect(stopButton).toHaveTextContent('Stop');
   });
 
   it('preserves existing attachments in edit mode', async () => {

@@ -1040,8 +1040,8 @@ export const ChatInput: FC<Props> = ({
   return (
     <form onSubmit={handleSubmit} className="p-2 sm:p-4">
       <p id={inputHelpId} className="sr-only">
-        Press Enter to send, Shift Enter for a new line, and Escape to stop generation or leave the
-        message field.
+        Press Enter to send, Shift Enter for a new line, and Escape to cancel, stop generation, or
+        leave the message field.
       </p>
       {/* Hidden file input */}
       <input
@@ -1185,7 +1185,7 @@ export const ChatInput: FC<Props> = ({
                 ) : (
                   /* Normal mode: full toolbar */
                   <>
-                    <div className="absolute bottom-1.5 left-1.5 right-12 flex max-h-14 flex-wrap items-center gap-1.5 overflow-hidden sm:gap-2">
+                    <div className="absolute bottom-1.5 left-1.5 right-12 flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto overflow-y-hidden pr-1 sm:gap-2">
                       <ModelBadge
                         model={effectiveModel}
                         models={modelInfos}
