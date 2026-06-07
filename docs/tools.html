@@ -934,6 +934,15 @@ This is the thread-safe replacement for os.chdir() in server contexts.</p>
 <dd><p>Strip ANSI escape sequences from text.</p>
 </dd></dl>
 
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.shell.</span></span><span class="sig-name descname"><span class="pre">trim_blank_lines</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">text</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></span></dt>
+<dd><p>Trim only leading and trailing blank (whitespace-only) lines.</p>
+<p>Interior blank lines are kept. Unlike str.strip(), the first/last
+contentful lines are returned verbatim, so indentation (e.g. from
+sed/head/tail of indented code) is preserved.</p>
+</dd></dl>
+
 </section>
 <section id="python">
 <h2>Python<a class="headerlink" href="#python" title="Link to this heading">#</a></h2>
