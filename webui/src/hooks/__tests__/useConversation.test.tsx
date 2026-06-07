@@ -101,5 +101,11 @@ describe('useConversation', () => {
     );
     expect(conversations$.get('chat-placeholder')?.needsInitialStep.get()).toBe(false);
     expect(conversations$.get('chat-placeholder')?.initialStepStream.get()).toBeUndefined();
+    expect(
+      Object.prototype.hasOwnProperty.call(
+        conversations$.get('chat-placeholder')?.peek() ?? {},
+        'initialStepStream'
+      )
+    ).toBe(false);
   });
 });

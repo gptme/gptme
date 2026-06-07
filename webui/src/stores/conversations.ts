@@ -1,4 +1,4 @@
-import { mergeIntoObservable, observable } from '@legendapp/state';
+import { batch, mergeIntoObservable, observable } from '@legendapp/state';
 import type { ChatConfig, ConversationResponse } from '@/types/api';
 import type { Message, StreamingMessage, ToolUse } from '@/types/conversation';
 import { demoConversations, getDemoMessages } from '@/democonversations';
@@ -262,6 +262,16 @@ export function initConversation(
 
 export function setNeedsInitialStep(id: string, needsInitialStep: boolean) {
   updateConversation(id, { needsInitialStep });
+}
+
+export function clearInitialStepState(id: string) {
+  const conversation = conversations$.get(id);
+  if (!conversation) return;
+
+  batch(() => {
+    conversation.needsInitialStep.set(false);
+    conversation.initialStepStream.delete();
+  });
 }
 
 export function setMaxTokens(id: string, maxTokens: number | undefined) {
