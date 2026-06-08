@@ -29,6 +29,7 @@ See the `README <https://github.com/gptme/gptme/blob/master/README.md>`_ file fo
    system-dependencies
    usage
    examples
+   howto/index
    tools
    commands
    cli
@@ -1397,6 +1398,388 @@ Standard Badge (for projects built using gptme):
    :alt: Powered by gptme
 
 Use the standard badge for projects created with gptme's assistance, and the "powered by" variant for tools or services that run on gptme.
+
+
+# How-To Guides
+
+Task-oriented recipes for common workflows with gptme.
+Each guide gives you a copy-pasteable pattern you can adapt immediately.
+
+```{toctree}
+:maxdepth: 1
+
+edit-files
+code-review
+debug-python
+automate-task
+refactor
+```
+
+## File Editing
+[Edit files surgically](edit-files.md) — patch, save, and inspect without rewriting whole files.
+
+## Code Review
+[Review code changes](code-review.md) — review a diff, a PR, or a single file with context.
+
+## Debug Python
+[Debug failing tests](debug-python.md) — reproduce, trace, and fix Python errors step by step.
+
+## Automate Tasks
+[Automate shell workflows](automate-task.md) — turn a repeated shell or git procedure into a script.
+
+## Refactor Code
+[Refactor across files](refactor.md) — rename, extract, and reshape code across a codebase.
+
+---
+
+For shorter examples and one-liners, see {doc}`../examples`.
+
+
+# How to Edit Files
+
+gptme edits files with surgical precision using its `patch` and `save` tools.
+Use this guide when you want targeted edits — not a full rewrite.
+
+## Edit a specific function
+
+Point gptme at the file and describe the change:
+
+```bash
+gptme 'in utils.py, change parse_date to also accept ISO 8601 strings' utils.py
+```
+
+gptme will read the relevant section, apply a targeted patch, and show you the diff.
+
+## Edit across multiple files
+
+Pass multiple files and describe what spans them:
+
+```bash
+gptme 'rename the `config` parameter to `cfg` everywhere in these files' api.py client.py tests/test_api.py
+```
+
+gptme reads all three, makes consistent edits, and summarises the changes.
+
+## Apply a diff you already have
+
+Paste a diff and let gptme apply it:
+
+```bash
+git diff main..feature | gptme 'apply this diff to the current branch, resolving any conflicts'
+```
+
+## Fix a specific error
+
+Pipe the error message and the file:
+
+```bash
+python myapp.py 2>&1 | gptme 'fix the error' myapp.py
+```
+
+## Add type annotations to an existing function
+
+```bash
+gptme 'add full type annotations to all public functions in this file' mymodule.py
+```
+
+## Review the edit before committing
+
+gptme shows diffs by default. After reviewing:
+
+```bash
+gptme 'looks good, commit with a descriptive message'
+```
+
+Or chain it in one go:
+
+```bash
+gptme 'add type annotations to public functions in mymodule.py' - 'run mypy on it and fix any errors' - 'commit'
+```
+
+## Tips
+
+- **Be specific about what to keep**: "change X to Y but keep Z" works well.
+- **Use the file as context**: always pass the file as an argument; gptme won't assume it knows the current content.
+- **Chain prompts** with ` - ` to edit → test → commit in one command.
+
+
+# How to Review Code
+
+Use gptme to review a diff, a PR, or a file — with enough context to give meaningful feedback.
+
+## Review your uncommitted changes
+
+```bash
+git diff | gptme 'review this diff for bugs, missing error handling, and style issues'
+```
+
+Add context by including related files:
+
+```bash
+git diff | gptme 'review this diff' src/api.py src/models.py
+```
+
+## Review a specific commit
+
+```bash
+git show HEAD | gptme 'review this commit'
+```
+
+## Review a GitHub PR
+
+Pass the PR URL directly:
+
+```bash
+gptme 'review this PR for correctness and suggest improvements' https://github.com/owner/repo/pull/42
+```
+
+Or let gptme fetch the PR URL itself:
+
+```bash
+gptme 'review this PR' https://github.com/owner/repo/pull/42
+```
+
+## Review a single file for issues
+
+```bash
+gptme 'review this file for bugs, security issues, and opportunities to simplify' src/auth.py
+```
+
+## Review with a checklist
+
+Give gptme a specific checklist so the review is consistent:
+
+```bash
+gptme 'review this file and check: (1) no SQL injection, (2) all inputs validated, (3) errors logged, (4) no hardcoded secrets' src/db.py
+```
+
+## Ask follow-up questions
+
+gptme maintains conversation context, so you can drill in:
+
+```bash
+git diff | gptme 'review this diff' - 'which of those issues is highest severity?' - 'show me a fix for that one'
+```
+
+## Write the review as a GitHub comment
+
+```bash
+git diff main..feature | gptme 'write a concise PR review comment in Markdown'
+```
+
+Then copy-paste it, or wire up `gh pr comment`.
+
+## Tips
+
+- **Include related files**: reviews are more accurate when gptme can see the context a change lives in.
+- **Specify a focus**: "security review", "performance review", "API compatibility" all produce sharper output than a generic "review this".
+- **Chain to a fix**: after a review, add ` - 'fix the most critical issue'` to act immediately.
+
+
+# How to Debug Python
+
+Use gptme to reproduce an error, trace through it, and apply a fix — without leaving the terminal.
+
+## Fix a failing test
+
+Pass the test output and the relevant files:
+
+```bash
+python -m pytest tests/test_api.py -x 2>&1 | gptme 'fix the failing test' src/api.py tests/test_api.py
+```
+
+The `-x` flag stops at the first failure so the output is focused.
+
+## Debug a traceback
+
+Pipe the error and the source file:
+
+```bash
+python myapp.py 2>&1 | gptme 'explain this traceback and fix the root cause' myapp.py
+```
+
+## Reproduce and fix a bug from a description
+
+```bash
+gptme 'users report that login fails when the username contains a space; reproduce the bug and fix it' src/auth.py tests/test_auth.py
+```
+
+gptme will write a failing test, run it, trace the error, and apply the fix.
+
+## Trace a performance issue
+
+```bash
+python -m cProfile -s cumulative myapp.py 2>&1 | gptme 'identify the bottleneck and suggest a fix' myapp.py
+```
+
+## Add debug logging and re-run
+
+```bash
+gptme 'add temporary debug logging to trace the request path, run the failing test, then remove the logging' src/handler.py
+```
+
+## Investigate a flaky test
+
+```bash
+gptme 'this test fails intermittently; find the source of flakiness and fix it' tests/test_cache.py src/cache.py
+```
+
+Useful pattern: tell gptme to run the test multiple times and look for patterns.
+
+## Fix a type error found by mypy
+
+```bash
+mypy src/ 2>&1 | gptme 'fix all type errors' src/
+```
+
+## Tips
+
+- **Run the test inside gptme**: `gptme 'run the tests and fix failures'` lets it iterate without you copy-pasting output.
+- **Include the full error**: don't truncate the traceback — the line numbers matter.
+- **Chain the fix with a test**: end with ` - 'run the tests again and confirm they pass'` to close the loop.
+
+
+# How to Automate Tasks
+
+Use gptme to turn a multi-step procedure into a reusable script — or to run one-off automation
+without writing the script yourself.
+
+## Automate a git workflow
+
+Tell gptme the full workflow and let it script it:
+
+```bash
+gptme 'write a shell script that: (1) fetches origin, (2) rebases master, (3) runs tests, (4) pushes if tests pass'
+```
+
+Or run it interactively without a script:
+
+```bash
+gptme 'fetch origin, rebase master, run tests, and push if everything is green'
+```
+
+## Batch process files
+
+```bash
+gptme 'for every .md file in docs/, check if the frontmatter has a "date" field; print a list of files that are missing it'
+```
+
+Or make changes:
+
+```bash
+gptme 'add "last_updated: $(date +%Y-%m-%d)" to the frontmatter of every .md file in docs/ that is missing it'
+```
+
+## Automate a release checklist
+
+```bash
+gptme 'run the release checklist: (1) bump version in pyproject.toml to 1.2.3, (2) update CHANGELOG.md, (3) commit, (4) tag v1.2.3, (5) push tag'
+```
+
+## Clean up a directory
+
+```bash
+gptme 'find all .pyc files and __pycache__ directories in this project and delete them'
+```
+
+## Generate a report from logs
+
+```bash
+cat logs/app.log | gptme 'summarize: how many errors per hour today? output as a markdown table'
+```
+
+## Write a cron-style automation script
+
+```bash
+gptme 'write a Python script I can run daily that: checks disk usage on /, emails me if it exceeds 80%, and logs the result to /var/log/disk-check.log'
+```
+
+## Set up a project scaffold
+
+```bash
+gptme 'scaffold a new Python package called "mylib" with: src layout, pyproject.toml, ruff config, GitHub Actions CI, and a basic README'
+```
+
+## Tips
+
+- **Describe the full procedure**: gptme handles multi-step workflows — spell out each step.
+- **Ask for idempotency**: "make this script safe to run multiple times" prevents accidental duplicates.
+- **Test before scheduling**: add ` - 'dry-run this and show what would change'` before committing to a scheduled task.
+- **Pipe real data**: `cat real-log.txt | gptme 'summarize'` gives much better results than a made-up example.
+
+
+# How to Refactor Code
+
+Use gptme to rename symbols, extract functions, and restructure code across multiple files.
+
+## Rename a function or variable everywhere
+
+```bash
+gptme 'rename the function `parse_config` to `load_config` across all Python files in src/' src/
+```
+
+gptme will search, edit, and verify the rename is consistent.
+
+## Rename with a different signature
+
+When the rename comes with a signature change:
+
+```bash
+gptme 'rename UserRecord to User and change its constructor to take keyword arguments only' \
+  src/models.py src/api.py tests/test_models.py
+```
+
+## Extract a helper function
+
+```bash
+gptme 'the validation logic in process_order() is repeated; extract it into a validate_order() function' src/orders.py
+```
+
+## Split a large module
+
+```bash
+gptme 'this file is too large; split it into utils.py (pure helpers), models.py (dataclasses), and api.py (HTTP handlers)' src/monolith.py
+```
+
+## Change an API's interface
+
+```bash
+gptme 'change the Database.query() method to be async; update all callers' \
+  src/db.py src/api.py src/worker.py tests/
+```
+
+## Remove deprecated code
+
+```bash
+gptme 'remove all code marked with the TODO: deprecated comment and update callers accordingly' src/
+```
+
+## Add a new parameter to a function with a default
+
+```bash
+gptme 'add a timeout parameter (default 30s) to the http_get() function and thread it through all callers' src/http.py src/client.py
+```
+
+## Restructure a directory
+
+```bash
+gptme 'move all test fixtures from tests/fixtures.py into individual files under tests/fixtures/; update imports'
+```
+
+## Check nothing broke after refactoring
+
+Always end a refactor session with a test run:
+
+```bash
+gptme 'rename parse_config to load_config across src/' - 'run tests and fix any failures'
+```
+
+## Tips
+
+- **Include all relevant files**: pass every file that contains the symbol being changed.
+- **Verify with tests**: chain ` - 'run tests'` so gptme can catch regressions immediately.
+- **One change at a time**: large refactors are more reliable when split into focused steps (rename first, then signature change).
+- **Describe the intent**: "extract the validation logic" is better than just "move this code here"; gptme can find equivalent patterns you didn't enumerate.
 
 
 Tools
