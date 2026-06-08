@@ -979,3 +979,64 @@ class TestExamples:
 
         result = examples("markdown")
         assert "pdf" in result.lower() or "PDF" in result
+
+
+# ── _create_page (CDP tab reuse vs launched contexts) ─────────────────
+
+
+class TestCreatePage:
+    """Test page creation: CDP reuses a session context (tabs), launched
+    browsers get an isolated owned context."""
+
+    def test_cdp_reuses_session_context_and_applies_headers(self):
+        from gptme.tools import _browser_playwright as bp
+
+        thread = MagicMock()
+        thread.cdp_url = "http://127.0.0.1:9222"
+        ctx = thread._session_context = MagicMock()
+        page = ctx.new_page.return_value
+        browser = MagicMock()
+
+        with patch.object(bp, "_browser", thread):
+            managed = bp._create_page(
+                browser,
+                locale="en-US",
+                extra_http_headers={"Accept": "text/markdown"},
+            )
+
+        # A new tab in the shared context, not a new window/context.
+        ctx.new_page.assert_called_once_with()
+        browser.new_context.assert_not_called()
+        # Per-call request headers are applied to the individual tab.
+        page.set_extra_http_headers.assert_called_once_with({"Accept": "text/markdown"})
+        assert managed.page is page
+        assert managed._owned_context is None
+
+    def test_cdp_without_headers_skips_set_headers(self):
+        from gptme.tools import _browser_playwright as bp
+
+        thread = MagicMock()
+        thread.cdp_url = "http://127.0.0.1:9222"
+        ctx = thread._session_context = MagicMock()
+        page = ctx.new_page.return_value
+
+        with patch.object(bp, "_browser", thread):
+            bp._create_page(MagicMock(), locale="en-US")
+
+        page.set_extra_http_headers.assert_not_called()
+
+    def test_launched_creates_owned_context_with_kwargs(self):
+        from gptme.tools import _browser_playwright as bp
+
+        thread = MagicMock()
+        thread.cdp_url = None  # launched mode
+        browser = MagicMock()
+        context = browser.new_context.return_value
+        page = context.new_page.return_value
+
+        with patch.object(bp, "_browser", thread):
+            managed = bp._create_page(browser, locale="en-US")
+
+        browser.new_context.assert_called_once_with(locale="en-US")
+        assert managed.page is page
+        assert managed._owned_context is context

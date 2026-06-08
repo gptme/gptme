@@ -17,6 +17,15 @@ T = TypeVar("T")
 
 TIMEOUT = 20  # seconds - accounts for retry attempts with browser restarts
 
+# Default context options applied to every browser context (and, in CDP mode,
+# to the shared session context). Per-call request headers are layered on top
+# at page creation time (see _create_page).
+DEFAULT_CONTEXT_OPTIONS: dict[str, Any] = {
+    "locale": "en-US",
+    "geolocation": {"latitude": 37.773972, "longitude": 13.39},
+    "permissions": ["geolocation"],
+}
+
 
 def _is_connection_error(error: Exception) -> bool:
     """Check if error indicates browser connection failure"""
@@ -92,7 +101,23 @@ class BrowserThread:
                         browser = None  # Clear reference after close
                     except Exception:
                         browser = None  # Clear reference even if close fails
+                # Drop any session context bound to the old (now dead) connection
+                # so we don't open tabs on a stale context after a reconnect.
+                if self._session_context is not None:
+                    try:
+                        self._session_context.close()
+                    except Exception:
+                        pass
+                    self._session_context = None
                 browser = _connect_or_launch_browser(playwright, self.cdp_url)
+                # For CDP, (re)create an isolated session context so parallel
+                # gptme instances don't share cookies/tabs. Recreated on every
+                # (re)connect so it never points at a dead browser.
+                if self.cdp_url:
+                    self._session_context = browser.new_context(
+                        **DEFAULT_CONTEXT_OPTIONS
+                    )
+                    logger.info("Created isolated session context for CDP connection")
                 return None
             except Exception as e:
                 browser = None  # Ensure browser is None after failed launch
@@ -115,12 +140,6 @@ class BrowserThread:
                 self._init_error = init_error
                 self.ready.set()
                 return
-
-            # For CDP connections, create an isolated session context so
-            # parallel gptme instances don't share cookies/tabs.
-            if self.cdp_url and browser is not None:
-                self._session_context = browser.new_context()
-                logger.info("Created isolated session context for CDP connection")
 
             self.ready.set()  # Signal successful init
 

@@ -17,6 +17,7 @@ import pytest
 pytest.importorskip("playwright")
 
 from gptme.tools._browser_thread import (
+    DEFAULT_CONTEXT_OPTIONS,
     TIMEOUT,
     BrowserThread,
     Command,
@@ -369,6 +370,62 @@ class TestBrowserThreadRetry:
                 bt.execute(fail_once)
             # Should NOT retry for non-connection errors
             assert call_count == 1
+        finally:
+            bt.stop()
+
+
+class TestBrowserThreadSessionContext:
+    """Test the CDP session context lifecycle."""
+
+    def test_cdp_creates_session_context_with_defaults(self, mock_playwright):
+        mock_pw, _ = mock_playwright
+        mock_cdp_browser = MagicMock()
+        mock_pw.chromium.connect_over_cdp.return_value = mock_cdp_browser
+
+        bt = BrowserThread(cdp_url="http://127.0.0.1:9222")
+        try:
+            mock_cdp_browser.new_context.assert_called_once_with(
+                **DEFAULT_CONTEXT_OPTIONS
+            )
+            assert bt._session_context is mock_cdp_browser.new_context.return_value
+        finally:
+            bt.stop()
+
+    def test_launched_mode_has_no_session_context(self, mock_playwright):
+        mock_pw, mock_browser = mock_playwright
+        bt = BrowserThread()
+        try:
+            assert bt._session_context is None
+            mock_browser.new_context.assert_not_called()
+        finally:
+            bt.stop()
+
+    def test_session_context_recreated_after_restart(self, mock_playwright):
+        """A connection-error restart must rebuild the session context on the
+        reconnected browser, never leaving a stale one bound to the dead conn."""
+        mock_pw, _ = mock_playwright
+        browser1, browser2 = MagicMock(name="browser1"), MagicMock(name="browser2")
+        ctx1 = browser1.new_context.return_value
+        ctx2 = browser2.new_context.return_value
+        mock_pw.chromium.connect_over_cdp.side_effect = [browser1, browser2]
+
+        bt = BrowserThread(cdp_url="http://127.0.0.1:9222")
+        try:
+            assert bt._session_context is ctx1
+
+            call_count = 0
+
+            def flaky(browser):
+                nonlocal call_count
+                call_count += 1
+                if call_count == 1:
+                    raise RuntimeError("connection closed")
+                return "ok"
+
+            assert bt.execute(flaky) == "ok"
+            # Stale context closed; fresh one created on the reconnected browser.
+            ctx1.close.assert_called_once()
+            assert bt._session_context is ctx2
         finally:
             bt.stop()
 

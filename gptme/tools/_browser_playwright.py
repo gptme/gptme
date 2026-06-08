@@ -23,7 +23,11 @@ from playwright.sync_api import (
 )
 
 from ._browser_format import format_snapshot as _format_snapshot
-from ._browser_thread import BrowserThread, _is_connection_error
+from ._browser_thread import (
+    DEFAULT_CONTEXT_OPTIONS,
+    BrowserThread,
+    _is_connection_error,
+)
 
 _browser: BrowserThread | None = None
 _last_logs: dict = {"logs": [], "errors": [], "url": None}
@@ -33,8 +37,8 @@ _current_context: BrowserContext | None = None
 logger = logging.getLogger(__name__)
 
 
-def _is_cdp_connection(browser: Browser) -> bool:
-    """Check if the browser was connected via CDP (reuse existing window)."""
+def _is_cdp_connection() -> bool:
+    """Check if the active browser was connected via CDP (reuse existing window)."""
     return _browser is not None and _browser.cdp_url is not None
 
 
@@ -66,13 +70,18 @@ def _create_page(browser: Browser, **context_kwargs) -> _ManagedPage:
     """Create a page, reusing the session context for CDP connections.
 
     CDP mode  → opens a new **tab** in an isolated session context so that
-    parallel gptme instances sharing the same Chrome don't collide.
+    parallel gptme instances sharing the same Chrome don't collide. The shared
+    context already carries the default locale/geolocation; per-call request
+    headers are applied to the individual tab.
     Launched  → creates an isolated context with the given options.
     """
-    if _is_cdp_connection(browser) and _browser is not None:
+    if _is_cdp_connection() and _browser is not None:
         ctx = _browser._session_context
         if ctx is not None:
             page = ctx.new_page()
+            headers = context_kwargs.get("extra_http_headers")
+            if headers:
+                page.set_extra_http_headers(headers)
             return _ManagedPage(page=page, _owned_context=None)
 
     context = browser.new_context(**context_kwargs)
@@ -146,9 +155,7 @@ def _load_page(browser: Browser, url: str) -> str:
 
     managed = _create_page(
         browser,
-        locale="en-US",
-        geolocation={"latitude": 37.773972, "longitude": 13.39},
-        permissions=["geolocation"],
+        **DEFAULT_CONTEXT_OPTIONS,
         extra_http_headers={
             # Prefer markdown and plaintext over HTML for better LLM consumption
             # Quality values (q) indicate preference order
@@ -349,12 +356,7 @@ def _search_google(browser: Browser, query: str) -> str:
     query = urllib.parse.quote(query)
     url = f"https://www.google.com/search?q={query}&hl=en"
 
-    managed = _create_page(
-        browser,
-        locale="en-US",
-        geolocation={"latitude": 37.773972, "longitude": 13.39},
-        permissions=["geolocation"],
-    )
+    managed = _create_page(browser, **DEFAULT_CONTEXT_OPTIONS)
     page = managed.page
     try:
         page.goto(url)
@@ -383,12 +385,7 @@ def search_google(query: str) -> str:
 def _search_duckduckgo(browser: Browser, query: str) -> str:
     url = f"https://html.duckduckgo.com/html?q={query}"
 
-    managed = _create_page(
-        browser,
-        locale="en-US",
-        geolocation={"latitude": 37.773972, "longitude": 13.39},
-        permissions=["geolocation"],
-    )
+    managed = _create_page(browser, **DEFAULT_CONTEXT_OPTIONS)
     page = managed.page
     try:
         page.goto(url)
@@ -601,9 +598,7 @@ def _open_page(browser: Browser, url: str) -> str:
 
     managed = _create_page(
         browser,
-        locale="en-US",
-        geolocation={"latitude": 37.773972, "longitude": 13.39},
-        permissions=["geolocation"],
+        **DEFAULT_CONTEXT_OPTIONS,
         extra_http_headers={
             "Accept": "text/markdown, text/plain, text/html;q=0.9, */*;q=0.8"
         },
