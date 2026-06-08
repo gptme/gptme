@@ -1701,6 +1701,13 @@ def _probe_provider(provider_name: str) -> dict:
             health_client = openai_client.with_options(timeout=_PROVIDER_HEALTH_TIMEOUT)
             next(iter(health_client.models.list()), None)
 
+        elif provider_name == "openai-subscription":
+            from ..llm.llm_openai_subscription import (
+                get_auth as get_subscription_auth,
+            )
+
+            get_subscription_auth(timeout=_PROVIDER_HEALTH_TIMEOUT)
+
         else:
             # Plugin or unknown provider — key is configured but no live check
             return {"status": "configured", "latency_ms": elapsed_ms(), "error": None}

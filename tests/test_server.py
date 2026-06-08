@@ -402,6 +402,28 @@ def test_api_providers_health_force(
     assert calls == ["anthropic", "anthropic"]
 
 
+def test_probe_provider_checks_openai_subscription_auth(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """openai-subscription should get a real auth check, not configured fallback."""
+    from gptme.llm import llm_openai_subscription
+    from gptme.server import api_v2 as api_module
+
+    calls: list[float] = []
+
+    def fake_get_auth(timeout: float) -> object:
+        calls.append(timeout)
+        return object()
+
+    monkeypatch.setattr(llm_openai_subscription, "get_auth", fake_get_auth)
+
+    result = api_module._probe_provider("openai-subscription")
+
+    assert result["status"] == "ok"
+    assert result["error"] is None
+    assert calls == [api_module._PROVIDER_HEALTH_TIMEOUT]
+
+
 def test_api_providers_health_force_shares_inflight_refresh(
     monkeypatch: pytest.MonkeyPatch,
 ):
