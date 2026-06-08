@@ -1,5 +1,6 @@
 """Tests for the plugin system."""
 
+import sys
 import tempfile
 from pathlib import Path
 
@@ -367,29 +368,45 @@ def test_get_plugin_tool_modules_src_layout_allowlist():
 
 def test_discover_tools_recurses_nested_src_layout_packages():
     """Nested tool packages under src-layout plugins still expose ToolSpecs."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        plugin_dir = Path(tmpdir) / "gptme-imagen"
-        pkg_dir = plugin_dir / "src" / "gptme_imagen"
-        tools_dir = pkg_dir / "tools"
-        tools_dir.mkdir(parents=True)
+    package_name = "gptme_imagen"
+    module_prefix = f"{package_name}."
 
-        (plugin_dir / "pyproject.toml").write_text(
-            '[project]\nname = "gptme-imagen"\nversion = "0.1.0"\n'
-        )
-        (pkg_dir / "__init__.py").write_text("")
-        (tools_dir / "__init__.py").write_text("")
-        (tools_dir / "image_gen.py").write_text(
-            "from gptme.tools.base import ToolSpec\n"
-            'image_gen_tool = ToolSpec(name="image_gen", desc="demo")\n'
-        )
+    for _ in range(2):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            plugin_dir = Path(tmpdir) / "gptme-imagen"
+            src_dir = plugin_dir / "src"
+            pkg_dir = src_dir / package_name
+            tools_dir = pkg_dir / "tools"
+            tools_dir.mkdir(parents=True)
 
-        tool_modules = get_plugin_tool_modules(
-            [Path(tmpdir)],
-            enabled_plugins=["gptme-imagen"],
-        )
+            try:
+                (plugin_dir / "pyproject.toml").write_text(
+                    '[project]\nname = "gptme-imagen"\nversion = "0.1.0"\n'
+                )
+                (pkg_dir / "__init__.py").write_text("")
+                (tools_dir / "__init__.py").write_text(
+                    "from .image_gen import image_gen_tool\n"
+                )
+                (tools_dir / "image_gen.py").write_text(
+                    "from gptme.tools.base import ToolSpec\n"
+                    'image_gen_tool = ToolSpec(name="image_gen", desc="demo")\n'
+                )
 
-        tools = _discover_tools(tool_modules)
-        assert [tool.name for tool in tools] == ["image_gen"]
+                tool_modules = get_plugin_tool_modules(
+                    [Path(tmpdir)],
+                    enabled_plugins=["gptme-imagen"],
+                )
+
+                tools = _discover_tools(tool_modules)
+                assert [tool.name for tool in tools] == ["image_gen"]
+            finally:
+                for module_name in list(sys.modules):
+                    if module_name == package_name or module_name.startswith(
+                        module_prefix
+                    ):
+                        sys.modules.pop(module_name, None)
+                if str(src_dir) in sys.path:
+                    sys.path.remove(str(src_dir))
 
 
 def test_coerce_entrypoint_export_to_plugin():
