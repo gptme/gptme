@@ -63,7 +63,7 @@ def _coerce_to_plugin(name: str, obj: object, _from_factory: bool = False):
     if isinstance(obj, ToolSpec):
         return GptmePlugin(name=name, tools=[obj])
     if (
-        isinstance(obj, (list, tuple))
+        isinstance(obj, list | tuple)
         and obj
         and all(isinstance(o, ToolSpec) for o in obj)
     ):
