@@ -83,9 +83,11 @@ def synthesize_speech():
     model, error = _optional_string(data, "model", DEFAULT_MODEL)
     if error is not None:
         return error
+    assert model is not None
     voice, error = _optional_string(data, "voice", DEFAULT_VOICE)
     if error is not None:
         return error
+    assert voice is not None
 
     payload: dict[str, Any] = {
         "model": model,
