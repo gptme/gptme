@@ -8,7 +8,7 @@ that the browser can play natively.
 """
 
 import logging
-from typing import TypedDict
+from typing import Any, TypedDict, cast
 
 import flask
 import requests
@@ -48,7 +48,8 @@ def synthesize_speech():
 
     Requires ``OPENROUTER_API_KEY`` to be configured (env or config file).
     """
-    data: TTSRequest = flask.request.get_json(silent=True) or {}
+    raw_data = flask.request.get_json(silent=True)
+    data = cast(TTSRequest, raw_data if isinstance(raw_data, dict) else {})
     text = (data.get("text") or "").strip()
     if not text:
         return {"error": "text is required"}, 400
@@ -67,7 +68,7 @@ def synthesize_speech():
     model = data.get("model") or DEFAULT_MODEL
     voice = data.get("voice") or DEFAULT_VOICE
 
-    payload = {
+    payload: dict[str, Any] = {
         "model": model,
         "input": text,
         "voice": voice,
