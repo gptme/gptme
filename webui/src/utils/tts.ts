@@ -44,8 +44,7 @@ function toSpokenText(markdown: string): string {
   );
 }
 
-export function speakText(rawText: string): void {
-  if (!isEnabled()) return;
+function speak(rawText: string): void {
   if (!window.speechSynthesis) return;
 
   const spoken = toSpokenText(rawText);
@@ -59,6 +58,17 @@ export function speakText(rawText: string): void {
   const utterance = new SpeechSynthesisUtterance(truncated);
   utterance.rate = 1.1;
   window.speechSynthesis.speak(utterance);
+}
+
+/** Speak text if the global TTS toggle is enabled (auto-play on new messages). */
+export function speakText(rawText: string): void {
+  if (!isEnabled()) return;
+  speak(rawText);
+}
+
+/** Speak text immediately, regardless of the global TTS toggle (per-message button). */
+export function speakTextNow(rawText: string): void {
+  speak(rawText);
 }
 
 export function stopSpeaking(): void {
