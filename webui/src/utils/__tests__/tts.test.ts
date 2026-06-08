@@ -1,0 +1,99 @@
+import { speakTextNow, stopSpeaking } from '../tts';
+
+describe('tts fallback chain', () => {
+  const originalFetch = global.fetch;
+  const originalAudio = global.Audio;
+  const originalCreateObjectURL = URL.createObjectURL;
+  const originalRevokeObjectURL = URL.revokeObjectURL;
+  const originalSpeechSynthesis = window.speechSynthesis;
+  const originalSpeechSynthesisUtterance = global.SpeechSynthesisUtterance;
+
+  const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  beforeEach(() => {
+    localStorage.clear();
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    URL.createObjectURL = jest.fn(() => 'blob:tts-audio');
+    URL.revokeObjectURL = jest.fn();
+    global.SpeechSynthesisUtterance = jest.fn().mockImplementation((text: string) => ({
+      text,
+      rate: 1,
+    })) as unknown as typeof SpeechSynthesisUtterance;
+  });
+
+  afterEach(() => {
+    stopSpeaking();
+    global.fetch = originalFetch;
+    global.Audio = originalAudio;
+    URL.createObjectURL = originalCreateObjectURL;
+    URL.revokeObjectURL = originalRevokeObjectURL;
+    Object.defineProperty(window, 'speechSynthesis', {
+      value: originalSpeechSynthesis,
+      configurable: true,
+    });
+    global.SpeechSynthesisUtterance = originalSpeechSynthesisUtterance;
+    jest.restoreAllMocks();
+  });
+
+  it('falls back to Web Speech silently when the local endpoint is not configured', async () => {
+    const speak = jest.fn();
+    const cancel = jest.fn();
+    Object.defineProperty(window, 'speechSynthesis', {
+      value: { speak, cancel },
+      configurable: true,
+    });
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+    } as Response);
+
+    speakTextNow('hello');
+    await flushPromises();
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      '/api/v2/tts',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ text: 'hello' }),
+      })
+    );
+    expect(console.warn).not.toHaveBeenCalled();
+    expect(speak).toHaveBeenCalledWith(expect.objectContaining({ text: 'hello' }));
+  });
+
+  it('falls back to the configured external TTS server after local endpoint errors', async () => {
+    localStorage.setItem(
+      'gptme-settings',
+      JSON.stringify({ ttsServerUrl: 'http://127.0.0.1:5000/' })
+    );
+    const play = jest.fn().mockResolvedValue(undefined);
+    global.Audio = jest.fn().mockImplementation((src: string) => ({
+      src,
+      play,
+      pause: jest.fn(),
+      onended: null,
+    })) as unknown as typeof Audio;
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 502,
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        blob: async () => new Blob(['audio'], { type: 'audio/wav' }),
+      } as Response);
+
+    speakTextNow('hello');
+    await flushPromises();
+    await flushPromises();
+
+    expect(global.fetch).toHaveBeenNthCalledWith(1, '/api/v2/tts', expect.any(Object));
+    expect(global.fetch).toHaveBeenNthCalledWith(
+      2,
+      'http://127.0.0.1:5000/tts?text=hello',
+      expect.any(Object)
+    );
+    expect(play).toHaveBeenCalled();
+  });
+});

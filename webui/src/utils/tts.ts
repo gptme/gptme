@@ -12,6 +12,7 @@
 
 let currentAudio: HTMLAudioElement | null = null;
 let currentFetchController: AbortController | null = null;
+const LOCAL_TTS_NOT_CONFIGURED = 'tts-local-not-configured';
 
 function getSettings(): { ttsEnabled: boolean; ttsServerUrl: string } {
   try {
@@ -68,8 +69,8 @@ async function speakViaLocalEndpoint(text: string): Promise<void> {
       signal: controller.signal,
     });
     if (!response.ok) {
-      // 400 = no API key configured locally; skip without warning
-      if (response.status === 400) return;
+      // 400 = no API key configured locally; signal speak() to fall through silently
+      if (response.status === 400) throw new Error(LOCAL_TTS_NOT_CONFIGURED);
       throw new Error(`TTS endpoint error: ${response.status}`);
     }
     const blob = await response.blob();
@@ -143,7 +144,9 @@ async function speak(rawText: string): Promise<void> {
     return;
   } catch (err) {
     if (isAbortError(err)) return;
-    console.warn('Local /api/v2/tts unavailable, trying alternatives:', err);
+    if ((err as Error)?.message !== LOCAL_TTS_NOT_CONFIGURED) {
+      console.warn('Local /api/v2/tts unavailable, trying alternatives:', err);
+    }
   }
 
   // 2. Try an external gptme-tts server if configured.

@@ -8,7 +8,7 @@ that the browser can play natively.
 """
 
 import logging
-from typing import Any, TypedDict, cast
+from typing import Any, TypedDict
 
 import flask
 import requests
@@ -31,6 +31,17 @@ class TTSRequest(TypedDict, total=False):
     voice: str
 
 
+def _optional_string(
+    data: dict[str, Any], field: str, default: str
+) -> tuple[str | None, tuple[dict[str, str], int] | None]:
+    value = data.get(field)
+    if value is None or value == "":
+        return default, None
+    if not isinstance(value, str):
+        return None, ({"error": f"{field} must be a string"}, 400)
+    return value, None
+
+
 @tts_api.route("/api/v2/tts", methods=["POST"])
 @require_auth
 def synthesize_speech():
@@ -49,8 +60,12 @@ def synthesize_speech():
     Requires ``OPENROUTER_API_KEY`` to be configured (env or config file).
     """
     raw_data = flask.request.get_json(silent=True)
-    data = cast(TTSRequest, raw_data if isinstance(raw_data, dict) else {})
-    text = (data.get("text") or "").strip()
+    data: dict[str, Any] = raw_data if isinstance(raw_data, dict) else {}
+    raw_text = data.get("text")
+    if raw_text is not None and not isinstance(raw_text, str):
+        return {"error": "text must be a string"}, 400
+
+    text = (raw_text or "").strip()
     if not text:
         return {"error": "text is required"}, 400
     if len(text) > 1000:
@@ -65,8 +80,12 @@ def synthesize_speech():
             "error": "OPENROUTER_API_KEY not configured. Set the environment variable or add it to config."
         }, 400
 
-    model = data.get("model") or DEFAULT_MODEL
-    voice = data.get("voice") or DEFAULT_VOICE
+    model, error = _optional_string(data, "model", DEFAULT_MODEL)
+    if error is not None:
+        return error
+    voice, error = _optional_string(data, "voice", DEFAULT_VOICE)
+    if error is not None:
+        return error
 
     payload: dict[str, Any] = {
         "model": model,
@@ -99,7 +118,7 @@ def synthesize_speech():
             resp.status_code,
             resp.text[:500],
         )
-        return {"error": f"TTS provider error: {resp.status_code}"}, resp.status_code
+        return {"error": f"TTS provider error: {resp.status_code}"}, 502
 
     return flask.Response(
         resp.content,
