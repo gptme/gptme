@@ -769,14 +769,17 @@ mod tests {
 
     #[cfg(desktop)]
     fn build_test_app() -> tauri::App<MockRuntime> {
-        let app_handle_holder: Arc<Mutex<Option<tauri::AppHandle>>> = Arc::new(Mutex::new(None));
-        let app_handle_setter = app_handle_holder.clone();
         let app = mock_builder()
             .plugin(tauri_plugin_shell::init())
             .manage(ServerProcess {
                 child: Arc::new(Mutex::new(None)),
                 owns_port: Arc::new(AtomicBool::new(false)),
-                app_handle: app_handle_holder,
+                // app_handle left as None: no test calls start_server
+                // in a way that reads it (all tests seed first, causing
+                // start_server to return early).  A future test that
+                // actually starts a server via IPC will need a
+                // runtime-generic ServerProcess instead.
+                app_handle: Arc::new(Mutex::new(None)),
             })
             .invoke_handler(tauri::generate_handler![
                 get_server_status,
@@ -785,12 +788,6 @@ mod tests {
             ])
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap();
-        // Inject the app handle into the managed state so start_server
-        // (which fetches it from ServerProcess.app_handle instead of a
-        // command parameter) can find it.  The Arc behind both clones
-        // shares the same Mutex, so this update is visible through
-        // state.app_handle inside the command.
-        *app_handle_setter.lock().unwrap() = Some(app.handle().clone());
         app
     }
 
