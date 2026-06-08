@@ -106,7 +106,7 @@ export function CommandPalette() {
     const currentSearch = search;
     searchTimerRef.current = setTimeout(async () => {
       try {
-        const results = await api.searchConversations(currentSearch, 10);
+        const results = await api.searchConversations(currentSearch, 10, true);
         if (!cancelled) {
           setConversationResults(results);
         }
@@ -331,7 +331,7 @@ export function CommandPalette() {
                   <div className="flex flex-1 flex-col overflow-hidden">
                     <span className="truncate">{stripDatePrefix(conv.name)}</span>
                     <span className="text-xs text-muted-foreground">
-                      {conv.messages} messages · {formatRelativeTime(conv.modified)}
+                      {conv.messages ?? 0} messages · {formatRelativeTime(conv.modified)}
                     </span>
                   </div>
                 </CommandItem>

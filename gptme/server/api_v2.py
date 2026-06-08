@@ -13,7 +13,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from base64 import b64encode
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from itertools import islice
 from pathlib import Path
@@ -844,7 +844,13 @@ def api_conversations():
                     break
     else:
         conversations = list(islice(get_user_conversations(detail=detail), limit))
-    return flask.jsonify(conversations)
+    response_items = []
+    for conv in conversations:
+        item = asdict(conv)
+        if not detail:
+            item.pop("messages", None)
+        response_items.append(item)
+    return flask.jsonify(response_items)
 
 
 @v2_api.route("/api/v2/conversations/<string:conversation_id>")

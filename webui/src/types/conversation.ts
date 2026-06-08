@@ -41,7 +41,7 @@ export interface ConversationSummary {
   name: string;
   created?: number; // Unix timestamp of first message
   modified: number; // Unix timestamp of last file modification
-  messages: number; // Message count
+  messages?: number; // Message count, present only when list requests opt into detail=true
   branch?: string;
   workspace?: string;
   readonly?: boolean; // For demo conversations

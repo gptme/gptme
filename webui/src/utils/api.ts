@@ -939,13 +939,16 @@ export class ApiClient {
     return data;
   }
 
-  async getConversations(limit: number = 100): Promise<ConversationSummary[]> {
+  async getConversations(
+    limit: number = 100,
+    detail: boolean = false
+  ): Promise<ConversationSummary[]> {
     if (!this.isConnected) {
       throw new ApiClientError('Not connected to API');
     }
     try {
       return await this.fetchJson<ConversationSummary[]>(
-        `${this.baseUrl}/api/v2/conversations?limit=${limit}`
+        `${this.baseUrl}/api/v2/conversations?limit=${limit}&detail=${detail}`
       );
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
@@ -955,13 +958,17 @@ export class ApiClient {
     }
   }
 
-  async searchConversations(query: string, limit: number = 20): Promise<ConversationSummary[]> {
+  async searchConversations(
+    query: string,
+    limit: number = 20,
+    detail: boolean = false
+  ): Promise<ConversationSummary[]> {
     if (!this.isConnected) {
       throw new ApiClientError('Not connected to API');
     }
     try {
       return await this.fetchJson<ConversationSummary[]>(
-        `${this.baseUrl}/api/v2/conversations?search=${encodeURIComponent(query)}&limit=${limit}`
+        `${this.baseUrl}/api/v2/conversations?search=${encodeURIComponent(query)}&limit=${limit}&detail=${detail}`
       );
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
@@ -973,7 +980,8 @@ export class ApiClient {
 
   async getConversationsPaginated(
     pageParam: number = 0,
-    pageSize: number = 20
+    pageSize: number = 20,
+    detail: boolean = false
   ): Promise<{
     conversations: ConversationSummary[];
     nextCursor: number | undefined;
@@ -985,7 +993,7 @@ export class ApiClient {
       // Fetch one more than needed to detect if there are more conversations
       const fetchLimit = pageParam + pageSize + 1;
       const allConversations = await this.fetchJson<ConversationSummary[]>(
-        `${this.baseUrl}/api/v2/conversations?limit=${fetchLimit}`
+        `${this.baseUrl}/api/v2/conversations?limit=${fetchLimit}&detail=${detail}`
       );
 
       // Slice to get only the requested page
@@ -1301,7 +1309,12 @@ export class ApiClient {
     const url = `${this.baseUrl}/api/v2/audio/transcriptions`;
     const response = await fetch(
       url,
-      withLocalAddressSpace(url, { method: 'POST', headers, body: formData, signal: options?.signal })
+      withLocalAddressSpace(url, {
+        method: 'POST',
+        headers,
+        body: formData,
+        signal: options?.signal,
+      })
     );
     const data = await response.json();
     if (!response.ok) {

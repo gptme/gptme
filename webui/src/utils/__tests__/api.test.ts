@@ -207,6 +207,55 @@ describe('ApiClient error parsing', () => {
   });
 });
 
+describe('ApiClient conversation list detail flag', () => {
+  const originalFetch = global.fetch;
+  const originalCrypto = global.crypto;
+
+  beforeEach(() => {
+    Object.defineProperty(global, 'crypto', {
+      value: {
+        ...originalCrypto,
+        randomUUID: jest.fn(() => 'test-client-id'),
+      },
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    Object.defineProperty(global, 'crypto', {
+      value: originalCrypto,
+      configurable: true,
+    });
+    jest.restoreAllMocks();
+  });
+
+  it('requests paginated conversation lists with detail=false by default', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [],
+    } as Response);
+
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+
+    await client.getConversationsPaginated(0, 50);
+    await client.getConversationsPaginated(0, 50, true);
+
+    expect(global.fetch).toHaveBeenNthCalledWith(
+      1,
+      'http://127.0.0.1:5700/api/v2/conversations?limit=51&detail=false',
+      expect.any(Object)
+    );
+    expect(global.fetch).toHaveBeenNthCalledWith(
+      2,
+      'http://127.0.0.1:5700/api/v2/conversations?limit=51&detail=true',
+      expect.any(Object)
+    );
+  });
+});
+
 describe('ApiClient event stream reconnection', () => {
   const originalEventSource = global.EventSource;
   const originalCrypto = global.crypto;
