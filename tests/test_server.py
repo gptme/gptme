@@ -1,5 +1,6 @@
 import copy
 import random
+import threading
 import time
 from pathlib import Path
 
@@ -316,6 +317,7 @@ def _reset_provider_health_cache(monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(api_module, "_provider_health_cache", {})
     monkeypatch.setattr(api_module, "_provider_health_cache_time", 0.0)
+    monkeypatch.setattr(api_module, "_provider_health_refreshing", False)
     return api_module
 
 
@@ -398,6 +400,55 @@ def test_api_providers_health_force(
     assert response.status_code == 200
     assert forced.status_code == 200
     assert calls == ["anthropic", "anthropic"]
+
+
+def test_api_providers_health_force_shares_inflight_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Concurrent forced refreshes should share one probe instead of stampeding."""
+    api_module = _reset_provider_health_cache(monkeypatch)
+    monkeypatch.setattr(
+        api_module,
+        "list_available_providers",
+        lambda: [("anthropic", "ANTHROPIC_API_KEY")],
+    )
+    probe_started = threading.Event()
+    release_probe = threading.Event()
+    calls: list[str] = []
+
+    def fake_probe(provider_name: str) -> dict[str, object]:
+        calls.append(provider_name)
+        probe_started.set()
+        assert release_probe.wait(timeout=1)
+        return {"status": "ok", "latency_ms": 9, "error": None}
+
+    monkeypatch.setattr(api_module, "_probe_provider", fake_probe)
+
+    results: list[dict[str, object]] = []
+
+    def load_health() -> None:
+        results.append(api_module._get_provider_health_response(force=True))
+
+    first = threading.Thread(target=load_health)
+    second = threading.Thread(target=load_health)
+
+    first.start()
+    assert probe_started.wait(timeout=1)
+    second.start()
+    time.sleep(0.01)
+    assert calls == ["anthropic"]
+
+    release_probe.set()
+    first.join(timeout=1)
+    second.join(timeout=1)
+
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert calls == ["anthropic"]
+    assert results == [
+        {"providers": {"anthropic": {"status": "ok", "latency_ms": 9, "error": None}}},
+        {"providers": {"anthropic": {"status": "ok", "latency_ms": 9, "error": None}}},
+    ]
 
 
 def test_api_providers_health_timeout_returns_quickly(

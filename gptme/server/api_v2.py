@@ -1635,7 +1635,8 @@ def api_models():
 # Cache for provider health results
 _provider_health_cache: dict[str, object] = {}
 _provider_health_cache_time: float = 0.0
-_provider_health_lock = threading.Lock()
+_provider_health_condition = threading.Condition()
+_provider_health_refreshing = False
 _PROVIDER_HEALTH_TTL = 60.0  # seconds
 _PROVIDER_HEALTH_TIMEOUT = 5.0  # seconds per provider
 
@@ -1675,7 +1676,10 @@ def _probe_provider(provider_name: str) -> dict:
                     "error": "Client not initialized",
                 }
             # Lightweight list call to verify connectivity and auth
-            next(iter(anthropic_client.models.list(limit=1)), None)
+            health_client = anthropic_client.with_options(
+                timeout=_PROVIDER_HEALTH_TIMEOUT
+            )
+            next(iter(health_client.models.list(limit=1)), None)
 
         elif provider_name in (
             "openai",
@@ -1694,7 +1698,8 @@ def _probe_provider(provider_name: str) -> dict:
             if not has_client(provider):
                 init_openai(provider, get_config())
             openai_client = get_openai_client(provider)
-            next(iter(openai_client.models.list()), None)
+            health_client = openai_client.with_options(timeout=_PROVIDER_HEALTH_TIMEOUT)
+            next(iter(health_client.models.list()), None)
 
         else:
             # Plugin or unknown provider — key is configured but no live check
@@ -1759,33 +1764,41 @@ def api_providers_health():
     and returns status, latency, and any error message. Results are cached for
     60 seconds. Pass ``?force=1`` to bypass the cache.
     """
-    global _provider_health_cache, _provider_health_cache_time
-
     force = request.args.get("force", "").lower() in ("1", "true", "yes")
-    now = time.monotonic()
+    return flask.jsonify(_get_provider_health_response(force))
 
-    # Fast path: read cache without lock
-    if not force and (now - _provider_health_cache_time) < _PROVIDER_HEALTH_TTL:
-        return flask.jsonify(_provider_health_cache)
 
-    with _provider_health_lock:
-        # Double-check after acquiring lock (prevents thundering herd)
-        if not force and (now - _provider_health_cache_time) < _PROVIDER_HEALTH_TTL:
-            return flask.jsonify(_provider_health_cache)
+def _get_provider_health_response(force: bool) -> dict[str, object]:
+    global _provider_health_cache, _provider_health_cache_time
+    global _provider_health_refreshing
 
+    with _provider_health_condition:
+        while True:
+            now = time.monotonic()
+            cache_fresh = (now - _provider_health_cache_time) < _PROVIDER_HEALTH_TTL
+            if not force and cache_fresh:
+                return _provider_health_cache
+            if not _provider_health_refreshing:
+                _provider_health_refreshing = True
+                break
+            _provider_health_condition.wait()
+            force = False
+
+    try:
         available = list_available_providers()
         provider_names = [str(p) for p, _ in available]
+        response: dict[str, object] = {
+            "providers": _collect_provider_health(provider_names)
+        }
+    finally:
+        with _provider_health_condition:
+            if "response" in locals():
+                _provider_health_cache = response
+                _provider_health_cache_time = time.monotonic()
+            _provider_health_refreshing = False
+            _provider_health_condition.notify_all()
 
-    # Probe outside lock (call may block on ThreadPoolExecutor)
-    response: dict[str, object] = {
-        "providers": _collect_provider_health(provider_names)
-    }
-
-    with _provider_health_lock:
-        _provider_health_cache = response
-        _provider_health_cache_time = now
-
-    return flask.jsonify(response)
+    return response
 
 
 @v2_api.route("/api/v2/commands")
