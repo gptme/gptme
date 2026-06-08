@@ -1686,7 +1686,9 @@ def api_providers_health():
     available = list_available_providers()
     provider_names = [str(p) for p, _ in available]
 
-    response: dict[str, object] = {"providers": _collect_provider_health(provider_names)}
+    response: dict[str, object] = {
+        "providers": _collect_provider_health(provider_names)
+    }
     _provider_health_cache = response
     _provider_health_cache_time = now
 
