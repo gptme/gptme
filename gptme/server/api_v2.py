@@ -738,6 +738,12 @@ def api_external_session(external_session_id: str):
             "schema": {"type": "string"},
             "description": "Filter conversations by name, id, or last message preview (case-insensitive substring match)",
         },
+        {
+            "name": "detail",
+            "in": "query",
+            "schema": {"type": "boolean", "default": False},
+            "description": "If true, perform a full scan to populate cost and token stats. Slower but returns accurate total_cost, total_input_tokens, and total_output_tokens fields. Suitable for paginated views; avoid on large collections.",
+        },
     ],
 )
 def api_conversations():
@@ -745,6 +751,7 @@ def api_conversations():
 
     Get a list of user conversations with metadata using the V2 API.
     Supports optional search filtering by conversation name, id, or last message preview.
+    Pass ``detail=true`` to include cost/token stats (slower full scan).
     """
     try:
         limit = int(request.args.get("limit", 100))
@@ -752,13 +759,14 @@ def api_conversations():
         return flask.jsonify({"error": "limit must be an integer"}), 400
     limit = max(1, min(limit, 1000))
     search = request.args.get("search", "").strip().lower()
+    detail = request.args.get("detail", "").lower() in ("1", "true", "yes")
 
-    # Use fast tail-only scan for list/search — reads last 8KB for
+    # Use fast tail-only scan for list/search by default — reads last 8KB for
     # preview/model, skips json.loads() on every metadata line.
-    # Full file is still read for line count, but without JSON parsing.
+    # Pass detail=true to opt in to full cost/token stats (slower).
     if search:
         conversations = []
-        for conv in get_user_conversations(detail=False):
+        for conv in get_user_conversations(detail=detail):
             if (
                 search in conv.name.lower()
                 or search in conv.id.lower()
@@ -768,7 +776,7 @@ def api_conversations():
                 if len(conversations) >= limit:
                     break
     else:
-        conversations = list(islice(get_user_conversations(detail=False), limit))
+        conversations = list(islice(get_user_conversations(detail=detail), limit))
     return flask.jsonify(conversations)
 
 

@@ -165,6 +165,66 @@ def test_api_conversation_search_case_insensitive(
     assert data[0]["id"] == "MySearchConversation"
 
 
+def test_api_conversation_list_detail_flag(client: FlaskClient, tmp_path, monkeypatch):
+    """Test that detail=true returns cost/token stats while default (false) zeroes them."""
+    import json
+
+    monkeypatch.setattr("gptme.logmanager.conversations.get_logs_dir", lambda: tmp_path)
+
+    # Create a conversation with an assistant message that carries usage info
+    conv_dir = tmp_path / "stats-conversation"
+    conv_dir.mkdir()
+    conv_file = conv_dir / "conversation.jsonl"
+    # Build a conversation > _TAIL_BYTES (8192) so the fast path actually activates
+    # for large files when detail=False. Pad with many user turns first.
+    messages: list[dict[str, object]] = [
+        {"role": "system", "content": "hello", "timestamp": "2026-01-01T00:00:00"},
+    ]
+    messages.extend(
+        {
+            "role": "user",
+            "content": "x" * 200,
+            "timestamp": f"2026-01-01T00:01:{i:02d}",
+        }
+        for i in range(40)
+    )
+    # The metadata-bearing assistant message (carries cost/token stats)
+    messages.append(
+        {
+            "role": "assistant",
+            "content": "reply",
+            "timestamp": "2026-01-02T00:00:00",
+            "metadata": {
+                "model": "claude-3-5-haiku",
+                "cost": 0.0001,
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+            },
+        }
+    )
+    conv_file.write_text("\n".join(json.dumps(m) for m in messages) + "\n")
+    assert conv_file.stat().st_size > 8192, (
+        "fixture must be > _TAIL_BYTES to trigger fast path"
+    )
+
+    # Default (detail=false) should return zeroed stats
+    response = client.get("/api/v2/conversations")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert isinstance(data, list)
+    assert len(data) == 1
+    assert data[0]["total_cost"] == 0.0
+    assert data[0]["total_input_tokens"] == 0
+
+    # detail=true should return actual stats
+    response = client.get("/api/v2/conversations?detail=true")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert isinstance(data, list)
+    assert len(data) == 1
+    assert data[0]["total_cost"] > 0
+    assert data[0]["total_input_tokens"] > 0
+
+
 def test_api_conversation_get(conv, client: FlaskClient):
     response = client.get(f"/api/v2/conversations/{conv}")
     assert response.status_code == 200
