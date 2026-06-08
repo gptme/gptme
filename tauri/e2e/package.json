@@ -1,0 +1,15 @@
+{
+  "name": "gptme-tauri-e2e",
+  "version": "0.1.0",
+  "description": "E2E tests for gptme Tauri desktop app using tauri-driver",
+  "private": true,
+  "scripts": {
+    "test": "wdio run wdio.conf.js"
+  },
+  "devDependencies": {
+    "@wdio/cli": "^9",
+    "@wdio/local-runner": "^9",
+    "@wdio/mocha-framework": "^9",
+    "@wdio/spec-reporter": "^9"
+  }
+}
