@@ -117,6 +117,11 @@ struct ServerProcess {
     // (port occupied by an unresponsive foreign process).  Used in cleanup to
     // avoid killing a process that we never owned.
     owns_port: Arc<AtomicBool>,
+    // Held at app setup so #[tauri::command] functions that need the handle
+    // can fetch it from state instead of taking AppHandle as a command
+    // parameter — the latter would break tests because AppHandle does not
+    // implement Deserialize for MockRuntime command dispatch.
+    app_handle: Arc<Mutex<Option<tauri::AppHandle>>>,
 }
 
 #[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
@@ -193,10 +198,7 @@ fn stop_server() -> Result<(), String> {
 
 #[cfg(desktop)]
 #[tauri::command]
-async fn start_server(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, ServerProcess>,
-) -> Result<u16, String> {
+async fn start_server(state: tauri::State<'_, ServerProcess>) -> Result<u16, String> {
     {
         let guard = state
             .child
@@ -207,6 +209,12 @@ async fn start_server(
         }
     }
 
+    let app = state
+        .app_handle
+        .lock()
+        .map_err(|e| format!("Lock error: {}", e))?
+        .clone()
+        .ok_or_else(|| "ServerProcess.app_handle not set".to_string())?;
     spawn_server_sidecar(&app, state.child.clone(), state.owns_port.clone()).await?;
     Ok(GPTME_SERVER_PORT)
 }
@@ -508,6 +516,7 @@ pub fn run() {
                 app.manage(ServerProcess {
                     child: child_handle.clone(),
                     owns_port: owns_port.clone(),
+                    app_handle: Arc::new(Mutex::new(Some(app.handle().clone()))),
                 });
 
                 let app_handle = app.handle().clone();
@@ -760,11 +769,14 @@ mod tests {
 
     #[cfg(desktop)]
     fn build_test_app() -> tauri::App<MockRuntime> {
-        mock_builder()
+        let app_handle_holder: Arc<Mutex<Option<tauri::AppHandle>>> = Arc::new(Mutex::new(None));
+        let app_handle_setter = app_handle_holder.clone();
+        let app = mock_builder()
             .plugin(tauri_plugin_shell::init())
             .manage(ServerProcess {
                 child: Arc::new(Mutex::new(None)),
                 owns_port: Arc::new(AtomicBool::new(false)),
+                app_handle: app_handle_holder,
             })
             .invoke_handler(tauri::generate_handler![
                 get_server_status,
@@ -772,7 +784,14 @@ mod tests {
                 stop_server,
             ])
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
-            .unwrap()
+            .unwrap();
+        // Inject the app handle into the managed state so start_server
+        // (which fetches it from ServerProcess.app_handle instead of a
+        // command parameter) can find it.  The Arc behind both clones
+        // shares the same Mutex, so this update is visible through
+        // state.app_handle inside the command.
+        *app_handle_setter.lock().unwrap() = Some(app.handle().clone());
+        app
     }
 
     #[cfg(desktop)]
