@@ -820,19 +820,49 @@ mod tests {
     }
 
     #[cfg(desktop)]
-    fn seed_running_server(app: &tauri::App<MockRuntime>) {
-        #[cfg(unix)]
-        let command = app.shell().command("sleep").args(["60"]);
-        #[cfg(windows)]
-        let command = app
-            .shell()
-            .command("powershell")
-            .args(["-Command", "Start-Sleep -Seconds 60"]);
+    type TestCommandReceiver =
+        tauri::async_runtime::Receiver<tauri_plugin_shell::process::CommandEvent>;
 
-        let (_rx, child) = command.spawn().unwrap();
+    #[cfg(desktop)]
+    struct SeededServer {
+        // Keep the shell event channel alive until the test finishes so the
+        // plugin can still deliver the child termination event when we stop it.
+        _events: TestCommandReceiver,
+    }
+
+    #[cfg(desktop)]
+    fn spawn_seeded_server_child(
+        app: &tauri::App<MockRuntime>,
+    ) -> (
+        TestCommandReceiver,
+        tauri_plugin_shell::process::CommandChild,
+    ) {
+        #[cfg(unix)]
+        {
+            return app.shell().command("sleep").args(["60"]).spawn().unwrap();
+        }
+        #[cfg(windows)]
+        {
+            return app
+                .shell()
+                .command("powershell")
+                .args(["-Command", "Start-Sleep -Seconds 60"])
+                .spawn()
+                .unwrap();
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            panic!("seed_running_server requires unix or windows desktop targets");
+        }
+    }
+
+    #[cfg(desktop)]
+    fn seed_running_server(app: &tauri::App<MockRuntime>) -> SeededServer {
+        let (events, child) = spawn_seeded_server_child(app);
         let state = app.state::<ServerProcess>();
         *state.child.lock().unwrap() = Some(child);
         state.owns_port.store(true, Ordering::Relaxed);
+        SeededServer { _events: events }
     }
 
     #[test]
@@ -997,7 +1027,7 @@ mod tests {
     fn test_get_server_status_reports_running_via_ipc() {
         let app = build_test_app();
         let webview = build_test_webview(&app);
-        seed_running_server(&app);
+        let _server = seed_running_server(&app);
 
         let status = invoke_server_status(&webview);
         assert!(status.running);
@@ -1013,7 +1043,7 @@ mod tests {
     fn test_start_server_rejects_duplicate_running_process_via_ipc() {
         let app = build_test_app();
         let webview = build_test_webview(&app);
-        seed_running_server(&app);
+        let _server = seed_running_server(&app);
 
         assert_ipc_response(
             &webview,
@@ -1029,7 +1059,7 @@ mod tests {
     fn test_stop_server_clears_running_state_via_ipc() {
         let app = build_test_app();
         let webview = build_test_webview(&app);
-        seed_running_server(&app);
+        let _server = seed_running_server(&app);
 
         assert!(invoke_server_status(&webview).running);
         assert_ipc_response(&webview, test_invoke_request("stop_server"), Ok(()));
