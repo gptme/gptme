@@ -2,7 +2,7 @@
  * Text-to-speech via the browser's Web Speech API or a gptme-tts server.
  *
  * Priority:
- *   1. If `ttsServerUrl` is configured, POST to {url}/tts and play the WAV.
+ *   1. If `ttsServerUrl` is configured, GET {url}/tts?text=... and play the WAV.
  *   2. Otherwise fall back to the browser's built-in speechSynthesis API.
  *
  * Both paths strip markdown before speaking so output sounds natural.
