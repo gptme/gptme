@@ -1,4 +1,5 @@
 import logging
+import threading
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import cast
@@ -52,13 +53,16 @@ def set_default_model(model: str | ModelMeta) -> None:
     _default_model_var.set(modelmeta)
 
 
-_logged_warnings = set()
+_logged_warnings: set[str] = set()
+_logged_warnings_lock = threading.Lock()
 
 
 def log_warn_once(msg: str):
-    if msg not in _logged_warnings:
-        logger.warning(msg)
+    with _logged_warnings_lock:
+        if msg in _logged_warnings:
+            return
         _logged_warnings.add(msg)
+    logger.warning(msg)
 
 
 def _get_custom_provider_config(provider_name: str):
