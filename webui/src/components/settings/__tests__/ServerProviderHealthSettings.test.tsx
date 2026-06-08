@@ -97,10 +97,13 @@ describe('ServerProviderHealthSettings', () => {
     render(<ServerProviderHealthSettings />);
 
     await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(screen.getByText('10 ms')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /refresh/i }));
+    const refreshButton = screen.getByRole('button', { name: /refresh/i });
+    expect(refreshButton).not.toBeDisabled();
+
+    fireEvent.click(refreshButton);
 
     await waitFor(() => {
       expect(mockFetch).toHaveBeenLastCalledWith(
@@ -114,25 +117,36 @@ describe('ServerProviderHealthSettings', () => {
     });
   });
 
-  it('ignores stale responses when refresh finishes before initial load', async () => {
-    const initialResponse = deferred<MockResponse>();
+  it('prevents duplicate forced refreshes while loading', async () => {
     const refreshResponse = deferred<MockResponse>();
 
     mockFetch
-      .mockReturnValueOnce(initialResponse.promise)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          providers: {
+            anthropic: { status: 'ok', latency_ms: 10, error: null },
+          },
+        }),
+      })
       .mockReturnValueOnce(refreshResponse.promise);
 
     render(<ServerProviderHealthSettings />);
 
     await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(screen.getByText('10 ms')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /refresh/i }));
+    const refreshButton = screen.getByRole('button', { name: /refresh/i });
+    fireEvent.click(refreshButton);
 
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledTimes(2);
     });
+
+    expect(refreshButton).toBeDisabled();
+    fireEvent.click(refreshButton);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
 
     await act(async () => {
       refreshResponse.resolve({
@@ -149,20 +163,5 @@ describe('ServerProviderHealthSettings', () => {
     await waitFor(() => {
       expect(screen.getByText('12 ms')).toBeInTheDocument();
     });
-
-    await act(async () => {
-      initialResponse.resolve({
-        ok: true,
-        json: async () => ({
-          providers: {
-            anthropic: { status: 'ok', latency_ms: 10, error: null },
-          },
-        }),
-      });
-      await initialResponse.promise;
-    });
-
-    expect(screen.getByText('12 ms')).toBeInTheDocument();
-    expect(screen.queryByText('10 ms')).not.toBeInTheDocument();
   });
 });

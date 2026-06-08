@@ -101,7 +101,13 @@ export function ServerProviderHealthSettings() {
           </p>
         </div>
 
-        <Button type="button" variant="outline" size="sm" onClick={() => void loadHealth(true)}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => void loadHealth(true)}
+          disabled={isLoading}
+        >
           <RefreshCw className={`mr-2 h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
           {isLoading ? 'Refreshing…' : 'Refresh'}
         </Button>
@@ -144,7 +150,7 @@ export function ServerProviderHealthSettings() {
                 </div>
 
                 <div className="text-xs text-muted-foreground">
-                  {info.latency_ms == null ? 'No latency' : `${info.latency_ms} ms`}
+                  {info.latency_ms === null ? 'No latency' : `${info.latency_ms} ms`}
                 </div>
               </div>
             );
