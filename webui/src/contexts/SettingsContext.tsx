@@ -11,6 +11,12 @@ export interface Settings {
   /** CSS background for the welcome/new-chat view (image URL or gradient) */
   welcomeBackground: string;
   /**
+   * HTTP base URL of a running gptme-tts server, e.g. http://localhost:5701.
+   * When set, TTS uses this server instead of the browser's speechSynthesis API.
+   * Leave empty to use browser TTS.
+   */
+  ttsServerUrl: string;
+  /**
    * WebSocket URL for the gptme-voice-server /voice endpoint, e.g. ws://localhost:5700/voice.
    * Leave empty to hide the VoiceButton.
    */
@@ -31,6 +37,7 @@ const defaultSettings: Settings = {
   showInitialSystem: false,
   hasCompletedSetup: false,
   welcomeBackground: '',
+  ttsServerUrl: '',
   voiceServerUrl: '',
 };
 
@@ -80,6 +87,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const resetSettings = () => {
+    stopSpeaking();
     // Use functional updater to avoid stale closure on hasCompletedSetup.
     // Preserve hasCompletedSetup so a settings reset doesn't re-trigger the wizard.
     setSettings((current) => {
