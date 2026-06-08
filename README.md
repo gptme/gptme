@@ -475,7 +475,7 @@ gptme -n 'run the test suite and fix any failing tests'
 gptme --non-interactive --output-format json 'summarize the current git diff'
 ```
 
-For more, see the [Getting Started][docs-getting-started] guide and the [Examples][docs-examples] in the [documentation][docs].
+For more, see the [Getting Started][docs-getting-started] guide and the [Examples][docs-examples] in the [documentation][docs]. For copy-paste task recipes, see [gptme-howto](https://github.com/gptme/gptme-howto).
 
 ### ⚙️ Configuration
 
@@ -855,6 +855,7 @@ gptme is **self-correcting**:
 - **Website**: [gptme.org](https://gptme.org)
 - **Documentation**: [docs.gptme.org](https://gptme.org/docs/)
 - **Examples**: [Examples](https://gptme.org/docs/examples.html)
+- **How-To Recipes**: [gptme-howto](https://github.com/gptme/gptme-howto)
 - **Downloads**: [Downloads](https://gptme.org/downloads/)
 - **Discord**: [Discord Community](https://discord.gg/NMaCmmkxWv)
 - **Twitter**: [@gptmeorg](https://x.com/gptmeorg)
