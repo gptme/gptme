@@ -1,9 +1,10 @@
 /**
  * Chat interaction flow — Slice 2 E2E tests.
  *
- * These tests run against the chat-mock.html fixture (configured in CI via
- * the "Create webui placeholder" step in tauri.yml, or locally by pointing
- * the built app at tauri/e2e/fixtures/chat-mock.html).
+ * These tests run against the webui mock served on devUrl (port 5701).
+ * In CI, the "Create webui placeholder for E2E" step writes webui/dist/index.html
+ * and "Serve webui mock on devUrl port" starts python3 http.server on 5701.
+ * Locally: run `python3 -m http.server 5701 --directory webui/dist` first.
  *
  * Covers:
  * - Chat input and send button are present
@@ -94,7 +95,8 @@ describe("Chat interaction flow", () => {
   it("Enter key sends a message", async () => {
     const input = await $('[data-testid="message-input"]');
     await input.setValue("Second message via Enter");
-    await browser.keys("Enter");
+    await input.click(); // ensure input has focus before sending keystroke
+    await browser.keys(["Enter"]);
 
     await browser.waitUntil(
       async () => {
