@@ -344,6 +344,7 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
     deleteMessage: async () => notImpl('deleteMessage'),
     rerunTools: async () => notImpl('rerunTools'),
     uploadFiles: async () => notImpl('uploadFiles'),
+    transcribeAudio: async () => notImpl('transcribeAudio'),
     step: async (logfile) => {
       const callbacks = eventCallbacks.get(logfile);
       const intro = makeDemoAssistantMessage(

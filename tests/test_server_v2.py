@@ -1,3 +1,4 @@
+import io
 import json
 import random
 import time
@@ -2600,6 +2601,102 @@ def test_v2_user_settings_no_providers_no_model(client: FlaskClient, monkeypatch
     assert data["default_model"] is None
     assert data["default_model_source"] is None
     assert data["config_files"]["local_config_exists"] is False
+
+
+def test_v2_audio_transcriptions_success(client: FlaskClient, monkeypatch):
+    """POST /api/v2/audio/transcriptions proxies a short recording to OpenRouter."""
+
+    class FakeConfig:
+        def get_env(self, key: str, default: str | None = None):
+            if key == "OPENROUTER_API_KEY":
+                return "sk-or-test"
+            return default
+
+    captured: dict[str, Any] = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return json.dumps(
+                {
+                    "text": "hello from openrouter",
+                    "usage": {"seconds": 1.2, "total_tokens": 12},
+                }
+            ).encode("utf-8")
+
+    def fake_urlopen(req, timeout=0):
+        captured["url"] = req.full_url
+        captured["timeout"] = timeout
+        captured["body"] = json.loads(req.data.decode("utf-8"))
+        return FakeResponse()
+
+    monkeypatch.setattr("gptme.server.api_v2.get_config", lambda: FakeConfig())
+    monkeypatch.setattr("gptme.server.api_v2.urllib.request.urlopen", fake_urlopen)
+
+    response = client.post(
+        "/api/v2/audio/transcriptions",
+        data={
+            "file": (io.BytesIO(b"audio-bytes"), "speech.webm"),
+            "format": "webm",
+            "language": "en",
+        },
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data == {
+        "text": "hello from openrouter",
+        "model": "openai/whisper-1",
+        "usage": {"seconds": 1.2, "total_tokens": 12},
+    }
+    assert captured["url"] == "https://openrouter.ai/api/v1/audio/transcriptions"
+    assert captured["timeout"] == 60
+    assert captured["body"]["model"] == "openai/whisper-1"
+    assert captured["body"]["language"] == "en"
+    assert captured["body"]["input_audio"]["format"] == "webm"
+    assert isinstance(captured["body"]["input_audio"]["data"], str)
+
+
+def test_v2_audio_transcriptions_requires_file(client: FlaskClient):
+    """POST /api/v2/audio/transcriptions rejects empty multipart uploads."""
+    response = client.post(
+        "/api/v2/audio/transcriptions",
+        data={},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "No audio file provided"}
+
+
+def test_v2_audio_transcriptions_requires_openrouter(client: FlaskClient, monkeypatch):
+    """POST /api/v2/audio/transcriptions fails cleanly without OpenRouter config."""
+
+    class FakeConfig:
+        def get_env(self, _key: str, default: str | None = None):
+            return default
+
+    monkeypatch.setattr("gptme.server.api_v2.get_config", lambda: FakeConfig())
+    monkeypatch.setattr(
+        "gptme.server.api_v2.get_stored_api_key", lambda _provider: None
+    )
+
+    response = client.post(
+        "/api/v2/audio/transcriptions",
+        data={"file": (io.BytesIO(b"audio-bytes"), "speech.webm"), "format": "webm"},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 503
+    assert response.get_json() == {
+        "error": "OpenRouter is not configured on this server"
+    }
 
 
 def test_v2_conversation_transcript_append(

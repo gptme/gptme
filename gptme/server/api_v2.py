@@ -12,6 +12,7 @@ import shutil
 import urllib.error
 import urllib.parse
 import urllib.request
+from base64 import b64encode
 from dataclasses import replace
 from datetime import datetime, timezone
 from itertools import islice
@@ -32,7 +33,9 @@ from gptme.config import (
     set_config,
     set_config_value,
 )
+from gptme.credentials import get_stored_api_key
 from gptme.llm import PROVIDER_API_KEYS, list_available_providers
+from gptme.llm.constants import OPENROUTER_APP_HEADERS
 from gptme.llm.models import (
     PROVIDERS,
     Provider,
@@ -71,6 +74,7 @@ from .external_sessions import get_external_session_provider
 from .openapi_docs import (
     CONVERSATION_ID_PARAM,
     ApiRootResponse,
+    AudioTranscriptionResponse,
     ConversationCreateRequest,
     ConversationListResponse,
     ConversationResponse,
@@ -107,10 +111,72 @@ _ALLOWED_AVATAR_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".ico"}
 _SERVER_BLOCKED_COMMANDS = {"exit", "restart", "edit", "delete"}
 
 _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
+_DEFAULT_OPENROUTER_STT_MODEL = "openai/whisper-1"
+_MAX_TRANSCRIPTION_AUDIO_BYTES = 25 * 1024 * 1024
+_SUPPORTED_TRANSCRIPTION_FORMATS = {"wav", "mp3", "flac", "m4a", "ogg", "webm", "aac"}
 
 
 def _env_truthy(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in _TRUTHY_ENV_VALUES
+
+
+def _guess_audio_format(filename: str | None, mimetype: str | None) -> str | None:
+    """Infer an OpenRouter STT audio format from filename or MIME type."""
+    if mimetype:
+        mime_key = mimetype.split(";", 1)[0].strip().lower()
+        mime_map = {
+            "audio/aac": "aac",
+            "audio/flac": "flac",
+            "audio/m4a": "m4a",
+            "audio/mp3": "mp3",
+            "audio/mp4": "m4a",
+            "audio/mpeg": "mp3",
+            "audio/ogg": "ogg",
+            "audio/wav": "wav",
+            "audio/webm": "webm",
+            "audio/x-wav": "wav",
+        }
+        if mime_key in mime_map:
+            return mime_map[mime_key]
+
+    if filename:
+        suffix = Path(filename).suffix.lower().lstrip(".")
+        if suffix in _SUPPORTED_TRANSCRIPTION_FORMATS:
+            return suffix
+    return None
+
+
+def _transcribe_audio_with_openrouter(
+    audio_bytes: bytes, audio_format: str, model: str, language: str | None = None
+) -> dict:
+    """Call OpenRouter's STT endpoint and return the decoded JSON response."""
+    config = get_config()
+    api_key = config.get_env("OPENROUTER_API_KEY") or get_stored_api_key("openrouter")
+    if not api_key:
+        raise ValueError("OpenRouter is not configured on this server")
+
+    payload: dict[str, object] = {
+        "model": model,
+        "input_audio": {
+            "data": b64encode(audio_bytes).decode("ascii"),
+            "format": audio_format,
+        },
+    }
+    if language:
+        payload["language"] = language
+
+    req = urllib.request.Request(
+        "https://openrouter.ai/api/v1/audio/transcriptions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            **OPENROUTER_APP_HEADERS,
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=60) as response:
+        return cast(dict, json.loads(response.read().decode("utf-8")))
 
 
 def _get_webui_deploy_config() -> dict[str, object]:
@@ -2150,6 +2216,110 @@ def api_user_config_file_patch():
     response["status"] = "ok"
     response["key"] = key
     return flask.jsonify(response)
+
+
+@v2_api.route("/api/v2/audio/transcriptions", methods=["POST"])
+@require_auth
+@api_doc(
+    summary="Transcribe uploaded audio with OpenRouter STT",
+    description=(
+        "Accept a short audio recording as multipart/form-data, forward it to "
+        "OpenRouter's `/api/v1/audio/transcriptions` endpoint, and return the "
+        "transcribed text."
+    ),
+    responses={
+        200: AudioTranscriptionResponse,
+        400: ErrorResponse,
+        413: ErrorResponse,
+        502: ErrorResponse,
+        503: ErrorResponse,
+    },
+    tags=["audio"],
+)
+def api_audio_transcriptions():
+    """Transcribe uploaded audio via OpenRouter."""
+    audio_file = request.files.get("file")
+    if audio_file is None or not audio_file.filename:
+        return flask.jsonify({"error": "No audio file provided"}), 400
+
+    audio_bytes = audio_file.read()
+    if not audio_bytes:
+        return flask.jsonify({"error": "Audio file is empty"}), 400
+    if len(audio_bytes) > _MAX_TRANSCRIPTION_AUDIO_BYTES:
+        size_mb = len(audio_bytes) / 1024 / 1024
+        return (
+            flask.jsonify(
+                {"error": (f"Audio file exceeds 25MB limit ({size_mb:.1f}MB)")}
+            ),
+            413,
+        )
+
+    requested_format = request.form.get("format")
+    audio_format = (requested_format or "").strip().lower() or _guess_audio_format(
+        audio_file.filename, audio_file.mimetype
+    )
+    if audio_format not in _SUPPORTED_TRANSCRIPTION_FORMATS:
+        supported_formats = ", ".join(sorted(_SUPPORTED_TRANSCRIPTION_FORMATS))
+        return (
+            flask.jsonify(
+                {
+                    "error": (
+                        "Unsupported audio format. "
+                        f"Supported formats: {supported_formats}"
+                    )
+                }
+            ),
+            400,
+        )
+
+    requested_model = request.form.get("model")
+    model = (requested_model or "").strip() or _DEFAULT_OPENROUTER_STT_MODEL
+
+    language = (request.form.get("language") or "").strip().lower() or None
+    if language and len(language) > 8:
+        return flask.jsonify({"error": "language must be a short ISO code"}), 400
+
+    try:
+        result = _transcribe_audio_with_openrouter(
+            audio_bytes=audio_bytes,
+            audio_format=audio_format,
+            model=model,
+            language=language,
+        )
+    except ValueError as exc:
+        return flask.jsonify({"error": str(exc)}), 503
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        logger.warning("OpenRouter STT request failed: %s %s", exc.code, detail)
+        return (
+            flask.jsonify(
+                {
+                    "error": (
+                        f"OpenRouter STT request failed ({exc.code}): "
+                        f"{detail or exc.reason}"
+                    )
+                }
+            ),
+            502,
+        )
+    except urllib.error.URLError as exc:
+        logger.warning("OpenRouter STT network failure: %s", exc)
+        return flask.jsonify(
+            {"error": f"OpenRouter STT request failed: {exc.reason}"}
+        ), 502
+
+    text = result.get("text")
+    if not isinstance(text, str):
+        return flask.jsonify({"error": "OpenRouter STT response missing text"}), 502
+
+    usage = result.get("usage")
+    return flask.jsonify(
+        {
+            "text": text,
+            "model": model,
+            "usage": usage if isinstance(usage, dict) else None,
+        }
+    )
 
 
 @v2_api.route("/api/v2/user/settings", methods=["GET"])
