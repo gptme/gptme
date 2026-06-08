@@ -20,13 +20,14 @@ interface ShortcutGroup {
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform ?? '');
 const MOD = isMac ? '⌘' : 'Ctrl';
+const ALT = isMac ? '⌥' : 'Alt';
 
 const SHORTCUT_GROUPS: ShortcutGroup[] = [
   {
     title: 'General',
     shortcuts: [
       { keys: [MOD, 'K'], description: 'Open command palette' },
-      { keys: [MOD, 'N'], description: 'New conversation' },
+      { keys: [ALT, 'N'], description: 'New conversation' },
       { keys: [MOD, 'F'], description: 'Search messages in conversation' },
       { keys: ['?'], description: 'Show this shortcuts reference' },
       { keys: ['i'], description: 'Focus the message input' },

@@ -161,19 +161,27 @@ describe('CommandPalette', () => {
       expect(preventDefaultSpy).toHaveBeenCalled();
     });
 
-    it('navigates to home with Ctrl+N', () => {
+    it('navigates to home with Alt+N', () => {
       renderCommandPalette();
-      fireEvent.keyDown(document, { key: 'n', ctrlKey: true });
+      fireEvent.keyDown(document, { key: 'n', altKey: true });
       expect(mockNavigate).toHaveBeenCalledWith('/');
     });
 
-    it('navigates to home with Cmd+N (Mac)', () => {
+    it('prevents default browser behavior for Alt+N', () => {
       renderCommandPalette();
-      fireEvent.keyDown(document, { key: 'n', metaKey: true });
-      expect(mockNavigate).toHaveBeenCalledWith('/');
+      const event = new KeyboardEvent('keydown', {
+        key: 'n',
+        altKey: true,
+        cancelable: true,
+      });
+      const preventDefaultSpy = jest.spyOn(event, 'preventDefault');
+
+      document.dispatchEvent(event);
+
+      expect(preventDefaultSpy).toHaveBeenCalled();
     });
 
-    it('does not navigate with Ctrl+N when typing in an input', () => {
+    it('does not navigate with Alt+N when typing in an input', () => {
       render(
         <BrowserRouter>
           <>
@@ -183,7 +191,7 @@ describe('CommandPalette', () => {
         </BrowserRouter>
       );
       const input = screen.getByTestId('text-field');
-      fireEvent.keyDown(input, { key: 'n', ctrlKey: true });
+      fireEvent.keyDown(input, { key: 'n', altKey: true });
       expect(mockNavigate).not.toHaveBeenCalled();
     });
   });

@@ -80,10 +80,10 @@ export function CommandPalette() {
     return () => document.removeEventListener('keydown', down);
   }, []);
 
-  // Cmd+N / Ctrl+N — new conversation (skip when typing in an input)
+  // Alt+N — new conversation (skip when typing in an input)
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      if (e.key !== 'n' || !(e.metaKey || e.ctrlKey)) return;
+      if (e.key.toLowerCase() !== 'n' || !e.altKey || e.metaKey || e.ctrlKey) return;
       const target = e.target as HTMLElement | null;
       if (
         target instanceof HTMLInputElement ||
