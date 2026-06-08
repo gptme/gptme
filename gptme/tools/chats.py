@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 
+from ..logmanager.conversations import _format_duration
 from ..message import Message
 from .base import ToolSpec, ToolUse
 
@@ -339,22 +340,6 @@ def _format_tokens(n: int) -> str:
     return str(n)
 
 
-def _format_duration(seconds: float) -> str:
-    """Format duration seconds into a compact human-readable string."""
-    total_seconds = max(0, int(seconds))
-    days, rem = divmod(total_seconds, 86_400)
-    hours, rem = divmod(rem, 3_600)
-    minutes, secs = divmod(rem, 60)
-
-    if days:
-        return f"{days}d {hours}h"
-    if hours:
-        return f"{hours}h {minutes}m"
-    if minutes:
-        return f"{minutes}m {secs}s"
-    return f"{secs}s"
-
-
 def _normalize_timestamp(ts: datetime) -> datetime:
     """Normalize datetimes to timezone-aware UTC."""
     if ts.tzinfo is None:
@@ -388,6 +373,10 @@ def _conversation_detail(conversation_id: str) -> dict:
         if not tool_uses and "<tool-use>" in msg.content:
             tool_uses = list(
                 ToolUse.iter_from_content(msg.content, tool_format_override="xml")
+            )
+        if not tool_uses and "```" in msg.content:
+            tool_uses = list(
+                ToolUse.iter_from_content(msg.content, tool_format_override="markdown")
             )
         for tool_use in tool_uses:
             tool_counts[tool_use.tool] += 1
