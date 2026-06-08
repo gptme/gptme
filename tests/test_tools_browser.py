@@ -984,6 +984,7 @@ class TestExamples:
 # ── _create_page (CDP tab reuse vs launched contexts) ─────────────────
 
 
+@pytest.mark.skipif(not has_playwright(), reason="playwright not installed")
 class TestCreatePage:
     """Test page creation: CDP reuses a session context (tabs), launched
     browsers get an isolated owned context."""
