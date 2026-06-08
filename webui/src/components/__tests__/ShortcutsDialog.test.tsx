@@ -56,6 +56,7 @@ describe('ShortcutsDialog', () => {
     fireEvent.keyDown(document, { key: '?' });
     expect(screen.getByText('General')).toBeInTheDocument();
     expect(screen.getByText('Open command palette')).toBeInTheDocument();
+    expect(screen.getByText('New conversation')).toBeInTheDocument();
     expect(screen.getByText('Focus the message input')).toBeInTheDocument();
     expect(screen.getByText('Send message')).toBeInTheDocument();
   });

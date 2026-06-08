@@ -80,6 +80,26 @@ export function CommandPalette() {
     return () => document.removeEventListener('keydown', down);
   }, []);
 
+  // Cmd+N / Ctrl+N — new conversation (skip when typing in an input)
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      if (e.key !== 'n' || !(e.metaKey || e.ctrlKey)) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
+      e.preventDefault();
+      navigate('/');
+      setOpen(false);
+    };
+    document.addEventListener('keydown', down);
+    return () => document.removeEventListener('keydown', down);
+  }, [navigate, setOpen]);
+
   // Reset search when closing
   useEffect(() => {
     if (!open) {

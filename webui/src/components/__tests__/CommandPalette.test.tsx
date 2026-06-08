@@ -160,6 +160,32 @@ describe('CommandPalette', () => {
 
       expect(preventDefaultSpy).toHaveBeenCalled();
     });
+
+    it('navigates to home with Ctrl+N', () => {
+      renderCommandPalette();
+      fireEvent.keyDown(document, { key: 'n', ctrlKey: true });
+      expect(mockNavigate).toHaveBeenCalledWith('/');
+    });
+
+    it('navigates to home with Cmd+N (Mac)', () => {
+      renderCommandPalette();
+      fireEvent.keyDown(document, { key: 'n', metaKey: true });
+      expect(mockNavigate).toHaveBeenCalledWith('/');
+    });
+
+    it('does not navigate with Ctrl+N when typing in an input', () => {
+      render(
+        <BrowserRouter>
+          <>
+            <input data-testid="text-field" />
+            <CommandPalette />
+          </>
+        </BrowserRouter>
+      );
+      const input = screen.getByTestId('text-field');
+      fireEvent.keyDown(input, { key: 'n', ctrlKey: true });
+      expect(mockNavigate).not.toHaveBeenCalled();
+    });
   });
 
   describe('Search Functionality', () => {
