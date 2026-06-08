@@ -1,9 +1,9 @@
 /**
  * Text-to-speech via the browser's Web Speech API, the gptme server's
- * built-in /api/v2/tts endpoint, or an external gptme-tts server.
+ * built-in /api/v2/audio/speech endpoint, or an external gptme-tts server.
  *
  * Priority:
- *   1. POST /api/v2/tts (same-origin, uses OpenRouter via gptme server config).
+ *   1. POST /api/v2/audio/speech (same-origin, uses OpenRouter via gptme server config).
  *   2. If `ttsServerUrl` is configured, GET {url}/tts?text=... and play the WAV.
  *   3. Fall back to the browser's built-in speechSynthesis API.
  *
@@ -57,20 +57,33 @@ function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError';
 }
 
-/** POST text to the gptme server's built-in /api/v2/tts endpoint. */
+async function isLocalTtsNotConfigured(response: Response): Promise<boolean> {
+  if (response.status !== 400) return false;
+  try {
+    const data = await response.clone().json();
+    return (
+      typeof data?.error === 'string' && data.error.includes('OPENROUTER_API_KEY not configured')
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** POST text to the gptme server's built-in /api/v2/audio/speech endpoint. */
 async function speakViaLocalEndpoint(text: string): Promise<void> {
   const controller = new AbortController();
   currentFetchController = controller;
   try {
-    const response = await fetch('/api/v2/tts', {
+    const response = await fetch('/api/v2/audio/speech', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
       signal: controller.signal,
     });
     if (!response.ok) {
-      // 400 = no API key configured locally; signal speak() to fall through silently
-      if (response.status === 400) throw new Error(LOCAL_TTS_NOT_CONFIGURED);
+      if (await isLocalTtsNotConfigured(response)) {
+        throw new Error(LOCAL_TTS_NOT_CONFIGURED);
+      }
       throw new Error(`TTS endpoint error: ${response.status}`);
     }
     const blob = await response.blob();
@@ -138,14 +151,14 @@ async function speak(rawText: string): Promise<void> {
 
   stopSpeaking();
 
-  // 1. Try the same-origin /api/v2/tts endpoint first.
+  // 1. Try the same-origin /api/v2/audio/speech endpoint first.
   try {
     await speakViaLocalEndpoint(spoken);
     return;
   } catch (err) {
     if (isAbortError(err)) return;
     if ((err as Error)?.message !== LOCAL_TTS_NOT_CONFIGURED) {
-      console.warn('Local /api/v2/tts unavailable, trying alternatives:', err);
+      console.warn('Local /api/v2/audio/speech unavailable, trying alternatives:', err);
     }
   }
 

@@ -21,7 +21,7 @@ def test_tts_endpoint_rejects_non_string_text(
 ):
     _set_openrouter_key(monkeypatch, "test-key")
 
-    response = client.post("/api/v2/tts", json={"text": 1})
+    response = client.post("/api/v2/audio/speech", json={"text": 1})
 
     assert response.status_code == 400
     assert response.get_json() == {"error": "text must be a string"}
@@ -33,7 +33,9 @@ def test_tts_endpoint_rejects_non_string_optional_fields(
 ):
     _set_openrouter_key(monkeypatch, "test-key")
 
-    response = client.post("/api/v2/tts", json={"text": "Hello", field: ["bad"]})
+    response = client.post(
+        "/api/v2/audio/speech", json={"text": "Hello", field: ["bad"]}
+    )
 
     assert response.status_code == 400
     assert response.get_json() == {"error": f"{field} must be a string"}
@@ -52,7 +54,7 @@ def test_tts_endpoint_maps_provider_errors_to_bad_gateway(
         ),
     )
 
-    response = client.post("/api/v2/tts", json={"text": "Hello"})
+    response = client.post("/api/v2/audio/speech", json={"text": "Hello"})
 
     assert response.status_code == 502
     assert response.get_json() == {"error": "TTS provider error: 400"}

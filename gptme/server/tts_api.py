@@ -42,7 +42,7 @@ def _optional_string(
     return value, None
 
 
-@tts_api.route("/api/v2/tts", methods=["POST"])
+@tts_api.route("/api/v2/audio/speech", methods=["POST"])
 @require_auth
 def synthesize_speech():
     """Synthesize speech from text via OpenRouter's speech API.

@@ -45,13 +45,19 @@ describe('tts fallback chain', () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: false,
       status: 400,
+      clone: () => ({
+        json: async () => ({
+          error:
+            'OPENROUTER_API_KEY not configured. Set the environment variable or add it to config.',
+        }),
+      }),
     } as Response);
 
     speakTextNow('hello');
     await flushPromises();
 
     expect(global.fetch).toHaveBeenCalledWith(
-      '/api/v2/tts',
+      '/api/v2/audio/speech',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({ text: 'hello' }),
@@ -88,7 +94,7 @@ describe('tts fallback chain', () => {
     await flushPromises();
     await flushPromises();
 
-    expect(global.fetch).toHaveBeenNthCalledWith(1, '/api/v2/tts', expect.any(Object));
+    expect(global.fetch).toHaveBeenNthCalledWith(1, '/api/v2/audio/speech', expect.any(Object));
     expect(global.fetch).toHaveBeenNthCalledWith(
       2,
       'http://127.0.0.1:5000/tts?text=hello',
