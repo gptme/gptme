@@ -569,8 +569,12 @@ def api_dev_deploy_staging_trigger():
     except ValueError as exc:
         return flask.jsonify({"error": str(exc)}), 500
 
+    owner, repo_name = repository.split("/", 1)
+    encoded_repository = (
+        f"{urllib.parse.quote(owner, safe='')}/{urllib.parse.quote(repo_name, safe='')}"
+    )
     workflow = urllib.parse.quote(workflow_name, safe="")
-    api_url = f"https://api.github.com/repos/{repository}/actions/workflows/{workflow}/dispatches"
+    api_url = f"https://api.github.com/repos/{encoded_repository}/actions/workflows/{workflow}/dispatches"
     request = urllib.request.Request(
         api_url,
         data=json.dumps(payload).encode("utf-8"),

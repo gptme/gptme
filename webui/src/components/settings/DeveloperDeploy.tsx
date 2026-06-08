@@ -96,7 +96,7 @@ export function DeveloperDeploy() {
           <Button
             type="button"
             onClick={handleDeploy}
-            disabled={isDeploying}
+            disabled={isDeploying || (status !== null && !status.configured)}
             className="w-full sm:w-auto"
           >
             {isDeploying ? (

@@ -239,7 +239,7 @@ def test_webui_deploy_trigger_dispatches_workflow(client: FlaskClient, monkeypat
 
     monkeypatch.setenv("GPTME_WEBUI_ENABLE_DEV_DEPLOY", "true")
     monkeypatch.setenv("GPTME_WEBUI_GITHUB_TOKEN", "test-token")
-    monkeypatch.setenv("GPTME_WEBUI_DEPLOY_REPOSITORY", "gptme/gptme")
+    monkeypatch.setenv("GPTME_WEBUI_DEPLOY_REPOSITORY", "gptme/web ui#preview")
     monkeypatch.setenv("GPTME_WEBUI_DEPLOY_WORKFLOW", "webui-staging.yml")
     monkeypatch.setenv("GPTME_WEBUI_DEPLOY_REF", "master")
     monkeypatch.setenv("GPTME_WEBUI_DEPLOY_INPUTS_JSON", '{"environment":"staging"}')
@@ -252,7 +252,7 @@ def test_webui_deploy_trigger_dispatches_workflow(client: FlaskClient, monkeypat
     assert data["status"] == "queued"
     assert data["workflow"] == "webui-staging.yml"
     assert captured == {
-        "url": "https://api.github.com/repos/gptme/gptme/actions/workflows/webui-staging.yml/dispatches",
+        "url": "https://api.github.com/repos/gptme/web%20ui%23preview/actions/workflows/webui-staging.yml/dispatches",
         "timeout": 20,
         "payload": {"ref": "master", "inputs": {"environment": "staging"}},
         "authorization": "Bearer test-token",
