@@ -232,6 +232,22 @@ export const SettingsModal = forwardRef<HTMLButtonElement, SettingsModalProps>(
                 />
               </div>
 
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="tts-toggle" className="text-sm">
+                    Read responses aloud
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Speak assistant messages using browser TTS (Web Speech API)
+                  </p>
+                </div>
+                <Switch
+                  id="tts-toggle"
+                  checked={settings.ttsEnabled}
+                  onCheckedChange={(checked) => updateSettings({ ttsEnabled: checked })}
+                />
+              </div>
+
               <div className="space-y-2">
                 <Label htmlFor="voice-server-url" className="text-sm">
                   Voice server URL

@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState } from 'react';
 
 export interface Settings {
   chimeEnabled: boolean;
+  ttsEnabled: boolean;
   blocksDefaultOpen: boolean;
   showHiddenMessages: boolean;
   showInitialSystem: boolean;
@@ -23,6 +24,7 @@ interface SettingsContextType {
 
 const defaultSettings: Settings = {
   chimeEnabled: true,
+  ttsEnabled: false,
   blocksDefaultOpen: true,
   showHiddenMessages: false,
   showInitialSystem: false,
