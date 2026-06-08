@@ -1,5 +1,6 @@
 import copy
 import random
+import time
 from pathlib import Path
 
 import pytest
@@ -308,6 +309,130 @@ def test_default_model_propagation():
         from gptme.llm.models import _default_model_var
 
         _default_model_var.set(None)
+
+
+def _reset_provider_health_cache(monkeypatch: pytest.MonkeyPatch):
+    import gptme.server.api_v2 as api_module
+
+    monkeypatch.setattr(api_module, "_provider_health_cache", {})
+    monkeypatch.setattr(api_module, "_provider_health_cache_time", 0.0)
+    return api_module
+
+
+def test_api_providers_health_structure(
+    client: FlaskClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Test that /api/v2/providers/health returns the expected response shape."""
+    api_module = _reset_provider_health_cache(monkeypatch)
+    monkeypatch.setattr(
+        api_module,
+        "list_available_providers",
+        lambda: [("anthropic", "ANTHROPIC_API_KEY"), ("openai", "OPENAI_API_KEY")],
+    )
+    monkeypatch.setattr(
+        api_module,
+        "_probe_provider",
+        lambda provider_name: {
+            "status": "ok" if provider_name == "anthropic" else "error",
+            "latency_ms": 42 if provider_name == "anthropic" else 17,
+            "error": None if provider_name == "anthropic" else "bad key",
+        },
+    )
+
+    response = client.get("/api/v2/providers/health")
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "providers": {
+            "anthropic": {"status": "ok", "latency_ms": 42, "error": None},
+            "openai": {"status": "error", "latency_ms": 17, "error": "bad key"},
+        }
+    }
+
+
+def test_api_providers_health_cached(
+    client: FlaskClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Test that repeated calls use the cache instead of probing again."""
+    api_module = _reset_provider_health_cache(monkeypatch)
+    monkeypatch.setattr(
+        api_module,
+        "list_available_providers",
+        lambda: [("anthropic", "ANTHROPIC_API_KEY")],
+    )
+    calls: list[str] = []
+
+    def fake_probe(provider_name: str) -> dict[str, object]:
+        calls.append(provider_name)
+        return {"status": "ok", "latency_ms": 5, "error": None}
+
+    monkeypatch.setattr(api_module, "_probe_provider", fake_probe)
+
+    r1 = client.get("/api/v2/providers/health")
+    r2 = client.get("/api/v2/providers/health")
+    assert r1.status_code == 200
+    assert r2.status_code == 200
+    assert calls == ["anthropic"]
+    assert r1.get_json() == r2.get_json()
+
+
+def test_api_providers_health_force(
+    client: FlaskClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Test that ?force=1 bypasses the cache."""
+    api_module = _reset_provider_health_cache(monkeypatch)
+    monkeypatch.setattr(
+        api_module,
+        "list_available_providers",
+        lambda: [("anthropic", "ANTHROPIC_API_KEY")],
+    )
+    calls: list[str] = []
+
+    def fake_probe(provider_name: str) -> dict[str, object]:
+        calls.append(provider_name)
+        return {"status": "ok", "latency_ms": 7, "error": None}
+
+    monkeypatch.setattr(api_module, "_probe_provider", fake_probe)
+
+    response = client.get("/api/v2/providers/health")
+    forced = client.get("/api/v2/providers/health?force=1")
+    assert response.status_code == 200
+    assert forced.status_code == 200
+    assert calls == ["anthropic", "anthropic"]
+
+
+def test_api_providers_health_timeout_returns_quickly(
+    client: FlaskClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Slow probes should surface as timeouts without blocking the response."""
+    api_module = _reset_provider_health_cache(monkeypatch)
+    monkeypatch.setattr(
+        api_module,
+        "list_available_providers",
+        lambda: [("anthropic", "ANTHROPIC_API_KEY")],
+    )
+    monkeypatch.setattr(api_module, "_PROVIDER_HEALTH_TIMEOUT", 0.01)
+
+    def slow_probe(_provider_name: str) -> dict[str, object]:
+        time.sleep(0.2)
+        return {"status": "ok", "latency_ms": 200, "error": None}
+
+    monkeypatch.setattr(api_module, "_probe_provider", slow_probe)
+
+    start = time.monotonic()
+    response = client.get("/api/v2/providers/health?force=1")
+    elapsed = time.monotonic() - start
+
+    assert response.status_code == 200
+    assert elapsed < 0.12
+    assert response.get_json() == {
+        "providers": {
+            "anthropic": {
+                "status": "error",
+                "latency_ms": 10,
+                "error": "Timeout",
+            }
+        }
+    }
 
 
 def test_api_v2_commands(client: FlaskClient):

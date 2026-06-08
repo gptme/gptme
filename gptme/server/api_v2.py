@@ -9,10 +9,13 @@ import json
 import logging
 import os
 import shutil
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from base64 import b64encode
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import wait as futures_wait
 from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from itertools import islice
@@ -46,6 +49,7 @@ from gptme.llm.models import (
     get_recommended_model,
     set_default_model,
 )
+from gptme.llm.models.types import is_custom_provider
 from gptme.prompts import get_prompt
 
 from ..commands import handle_cmd
@@ -1625,6 +1629,149 @@ def api_models():
             "recommended": recommended,
         }
     )
+
+
+# Cache for provider health results
+_provider_health_cache: dict[str, object] = {}
+_provider_health_cache_time: float = 0.0
+_PROVIDER_HEALTH_TTL = 60.0  # seconds
+_PROVIDER_HEALTH_TIMEOUT = 5.0  # seconds per provider
+
+
+def _probe_provider(provider_name: str) -> dict:
+    """Probe a single provider and return {status, latency_ms, error}."""
+    start = time.monotonic()
+
+    def elapsed_ms() -> int:
+        return round((time.monotonic() - start) * 1000)
+
+    try:
+        provider = cast(Provider, provider_name)
+
+        if provider_name in ("openrouter", "local", "gptme") or is_custom_provider(
+            provider
+        ):
+            # These support dynamic model listing via an HTTP call
+            from ..llm import get_available_models  # fmt: skip
+
+            get_available_models(provider)
+
+        elif provider_name == "anthropic":
+            from ..llm.llm_anthropic import (
+                get_client as get_anthropic_client,  # fmt: skip
+            )
+            from ..llm.llm_anthropic import init as init_anthropic  # fmt: skip
+
+            anthropic_client = get_anthropic_client()
+            if anthropic_client is None:
+                init_anthropic(get_config())
+                anthropic_client = get_anthropic_client()
+            if anthropic_client is None:
+                return {
+                    "status": "error",
+                    "latency_ms": elapsed_ms(),
+                    "error": "Client not initialized",
+                }
+            # Lightweight list call to verify connectivity and auth
+            next(iter(anthropic_client.models.list(limit=1)), None)
+
+        elif provider_name in (
+            "openai",
+            "azure",
+            "gemini",
+            "xai",
+            "groq",
+            "deepseek",
+            "nvidia",
+        ):
+            from ..llm.llm_openai import get_client as get_openai_client  # fmt: skip
+            from ..llm.llm_openai import has_client  # fmt: skip
+            from ..llm.llm_openai import init as init_openai  # fmt: skip
+
+            if not has_client(provider):
+                init_openai(provider, get_config())
+            openai_client = get_openai_client(provider)
+            next(iter(openai_client.models.list()), None)
+
+        else:
+            # Plugin or unknown provider — key is configured but no live check
+            return {"status": "configured", "latency_ms": elapsed_ms(), "error": None}
+
+        return {"status": "ok", "latency_ms": elapsed_ms(), "error": None}
+
+    except Exception as e:
+        return {"status": "error", "latency_ms": elapsed_ms(), "error": str(e)}
+
+
+def _timeout_health_result() -> dict[str, object]:
+    return {
+        "status": "error",
+        "latency_ms": round(_PROVIDER_HEALTH_TIMEOUT * 1000),
+        "error": "Timeout",
+    }
+
+
+def _collect_provider_health(provider_names: list[str]) -> dict[str, dict]:
+    if not provider_names:
+        return {}
+
+    executor = ThreadPoolExecutor(max_workers=len(provider_names))
+    future_to_name = {
+        executor.submit(_probe_provider, name): name for name in provider_names
+    }
+
+    try:
+        done, not_done = futures_wait(future_to_name, timeout=_PROVIDER_HEALTH_TIMEOUT)
+        results: dict[str, dict] = {}
+
+        for future in done:
+            name = future_to_name[future]
+            try:
+                results[name] = future.result()
+            except Exception as e:
+                results[name] = {
+                    "status": "error",
+                    "latency_ms": None,
+                    "error": str(e),
+                }
+
+        for future in not_done:
+            name = future_to_name[future]
+            future.cancel()
+            results[name] = _timeout_health_result()
+
+        return results
+    finally:
+        # Avoid blocking the request thread on providers that ignore client-side timeouts.
+        executor.shutdown(wait=False, cancel_futures=True)
+
+
+@v2_api.route("/api/v2/providers/health")
+@require_auth
+@api_doc_simple(tags=["models"])
+def api_providers_health():
+    """Check health of all configured providers.
+
+    Probes each configured provider with a lightweight API call (model listing)
+    and returns status, latency, and any error message. Results are cached for
+    60 seconds. Pass ``?force=1`` to bypass the cache.
+    """
+    global _provider_health_cache, _provider_health_cache_time
+
+    force = request.args.get("force", "").lower() in ("1", "true", "yes")
+    now = time.monotonic()
+
+    if not force and (now - _provider_health_cache_time) < _PROVIDER_HEALTH_TTL:
+        return flask.jsonify(_provider_health_cache)
+
+    available = list_available_providers()
+    provider_names = [str(p) for p, _ in available]
+
+    response: dict[str, object] = {"providers": _collect_provider_health(provider_names)}
+    _provider_health_cache = response
+    _provider_health_cache_time = now
+
+    return flask.jsonify(response)
 
 
 @v2_api.route("/api/v2/commands")

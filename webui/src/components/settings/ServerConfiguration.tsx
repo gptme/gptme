@@ -31,6 +31,7 @@ import { cn } from '@/lib/utils';
 import { ConfigFileEditor } from './ConfigFileEditor';
 import { ServerDefaultModelSettings } from './ServerDefaultModelSettings';
 import { ServerApiKeySettings } from './ServerApiKeySettings';
+import { ServerProviderHealthSettings } from './ServerProviderHealthSettings';
 
 interface ServerFormState {
   name: string;
@@ -382,6 +383,7 @@ export const ServerConfiguration: FC = () => {
       <ConfigFileEditor />
       <ServerApiKeySettings />
       <ServerDefaultModelSettings />
+      <ServerProviderHealthSettings />
 
       <Button variant="outline" onClick={handleOpenAdd}>
         <Plus className="mr-2 h-4 w-4" />
