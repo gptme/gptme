@@ -148,13 +148,13 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   }, [paneId]);
 
   const firstNonSystemIndex$ = useObservable(() => {
-    return conversation$.get()?.data.log.findIndex((msg) => msg.role !== 'system') || 0;
+    return conversation$?.get()?.data.log.findIndex((msg) => msg.role !== 'system') || 0;
   });
 
   // Update the firstNonSystemIndex$ when the conversationId changes
   useEffect(() => {
     firstNonSystemIndex$.set(
-      conversation$.get()?.data.log.findIndex((msg) => msg.role !== 'system') || 0
+      conversation$?.get()?.data.log.findIndex((msg) => msg.role !== 'system') || 0
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
@@ -201,7 +201,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   // All .get() calls inside are auto-tracked, so this re-runs when any of
   // conversation log, showHiddenMessages, showInitialSystem, or firstNonSystemIndex changes.
   useObserveEffect(() => {
-    const messages = conversation$.data.log.get();
+    const messages = conversation$?.data.log.get();
     if (!messages?.length) {
       stepRoles$.set(new Map());
       return;
@@ -238,8 +238,8 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
 
   // Compute fork points once (reactive: recomputes when branches/currentBranch change)
   const forkPoints$ = useObservable(() => {
-    const branches = conversation$.data.branches?.get();
-    const currentBranch = conversation$.currentBranch?.get() || 'main';
+    const branches = conversation$?.data.branches?.get();
+    const currentBranch = conversation$?.currentBranch?.get() || 'main';
     if (!branches || Object.keys(branches).length <= 1) return new Map();
     return computeForkPoints(currentBranch, branches);
   });
@@ -260,7 +260,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   }, [isAutoScrolling$]);
 
   // Auto-scroll when the conversation is updated (e.g., streaming response)
-  useObserveEffect(conversation$.data.log, () => {
+  useObserveEffect(conversation$?.data.log, () => {
     if (!autoScrollAborted$.get()) {
       requestAnimationFrame(scrollToBottom);
     }
