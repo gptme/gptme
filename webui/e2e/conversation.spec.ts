@@ -104,3 +104,31 @@ test.describe('Conversation Flow', () => {
     await expect(page.getByText('Introduction to gptme')).toBeVisible();
   });
 });
+
+test.describe('Split View', () => {
+  test('should render split panes when ?split= param is present', async ({ page }) => {
+    // Navigate with the split parameter using two demo conversation IDs
+    await page.goto('/chat/introduction%20to%20gptme?split=introduction%20to%20gptme,introduction%20to%20gptme');
+    await page.waitForLoadState('networkidle');
+
+    // Split view header should appear
+    await expect(page.getByText('Split view')).toBeVisible({ timeout: 10000 });
+
+    // Close button should be present
+    await expect(page.getByTitle('Close split view')).toBeVisible({ timeout: 10000 });
+  });
+
+  test('should return to single-pane view when split is closed', async ({ page }) => {
+    await page.goto('/chat/introduction%20to%20gptme?split=introduction%20to%20gptme,introduction%20to%20gptme');
+    await page.waitForLoadState('networkidle');
+
+    await expect(page.getByText('Split view')).toBeVisible({ timeout: 10000 });
+
+    // Click the close button
+    await page.getByTitle('Close split view').click();
+    await page.waitForLoadState('networkidle');
+
+    // Split view header should be gone
+    await expect(page.getByText('Split view')).not.toBeVisible();
+  });
+});
