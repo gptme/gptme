@@ -364,6 +364,38 @@ def test_get_plugin_tool_modules_src_layout_allowlist():
         assert tool_modules == ["gptme_tts"]
 
 
+def test_coerce_entrypoint_export_to_plugin():
+    """Entry-point exports of ToolSpec / list / factory normalize to a plugin."""
+    from gptme.plugins.entrypoints import _coerce_to_plugin
+    from gptme.plugins.plugin import GptmePlugin
+    from gptme.tools.base import ToolSpec
+
+    tool = ToolSpec(name="demo", desc="demo tool")
+
+    # GptmePlugin passes through unchanged
+    manifest = GptmePlugin(name="p", tools=[tool])
+    assert _coerce_to_plugin("p", manifest) is manifest
+
+    # Bare ToolSpec is wrapped, named after the entry point
+    wrapped = _coerce_to_plugin("demo-ep", tool)
+    assert isinstance(wrapped, GptmePlugin)
+    assert wrapped.name == "demo-ep"
+    assert wrapped.tools == [tool]
+
+    # List of ToolSpec is wrapped
+    listed = _coerce_to_plugin("multi", [tool])
+    assert isinstance(listed, GptmePlugin)
+    assert listed.tools == [tool]
+
+    # Factory callable returning a ToolSpec is resolved
+    from_factory = _coerce_to_plugin("fac", lambda: tool)
+    assert isinstance(from_factory, GptmePlugin)
+    assert from_factory.tools == [tool]
+
+    # Anything else is rejected
+    assert _coerce_to_plugin("bad", object()) is None
+
+
 def test_register_plugin_hooks():
     """Test plugin hook registration."""
     from gptme.hooks import HookType, clear_hooks, get_hooks
