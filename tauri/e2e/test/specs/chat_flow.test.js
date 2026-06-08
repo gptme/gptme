@@ -49,13 +49,26 @@ describe("Chat interaction flow", () => {
   });
 
   it("sending a message appends it to the chat as a user message", async () => {
+    const beforeMessages = await $$('[data-testid^="message-user-"]');
     const input = await $('[data-testid="message-input"]');
     await input.setValue("Hello, gptme!");
 
     const sendBtn = await $('[data-testid="send-button"]');
     await sendBtn.click();
 
-    const userMsg = await $('[data-testid="message-user-0"]');
+    await browser.waitUntil(
+      async () => {
+        const afterMessages = await $$('[data-testid^="message-user-"]');
+        return afterMessages.length === beforeMessages.length + 1;
+      },
+      {
+        timeout: 5000,
+        timeoutMsg: "User message did not appear after sending",
+      }
+    );
+
+    const userMessages = await $$('[data-testid^="message-user-"]');
+    const userMsg = userMessages[userMessages.length - 1];
     await expect(userMsg).toExist();
     await expect(userMsg).toHaveText("Hello, gptme!");
   });
