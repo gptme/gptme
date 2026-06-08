@@ -742,7 +742,7 @@ def api_external_session(external_session_id: str):
             "name": "detail",
             "in": "query",
             "schema": {"type": "boolean", "default": False},
-            "description": "If true, perform a full scan to populate cost and token stats. Slower but returns accurate total_cost, total_input_tokens, and total_output_tokens fields. Suitable for paginated views; avoid on large collections.",
+            "description": "If true, perform a full scan to populate cost and token stats. Slower but returns accurate total_cost, total_input_tokens, and total_output_tokens fields. Suitable for paginated views; avoid on large collections. When combined with search, every conversation is fully scanned before the limit is applied — avoid on large deployments.",
         },
     ],
 )
@@ -759,7 +759,8 @@ def api_conversations():
         return flask.jsonify({"error": "limit must be an integer"}), 400
     limit = max(1, min(limit, 1000))
     search = request.args.get("search", "").strip().lower()
-    detail = request.args.get("detail", "").lower() in ("1", "true", "yes")
+    detail_val = request.args.get("detail")
+    detail = detail_val is not None and detail_val.lower() in ("", "1", "true", "yes")
 
     # Use fast tail-only scan for list/search by default — reads last 8KB for
     # preview/model, skips json.loads() on every metadata line.

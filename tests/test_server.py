@@ -223,6 +223,7 @@ def test_api_conversation_list_detail_flag(client: FlaskClient, tmp_path, monkey
     assert len(data) == 1
     assert data[0]["total_cost"] > 0
     assert data[0]["total_input_tokens"] > 0
+    assert data[0]["total_output_tokens"] > 0
 
 
 def test_api_conversation_get(conv, client: FlaskClient):
