@@ -110,7 +110,7 @@ jobs:
         run: cd tauri/src-tauri && cargo test
 
   e2e:
-    name: E2E smoke test (tauri-driver, Linux)
+    name: E2E tests (tauri-driver, Linux)
     runs-on: ubuntu-latest
     needs: [lint, test]
     env:
@@ -166,16 +166,72 @@ jobs:
           touch tauri/src-tauri/icons/icon.icns
           touch tauri/src-tauri/icons/icon.ico
 
-      - name: Create minimal webui placeholder for E2E
+      - name: Create webui placeholder for E2E (chat mock)
         run: |
           mkdir -p webui/dist
-          cat > webui/dist/index.html << 'EOF'
+          cat > webui/dist/index.html << 'HTMLEOF'
           <!DOCTYPE html>
           <html lang="en">
-          <head><meta charset="UTF-8"><title>gptme</title></head>
-          <body><div id="app">gptme loading...</div></body>
+          <head>
+            <meta charset="UTF-8">
+            <title>gptme</title>
+            <style>
+              body { font-family: sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+              #messages { list-style: none; padding: 0; min-height: 100px; }
+              .message { padding: 8px 12px; margin: 4px 0; border-radius: 8px; }
+              .message.user { background: #e3f2fd; }
+              .message.assistant { background: #f1f8e9; }
+              #input-area { display: flex; gap: 8px; margin-top: 16px; }
+              #message-input { flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+              #send-btn { padding: 8px 16px; background: #1976d2; color: white; border: none; border-radius: 4px; cursor: pointer; }
+              #send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+            </style>
+          </head>
+          <body>
+            <div id="app">
+              <div id="conversation-title" data-testid="conversation-title">New Conversation</div>
+              <ul id="messages" data-testid="message-list"></ul>
+              <div id="input-area">
+                <input id="message-input" data-testid="message-input" type="text" placeholder="Type a message..." />
+                <button id="send-btn" data-testid="send-button">Send</button>
+              </div>
+            </div>
+            <script>
+              var msgCount = 0;
+              function addMessage(text, role) {
+                var li = document.createElement('li');
+                li.className = 'message ' + role;
+                li.setAttribute('data-testid', 'message-' + role + '-' + msgCount);
+                li.textContent = text;
+                document.getElementById('messages').appendChild(li);
+                msgCount++;
+              }
+              function sendMessage() {
+                var input = document.getElementById('message-input');
+                var btn = document.getElementById('send-btn');
+                var text = input.value.trim();
+                if (!text) return;
+                var title = document.getElementById('conversation-title');
+                if (title.textContent === 'New Conversation') {
+                  title.textContent = text.slice(0, 40) + (text.length > 40 ? '...' : '');
+                }
+                addMessage(text, 'user');
+                input.value = '';
+                btn.disabled = true;
+                setTimeout(function() {
+                  addMessage('Mock response to: ' + text, 'assistant');
+                  btn.disabled = false;
+                }, 400);
+              }
+              document.getElementById('send-btn').addEventListener('click', sendMessage);
+              document.getElementById('message-input').addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') sendMessage();
+              });
+              document.getElementById('app').setAttribute('data-ready', 'true');
+            </script>
+          </body>
           </html>
-          EOF
+          HTMLEOF
 
       - name: Build Tauri debug binary
         run: cd tauri/src-tauri && cargo build
@@ -193,7 +249,7 @@ jobs:
       - name: Install E2E test dependencies
         run: cd tauri/e2e && npm ci
 
-      - name: Run E2E smoke tests
+      - name: Run E2E tests (smoke + chat flow)
         run: xvfb-run --auto-servernum npm --prefix tauri/e2e test
 
   build:
