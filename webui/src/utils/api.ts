@@ -1276,7 +1276,7 @@ export class ApiClient {
 
   async transcribeAudio(
     audio: Blob,
-    options?: { language?: string; model?: string }
+    options?: { language?: string; model?: string; signal?: AbortSignal }
   ): Promise<AudioTranscriptionResponse> {
     if (!this.isConnected) {
       throw new ApiClientError('Not connected to API');
@@ -1301,7 +1301,7 @@ export class ApiClient {
     const url = `${this.baseUrl}/api/v2/audio/transcriptions`;
     const response = await fetch(
       url,
-      withLocalAddressSpace(url, { method: 'POST', headers, body: formData })
+      withLocalAddressSpace(url, { method: 'POST', headers, body: formData, signal: options?.signal })
     );
     const data = await response.json();
     if (!response.ok) {

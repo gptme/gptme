@@ -90,6 +90,7 @@ export function useSpeechToText(): UseSpeechToTextReturn {
   const recordingRef = useRef<RecordingSession | null>(null);
   const fallbackSetupGenRef = useRef(0);
   const finalHandlerRef = useRef<((text: string) => void) | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const SpeechRecognitionClass = getSpeechRecognitionClass();
   const browserSupported = SpeechRecognitionClass !== null;
   const serverFallbackSupported =
@@ -204,6 +205,7 @@ export function useSpeechToText(): UseSpeechToTextReturn {
           setInterimTranscript('');
 
           if (session.skipTranscription) {
+            abortControllerRef.current?.abort();
             setState('idle');
             return;
           }
@@ -216,9 +218,14 @@ export function useSpeechToText(): UseSpeechToTextReturn {
             return;
           }
 
+          // Cancel any previous in-flight transcription before starting a new one
+          abortControllerRef.current?.abort();
+          const controller = new AbortController();
+          abortControllerRef.current = controller;
+
           setState('transcribing');
           void api
-            .transcribeAudio(audio, { language: getLanguageCode() })
+            .transcribeAudio(audio, { language: getLanguageCode(), signal: controller.signal })
             .then((result) => {
               const text = result.text.trim();
               if (text && finalHandlerRef.current) {
@@ -227,6 +234,7 @@ export function useSpeechToText(): UseSpeechToTextReturn {
               setState('idle');
             })
             .catch((error: unknown) => {
+              if (error instanceof DOMException && error.name === 'AbortError') return;
               console.warn('Server transcription failed:', error);
               setState('error');
             });
@@ -277,6 +285,8 @@ export function useSpeechToText(): UseSpeechToTextReturn {
   // Cleanup on unmount
   useEffect(
     () => () => {
+      abortControllerRef.current?.abort();
+
       if (recognitionRef.current) {
         recognitionRef.current.abort();
         recognitionRef.current = null;

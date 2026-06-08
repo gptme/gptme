@@ -135,7 +135,9 @@ describe('useSpeechToText', () => {
       expect(result.current.state).toBe('idle');
     });
 
-    expect(transcribeAudio.mock.calls[0]?.[1]).toEqual({ language: 'en' });
+    expect(transcribeAudio.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({ language: 'en' })
+    );
     expect(handler).toHaveBeenCalledWith('server transcript');
   });
 });
