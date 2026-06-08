@@ -137,6 +137,23 @@ npm run typecheck       # type checking only
 npm run typecheck:watch # type checking in watch mode
 ```
 
+### Developer staging deploy trigger
+
+The Developer settings panel can trigger a GitHub Actions staging deployment through
+the connected gptme server when the trigger is explicitly configured:
+
+```sh
+GPTME_WEBUI_ENABLE_DEV_DEPLOY=true \
+GPTME_WEBUI_GITHUB_TOKEN=github_pat_with_actions_workflow_scope \
+GPTME_WEBUI_DEPLOY_REPOSITORY=gptme/gptme \
+GPTME_WEBUI_DEPLOY_WORKFLOW=webui-staging.yml \
+GPTME_WEBUI_DEPLOY_REF=master \
+gptme-server --cors-origin='http://localhost:5701'
+```
+
+Optional `GPTME_WEBUI_DEPLOY_INPUTS_JSON='{"environment":"staging"}'` adds
+workflow inputs for staging workflows that declare them.
+
 ## Testing
 
 ```sh

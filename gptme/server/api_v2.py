@@ -5,9 +5,13 @@ This module contains the main conversation CRUD endpoints for the V2 API.
 Session management, tool execution, and agent creation are handled by separate modules.
 """
 
+import json
 import logging
 import os
 import shutil
+import urllib.error
+import urllib.parse
+import urllib.request
 from dataclasses import replace
 from datetime import datetime, timezone
 from itertools import islice
@@ -101,6 +105,57 @@ _ALLOWED_AVATAR_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".ico"}
 # - edit: launches an interactive $EDITOR subprocess, blocking the worker thread
 # - delete (without --force): calls input() waiting for stdin that never arrives
 _SERVER_BLOCKED_COMMANDS = {"exit", "restart", "edit", "delete"}
+
+_TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
+
+
+def _env_truthy(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in _TRUTHY_ENV_VALUES
+
+
+def _get_webui_deploy_config() -> dict[str, object]:
+    """Return web UI deploy trigger config without exposing the GitHub token."""
+    repository = os.environ.get("GPTME_WEBUI_DEPLOY_REPOSITORY", "gptme/gptme").strip()
+    workflow = os.environ.get("GPTME_WEBUI_DEPLOY_WORKFLOW", "").strip()
+    ref = os.environ.get("GPTME_WEBUI_DEPLOY_REF", "master").strip()
+    token = os.environ.get("GPTME_WEBUI_GITHUB_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    enabled = _env_truthy("GPTME_WEBUI_ENABLE_DEV_DEPLOY")
+
+    actions_url = (
+        f"https://github.com/{repository}/actions/workflows/{workflow}"
+        if workflow
+        else f"https://github.com/{repository}/actions"
+    )
+
+    return {
+        "enabled": enabled,
+        "configured": enabled
+        and bool(token)
+        and "/" in repository
+        and bool(workflow)
+        and bool(ref),
+        "repository": repository,
+        "workflow": workflow,
+        "ref": ref,
+        "has_token": bool(token),
+        "actions_url": actions_url,
+    }
+
+
+def _get_webui_deploy_inputs() -> dict[str, object] | None:
+    raw_inputs = os.environ.get("GPTME_WEBUI_DEPLOY_INPUTS_JSON")
+    if not raw_inputs:
+        return None
+
+    try:
+        inputs = json.loads(raw_inputs)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid GPTME_WEBUI_DEPLOY_INPUTS_JSON: {exc}") from exc
+
+    if not isinstance(inputs, dict):
+        raise ValueError("GPTME_WEBUI_DEPLOY_INPUTS_JSON must be a JSON object")
+
+    return inputs
 
 
 def _is_valid_image_content(path: "Path") -> bool:
@@ -434,6 +489,149 @@ def api_config():
             agent_info["urls"] = agent.urls
 
     return flask.jsonify({"agent": agent_info})
+
+
+@v2_api.route("/api/v2/dev/deploy-staging", methods=["GET"])
+@require_auth
+def api_dev_deploy_staging_status():
+    """Return whether the web UI staging deploy trigger is configured."""
+    return flask.jsonify(_get_webui_deploy_config())
+
+
+@v2_api.route("/api/v2/dev/deploy-staging", methods=["POST"])
+@require_auth
+def api_dev_deploy_staging_trigger():
+    """Trigger the configured web UI staging deploy workflow."""
+    config = _get_webui_deploy_config()
+
+    if not config["enabled"]:
+        return (
+            flask.jsonify(
+                {
+                    "error": "Web UI deploy trigger is disabled",
+                    "detail": "Set GPTME_WEBUI_ENABLE_DEV_DEPLOY=true on the gptme server.",
+                }
+            ),
+            403,
+        )
+
+    token = os.environ.get("GPTME_WEBUI_GITHUB_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if not token:
+        return (
+            flask.jsonify(
+                {
+                    "error": "Web UI deploy trigger is not configured",
+                    "detail": "Set GPTME_WEBUI_GITHUB_TOKEN with Actions workflow permissions.",
+                }
+            ),
+            503,
+        )
+
+    repository = str(config["repository"])
+    workflow_name = str(config["workflow"])
+    ref = str(config["ref"])
+    if "/" not in repository:
+        return (
+            flask.jsonify(
+                {
+                    "error": "Invalid GPTME_WEBUI_DEPLOY_REPOSITORY",
+                    "detail": "Expected owner/repo format.",
+                }
+            ),
+            500,
+        )
+    if not workflow_name:
+        return (
+            flask.jsonify(
+                {
+                    "error": "GPTME_WEBUI_DEPLOY_WORKFLOW is required",
+                    "detail": "Set it to a workflow file that supports workflow_dispatch.",
+                }
+            ),
+            503,
+        )
+    if not ref:
+        return (
+            flask.jsonify(
+                {
+                    "error": "GPTME_WEBUI_DEPLOY_REF is required",
+                    "detail": "Set it to the branch or tag to deploy.",
+                }
+            ),
+            503,
+        )
+
+    try:
+        payload: dict[str, object] = {"ref": ref}
+        inputs = _get_webui_deploy_inputs()
+        if inputs:
+            payload["inputs"] = inputs
+    except ValueError as exc:
+        return flask.jsonify({"error": str(exc)}), 500
+
+    workflow = urllib.parse.quote(workflow_name, safe="")
+    api_url = f"https://api.github.com/repos/{repository}/actions/workflows/{workflow}/dispatches"
+    request = urllib.request.Request(
+        api_url,
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "User-Agent": "gptme-webui-dev-deploy",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            if response.status != 204:
+                return (
+                    flask.jsonify(
+                        {
+                            "error": "GitHub did not accept the deploy request",
+                            "detail": f"Unexpected status {response.status}",
+                        }
+                    ),
+                    502,
+                )
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        return (
+            flask.jsonify(
+                {
+                    "error": "GitHub rejected the deploy request",
+                    "github_status": exc.code,
+                    "detail": detail,
+                }
+            ),
+            502,
+        )
+    except urllib.error.URLError as exc:
+        return (
+            flask.jsonify(
+                {
+                    "error": "Could not reach GitHub",
+                    "detail": str(exc.reason),
+                }
+            ),
+            502,
+        )
+
+    return (
+        flask.jsonify(
+            {
+                "status": "queued",
+                "message": "Staging deploy workflow queued",
+                "repository": repository,
+                "workflow": workflow_name,
+                "ref": ref,
+                "actions_url": config["actions_url"],
+            }
+        ),
+        202,
+    )
 
 
 @v2_api.route("/api/v2/external-sessions")

@@ -12,11 +12,21 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { Settings, Volume2, Palette, Info, FileText, ExternalLink, Server } from 'lucide-react';
+import {
+  Settings,
+  Volume2,
+  Palette,
+  Info,
+  FileText,
+  ExternalLink,
+  Server,
+  Rocket,
+} from 'lucide-react';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
 import { ServerConfiguration } from '@/components/settings/ServerConfiguration';
+import { DeveloperDeploy } from '@/components/settings/DeveloperDeploy';
 import { use$ } from '@legendapp/state/react';
 import { settingsModal$, type SettingsCategory } from '@/stores/settingsModal';
 import { setupWizard$ } from '@/stores/setupWizard';
@@ -53,6 +63,16 @@ const categories = [
     icon: FileText,
     description: 'Message and code display options',
   },
+  ...(import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEV_TOOLS === 'true'
+    ? [
+        {
+          id: 'developer' as const,
+          label: 'Developer',
+          icon: Rocket,
+          description: 'Deploy and debugging actions',
+        },
+      ]
+    : []),
   {
     id: 'about' as const,
     label: 'About',
@@ -297,6 +317,9 @@ export const SettingsModal = forwardRef<HTMLButtonElement, SettingsModalProps>(
               </div>
             </div>
           );
+
+        case 'developer':
+          return <DeveloperDeploy />;
 
         case 'about':
           return (

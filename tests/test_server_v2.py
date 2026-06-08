@@ -1,3 +1,4 @@
+import json
 import random
 import time
 import unittest.mock
@@ -173,6 +174,89 @@ def test_v2_api_root_provider_configured(client: FlaskClient, monkeypatch):
     response = client.get("/api/v2")
     data = response.get_json()
     assert data["provider_configured"] is True
+
+
+def test_webui_deploy_status_disabled(client: FlaskClient, monkeypatch):
+    """The web UI deploy endpoint reports disabled state by default."""
+    monkeypatch.delenv("GPTME_WEBUI_ENABLE_DEV_DEPLOY", raising=False)
+    monkeypatch.delenv("GPTME_WEBUI_GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GPTME_WEBUI_DEPLOY_WORKFLOW", raising=False)
+
+    response = client.get("/api/v2/dev/deploy-staging")
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["enabled"] is False
+    assert data["configured"] is False
+    assert data["repository"] == "gptme/gptme"
+    assert data["workflow"] == ""
+
+
+def test_webui_deploy_trigger_disabled(client: FlaskClient, monkeypatch):
+    """The deploy trigger fails closed until explicitly enabled."""
+    monkeypatch.delenv("GPTME_WEBUI_ENABLE_DEV_DEPLOY", raising=False)
+
+    response = client.post("/api/v2/dev/deploy-staging", json={})
+
+    assert response.status_code == 403
+    data = response.get_json()
+    assert "disabled" in data["error"]
+
+
+def test_webui_deploy_trigger_requires_workflow(client: FlaskClient, monkeypatch):
+    """Enabled deploy trigger still requires an explicit workflow name."""
+    monkeypatch.setenv("GPTME_WEBUI_ENABLE_DEV_DEPLOY", "true")
+    monkeypatch.setenv("GPTME_WEBUI_GITHUB_TOKEN", "test-token")
+    monkeypatch.delenv("GPTME_WEBUI_DEPLOY_WORKFLOW", raising=False)
+
+    response = client.post("/api/v2/dev/deploy-staging", json={})
+
+    assert response.status_code == 503
+    data = response.get_json()
+    assert "WORKFLOW" in data["error"]
+
+
+def test_webui_deploy_trigger_dispatches_workflow(client: FlaskClient, monkeypatch):
+    """The deploy trigger posts workflow_dispatch to GitHub when configured."""
+    captured = {}
+
+    class FakeResponse:
+        status = 204
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["timeout"] = timeout
+        captured["payload"] = json.loads(request.data.decode("utf-8"))
+        captured["authorization"] = request.headers["Authorization"]
+        return FakeResponse()
+
+    monkeypatch.setenv("GPTME_WEBUI_ENABLE_DEV_DEPLOY", "true")
+    monkeypatch.setenv("GPTME_WEBUI_GITHUB_TOKEN", "test-token")
+    monkeypatch.setenv("GPTME_WEBUI_DEPLOY_REPOSITORY", "gptme/gptme")
+    monkeypatch.setenv("GPTME_WEBUI_DEPLOY_WORKFLOW", "webui-staging.yml")
+    monkeypatch.setenv("GPTME_WEBUI_DEPLOY_REF", "master")
+    monkeypatch.setenv("GPTME_WEBUI_DEPLOY_INPUTS_JSON", '{"environment":"staging"}')
+    monkeypatch.setattr("gptme.server.api_v2.urllib.request.urlopen", fake_urlopen)
+
+    response = client.post("/api/v2/dev/deploy-staging", json={})
+
+    assert response.status_code == 202
+    data = response.get_json()
+    assert data["status"] == "queued"
+    assert data["workflow"] == "webui-staging.yml"
+    assert captured == {
+        "url": "https://api.github.com/repos/gptme/gptme/actions/workflows/webui-staging.yml/dispatches",
+        "timeout": 20,
+        "payload": {"ref": "master", "inputs": {"environment": "staging"}},
+        "authorization": "Bearer test-token",
+    }
 
 
 def test_v2_user_api_key_persists_env_entry(client: FlaskClient, tmp_path, monkeypatch):
