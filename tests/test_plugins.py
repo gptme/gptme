@@ -11,6 +11,7 @@ from gptme.plugins import (
     get_plugin_tool_modules,
     register_plugin_commands,
 )
+from gptme.tools import _discover_tools
 
 
 def test_plugin_dataclass():
@@ -362,6 +363,33 @@ def test_get_plugin_tool_modules_src_layout_allowlist():
         )
 
         assert tool_modules == ["gptme_tts"]
+
+
+def test_discover_tools_recurses_nested_src_layout_packages():
+    """Nested tool packages under src-layout plugins still expose ToolSpecs."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        plugin_dir = Path(tmpdir) / "gptme-imagen"
+        pkg_dir = plugin_dir / "src" / "gptme_imagen"
+        tools_dir = pkg_dir / "tools"
+        tools_dir.mkdir(parents=True)
+
+        (plugin_dir / "pyproject.toml").write_text(
+            '[project]\nname = "gptme-imagen"\nversion = "0.1.0"\n'
+        )
+        (pkg_dir / "__init__.py").write_text("")
+        (tools_dir / "__init__.py").write_text("")
+        (tools_dir / "image_gen.py").write_text(
+            "from gptme.tools.base import ToolSpec\n"
+            'image_gen_tool = ToolSpec(name="image_gen", desc="demo")\n'
+        )
+
+        tool_modules = get_plugin_tool_modules(
+            [Path(tmpdir)],
+            enabled_plugins=["gptme-imagen"],
+        )
+
+        tools = _discover_tools(tool_modules)
+        assert [tool.name for tool in tools] == ["image_gen"]
 
 
 def test_coerce_entrypoint_export_to_plugin():
