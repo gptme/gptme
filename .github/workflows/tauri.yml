@@ -188,7 +188,7 @@ jobs:
         run: cargo install tauri-driver --locked --version "$TAURI_DRIVER_VERSION" --root "$HOME/.cargo-tauri-driver"
 
       - name: Verify tauri-driver installation
-        run: tauri-driver --version
+        run: command -v tauri-driver
 
       - name: Install E2E test dependencies
         run: cd tauri/e2e && npm ci
