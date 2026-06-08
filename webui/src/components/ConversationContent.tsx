@@ -1,5 +1,5 @@
 import type { FC } from 'react';
-import { useRef, useEffect, useCallback, useState } from 'react';
+import { useRef, useEffect, useCallback, useState, useId } from 'react';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput, type ChatOptions } from './ChatInput';
 import { CollapsedStepGroup } from './CollapsedStepGroup';
@@ -25,6 +25,8 @@ interface Props {
   isReadOnly?: boolean;
 }
 
+let activeConversationPaneId: string | null = null;
+
 export const ConversationContent: FC<Props> = ({ conversationId, serverId, isReadOnly }) => {
   const {
     conversation$,
@@ -47,6 +49,8 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   const shouldFocus$ = useObservable(false);
   // Store the previous conversation ID to detect changes
   const prevConversationIdRef = useRef<string | null>(null);
+  const paneId = useId();
+  const paneRef = useRef<HTMLElement>(null);
 
   const { api, connectionConfig } = useApi();
   const hasSession$ = useObservable<boolean>(false);
@@ -84,6 +88,10 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   // Add keyboard shortcut for focusing the input
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (activeConversationPaneId !== paneId) {
+        return;
+      }
+
       // Only handle 'i' key when:
       // - Not in an input/textarea
       // - Not in read-only mode
@@ -101,15 +109,19 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isReadOnly, hasSession$, shouldFocus$]);
+  }, [isReadOnly, hasSession$, paneId, shouldFocus$]);
 
   // Ctrl+F / Cmd+F to open message search (or re-focus if already open)
   useEffect(() => {
     const handleSearchKeyDown = (e: KeyboardEvent) => {
+      if (activeConversationPaneId !== paneId) {
+        return;
+      }
+
       if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
         e.preventDefault();
         if (searchVisible$.get()) {
-          document.querySelector<HTMLInputElement>('[data-search-input]')?.focus();
+          paneRef.current?.querySelector<HTMLInputElement>('[data-search-input]')?.focus();
         } else {
           searchVisible$.set(true);
         }
@@ -117,7 +129,23 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     };
     window.addEventListener('keydown', handleSearchKeyDown);
     return () => window.removeEventListener('keydown', handleSearchKeyDown);
-  }, [searchVisible$]);
+  }, [paneId, searchVisible$]);
+
+  useEffect(() => {
+    if (!activeConversationPaneId) {
+      activeConversationPaneId = paneId;
+    }
+
+    return () => {
+      if (activeConversationPaneId === paneId) {
+        activeConversationPaneId = null;
+      }
+    };
+  }, [paneId]);
+
+  const activatePane = useCallback(() => {
+    activeConversationPaneId = paneId;
+  }, [paneId]);
 
   const firstNonSystemIndex$ = useObservable(() => {
     return conversation$.get()?.data.log.findIndex((msg) => msg.role !== 'system') || 0;
@@ -449,7 +477,12 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   }
 
   return (
-    <main className="relative flex h-full flex-col">
+    <main
+      ref={paneRef}
+      className="relative flex h-full flex-col"
+      onFocus={activatePane}
+      onPointerDown={activatePane}
+    >
       <Memo>
         {() =>
           searchVisible$.get() ? (

@@ -8,6 +8,8 @@ interface Props {
   leftId: string;
   rightId: string;
   serverId?: string;
+  leftIsReadOnly?: boolean;
+  rightIsReadOnly?: boolean;
   /** Stack panes vertically instead of side-by-side (for narrow screens). */
   vertical?: boolean;
   onClose: () => void;
@@ -17,6 +19,8 @@ export const SplitConversationView: FC<Props> = ({
   leftId,
   rightId,
   serverId,
+  leftIsReadOnly,
+  rightIsReadOnly,
   vertical = false,
   onClose,
 }) => {
@@ -39,11 +43,21 @@ export const SplitConversationView: FC<Props> = ({
         className="min-h-0 flex-1"
       >
         <ResizablePanel defaultSize={50} minSize={20}>
-          <ConversationContent key={leftId} conversationId={leftId} serverId={serverId} />
+          <ConversationContent
+            key={leftId}
+            conversationId={leftId}
+            serverId={serverId}
+            isReadOnly={leftIsReadOnly}
+          />
         </ResizablePanel>
         <ResizableHandle withHandle />
         <ResizablePanel defaultSize={50} minSize={20}>
-          <ConversationContent key={rightId} conversationId={rightId} serverId={serverId} />
+          <ConversationContent
+            key={rightId}
+            conversationId={rightId}
+            serverId={serverId}
+            isReadOnly={rightIsReadOnly}
+          />
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>

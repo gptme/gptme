@@ -299,6 +299,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
       selectedConversation$.set(id);
 
       const newParams = new URLSearchParams(searchParams);
+      newParams.delete('split');
       if (serverId) {
         newParams.set('server', serverId);
       } else {
@@ -466,17 +467,22 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
 
     // Chat section — split view
     if (splitIds) {
+      const leftConversation = getSelectedConversationSummary(splitIds[0]);
+      const rightConversation = getSelectedConversationSummary(splitIds[1]);
+
       return (
         <SplitConversationView
           leftId={splitIds[0]}
           rightId={splitIds[1]}
           serverId={serverParam || undefined}
+          leftIsReadOnly={leftConversation.readonly}
+          rightIsReadOnly={rightConversation.readonly}
           vertical={isMobile}
           onClose={() => {
             const params = new URLSearchParams(searchParams);
             params.delete('split');
             const qs = params.toString();
-            navigate(`/chat/${encodeURIComponent(splitIds[0])}${qs ? `?${qs}` : ''}`);
+            navigate(chatRoute(splitIds[0], qs));
           }}
         />
       );
