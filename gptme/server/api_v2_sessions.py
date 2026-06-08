@@ -886,9 +886,17 @@ def api_conversation_elicit_respond(conversation_id: str):
         )
     if not isinstance(elicit_id, str):
         return flask.jsonify({"error": "elicit_id must be a string"}), 400
-    if not elicit_id:
+    stripped_elicit_id = elicit_id.strip()
+    if not stripped_elicit_id:
         return (
-            flask.jsonify({"error": "elicit_id and action are required"}),
+            flask.jsonify({"error": "elicit_id must not be blank"}),
+            400,
+        )
+    if stripped_elicit_id != elicit_id:
+        return (
+            flask.jsonify(
+                {"error": "elicit_id must not contain leading or trailing whitespace"}
+            ),
             400,
         )
 

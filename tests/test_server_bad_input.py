@@ -541,6 +541,15 @@ def main():
         "elicit respond bad elicit_id type",
     )
 
+    # Probe: elicit/respond with whitespace-only elicit_id
+    _expect_error(
+        "POST",
+        f"/api/v2/conversations/{cid}/elicit/respond",
+        {"elicit_id": "   ", "action": "accept"},
+        400,
+        "elicit respond whitespace elicit_id",
+    )
+
     # Probe: elicit/respond with unknown action
     _expect_error(
         "POST",

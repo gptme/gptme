@@ -1019,6 +1019,36 @@ class TestElicitRespondEndpoint:
         assert data is not None
         assert data["error"] == "elicit_id must be a string"
 
+    @patch("gptme.server.api_v2_sessions.resolve_hook_elicitation")
+    def test_whitespace_only_elicit_id_rejected(
+        self, mock_resolve, conv, client: FlaskClient
+    ):
+        """Whitespace-only elicit_id values return 400 instead of a false success."""
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/elicit/respond",
+            json={"elicit_id": "   ", "action": "accept"},
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert data["error"] == "elicit_id must not be blank"
+        mock_resolve.assert_not_called()
+
+    @patch("gptme.server.api_v2_sessions.resolve_hook_elicitation")
+    def test_padded_elicit_id_rejected(self, mock_resolve, conv, client: FlaskClient):
+        """Padded elicit_id values are rejected instead of silently normalized."""
+        response = client.post(
+            f"/api/v2/conversations/{conv['conversation_id']}/elicit/respond",
+            json={"elicit_id": " test-elicit-id ", "action": "accept"},
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert data["error"] == (
+            "elicit_id must not contain leading or trailing whitespace"
+        )
+        mock_resolve.assert_not_called()
+
     @pytest.mark.parametrize("elicit_id", [0, False, []])
     def test_falsy_non_string_elicit_id(self, conv, client: FlaskClient, elicit_id):
         """Falsy non-string elicit_id values must return the type error, not the required-fields error."""
