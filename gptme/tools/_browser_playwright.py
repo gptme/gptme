@@ -83,6 +83,12 @@ def _create_page(browser: Browser, **context_kwargs) -> _ManagedPage:
             if headers:
                 page.set_extra_http_headers(headers)
             return _ManagedPage(page=page, _owned_context=None)
+        # CDP without a session context shouldn't happen (it's recreated on
+        # every reconnect) — warn rather than silently opening a new window.
+        logger.warning(
+            "CDP connection has no session context; falling back to a new "
+            "browser context (may open a new window)"
+        )
 
     context = browser.new_context(**context_kwargs)
     page = context.new_page()
