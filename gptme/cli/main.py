@@ -77,6 +77,7 @@ class CommaSeparatedChoice(click.ParamType):
         allow_prefix: str | None = None,
         allow_prefixes: list[str] | None = None,
         extra_choices_for_prefix: dict[str, list[str]] | None = None,
+        lenient_prefixes: list[str] | None = None,
         metavar: str | None = None,
     ):
         self.choices = choices
@@ -92,6 +93,11 @@ class CommaSeparatedChoice(click.ParamType):
             prefix: set(prefix_choices)
             for prefix, prefix_choices in (extra_choices_for_prefix or {}).items()
         }
+        # Prefixes for which unknown names are accepted at parse time. Plugin
+        # tools aren't known when the CLI is built (plugins load later), so a
+        # prefixed name like "+tts" must pass; it's resolved against the loaded
+        # toolset later, which warns if it's genuinely missing.
+        self.lenient_prefixes = set(lenient_prefixes or [])
         self._metavar = metavar
 
     def convert(self, value, param, ctx):
@@ -111,6 +117,9 @@ class CommaSeparatedChoice(click.ParamType):
                     break
             # Allow file paths (e.g. path/to/tool.py) to pass through
             if check.endswith(".py") or "/" in check or "\\" in check:
+                continue
+            # Defer validation for lenient prefixes (e.g. "+tts" plugin tools)
+            if matched_prefix in self.lenient_prefixes:
                 continue
             extra_choices = (
                 self.extra_choices_for_prefix.get(matched_prefix, set())
@@ -364,6 +373,7 @@ Run 'gptme-util --help' for all utility commands."""
         _available_tools + ["none"],
         allow_prefixes=["+", "-"],
         extra_choices_for_prefix={"-": _known_tool_names},
+        lenient_prefixes=["+", "-"],
         metavar="TOOL",
     ),
     help=f"Tools to allow. Comma-separated or repeated. Use '+tool' to add to defaults (e.g., '-t +subagent'). Use '-tool' to exclude from defaults (e.g., '-t=-browser'). Use 'none' to disable all tools. Supports .py file paths for custom tools (e.g., '-t path/to/tool.py'). Available: {available_tool_names}.",

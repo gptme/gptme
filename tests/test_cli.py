@@ -1163,6 +1163,32 @@ def test_comma_separated_choice_minus_prefix():
         csc.convert("-nonexistent", None, None)
 
 
+def test_comma_separated_choice_lenient_prefixes_allow_plugin_tools():
+    """With lenient_prefixes, prefixed unknown names pass (e.g. '+tts' plugin tool).
+
+    Plugin tools aren't known when the CLI is built, so a prefixed name must
+    pass parse-time validation; it's resolved against the loaded toolset later.
+    """
+    from gptme.cli.main import CommaSeparatedChoice
+
+    csc = CommaSeparatedChoice(
+        ["shell", "save", "read"],
+        allow_prefixes=["+", "-"],
+        lenient_prefixes=["+", "-"],
+    )
+
+    # Unknown plugin tool with '+' passes
+    assert csc.convert("+tts", None, None) == "+tts"
+    # Unknown tool with '-' passes too
+    assert csc.convert("-tts", None, None) == "-tts"
+    # Known tools still pass
+    assert csc.convert("+shell", None, None) == "+shell"
+
+    # Bare (unprefixed) unknown names are still rejected
+    with pytest.raises(click.exceptions.BadParameter):
+        csc.convert("tts", None, None)
+
+
 def test_comma_separated_choice_strips_short_option_equals_prefix():
     """Accept Click's `-x=value` short-option form for comma-separated choices."""
     from gptme.cli.main import CommaSeparatedChoice

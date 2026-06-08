@@ -343,23 +343,12 @@ def get_available_tools(include_mcp: bool = True) -> list[ToolSpec]:
         if env_tool_modules:
             tool_modules = env_tool_modules.split(",")
 
-        # Add plugin tool modules
-        if config.project and config.project.plugins.paths:
-            # Resolve plugin paths (support ~ and relative paths)
-            plugin_paths = []
-            for path_str in config.project.plugins.paths:
-                path = Path(path_str).expanduser()
-                if not path.is_absolute() and config.project._workspace:
-                    # Relative to workspace
-                    path = config.project._workspace / path
-                plugin_paths.append(path)
-
-            # Get tool modules from plugins
+        # Add plugin tool modules (user + project [plugins], layered)
+        plugin_paths, enabled_plugins = config.get_plugin_config()
+        if plugin_paths:
             plugin_tool_modules = get_plugin_tool_modules(
                 plugin_paths,
-                enabled_plugins=config.project.plugins.enabled
-                if config.project.plugins.enabled is not None
-                else None,
+                enabled_plugins=enabled_plugins,
             )
             tool_modules.extend(plugin_tool_modules)
 

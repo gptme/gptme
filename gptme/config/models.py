@@ -160,6 +160,10 @@ class UserConfig:
     providers: list[ProviderConfig] = field(default_factory=list)
     lessons: "LessonsConfig | None" = None
 
+    # Plugin system configuration (search paths + enabled allowlist).
+    # Layered with project-level [plugins] (see Config.get_plugin_config).
+    plugins: PluginsConfig = field(default_factory=PluginsConfig)
+
     # Plugin-specific configuration namespace (user-level)
     # Allows plugins to have their own config sections like [plugin.retrieval]
     plugin: dict[str, dict] = field(default_factory=dict)

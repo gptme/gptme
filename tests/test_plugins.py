@@ -309,6 +309,61 @@ def test_discover_plugins_with_individual_hook_modules():
         assert "my_plugin.hooks.another_hook" in plugins[0].hook_modules
 
 
+def _make_src_layout_plugin(parent: Path, dir_name: str, pkg_name: str) -> Path:
+    """Create a src-layout pip-package plugin (pyproject.toml + src/<pkg>/)."""
+    plugin_dir = parent / dir_name
+    pkg_dir = plugin_dir / "src" / pkg_name
+    pkg_dir.mkdir(parents=True)
+    (plugin_dir / "pyproject.toml").write_text(
+        f'[project]\nname = "{dir_name}"\nversion = "0.1.0"\n'
+    )
+    (pkg_dir / "__init__.py").write_text("")
+    return pkg_dir
+
+
+def test_discover_plugins_src_layout():
+    """Discover a src-layout plugin (e.g. gptme-tts) under a search path.
+
+    The plugin keeps its directory name while the tool module uses the inner
+    package name.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        _make_src_layout_plugin(Path(tmpdir), "gptme-tts", "gptme_tts")
+
+        plugins = discover_plugins([Path(tmpdir)])
+
+        assert len(plugins) == 1
+        assert plugins[0].name == "gptme-tts"
+        assert plugins[0].tool_modules == ["gptme_tts"]
+
+
+def test_discover_plugins_src_layout_requires_pyproject():
+    """A src/ dir without pyproject.toml is not treated as a plugin."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        plugin_dir = Path(tmpdir) / "not-a-plugin"
+        pkg_dir = plugin_dir / "src" / "somepkg"
+        pkg_dir.mkdir(parents=True)
+        (pkg_dir / "__init__.py").write_text("")
+        # No pyproject.toml
+
+        plugins = discover_plugins([Path(tmpdir)])
+        assert plugins == []
+
+
+def test_get_plugin_tool_modules_src_layout_allowlist():
+    """The enabled allowlist matches a src-layout plugin by its directory name."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        _make_src_layout_plugin(Path(tmpdir), "gptme-tts", "gptme_tts")
+        _make_src_layout_plugin(Path(tmpdir), "gptme-other", "gptme_other")
+
+        tool_modules = get_plugin_tool_modules(
+            [Path(tmpdir)],
+            enabled_plugins=["gptme-tts"],
+        )
+
+        assert tool_modules == ["gptme_tts"]
+
+
 def test_register_plugin_hooks():
     """Test plugin hook registration."""
     from gptme.hooks import HookType, clear_hooks, get_hooks

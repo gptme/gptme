@@ -21,6 +21,7 @@ from ..util import path_with_tilde
 from .models import (
     LessonsConfig,
     MCPConfig,
+    PluginsConfig,
     ProviderConfig,
     UserConfig,
     UserIdentityConfig,
@@ -211,6 +212,15 @@ def load_user_config(path: str | None = None) -> UserConfig:
         else None
     )
 
+    # Parse [plugins] section (search paths + enabled allowlist)
+    plugins_data = config.pop("plugins", {})
+    if not isinstance(plugins_data, dict):
+        raise ValueError("plugins must be an object")
+    plugins = PluginsConfig(
+        paths=plugins_data.get("paths", []),
+        enabled=plugins_data.get("enabled", []),
+    )
+
     # Extract plugin-prefixed keys (e.g., [plugin.retrieval] -> plugin["retrieval"])
     # This allows plugins to have their own config sections without triggering warnings
     plugin_config: dict[str, dict] = {}
@@ -228,6 +238,7 @@ def load_user_config(path: str | None = None) -> UserConfig:
         mcp=mcp,
         providers=providers,
         lessons=lessons,
+        plugins=plugins,
         plugin=plugin_config,
     )
 

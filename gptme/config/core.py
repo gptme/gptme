@@ -103,6 +103,47 @@ class Config:
 
         return mcp
 
+    def get_plugin_config(self) -> tuple[list[Path], list[str] | None]:
+        """Resolve plugin search paths and the enabled allowlist.
+
+        Layers user-level ``[plugins]`` (from ~/.config/gptme/config.toml) with
+        project-level ``[plugins]`` (from gptme.toml). User paths resolve against
+        the user config directory; project paths against the workspace. Returns
+        ``(paths, enabled)`` where ``enabled`` is ``None`` when no allowlist is
+        set (meaning all discovered plugins are enabled).
+        """
+        from .user import config_path as user_config_path
+
+        paths: list[Path] = []
+        enabled: list[str] = []
+
+        def _add_path(path: Path) -> None:
+            resolved = path.resolve()
+            if resolved not in {p.resolve() for p in paths}:
+                paths.append(path)
+
+        # User-level plugins (relative paths resolve against the config dir)
+        user_config_dir = Path(user_config_path).expanduser().parent
+        for path_str in self.user.plugins.paths:
+            path = Path(path_str).expanduser()
+            if not path.is_absolute():
+                path = user_config_dir / path
+            _add_path(path)
+        enabled.extend(self.user.plugins.enabled)
+
+        # Project-level plugins (relative paths resolve against the workspace)
+        if self.project and self.project.plugins:
+            for path_str in self.project.plugins.paths:
+                path = Path(path_str).expanduser()
+                if not path.is_absolute() and self.project._workspace:
+                    path = self.project._workspace / path
+                _add_path(path)
+            enabled.extend(self.project.plugins.enabled)
+
+        # Dedupe enabled, preserving order. Empty => None (all plugins enabled).
+        deduped_enabled = list(dict.fromkeys(enabled))
+        return paths, (deduped_enabled or None)
+
     def get_env(self, key: str, default: str | None = None) -> str | None:
         """Gets an environment variable, checks the config file if it's not set in the environment.
 
