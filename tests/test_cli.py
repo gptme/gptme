@@ -1164,25 +1164,30 @@ def test_comma_separated_choice_minus_prefix():
 
 
 def test_comma_separated_choice_lenient_prefixes_allow_plugin_tools():
-    """With lenient_prefixes, prefixed unknown names pass (e.g. '+tts' plugin tool).
+    """Only '+'-prefixed unknown names pass (plugin tools); '-' stays strict.
 
-    Plugin tools aren't known when the CLI is built, so a prefixed name must
-    pass parse-time validation; it's resolved against the loaded toolset later.
+    Plugin tools aren't known when the CLI is built, so '+tool' must pass
+    parse-time validation (resolved against the loaded toolset later). '-tool'
+    exclusions stay strict so typos are caught early.
     """
     from gptme.cli.main import CommaSeparatedChoice
 
     csc = CommaSeparatedChoice(
         ["shell", "save", "read"],
         allow_prefixes=["+", "-"],
-        lenient_prefixes=["+", "-"],
+        extra_choices_for_prefix={"-": ["browser"]},
+        lenient_prefixes=["+"],
     )
 
     # Unknown plugin tool with '+' passes
     assert csc.convert("+tts", None, None) == "+tts"
-    # Unknown tool with '-' passes too
-    assert csc.convert("-tts", None, None) == "-tts"
-    # Known tools still pass
+    # Known tools still pass with either prefix
     assert csc.convert("+shell", None, None) == "+shell"
+    assert csc.convert("-browser", None, None) == "-browser"
+
+    # Unknown '-' exclusion is rejected (typo protection retained)
+    with pytest.raises(click.exceptions.BadParameter):
+        csc.convert("-tts", None, None)
 
     # Bare (unprefixed) unknown names are still rejected
     with pytest.raises(click.exceptions.BadParameter):

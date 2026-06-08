@@ -107,13 +107,17 @@ class Config:
         """Resolve plugin search paths and the enabled allowlist.
 
         Layers user-level ``[plugins]`` (from ~/.config/gptme/config.toml) with
-        project-level ``[plugins]`` (from gptme.toml). User paths resolve against
-        the user config directory; project paths against the workspace. Returns
-        ``(paths, enabled)`` where ``enabled`` is ``None`` when no allowlist is
-        set (meaning all discovered plugins are enabled).
-        """
-        from .user import config_path as user_config_path
+        project-level ``[plugins]`` (from gptme.toml). User paths are
+        ``~``/absolute (or expanduser-resolved); project paths resolve against
+        the workspace when relative. Returns ``(paths, enabled)``.
 
+        The ``enabled`` allowlist is the **union** of the user and project lists
+        (empty => ``None``, meaning all discovered plugins are enabled). The
+        union is intentionally restrictive: a global allowlist set by the user
+        also constrains plugins discovered from project paths, so a project
+        cannot silently load plugins the user hasn't opted into. To allow a
+        project's plugins under a user allowlist, add them to either list.
+        """
         paths: list[Path] = []
         enabled: list[str] = []
 
@@ -122,13 +126,11 @@ class Config:
             if resolved not in {p.resolve() for p in paths}:
                 paths.append(path)
 
-        # User-level plugins (relative paths resolve against the config dir)
-        user_config_dir = Path(user_config_path).expanduser().parent
+        # User-level plugins. Paths are expanduser-resolved; use absolute or
+        # ``~``-prefixed paths (resolution is independent of the config file
+        # location, which may differ from the default in tests/multi-profile).
         for path_str in self.user.plugins.paths:
-            path = Path(path_str).expanduser()
-            if not path.is_absolute():
-                path = user_config_dir / path
-            _add_path(path)
+            _add_path(Path(path_str).expanduser())
         enabled.extend(self.user.plugins.enabled)
 
         # Project-level plugins (relative paths resolve against the workspace)

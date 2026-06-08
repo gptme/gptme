@@ -373,7 +373,10 @@ Run 'gptme-util --help' for all utility commands."""
         _available_tools + ["none"],
         allow_prefixes=["+", "-"],
         extra_choices_for_prefix={"-": _known_tool_names},
-        lenient_prefixes=["+", "-"],
+        # Only '+' is lenient: plugin tools (added via '+tool') aren't known at
+        # parse time. '-tool' exclusions stay strict against known tools so typos
+        # like '-shel' are caught early instead of being silently ignored.
+        lenient_prefixes=["+"],
         metavar="TOOL",
     ),
     help=f"Tools to allow. Comma-separated or repeated. Use '+tool' to add to defaults (e.g., '-t +subagent'). Use '-tool' to exclude from defaults (e.g., '-t=-browser'). Use 'none' to disable all tools. Supports .py file paths for custom tools (e.g., '-t path/to/tool.py'). Available: {available_tool_names}.",
