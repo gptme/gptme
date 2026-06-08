@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import shutil
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -1634,6 +1635,7 @@ def api_models():
 # Cache for provider health results
 _provider_health_cache: dict[str, object] = {}
 _provider_health_cache_time: float = 0.0
+_provider_health_lock = threading.Lock()
 _PROVIDER_HEALTH_TTL = 60.0  # seconds
 _PROVIDER_HEALTH_TIMEOUT = 5.0  # seconds per provider
 
@@ -1683,6 +1685,7 @@ def _probe_provider(provider_name: str) -> dict:
             "groq",
             "deepseek",
             "nvidia",
+            "moonshot",
         ):
             from ..llm.llm_openai import get_client as get_openai_client  # fmt: skip
             from ..llm.llm_openai import has_client  # fmt: skip
@@ -1761,17 +1764,26 @@ def api_providers_health():
     force = request.args.get("force", "").lower() in ("1", "true", "yes")
     now = time.monotonic()
 
+    # Fast path: read cache without lock
     if not force and (now - _provider_health_cache_time) < _PROVIDER_HEALTH_TTL:
         return flask.jsonify(_provider_health_cache)
 
-    available = list_available_providers()
-    provider_names = [str(p) for p, _ in available]
+    with _provider_health_lock:
+        # Double-check after acquiring lock (prevents thundering herd)
+        if not force and (now - _provider_health_cache_time) < _PROVIDER_HEALTH_TTL:
+            return flask.jsonify(_provider_health_cache)
 
+        available = list_available_providers()
+        provider_names = [str(p) for p, _ in available]
+
+    # Probe outside lock (call may block on ThreadPoolExecutor)
     response: dict[str, object] = {
         "providers": _collect_provider_health(provider_names)
     }
-    _provider_health_cache = response
-    _provider_health_cache_time = now
+
+    with _provider_health_lock:
+        _provider_health_cache = response
+        _provider_health_cache_time = now
 
     return flask.jsonify(response)
 
