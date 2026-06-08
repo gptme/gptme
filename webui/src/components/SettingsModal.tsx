@@ -31,6 +31,7 @@ import { use$ } from '@legendapp/state/react';
 import { settingsModal$, type SettingsCategory } from '@/stores/settingsModal';
 import { setupWizard$ } from '@/stores/setupWizard';
 import { getPrimaryClient } from '@/stores/serverClients';
+import { isSpeechSupported } from '@/utils/tts';
 export type { SettingsCategory } from '@/stores/settingsModal';
 export { settingsModal$ } from '@/stores/settingsModal';
 
@@ -244,6 +245,7 @@ export const SettingsModal = forwardRef<HTMLButtonElement, SettingsModalProps>(
                 <Switch
                   id="tts-toggle"
                   checked={settings.ttsEnabled}
+                  disabled={!isSpeechSupported()}
                   onCheckedChange={(checked) => updateSettings({ ttsEnabled: checked })}
                 />
               </div>

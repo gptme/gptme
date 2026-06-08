@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState } from 'react';
+import { stopSpeaking } from '../utils/tts';
 
 export interface Settings {
   chimeEnabled: boolean;
@@ -63,6 +64,9 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [settings, setSettings] = useState<Settings>(loadSettingsFromStorage);
 
   const updateSettings = (updates: Partial<Settings>) => {
+    if (updates.ttsEnabled === false) {
+      stopSpeaking();
+    }
     // Use functional updater to avoid stale closure if called in rapid succession.
     setSettings((current) => {
       const newSettings = { ...current, ...updates };
