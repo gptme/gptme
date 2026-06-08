@@ -2,6 +2,7 @@
 
 import json
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -9,6 +10,7 @@ from click.testing import CliRunner
 
 from gptme.cli.util import main
 from gptme.logmanager import ConversationMeta
+from gptme.message import Message
 from gptme.tools.chats import _parse_since, conversation_stats
 
 # --- _parse_since tests ---
@@ -52,6 +54,13 @@ def _make_conv(
     messages: int = 10,
     days_ago: int = 0,
     agent_name: str | None = None,
+    model: str | None = None,
+    cost: float = 0.0,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    cache_read_tokens: int = 0,
+    last_message_role: str | None = None,
+    last_message_preview: str | None = None,
 ) -> ConversationMeta:
     """Helper to create test ConversationMeta objects."""
     now = datetime.now(tz=timezone.utc)
@@ -66,6 +75,13 @@ def _make_conv(
         branches=1,
         workspace="/tmp",
         agent_name=agent_name,
+        model=model,
+        total_cost=cost,
+        total_input_tokens=input_tokens,
+        total_output_tokens=output_tokens,
+        total_cache_read_tokens=cache_read_tokens,
+        last_message_role=last_message_role,
+        last_message_preview=last_message_preview,
     )
 
 
@@ -272,3 +288,106 @@ def test_stats_hist_days_capped_at_365(mock_get_convs):
     data = json.loads(buf.getvalue())
     # by_day must be capped at 365, not ~2200+ days
     assert len(data["by_day"]) == 365
+
+
+@patch("gptme.logmanager.LogManager")
+@patch("gptme.logmanager.get_conversation_by_id")
+def test_session_stats_json(mock_get_conv, mock_log_manager, capsys):
+    """Detailed stats for one conversation should include tools, usage, and duration."""
+    mock_get_conv.return_value = _make_conv(
+        "demo-chat",
+        messages=4,
+        agent_name="Bob",
+        model="openai/gpt-5",
+        cost=0.1234,
+        input_tokens=1200,
+        output_tokens=345,
+        cache_read_tokens=600,
+        last_message_role="assistant",
+        last_message_preview="Done.",
+    )
+    mock_log_manager.load.return_value = SimpleNamespace(
+        log=[
+            Message(
+                "system",
+                "system prompt",
+                timestamp=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+            ),
+            Message(
+                "user",
+                "hello",
+                timestamp=datetime(2026, 1, 1, 12, 1, tzinfo=timezone.utc),
+            ),
+            Message(
+                "assistant",
+                '@shell(call-1): {"command": "pwd"}\n@read(call-2): {"path": "/tmp/demo"}',
+                timestamp=datetime(2026, 1, 1, 12, 3, tzinfo=timezone.utc),
+            ),
+            Message(
+                "assistant",
+                "Done.",
+                timestamp=datetime(2026, 1, 1, 12, 4, tzinfo=timezone.utc),
+            ),
+        ]
+    )
+
+    conversation_stats(conversation_id="demo-chat", as_json=True)
+
+    data = json.loads(capsys.readouterr().out)
+    assert data["id"] == "demo-chat"
+    assert data["messages"]["total"] == 4
+    assert data["messages"]["by_role"]["assistant"] == 2
+    assert data["tool_calls"]["total"] == 2
+    assert data["tool_calls"]["by_tool"] == {"shell": 1, "read": 1}
+    assert data["usage"]["total_tokens"] == 1545
+    assert data["usage"]["cost"] == 0.1234
+    assert data["duration_seconds"] == 240
+    assert data["last_message"]["preview"] == "Done."
+
+
+@patch("gptme.logmanager.LogManager")
+@patch("gptme.logmanager.get_conversation_by_id")
+def test_cli_chats_stats_single_conversation(mock_get_conv, mock_log_manager):
+    """CLI should support inspecting a single conversation by ID."""
+    mock_get_conv.return_value = _make_conv(
+        "demo-chat",
+        messages=3,
+        model="anthropic/claude-sonnet-4-6",
+        input_tokens=800,
+        output_tokens=200,
+    )
+    mock_log_manager.load.return_value = SimpleNamespace(
+        log=[
+            Message(
+                "user",
+                "hello",
+                timestamp=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+            ),
+            Message(
+                "assistant",
+                '@shell(call-1): {"command": "pwd"}',
+                timestamp=datetime(2026, 1, 1, 12, 2, tzinfo=timezone.utc),
+            ),
+            Message(
+                "system",
+                "Ran command",
+                timestamp=datetime(2026, 1, 1, 12, 3, tzinfo=timezone.utc),
+            ),
+        ]
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["chats", "stats", "demo-chat"])
+    assert result.exit_code == 0, result.output
+    assert "Conversation Stats: conv-demo-chat" in result.output
+    assert "Tool calls:           1" in result.output
+    assert "shell=1" in result.output
+    assert "anthropic/claude-sonnet-4-6" in result.output
+
+
+def test_cli_chats_stats_rejects_since_with_id():
+    """Per-conversation stats should not accept aggregate-only filters."""
+    runner = CliRunner()
+    result = runner.invoke(main, ["chats", "stats", "demo-chat", "--since", "7d"])
+    assert result.exit_code != 0
+    assert "Cannot use --since" in result.output

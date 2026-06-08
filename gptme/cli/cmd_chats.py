@@ -432,21 +432,28 @@ def chats_clean(max_messages: int, include_test: bool, delete: bool, json_output
 
 
 @chats.command("stats")
+@click.argument("id", required=False)
 @click.option(
     "--since",
     default=None,
     help="Only include conversations since this date (YYYY-MM-DD or Nd for N days ago).",
 )
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
-def chats_stats(since: str | None, as_json: bool):
+def chats_stats(id: str | None, since: str | None, as_json: bool):
     """Show conversation statistics.
 
-    Displays overview of conversation history including counts,
+    Without an ID, displays overview of conversation history including counts,
     date ranges, message totals, and activity breakdown.
+
+    With an ID, shows detailed stats for one conversation including role counts,
+    tool calls, token usage, and duration.
     """
     from ..tools.chats import conversation_stats  # fmt: skip
 
+    if id and since:
+        raise click.UsageError("Cannot use --since when inspecting a specific chat.")
+
     try:
-        conversation_stats(since=since, as_json=as_json)
+        conversation_stats(since=since, as_json=as_json, conversation_id=id)
     except ValueError as e:
         raise click.UsageError(str(e)) from e
