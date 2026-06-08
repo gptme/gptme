@@ -9,6 +9,7 @@
  */
 
 let currentAudio: HTMLAudioElement | null = null;
+let currentFetchController: AbortController | null = null;
 
 function getSettings(): { ttsEnabled: boolean; ttsServerUrl: string } {
   try {
@@ -49,29 +50,48 @@ function toSpokenText(markdown: string): string {
   );
 }
 
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
+
 async function speakViaServer(text: string, serverUrl: string): Promise<void> {
   const url = `${serverUrl.replace(/\/$/, '')}/tts?${new URLSearchParams({ text })}`;
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`TTS server error: ${response.status}`);
-  const blob = await response.blob();
-  const objectUrl = URL.createObjectURL(blob);
+  const controller = new AbortController();
+  currentFetchController = controller;
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) throw new Error(`TTS server error: ${response.status}`);
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
 
-  if (currentAudio) {
-    currentAudio.pause();
-    URL.revokeObjectURL(currentAudio.src);
+    if (controller.signal.aborted) {
+      URL.revokeObjectURL(objectUrl);
+      return;
+    }
+
+    if (currentAudio) {
+      currentAudio.pause();
+      URL.revokeObjectURL(currentAudio.src);
+    }
+    const audio = new Audio(objectUrl);
+    currentAudio = audio;
+    audio.onended = () => {
+      URL.revokeObjectURL(objectUrl);
+      if (currentAudio === audio) currentAudio = null;
+    };
+    await audio.play();
+  } finally {
+    if (currentFetchController === controller) {
+      currentFetchController = null;
+    }
   }
-  const audio = new Audio(objectUrl);
-  currentAudio = audio;
-  audio.onended = () => {
-    URL.revokeObjectURL(objectUrl);
-    if (currentAudio === audio) currentAudio = null;
-  };
-  await audio.play();
 }
 
 async function speak(rawText: string): Promise<void> {
   const spoken = toSpokenText(rawText);
   if (!spoken) return;
+
+  stopSpeaking();
 
   const { ttsServerUrl } = getSettings();
   if (ttsServerUrl) {
@@ -79,13 +99,12 @@ async function speak(rawText: string): Promise<void> {
       await speakViaServer(spoken, ttsServerUrl);
       return;
     } catch (err) {
+      if (isAbortError(err)) return;
       console.warn('gptme-tts server unavailable, falling back to Web Speech API:', err);
     }
   }
 
   if (!window.speechSynthesis) return;
-  // Cancel any previous utterance so a new message interrupts the old one.
-  window.speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(spoken);
   utterance.rate = 1.1;
   window.speechSynthesis.speak(utterance);
@@ -104,6 +123,10 @@ export function speakTextNow(rawText: string): void {
 }
 
 export function stopSpeaking(): void {
+  if (currentFetchController) {
+    currentFetchController.abort();
+    currentFetchController = null;
+  }
   if (currentAudio) {
     currentAudio.pause();
     URL.revokeObjectURL(currentAudio.src);
