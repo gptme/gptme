@@ -19,6 +19,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { toggleLeftSidebarCollapsed, leftSidebarCollapsed$ } from '@/stores/sidebar';
 import { commandPaletteOpen$ } from '@/stores/commandPalette';
 import { SettingsModal } from './SettingsModal';
+import { useProviderHealth } from '@/hooks/useProviderHealth';
+import { hasAnyProviderError } from '@/stores/providerHealth';
 import type { Task } from '@/types/task';
 import type { FC } from 'react';
 import { use$ } from '@legendapp/state/react';
@@ -96,6 +98,9 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
   };
 
   const activeTasks = tasks.filter((t) => t.status === 'active' && !t.archived);
+
+  const { data: providerHealthData } = useProviderHealth();
+  const hasProviderError = hasAnyProviderError(providerHealthData);
 
   const navItems: NavItem[] = [
     { id: 'chat', icon: MessageSquare, label: 'Chat', section: 'chat' },
@@ -210,10 +215,15 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
               <SettingsModal>
                 <Button
                   variant="ghost"
-                  className="h-8 w-full min-w-0 justify-start gap-2 px-2"
+                  className="relative h-8 w-full min-w-0 justify-start gap-2 px-2"
                   aria-label="Open settings"
                 >
-                  <Settings className="h-4 w-4 flex-shrink-0" />
+                  <span className="relative flex-shrink-0">
+                    <Settings className="h-4 w-4" />
+                    {hasProviderError && (
+                      <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-red-500" />
+                    )}
+                  </span>
                   <span
                     className={`min-w-0 flex-1 truncate text-left text-sm transition-opacity duration-150 ${
                       isExpanded ? 'opacity-100' : 'opacity-0'
