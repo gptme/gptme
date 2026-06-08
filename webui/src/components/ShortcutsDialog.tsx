@@ -21,6 +21,7 @@ interface ShortcutGroup {
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform ?? '');
 const MOD = isMac ? '⌘' : 'Ctrl';
 const ALT = isMac ? '⌥' : 'Alt';
+const CONVERSATION_SEARCH_MOD = isMac ? '⌘' : 'Alt';
 
 const SHORTCUT_GROUPS: ShortcutGroup[] = [
   {
@@ -30,6 +31,7 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: [ALT, 'N'], description: 'New conversation' },
       { keys: [MOD, 'F'], description: 'Search messages in conversation' },
       { keys: [MOD, 'Shift', '\\'], description: 'Toggle split view' },
+      { keys: [CONVERSATION_SEARCH_MOD, 'F'], description: 'Search conversations' },
       { keys: ['?'], description: 'Show this shortcuts reference' },
       { keys: ['i'], description: 'Focus the message input' },
     ],

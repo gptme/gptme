@@ -3,6 +3,7 @@ import {
   MessageSquare,
   Lock,
   Loader2,
+  Search,
   Signal,
   Pencil,
   Download,
@@ -11,8 +12,10 @@ import {
   Trash2,
   BookOpen,
   Columns2,
+  X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   ContextMenu,
@@ -80,8 +83,10 @@ export const ConversationList: FC<Props> = ({
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const [filterQuery, setFilterQuery] = useState('');
   // Guard against double-submit: onKeyDown(Enter) sets this before onBlur fires
   const renameCommittedRef = useRef(false);
+  const filterInputRef = useRef<HTMLInputElement>(null);
 
   const handleExportMarkdown = useCallback((conv: ConversationSummary) => {
     const storeConv = conversations$.get(conv.id)?.get();
@@ -202,6 +207,18 @@ export const ConversationList: FC<Props> = ({
     };
   }, [hasNextPage, fetchNextPage]); // isFetching accessed via ref to avoid observer recreation
 
+  useEffect(() => {
+    const handleFilterShortcut = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== 'f' || (!e.altKey && !e.metaKey)) return;
+      e.preventDefault();
+      filterInputRef.current?.focus();
+      filterInputRef.current?.select();
+    };
+
+    window.addEventListener('keydown', handleFilterShortcut);
+    return () => window.removeEventListener('keydown', handleFilterShortcut);
+  }, []);
+
   if (!conversations) {
     return null;
   }
@@ -216,6 +233,15 @@ export const ConversationList: FC<Props> = ({
     const match = name.match(/^\d{4}-\d{2}-\d{2}[- ](.*)/);
     return match ? match[1] : name;
   }
+
+  function getConversationName(conv: ConversationSummary) {
+    const storeConv = conversations$.get(conv.id)?.get();
+    return storeConv?.data?.name || conv.name || stripDate(conv.id);
+  }
+
+  const normalizedFilter = filterQuery.trim().toLowerCase();
+  const matchesFilter = (conv: ConversationSummary) =>
+    !normalizedFilter || getConversationName(conv).toLowerCase().includes(normalizedFilter);
 
   const ConversationItem: FC<{ conv: ConversationSummary; showLabel?: boolean }> = ({
     conv,
@@ -533,12 +559,48 @@ export const ConversationList: FC<Props> = ({
     );
   };
 
+  const filteredRealConversations = realConversations.filter(matchesFilter);
+  const filteredDemos = demos.filter(matchesFilter);
+  const hasFilter = normalizedFilter.length > 0;
+  const hasNoFilteredMatches =
+    hasFilter && filteredRealConversations.length === 0 && filteredDemos.length === 0;
+
   return (
     <div
       ref={scrollContainerRef}
       data-testid="conversation-list"
       className="h-full space-y-2 overflow-y-auto overflow-x-hidden"
     >
+      {!isLoading && !isError && conversations.length > 0 && (
+        <div className="sticky top-0 z-20 bg-background/95 px-2 pb-1 pt-2 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              ref={filterInputRef}
+              value={filterQuery}
+              onChange={(e) => setFilterQuery(e.target.value)}
+              placeholder="Search conversations"
+              aria-label="Search conversations"
+              className="h-8 pl-8 pr-8 text-sm"
+            />
+            {filterQuery && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label="Clear conversation search"
+                className="absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2"
+                onClick={() => {
+                  setFilterQuery('');
+                  filterInputRef.current?.focus();
+                }}
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
       {isLoading && (
         <div className="flex items-center justify-center px-2 py-4 text-sm text-muted-foreground">
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -567,31 +629,37 @@ export const ConversationList: FC<Props> = ({
           No conversations found. Start a new conversation to get started.
         </div>
       )}
+      {!isLoading && !isError && hasNoFilteredMatches && (
+        <div className="px-2 py-4 text-sm text-muted-foreground">
+          No conversations match your search.
+        </div>
+      )}
 
       {/* Render real conversations grouped by date */}
       {!isLoading &&
         !isError &&
-        groupByDate<ConversationSummary>(realConversations, (c) => c.created ?? c.modified).map(
-          ({ group, items }) => (
-            <div key={group}>
-              <div
-                data-testid="date-group-header"
-                className="sticky top-0 z-10 bg-background/95 px-2 py-1.5 text-xs font-medium text-muted-foreground backdrop-blur supports-[backdrop-filter]:bg-background/60"
-              >
-                {group}
-              </div>
-              <div className="space-y-2 px-2">
-                {items.map((conv) => (
-                  <ConversationItem
-                    key={conv.serverId ? `${conv.serverId}:${conv.id}` : conv.id}
-                    conv={conv}
-                    showLabel={showServerLabels}
-                  />
-                ))}
-              </div>
+        groupByDate<ConversationSummary>(
+          filteredRealConversations,
+          (c) => c.created ?? c.modified
+        ).map(({ group, items }) => (
+          <div key={group}>
+            <div
+              data-testid="date-group-header"
+              className="sticky top-0 z-10 bg-background/95 px-2 py-1.5 text-xs font-medium text-muted-foreground backdrop-blur supports-[backdrop-filter]:bg-background/60"
+            >
+              {group}
             </div>
-          )
-        )}
+            <div className="space-y-2 px-2">
+              {items.map((conv) => (
+                <ConversationItem
+                  key={conv.serverId ? `${conv.serverId}:${conv.id}` : conv.id}
+                  conv={conv}
+                  showLabel={showServerLabels}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
 
       {/* Loading indicator for fetching more */}
       {isFetching && !isLoading && (
@@ -605,21 +673,21 @@ export const ConversationList: FC<Props> = ({
       <div ref={loadMoreSentinelRef} style={{ height: '1px' }} />
 
       {/* End message */}
-      {!hasNextPage && realConversations.length > 0 && (
+      {!hasFilter && !hasNextPage && realConversations.length > 0 && (
         <div className="py-4 text-center text-sm text-muted-foreground">
           You've reached the end of your conversations.
         </div>
       )}
 
       {/* Demo conversations pinned at bottom */}
-      {!isLoading && !isError && demos.length > 0 && (
+      {!isLoading && !isError && filteredDemos.length > 0 && (
         <div>
           <div className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium text-muted-foreground">
             <BookOpen className="h-3 w-3" />
             Getting Started
           </div>
           <div className="space-y-2 px-2">
-            {demos.map((conv) => (
+            {filteredDemos.map((conv) => (
               <ConversationItem key={conv.id} conv={conv} />
             ))}
           </div>

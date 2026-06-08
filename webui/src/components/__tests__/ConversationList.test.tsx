@@ -145,6 +145,55 @@ describe('ConversationList', () => {
     expect(titles).toHaveLength(2);
   });
 
+  it('filters conversations by name', () => {
+    const convs = [
+      createConversation({ id: 'conv-1', name: 'Alpha Project' }),
+      createConversation({ id: 'conv-2', name: 'Beta Notes' }),
+    ];
+    renderWithProviders(<ConversationList {...defaultProps} conversations={convs} />);
+    fireEvent.change(screen.getByLabelText('Search conversations'), {
+      target: { value: 'alpha' },
+    });
+
+    expect(screen.getByText('Alpha Project')).toBeInTheDocument();
+    expect(screen.queryByText('Beta Notes')).not.toBeInTheDocument();
+  });
+
+  it('shows an empty state when no conversations match the filter', () => {
+    renderWithProviders(<ConversationList {...defaultProps} />);
+    fireEvent.change(screen.getByLabelText('Search conversations'), {
+      target: { value: 'missing' },
+    });
+
+    expect(screen.getByText('No conversations match your search.')).toBeInTheDocument();
+    expect(screen.queryByTestId('conversation-title')).not.toBeInTheDocument();
+  });
+
+  it('clears the conversation filter', () => {
+    const convs = [
+      createConversation({ id: 'conv-1', name: 'Alpha Project' }),
+      createConversation({ id: 'conv-2', name: 'Beta Notes' }),
+    ];
+    renderWithProviders(<ConversationList {...defaultProps} conversations={convs} />);
+    const searchInput = screen.getByLabelText('Search conversations');
+
+    fireEvent.change(searchInput, { target: { value: 'alpha' } });
+    fireEvent.click(screen.getByLabelText('Clear conversation search'));
+
+    expect(searchInput).toHaveValue('');
+    expect(screen.getByText('Alpha Project')).toBeInTheDocument();
+    expect(screen.getByText('Beta Notes')).toBeInTheDocument();
+  });
+
+  it('focuses the conversation search with Alt+F', () => {
+    renderWithProviders(<ConversationList {...defaultProps} />);
+    const searchInput = screen.getByLabelText('Search conversations');
+
+    fireEvent.keyDown(window, { key: 'f', altKey: true });
+
+    expect(searchInput).toHaveFocus();
+  });
+
   it('shows end-of-list message when no more pages', () => {
     renderWithProviders(<ConversationList {...defaultProps} hasNextPage={false} />);
     expect(screen.getByText("You've reached the end of your conversations.")).toBeInTheDocument();
