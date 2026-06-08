@@ -108,7 +108,11 @@ export function ServerProviderHealthSettings() {
       {providerEntries.length > 0 ? (
         <div className="space-y-2">
           {providerEntries.map(([provider, info]) => {
-            const styles = STATUS_STYLES[info.status];
+            const styles = STATUS_STYLES[info.status] ?? {
+              label: info.status,
+              dotClassName: 'bg-gray-500',
+              textClassName: 'text-gray-500',
+            };
             return (
               <div
                 key={provider}
