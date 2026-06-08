@@ -28,10 +28,10 @@ Pass the PR URL directly:
 gptme 'review this PR for correctness and suggest improvements' https://github.com/owner/repo/pull/42
 ```
 
-Or use the `gh` integration:
+Or let gptme fetch the PR URL itself:
 
 ```bash
-gptme 'review owner/repo/pull/42'
+gptme 'review this PR' https://github.com/owner/repo/pull/42
 ```
 
 ## Review a single file for issues

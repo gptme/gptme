@@ -3,6 +3,16 @@
 Task-oriented recipes for common workflows with gptme.
 Each guide gives you a copy-pasteable pattern you can adapt immediately.
 
+```{toctree}
+:maxdepth: 1
+
+edit-files
+code-review
+debug-python
+automate-task
+refactor
+```
+
 ## File Editing
 [Edit files surgically](edit-files.md) — patch, save, and inspect without rewriting whole files.
 
