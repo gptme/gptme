@@ -163,7 +163,7 @@ describe('CommandPalette', () => {
 
     it('navigates to home with Alt+N', () => {
       renderCommandPalette();
-      fireEvent.keyDown(document, { key: 'n', altKey: true });
+      fireEvent.keyDown(document, { key: 'n', code: 'KeyN', altKey: true });
       expect(mockNavigate).toHaveBeenCalledWith('/');
     });
 
@@ -171,6 +171,7 @@ describe('CommandPalette', () => {
       renderCommandPalette();
       const event = new KeyboardEvent('keydown', {
         key: 'n',
+        code: 'KeyN',
         altKey: true,
         cancelable: true,
       });
@@ -191,7 +192,7 @@ describe('CommandPalette', () => {
         </BrowserRouter>
       );
       const input = screen.getByTestId('text-field');
-      fireEvent.keyDown(input, { key: 'n', altKey: true });
+      fireEvent.keyDown(input, { key: 'n', code: 'KeyN', altKey: true });
       expect(mockNavigate).not.toHaveBeenCalled();
     });
   });

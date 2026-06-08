@@ -83,7 +83,7 @@ export function CommandPalette() {
   // Alt+N — new conversation (skip when typing in an input)
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() !== 'n' || !e.altKey || e.metaKey || e.ctrlKey) return;
+      if (e.code !== 'KeyN' || !e.altKey || e.metaKey || e.ctrlKey) return;
       const target = e.target as HTMLElement | null;
       if (
         target instanceof HTMLInputElement ||
