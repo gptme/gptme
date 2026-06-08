@@ -119,7 +119,7 @@ struct ServerProcess {
     owns_port: Arc<AtomicBool>,
 }
 
-#[derive(serde::Serialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 struct ServerStatus {
     running: bool,
     port: u16,
@@ -751,6 +751,73 @@ fn kill_server_on_port(_port: u16) {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(desktop)]
+    use tauri::test::{assert_ipc_response, get_ipc_response, mock_builder, MockRuntime};
+    #[cfg(desktop)]
+    use tauri::Manager;
+    #[cfg(desktop)]
+    use tauri_plugin_shell::ShellExt;
+
+    #[cfg(desktop)]
+    fn build_test_app() -> tauri::App<MockRuntime> {
+        mock_builder()
+            .plugin(tauri_plugin_shell::init())
+            .manage(ServerProcess {
+                child: Arc::new(Mutex::new(None)),
+                owns_port: Arc::new(AtomicBool::new(false)),
+            })
+            .invoke_handler(tauri::generate_handler![
+                get_server_status,
+                start_server,
+                stop_server,
+            ])
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap()
+    }
+
+    #[cfg(desktop)]
+    fn build_test_webview(app: &tauri::App<MockRuntime>) -> tauri::WebviewWindow<MockRuntime> {
+        tauri::WebviewWindowBuilder::new(app, "main", Default::default())
+            .build()
+            .unwrap()
+    }
+
+    #[cfg(desktop)]
+    fn test_invoke_request(cmd: &str) -> tauri::webview::InvokeRequest {
+        tauri::webview::InvokeRequest {
+            cmd: cmd.into(),
+            callback: tauri::ipc::CallbackFn(0),
+            error: tauri::ipc::CallbackFn(1),
+            url: "http://tauri.localhost".parse().unwrap(),
+            body: tauri::ipc::InvokeBody::default(),
+            headers: Default::default(),
+            invoke_key: tauri::test::INVOKE_KEY.to_string(),
+        }
+    }
+
+    #[cfg(desktop)]
+    fn invoke_server_status(webview: &tauri::WebviewWindow<MockRuntime>) -> ServerStatus {
+        get_ipc_response(webview, test_invoke_request("get_server_status"))
+            .unwrap()
+            .deserialize()
+            .unwrap()
+    }
+
+    #[cfg(desktop)]
+    fn seed_running_server(app: &tauri::App<MockRuntime>) {
+        #[cfg(unix)]
+        let command = app.shell().command("sleep").args(["60"]);
+        #[cfg(windows)]
+        let command = app
+            .shell()
+            .command("powershell")
+            .args(["-Command", "Start-Sleep -Seconds 60"]);
+
+        let (_rx, child) = command.spawn().unwrap();
+        let state = app.state::<ServerProcess>();
+        *state.child.lock().unwrap() = Some(child);
+        state.owns_port.store(true, Ordering::Relaxed);
+    }
 
     #[test]
     #[cfg(desktop)]
@@ -907,6 +974,54 @@ mod tests {
     fn test_server_process_state_is_send_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<ServerProcess>();
+    }
+
+    #[test]
+    #[cfg(desktop)]
+    fn test_get_server_status_reports_running_via_ipc() {
+        let app = build_test_app();
+        let webview = build_test_webview(&app);
+        seed_running_server(&app);
+
+        let status = invoke_server_status(&webview);
+        assert!(status.running);
+        assert_eq!(status.port, GPTME_SERVER_PORT);
+        assert!(status.manages_local_server);
+        assert!(!status.existing_server_detected);
+
+        assert_ipc_response(&webview, test_invoke_request("stop_server"), Ok(()));
+    }
+
+    #[test]
+    #[cfg(desktop)]
+    fn test_start_server_rejects_duplicate_running_process_via_ipc() {
+        let app = build_test_app();
+        let webview = build_test_webview(&app);
+        seed_running_server(&app);
+
+        assert_ipc_response(
+            &webview,
+            test_invoke_request("start_server"),
+            Err("Server is already running".to_string()),
+        );
+
+        assert_ipc_response(&webview, test_invoke_request("stop_server"), Ok(()));
+    }
+
+    #[test]
+    #[cfg(desktop)]
+    fn test_stop_server_clears_running_state_via_ipc() {
+        let app = build_test_app();
+        let webview = build_test_webview(&app);
+        seed_running_server(&app);
+
+        assert!(invoke_server_status(&webview).running);
+        assert_ipc_response(&webview, test_invoke_request("stop_server"), Ok(()));
+        assert!(!invoke_server_status(&webview).running);
+
+        let state = app.state::<ServerProcess>();
+        assert!(state.child.lock().unwrap().is_none());
+        assert!(!state.owns_port.load(Ordering::Relaxed));
     }
 
     #[test]
