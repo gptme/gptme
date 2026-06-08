@@ -246,6 +246,13 @@ jobs:
       - name: Verify tauri-driver installation
         run: command -v tauri-driver
 
+      - name: Serve webui mock on devUrl port (5701)
+        run: |
+          python3 -m http.server 5701 --directory webui/dist &
+          echo $! > /tmp/webui-server.pid
+          timeout 15 bash -c 'until curl -sf http://localhost:5701 > /dev/null; do sleep 0.5; done'
+          echo "webui mock server ready on port 5701"
+
       - name: Install E2E test dependencies
         run: cd tauri/e2e && npm ci
 
