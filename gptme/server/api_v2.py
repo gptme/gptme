@@ -1657,7 +1657,9 @@ def _probe_provider(provider_name: str) -> dict:
             # These support dynamic model listing via an HTTP call
             from ..llm import get_available_models  # fmt: skip
 
-            get_available_models(provider)
+            models = get_available_models(provider)
+            if not models:
+                raise RuntimeError(f"No models returned from {provider_name}")
 
         elif provider_name == "anthropic":
             from ..llm.llm_anthropic import (
@@ -1676,10 +1678,10 @@ def _probe_provider(provider_name: str) -> dict:
                     "error": "Client not initialized",
                 }
             # Lightweight list call to verify connectivity and auth
-            health_client = anthropic_client.with_options(
+            anthropic_health_client = anthropic_client.with_options(
                 timeout=_PROVIDER_HEALTH_TIMEOUT
             )
-            next(iter(health_client.models.list(limit=1)), None)
+            next(iter(anthropic_health_client.models.list(limit=1)), None)
 
         elif provider_name in (
             "openai",
@@ -1698,8 +1700,10 @@ def _probe_provider(provider_name: str) -> dict:
             if not has_client(provider):
                 init_openai(provider, get_config())
             openai_client = get_openai_client(provider)
-            health_client = openai_client.with_options(timeout=_PROVIDER_HEALTH_TIMEOUT)
-            next(iter(health_client.models.list()), None)
+            openai_health_client = openai_client.with_options(
+                timeout=_PROVIDER_HEALTH_TIMEOUT
+            )
+            next(iter(openai_health_client.models.list()), None)
 
         elif provider_name == "openai-subscription":
             from ..llm.llm_openai_subscription import (

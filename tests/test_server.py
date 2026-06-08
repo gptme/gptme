@@ -424,6 +424,21 @@ def test_probe_provider_checks_openai_subscription_auth(
     assert calls == [api_module._PROVIDER_HEALTH_TIMEOUT]
 
 
+def test_probe_provider_empty_dynamic_models_is_unhealthy(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """local/gptme/custom probes should not report ok when model listing is empty."""
+    from gptme import llm
+    from gptme.server import api_v2 as api_module
+
+    monkeypatch.setattr(llm, "get_available_models", lambda provider: [])
+
+    result = api_module._probe_provider("local")
+
+    assert result["status"] == "error"
+    assert result["error"] == "No models returned from local"
+
+
 def test_api_providers_health_force_shares_inflight_refresh(
     monkeypatch: pytest.MonkeyPatch,
 ):
