@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useApi } from '@/contexts/ApiContext';
@@ -41,9 +41,13 @@ export function ServerProviderHealthSettings() {
   const [health, setHealth] = useState<ProviderHealthResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const latestRequestId = useRef(0);
 
   const loadHealth = useCallback(
     async (force = false) => {
+      const requestId = latestRequestId.current + 1;
+      latestRequestId.current = requestId;
+
       setIsLoading(true);
       setError(null);
 
@@ -63,11 +67,19 @@ export function ServerProviderHealthSettings() {
         }
 
         const data = (await response.json()) as ProviderHealthResponse;
+        if (requestId !== latestRequestId.current) {
+          return;
+        }
         setHealth(data);
       } catch (err) {
+        if (requestId !== latestRequestId.current) {
+          return;
+        }
         setError(err instanceof Error ? err.message : 'Failed to fetch provider health');
       } finally {
-        setIsLoading(false);
+        if (requestId === latestRequestId.current) {
+          setIsLoading(false);
+        }
       }
     },
     [api.authHeader, api.baseUrl]
@@ -101,7 +113,7 @@ export function ServerProviderHealthSettings() {
         <p className="text-sm text-muted-foreground">Loading provider health…</p>
       ) : null}
 
-      {!error && !isLoading && providerEntries.length == 0 ? (
+      {!error && !isLoading && providerEntries.length === 0 ? (
         <p className="text-sm text-muted-foreground">No configured providers detected.</p>
       ) : null}
 

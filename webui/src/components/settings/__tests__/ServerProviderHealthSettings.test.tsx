@@ -1,8 +1,24 @@
 import '@testing-library/jest-dom';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ServerProviderHealthSettings } from '../ServerProviderHealthSettings';
 
 const mockFetch = jest.fn();
+
+type MockResponse = {
+  ok: boolean;
+  json: () => Promise<{
+    providers: Record<string, { status: string; latency_ms: number | null; error: string | null }>;
+  }>;
+};
+
+function deferred<T>() {
+  let resolve: (value: T) => void = () => {};
+  const promise = new Promise<T>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+
+  return { promise, resolve };
+}
 
 jest.mock('@/contexts/ApiContext', () => ({
   useApi: () => ({
@@ -96,5 +112,57 @@ describe('ServerProviderHealthSettings', () => {
         }
       );
     });
+  });
+
+  it('ignores stale responses when refresh finishes before initial load', async () => {
+    const initialResponse = deferred<MockResponse>();
+    const refreshResponse = deferred<MockResponse>();
+
+    mockFetch
+      .mockReturnValueOnce(initialResponse.promise)
+      .mockReturnValueOnce(refreshResponse.promise);
+
+    render(<ServerProviderHealthSettings />);
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /refresh/i }));
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    await act(async () => {
+      refreshResponse.resolve({
+        ok: true,
+        json: async () => ({
+          providers: {
+            anthropic: { status: 'ok', latency_ms: 12, error: null },
+          },
+        }),
+      });
+      await refreshResponse.promise;
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('12 ms')).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      initialResponse.resolve({
+        ok: true,
+        json: async () => ({
+          providers: {
+            anthropic: { status: 'ok', latency_ms: 10, error: null },
+          },
+        }),
+      });
+      await initialResponse.promise;
+    });
+
+    expect(screen.getByText('12 ms')).toBeInTheDocument();
+    expect(screen.queryByText('10 ms')).not.toBeInTheDocument();
   });
 });
