@@ -116,6 +116,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Install Linux dependencies
         run: |
@@ -137,6 +139,8 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 'lts/*'
+          cache: 'npm'
+          cache-dependency-path: tauri/e2e/package-lock.json
 
       - name: Create placeholder sidecar for tauri-build
         run: |
@@ -171,7 +175,7 @@ jobs:
         run: cargo install tauri-driver
 
       - name: Install E2E test dependencies
-        run: cd tauri/e2e && npm install
+        run: cd tauri/e2e && npm ci
 
       - name: Run E2E smoke tests
         run: xvfb-run --auto-servernum npm --prefix tauri/e2e test
