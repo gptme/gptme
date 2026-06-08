@@ -449,6 +449,54 @@ def test_reply_stream_on_token_callback(monkeypatch):
     assert len(collected) < len(expected_text)
 
 
+def test_reply_stream_generation_chunk_hook(monkeypatch):
+    """generation.chunk hooks receive streamed lines even without an on_token callback."""
+    from gptme.hooks import HookType, clear_hooks, register_hook
+    from gptme.llm import _reply_stream
+    from gptme.message import Message
+
+    chunks_to_yield = ["Hello world.\n", "How are you?"]
+
+    def _fake_gen(chunks):
+        yield from chunks
+
+    class _FakeStream:
+        def __init__(self, chunks):
+            self.gen = _fake_gen(chunks)
+            self.metadata = {"model": "test/model"}
+
+        def __iter__(self):
+            yield from self.gen
+
+    monkeypatch.setattr(
+        "gptme.llm._stream",
+        lambda *args, **kwargs: _FakeStream(chunks_to_yield),
+    )
+
+    received: list[str] = []
+
+    def chunk_hook(chunk, **kwargs):
+        received.append(chunk)
+        return
+        yield  # make it a generator
+
+    clear_hooks(HookType.GENERATION_CHUNK)
+    register_hook("test.chunk", HookType.GENERATION_CHUNK, chunk_hook)
+    try:
+        # Note: no on_token — the hook alone drives chunk emission.
+        result = _reply_stream(
+            messages=[Message("user", "hi")],
+            model="test/model",
+            tools=None,
+        )
+    finally:
+        clear_hooks(HookType.GENERATION_CHUNK)
+
+    assert result.content == "Hello world.\nHow are you?"
+    # Hook receives whole lines (newline-terminated) plus the final partial line.
+    assert received == ["Hello world.\n", "How are you?"]
+
+
 def test_reply_stream_on_token_break_on_tooluse(monkeypatch):
     """on_token receives only content up to the break_on_tooluse breakpoint."""
     from gptme.llm import _reply_stream

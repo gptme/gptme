@@ -544,6 +544,21 @@ def _reply_stream(
         length = length or shutil.get_terminal_size().columns
         rprint("\r" + " " * length, end="\r")
 
+    # Combine the on_token callback (ACP/display) with generation.chunk hooks
+    # (e.g. streaming TTS) into a single emitter, so the per-line buffering below
+    # runs whenever either consumer is interested — not just when on_token is set.
+    from ..hooks import HookType, get_hooks, trigger_hook
+
+    _chunk_hooks_active = bool(get_hooks(HookType.GENERATION_CHUNK))
+    emit_active = on_token is not None or _chunk_hooks_active
+
+    def _emit_chunk(text: str) -> None:
+        if _chunk_hooks_active:
+            for _ in trigger_hook(HookType.GENERATION_CHUNK, chunk=text):
+                pass
+        if on_token is not None:
+            on_token(text)
+
     output = ""
     start_time = time.time()
     first_token_time = None
@@ -693,7 +708,7 @@ def _reply_stream(
             # line is not a thinking-tag delimiter.  This prevents the opening
             # <think> tag characters from leaking to callers before are_thinking
             # flips at the trailing '\n'.
-            if on_token:
+            if emit_active:
                 if char == "\n":
                     # A thinking-tag transition happened on this newline when
                     # are_thinking != prev_thinking.  In that case discard the
@@ -701,7 +716,7 @@ def _reply_stream(
                     if not are_thinking and not prev_thinking:
                         if line_buffer:
                             # Normal line — emit the whole line as one chunk.
-                            on_token("".join(line_buffer) + "\n")
+                            _emit_chunk("".join(line_buffer) + "\n")
                         elif just_closed_thinking:
                             # Suppress the one blank "\n" that Anthropic always
                             # emits after "\n</think>\n\n".  Without this guard
@@ -710,7 +725,7 @@ def _reply_stream(
                             pass
                         else:
                             # Intentional blank line in response content.
-                            on_token("\n")
+                            _emit_chunk("\n")
                         # Only reset here (inside the normal-line branch), NOT on
                         # the "\n" that triggered the </think> detection — that "\n"
                         # has prev_thinking=True so it skips this block entirely,
@@ -762,8 +777,8 @@ def _reply_stream(
         if not json_mode and think_display_buffer:
             rprint(f"[dim]{''.join(think_display_buffer)}[/dim]", end="")
             think_display_buffer.clear()
-        if on_token and line_buffer and not are_thinking:
-            on_token("".join(line_buffer))
+        if emit_active and line_buffer and not are_thinking:
+            _emit_chunk("".join(line_buffer))
             line_buffer.clear()
 
     except KeyboardInterrupt:
@@ -774,12 +789,13 @@ def _reply_stream(
             normal_display_buffer.clear()
         # Flush partial line before the interrupt suffix so callers see the
         # content that was streamed up to the interrupt point.
-        if on_token and line_buffer:
-            on_token("".join(line_buffer))
+        if emit_active and line_buffer:
+            _emit_chunk("".join(line_buffer))
             line_buffer.clear()
         suffix = "... ^C Interrupted"
         if on_token:
             # Emit as one chunk; ACP batching callback handles downstream chunking.
+            # Display/ACP only — not a chunk hook event (don't speak the suffix).
             on_token(suffix)
         return Message("assistant", output + suffix, metadata=stream.metadata)
     finally:
