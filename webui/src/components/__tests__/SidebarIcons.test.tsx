@@ -13,6 +13,16 @@ jest.mock('@/stores/commandPalette', () => ({
   commandPaletteOpen$: { set: jest.fn() },
 }));
 
+// Mock useProviderHealth to avoid ApiContext dependency
+jest.mock('@/hooks/useProviderHealth', () => ({
+  useProviderHealth: () => ({
+    data: null,
+    isLoading: false,
+    error: null,
+    refresh: jest.fn(),
+  }),
+}));
+
 // Mock SettingsModal to avoid complex context requirements
 jest.mock('../SettingsModal', () => ({
   SettingsModal: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
