@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from click.testing import CliRunner
 
+import gptme.cli.cmd_status as cmd_status
 from gptme.cli.cmd_status import (
     _session_id,
     _strip_markdown,
@@ -119,11 +120,16 @@ def test_session_id_from_env(monkeypatch):
     assert _session_id() == "def456"
 
 
-def test_session_id_fallback():
+def test_session_id_fallback(monkeypatch):
     """Verify _session_id returns 'none' when no env var is set."""
-    # This test may be brittle if the test runner sets session env vars;
-    # we verify at least the fallback path exists by inspecting the function.
-    assert _session_id() is not None
+    for key in (
+        "GPTME_SESSION_ID",
+        "BOB_SESSION_ID",
+        "SESSION_ID",
+        "GIT_COMMITTER_SESSION_ID",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    assert _session_id() == "none"
 
 
 def test_build_table_document_structure():
@@ -133,3 +139,24 @@ def test_build_table_document_structure():
     assert any("| Field | Value |" in line for line in lines)
     assert any("| session_id |" in line for line in lines)
     assert any("| last_commit |" in line for line in lines)
+
+
+def test_build_table_document_escapes_multiline_waiting_for(monkeypatch):
+    """Verify multiline blockers stay inside a single markdown table row."""
+    monkeypatch.setattr(cmd_status, "_is_bob_workspace", lambda: False)
+    monkeypatch.setattr(cmd_status, "_active_tasks", lambda _limit=1: [])
+    monkeypatch.setattr(cmd_status, "_recent_commits", lambda _limit=1: [])
+    monkeypatch.setattr(cmd_status, "_pr_queue", lambda _tracked: [])
+    monkeypatch.setattr(cmd_status, "_git_root", lambda: None)
+    monkeypatch.setattr(cmd_status, "_disk_usage", lambda _root=None: "1G / 2G (50%)")
+    monkeypatch.setattr(cmd_status, "_journal_entries", lambda _limit=5: [])
+    monkeypatch.setattr(
+        cmd_status,
+        "_blockers",
+        lambda _limit=1: [{"waiting_for": "first line\nsecond | line"}],
+    )
+
+    doc = build_table_document()
+
+    assert "| waiting_for | first line second \\| line |" in doc
+    assert "second | line" not in doc

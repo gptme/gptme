@@ -186,7 +186,7 @@ def _session_id() -> str:
 
 
 def _disk_usage(path: Path | None = None) -> str:
-    """Return human-readable disk usage for the given path."""
+    """Return human-readable usage for the filesystem containing the path."""
     target = path or Path.cwd()
     try:
         usage = shutil.disk_usage(target)
@@ -196,6 +196,14 @@ def _disk_usage(path: Path | None = None) -> str:
         return f"{used_gb:.1f}G / {total_gb:.1f}G ({percent:.0f}%)"
     except Exception:
         return "unknown"
+
+
+def _markdown_table_cell(value: object) -> str:
+    """Escape dynamic values for a single markdown table cell."""
+    text = " ".join(str(value).splitlines()).strip()
+    if not text:
+        return "none"
+    return text.replace("|", r"\|")
 
 
 def _journal_entries(limit: int = 5) -> list[str]:
@@ -348,24 +356,28 @@ def build_table_document() -> str:
 
     # waiting_for
     blockers = _blockers(1)
-    waiting_for = blockers[0].get("waiting_for", "none") if blockers else "none"
+    waiting_for = (
+        _markdown_table_cell(blockers[0].get("waiting_for", "none"))
+        if blockers
+        else "none"
+    )
 
     # disk_usage
-    disk = _disk_usage(root)
+    disk = _markdown_table_cell(_disk_usage(root))
 
     # journal_entries
     journals = _journal_entries(5)
-    journal_str = ", ".join(journals) if journals else "none"
+    journal_str = _markdown_table_cell(", ".join(journals) if journals else "none")
 
     lines = [
         f"# gptme Status — {now}",
         "",
         "| Field | Value |",
         "|-------|-------|",
-        f"| session_id | `{session_id}` |",
-        f"| active_task | `{active_task}` |",
-        f"| last_commit | `{last_commit}` |",
-        f"| pending_prs | {pending_prs} |",
+        f"| session_id | `{_markdown_table_cell(session_id)}` |",
+        f"| active_task | `{_markdown_table_cell(active_task)}` |",
+        f"| last_commit | `{_markdown_table_cell(last_commit)}` |",
+        f"| pending_prs | {_markdown_table_cell(pending_prs)} |",
         f"| waiting_for | {waiting_for} |",
         f"| disk_usage | {disk} |",
         f"| journal_entries | {journal_str} |",
@@ -373,7 +385,9 @@ def build_table_document() -> str:
 
     if is_bob:
         services = _service_status()
-        svc_str = ", ".join(f"{s['label']}={s['status']}" for s in services)
+        svc_str = _markdown_table_cell(
+            ", ".join(f"{s['label']}={s['status']}" for s in services)
+        )
         lines.append(f"| services | {svc_str} |")
         dead = _dead_timers()
         if dead:
