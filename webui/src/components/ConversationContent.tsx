@@ -172,13 +172,13 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   }, [activatePane]);
 
   const firstNonSystemIndex$ = useObservable(() => {
-    return conversation$?.get()?.data.log.findIndex((msg) => msg.role !== 'system') || 0;
+    return conversation$?.get()?.data?.log?.findIndex((msg) => msg.role !== 'system') ?? 0;
   });
 
   // Update the firstNonSystemIndex$ when the conversationId changes
   useEffect(() => {
     firstNonSystemIndex$.set(
-      conversation$?.get()?.data.log.findIndex((msg) => msg.role !== 'system') || 0
+      conversation$?.get()?.data?.log?.findIndex((msg) => msg.role !== 'system') ?? 0
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
