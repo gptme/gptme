@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -170,6 +171,56 @@ def _ready_tasks(limit: int = 3) -> list[dict]:
     return tasks[:limit]
 
 
+def _session_id() -> str:
+    """Return the current session ID from environment variables."""
+    for key in (
+        "GPTME_SESSION_ID",
+        "BOB_SESSION_ID",
+        "SESSION_ID",
+        "GIT_COMMITTER_SESSION_ID",
+    ):
+        val = os.environ.get(key)
+        if val:
+            return val
+    return "none"
+
+
+def _disk_usage(path: Path | None = None) -> str:
+    """Return human-readable disk usage for the given path."""
+    target = path or Path.cwd()
+    try:
+        usage = shutil.disk_usage(target)
+        total_gb = usage.total / (1024**3)
+        used_gb = usage.used / (1024**3)
+        percent = (usage.used / usage.total) * 100
+        return f"{used_gb:.1f}G / {total_gb:.1f}G ({percent:.0f}%)"
+    except Exception:
+        return "unknown"
+
+
+def _journal_entries(limit: int = 5) -> list[str]:
+    """Return the last N journal entry filenames (Bob workspace)."""
+    root = _git_root()
+    if not root:
+        return []
+    journal_dir = root / "journal"
+    if not journal_dir.is_dir():
+        return []
+    entries: list[Path] = []
+    for day_dir in sorted(journal_dir.iterdir(), reverse=True):
+        if not day_dir.is_dir():
+            continue
+        day_entries = [
+            entry.relative_to(root)
+            for entry in sorted(day_dir.iterdir(), reverse=True)
+            if entry.is_file() and entry.suffix == ".md"
+        ]
+        entries.extend(day_entries)
+        if len(entries) >= limit:
+            break
+    return [str(e) for e in entries[:limit]]
+
+
 def _strip_markdown(doc: str) -> str:
     """Strip Markdown formatting for plain-text output."""
     lines = []
@@ -268,6 +319,69 @@ def section_ready_next() -> str:
 # ── build ─────────────────────────────────────────────────────────────
 
 
+def build_table_document() -> str:
+    """Build a machine-readable markdown table of session state."""
+    is_bob = _is_bob_workspace()
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    session_id = _session_id()
+    root = _git_root()
+
+    # active_task
+    active = _active_tasks(1)
+    active_task = active[0].get("_id", "none") if active else "none"
+
+    # last_commit
+    commits = _recent_commits(1)
+    last_commit = commits[0] if commits else "none"
+
+    # pending_prs
+    tracked = [
+        ("gptme/gptme", 10),
+        ("gptme/gptme-cloud", 3),
+        ("ErikBjare/bob", None),
+        ("gptme/gptme-contrib", None),
+    ]
+    pr_rows = _pr_queue(tracked)
+    pending_prs = (
+        ", ".join(f"{r['repo']}:{r['count']}" for r in pr_rows) if pr_rows else "none"
+    )
+
+    # waiting_for
+    blockers = _blockers(1)
+    waiting_for = blockers[0].get("waiting_for", "none") if blockers else "none"
+
+    # disk_usage
+    disk = _disk_usage(root)
+
+    # journal_entries
+    journals = _journal_entries(5)
+    journal_str = ", ".join(journals) if journals else "none"
+
+    lines = [
+        f"# gptme Status — {now}",
+        "",
+        "| Field | Value |",
+        "|-------|-------|",
+        f"| session_id | `{session_id}` |",
+        f"| active_task | `{active_task}` |",
+        f"| last_commit | `{last_commit}` |",
+        f"| pending_prs | {pending_prs} |",
+        f"| waiting_for | {waiting_for} |",
+        f"| disk_usage | {disk} |",
+        f"| journal_entries | {journal_str} |",
+    ]
+
+    if is_bob:
+        services = _service_status()
+        svc_str = ", ".join(f"{s['label']}={s['status']}" for s in services)
+        lines.append(f"| services | {svc_str} |")
+        dead = _dead_timers()
+        if dead:
+            lines.append(f"| dead_timers | {dead} |")
+
+    return "\n".join(lines)
+
+
 def build_document() -> str:
     is_bob = _is_bob_workspace()
     sections: list[str] = [
@@ -311,7 +425,14 @@ def build_document() -> str:
     default=True,
     help="Output as Markdown (default: enabled). Use --no-markdown for plain text.",
 )
-def status(write: bool, output: str | None, markdown: bool):
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["narrative", "table"], case_sensitive=False),
+    default="narrative",
+    help="Output format: narrative (default) or table.",
+)
+def status(write: bool, output: str | None, markdown: bool, output_format: str):
     """Generate a portable operator handoff / session-status document.
 
     Produces a compact briefing: active work, PR queue, service health,
@@ -327,8 +448,13 @@ def status(write: bool, output: str | None, markdown: bool):
         gptme-util status -o /tmp/handoff.md    # write to custom path
 
         gptme-util status --no-markdown         # plain-text output
+
+        gptme-util status --format table        # machine-readable table
     """
-    doc = build_document()
+    if output_format == "table":
+        doc = build_table_document()
+    else:
+        doc = build_document()
     if not markdown:
         doc = _strip_markdown(doc)
     out_path: Path | None = None
