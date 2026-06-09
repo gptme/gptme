@@ -1,4 +1,4 @@
-import { useState, type FC } from 'react';
+import { useState, useEffect, type FC } from 'react';
 import { Settings } from 'lucide-react';
 import { MenuBar } from '@/components/MenuBar';
 import { SidebarIcons } from '@/components/SidebarIcons';
@@ -6,11 +6,22 @@ import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { useTasksQuery } from '@/stores/tasks';
 import { SettingsContent } from '@/components/SettingsContent';
 import type { SettingsCategory } from '@/stores/settingsModal';
+import { use$ } from '@legendapp/state/react';
+import { settingsModal$ } from '@/stores/settingsModal';
 
 /** Full-page settings view — replaces the modal when navigated via /settings route. */
 const SettingsPage: FC = () => {
   const { data: tasks = [] } = useTasksQuery();
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>('appearance');
+
+  // Observe external requests (e.g. ServerSelector configure button) to switch category
+  const externalRequest = use$(settingsModal$);
+  useEffect(() => {
+    if (externalRequest.open && externalRequest.category) {
+      setActiveCategory(externalRequest.category);
+      settingsModal$.open.set(false);
+    }
+  }, [externalRequest.open, externalRequest.category]);
 
   return (
     <div className="flex h-screen flex-col">
