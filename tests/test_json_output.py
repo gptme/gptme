@@ -377,7 +377,11 @@ class TestJSONRuntimeSuppression:
         """Init model path where no API keys are set must NOT leak the
         'No API keys set' warning to stdout when --output-format json."""
         set_output_format("json")
-        mock_config = SimpleNamespace(chat=None, get_env=lambda key, default=None: None)
+        mock_config = SimpleNamespace(
+            chat=None,
+            user=SimpleNamespace(models=SimpleNamespace(default=None)),
+            get_env=lambda key, default=None: None,
+        )
         monkeypatch.setattr(gptme_init, "get_config", lambda: mock_config)
         # Must patch on gptme_init, not llm — init.py imports via `from .llm import ...`,
         # which creates a module-level global that LOAD_GLOBAL resolves from gptme_init.
