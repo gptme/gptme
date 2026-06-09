@@ -189,6 +189,11 @@ def inject_agent_instruction_files(
             f"{content}\n"
             f"</agent-instructions>",
             files=[agent_file],
+            # Display-only hide: the instructions still reach the LLM, but this
+            # injected context message shouldn't clutter the conversation view
+            # (it's transient/not persisted, so it otherwise only appeared live
+            # via the message_added stream event and vanished on reload).
+            hide=True,
         )
 
 

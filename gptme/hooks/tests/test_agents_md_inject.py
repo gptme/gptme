@@ -173,6 +173,9 @@ class TestOnCwdChanged:
             assert "My Agent Instructions" in injected
             assert "Do good things" in injected
             assert "agent-instructions" in injected
+            # Injected instructions are display-hidden: they reach the LLM but
+            # shouldn't clutter the conversation view (consistent on stream/reload).
+            assert agent_msgs[0].hide is True
         finally:
             os.chdir(original)
 
