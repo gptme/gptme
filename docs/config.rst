@@ -85,7 +85,7 @@ The ``env`` section contains environment variables that gptme will fall back to 
 
 The ``models`` section configures model selection preferences:
 
-- ``default``: The default chat model, as a fully-qualified model ID (e.g. ``"anthropic/claude-sonnet-4-6"``). A formal alternative to the ``MODEL`` env var; the env var takes precedence, but ``models.default`` is useful for committing a preferred model to dotfiles.
+- ``default``: The default chat model, as a fully-qualified model ID (e.g. ``"anthropic/claude-sonnet-4-6"``). A formal alternative to the ``MODEL`` env var; ``models.default`` takes precedence over the ``MODEL`` env var (and ``[env].MODEL`` in the config file), but is itself overridden by an explicit per-chat model or the ``--model`` CLI flag.
 - ``favorites``: A list of fully-qualified model IDs (e.g. ``["anthropic/claude-sonnet-4-6", "openai/gpt-4o"]``) curated by the user. These are surfaced prominently in model pickers such as the web UI model selector.
 
 If you want to configure MCP servers, you can do so in a ``mcp`` section. See :ref:`mcp` for more information.
