@@ -22,7 +22,16 @@ export const providerHealth$ = observable<{
   error: null,
 });
 
-export function hasAnyProviderError(data: ProviderHealthResponse | null): boolean {
+/**
+ * Whether to surface a provider-health warning on the settings icon.
+ *
+ * Only true on a *full outage* — every known provider is erroring. A single
+ * failing/unconfigured provider (e.g. gemini when the user only uses anthropic)
+ * should not constantly nag the user to fix something they don't rely on.
+ */
+export function allProvidersDown(data: ProviderHealthResponse | null): boolean {
   if (!data) return false;
-  return Object.values(data.providers).some((p) => p.status === 'error');
+  const providers = Object.values(data.providers);
+  if (providers.length === 0) return false;
+  return providers.every((p) => p.status === 'error');
 }

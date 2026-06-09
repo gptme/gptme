@@ -1094,14 +1094,14 @@ export const ChatInput: FC<Props> = ({
           <Computed>
             {() => (
               <div
-                className={`relative flex flex-1 ${isDragOver ? 'rounded-md ring-2 ring-primary ring-offset-2' : ''}`}
+                className={`relative flex flex-1 ${isDragOver ? 'rounded-[1.2rem] ring-2 ring-primary ring-offset-2' : ''}`}
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
               >
                 {/* Drag overlay */}
                 {isDragOver && (
-                  <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-md bg-primary/10">
+                  <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-[1.2rem] bg-primary/10">
                     <span className="text-sm font-medium text-primary">Drop files to attach</span>
                   </div>
                 )}
@@ -1130,7 +1130,7 @@ export const ChatInput: FC<Props> = ({
                   className={
                     editMode
                       ? 'max-h-[min(42vh,300px)] min-h-[60px] resize-none overflow-y-auto pb-12 sm:pb-8'
-                      : 'max-h-[min(42vh,400px)] min-h-[60px] resize-none overflow-y-auto pb-10 sm:pb-8'
+                      : 'max-h-[min(42vh,400px)] min-h-[60px] resize-none overflow-y-auto rounded-[1.2rem] pb-10 sm:pb-8'
                   }
                   disabled={isDisabled}
                   autoFocus={editMode}

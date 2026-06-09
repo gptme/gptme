@@ -61,7 +61,7 @@ export function MessageAvatar({
       : isAssistant
         ? showCustomAvatar
           ? 'overflow-hidden'
-          : 'bg-gptme-600 text-white'
+          : 'bg-muted text-muted-foreground'
         : isError
           ? 'bg-red-800 text-red-100'
           : isSuccess

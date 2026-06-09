@@ -20,7 +20,7 @@ import { toggleLeftSidebarCollapsed, leftSidebarCollapsed$ } from '@/stores/side
 import { commandPaletteOpen$ } from '@/stores/commandPalette';
 import { SettingsModal } from './SettingsModal';
 import { useProviderHealth } from '@/hooks/useProviderHealth';
-import { hasAnyProviderError } from '@/stores/providerHealth';
+import { allProvidersDown } from '@/stores/providerHealth';
 import type { Task } from '@/types/task';
 import type { FC } from 'react';
 import { use$ } from '@legendapp/state/react';
@@ -100,7 +100,7 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
   const activeTasks = tasks.filter((t) => t.status === 'active' && !t.archived);
 
   const { data: providerHealthData } = useProviderHealth();
-  const hasProviderError = hasAnyProviderError(providerHealthData);
+  const hasProviderError = allProvidersDown(providerHealthData);
 
   const navItems: NavItem[] = [
     { id: 'chat', icon: MessageSquare, label: 'Chat', section: 'chat' },
