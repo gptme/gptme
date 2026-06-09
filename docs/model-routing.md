@@ -76,7 +76,7 @@ without per-call flags:
 
 ```toml
 # router-agent/gptme.toml — cheap, fast, handles triage and dispatch
-model = "openrouter/qwen/qwen3.7-max"
+model = "openrouter/qwen/qwen3-max"
 ```
 
 ```toml
