@@ -394,12 +394,12 @@ const SubmitButton: FC<{ isGenerating: boolean; isDisabled: boolean; hasText: bo
   return (
     <Button
       type="submit"
-      className={`absolute bottom-2 right-2 rounded-full p-1 transition-colors ${
+      className={`shrink-0 rounded-full p-1 transition-colors ${
         showStop
           ? 'animate-[pulse_1s_ease-in-out_infinite] bg-red-600 p-3 hover:bg-red-700'
           : showQueue
             ? 'bg-blue-600 p-3 text-white hover:bg-blue-700'
-            : 'h-8 w-8 bg-green-600 text-green-100'
+            : 'h-7 w-7 bg-green-600 text-green-100'
       }`}
       disabled={!canSubmit}
       aria-label={showStop ? 'Stop generation' : showQueue ? 'Queue message' : 'Send message'}
@@ -1130,7 +1130,7 @@ export const ChatInput: FC<Props> = ({
                   className={
                     editMode
                       ? 'max-h-[min(42vh,300px)] min-h-[60px] resize-none overflow-y-auto pb-12 sm:pb-8'
-                      : 'max-h-[min(42vh,400px)] min-h-[60px] resize-none overflow-y-auto pb-16 pr-14 sm:pb-8 sm:pr-16'
+                      : 'max-h-[min(42vh,400px)] min-h-[60px] resize-none overflow-y-auto pb-10 sm:pb-8'
                   }
                   disabled={isDisabled}
                   autoFocus={editMode}
@@ -1184,8 +1184,8 @@ export const ChatInput: FC<Props> = ({
                   </div>
                 ) : (
                   /* Normal mode: full toolbar */
-                  <>
-                    <div className="absolute bottom-1.5 left-1.5 right-12 flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto overflow-y-hidden pr-1 sm:gap-2">
+                  <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center gap-2">
+                    <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto overflow-y-hidden pr-1 sm:gap-2">
                       <ModelBadge
                         model={effectiveModel}
                         models={modelInfos}
@@ -1265,19 +1265,21 @@ export const ChatInput: FC<Props> = ({
                         )}
                     </div>
 
-                    <SpeechInputButton
-                      onTranscript={handleTranscript}
-                      disabled={isDisabled || isGenerating}
-                    />
-                    {settings.voiceServerUrl && (
-                      <VoiceButton voiceServerUrl={settings.voiceServerUrl} />
-                    )}
-                    <SubmitButton
-                      isGenerating={isGenerating}
-                      isDisabled={isDisabled}
-                      hasText={!!message.trim() || attachedFiles.length > 0}
-                    />
-                  </>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <SpeechInputButton
+                        onTranscript={handleTranscript}
+                        disabled={isDisabled || isGenerating}
+                      />
+                      {settings.voiceServerUrl && (
+                        <VoiceButton voiceServerUrl={settings.voiceServerUrl} />
+                      )}
+                      <SubmitButton
+                        isGenerating={isGenerating}
+                        isDisabled={isDisabled}
+                        hasText={!!message.trim() || attachedFiles.length > 0}
+                      />
+                    </div>
+                  </div>
                 )}
               </div>
             )}

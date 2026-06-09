@@ -45,7 +45,7 @@ export function VoiceButton({ voiceServerUrl }: Props) {
           size="icon"
           onClick={handleClick}
           className={[
-            'relative h-8 w-8 shrink-0 rounded-full transition-colors',
+            'relative h-7 w-7 shrink-0 rounded-full transition-colors',
             hasError ? 'text-destructive' : '',
             state === 'recording' ? 'text-red-500 hover:text-red-600' : 'text-muted-foreground',
           ].join(' ')}

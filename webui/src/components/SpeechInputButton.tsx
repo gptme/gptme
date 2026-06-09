@@ -59,7 +59,7 @@ export function SpeechInputButton({ onTranscript, onInterimTranscript, disabled 
           onClick={handleClick}
           disabled={disabled || isTranscribing}
           className={[
-            'relative h-8 w-8 shrink-0 rounded-full transition-colors',
+            'relative h-7 w-7 shrink-0 rounded-full transition-colors',
             isError
               ? 'text-destructive'
               : isListening || isTranscribing
