@@ -105,9 +105,9 @@ export const ChatMessage: FC<Props> = ({
   const { api, connectionConfig } = useApi();
   const { settings } = useSettings();
   // TTS playback state: which message is currently being spoken (if any).
-  const ttsKey = `${conversationId}:${messageIndex}`;
+  const ttsKey = messageIndex !== undefined ? `${conversationId}:${messageIndex}` : null;
   const speakingKey = useSyncExternalStore(subscribeSpeaking, getSpeakingKey);
-  const isSpeakingThis = speakingKey === ttsKey;
+  const isSpeakingThis = ttsKey !== null && speakingKey === ttsKey;
   // Use observables (not useState) because these are read inside <Memo>
   const isEditing$ = useObservable(false);
   const editContent$ = useObservable('');
@@ -570,7 +570,7 @@ export const ChatMessage: FC<Props> = ({
                           onClick={() =>
                             isSpeakingThis
                               ? stopSpeaking()
-                              : speakTextNow(message$.content.get() ?? '', ttsKey)
+                              : speakTextNow(message$.content.get() ?? '', ttsKey ?? undefined)
                           }
                           className="h-7 w-7 p-0"
                           aria-label={isSpeakingThis ? 'Stop reading' : 'Read aloud'}

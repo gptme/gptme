@@ -164,6 +164,9 @@ async function speak(rawText: string, key: string): Promise<void> {
   if (!spoken) return;
 
   stopSpeaking();
+  // Mark as playing immediately so the button shows a stop/loading state during
+  // the network round-trip (playBlob/utterance re-affirm the same key on start).
+  setSpeakingKey(key);
 
   // 1. Try the same-origin /api/v2/audio/speech endpoint first.
   try {
@@ -189,12 +192,21 @@ async function speak(rawText: string, key: string): Promise<void> {
   }
 
   // 3. Fall back to the browser's built-in speechSynthesis.
-  if (!window.speechSynthesis) return;
+  if (!window.speechSynthesis) {
+    // Nothing could play — clear the provisional speaking state.
+    if (getSpeakingKey() === key) setSpeakingKey(null);
+    return;
+  }
   const utterance = new SpeechSynthesisUtterance(spoken);
   utterance.rate = 1.1;
-  utterance.onend = () => setSpeakingKey(null);
-  utterance.onerror = () => setSpeakingKey(null);
-  setSpeakingKey(key);
+  // Guard against a previous utterance's late onend/onerror (fired after a new
+  // speak() already set its key) wiping the newer speaking state.
+  utterance.onend = () => {
+    if (getSpeakingKey() === key) setSpeakingKey(null);
+  };
+  utterance.onerror = () => {
+    if (getSpeakingKey() === key) setSpeakingKey(null);
+  };
   window.speechSynthesis.speak(utterance);
 }
 
