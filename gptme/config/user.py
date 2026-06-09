@@ -204,6 +204,15 @@ def load_user_config(path: str | None = None) -> UserConfig:
     providers_config = config.pop("providers", [])
     providers = [ProviderConfig(**provider) for provider in providers_config]
 
+    # Parse favorite models (list of fully-qualified model ids)
+    favorites_data = config.pop("favorites", [])
+    if not isinstance(favorites_data, list):
+        logger.warning(
+            f"[favorites] should be a list, got {type(favorites_data).__name__}"
+        )
+        favorites_data = []
+    favorites = [str(m) for m in favorites_data if isinstance(m, str)]
+
     # Parse lessons config
     lessons_data = config.pop("lessons", None)
     lessons = (
@@ -238,6 +247,7 @@ def load_user_config(path: str | None = None) -> UserConfig:
         mcp=mcp,
         providers=providers,
         lessons=lessons,
+        favorites=favorites,
         plugins=plugins,
         plugin=plugin_config,
     )

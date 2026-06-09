@@ -98,6 +98,8 @@ from .openapi_docs import (
     UserConfigFileSaveResponse,
     UserDefaultModelSaveRequest,
     UserDefaultModelSaveResponse,
+    UserFavoritesSaveRequest,
+    UserFavoritesSaveResponse,
     UserSettingsResponse,
     api_doc,
     api_doc_simple,
@@ -1623,11 +1625,16 @@ def api_models():
         except ValueError:
             pass
 
+    # User-curated favorites (only those still available in the model list)
+    available_ids = {m["id"] for m in models_data}
+    favorites = [m for m in config.user.favorites if m in available_ids]
+
     return flask.jsonify(
         {
             "models": models_data,
             "default": default_model.full if default_model else None,
             "recommended": recommended,
+            "favorites": favorites,
         }
     )
 
@@ -2266,6 +2273,43 @@ def api_user_default_model():
             "restart_required": restart_required,
         }
     )
+
+
+@v2_api.route("/api/v2/user/favorites", methods=["POST"])
+@require_auth
+@api_doc(
+    summary="Save favorite models",
+    description="Persist the user's favorite models into the global gptme config.",
+    request_body=UserFavoritesSaveRequest,
+    responses={200: UserFavoritesSaveResponse, 400: ErrorResponse},
+    tags=["user"],
+)
+def api_user_favorites():
+    """Persist favorite models into user config."""
+    req_json = request.get_json(silent=True)
+    if req_json is None:
+        return flask.jsonify({"error": "No JSON data provided"}), 400
+    if not isinstance(req_json, dict):
+        return flask.jsonify({"error": "JSON body must be an object"}), 400
+
+    favorites = req_json.get("favorites")
+    if not isinstance(favorites, list) or not all(
+        isinstance(m, str) for m in favorites
+    ):
+        return flask.jsonify({"error": "favorites must be a list of strings"}), 400
+
+    # De-duplicate while preserving order; trim and drop empties
+    seen: set[str] = set()
+    cleaned: list[str] = []
+    for m in favorites:
+        trimmed = m.strip()
+        if trimmed and trimmed not in seen:
+            seen.add(trimmed)
+            cleaned.append(trimmed)
+
+    set_config_value("favorites", cleaned, reload=True)
+    logger.info("Saved %d favorite model(s) via /api/v2/user/favorites", len(cleaned))
+    return flask.jsonify({"status": "ok", "favorites": cleaned})
 
 
 @v2_api.route("/api/v2/user/avatar", methods=["GET"])

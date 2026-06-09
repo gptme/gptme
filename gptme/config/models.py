@@ -160,6 +160,10 @@ class UserConfig:
     providers: list[ProviderConfig] = field(default_factory=list)
     lessons: "LessonsConfig | None" = None
 
+    # User-curated favorite models (fully-qualified ids, e.g. "anthropic/claude-opus-4-8").
+    # Surfaced prominently in model pickers across clients.
+    favorites: list[str] = field(default_factory=list)
+
     # Plugin system configuration (search paths + enabled allowlist).
     # Layered with project-level [plugins] (see Config.get_plugin_config).
     plugins: PluginsConfig = field(default_factory=PluginsConfig)

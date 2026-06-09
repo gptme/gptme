@@ -208,6 +208,22 @@ class UserDefaultModelSaveResponse(BaseModel):
     )
 
 
+class UserFavoritesSaveRequest(BaseModel):
+    """Request to save the user's favorite models."""
+
+    favorites: list[str] = Field(
+        ...,
+        description="Fully-qualified model ids to store as favorites",
+    )
+
+
+class UserFavoritesSaveResponse(BaseModel):
+    """Response after persisting favorite models."""
+
+    status: str = Field(..., description="Operation status")
+    favorites: list[str] = Field(..., description="Favorite model ids that were saved")
+
+
 class UserConfigFileResponse(BaseModel):
     """Raw user config file contents plus path metadata."""
 

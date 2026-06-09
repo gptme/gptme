@@ -27,9 +27,10 @@ import type { Control, FieldPath, FieldValues } from 'react-hook-form';
 const ModelItem: FC<{
   model: ModelInfo;
   isSelected: boolean;
-  isRecommended: boolean;
+  isFavorite: boolean;
   showProvider: boolean;
-}> = ({ model, isSelected, isRecommended, showProvider }) => (
+  onToggleFavorite: () => void;
+}> = ({ model, isSelected, isFavorite, showProvider, onToggleFavorite }) => (
   <div className="flex w-full items-center justify-between gap-2">
     <div className="flex min-w-0 flex-col">
       <div className="flex items-center gap-2">
@@ -41,9 +42,6 @@ const ModelItem: FC<{
             ? `${model.provider}/${model.model}`
             : model.model}
         </span>
-        {isRecommended && (
-          <Star className="h-3 w-3 flex-shrink-0 fill-yellow-400 text-yellow-400" />
-        )}
       </div>
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         {model.context > 0 && <span>{Math.round(model.context / 1000)}k ctx</span>}
@@ -51,44 +49,79 @@ const ModelItem: FC<{
         {model.supports_reasoning && <span>reasoning</span>}
       </div>
     </div>
-    {isSelected && <Check className="h-4 w-4 flex-shrink-0" />}
+    <div className="flex flex-shrink-0 items-center gap-1">
+      {isSelected && <Check className="h-4 w-4" />}
+      <button
+        type="button"
+        aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+        title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+        className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onToggleFavorite();
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <Star className={`h-3.5 w-3.5 ${isFavorite ? 'fill-yellow-400 text-yellow-400' : ''}`} />
+      </button>
+    </div>
   </div>
 );
 
 function useModelGroups() {
-  const { models, availableModels, recommendedModels } = useModels();
+  const { models, availableModels, recommendedModels, favorites, toggleFavorite } = useModels();
 
   const recommendedSet = useMemo(() => new Set(recommendedModels), [recommendedModels]);
+  const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
 
-  const availableRecommended = useMemo(
+  const availableFavorites = useMemo(
     () =>
-      recommendedModels
+      favorites
         .filter((id) => availableModels.includes(id))
         .map((id) => models.find((m) => m.id === id)!)
         .filter(Boolean),
-    [recommendedModels, availableModels, models]
+    [favorites, availableModels, models]
+  );
+
+  // Favorites take precedence over the Recommended group to avoid duplicates.
+  const availableRecommended = useMemo(
+    () =>
+      recommendedModels
+        .filter((id) => availableModels.includes(id) && !favoriteSet.has(id))
+        .map((id) => models.find((m) => m.id === id)!)
+        .filter(Boolean),
+    [recommendedModels, availableModels, models, favoriteSet]
   );
 
   const providerGroups = useMemo(() => {
     const groups: Record<string, ModelInfo[]> = {};
     for (const model of models) {
-      if (recommendedSet.has(model.id)) continue;
+      if (recommendedSet.has(model.id) || favoriteSet.has(model.id)) continue;
       if (!groups[model.provider]) {
         groups[model.provider] = [];
       }
       groups[model.provider].push(model);
     }
     return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
-  }, [models, recommendedSet]);
+  }, [models, recommendedSet, favoriteSet]);
 
-  return { models, availableRecommended, providerGroups, recommendedSet };
+  return {
+    models,
+    availableFavorites,
+    availableRecommended,
+    providerGroups,
+    favoriteSet,
+    toggleFavorite,
+  };
 }
 
 const ModelCommandList: FC<{
   value?: string;
   onSelect: (modelId: string) => void;
 }> = ({ value, onSelect }) => {
-  const { availableRecommended, providerGroups, recommendedSet } = useModelGroups();
+  const { availableFavorites, availableRecommended, providerGroups, favoriteSet, toggleFavorite } =
+    useModelGroups();
 
   // Substring filter instead of cmdk's default fuzzy match
   const filter = (value: string, search: string, keywords?: string[]) => {
@@ -97,29 +130,41 @@ const ModelCommandList: FC<{
     return terms.every((term) => haystack.includes(term)) ? 1 : 0;
   };
 
+  const renderItem = (model: ModelInfo, showProvider: boolean) => (
+    <CommandItem
+      key={model.id}
+      value={model.id}
+      keywords={[model.provider, model.model]}
+      onSelect={() => onSelect(model.id)}
+    >
+      <ModelItem
+        model={model}
+        isSelected={model.id === value}
+        isFavorite={favoriteSet.has(model.id)}
+        showProvider={showProvider}
+        onToggleFavorite={() => void toggleFavorite(model.id)}
+      />
+    </CommandItem>
+  );
+
   return (
     <Command className="rounded-lg" filter={filter}>
       <CommandInput placeholder="Search models..." />
-      <CommandList className="max-h-[350px]">
+      {/* stopPropagation lets the wheel scroll this list even when rendered
+          inside a Radix Dialog, whose react-remove-scroll otherwise eats the
+          wheel event on document. Harmless outside a dialog. */}
+      <CommandList className="max-h-[350px]" onWheel={(e) => e.stopPropagation()}>
         <CommandEmpty>No models found.</CommandEmpty>
+
+        {availableFavorites.length > 0 && (
+          <CommandGroup heading="Favorites">
+            {availableFavorites.map((model) => renderItem(model, true))}
+          </CommandGroup>
+        )}
 
         {availableRecommended.length > 0 && (
           <CommandGroup heading="Recommended">
-            {availableRecommended.map((model) => (
-              <CommandItem
-                key={model.id}
-                value={model.id}
-                keywords={[model.provider, model.model]}
-                onSelect={() => onSelect(model.id)}
-              >
-                <ModelItem
-                  model={model}
-                  isSelected={model.id === value}
-                  isRecommended
-                  showProvider
-                />
-              </CommandItem>
-            ))}
+            {availableRecommended.map((model) => renderItem(model, true))}
           </CommandGroup>
         )}
 
@@ -133,21 +178,7 @@ const ModelCommandList: FC<{
               </span>
             }
           >
-            {providerModels.map((model) => (
-              <CommandItem
-                key={model.id}
-                value={model.id}
-                keywords={[model.provider, model.model]}
-                onSelect={() => onSelect(model.id)}
-              >
-                <ModelItem
-                  model={model}
-                  isSelected={model.id === value}
-                  isRecommended={recommendedSet.has(model.id)}
-                  showProvider={false}
-                />
-              </CommandItem>
-            ))}
+            {providerModels.map((model) => renderItem(model, false))}
           </CommandGroup>
         ))}
       </CommandList>

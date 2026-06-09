@@ -10,6 +10,7 @@ import {
   File,
   ChevronDown,
   SlidersHorizontal,
+  Star,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -52,6 +53,7 @@ import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { WorkspaceSelector } from '@/components/WorkspaceSelector';
 import type { WorkspaceProject, Agent } from '@/utils/workspaceUtils';
 import { useModels } from '@/hooks/useModels';
+import { useToast } from '@/components/ui/use-toast';
 import { useAgents } from '@/hooks/useAgents';
 import { useFileAutocomplete } from '@/hooks/useFileAutocomplete';
 import { FileAutocomplete } from '@/components/FileAutocomplete';
@@ -352,8 +354,51 @@ const ModelBadge: FC<{
             setOpen(false);
           }}
         />
+        <SetDefaultModelFooter model={model} />
       </PopoverContent>
     </Popover>
+  );
+};
+
+/** Footer in the model dropdown to make the current model the default for new chats. */
+const SetDefaultModelFooter: FC<{ model: string }> = ({ model }) => {
+  const { defaultModel, saveDefaultModel } = useModels();
+  const { toast } = useToast();
+  const [saving, setSaving] = useState(false);
+  const isDefault = defaultModel === model;
+
+  const handleSetDefault = async () => {
+    setSaving(true);
+    const { ok, restartRequired } = await saveDefaultModel(model);
+    setSaving(false);
+    if (ok) {
+      toast({
+        title: 'Default model updated',
+        description: restartRequired
+          ? 'Restart the gptme server for it to take full effect.'
+          : 'New chats will use this model.',
+      });
+    } else {
+      toast({ variant: 'destructive', title: 'Failed to set default model' });
+    }
+  };
+
+  return (
+    <div className="border-t p-1">
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-7 w-full justify-start text-xs font-normal"
+        disabled={isDefault || saving}
+        onClick={() => void handleSetDefault()}
+      >
+        <Star
+          className={`mr-2 h-3.5 w-3.5 ${isDefault ? 'fill-yellow-400 text-yellow-400' : ''}`}
+        />
+        {isDefault ? 'Default for new chats' : 'Set as default for new chats'}
+      </Button>
+    </div>
   );
 };
 
