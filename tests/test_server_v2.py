@@ -368,7 +368,7 @@ def test_v2_user_api_key_rejects_unknown_provider(client: FlaskClient):
 def test_v2_user_default_model_persists_and_applies(
     client: FlaskClient, tmp_path, monkeypatch
 ):
-    """Saving a default model should write env.MODEL and update runtime state."""
+    """Saving a default model should write [models].default and update runtime state."""
     import gptme.config.user as user_mod
 
     config_file = tmp_path / "config.toml"
@@ -395,7 +395,7 @@ def test_v2_user_default_model_persists_and_applies(
     }
 
     saved = tomlkit.loads(config_file.read_text()).unwrap()
-    assert saved["env"]["MODEL"] == "anthropic/claude-sonnet-4-7"
+    assert saved["models"]["default"] == "anthropic/claude-sonnet-4-7"
     assert applied["model"].full == "anthropic/claude-sonnet-4-7"
 
 
@@ -2538,13 +2538,11 @@ def test_v2_user_settings_returns_providers_and_model(client: FlaskClient, monke
     )
     monkeypatch.setattr(
         "gptme.server.api_v2.get_user_config_env_source",
-        lambda key: (
-            "config.local.toml"
-            if key == "ANTHROPIC_API_KEY"
-            else "config.toml"
-            if key == "MODEL"
-            else None
-        ),
+        lambda key: "config.local.toml" if key == "ANTHROPIC_API_KEY" else None,
+    )
+    monkeypatch.setattr(
+        "gptme.server.api_v2.get_default_model_source",
+        lambda: "config.toml",
     )
     monkeypatch.setattr(
         "gptme.server.api_v2.get_user_config_runtime_info",
@@ -2582,6 +2580,7 @@ def test_v2_user_settings_no_providers_no_model(client: FlaskClient, monkeypatch
     monkeypatch.setattr(
         "gptme.server.api_v2.get_user_config_env_source", lambda _key: None
     )
+    monkeypatch.setattr("gptme.server.api_v2.get_default_model_source", lambda: None)
     monkeypatch.setattr(
         "gptme.server.api_v2.get_user_config_runtime_info",
         lambda: {
