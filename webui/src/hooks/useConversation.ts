@@ -70,6 +70,10 @@ export function useConversation(conversationId: string, serverId?: string) {
   useEffect(() => {
     if (!isConnected || isDemoMode()) return;
     if (demoConversations.some((c) => c.id === conversationId)) return;
+    // Only handle the already-connected case; the load+connect effect below
+    // fetches chatConfig for not-yet-connected conversations, so skipping here
+    // avoids a duplicate request on initial open.
+    if (!conversation$?.isConnected.peek()) return;
     if (conversation$?.chatConfig.peek()) return;
     let cancelled = false;
     api
