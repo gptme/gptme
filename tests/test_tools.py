@@ -422,6 +422,38 @@ def test_get_toolchain_strict_raises_on_unavailable():
         available.remove(unavailable_tool)
 
 
+def test_get_toolchain_unavailable_uses_available_hint():
+    """An unavailable tool's available_hint is surfaced in the error message."""
+    from gptme.tools.base import ToolSpec
+
+    available = get_available_tools()
+    unavailable_tool = ToolSpec(
+        name="fake_with_hint",
+        desc="A fake unavailable tool",
+        available=False,
+        available_hint="start the fake server (or set FAKE_BACKEND=cloud)",
+    )
+    available.append(unavailable_tool)
+    try:
+        with pytest.raises(
+            ValueError, match="start the fake server .or set FAKE_BACKEND=cloud."
+        ):
+            get_toolchain(["fake_with_hint"], strict=True)
+    finally:
+        available.remove(unavailable_tool)
+
+
+def test_unavailable_message_falls_back_to_generic():
+    """Without a hint, the message is accurate (not 'invalid choice'/'missing deps')."""
+    from gptme.tools import _unavailable_message
+    from gptme.tools.base import ToolSpec
+
+    spec = ToolSpec(name="foo", desc="x", available=False)
+    msg = _unavailable_message("foo", [spec])
+    assert msg.startswith("Tool 'foo' is unavailable")
+    assert "availability check failed" in msg
+
+
 def test_get_toolchain_nonstrict_skips_missing():
     """Test that get_toolchain skips unknown tools when strict=False."""
     # Should not raise, just warn and skip

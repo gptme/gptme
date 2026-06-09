@@ -380,7 +380,11 @@ Run 'gptme-util --help' for all utility commands."""
     default=None,
     multiple=True,
     type=CommaSeparatedChoice(
-        _available_tools + ["none"],
+        # Accept all *known* tools, not just currently-available ones, so a tool
+        # that exists but is temporarily unavailable (e.g. 'tts' when its server
+        # isn't running) is reported as unavailable at load time rather than as a
+        # misleading "invalid choice" here.
+        _known_tool_names + ["none"],
         allow_prefixes=["+", "-"],
         extra_choices_for_prefix={"-": _known_tool_names},
         # Only '+' is lenient: plugin tools (added via '+tool') aren't known at

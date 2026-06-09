@@ -218,11 +218,24 @@ def init_tools(
                         f"Tool '{tool_name}' matched available tools that should "
                         "have been loaded but were not found in loaded_tools"
                     )
-                logger.warning("Tool %s found but is unavailable", tool_name)
+                logger.warning("%s", _unavailable_message(tool_name, matched_available))
                 continue
             raise ValueError(f"Tool '{tool_name}' not found")
 
         return loaded_tools
+
+
+def _unavailable_message(tool_name: str, matched_tools: list[ToolSpec]) -> str:
+    """Build an accurate 'unavailable' message, preferring a tool-provided hint."""
+    hint = next((t.available_hint for t in matched_tools if t.available_hint), None)
+    base = f"Tool '{tool_name}' is unavailable"
+    if hint:
+        return f"{base}: {hint}"
+    return (
+        f"{base} — it was discovered but its availability check failed "
+        "(a required service may not be running, or optional "
+        "dependencies/credentials are missing)."
+    )
 
 
 def get_toolchain(
@@ -247,14 +260,10 @@ def get_toolchain(
                 continue
 
             if not any(tool.is_available for tool in matched_tools):
+                msg = _unavailable_message(tool_name, matched_tools)
                 if strict:
-                    raise ValueError(
-                        f"Tool '{tool_name}' is unavailable (likely missing dependencies)"
-                    )
-                logger.warning(
-                    "Tool '%s' is unavailable (missing dependencies), skipping",
-                    tool_name,
-                )
+                    raise ValueError(msg)
+                logger.warning("%s Skipping.", msg)
                 continue
 
     tools = []
@@ -458,9 +467,7 @@ def load_tool(tool_name: str) -> ToolSpec:
 
         tool = available[tool_name]
         if not tool.is_available:
-            raise ValueError(
-                f"Tool '{tool_name}' is unavailable (likely missing dependencies)"
-            )
+            raise ValueError(_unavailable_message(tool_name, [tool]))
 
         # Initialize, register hooks/commands (shared logic)
         tool = _init_single_tool(tool)

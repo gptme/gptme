@@ -252,6 +252,8 @@ class ToolSpec:
         execute: An optional function that is called when the tool executes a block.
         block_types: A list of block types that the tool will execute.
         available: Whether the tool is available for use.
+        available_hint: Optional guidance shown when the tool is explicitly
+            requested but currently unavailable (e.g. "start the TTS server").
         parameters: Descriptor of parameters use by this tool.
         load_priority: Influence the loading order of this tool. The higher the later.
         disabled_by_default: Whether this tool should be disabled by default.
@@ -269,6 +271,7 @@ class ToolSpec:
     execute: ExecuteFunc | None = None
     block_types: list[str] = field(default_factory=list)
     available: bool | Callable[[], bool] = True
+    available_hint: str | None = None
     parameters: list[Parameter] = field(default_factory=list)
     load_priority: int = 0
     disabled_by_default: bool = False
