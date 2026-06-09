@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApi } from '@/contexts/ApiContext';
 import { useToast } from '@/components/ui/use-toast';
 import type { Message, StreamingMessage } from '@/types/conversation';
@@ -50,6 +50,8 @@ export function useConversation(conversationId: string, serverId?: string) {
   const topP = use$(() => conversation$?.topP.get());
 
   const messageJustCompleted = useRef(false);
+  // Bumped by retryLoad() to re-run the load+connect effect after a failure.
+  const [retryNonce, setRetryNonce] = useState(0);
 
   // Initialize conversation in store if needed
   useEffect(() => {
@@ -476,7 +478,7 @@ export function useConversation(conversationId: string, serverId?: string) {
         setConnected(conversationId, false);
       }
     };
-  }, [conversationId, isConnected, api, conversation$, toast]);
+  }, [conversationId, isConnected, api, conversation$, toast, retryNonce]);
 
   const sendMessage = async ({ message, options }: { message: string; options?: ChatOptions }) => {
     if (!conversation$) {
@@ -747,27 +749,14 @@ export function useConversation(conversationId: string, serverId?: string) {
     setCurrentBranch(conversationId, branchName);
   };
 
-  // Re-attempt loading the conversation after a load failure.
-  const retryLoad = useCallback(async () => {
+  // Re-attempt loading the conversation after a load failure. Bumping the nonce
+  // re-runs the load+connect effect, which both re-fetches data AND re-subscribes
+  // to the SSE event stream (the data-only retry left the conversation
+  // permanently disconnected).
+  const retryLoad = useCallback(() => {
     updateConversation(conversationId, { loadError: null });
-    try {
-      const data = await api.getConversation(conversationId);
-      try {
-        const chatConfig = await api.getChatConfig(conversationId);
-        updateConversation(conversationId, { data, chatConfig, loadError: null });
-      } catch {
-        updateConversation(conversationId, { data, loadError: null });
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to load conversation';
-      updateConversation(conversationId, { loadError: message });
-      toast({
-        variant: 'destructive',
-        title: 'Failed to load conversation',
-        description: message,
-      });
-    }
-  }, [api, conversationId, toast]);
+    setRetryNonce((n) => n + 1);
+  }, [conversationId]);
 
   return {
     conversation$,
