@@ -254,6 +254,7 @@ You can find more [Demos][docs-demos] and [Examples][docs-examples] in the [docu
 - 🤖 **Support for many LLM [providers][docs-providers]**
   - Anthropic (Claude), OpenAI (GPT), Google (Gemini), xAI (Grok), DeepSeek, and more.
   - Use OpenRouter for access to 100+ models, or serve locally with `llama.cpp`.
+  - [Pick the right model per task][docs-model-routing] — fast/cheap for triage, powerful for coding.
 - 🌐 **Web UI and REST API**
   - Modern web interface at [chat.gptme.org](https://chat.gptme.org) ([gptme-webui])
   - Simple built-in web UI included in the Python package.
@@ -642,6 +643,7 @@ Contributions welcome! See the [contributing guide](https://gptme.org/docs/contr
 [docs-examples]: https://gptme.org/docs/examples.html
 [docs-demos]: https://gptme.org/docs/demos.html
 [docs-providers]: https://gptme.org/docs/providers.html
+[docs-model-routing]: https://gptme.org/docs/model-routing.html
 [docs-tools]: https://gptme.org/docs/tools.html
 [docs-tools-python]: https://gptme.org/docs/tools.html#python
 [docs-tools-shell]: https://gptme.org/docs/tools.html#shell
