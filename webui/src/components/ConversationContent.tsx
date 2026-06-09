@@ -526,7 +526,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
           )}
         </Memo>
 
-        <For each={conversation$.data.log}>
+        <For each={conversation$?.data.log ?? []}>
           {(msg$) => {
             const index = getObservableIndex(msg$);
             // Hide all system messages before the first non-system message by default

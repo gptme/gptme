@@ -467,6 +467,20 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
 
     // Chat section — split view
     if (splitIds) {
+      // Wait for conversations to be initialized before rendering split view
+      const leftState = conversations$.get(splitIds[0])?.get();
+      const rightState = conversations$.get(splitIds[1])?.get();
+      if (!leftState || !rightState) {
+        return (
+          <div className="flex h-full items-center justify-center">
+            <div className="text-center">
+              <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-b-2 border-primary" />
+              <p className="text-sm text-muted-foreground">Loading split view...</p>
+            </div>
+          </div>
+        );
+      }
+
       const leftConversation = getSelectedConversationSummary(splitIds[0]);
       const rightConversation = getSelectedConversationSummary(splitIds[1]);
 
