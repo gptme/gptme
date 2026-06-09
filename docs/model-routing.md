@@ -15,7 +15,7 @@ Pass `--model` (`-m`) as `<provider>/<model>` to choose the model for a single r
 
 ```sh
 # Quick question — small, cheap, fast
-gptme "what does this regex match?" -m openrouter/qwen/qwen3.7-max
+gptme "what does this regex match?" -m openrouter/qwen/qwen3-max
 
 # Complex coding — powerful reasoning model
 gptme "refactor this module for testability" -m anthropic/claude-sonnet-4-6
@@ -59,7 +59,7 @@ If you mostly use one model, set it once in `gptme.toml` (project) or
 
 ```toml
 # gptme.toml or ~/.config/gptme/config.toml
-model = "openrouter/qwen/qwen3.7-max"
+model = "openrouter/qwen/qwen3-max"
 ```
 
 With a default configured, `gptme "query"` uses that model, and `--model` still
