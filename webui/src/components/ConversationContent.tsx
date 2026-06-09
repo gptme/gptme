@@ -1,5 +1,5 @@
 import type { FC } from 'react';
-import { useRef, useEffect, useCallback, useState, useId } from 'react';
+import { useRef, useEffect, useCallback, useState } from 'react';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput, type ChatOptions } from './ChatInput';
 import { CollapsedStepGroup } from './CollapsedStepGroup';
@@ -25,8 +25,6 @@ interface Props {
   isReadOnly?: boolean;
 }
 
-let activeConversationPaneId: string | null = null;
-
 export const ConversationContent: FC<Props> = ({ conversationId, serverId, isReadOnly }) => {
   const {
     conversation$,
@@ -49,7 +47,6 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   const shouldFocus$ = useObservable(false);
   // Store the previous conversation ID to detect changes
   const prevConversationIdRef = useRef<string | null>(null);
-  const paneId = useId();
   const paneRef = useRef<HTMLElement>(null);
 
   const { api, connectionConfig } = useApi();
@@ -61,6 +58,34 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   const searchQuery$ = useObservable('');
   const searchMatchIndices$ = useObservable<number[]>([]);
   const searchCurrentMatch$ = useObservable(0);
+
+  const activatePane = useCallback(() => {
+    const pane = paneRef.current;
+    if (!pane) return;
+
+    document
+      .querySelectorAll<HTMLElement>('[data-conversation-pane-active="true"]')
+      .forEach((activePane) => {
+        if (activePane !== pane) {
+          activePane.removeAttribute('data-conversation-pane-active');
+        }
+      });
+    pane.dataset.conversationPaneActive = 'true';
+  }, []);
+
+  const isActivePane = useCallback(() => {
+    const pane = paneRef.current;
+    if (!pane) return false;
+
+    const activePane = document.querySelector<HTMLElement>(
+      '[data-conversation-pane-active="true"]'
+    );
+    if (activePane) {
+      return activePane === pane;
+    }
+
+    return document.querySelectorAll('[data-conversation-pane]').length <= 1;
+  }, []);
 
   // Fetch user info once (cached in ApiClient)
   useEffect(() => {
@@ -88,7 +113,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   // Add keyboard shortcut for focusing the input
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (activeConversationPaneId !== paneId) {
+      if (!isActivePane()) {
         return;
       }
 
@@ -109,12 +134,12 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isReadOnly, hasSession$, paneId, shouldFocus$]);
+  }, [isReadOnly, hasSession$, isActivePane, shouldFocus$]);
 
   // Ctrl+F / Cmd+F to open message search (or re-focus if already open)
   useEffect(() => {
     const handleSearchKeyDown = (e: KeyboardEvent) => {
-      if (activeConversationPaneId !== paneId) {
+      if (!isActivePane()) {
         return;
       }
 
@@ -129,23 +154,22 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     };
     window.addEventListener('keydown', handleSearchKeyDown);
     return () => window.removeEventListener('keydown', handleSearchKeyDown);
-  }, [paneId, searchVisible$]);
+  }, [isActivePane, searchVisible$]);
 
   useEffect(() => {
-    if (!activeConversationPaneId) {
-      activeConversationPaneId = paneId;
+    const pane = paneRef.current;
+    if (!pane) return;
+
+    if (!document.querySelector('[data-conversation-pane-active="true"]')) {
+      activatePane();
     }
 
     return () => {
-      if (activeConversationPaneId === paneId) {
-        activeConversationPaneId = null;
+      if (pane.dataset.conversationPaneActive === 'true') {
+        pane.removeAttribute('data-conversation-pane-active');
       }
     };
-  }, [paneId]);
-
-  const activatePane = useCallback(() => {
-    activeConversationPaneId = paneId;
-  }, [paneId]);
+  }, [activatePane]);
 
   const firstNonSystemIndex$ = useObservable(() => {
     return conversation$?.get()?.data.log.findIndex((msg) => msg.role !== 'system') || 0;
@@ -479,6 +503,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
   return (
     <main
       ref={paneRef}
+      data-conversation-pane
       className="relative flex h-full flex-col"
       onFocus={activatePane}
       onPointerDown={activatePane}

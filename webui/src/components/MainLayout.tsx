@@ -467,11 +467,6 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
 
     // Chat section — split view
     if (splitIds) {
-      // Wait for conversations to be initialized before rendering split view
-      const leftState = conversations$.get(splitIds[0])?.get();
-      const rightState = conversations$.get(splitIds[1])?.get();
-      const isSplitLoading = !leftState || !rightState;
-
       const leftConversation = getSelectedConversationSummary(splitIds[0]);
       const rightConversation = getSelectedConversationSummary(splitIds[1]);
 
@@ -482,7 +477,6 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
           serverId={serverParam || undefined}
           leftIsReadOnly={leftConversation.readonly}
           rightIsReadOnly={rightConversation.readonly}
-          isLoading={isSplitLoading}
           vertical={isMobile}
           onClose={() => {
             const params = new URLSearchParams(searchParams);
