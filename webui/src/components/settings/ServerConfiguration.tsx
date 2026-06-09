@@ -368,7 +368,7 @@ export const ServerConfiguration: FC = () => {
       <Accordion type="multiple" className="w-full">
         <AccordionItem value="model-providers">
           <AccordionTrigger className="text-sm font-medium">Model &amp; providers</AccordionTrigger>
-          <AccordionContent className="space-y-6 pt-2">
+          <AccordionContent className="space-y-6">
             <ServerDefaultModelSettings />
             <ServerApiKeySettings />
             <ServerProviderHealthSettings />
@@ -377,7 +377,7 @@ export const ServerConfiguration: FC = () => {
 
         <AccordionItem value="config-files">
           <AccordionTrigger className="text-sm font-medium">Config files</AccordionTrigger>
-          <AccordionContent className="space-y-4 pt-2">
+          <AccordionContent className="space-y-4">
             {settings?.config_files && (
               <div className="space-y-2 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
                 <div>
@@ -411,7 +411,7 @@ export const ServerConfiguration: FC = () => {
 
         <AccordionItem value="run-server">
           <AccordionTrigger className="text-sm font-medium">Running the server</AccordionTrigger>
-          <AccordionContent className="space-y-2 pt-2">
+          <AccordionContent className="space-y-2">
             <div className="flex items-center gap-2 rounded-md bg-muted p-2">
               <code className="flex-1 text-sm">{`gptme-server --cors-origin='${window.location.origin}'`}</code>
               <Tooltip>
