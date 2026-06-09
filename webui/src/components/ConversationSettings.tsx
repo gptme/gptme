@@ -195,7 +195,7 @@ export const ConversationSettings: FC<ConversationSettingsProps> = ({ conversati
       ) : (
         <Form {...form}>
           <form onSubmit={handleSubmit(onSubmit, onInvalid)} className="flex h-full flex-col">
-            <div className="flex-1 space-y-8 overflow-y-auto p-4 pb-12">
+            <div className="min-h-0 flex-1 space-y-8 overflow-y-auto p-4 pb-12">
               <h3 className="mt-4 text-lg font-medium">Chat Settings</h3>
 
               {/* Session Cost Summary */}

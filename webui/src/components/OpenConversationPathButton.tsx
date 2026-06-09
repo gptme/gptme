@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { buildFileUri, isLocalApiBaseUrl } from '@/utils/openConversationPath';
+import { isTauriEnvironment } from '@/utils/tauri';
 
 interface OpenConversationPathButtonProps {
   logdir?: string;
@@ -36,11 +37,22 @@ export function OpenConversationPathButton({ logdir, baseUrl }: OpenConversation
     }
   };
 
-  const openDirectory = () => {
-    const fileUri = buildFileUri(logdir);
-    if (!window.open(fileUri, '_blank', 'noopener,noreferrer')) {
-      window.location.href = fileUri;
+  const openDirectory = async () => {
+    // Browsers block navigating to file:// from page scripts (throws a security
+    // error), so only attempt a real open in the Tauri desktop app. In a plain
+    // browser, fall back to copying the path.
+    if (isTauriEnvironment()) {
+      try {
+        const fileUri = buildFileUri(logdir);
+        if (window.open(fileUri, '_blank', 'noopener,noreferrer')) {
+          return;
+        }
+      } catch (error) {
+        console.error('Failed to open conversation directory:', error);
+      }
     }
+    await copyPath();
+    toast.info('Opening folders is not supported in the browser — path copied instead.');
   };
 
   return (
@@ -65,7 +77,7 @@ export function OpenConversationPathButton({ logdir, baseUrl }: OpenConversation
           </Tooltip>
         </TooltipProvider>
         <DropdownMenuContent align="end" className="w-48">
-          <DropdownMenuItem onClick={openDirectory}>
+          <DropdownMenuItem onClick={() => void openDirectory()}>
             <ExternalLink className="mr-2 h-4 w-4" />
             Open directory
           </DropdownMenuItem>

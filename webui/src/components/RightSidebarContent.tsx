@@ -10,5 +10,9 @@ interface Props {
 export const RightSidebarContent: FC<Props> = ({ conversationId, activeTab }) => {
   const panel = getRightSidebarPanel(activeTab);
 
-  return <div className="h-full border-l bg-background">{panel?.render({ conversationId })}</div>;
+  return (
+    <div className="h-full overflow-hidden border-l bg-background">
+      {panel?.render({ conversationId })}
+    </div>
+  );
 };
