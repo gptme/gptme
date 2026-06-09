@@ -67,7 +67,7 @@ describe('useConversation', () => {
           step,
           closeEventStream,
           getConversation: jest.fn(),
-          getChatConfig: jest.fn(),
+          getChatConfig: jest.fn().mockResolvedValue(null),
         }) as any,
       isConnected$: observable(true),
     } as any);
