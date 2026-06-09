@@ -31,6 +31,9 @@ export const SettingsModal = forwardRef<HTMLButtonElement, SettingsModalProps>(
         if (externalRequest.category) {
           setActiveCategory(externalRequest.category);
         }
+        // Reset immediately to prevent auto-reopen on component remount
+        // when user navigates away while the modal is open
+        settingsModal$.open.set(false);
       }
     }, [externalRequest.open, externalRequest.category]);
 
