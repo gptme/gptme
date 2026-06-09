@@ -12,6 +12,12 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  Accordion,
+  AccordionItem,
+  AccordionTrigger,
+  AccordionContent,
+} from '@/components/ui/accordion';
 import { Pencil, Trash2, Plus, Plug, Unplug, Copy } from 'lucide-react';
 import { useApi } from '@/contexts/ApiContext';
 import { useUserSettings } from '@/hooks/useUserSettings';
@@ -352,80 +358,96 @@ export const ServerConfiguration: FC = () => {
         })}
       </div>
 
-      {settings?.config_files && (
-        <div className="space-y-2 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-          <div>
-            <h4 className="font-medium text-foreground">Config file behavior</h4>
-            <p className="mt-1">
-              gptme always loads <code>{settings.config_files.config_path}</code>.
-            </p>
-            <p className="mt-1">
-              {settings.config_files.local_config_exists ? (
-                <>
-                  <code>{settings.config_files.local_config_path}</code> is present and overrides
-                  overlapping values.
-                </>
-              ) : (
-                <>
-                  If present, <code>{settings.config_files.local_config_path}</code> would override
-                  overlapping values.
-                </>
-              )}
-            </p>
-            <p className="mt-1">
-              Changes from this settings UI are written to{' '}
-              <code>{settings.config_files.write_target}</code>.
-            </p>
-          </div>
-        </div>
-      )}
-
-      <ConfigFileEditor />
-      <ServerApiKeySettings />
-      <ServerDefaultModelSettings />
-      <ServerProviderHealthSettings />
-
       <Button variant="outline" onClick={handleOpenAdd}>
         <Plus className="mr-2 h-4 w-4" />
         Add Server
       </Button>
 
-      <div className="space-y-2">
-        <h4 className="text-sm font-medium">Start the server with:</h4>
-        <div className="flex items-center gap-2 rounded-md bg-muted p-2">
-          <code className="flex-1 text-sm">{`gptme-server --cors-origin='${window.location.origin}'`}</code>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 shrink-0"
-                onClick={() => {
-                  navigator.clipboard.writeText(
-                    `gptme-server --cors-origin='${window.location.origin}'`
-                  );
-                  toast.success('Command copied to clipboard');
-                }}
+      {/* Global config grouped into collapsible sections so the tab isn't one
+          long scroll. The server list above stays the focus. */}
+      <Accordion type="multiple" className="w-full">
+        <AccordionItem value="model-providers">
+          <AccordionTrigger className="text-sm font-medium">Model &amp; providers</AccordionTrigger>
+          <AccordionContent className="space-y-6 pt-2">
+            <ServerDefaultModelSettings />
+            <ServerApiKeySettings />
+            <ServerProviderHealthSettings />
+          </AccordionContent>
+        </AccordionItem>
+
+        <AccordionItem value="config-files">
+          <AccordionTrigger className="text-sm font-medium">Config files</AccordionTrigger>
+          <AccordionContent className="space-y-4 pt-2">
+            {settings?.config_files && (
+              <div className="space-y-2 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                <div>
+                  <h4 className="font-medium text-foreground">Config file behavior</h4>
+                  <p className="mt-1">
+                    gptme always loads <code>{settings.config_files.config_path}</code>.
+                  </p>
+                  <p className="mt-1">
+                    {settings.config_files.local_config_exists ? (
+                      <>
+                        <code>{settings.config_files.local_config_path}</code> is present and
+                        overrides overlapping values.
+                      </>
+                    ) : (
+                      <>
+                        If present, <code>{settings.config_files.local_config_path}</code> would
+                        override overlapping values.
+                      </>
+                    )}
+                  </p>
+                  <p className="mt-1">
+                    Changes from this settings UI are written to{' '}
+                    <code>{settings.config_files.write_target}</code>.
+                  </p>
+                </div>
+              </div>
+            )}
+            <ConfigFileEditor />
+          </AccordionContent>
+        </AccordionItem>
+
+        <AccordionItem value="run-server">
+          <AccordionTrigger className="text-sm font-medium">Running the server</AccordionTrigger>
+          <AccordionContent className="space-y-2 pt-2">
+            <div className="flex items-center gap-2 rounded-md bg-muted p-2">
+              <code className="flex-1 text-sm">{`gptme-server --cors-origin='${window.location.origin}'`}</code>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 shrink-0"
+                    onClick={() => {
+                      navigator.clipboard.writeText(
+                        `gptme-server --cors-origin='${window.location.origin}'`
+                      );
+                      toast.success('Command copied to clipboard');
+                    }}
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Copy command</TooltipContent>
+              </Tooltip>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              See the{' '}
+              <a
+                href="https://gptme.org/docs/server.html"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-500 hover:underline"
               >
-                <Copy className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Copy command</TooltipContent>
-          </Tooltip>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          See the{' '}
-          <a
-            href="https://gptme.org/docs/server.html"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-500 hover:underline"
-          >
-            server documentation
-          </a>{' '}
-          for more details.
-        </p>
-      </div>
+                server documentation
+              </a>{' '}
+              for more details.
+            </p>
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
 
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
         <DialogContent className="sm:max-w-md">
