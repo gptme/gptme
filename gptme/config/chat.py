@@ -246,7 +246,10 @@ class ChatConfig:
 
         # Only create symlink if workspace is different from the log workspace
         if self.workspace != workspace_path:
-            if workspace_path.exists():
+            # Use is_symlink() too: exists() follows symlinks and returns False
+            # for a dangling one (e.g. a tmp workspace that was cleaned up),
+            # which would skip removal and make symlink_to raise FileExistsError.
+            if workspace_path.is_symlink() or workspace_path.exists():
                 if workspace_path.is_dir() and not workspace_path.is_symlink():
                     try:
                         # If it's an empty directory (e.g., auto-created by
