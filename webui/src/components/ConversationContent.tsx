@@ -17,7 +17,8 @@ import { getObservableIndex } from '@legendapp/state';
 import { useApi } from '@/contexts/ApiContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useModels } from '@/hooks/useModels';
-import { ArrowDown, RefreshCw, WifiOff } from 'lucide-react';
+import { AlertTriangle, ArrowDown, RefreshCw, WifiOff } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 interface Props {
   conversationId: string;
@@ -28,6 +29,7 @@ interface Props {
 export const ConversationContent: FC<Props> = ({ conversationId, serverId, isReadOnly }) => {
   const {
     conversation$,
+    retryLoad,
     sendMessage,
     retryMessage,
     editMessage,
@@ -38,6 +40,8 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     confirmTool,
     interruptGeneration,
   } = useConversation(conversationId, serverId);
+  const loadError = use$(() => conversation$?.loadError.get() ?? null);
+  const messageCount = use$(() => conversation$?.data.log.get()?.length ?? 0);
   const connectionStatus = use$(() => conversation$?.connectionStatus.get() ?? 'disconnected');
   const reconnectAttempt = use$(() => conversation$?.reconnectAttempt.get() ?? null);
   const reconnectMaxAttempts = use$(() => conversation$?.reconnectMaxAttempts.get() ?? null);
@@ -444,6 +448,22 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     return (
       <div className="flex h-full items-center justify-center">
         <div className="text-muted-foreground">Loading conversation...</div>
+      </div>
+    );
+  }
+
+  if (loadError && messageCount === 0) {
+    return (
+      <div className="flex h-full items-center justify-center p-6">
+        <div className="flex max-w-md flex-col items-center gap-3 text-center">
+          <AlertTriangle className="h-8 w-8 text-destructive" />
+          <div className="font-medium">Failed to load conversation</div>
+          <div className="break-words text-sm text-muted-foreground">{loadError}</div>
+          <Button variant="outline" size="sm" onClick={() => void retryLoad()}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Retry
+          </Button>
+        </div>
       </div>
     );
   }

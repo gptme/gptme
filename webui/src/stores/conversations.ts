@@ -34,6 +34,8 @@ export interface ConversationState {
   reconnectRetryInMs: number | null;
   reconnectRetryStartedAt: number | null;
   connectionError: string | null;
+  // Error message if loading the conversation from the API failed
+  loadError: string | null;
   // Any pending tool
   pendingTool: PendingTool | null;
   // Any executing tool
@@ -90,6 +92,7 @@ export function updateConversation(id: string, update: Partial<ConversationState
       reconnectRetryInMs: null,
       connectionError: null,
       reconnectRetryStartedAt: null,
+      loadError: null,
       pendingTool: null,
       executingTool: null,
       lastCompletedTool: null,
@@ -259,6 +262,7 @@ export function initConversation(
     reconnectRetryInMs: null,
     connectionError: null,
     reconnectRetryStartedAt: null,
+    loadError: null,
     pendingTool: null,
     executingTool: null,
     lastCompletedTool: null,
