@@ -14,6 +14,28 @@ let currentAudio: HTMLAudioElement | null = null;
 let currentFetchController: AbortController | null = null;
 const LOCAL_TTS_NOT_CONFIGURED = 'tts-local-not-configured';
 
+// Which logical item (e.g. a message key) is currently being spoken, so the UI
+// can show a stop/playing state. null = nothing playing.
+let speakingKey: string | null = null;
+const speakingListeners = new Set<() => void>();
+
+function setSpeakingKey(key: string | null): void {
+  if (speakingKey === key) return;
+  speakingKey = key;
+  for (const listener of speakingListeners) listener();
+}
+
+/** Subscribe to speaking-state changes (for useSyncExternalStore). */
+export function subscribeSpeaking(listener: () => void): () => void {
+  speakingListeners.add(listener);
+  return () => speakingListeners.delete(listener);
+}
+
+/** Key of the item currently being spoken, or null. */
+export function getSpeakingKey(): string | null {
+  return speakingKey;
+}
+
 function getSettings(): { ttsEnabled: boolean; ttsServerUrl: string } {
   try {
     const saved = localStorage.getItem('gptme-settings');
@@ -69,8 +91,30 @@ async function isLocalTtsNotConfigured(response: Response): Promise<boolean> {
   }
 }
 
+/** Play an audio blob, wiring up cleanup + speaking-state clearing. */
+function playBlob(blob: Blob, key: string): void {
+  const objectUrl = URL.createObjectURL(blob);
+  if (currentAudio) {
+    currentAudio.pause();
+    URL.revokeObjectURL(currentAudio.src);
+  }
+  const audio = new Audio(objectUrl);
+  currentAudio = audio;
+  const cleanup = () => {
+    URL.revokeObjectURL(objectUrl);
+    if (currentAudio === audio) {
+      currentAudio = null;
+      setSpeakingKey(null);
+    }
+  };
+  audio.onended = cleanup;
+  audio.onerror = cleanup;
+  setSpeakingKey(key);
+  void audio.play().catch(cleanup);
+}
+
 /** POST text to the gptme server's built-in /api/v2/audio/speech endpoint. */
-async function speakViaLocalEndpoint(text: string): Promise<void> {
+async function speakViaLocalEndpoint(text: string, key: string): Promise<void> {
   const controller = new AbortController();
   currentFetchController = controller;
   try {
@@ -87,24 +131,8 @@ async function speakViaLocalEndpoint(text: string): Promise<void> {
       throw new Error(`TTS endpoint error: ${response.status}`);
     }
     const blob = await response.blob();
-    const objectUrl = URL.createObjectURL(blob);
-
-    if (controller.signal.aborted) {
-      URL.revokeObjectURL(objectUrl);
-      return;
-    }
-
-    if (currentAudio) {
-      currentAudio.pause();
-      URL.revokeObjectURL(currentAudio.src);
-    }
-    const audio = new Audio(objectUrl);
-    currentAudio = audio;
-    audio.onended = () => {
-      URL.revokeObjectURL(objectUrl);
-      if (currentAudio === audio) currentAudio = null;
-    };
-    await audio.play();
+    if (controller.signal.aborted) return;
+    playBlob(blob, key);
   } finally {
     if (currentFetchController === controller) {
       currentFetchController = null;
@@ -112,7 +140,7 @@ async function speakViaLocalEndpoint(text: string): Promise<void> {
   }
 }
 
-async function speakViaExternalServer(text: string, serverUrl: string): Promise<void> {
+async function speakViaExternalServer(text: string, serverUrl: string, key: string): Promise<void> {
   const url = `${serverUrl.replace(/\/$/, '')}/tts?${new URLSearchParams({ text })}`;
   const controller = new AbortController();
   currentFetchController = controller;
@@ -120,24 +148,8 @@ async function speakViaExternalServer(text: string, serverUrl: string): Promise<
     const response = await fetch(url, { signal: controller.signal });
     if (!response.ok) throw new Error(`TTS server error: ${response.status}`);
     const blob = await response.blob();
-    const objectUrl = URL.createObjectURL(blob);
-
-    if (controller.signal.aborted) {
-      URL.revokeObjectURL(objectUrl);
-      return;
-    }
-
-    if (currentAudio) {
-      currentAudio.pause();
-      URL.revokeObjectURL(currentAudio.src);
-    }
-    const audio = new Audio(objectUrl);
-    currentAudio = audio;
-    audio.onended = () => {
-      URL.revokeObjectURL(objectUrl);
-      if (currentAudio === audio) currentAudio = null;
-    };
-    await audio.play();
+    if (controller.signal.aborted) return;
+    playBlob(blob, key);
   } finally {
     if (currentFetchController === controller) {
       currentFetchController = null;
@@ -145,7 +157,9 @@ async function speakViaExternalServer(text: string, serverUrl: string): Promise<
   }
 }
 
-async function speak(rawText: string): Promise<void> {
+const DEFAULT_SPEAK_KEY = '__tts__';
+
+async function speak(rawText: string, key: string): Promise<void> {
   const spoken = toSpokenText(rawText);
   if (!spoken) return;
 
@@ -153,7 +167,7 @@ async function speak(rawText: string): Promise<void> {
 
   // 1. Try the same-origin /api/v2/audio/speech endpoint first.
   try {
-    await speakViaLocalEndpoint(spoken);
+    await speakViaLocalEndpoint(spoken, key);
     return;
   } catch (err) {
     if (isAbortError(err)) return;
@@ -166,7 +180,7 @@ async function speak(rawText: string): Promise<void> {
   const { ttsServerUrl } = getSettings();
   if (ttsServerUrl) {
     try {
-      await speakViaExternalServer(spoken, ttsServerUrl);
+      await speakViaExternalServer(spoken, ttsServerUrl, key);
       return;
     } catch (err) {
       if (isAbortError(err)) return;
@@ -178,19 +192,22 @@ async function speak(rawText: string): Promise<void> {
   if (!window.speechSynthesis) return;
   const utterance = new SpeechSynthesisUtterance(spoken);
   utterance.rate = 1.1;
+  utterance.onend = () => setSpeakingKey(null);
+  utterance.onerror = () => setSpeakingKey(null);
+  setSpeakingKey(key);
   window.speechSynthesis.speak(utterance);
 }
 
 /** Speak text if the global TTS toggle is enabled (auto-play on new messages). */
-export function speakText(rawText: string): void {
+export function speakText(rawText: string, key: string = DEFAULT_SPEAK_KEY): void {
   const { ttsEnabled } = getSettings();
   if (!ttsEnabled) return;
-  void speak(rawText);
+  void speak(rawText, key);
 }
 
 /** Speak text immediately, regardless of the global TTS toggle (per-message button). */
-export function speakTextNow(rawText: string): void {
-  void speak(rawText);
+export function speakTextNow(rawText: string, key: string = DEFAULT_SPEAK_KEY): void {
+  void speak(rawText, key);
 }
 
 export function stopSpeaking(): void {
@@ -206,6 +223,7 @@ export function stopSpeaking(): void {
   if (window.speechSynthesis) {
     window.speechSynthesis.cancel();
   }
+  setSpeakingKey(null);
 }
 
 export function isSpeechSupported(): boolean {

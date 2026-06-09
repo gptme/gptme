@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type FC } from 'react';
+import { useCallback, useRef, useState, useSyncExternalStore, type FC } from 'react';
 import type { Message, StreamingMessage } from '@/types/conversation';
 import { MessageAvatar } from './MessageAvatar';
 import { useMessageChainType } from '@/utils/messageUtils';
@@ -23,13 +23,20 @@ import {
   FileText,
   FolderOpen,
   Volume2,
+  Square,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { ChatInput } from '@/components/ChatInput';
 import { workspaceNavigateTo$ } from '@/stores/workspaceExplorer';
-import { speakTextNow, isSpeechSupported } from '@/utils/tts';
+import {
+  speakTextNow,
+  isSpeechSupported,
+  subscribeSpeaking,
+  getSpeakingKey,
+  stopSpeaking,
+} from '@/utils/tts';
 import { rightSidebarActiveTab$, rightSidebarVisible$ } from '@/stores/sidebar';
 
 function formatTimestamp(timestamp: string): { short: string; full: string } {
@@ -97,6 +104,10 @@ export const ChatMessage: FC<Props> = ({
 }) => {
   const { api, connectionConfig } = useApi();
   const { settings } = useSettings();
+  // TTS playback state: which message is currently being spoken (if any).
+  const ttsKey = `${conversationId}:${messageIndex}`;
+  const speakingKey = useSyncExternalStore(subscribeSpeaking, getSpeakingKey);
+  const isSpeakingThis = speakingKey === ttsKey;
   // Use observables (not useState) because these are read inside <Memo>
   const isEditing$ = useObservable(false);
   const editContent$ = useObservable('');
@@ -556,12 +567,16 @@ export const ChatMessage: FC<Props> = ({
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => speakTextNow(message$.content.get() ?? '')}
+                          onClick={() =>
+                            isSpeakingThis
+                              ? stopSpeaking()
+                              : speakTextNow(message$.content.get() ?? '', ttsKey)
+                          }
                           className="h-7 w-7 p-0"
-                          aria-label="Read aloud"
-                          title="Read aloud"
+                          aria-label={isSpeakingThis ? 'Stop reading' : 'Read aloud'}
+                          title={isSpeakingThis ? 'Stop reading' : 'Read aloud'}
                         >
-                          <Volume2 size={14} />
+                          {isSpeakingThis ? <Square size={14} /> : <Volume2 size={14} />}
                         </Button>
                       )}
                       <Button
