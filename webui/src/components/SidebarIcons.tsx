@@ -89,7 +89,9 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
             ? 'external-sessions'
             : location.pathname.startsWith('/admin')
               ? 'admin'
-              : 'chat';
+              : location.pathname.startsWith('/settings')
+                ? 'settings'
+                : 'chat';
 
   const handleNavigateToSection = (
     section: 'chat' | 'tasks' | 'history' | 'agents' | 'workspaces' | 'external-sessions' | 'admin'
@@ -212,11 +214,12 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <SettingsModal>
+              {currentSection === 'settings' ? (
                 <Button
-                  variant="ghost"
+                  variant="secondary"
                   className="relative h-8 w-full min-w-0 justify-start gap-2 px-2"
-                  aria-label="Open settings"
+                  aria-label="Settings"
+                  onClick={() => navigate('/settings')}
                 >
                   <span className="relative flex-shrink-0">
                     <Settings className="h-4 w-4" />
@@ -232,7 +235,29 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
                     Settings
                   </span>
                 </Button>
-              </SettingsModal>
+              ) : (
+                <SettingsModal>
+                  <Button
+                    variant="ghost"
+                    className="relative h-8 w-full min-w-0 justify-start gap-2 px-2"
+                    aria-label="Open settings"
+                  >
+                    <span className="relative flex-shrink-0">
+                      <Settings className="h-4 w-4" />
+                      {hasProviderError && (
+                        <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-red-500" />
+                      )}
+                    </span>
+                    <span
+                      className={`min-w-0 flex-1 truncate text-left text-sm transition-opacity duration-150 ${
+                        isExpanded ? 'opacity-100' : 'opacity-0'
+                      }`}
+                    >
+                      Settings
+                    </span>
+                  </Button>
+                </SettingsModal>
+              )}
             </TooltipTrigger>
             {!isExpanded && <TooltipContent side="right">Settings</TooltipContent>}
           </Tooltip>
