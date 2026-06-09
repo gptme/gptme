@@ -149,6 +149,25 @@ class UserIdentityConfig:
 
 
 @dataclass
+class ModelsConfig:
+    """Model-related user preferences, stored under a ``[models]`` section.
+
+    Scope: these refer to the primary chat/LLM model (the same notion as the
+    ``MODEL`` env var). Other modalities (TTS/STT/image) are configured
+    separately; if they ever need formal model selection they should get their
+    own scoped keys (e.g. ``[models.tts]``) rather than overloading these.
+    """
+
+    # Default chat model (fully-qualified id). Formal alternative to the MODEL
+    # env var; takes precedence over MODEL but below an explicit per-chat model.
+    default: str | None = None
+
+    # User-curated favorite models (fully-qualified ids, e.g.
+    # "anthropic/claude-opus-4-8"). Surfaced prominently in model pickers.
+    favorites: list[str] = field(default_factory=list)
+
+
+@dataclass
 class UserConfig:
     """User-level configuration, such as user-specific prompts and environment variables."""
 
@@ -160,9 +179,8 @@ class UserConfig:
     providers: list[ProviderConfig] = field(default_factory=list)
     lessons: "LessonsConfig | None" = None
 
-    # User-curated favorite models (fully-qualified ids, e.g. "anthropic/claude-opus-4-8").
-    # Surfaced prominently in model pickers across clients.
-    favorites: list[str] = field(default_factory=list)
+    # Model-related preferences (favorites, ...), under a [models] section.
+    models: "ModelsConfig" = field(default_factory=lambda: ModelsConfig())
 
     # Plugin system configuration (search paths + enabled allowlist).
     # Layered with project-level [plugins] (see Config.get_plugin_config).

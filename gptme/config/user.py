@@ -21,6 +21,7 @@ from ..util import path_with_tilde
 from .models import (
     LessonsConfig,
     MCPConfig,
+    ModelsConfig,
     PluginsConfig,
     ProviderConfig,
     UserConfig,
@@ -125,6 +126,24 @@ def get_user_config_env_source(key: str, path: str | None = None) -> str | None:
     return None
 
 
+def get_default_model_source(path: str | None = None) -> str | None:
+    """Return where the default model comes from.
+
+    Precedence mirrors model resolution: ``[models].default`` (local then main
+    config) takes priority, then the ``MODEL`` env var / ``[env]`` source.
+    """
+    config_file, local_path = get_user_config_paths(path)
+    if local_path.exists():
+        with open(local_path) as f:
+            local_doc = tomlkit.load(f)
+        if _get_nested_config_value(local_doc, "models", "default") is not None:
+            return USER_CONFIG_SOURCE_LOCAL
+    main_doc = _load_config_doc(str(config_file))
+    if _get_nested_config_value(main_doc, "models", "default") is not None:
+        return USER_CONFIG_SOURCE_MAIN
+    return get_user_config_env_source("MODEL", path)
+
+
 def get_user_config_runtime_info(path: str | None = None) -> dict[str, str | bool]:
     """Return read/write path details for the user config UI."""
     config_file, local_path = get_user_config_paths(path)
@@ -204,14 +223,25 @@ def load_user_config(path: str | None = None) -> UserConfig:
     providers_config = config.pop("providers", [])
     providers = [ProviderConfig(**provider) for provider in providers_config]
 
-    # Parse favorite models (list of fully-qualified model ids)
-    favorites_data = config.pop("favorites", [])
+    # Parse [models] section (model-related preferences like favorites)
+    models_data = config.pop("models", {})
+    if not isinstance(models_data, dict):
+        logger.warning(f"[models] should be a table, got {type(models_data).__name__}")
+        models_data = {}
+    favorites_data = models_data.get("favorites", [])
     if not isinstance(favorites_data, list):
         logger.warning(
-            f"[favorites] should be a list, got {type(favorites_data).__name__}"
+            f"[models].favorites should be a list, got {type(favorites_data).__name__}"
         )
         favorites_data = []
-    favorites = [str(m) for m in favorites_data if isinstance(m, str)]
+    default_model = models_data.get("default")
+    if default_model is not None and not isinstance(default_model, str):
+        logger.warning("[models].default should be a string")
+        default_model = None
+    models_config = ModelsConfig(
+        default=default_model,
+        favorites=[str(m) for m in favorites_data if isinstance(m, str)],
+    )
 
     # Parse lessons config
     lessons_data = config.pop("lessons", None)
@@ -247,7 +277,7 @@ def load_user_config(path: str | None = None) -> UserConfig:
         mcp=mcp,
         providers=providers,
         lessons=lessons,
-        favorites=favorites,
+        models=models_config,
         plugins=plugins,
         plugin=plugin_config,
     )

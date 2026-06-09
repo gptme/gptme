@@ -103,8 +103,13 @@ def init_model(
     config = get_config()
 
     # get from config
+    # Precedence: explicit per-chat model > [models].default > MODEL env var.
     if not model:
-        model = (config.chat.model if config.chat else None) or config.get_env("MODEL")
+        model = (
+            (config.chat.model if config.chat else None)
+            or config.user.models.default
+            or config.get_env("MODEL")
+        )
 
     if not model:  # pragma: no cover
         # auto-detect depending on if OPENAI_API_KEY or ANTHROPIC_API_KEY is set

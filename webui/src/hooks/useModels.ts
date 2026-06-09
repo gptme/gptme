@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { use$ } from '@legendapp/state/react';
 import { useApi } from '@/contexts/ApiContext';
 import { buildModelsFetchError } from '@/utils/modelsError';
@@ -33,6 +33,17 @@ export function useModels() {
   const [favorites, setFavoritesState] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Mirror favorites in a ref so rapid toggles read the latest list instead of
+  // a stale closure value (which could drop a favorite under quick clicks).
+  const favoritesRef = useRef<string[]>([]);
+  useEffect(() => {
+    favoritesRef.current = favorites;
+  }, [favorites]);
+  const applyFavorites = useCallback((next: string[]) => {
+    favoritesRef.current = next;
+    setFavoritesState(next);
+  }, []);
 
   useEffect(() => {
     if (!isConnected || isDemoMode()) {
@@ -91,8 +102,8 @@ export function useModels() {
   // Persist the favorites list. Optimistically updates local state and reverts on failure.
   const saveFavorites = useCallback(
     async (next: string[]): Promise<boolean> => {
-      const prev = favorites;
-      setFavoritesState(next);
+      const prev = favoritesRef.current;
+      applyFavorites(next);
       try {
         const response = await fetch(`${api.baseUrl}/api/v2/user/favorites`, {
           method: 'POST',
@@ -101,25 +112,25 @@ export function useModels() {
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = (await response.json()) as { favorites?: string[] };
-        if (data.favorites) setFavoritesState(data.favorites);
+        if (data.favorites) applyFavorites(data.favorites);
         return true;
       } catch (err) {
         console.error('Failed to save favorites:', err);
-        setFavoritesState(prev);
+        applyFavorites(prev);
         return false;
       }
     },
-    [api.baseUrl, authedHeaders, favorites]
+    [api.baseUrl, authedHeaders, applyFavorites]
   );
 
   const toggleFavorite = useCallback(
-    (modelId: string): Promise<boolean> =>
-      saveFavorites(
-        favorites.includes(modelId)
-          ? favorites.filter((id) => id !== modelId)
-          : [...favorites, modelId]
-      ),
-    [favorites, saveFavorites]
+    (modelId: string): Promise<boolean> => {
+      const current = favoritesRef.current;
+      return saveFavorites(
+        current.includes(modelId) ? current.filter((id) => id !== modelId) : [...current, modelId]
+      );
+    },
+    [saveFavorites]
   );
 
   // Persist the default model for new chats. Returns whether a server restart is required.
