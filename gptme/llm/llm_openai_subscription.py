@@ -365,7 +365,9 @@ def oauth_authenticate() -> SubscriptionAuth:
     return auth
 
 
-def _refresh_access_token(refresh_token: str) -> SubscriptionAuth:
+def _refresh_access_token(
+    refresh_token: str, timeout: float | tuple[float, float] = 30
+) -> SubscriptionAuth:
     """Refresh access token using refresh token."""
     response = requests.post(
         OAUTH_TOKEN_URL,
@@ -375,7 +377,7 @@ def _refresh_access_token(refresh_token: str) -> SubscriptionAuth:
             "refresh_token": refresh_token,
         },
         headers={"Content-Type": "application/x-www-form-urlencoded"},
-        timeout=30,
+        timeout=timeout,
     )
 
     if response.status_code != 200:
@@ -403,7 +405,7 @@ def _refresh_access_token(refresh_token: str) -> SubscriptionAuth:
     return auth
 
 
-def get_auth() -> SubscriptionAuth:
+def get_auth(timeout: float | tuple[float, float] = 30) -> SubscriptionAuth:
     """Get current auth, refreshing or prompting login if needed."""
     global _auth
     last_refresh_error: Exception | None = None
@@ -414,7 +416,7 @@ def get_auth() -> SubscriptionAuth:
 
         if _auth.refresh_token:
             try:
-                _auth = _refresh_access_token(_auth.refresh_token)
+                _auth = _refresh_access_token(_auth.refresh_token, timeout=timeout)
                 return _auth
             except Exception as e:
                 logger.warning(f"Token refresh failed: {e}")
@@ -428,7 +430,9 @@ def get_auth() -> SubscriptionAuth:
 
         if stored_auth.refresh_token:
             try:
-                _auth = _refresh_access_token(stored_auth.refresh_token)
+                _auth = _refresh_access_token(
+                    stored_auth.refresh_token, timeout=timeout
+                )
                 return _auth
             except Exception as e:
                 logger.warning(f"Token refresh failed: {e}")

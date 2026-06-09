@@ -17,6 +17,7 @@ export function SpeechInputButton({ onTranscript, onInterimTranscript, disabled 
     useSpeechToText();
 
   const isListening = state === 'listening';
+  const isTranscribing = state === 'transcribing';
 
   useEffect(() => {
     onFinalResult(onTranscript);
@@ -35,15 +36,18 @@ export function SpeechInputButton({ onTranscript, onInterimTranscript, disabled 
   const isError = state === 'error';
 
   const handleClick = () => {
+    if (isTranscribing) return;
     if (isListening) stopListening();
     else startListening();
   };
 
   const label = isError
     ? 'Mic error — click to retry'
-    : isListening
-      ? 'Listening… click to stop'
-      : 'Dictate message (speech-to-text)';
+    : isTranscribing
+      ? 'Transcribing…'
+      : isListening
+        ? 'Listening… click to stop'
+        : 'Dictate message (speech-to-text)';
 
   return (
     <Tooltip>
@@ -53,12 +57,12 @@ export function SpeechInputButton({ onTranscript, onInterimTranscript, disabled 
           variant="ghost"
           size="icon"
           onClick={handleClick}
-          disabled={disabled}
+          disabled={disabled || isTranscribing}
           className={[
             'relative h-8 w-8 shrink-0 rounded-full transition-colors',
             isError
               ? 'text-destructive'
-              : isListening
+              : isListening || isTranscribing
                 ? 'text-blue-500 hover:text-blue-600'
                 : 'text-muted-foreground',
           ].join(' ')}
@@ -71,7 +75,7 @@ export function SpeechInputButton({ onTranscript, onInterimTranscript, disabled 
           )}
           {state === 'error' ? (
             <MicOff className="h-4 w-4" />
-          ) : isListening ? (
+          ) : isListening || isTranscribing ? (
             <Loader2 className="relative h-4 w-4 animate-spin" />
           ) : (
             <Mic className="h-4 w-4" />

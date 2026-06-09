@@ -24,6 +24,31 @@ from .manager import Log
 logger = logging.getLogger(__name__)
 
 
+def _format_token_count(n: int) -> str:
+    """Format token count with K/M suffix."""
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.1f}K"
+    return str(n)
+
+
+def _format_duration(seconds: float) -> str:
+    """Format duration seconds into a compact human-readable string."""
+    total_seconds = max(0, int(seconds))
+    days, rem = divmod(total_seconds, 86_400)
+    hours, rem = divmod(rem, 3_600)
+    minutes, secs = divmod(rem, 60)
+
+    if days:
+        return f"{days}d {hours}h"
+    if hours:
+        return f"{hours}h {minutes}m"
+    if minutes:
+        return f"{minutes}m {secs}s"
+    return f"{secs}s"
+
+
 def _conversation_files() -> list[Path]:
     # NOTE: only returns the main conversation, not branches (to avoid duplicates)
     # returns the conversation files sorted by modified time (newest first)
@@ -73,8 +98,29 @@ class ConversationMeta:
             output += (
                 f"\nModified: {datetime.fromtimestamp(self.modified, tz=timezone.utc)}"
             )
+            output += f"\nDuration: {_format_duration(self.modified - self.created)}"
             if self.branches > 1:
                 output += f"\n({self.branches} branches)"
+            if self.model:
+                output += f"\nModel:    {self.model}"
+            total_tokens = self.total_input_tokens + self.total_output_tokens
+            if total_tokens:
+                output += (
+                    "\nTokens:   "
+                    f"{_format_token_count(total_tokens)} total "
+                    f"({_format_token_count(self.total_input_tokens)} in / "
+                    f"{_format_token_count(self.total_output_tokens)} out)"
+                )
+            if self.total_cost:
+                cost_str = (
+                    f"${self.total_cost:.2f}"
+                    if self.total_cost >= 0.01
+                    else f"${self.total_cost:.4f}"
+                )
+                output += f"\nCost:     {cost_str}"
+            if self.last_message_preview:
+                role = self.last_message_role or "last"
+                output += f"\nLast:     {role}: {self.last_message_preview}"
         return output
 
 

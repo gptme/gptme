@@ -342,6 +342,10 @@ export const ConversationList: FC<Props> = ({
                         ? Object.values(breakdown).reduce((a, b) => a + b, 0)
                         : conv.messages;
 
+                      if (count === undefined) {
+                        return null;
+                      }
+
                       const messageCountElement = (
                         <span className="flex items-center">
                           <MessageSquare className="mr-1 h-3 w-3" />

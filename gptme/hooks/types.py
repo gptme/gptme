@@ -117,6 +117,7 @@ class HookType(str, Enum):
     # Generation
     GENERATION_PRE = "generation.pre"  # Before generating response
     GENERATION_POST = "generation.post"  # After generating response
+    GENERATION_CHUNK = "generation.chunk"  # On each streamed response line
     GENERATION_INTERRUPT = "generation.interrupt"  # Interrupt generation
 
     # Loop control
@@ -254,6 +255,26 @@ class GenerationPostHook(Protocol):
     ) -> Generator[Message | StopPropagation, None, None]: ...
 
 
+class GenerationChunkHook(Protocol):
+    """Hook called for each line of a streaming response, as it streams.
+
+    Fires only during streamed generation, once per response line (thinking
+    content is already filtered out). Lets plugins react incrementally, e.g.
+    speaking sentences as they arrive instead of waiting for generation.post.
+
+    Args:
+        chunk: The streamed text chunk (typically one line, may include a
+            trailing newline).
+        workspace: Workspace directory path (optional).
+    """
+
+    def __call__(
+        self,
+        chunk: str,
+        **kwargs: Any,
+    ) -> Generator[Message | StopPropagation, None, None]: ...
+
+
 class CacheInvalidatedHook(Protocol):
     """Hook called when prompt cache is invalidated.
 
@@ -349,6 +370,7 @@ HookFunc = (
     | LoopContinueHook
     | GenerationPreHook
     | GenerationPostHook
+    | GenerationChunkHook
     | FilePreSaveHook
     | FilePostSaveHook
     | CacheInvalidatedHook

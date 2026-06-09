@@ -130,11 +130,15 @@ def discover_plugins(plugin_paths: list[Path]) -> list[Plugin]:
         for plugin_dir in search_path.iterdir():
             if not plugin_dir.is_dir():
                 continue
+            plugin = None
             if _is_plugin_dir(plugin_dir):
                 plugin = _load_plugin(plugin_dir)
-                if plugin:
-                    plugins.append(plugin)
-                    logger.debug(f"Discovered plugin: {plugin.name}")
+            elif _is_src_layout_plugin(plugin_dir):
+                # src-layout pip package (e.g. gptme-tts with src/gptme_tts/)
+                plugin = _load_src_layout_plugin(plugin_dir)
+            if plugin:
+                plugins.append(plugin)
+                logger.debug(f"Discovered plugin: {plugin.name}")
 
     # Cache for subsequent calls
     _plugin_cache[cache_key] = plugins
@@ -149,6 +153,50 @@ def _is_plugin_dir(path: Path) -> bool:
     Component directories (tools/, hooks/, commands/) are optional.
     """
     return (path / "__init__.py").exists()
+
+
+def _src_layout_packages(path: Path) -> list[Path]:
+    """Return importable packages under a ``src/`` directory, if any.
+
+    Supports the standard src-layout used by pip-installable plugins
+    (``pyproject.toml`` + ``src/<package>/__init__.py``).
+    """
+    src_dir = path / "src"
+    if not (path / "pyproject.toml").exists() or not src_dir.is_dir():
+        return []
+    return [
+        child
+        for child in sorted(src_dir.iterdir())
+        if child.is_dir() and (child / "__init__.py").exists()
+    ]
+
+
+def _is_src_layout_plugin(path: Path) -> bool:
+    """Check if a directory is a src-layout pip package containing packages."""
+    return bool(_src_layout_packages(path))
+
+
+def _load_src_layout_plugin(plugin_path: Path) -> Plugin | None:
+    """Load a src-layout plugin (``pyproject.toml`` + ``src/<package>/``).
+
+    Each inner package is registered as a tool module so its top-level
+    :class:`~gptme.tools.base.ToolSpec` instances are discovered. The plugin
+    keeps the *directory* name (e.g. ``gptme-tts``) so allowlists match, while
+    the tool modules use the *package* name (e.g. ``gptme_tts``).
+    """
+    packages = _src_layout_packages(plugin_path)
+    if not packages:
+        return None
+
+    src_dir = plugin_path / "src"
+    if str(src_dir) not in sys.path:
+        sys.path.insert(0, str(src_dir))
+
+    plugin = Plugin(name=plugin_path.name, path=plugin_path)
+    for package in packages:
+        plugin.tool_modules.append(package.name)
+        logger.debug(f"  Found src-layout package: {package.name}")
+    return plugin
 
 
 def _load_plugin(plugin_path: Path) -> Plugin | None:

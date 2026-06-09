@@ -117,9 +117,14 @@ struct ServerProcess {
     // (port occupied by an unresponsive foreign process).  Used in cleanup to
     // avoid killing a process that we never owned.
     owns_port: Arc<AtomicBool>,
+    // Held at app setup so #[tauri::command] functions that need the handle
+    // can fetch it from state instead of taking AppHandle as a command
+    // parameter — the latter would break tests because AppHandle does not
+    // implement Deserialize for MockRuntime command dispatch.
+    app_handle: Arc<Mutex<Option<tauri::AppHandle>>>,
 }
 
-#[derive(serde::Serialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 struct ServerStatus {
     running: bool,
     port: u16,
@@ -193,10 +198,7 @@ fn stop_server() -> Result<(), String> {
 
 #[cfg(desktop)]
 #[tauri::command]
-async fn start_server(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, ServerProcess>,
-) -> Result<u16, String> {
+async fn start_server(state: tauri::State<'_, ServerProcess>) -> Result<u16, String> {
     {
         let guard = state
             .child
@@ -207,6 +209,12 @@ async fn start_server(
         }
     }
 
+    let app = state
+        .app_handle
+        .lock()
+        .map_err(|e| format!("Lock error: {}", e))?
+        .clone()
+        .ok_or_else(|| "ServerProcess.app_handle not set".to_string())?;
     spawn_server_sidecar(&app, state.child.clone(), state.owns_port.clone()).await?;
     Ok(GPTME_SERVER_PORT)
 }
@@ -508,6 +516,7 @@ pub fn run() {
                 app.manage(ServerProcess {
                     child: child_handle.clone(),
                     owns_port: owns_port.clone(),
+                    app_handle: Arc::new(Mutex::new(Some(app.handle().clone()))),
                 });
 
                 let app_handle = app.handle().clone();
@@ -751,6 +760,110 @@ fn kill_server_on_port(_port: u16) {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(desktop)]
+    use tauri::test::{assert_ipc_response, get_ipc_response, mock_builder, MockRuntime};
+    #[cfg(desktop)]
+    use tauri::Manager;
+    #[cfg(desktop)]
+    use tauri_plugin_shell::ShellExt;
+
+    #[cfg(desktop)]
+    fn build_test_app() -> tauri::App<MockRuntime> {
+        let app = mock_builder()
+            .plugin(tauri_plugin_shell::init())
+            .manage(ServerProcess {
+                child: Arc::new(Mutex::new(None)),
+                owns_port: Arc::new(AtomicBool::new(false)),
+                // app_handle left as None: no test calls start_server
+                // in a way that reads it (all tests seed first, causing
+                // start_server to return early).  A future test that
+                // actually starts a server via IPC will need a
+                // runtime-generic ServerProcess instead.
+                app_handle: Arc::new(Mutex::new(None)),
+            })
+            .invoke_handler(tauri::generate_handler![
+                get_server_status,
+                start_server,
+                stop_server,
+            ])
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        app
+    }
+
+    #[cfg(desktop)]
+    fn build_test_webview(app: &tauri::App<MockRuntime>) -> tauri::WebviewWindow<MockRuntime> {
+        tauri::WebviewWindowBuilder::new(app, "main", Default::default())
+            .build()
+            .unwrap()
+    }
+
+    #[cfg(desktop)]
+    fn test_invoke_request(cmd: &str) -> tauri::webview::InvokeRequest {
+        tauri::webview::InvokeRequest {
+            cmd: cmd.into(),
+            callback: tauri::ipc::CallbackFn(0),
+            error: tauri::ipc::CallbackFn(1),
+            url: "http://tauri.localhost".parse().unwrap(),
+            body: tauri::ipc::InvokeBody::default(),
+            headers: Default::default(),
+            invoke_key: tauri::test::INVOKE_KEY.to_string(),
+        }
+    }
+
+    #[cfg(desktop)]
+    fn invoke_server_status(webview: &tauri::WebviewWindow<MockRuntime>) -> ServerStatus {
+        get_ipc_response(webview, test_invoke_request("get_server_status"))
+            .unwrap()
+            .deserialize()
+            .unwrap()
+    }
+
+    #[cfg(desktop)]
+    type TestCommandReceiver =
+        tauri::async_runtime::Receiver<tauri_plugin_shell::process::CommandEvent>;
+
+    #[cfg(desktop)]
+    struct SeededServer {
+        // Keep the shell event channel alive until the test finishes so the
+        // plugin can still deliver the child termination event when we stop it.
+        _events: TestCommandReceiver,
+    }
+
+    #[cfg(desktop)]
+    fn spawn_seeded_server_child(
+        app: &tauri::App<MockRuntime>,
+    ) -> (
+        TestCommandReceiver,
+        tauri_plugin_shell::process::CommandChild,
+    ) {
+        #[cfg(unix)]
+        {
+            return app.shell().command("sleep").args(["60"]).spawn().unwrap();
+        }
+        #[cfg(windows)]
+        {
+            return app
+                .shell()
+                .command("powershell")
+                .args(["-Command", "Start-Sleep -Seconds 60"])
+                .spawn()
+                .unwrap();
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            panic!("seed_running_server requires unix or windows desktop targets");
+        }
+    }
+
+    #[cfg(desktop)]
+    fn seed_running_server(app: &tauri::App<MockRuntime>) -> SeededServer {
+        let (events, child) = spawn_seeded_server_child(app);
+        let state = app.state::<ServerProcess>();
+        *state.child.lock().unwrap() = Some(child);
+        state.owns_port.store(true, Ordering::Relaxed);
+        SeededServer { _events: events }
+    }
 
     #[test]
     #[cfg(desktop)]
@@ -907,6 +1020,54 @@ mod tests {
     fn test_server_process_state_is_send_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<ServerProcess>();
+    }
+
+    #[test]
+    #[cfg(desktop)]
+    fn test_get_server_status_reports_running_via_ipc() {
+        let app = build_test_app();
+        let webview = build_test_webview(&app);
+        let _server = seed_running_server(&app);
+
+        let status = invoke_server_status(&webview);
+        assert!(status.running);
+        assert_eq!(status.port, GPTME_SERVER_PORT);
+        assert!(status.manages_local_server);
+        assert!(!status.existing_server_detected);
+
+        assert_ipc_response(&webview, test_invoke_request("stop_server"), Ok(()));
+    }
+
+    #[test]
+    #[cfg(desktop)]
+    fn test_start_server_rejects_duplicate_running_process_via_ipc() {
+        let app = build_test_app();
+        let webview = build_test_webview(&app);
+        let _server = seed_running_server(&app);
+
+        assert_ipc_response(
+            &webview,
+            test_invoke_request("start_server"),
+            Err("Server is already running".to_string()),
+        );
+
+        assert_ipc_response(&webview, test_invoke_request("stop_server"), Ok(()));
+    }
+
+    #[test]
+    #[cfg(desktop)]
+    fn test_stop_server_clears_running_state_via_ipc() {
+        let app = build_test_app();
+        let webview = build_test_webview(&app);
+        let _server = seed_running_server(&app);
+
+        assert!(invoke_server_status(&webview).running);
+        assert_ipc_response(&webview, test_invoke_request("stop_server"), Ok(()));
+        assert!(!invoke_server_status(&webview).running);
+
+        let state = app.state::<ServerProcess>();
+        assert!(state.child.lock().unwrap().is_none());
+        assert!(!state.owns_port.load(Ordering::Relaxed));
     }
 
     #[test]

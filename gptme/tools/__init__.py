@@ -31,6 +31,7 @@ from .base import (
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+    from types import ModuleType
 
     from ..logmanager import Log
 
@@ -78,9 +79,37 @@ def _set_available_tools_cache(tools: list[ToolSpec] | None) -> None:
     _available_tools_var.set(tools)
 
 
+def _collect_tool_modules(
+    module_name: str,
+    module: ModuleType,
+) -> list[ModuleType]:
+    """Recursively collect a package/module and its public descendants."""
+    modules = [module]
+    if not hasattr(module, "__path__"):
+        return modules
+
+    for _, submodule_name, _ in pkgutil.iter_modules(module.__path__):
+        if submodule_name.startswith("_"):
+            continue
+        full_submodule_name = f"{module_name}.{submodule_name}"
+        try:
+            submodule = importlib.import_module(full_submodule_name)
+        except ModuleNotFoundError as e:
+            logger.warning(
+                "Missing dependency '%s' for module %s",
+                e.name,
+                full_submodule_name,
+            )
+            continue
+        modules.extend(_collect_tool_modules(full_submodule_name, submodule))
+
+    return modules
+
+
 def _discover_tools(module_names: list[str]) -> list[ToolSpec]:
     """Discover tools in a package or module, given the module/package name as a string."""
     tools = []
+    seen_specs: set[int] = set()
     for module_name in module_names:
         try:
             # Dynamically import the package or module
@@ -89,30 +118,15 @@ def _discover_tools(module_names: list[str]) -> list[ToolSpec]:
             logger.warning("Module or package %s not found", module_name)
             continue
 
-        modules = []
-        # Check if it's a package or a module
-        if hasattr(module, "__path__"):  # It's a package
-            # Iterate over modules in the package
-            for _, submodule_name, _ in pkgutil.iter_modules(module.__path__):
-                # Skip private modules
-                if submodule_name.startswith("_"):
-                    continue
-                full_submodule_name = f"{module_name}.{submodule_name}"
-                try:
-                    modules.append(importlib.import_module(full_submodule_name))
-                except ModuleNotFoundError as e:
-                    logger.warning(
-                        "Missing dependency '%s' for module %s",
-                        e.name,
-                        full_submodule_name,
-                    )
-                    continue
-        else:  # It's a single module
-            modules.append(module)
+        modules = _collect_tool_modules(module_name, module)
 
         # Find instances of ToolSpec in the modules
         for module in modules:
             for _, obj in inspect.getmembers(module, lambda c: isinstance(c, ToolSpec)):
+                spec_id = id(obj)
+                if spec_id in seen_specs:
+                    continue
+                seen_specs.add(spec_id)
                 tools.append(obj)
 
     return tools
@@ -343,23 +357,12 @@ def get_available_tools(include_mcp: bool = True) -> list[ToolSpec]:
         if env_tool_modules:
             tool_modules = env_tool_modules.split(",")
 
-        # Add plugin tool modules
-        if config.project and config.project.plugins.paths:
-            # Resolve plugin paths (support ~ and relative paths)
-            plugin_paths = []
-            for path_str in config.project.plugins.paths:
-                path = Path(path_str).expanduser()
-                if not path.is_absolute() and config.project._workspace:
-                    # Relative to workspace
-                    path = config.project._workspace / path
-                plugin_paths.append(path)
-
-            # Get tool modules from plugins
+        # Add plugin tool modules (user + project [plugins], layered)
+        plugin_paths, enabled_plugins = config.get_plugin_config()
+        if plugin_paths:
             plugin_tool_modules = get_plugin_tool_modules(
                 plugin_paths,
-                enabled_plugins=config.project.plugins.enabled
-                if config.project.plugins.enabled is not None
-                else None,
+                enabled_plugins=enabled_plugins,
             )
             tool_modules.extend(plugin_tool_modules)
 

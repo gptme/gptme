@@ -31,6 +31,7 @@ import { use$ } from '@legendapp/state/react';
 import { settingsModal$, type SettingsCategory } from '@/stores/settingsModal';
 import { setupWizard$ } from '@/stores/setupWizard';
 import { getPrimaryClient } from '@/stores/serverClients';
+import { isSpeechSupported } from '@/utils/tts';
 export type { SettingsCategory } from '@/stores/settingsModal';
 export { settingsModal$ } from '@/stores/settingsModal';
 
@@ -229,6 +230,43 @@ export const SettingsModal = forwardRef<HTMLButtonElement, SettingsModalProps>(
                   id="chime-toggle"
                   checked={settings.chimeEnabled}
                   onCheckedChange={(checked) => updateSettings({ chimeEnabled: checked })}
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="tts-toggle" className="text-sm">
+                    Read responses aloud
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Speak assistant messages aloud (uses gptme-tts server if configured, otherwise
+                    browser Web Speech API)
+                  </p>
+                </div>
+                <Switch
+                  id="tts-toggle"
+                  checked={settings.ttsEnabled}
+                  disabled={!isSpeechSupported()}
+                  onCheckedChange={(checked) => updateSettings({ ttsEnabled: checked })}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="tts-server-url" className="text-sm">
+                  TTS server URL
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  HTTP base URL of a running{' '}
+                  <code className="rounded bg-muted px-1">gptme-tts</code> server, e.g.{' '}
+                  <code className="rounded bg-muted px-1">http://localhost:5701</code>. Leave empty
+                  to use browser TTS.
+                </p>
+                <Input
+                  id="tts-server-url"
+                  type="text"
+                  placeholder="http://localhost:5701"
+                  value={settings.ttsServerUrl}
+                  onChange={(e) => updateSettings({ ttsServerUrl: e.target.value.trim() })}
                 />
               </div>
 

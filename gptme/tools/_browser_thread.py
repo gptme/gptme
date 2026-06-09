@@ -7,7 +7,7 @@ from queue import Empty, Queue
 from threading import Event, Lock, Thread
 from typing import Any, Literal, TypeVar
 
-from playwright.sync_api import Browser, Playwright, sync_playwright
+from playwright.sync_api import Browser, BrowserContext, Playwright, sync_playwright
 
 from gptme.config import get_config
 
@@ -16,6 +16,15 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 TIMEOUT = 20  # seconds - accounts for retry attempts with browser restarts
+
+# Default context options applied to every browser context (and, in CDP mode,
+# to the shared session context). Per-call request headers are layered on top
+# at page creation time (see _create_page).
+DEFAULT_CONTEXT_OPTIONS: dict[str, Any] = {
+    "locale": "en-US",
+    "geolocation": {"latitude": 37.773972, "longitude": 13.39},
+    "permissions": ["geolocation"],
+}
 
 
 def _is_connection_error(error: Exception) -> bool:
@@ -64,6 +73,9 @@ class BrowserThread:
         self.lock = Lock()
         self.ready = Event()
         self._init_error: Exception | None = None
+        # Session-scoped context for CDP connections — isolates this gptme
+        # session from other agents/tabs sharing the same browser.
+        self._session_context: BrowserContext | None = None
         self.thread = Thread(target=self._run, daemon=True)
         self.thread.start()
         # Wait for browser to be ready
@@ -89,12 +101,28 @@ class BrowserThread:
                         browser = None  # Clear reference after close
                     except Exception:
                         browser = None  # Clear reference even if close fails
+                # Drop any session context bound to the old (now dead) connection
+                # so we don't open tabs on a stale context after a reconnect.
+                if self._session_context is not None:
+                    try:
+                        self._session_context.close()
+                    except Exception:
+                        pass
+                    self._session_context = None
                 browser = _connect_or_launch_browser(playwright, self.cdp_url)
+                # For CDP, (re)create an isolated session context so parallel
+                # gptme instances don't share cookies/tabs. Recreated on every
+                # (re)connect so it never points at a dead browser.
+                if self.cdp_url:
+                    self._session_context = browser.new_context(
+                        **DEFAULT_CONTEXT_OPTIONS
+                    )
+                    logger.info("Created isolated session context for CDP connection")
                 return None
             except Exception as e:
                 browser = None  # Ensure browser is None after failed launch
                 error: Exception
-                
+
                 if "Executable doesn't exist" in str(e):
                     pw_version = importlib.metadata.version("playwright")
                     error = RuntimeError(
@@ -163,6 +191,14 @@ class BrowserThread:
             self.ready.set()  # Prevent hanging in __init__
             raise
         finally:
+            # Close session context before browser
+            if self._session_context is not None:
+                try:
+                    self._session_context.close()
+                except Exception:
+                    logger.debug("Error closing session context during cleanup")
+                self._session_context = None
+
             # Close browser with isolated error handling
             if browser is not None:
                 try:

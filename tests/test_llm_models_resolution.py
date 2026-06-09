@@ -367,6 +367,21 @@ class TestLogWarnOnce:
             log_warn_once(test_msg)  # second call — should be suppressed
         assert test_msg not in caplog.text
 
+    def test_threaded_warn_once(self, caplog):
+        """Concurrent callers should not race the warning de-dup cache."""
+        import logging
+        from concurrent.futures import ThreadPoolExecutor
+
+        test_msg = f"threaded-dedup-test-message-{id(self)}"
+        with (
+            caplog.at_level(logging.WARNING),
+            ThreadPoolExecutor(max_workers=8) as executor,
+        ):
+            list(executor.map(log_warn_once, [test_msg] * 32))
+
+        warnings = [r for r in caplog.records if test_msg in r.getMessage()]
+        assert len(warnings) == 1
+
     def test_get_model_unknown_warns_once(self, caplog):
         """get_model on an unknown model should warn once across repeated calls.
 

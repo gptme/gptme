@@ -23,7 +23,11 @@ from playwright.sync_api import (
 )
 
 from ._browser_format import format_snapshot as _format_snapshot
-from ._browser_thread import BrowserThread, _is_connection_error
+from ._browser_thread import (
+    DEFAULT_CONTEXT_OPTIONS,
+    BrowserThread,
+    _is_connection_error,
+)
 
 _browser: BrowserThread | None = None
 _last_logs: dict = {"logs": [], "errors": [], "url": None}
@@ -31,6 +35,64 @@ _last_logs: dict = {"logs": [], "errors": [], "url": None}
 _current_page: Page | None = None
 _current_context: BrowserContext | None = None
 logger = logging.getLogger(__name__)
+
+
+def _is_cdp_connection() -> bool:
+    """Check if the active browser was connected via CDP (reuse existing window)."""
+    return _browser is not None and _browser.cdp_url is not None
+
+
+@dataclass
+class _ManagedPage:
+    """A page with optional context ownership for proper cleanup.
+
+    For CDP connections the existing context is reused (new tab, not window),
+    so ``_owned_context`` is ``None`` and ``close()`` only closes the tab.
+    For launched browsers we create and own an isolated context.
+    """
+
+    page: Page
+    _owned_context: BrowserContext | None = None
+
+    def close(self) -> None:
+        try:
+            self.page.close()
+        except Exception:
+            pass
+        if self._owned_context is not None:
+            try:
+                self._owned_context.close()
+            except Exception:
+                pass
+
+
+def _create_page(browser: Browser, **context_kwargs) -> _ManagedPage:
+    """Create a page, reusing the session context for CDP connections.
+
+    CDP mode  → opens a new **tab** in an isolated session context so that
+    parallel gptme instances sharing the same Chrome don't collide. The shared
+    context already carries the default locale/geolocation; per-call request
+    headers are applied to the individual tab.
+    Launched  → creates an isolated context with the given options.
+    """
+    if _is_cdp_connection() and _browser is not None:
+        ctx = _browser._session_context
+        if ctx is not None:
+            page = ctx.new_page()
+            headers = context_kwargs.get("extra_http_headers")
+            if headers:
+                page.set_extra_http_headers(headers)
+            return _ManagedPage(page=page, _owned_context=None)
+        # CDP without a session context shouldn't happen (it's recreated on
+        # every reconnect) — warn rather than silently opening a new window.
+        logger.warning(
+            "CDP connection has no session context; falling back to a new "
+            "browser context (may open a new window)"
+        )
+
+    context = browser.new_context(**context_kwargs)
+    page = context.new_page()
+    return _ManagedPage(page=page, _owned_context=context)
 
 
 def _restart_browser() -> None:
@@ -97,19 +159,18 @@ def _load_page(browser: Browser, url: str) -> str:
     """Load a page and return its body HTML, always capturing logs"""
     global _last_logs
 
-    context = browser.new_context(
-        locale="en-US",
-        geolocation={"latitude": 37.773972, "longitude": 13.39},
-        permissions=["geolocation"],
+    managed = _create_page(
+        browser,
+        **DEFAULT_CONTEXT_OPTIONS,
         extra_http_headers={
             # Prefer markdown and plaintext over HTML for better LLM consumption
             # Quality values (q) indicate preference order
             "Accept": "text/markdown, text/plain, text/html;q=0.9, */*;q=0.8"
         },
     )
+    page = managed.page
 
     logger.info(f"Loading page: {url}")
-    page = context.new_page()
 
     # Always capture logs
     logs = []
@@ -149,8 +210,7 @@ def _load_page(browser: Browser, url: str) -> str:
         html = _extract_main_content(page)
         return html
     finally:
-        page.close()
-        context.close()
+        managed.close()
 
 
 def _extract_main_content(page: Page) -> str:
@@ -302,12 +362,8 @@ def _search_google(browser: Browser, query: str) -> str:
     query = urllib.parse.quote(query)
     url = f"https://www.google.com/search?q={query}&hl=en"
 
-    context = browser.new_context(
-        locale="en-US",
-        geolocation={"latitude": 37.773972, "longitude": 13.39},
-        permissions=["geolocation"],
-    )
-    page = context.new_page()
+    managed = _create_page(browser, **DEFAULT_CONTEXT_OPTIONS)
+    page = managed.page
     try:
         page.goto(url)
 
@@ -325,8 +381,7 @@ def _search_google(browser: Browser, query: str) -> str:
             return "Error: Google detected automated access and is showing a CAPTCHA. Try using 'perplexity' as the search engine instead: search(query, 'perplexity')"
         return _list_results_google(page, body_text)
     finally:
-        page.close()
-        context.close()
+        managed.close()
 
 
 def search_google(query: str) -> str:
@@ -336,18 +391,13 @@ def search_google(query: str) -> str:
 def _search_duckduckgo(browser: Browser, query: str) -> str:
     url = f"https://html.duckduckgo.com/html?q={query}"
 
-    context = browser.new_context(
-        locale="en-US",
-        geolocation={"latitude": 37.773972, "longitude": 13.39},
-        permissions=["geolocation"],
-    )
-    page = context.new_page()
+    managed = _create_page(browser, **DEFAULT_CONTEXT_OPTIONS)
+    page = managed.page
     try:
         page.goto(url)
         return _list_results_duckduckgo(page)
     finally:
-        page.close()
-        context.close()
+        managed.close()
 
 
 def search_duckduckgo(query: str) -> str:
@@ -472,10 +522,11 @@ def _list_results_duckduckgo(page) -> str:
 
 def _get_aria_snapshot(browser: Browser, url: str) -> str:
     """Load a page and return its ARIA accessibility snapshot."""
-    context = browser.new_context(
+    managed = _create_page(
+        browser,
         locale="en-US",
     )
-    page = context.new_page()
+    page = managed.page
     try:
         page.goto(
             url
@@ -485,8 +536,7 @@ def _get_aria_snapshot(browser: Browser, url: str) -> str:
             return "Error: Could not get accessibility snapshot for this page."
         return _format_snapshot(snapshot, page.url, page.title())
     finally:
-        page.close()
-        context.close()
+        managed.close()
 
 
 def aria_snapshot(url: str) -> str:
@@ -549,17 +599,19 @@ def read_page_text() -> str:
 def _open_page(browser: Browser, url: str) -> str:
     """Open a page for interactive browsing and return its ARIA snapshot."""
     global _current_page, _current_context
+
     _close_current_page()
 
-    _current_context = browser.new_context(
-        locale="en-US",
-        geolocation={"latitude": 37.773972, "longitude": 13.39},
-        permissions=["geolocation"],
+    managed = _create_page(
+        browser,
+        **DEFAULT_CONTEXT_OPTIONS,
         extra_http_headers={
             "Accept": "text/markdown, text/plain, text/html;q=0.9, */*;q=0.8"
         },
     )
-    _current_page = _current_context.new_page()
+    # Store page/context for interactive use; don't auto-close via ManagedPage
+    _current_page = managed.page
+    _current_context = managed._owned_context
 
     try:
         _current_page.goto(url)
@@ -693,15 +745,14 @@ def _take_screenshot(
         # create the directory if it doesn't exist
         os.makedirs(os.path.dirname(path), exist_ok=True)
 
-    context = browser.new_context()
-    page = context.new_page()
+    managed = _create_page(browser)
+    page = managed.page
     try:
         page.goto(url)
         page.screenshot(path=path)
         return Path(path)
     finally:
-        page.close()
-        context.close()
+        managed.close()
 
 
 def screenshot_url(url: str, path: Path | str | None = None) -> Path:

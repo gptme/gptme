@@ -293,6 +293,22 @@ class UserSettingsResponse(BaseModel):
     )
 
 
+class AudioTranscriptionResponse(BaseModel):
+    """Response from the speech-to-text transcription endpoint."""
+
+    text: str = Field(..., description="Transcribed text")
+    model: str = Field(
+        ..., description="Fully qualified OpenRouter model used for transcription"
+    )
+    usage: dict[str, int | float] | None = Field(
+        None,
+        description=(
+            "Optional usage/cost metadata returned by OpenRouter, such as "
+            "seconds, tokens, and cost."
+        ),
+    )
+
+
 class ExternalSessionListItem(BaseModel):
     """A read-only external session catalog item."""
 

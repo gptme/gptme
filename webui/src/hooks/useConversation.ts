@@ -30,6 +30,7 @@ import {
   setTopP,
 } from '@/stores/conversations';
 import { playChime } from '@/utils/audio';
+import { speakText } from '@/utils/tts';
 import { findLatestAssistantIndexForError } from '@/utils/conversationErrorHandling';
 import { notifyGenerationComplete, notifyToolConfirmation } from '@/utils/notifications';
 import { ApiClientError, getApiErrorPresentation } from '@/utils/api';
@@ -218,6 +219,7 @@ export function useConversation(conversationId: string, serverId?: string) {
                   playChime().catch((error) => {
                     console.warn('Failed to play completion chime:', error);
                   });
+                  speakText(message.content);
                   notifyGenerationComplete(conversation$?.data.name.get()).catch((error) => {
                     console.warn('Failed to show completion notification:', error);
                   });

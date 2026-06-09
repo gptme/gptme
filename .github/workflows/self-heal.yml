@@ -66,8 +66,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -o pipefail
+          # workflow_run id is stable across reruns; pin to the triggering attempt
+          # so a newer rerun doesn't replace the failed logs we're analyzing.
           gh run view ${{ github.event.workflow_run.id }} \
             --repo ${{ github.repository }} \
+            --attempt ${{ github.event.workflow_run.run_attempt }} \
             --log-failed 2>&1 | tail -c 15000 > /tmp/failure.log
           echo "Failure log size: $(wc -c < /tmp/failure.log) bytes"
 

@@ -24,6 +24,12 @@ type RequestInit = globalThis.RequestInit;
 type Response = globalThis.Response;
 type HeadersInit = globalThis.HeadersInit;
 
+export interface AudioTranscriptionResponse {
+  text: string;
+  model: string;
+  usage?: Record<string, number> | null;
+}
+
 // Error type for API client
 export class ApiClientError extends Error {
   status?: number;
@@ -164,6 +170,30 @@ export function isLikelyChromeCorsPna(targetUrl: string): boolean {
     return isLocalUrl(targetUrl) && isPublicOrigin;
   } catch {
     return false;
+  }
+}
+
+function inferTranscriptionFormat(blobType: string | undefined): string {
+  const mimeType = (blobType ?? '').split(';', 1)[0].trim().toLowerCase();
+  switch (mimeType) {
+    case 'audio/aac':
+      return 'aac';
+    case 'audio/flac':
+      return 'flac';
+    case 'audio/m4a':
+    case 'audio/mp4':
+      return 'm4a';
+    case 'audio/mp3':
+    case 'audio/mpeg':
+      return 'mp3';
+    case 'audio/ogg':
+      return 'ogg';
+    case 'audio/wav':
+    case 'audio/x-wav':
+      return 'wav';
+    case 'audio/webm':
+    default:
+      return 'webm';
   }
 }
 
@@ -909,13 +939,16 @@ export class ApiClient {
     return data;
   }
 
-  async getConversations(limit: number = 100): Promise<ConversationSummary[]> {
+  async getConversations(
+    limit: number = 100,
+    detail: boolean = false
+  ): Promise<ConversationSummary[]> {
     if (!this.isConnected) {
       throw new ApiClientError('Not connected to API');
     }
     try {
       return await this.fetchJson<ConversationSummary[]>(
-        `${this.baseUrl}/api/v2/conversations?limit=${limit}`
+        `${this.baseUrl}/api/v2/conversations?limit=${limit}&detail=${detail}`
       );
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
@@ -925,13 +958,17 @@ export class ApiClient {
     }
   }
 
-  async searchConversations(query: string, limit: number = 20): Promise<ConversationSummary[]> {
+  async searchConversations(
+    query: string,
+    limit: number = 20,
+    detail: boolean = false
+  ): Promise<ConversationSummary[]> {
     if (!this.isConnected) {
       throw new ApiClientError('Not connected to API');
     }
     try {
       return await this.fetchJson<ConversationSummary[]>(
-        `${this.baseUrl}/api/v2/conversations?search=${encodeURIComponent(query)}&limit=${limit}`
+        `${this.baseUrl}/api/v2/conversations?search=${encodeURIComponent(query)}&limit=${limit}&detail=${detail}`
       );
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
@@ -943,7 +980,8 @@ export class ApiClient {
 
   async getConversationsPaginated(
     pageParam: number = 0,
-    pageSize: number = 20
+    pageSize: number = 20,
+    detail: boolean = false
   ): Promise<{
     conversations: ConversationSummary[];
     nextCursor: number | undefined;
@@ -955,7 +993,7 @@ export class ApiClient {
       // Fetch one more than needed to detect if there are more conversations
       const fetchLimit = pageParam + pageSize + 1;
       const allConversations = await this.fetchJson<ConversationSummary[]>(
-        `${this.baseUrl}/api/v2/conversations?limit=${fetchLimit}`
+        `${this.baseUrl}/api/v2/conversations?limit=${fetchLimit}&detail=${detail}`
       );
 
       // Slice to get only the requested page
@@ -1242,6 +1280,52 @@ export class ApiClient {
       throw new ApiClientError(`Upload failed: ${response.status}`, response.status);
     }
     return data;
+  }
+
+  async transcribeAudio(
+    audio: Blob,
+    options?: { language?: string; model?: string; signal?: AbortSignal }
+  ): Promise<AudioTranscriptionResponse> {
+    if (!this.isConnected) {
+      throw new ApiClientError('Not connected to API');
+    }
+
+    const format = inferTranscriptionFormat(audio.type);
+    const formData = new FormData();
+    formData.append('file', audio, `speech.${format}`);
+    formData.append('format', format);
+    if (options?.language) {
+      formData.append('language', options.language);
+    }
+    if (options?.model) {
+      formData.append('model', options.model);
+    }
+
+    const headers: Record<string, string> = {};
+    if (this.authHeader) {
+      headers.Authorization = this.authHeader;
+    }
+
+    const url = `${this.baseUrl}/api/v2/audio/transcriptions`;
+    const response = await fetch(
+      url,
+      withLocalAddressSpace(url, {
+        method: 'POST',
+        headers,
+        body: formData,
+        signal: options?.signal,
+      })
+    );
+    const data = await response.json();
+    if (!response.ok) {
+      if (isApiErrorResponse(data)) {
+        const apiError = normalizeApiError(data, response.status);
+        throw new ApiClientError(apiError.message, apiError.status, apiError);
+      }
+      throw new ApiClientError(`Transcription failed: ${response.status}`, response.status);
+    }
+
+    return data as AudioTranscriptionResponse;
   }
 
   async step(

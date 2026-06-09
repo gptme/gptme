@@ -103,6 +103,49 @@ class Config:
 
         return mcp
 
+    def get_plugin_config(self) -> tuple[list[Path], list[str] | None]:
+        """Resolve plugin search paths and the enabled allowlist.
+
+        Layers user-level ``[plugins]`` (from ~/.config/gptme/config.toml) with
+        project-level ``[plugins]`` (from gptme.toml). User paths are
+        ``~``/absolute (or expanduser-resolved); project paths resolve against
+        the workspace when relative. Returns ``(paths, enabled)``.
+
+        The ``enabled`` allowlist is the **union** of the user and project lists
+        (empty => ``None``, meaning all discovered plugins are enabled). The
+        union is intentionally restrictive: a global allowlist set by the user
+        also constrains plugins discovered from project paths, so a project
+        cannot silently load plugins the user hasn't opted into. To allow a
+        project's plugins under a user allowlist, add them to either list.
+        """
+        paths: list[Path] = []
+        enabled: list[str] = []
+
+        def _add_path(path: Path) -> None:
+            resolved = path.resolve()
+            if resolved not in {p.resolve() for p in paths}:
+                paths.append(path)
+
+        # User-level plugins. Paths are expanduser-resolved; use absolute or
+        # ``~``-prefixed paths (resolution is independent of the config file
+        # location, which may differ from the default in tests/multi-profile).
+        for path_str in self.user.plugins.paths:
+            _add_path(Path(path_str).expanduser())
+        enabled.extend(self.user.plugins.enabled)
+
+        # Project-level plugins (relative paths resolve against the workspace)
+        if self.project and self.project.plugins:
+            for path_str in self.project.plugins.paths:
+                path = Path(path_str).expanduser()
+                if not path.is_absolute() and self.project._workspace:
+                    path = self.project._workspace / path
+                _add_path(path)
+            enabled.extend(self.project.plugins.enabled)
+
+        # Dedupe enabled, preserving order. Empty => None (all plugins enabled).
+        deduped_enabled = list(dict.fromkeys(enabled))
+        return paths, (deduped_enabled or None)
+
     def get_env(self, key: str, default: str | None = None) -> str | None:
         """Gets an environment variable, checks the config file if it's not set in the environment.
 

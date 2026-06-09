@@ -79,6 +79,31 @@ class TestConvToDict:
         # Must not raise
         json.dumps(d)
 
+    def test_metadata_format_includes_usage_fields(self):
+        conv = ConversationMeta(
+            id="test-6",
+            name="conv-test-6",
+            path="/tmp/fake/test-6/conversation.jsonl",
+            created=datetime(2026, 1, 1, tzinfo=timezone.utc).timestamp(),
+            modified=datetime(2026, 1, 1, 0, 5, tzinfo=timezone.utc).timestamp(),
+            messages=8,
+            branches=1,
+            workspace="/tmp",
+            model="openai/gpt-5",
+            total_cost=0.1234,
+            total_input_tokens=3200,
+            total_output_tokens=800,
+            last_message_role="assistant",
+            last_message_preview="Wrapped up the task.",
+        )
+
+        output = conv.format(metadata=True)
+        assert "Model:    openai/gpt-5" in output
+        assert "Tokens:   4.0K total (3.2K in / 800 out)" in output
+        assert "Cost:     $0.12" in output
+        assert "Duration: 5m 0s" in output
+        assert "Last:     assistant: Wrapped up the task." in output
+
 
 # --- chats list --json tests ---
 

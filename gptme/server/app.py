@@ -89,6 +89,7 @@ def create_app(
     from .panels_api import panels_api  # fmt: skip
     from .tasks_api import tasks_api  # fmt: skip
     from .tools_api import tools_api  # fmt: skip
+    from .tts_api import tts_api  # fmt: skip
     from .workspace_api import workspace_api  # fmt: skip
 
     app.register_blueprint(v2_api)
@@ -98,6 +99,7 @@ def create_app(
     app.register_blueprint(artifacts_api)
     app.register_blueprint(panels_api)
     app.register_blueprint(tools_api)
+    app.register_blueprint(tts_api)
 
     # Register OpenAPI documentation
     from .openapi_docs import docs_api  # fmt: skip

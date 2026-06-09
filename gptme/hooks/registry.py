@@ -26,6 +26,7 @@ from .types import (
     CwdChangedHook,
     FilePostSaveHook,
     FilePreSaveHook,
+    GenerationChunkHook,
     GenerationPostHook,
     GenerationPreHook,
     Hook,
@@ -543,6 +544,17 @@ def register_hook(
     name: str,
     hook_type: Literal[HookType.GENERATION_POST],
     func: GenerationPostHook,
+    priority: int = 0,
+    enabled: bool = True,
+    async_mode: bool = False,
+) -> None: ...
+
+
+@overload
+def register_hook(
+    name: str,
+    hook_type: Literal[HookType.GENERATION_CHUNK],
+    func: GenerationChunkHook,
     priority: int = 0,
     enabled: bool = True,
     async_mode: bool = False,

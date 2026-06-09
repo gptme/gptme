@@ -1414,3 +1414,54 @@ def test_chat_config_load_or_create_server_explicit_log_workspace(
 
     expected_workspace = (logdir / "workspace").resolve()
     assert config.workspace.resolve() == expected_workspace
+
+
+def test_user_config_plugins_parsed(tmp_path):
+    """[plugins] in the user config is parsed (not an 'unknown key')."""
+    temp_user_config = str(tmp_path / "config.toml")
+    with open(temp_user_config, "w") as f:
+        f.write(default_user_config)
+        f.write('\n[plugins]\npaths = ["~/plugins"]\nenabled = ["gptme-tts"]\n')
+    user = load_user_config(temp_user_config)
+    assert user.plugins.paths == ["~/plugins"]
+    assert user.plugins.enabled == ["gptme-tts"]
+
+
+def test_get_plugin_config_layers_user_and_project(tmp_path):
+    """get_plugin_config merges user-level and project-level [plugins]."""
+    user_plugins = tmp_path / "user_plugins"
+    project_plugins = tmp_path / "project_plugins"
+    user_plugins.mkdir()
+    project_plugins.mkdir()
+
+    temp_user_config = str(tmp_path / "config.toml")
+    with open(temp_user_config, "w") as f:
+        f.write(default_user_config)
+        f.write(f'\n[plugins]\npaths = ["{user_plugins}"]\nenabled = ["user-plugin"]\n')
+
+    with open(tmp_path / "gptme.toml", "w") as f:
+        f.write(
+            f'[plugins]\npaths = ["{project_plugins}"]\nenabled = ["project-plugin"]\n'
+        )
+
+    config = Config.from_workspace(tmp_path)
+    config = replace(config, user=load_user_config(temp_user_config))
+
+    paths, enabled = config.get_plugin_config()
+    resolved = {p.resolve() for p in paths}
+    assert user_plugins.resolve() in resolved
+    assert project_plugins.resolve() in resolved
+    assert enabled is not None
+    assert set(enabled) == {"user-plugin", "project-plugin"}
+
+
+def test_get_plugin_config_empty_enabled_is_none(tmp_path):
+    """No enabled allowlist anywhere => None (all plugins enabled)."""
+    temp_user_config = str(tmp_path / "config.toml")
+    with open(temp_user_config, "w") as f:
+        f.write(default_user_config)
+
+    config = Config.from_workspace(tmp_path)
+    config = replace(config, user=load_user_config(temp_user_config))
+    _paths, enabled = config.get_plugin_config()
+    assert enabled is None

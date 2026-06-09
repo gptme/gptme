@@ -37,32 +37,50 @@ def discover_entrypoint_plugins() -> tuple[GptmePlugin, ...]:
             logger.warning("Failed to load plugin %r: %s", ep.name, exc)
             continue
 
-        if isinstance(obj, GptmePlugin):
-            plugins.append(obj)
-            logger.debug("Loaded entry-point plugin: %s", obj.name)
-        elif callable(obj):
-            # Support factory functions that return GptmePlugin
-            try:
-                result = obj()
-                if isinstance(result, GptmePlugin):
-                    plugins.append(result)
-                    logger.debug("Loaded entry-point plugin: %s", result.name)
-                else:
-                    logger.warning(
-                        "Plugin factory %r returned %r instead of GptmePlugin; skipping",
-                        ep.name,
-                        type(result).__name__,
-                    )
-            except Exception as exc:
-                logger.warning("Plugin factory %r raised: %s", ep.name, exc)
-        else:
-            logger.warning(
-                "Plugin %r exported %r instead of GptmePlugin; skipping",
-                ep.name,
-                type(obj).__name__,
-            )
+        plugin = _coerce_to_plugin(ep.name, obj)
+        if plugin is not None:
+            plugins.append(plugin)
+            logger.debug("Loaded entry-point plugin: %s", plugin.name)
 
     return tuple(plugins)
+
+
+def _coerce_to_plugin(name: str, obj: object, _from_factory: bool = False):
+    """Normalize an entry-point export into a :class:`GptmePlugin`.
+
+    Accepts a ``GptmePlugin``, a bare ``ToolSpec``, a list/tuple of ``ToolSpec``
+    (wrapped into a plugin named after the entry point), or a zero-arg factory
+    returning any of those. Returns ``None`` (with a warning) for anything else.
+
+    Many existing plugins export a ``ToolSpec`` directly (``pkg:tool``) rather
+    than a manifest, so accepting that form keeps them working instead of being
+    silently skipped.
+    """
+    from ..tools.base import ToolSpec
+
+    if isinstance(obj, GptmePlugin):
+        return obj
+    if isinstance(obj, ToolSpec):
+        return GptmePlugin(name=name, tools=[obj])
+    if (
+        isinstance(obj, list | tuple)
+        and obj
+        and all(isinstance(o, ToolSpec) for o in obj)
+    ):
+        return GptmePlugin(name=name, tools=list(obj))
+    # A factory callable (but only resolve one level to avoid recursion loops)
+    if callable(obj) and not _from_factory:
+        try:
+            return _coerce_to_plugin(name, obj(), _from_factory=True)
+        except Exception as exc:
+            logger.warning("Plugin factory %r raised: %s", name, exc)
+            return None
+    logger.warning(
+        "Plugin %r exported %r instead of GptmePlugin or ToolSpec; skipping",
+        name,
+        type(obj).__name__,
+    )
+    return None
 
 
 def clear_entrypoint_cache() -> None:

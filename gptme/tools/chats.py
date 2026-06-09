@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 
+from ..logmanager.conversations import _format_duration
 from ..message import Message
 from .base import ToolSpec, ToolUse
 
@@ -339,6 +340,96 @@ def _format_tokens(n: int) -> str:
     return str(n)
 
 
+def _normalize_timestamp(ts: datetime) -> datetime:
+    """Normalize datetimes to timezone-aware UTC."""
+    if ts.tzinfo is None:
+        return ts.replace(tzinfo=timezone.utc)
+    return ts.astimezone(timezone.utc)
+
+
+def _conversation_detail(conversation_id: str) -> dict:
+    """Collect detailed stats for a single conversation."""
+    from ..logmanager import LogManager, get_conversation_by_id  # fmt: skip
+
+    conv = get_conversation_by_id(conversation_id)
+    if conv is None:
+        raise ValueError(f"Conversation '{conversation_id}' not found.")
+
+    log_manager = LogManager.load(Path(conv.path), lock=False)
+    messages = list(log_manager.log)
+
+    role_counts: Counter[str] = Counter()
+    tool_counts: Counter[str] = Counter()
+    timestamps: list[datetime] = []
+
+    for msg in messages:
+        role_counts[msg.role] += 1
+        timestamps.append(_normalize_timestamp(msg.timestamp))
+        if msg.role != "assistant":
+            continue
+        tool_uses = list(
+            ToolUse.iter_from_content(msg.content, tool_format_override="tool")
+        )
+        if not tool_uses and "<tool-use>" in msg.content:
+            tool_uses = list(
+                ToolUse.iter_from_content(msg.content, tool_format_override="xml")
+            )
+        if not tool_uses and "```" in msg.content:
+            tool_uses = list(
+                ToolUse.iter_from_content(msg.content, tool_format_override="markdown")
+            )
+        for tool_use in tool_uses:
+            tool_counts[tool_use.tool] += 1
+
+    started = (
+        timestamps[0]
+        if timestamps
+        else datetime.fromtimestamp(conv.created, tz=timezone.utc)
+    )
+    ended = (
+        timestamps[-1]
+        if timestamps
+        else datetime.fromtimestamp(conv.modified, tz=timezone.utc)
+    )
+    duration_seconds = max(0.0, (ended - started).total_seconds())
+    total_tokens = conv.total_input_tokens + conv.total_output_tokens
+
+    data = {
+        "id": conv.id,
+        "name": conv.name,
+        "workspace": conv.workspace,
+        "agent_name": conv.agent_name,
+        "model": conv.model,
+        "started": started.isoformat(),
+        "ended": ended.isoformat(),
+        "duration_seconds": int(duration_seconds),
+        "messages": {
+            "total": len(messages),
+            "by_role": dict(sorted(role_counts.items())),
+        },
+        "tool_calls": {
+            "total": sum(tool_counts.values()),
+            "by_tool": dict(tool_counts.most_common()),
+        },
+        "usage": {
+            "input_tokens": conv.total_input_tokens,
+            "output_tokens": conv.total_output_tokens,
+            "cache_read_tokens": conv.total_cache_read_tokens,
+            "total_tokens": total_tokens,
+            "cost": round(conv.total_cost, 4),
+        },
+        "last_message": (
+            {
+                "role": conv.last_message_role,
+                "preview": conv.last_message_preview,
+            }
+            if conv.last_message_preview
+            else None
+        ),
+    }
+    return data
+
+
 def _parse_since(since: str | None) -> float | None:
     """Parse a --since argument into a timestamp.
 
@@ -369,13 +460,77 @@ def _parse_since(since: str | None) -> float | None:
     )
 
 
-def conversation_stats(since: str | None = None, as_json: bool = False) -> None:
+def conversation_stats(
+    since: str | None = None,
+    as_json: bool = False,
+    conversation_id: str | None = None,
+) -> None:
     """Show statistics about conversation history.
 
     Args:
         since: Only include conversations since this date (YYYY-MM-DD or Nd).
         as_json: Output as JSON instead of formatted text.
+        conversation_id: Optional conversation ID to inspect in detail.
     """
+    if conversation_id is not None:
+        conv_data = _conversation_detail(conversation_id)
+
+        if as_json:
+            print(json_mod.dumps(conv_data, indent=2))
+            return
+
+        print(f"Conversation Stats: {conv_data['name']}")
+        print("=" * 40)
+        print(f"  ID:                   {conv_data['id']}")
+        if conv_data["agent_name"]:
+            print(f"  Agent:                {conv_data['agent_name']}")
+        if conv_data["model"]:
+            print(f"  Model:                {conv_data['model']}")
+        print(f"  Messages:             {conv_data['messages']['total']}")
+        role_breakdown = ", ".join(
+            f"{role}={count}"
+            for role, count in conv_data["messages"]["by_role"].items()
+        )
+        print(f"  By role:              {role_breakdown}")
+        print(f"  Tool calls:           {conv_data['tool_calls']['total']}")
+        if conv_data["tool_calls"]["by_tool"]:
+            tool_breakdown = ", ".join(
+                f"{tool}={count}"
+                for tool, count in conv_data["tool_calls"]["by_tool"].items()
+            )
+            print(f"  By tool:              {tool_breakdown}")
+        print(f"  Started:              {conv_data['started']}")
+        print(f"  Ended:                {conv_data['ended']}")
+        print(
+            f"  Duration:             {_format_duration(conv_data['duration_seconds'])}"
+        )
+        print(f"  Workspace:            {conv_data['workspace']}")
+
+        usage = conv_data["usage"]
+        if usage["total_tokens"] or usage["cost"]:
+            cache_pct = (
+                usage["cache_read_tokens"] / usage["input_tokens"] * 100
+                if usage["input_tokens"]
+                else 0
+            )
+            print("\nToken Usage & Cost")
+            print(
+                f"  Input tokens:         {_format_tokens(usage['input_tokens']):>8s}  ({cache_pct:.0f}% cached)"
+            )
+            print(
+                f"  Output tokens:        {_format_tokens(usage['output_tokens']):>8s}"
+            )
+            print(
+                f"  Total tokens:         {_format_tokens(usage['total_tokens']):>8s}"
+            )
+            print(f"  Total cost:           ${usage['cost']:>8.4f}")
+
+        if conv_data["last_message"]:
+            last = conv_data["last_message"]
+            print("\nLast Message")
+            print(f"  {last['role']}: {last['preview']}")
+        return
+
     from ..logmanager import get_user_conversations  # fmt: skip
 
     since_ts = _parse_since(since)

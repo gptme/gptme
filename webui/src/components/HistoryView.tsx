@@ -34,7 +34,7 @@ function useAllConversations() {
   return useQuery({
     queryKey: ['conversations-all', connectionConfig.baseUrl, isConnected],
     queryFn: async () => {
-      const result = await api.getConversationsPaginated(0, 100000);
+      const result = await api.getConversationsPaginated(0, 100000, true);
       return result.conversations;
     },
     enabled: isConnected,
@@ -95,7 +95,7 @@ const ConversationRow: FC<{
       <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
         <span className="flex items-center gap-1">
           <MessageSquare className="h-3 w-3" />
-          {conv.messages} messages
+          {conv.messages ?? 0} messages
         </span>
         {conv.workspace && conv.workspace !== '.' && (
           <span className="truncate">{conv.workspace}</span>
@@ -157,7 +157,7 @@ export const HistoryView: FC = () => {
   // Compute stats (scoped to selected year if not current)
   const stats = useMemo(() => {
     const totalConversations = conversations.length;
-    const totalMessages = conversations.reduce((sum, c) => sum + c.messages, 0);
+    const totalMessages = conversations.reduce((sum, c) => sum + (c.messages ?? 0), 0);
     const activeDays = activityData.size;
 
     // Current streak

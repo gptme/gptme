@@ -84,6 +84,8 @@ def test_init_tools_allowlist_from_env():
         mock_config = mock_get_config.return_value
         # Mock the get_env method to return the custom_env_value
         mock_config.get_env.side_effect = mock_get_env
+        # No plugin search paths / allowlist for this test
+        mock_config.get_plugin_config.return_value = ([], None)
 
         init_tools()
 
@@ -121,6 +123,11 @@ def test_tool_loading_with_missing_package():
 def test_get_available_tools():
     # Clear cache to ensure test uses mocked config
     clear_tools()
+    # Also clear the plugin registry so globally-discovered plugins (e.g. an
+    # installed gptme-tts) don't leak extra tools into this exact-set assertion.
+    from gptme.plugins.registry import clear_registry
+
+    clear_registry()
     custom_env_value = "gptme.tools.save,gptme.tools.patch"
 
     with patch("gptme.config.get_config") as mock_get_config:
@@ -128,6 +135,8 @@ def test_get_available_tools():
         mock_config = mock_get_config.return_value
         # Mock the get_env method to return the custom_env_value
         mock_config.get_env.return_value = custom_env_value
+        # No plugin search paths / allowlist for this test
+        mock_config.get_plugin_config.return_value = ([], None)
 
         tools = get_available_tools()
 
