@@ -25,9 +25,14 @@ export const providerHealth$ = observable<{
 /**
  * Whether to surface a provider-health warning on the settings icon.
  *
- * Only true on a *full outage* — every known provider is erroring. A single
- * failing/unconfigured provider (e.g. gemini when the user only uses anthropic)
- * should not constantly nag the user to fix something they don't rely on.
+ * Only true on a *full outage* — every known provider is in `error`. This is
+ * intentionally conservative to avoid nagging: a single failing provider (e.g.
+ * gemini when the user only uses anthropic) must not light up the badge.
+ *
+ * `ok` and `configured` both count as "not down" on purpose — `configured`
+ * means credentials are present (the provider is plausibly usable, just not
+ * actively health-checked), so it should not, on its own, suppress nothing nor
+ * trigger a warning. The badge fires only when nothing is left but errors.
  */
 export function allProvidersDown(data: ProviderHealthResponse | null): boolean {
   if (!data) return false;
