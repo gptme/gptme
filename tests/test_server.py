@@ -1,5 +1,6 @@
 import copy
 import random
+import threading
 import time
 from pathlib import Path
 
@@ -166,6 +167,69 @@ def test_api_conversation_search_case_insensitive(
     assert data[0]["id"] == "MySearchConversation"
 
 
+def test_api_conversation_list_detail_flag(client: FlaskClient, tmp_path, monkeypatch):
+    """Test that detail=true returns cost/token stats while default (false) zeroes them."""
+    import json
+
+    monkeypatch.setattr("gptme.logmanager.conversations.get_logs_dir", lambda: tmp_path)
+
+    # Create a conversation with an assistant message that carries usage info
+    conv_dir = tmp_path / "stats-conversation"
+    conv_dir.mkdir()
+    conv_file = conv_dir / "conversation.jsonl"
+    # Build a conversation > _TAIL_BYTES (8192) so the fast path actually activates
+    # for large files when detail=False. Pad with many user turns first.
+    messages: list[dict[str, object]] = [
+        {"role": "system", "content": "hello", "timestamp": "2026-01-01T00:00:00"},
+    ]
+    messages.extend(
+        {
+            "role": "user",
+            "content": "x" * 200,
+            "timestamp": f"2026-01-01T00:01:{i:02d}",
+        }
+        for i in range(40)
+    )
+    # The metadata-bearing assistant message (carries cost/token stats)
+    messages.append(
+        {
+            "role": "assistant",
+            "content": "reply",
+            "timestamp": "2026-01-02T00:00:00",
+            "metadata": {
+                "model": "claude-3-5-haiku",
+                "cost": 0.0001,
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+            },
+        }
+    )
+    conv_file.write_text("\n".join(json.dumps(m) for m in messages) + "\n")
+    assert conv_file.stat().st_size > 8192, (
+        "fixture must be > _TAIL_BYTES to trigger fast path"
+    )
+
+    # Default (detail=false) should return zeroed stats and omit the message count
+    response = client.get("/api/v2/conversations")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert isinstance(data, list)
+    assert len(data) == 1
+    assert "messages" not in data[0]
+    assert data[0]["total_cost"] == 0.0
+    assert data[0]["total_input_tokens"] == 0
+
+    # detail=true should return actual stats and include the message count
+    response = client.get("/api/v2/conversations?detail=true")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert isinstance(data, list)
+    assert len(data) == 1
+    assert data[0]["messages"] == len(messages)
+    assert data[0]["total_cost"] > 0
+    assert data[0]["total_input_tokens"] > 0
+    assert data[0]["total_output_tokens"] > 0
+
+
 def test_api_conversation_get(conv, client: FlaskClient):
     response = client.get(f"/api/v2/conversations/{conv}")
     assert response.status_code == 200
@@ -253,6 +317,7 @@ def _reset_provider_health_cache(monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(api_module, "_provider_health_cache", {})
     monkeypatch.setattr(api_module, "_provider_health_cache_time", 0.0)
+    monkeypatch.setattr(api_module, "_provider_health_refreshing", False)
     return api_module
 
 
@@ -335,6 +400,92 @@ def test_api_providers_health_force(
     assert response.status_code == 200
     assert forced.status_code == 200
     assert calls == ["anthropic", "anthropic"]
+
+
+def test_probe_provider_checks_openai_subscription_auth(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """openai-subscription should get a real auth check, not configured fallback."""
+    from gptme.llm import llm_openai_subscription
+    from gptme.server import api_v2 as api_module
+
+    calls: list[float] = []
+
+    def fake_get_auth(timeout: float) -> object:
+        calls.append(timeout)
+        return object()
+
+    monkeypatch.setattr(llm_openai_subscription, "get_auth", fake_get_auth)
+
+    result = api_module._probe_provider("openai-subscription")
+
+    assert result["status"] == "ok"
+    assert result["error"] is None
+    assert calls == [api_module._PROVIDER_HEALTH_TIMEOUT]
+
+
+def test_probe_provider_empty_dynamic_models_is_unhealthy(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """local/gptme/custom probes should not report ok when model listing is empty."""
+    from gptme import llm
+    from gptme.server import api_v2 as api_module
+
+    monkeypatch.setattr(llm, "get_available_models", lambda provider: [])
+
+    result = api_module._probe_provider("local")
+
+    assert result["status"] == "error"
+    assert result["error"] == "No models returned from local"
+
+
+def test_api_providers_health_force_shares_inflight_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Concurrent forced refreshes should share one probe instead of stampeding."""
+    api_module = _reset_provider_health_cache(monkeypatch)
+    monkeypatch.setattr(
+        api_module,
+        "list_available_providers",
+        lambda: [("anthropic", "ANTHROPIC_API_KEY")],
+    )
+    probe_started = threading.Event()
+    release_probe = threading.Event()
+    calls: list[str] = []
+
+    def fake_probe(provider_name: str) -> dict[str, object]:
+        calls.append(provider_name)
+        probe_started.set()
+        assert release_probe.wait(timeout=1)
+        return {"status": "ok", "latency_ms": 9, "error": None}
+
+    monkeypatch.setattr(api_module, "_probe_provider", fake_probe)
+
+    results: list[dict[str, object]] = []
+
+    def load_health() -> None:
+        results.append(api_module._get_provider_health_response(force=True))
+
+    first = threading.Thread(target=load_health)
+    second = threading.Thread(target=load_health)
+
+    first.start()
+    assert probe_started.wait(timeout=1)
+    second.start()
+    time.sleep(0.01)
+    assert calls == ["anthropic"]
+
+    release_probe.set()
+    first.join(timeout=1)
+    second.join(timeout=1)
+
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert calls == ["anthropic"]
+    assert results == [
+        {"providers": {"anthropic": {"status": "ok", "latency_ms": 9, "error": None}}},
+        {"providers": {"anthropic": {"status": "ok", "latency_ms": 9, "error": None}}},
+    ]
 
 
 def test_api_providers_health_timeout_returns_quickly(
