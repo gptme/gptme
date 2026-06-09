@@ -228,6 +228,25 @@ def test_name_empty_before_output_format(
     assert selected_logdirs == [logdir]
 
 
+@pytest.mark.parametrize("bad_model", ["openai/", "/gpt-4o", "/", "openrouter//gpt-4o"])
+def test_model_rejects_empty_path_components(bad_model: str, runner: CliRunner):
+    result = runner.invoke(cli.main, ["--model", bad_model, "--version"])
+
+    assert result.exit_code == 2
+    assert "Model path components cannot be empty" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_model_allows_provider_owned_nested_model_path(runner: CliRunner):
+    result = runner.invoke(
+        cli.main,
+        ["--model", "openrouter/anthropic/claude-sonnet-4-6", "--version"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "gptme v" in result.output
+
+
 @pytest.mark.parametrize(
     ("bad_name", "expected_message"),
     [

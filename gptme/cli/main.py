@@ -57,8 +57,18 @@ def _validate_model_param(
     ctx: click.Context, param: click.Parameter, value: str | None
 ) -> str | None:
     """Reject empty --model early so the CLI exits before heavy setup work."""
-    if value is not None and not value.strip():
+    if value is None:
+        return value
+
+    model = value.strip()
+    if not model:
         raise click.BadParameter("Model name cannot be empty.", ctx=ctx, param=param)
+    if "/" in model and any(part == "" for part in model.split("/")):
+        raise click.BadParameter(
+            "Model path components cannot be empty. Use 'provider/model' or a bare provider name.",
+            ctx=ctx,
+            param=param,
+        )
     return value
 
 
