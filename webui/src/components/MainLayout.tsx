@@ -332,7 +332,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
       if (conversation) return conversation;
 
       const storeConversation = conversations$.get(selectedConversation)?.get();
-      if (storeConversation) {
+      if (storeConversation?.data) {
         // Create conversation summary even if no messages yet - let ConversationContent handle loading
         return {
           id: selectedConversation,
