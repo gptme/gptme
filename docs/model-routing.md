@@ -71,11 +71,16 @@ See {doc}`config` for the full config reference.
 
 When you run multiple agents — for example a team of agents each handling a
 different role — each can have its own model. Set the model in the agent's own
-config so a fast agent and a reasoning-heavy agent can coexist without per-call
-flags:
+config so a fast routing agent and a reasoning-heavy coding agent can coexist
+without per-call flags:
 
 ```toml
-# Each agent's gptme.toml
+# router-agent/gptme.toml — cheap, fast, handles triage and dispatch
+model = "openrouter/qwen/qwen3.7-max"
+```
+
+```toml
+# coder-agent/gptme.toml — frontier model for complex implementation
 model = "anthropic/claude-sonnet-4-6"
 ```
 
