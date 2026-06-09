@@ -4,6 +4,7 @@ import { useToast } from '@/components/ui/use-toast';
 import type { Message, StreamingMessage } from '@/types/conversation';
 import type { ChatOptions } from '@/components/ChatInput';
 import { demoConversations, getDemoMessages } from '@/democonversations';
+import { isDemoMode } from '@/utils/connectionConfig';
 import { use$ } from '@legendapp/state/react';
 import {
   conversations$,
@@ -60,6 +61,32 @@ export function useConversation(conversationId: string, serverId?: string) {
       initConversation(conversationId);
     }
   }, [conversationId, conversation$]);
+
+  // Ensure the conversation's chat config is loaded whenever it's missing.
+  // The main load+connect effect below early-returns for already-connected
+  // conversations, so without this, switching to a previously-opened
+  // conversation leaves chatConfig (and thus the model selector) stale until
+  // the user opens Chat Settings.
+  useEffect(() => {
+    if (!isConnected || isDemoMode()) return;
+    if (demoConversations.some((c) => c.id === conversationId)) return;
+    if (conversation$?.chatConfig.peek()) return;
+    let cancelled = false;
+    api
+      .getChatConfig(conversationId)
+      .then((chatConfig) => {
+        if (!cancelled) updateConversation(conversationId, { chatConfig });
+      })
+      .catch((error) => {
+        console.warn(
+          `[useConversation] Failed to preload chat config for ${conversationId}:`,
+          error
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId, isConnected, api, conversation$]);
 
   // Load conversation data and connect to event stream
   useEffect(() => {
