@@ -425,16 +425,16 @@ const OptionsButton: FC<{ isDisabled: boolean; children: React.ReactNode }> = ({
   </Popover>
 );
 
-const SubmitButton: FC<{ isGenerating: boolean; isDisabled: boolean; hasText: boolean }> = ({
-  isGenerating,
+const SubmitButton: FC<{ isBusy: boolean; isDisabled: boolean; hasText: boolean }> = ({
+  isBusy,
   isDisabled,
   hasText,
 }) => {
-  // When generating: show "Queue" if there's text, "Stop" if not
-  // When not generating: show "Send"
-  const showQueue = isGenerating && hasText;
-  const showStop = isGenerating && !hasText;
-  const canSubmit = !isDisabled && (isGenerating || hasText);
+  // When busy (generating or awaiting a tool): show "Queue" if there's text,
+  // "Stop" if not. When idle: show "Send".
+  const showQueue = isBusy && hasText;
+  const showStop = isBusy && !hasText;
+  const canSubmit = !isDisabled && (isBusy || hasText);
 
   return (
     <Button
@@ -831,6 +831,11 @@ export const ChatInput: FC<Props> = ({
   const autoFocus = use$(autoFocus$);
   const conversation = conversationId ? use$(conversations$.get(conversationId)) : undefined;
   const isGenerating = conversation?.isGenerating || !!conversation?.executingTool;
+  // "Busy" also covers a pending tool confirmation: generation is paused waiting
+  // for the user, but the step isn't done. Queueing/flushing must treat this as
+  // busy, otherwise a queued message flushes mid-step and the server rejects it
+  // with "Generation already in progress".
+  const isBusy = isGenerating || !!conversation?.pendingTool;
   const placeholder = isReadOnly
     ? 'This is a demo conversation (read-only)'
     : !isConnected
@@ -851,16 +856,17 @@ export const ChatInput: FC<Props> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoFocus, isReadOnly, isConnected]);
 
-  // Track previous isGenerating state to detect when generation completes
-  const wasGenerating = useRef(false);
+  // Track previous busy state to detect when the whole step (generation +
+  // tool execution/confirmation) completes.
+  const wasBusy = useRef(false);
 
-  // Send next queued message when generation completes
+  // Send next queued message once the step is fully done (not just paused for a
+  // tool confirmation, which would flush mid-step).
   useEffect(() => {
-    // Detect transition from generating to not generating
-    if (wasGenerating.current && !isGenerating && messageQueue.length > 0) {
+    if (wasBusy.current && !isBusy && messageQueue.length > 0) {
       if (!onSend) return;
       const nextMessage = messageQueue[0];
-      console.log('[ChatInput] Generation completed, sending queued message', {
+      console.log('[ChatInput] Step completed, sending queued message', {
         remaining: messageQueue.length - 1,
       });
       // Use options captured at queue time, not current options
@@ -868,8 +874,8 @@ export const ChatInput: FC<Props> = ({
       // Remove the sent message from queue
       setMessageQueue((prev) => prev.slice(1));
     }
-    wasGenerating.current = isGenerating;
-  }, [isGenerating, messageQueue, onSend]);
+    wasBusy.current = isBusy;
+  }, [isBusy, messageQueue, onSend]);
 
   // Sync workspace from sidebar/agent selection (only for new conversations).
   // Sidebar workspace selections sync both ways. Agent default applies only when
@@ -931,7 +937,7 @@ export const ChatInput: FC<Props> = ({
     const uploadedPaths =
       attachedFiles.length > 0 ? attachedFiles.filter((f) => f.path).map((f) => f.path) : undefined;
 
-    if (isGenerating) {
+    if (isBusy) {
       // If there's a message, queue it instead of interrupting
       if (message.trim() || attachedFiles.length > 0) {
         console.log('[ChatInput] Queueing message for after generation completes', {
@@ -1319,7 +1325,7 @@ export const ChatInput: FC<Props> = ({
                         <VoiceButton voiceServerUrl={settings.voiceServerUrl} />
                       )}
                       <SubmitButton
-                        isGenerating={isGenerating}
+                        isBusy={isBusy}
                         isDisabled={isDisabled}
                         hasText={!!message.trim() || attachedFiles.length > 0}
                       />
