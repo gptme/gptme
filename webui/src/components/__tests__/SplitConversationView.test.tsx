@@ -78,6 +78,16 @@ describe('SplitConversationView', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps close button available while loading conversations', () => {
+    render(<SplitConversationView leftId="conv-a" rightId="conv-b" isLoading onClose={onClose} />);
+
+    expect(screen.getByText('Loading split view...')).toBeInTheDocument();
+    expect(screen.queryByTestId('conversation-conv-a')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTitle('Close split view'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('uses vertical layout on mobile', () => {
     render(<SplitConversationView leftId="a" rightId="b" vertical onClose={onClose} />);
 

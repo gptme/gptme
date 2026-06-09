@@ -10,6 +10,7 @@ interface Props {
   serverId?: string;
   leftIsReadOnly?: boolean;
   rightIsReadOnly?: boolean;
+  isLoading?: boolean;
   /** Stack panes vertically instead of side-by-side (for narrow screens). */
   vertical?: boolean;
   onClose: () => void;
@@ -21,6 +22,7 @@ export const SplitConversationView: FC<Props> = ({
   serverId,
   leftIsReadOnly,
   rightIsReadOnly,
+  isLoading = false,
   vertical = false,
   onClose,
 }) => {
@@ -38,28 +40,37 @@ export const SplitConversationView: FC<Props> = ({
           <X className="h-3 w-3" />
         </Button>
       </div>
-      <ResizablePanelGroup
-        direction={vertical ? 'vertical' : 'horizontal'}
-        className="min-h-0 flex-1"
-      >
-        <ResizablePanel defaultSize={50} minSize={20}>
-          <ConversationContent
-            key={leftId}
-            conversationId={leftId}
-            serverId={serverId}
-            isReadOnly={leftIsReadOnly}
-          />
-        </ResizablePanel>
-        <ResizableHandle withHandle />
-        <ResizablePanel defaultSize={50} minSize={20}>
-          <ConversationContent
-            key={rightId}
-            conversationId={rightId}
-            serverId={serverId}
-            isReadOnly={rightIsReadOnly}
-          />
-        </ResizablePanel>
-      </ResizablePanelGroup>
+      {isLoading ? (
+        <div className="flex min-h-0 flex-1 items-center justify-center">
+          <div className="text-center">
+            <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-b-2 border-primary" />
+            <p className="text-sm text-muted-foreground">Loading split view...</p>
+          </div>
+        </div>
+      ) : (
+        <ResizablePanelGroup
+          direction={vertical ? 'vertical' : 'horizontal'}
+          className="min-h-0 flex-1"
+        >
+          <ResizablePanel defaultSize={50} minSize={20}>
+            <ConversationContent
+              key={leftId}
+              conversationId={leftId}
+              serverId={serverId}
+              isReadOnly={leftIsReadOnly}
+            />
+          </ResizablePanel>
+          <ResizableHandle withHandle />
+          <ResizablePanel defaultSize={50} minSize={20}>
+            <ConversationContent
+              key={rightId}
+              conversationId={rightId}
+              serverId={serverId}
+              isReadOnly={rightIsReadOnly}
+            />
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      )}
     </div>
   );
 };
