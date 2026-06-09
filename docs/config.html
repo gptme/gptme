@@ -543,6 +543,12 @@
 <span class="c1">#TOOL_FORMAT = &quot;markdown&quot; # Select the tool formal. One of `markdown`, `xml`, `tool`</span>
 <span class="c1">#TOOL_ALLOWLIST = &quot;save,append,patch,ipython,shell,browser&quot;  # Comma separated list of allowed tools</span>
 <span class="c1">#TOOL_MODULES = &quot;gptme.tools,custom.tools&quot; # List of python comma separated python module path</span>
+
+<span class="k">[models]</span>
+<span class="c1"># Optional: set a default model (formal alternative to the MODEL env var)</span>
+<span class="c1">#default = &quot;anthropic/claude-sonnet-4-6&quot;</span>
+<span class="c1"># Optional: curate favorites shown prominently in model pickers (e.g. web UI)</span>
+<span class="c1">#favorites = [&quot;anthropic/claude-sonnet-4-6&quot;, &quot;openai/gpt-4o&quot;, &quot;openrouter/google/gemini-2.0-flash&quot;]</span>
 </pre></div>
 </div>
 <p>The <code class="docutils literal notranslate"><span class="pre">user</span></code> section configures user identity:</p>
@@ -562,6 +568,11 @@
 <li><p><code class="docutils literal notranslate"><span class="pre">project</span></code>: A table of project descriptions, keyed by project name, included when working in the matching Git repository. The default config includes descriptions for <code class="docutils literal notranslate"><span class="pre">activitywatch</span></code> and <code class="docutils literal notranslate"><span class="pre">gptme</span></code> — when the git root directory name matches one of these keys, the description is automatically injected into the system prompt.</p></li>
 </ul>
 <p>The <code class="docutils literal notranslate"><span class="pre">env</span></code> section contains environment variables that gptme will fall back to if they are not set in the shell environment. This is useful for setting the default model and API keys for <a class="reference internal" href="providers.html"><span class="doc">Providers</span></a>. It can also be used to set default tool configuration options, see <a class="reference internal" href="custom_tool.html"><span class="doc">Custom Tools</span></a> for more information.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">models</span></code> section configures model selection preferences:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">default</span></code>: The default chat model, as a fully-qualified model ID (e.g. <code class="docutils literal notranslate"><span class="pre">&quot;anthropic/claude-sonnet-4-6&quot;</span></code>). A formal alternative to the <code class="docutils literal notranslate"><span class="pre">MODEL</span></code> env var; <code class="docutils literal notranslate"><span class="pre">models.default</span></code> takes precedence over the <code class="docutils literal notranslate"><span class="pre">MODEL</span></code> env var (and <code class="docutils literal notranslate"><span class="pre">[env].MODEL</span></code> in the config file), but is itself overridden by an explicit per-chat model or the <code class="docutils literal notranslate"><span class="pre">--model</span></code> CLI flag.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">favorites</span></code>: A list of fully-qualified model IDs (e.g. <code class="docutils literal notranslate"><span class="pre">[&quot;anthropic/claude-sonnet-4-6&quot;,</span> <span class="pre">&quot;openai/gpt-4o&quot;]</span></code>) curated by the user. These are surfaced prominently in model pickers such as the web UI model selector.</p></li>
+</ul>
 <p>If you want to configure MCP servers, you can do so in a <code class="docutils literal notranslate"><span class="pre">mcp</span></code> section. See <a class="reference internal" href="mcp.html#mcp"><span class="std std-ref">MCP</span></a> for more information.</p>
 <p>See <a class="reference internal" href="api.html#gptme.config.UserConfig" title="gptme.config.UserConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">gptme.config.UserConfig</span></code></a> for the API reference.</p>
 <section id="local-overrides-config-local-toml">

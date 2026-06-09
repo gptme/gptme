@@ -59,6 +59,12 @@ Here is an example:
     #TOOL_ALLOWLIST = "save,append,patch,ipython,shell,browser"  # Comma separated list of allowed tools
     #TOOL_MODULES = "gptme.tools,custom.tools" # List of python comma separated python module path
 
+    [models]
+    # Optional: set a default model (formal alternative to the MODEL env var)
+    #default = "anthropic/claude-sonnet-4-6"
+    # Optional: curate favorites shown prominently in model pickers (e.g. web UI)
+    #favorites = ["anthropic/claude-sonnet-4-6", "openai/gpt-4o", "openrouter/google/gemini-2.0-flash"]
+
 The ``user`` section configures user identity:
 
 - ``name``: Your display name, shown at the CLI input prompt and as a tooltip on avatar in the web UI (default: ``"User"``).
@@ -76,6 +82,11 @@ The ``prompt`` section contains options included in both interactive and non-int
 - ``project``: A table of project descriptions, keyed by project name, included when working in the matching Git repository. The default config includes descriptions for ``activitywatch`` and ``gptme`` — when the git root directory name matches one of these keys, the description is automatically injected into the system prompt.
 
 The ``env`` section contains environment variables that gptme will fall back to if they are not set in the shell environment. This is useful for setting the default model and API keys for :doc:`providers`. It can also be used to set default tool configuration options, see :doc:`custom_tool` for more information.
+
+The ``models`` section configures model selection preferences:
+
+- ``default``: The default chat model, as a fully-qualified model ID (e.g. ``"anthropic/claude-sonnet-4-6"``). A formal alternative to the ``MODEL`` env var; ``models.default`` takes precedence over the ``MODEL`` env var (and ``[env].MODEL`` in the config file), but is itself overridden by an explicit per-chat model or the ``--model`` CLI flag.
+- ``favorites``: A list of fully-qualified model IDs (e.g. ``["anthropic/claude-sonnet-4-6", "openai/gpt-4o"]``) curated by the user. These are surfaced prominently in model pickers such as the web UI model selector.
 
 If you want to configure MCP servers, you can do so in a ``mcp`` section. See :ref:`mcp` for more information.
 
