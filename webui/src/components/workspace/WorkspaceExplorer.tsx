@@ -127,8 +127,8 @@ export function WorkspaceExplorer({ conversationId }: WorkspaceExplorerProps) {
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1">
-        <div className="h-full w-1/2 overflow-hidden border-r">
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="max-h-[45%] w-full shrink-0 overflow-hidden border-b">
           {error ? (
             <div className="flex h-full items-center justify-center text-destructive">{error}</div>
           ) : loading ? (
@@ -144,7 +144,7 @@ export function WorkspaceExplorer({ conversationId }: WorkspaceExplorerProps) {
             />
           )}
         </div>
-        <div className="h-full w-1/2 overflow-hidden">
+        <div className="min-h-0 w-full flex-1 overflow-hidden">
           {selectedFile ? (
             <FilePreview file={selectedFile} conversationId={conversationId} root={activeRoot} />
           ) : (

@@ -154,8 +154,8 @@ export function ArtifactsPanel({ conversationId }: ArtifactsPanelProps) {
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1">
-        <div className="h-full w-1/2 overflow-auto border-r">
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="max-h-[45%] w-full shrink-0 overflow-auto border-b">
           {loading ? (
             <div className="flex h-full items-center justify-center">
               <Loader2 className="h-6 w-6 animate-spin" />
@@ -201,7 +201,7 @@ export function ArtifactsPanel({ conversationId }: ArtifactsPanelProps) {
           )}
         </div>
 
-        <div className="h-full w-1/2 overflow-hidden">
+        <div className="min-h-0 w-full flex-1 overflow-hidden">
           {selectedArtifact && selectedFile ? (
             <FilePreview file={selectedFile} conversationId={conversationId} root="attachments" />
           ) : selectedArtifact ? (

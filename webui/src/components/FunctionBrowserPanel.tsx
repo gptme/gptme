@@ -105,9 +105,9 @@ export function FunctionBrowserPanel() {
       </div>
 
       {/* Split pane */}
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 flex-col">
         {/* Tool list */}
-        <div className="h-full w-2/5 overflow-auto border-r">
+        <div className="max-h-[45%] w-full shrink-0 overflow-auto border-b">
           {loading ? (
             <div className="flex h-full items-center justify-center">
               <Loader2 className="h-6 w-6 animate-spin" />
@@ -158,7 +158,7 @@ export function FunctionBrowserPanel() {
         </div>
 
         {/* Tool detail */}
-        <div className="h-full w-3/5 overflow-auto p-4">
+        <div className="min-h-0 w-full flex-1 overflow-auto p-4">
           {selectedTool ? (
             <ToolDetail tool={selectedTool} />
           ) : (
