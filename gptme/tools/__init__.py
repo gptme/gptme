@@ -218,7 +218,9 @@ def init_tools(
                         f"Tool '{tool_name}' matched available tools that should "
                         "have been loaded but were not found in loaded_tools"
                     )
-                logger.warning("%s", _unavailable_message(tool_name, matched_available))
+                logger.warning(
+                    "%s Skipping.", _unavailable_message(tool_name, matched_available)
+                )
                 continue
             raise ValueError(f"Tool '{tool_name}' not found")
 
@@ -230,6 +232,9 @@ def _unavailable_message(tool_name: str, matched_tools: list[ToolSpec]) -> str:
     hint = next((t.available_hint for t in matched_tools if t.available_hint), None)
     base = f"Tool '{tool_name}' is unavailable"
     if hint:
+        hint = hint.rstrip()
+        if hint[-1:] not in ".!?":
+            hint += "."
         return f"{base}: {hint}"
     return (
         f"{base} — it was discovered but its availability check failed "
