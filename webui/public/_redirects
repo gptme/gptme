@@ -14,4 +14,5 @@
 /external-sessions / 200
 /admin / 200
 /health / 200
+/settings / 200
 /workspace/* / 200

@@ -24,6 +24,7 @@ const History = lazy(() => import('./pages/History'));
 const ExternalSessions = lazy(() => import('./pages/ExternalSessions'));
 const Admin = lazy(() => import('./pages/Admin'));
 const Health = lazy(() => import('./pages/Health'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
 const queryClient = new QueryClient({
@@ -90,6 +91,7 @@ const App: FC = () => {
                         <Route path={appRoutes.externalSessions} element={<ExternalSessions />} />
                         <Route path={appRoutes.admin} element={<Admin />} />
                         <Route path={appRoutes.health} element={<Health />} />
+                        <Route path={appRoutes.settings} element={<SettingsPage />} />
                         <Route path={appRoutes.workspace} element={<Workspace />} />
                         <Route path="*" element={<NotFound />} />
                       </Routes>

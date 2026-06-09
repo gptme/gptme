@@ -30,7 +30,6 @@ import {
 } from '@/utils/exportConversation';
 import { chatRoute } from '@/utils/routes';
 import { toast } from 'sonner';
-import { settingsModal$ } from '@/stores/settingsModal';
 
 interface CommandAction {
   id: string;
@@ -184,7 +183,7 @@ export function CommandPalette() {
         keywords: ['settings', 'preferences', 'config'],
         action: () => {
           setOpen(false);
-          settingsModal$.open.set(true);
+          navigate('/settings');
         },
         group: 'Navigation',
       },

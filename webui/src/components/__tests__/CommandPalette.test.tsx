@@ -319,7 +319,7 @@ describe('CommandPalette', () => {
       expect(mockNavigate).toHaveBeenCalledWith('/');
     });
 
-    it('opens settings modal when selecting Settings', async () => {
+    it('navigates to settings when selecting Settings', async () => {
       renderCommandPalette();
 
       fireEvent.keyDown(document, { key: 'k', metaKey: true });
@@ -327,7 +327,7 @@ describe('CommandPalette', () => {
       const settings = await screen.findByText('Settings');
       fireEvent.click(settings);
 
-      expect(settingsModal$.open.set).toHaveBeenCalledWith(true);
+      expect(mockNavigate).toHaveBeenCalledWith('/settings');
     });
 
     it('closes after action execution', async () => {
