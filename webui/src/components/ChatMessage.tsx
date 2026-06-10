@@ -1,5 +1,5 @@
-import { useCallback, useRef, useState, useSyncExternalStore, type FC } from 'react';
-import type { Message, StreamingMessage } from '@/types/conversation';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type FC } from 'react';
+import type { Message, MessageMetadata, StreamingMessage } from '@/types/conversation';
 import { MessageAvatar } from './MessageAvatar';
 import { useMessageChainType } from '@/utils/messageUtils';
 import { useApi } from '@/contexts/ApiContext';
@@ -38,33 +38,83 @@ import {
   stopSpeaking,
 } from '@/utils/tts';
 import { rightSidebarActiveTab$, rightSidebarVisible$ } from '@/stores/sidebar';
+import { getRelativeTimeString } from '@/utils/time';
 
-function formatTimestamp(timestamp: string): { short: string; full: string } {
-  const date = new Date(timestamp);
-  if (isNaN(date.getTime())) return { short: '', full: '' };
-  const now = new Date();
-  const isToday = date.toDateString() === now.toDateString();
-  const isThisYear = date.getFullYear() === now.getFullYear();
+function MessageMetaLabel({
+  timestamp,
+  metadata,
+}: {
+  timestamp?: string;
+  metadata?: MessageMetadata;
+}) {
+  const [, setTick] = useState(0);
 
-  const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const full = date.toLocaleString([], {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
+  useEffect(() => {
+    if (!timestamp) return;
+    const id = setInterval(() => setTick((t) => t + 1), 60_000);
+    return () => clearInterval(id);
+  }, [timestamp]);
 
-  if (isToday) {
-    return { short: timeStr, full };
+  if (!timestamp && !metadata) return null;
+
+  const date = timestamp ? new Date(timestamp) : null;
+  const isValidDate = date && !isNaN(date.getTime());
+
+  const relTime = isValidDate ? getRelativeTimeString(date) : null;
+  const fullTime = isValidDate
+    ? date.toLocaleString([], {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      })
+    : null;
+
+  const model = metadata?.model;
+  const cost = metadata?.cost;
+  const usage = metadata?.usage;
+
+  const parts: string[] = [];
+  if (model) parts.push(model);
+  if (relTime) parts.push(relTime);
+  const shortLabel = parts.join(' · ');
+  if (!shortLabel) return null;
+
+  const tooltipLines: string[] = [];
+  if (fullTime) tooltipLines.push(fullTime);
+  if (model) tooltipLines.push(`Model: ${model}`);
+  if (cost != null) tooltipLines.push(`Cost: $${cost.toFixed(4)}`);
+  if (usage) {
+    if (usage.input_tokens)
+      tooltipLines.push(`Input: ${usage.input_tokens.toLocaleString()} tokens`);
+    if (usage.output_tokens)
+      tooltipLines.push(`Output: ${usage.output_tokens.toLocaleString()} tokens`);
+    if (usage.cache_read_tokens)
+      tooltipLines.push(`Cache read: ${usage.cache_read_tokens.toLocaleString()} tokens`);
+    if (usage.cache_creation_tokens)
+      tooltipLines.push(`Cache write: ${usage.cache_creation_tokens.toLocaleString()} tokens`);
   }
-  const dateStr = date.toLocaleDateString([], {
-    month: 'short',
-    day: 'numeric',
-    ...(isThisYear ? {} : { year: 'numeric' }),
-  });
-  return { short: `${dateStr}, ${timeStr}`, full };
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div className="h-0 select-none overflow-visible px-3 text-right text-[10px] leading-4 text-muted-foreground/50 opacity-0 transition-opacity group-hover/message:opacity-100">
+            {shortLabel}
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="max-w-xs">
+          <div className="space-y-0.5 text-xs">
+            {tooltipLines.map((line, i) => (
+              <div key={i}>{line}</div>
+            ))}
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
 }
 
 interface Props {
@@ -680,63 +730,8 @@ export const ChatMessage: FC<Props> = ({
                     <Memo>
                       {() => {
                         const msg = message$.get() as Message;
-                        const timestamp = msg?.timestamp;
-                        const metadata = msg?.metadata;
-                        if (!timestamp && !metadata) return null;
-
-                        const time = timestamp ? formatTimestamp(timestamp) : null;
-                        const model = metadata?.model;
-                        const cost = metadata?.cost;
-                        const usage = metadata?.usage;
-
-                        // Build the short inline label: "model · time"
-                        const parts: string[] = [];
-                        if (model) parts.push(model);
-                        if (time?.short) parts.push(time.short);
-                        const shortLabel = parts.join(' · ');
-                        if (!shortLabel) return null;
-
-                        // Build rich tooltip content
-                        const tooltipLines: string[] = [];
-                        if (time?.full) tooltipLines.push(time.full);
-                        if (model) tooltipLines.push(`Model: ${model}`);
-                        if (cost != null) tooltipLines.push(`Cost: $${cost.toFixed(4)}`);
-                        if (usage) {
-                          if (usage.input_tokens)
-                            tooltipLines.push(
-                              `Input: ${usage.input_tokens.toLocaleString()} tokens`
-                            );
-                          if (usage.output_tokens)
-                            tooltipLines.push(
-                              `Output: ${usage.output_tokens.toLocaleString()} tokens`
-                            );
-                          if (usage.cache_read_tokens)
-                            tooltipLines.push(
-                              `Cache read: ${usage.cache_read_tokens.toLocaleString()} tokens`
-                            );
-                          if (usage.cache_creation_tokens)
-                            tooltipLines.push(
-                              `Cache write: ${usage.cache_creation_tokens.toLocaleString()} tokens`
-                            );
-                        }
-
                         return (
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <div className="h-0 select-none overflow-visible px-3 text-right text-[10px] leading-4 text-muted-foreground/50 opacity-0 transition-opacity group-hover/message:opacity-100">
-                                  {shortLabel}
-                                </div>
-                              </TooltipTrigger>
-                              <TooltipContent side="bottom" className="max-w-xs">
-                                <div className="space-y-0.5 text-xs">
-                                  {tooltipLines.map((line, i) => (
-                                    <div key={i}>{line}</div>
-                                  ))}
-                                </div>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
+                          <MessageMetaLabel timestamp={msg?.timestamp} metadata={msg?.metadata} />
                         );
                       }}
                     </Memo>
