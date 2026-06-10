@@ -4,6 +4,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Volume2, Palette, Info, FileText, ExternalLink, Server, Rocket } from 'lucide-react';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useTheme } from 'next-themes';
@@ -214,8 +221,7 @@ export function SettingsContent({
                   Read responses aloud
                 </Label>
                 <p className="text-xs text-muted-foreground">
-                  Speak assistant messages aloud (uses gptme-tts server if configured, otherwise
-                  browser Web Speech API)
+                  Auto-play assistant messages aloud using the TTS engine selected below
                 </p>
               </div>
               <Switch
@@ -227,22 +233,58 @@ export function SettingsContent({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="tts-server-url" className="text-sm">
-                TTS server URL
+              <Label htmlFor="tts-engine" className="text-sm">
+                TTS engine
               </Label>
+              <p className="text-xs text-muted-foreground">Which engine synthesizes speech.</p>
+              <Select
+                value={settings.ttsProvider}
+                onValueChange={(value) =>
+                  updateSettings({ ttsProvider: value as typeof settings.ttsProvider })
+                }
+              >
+                <SelectTrigger id="tts-engine">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Automatic (server → gptme-tts → browser)</SelectItem>
+                  <SelectItem value="server">gptme-server (provider-backed)</SelectItem>
+                  <SelectItem value="external">gptme-tts server</SelectItem>
+                  <SelectItem value="browser">Browser (Web Speech API)</SelectItem>
+                </SelectContent>
+              </Select>
               <p className="text-xs text-muted-foreground">
-                HTTP base URL of a running <code className="rounded bg-muted px-1">gptme-tts</code>{' '}
-                server, e.g. <code className="rounded bg-muted px-1">http://localhost:5701</code>.
-                Leave empty to use browser TTS.
+                {settings.ttsProvider === 'server' &&
+                  'Uses the connected gptme-server /api/v2/audio/speech endpoint (provider-backed, e.g. OpenRouter — higher quality). Requires the server to have a TTS provider configured.'}
+                {settings.ttsProvider === 'external' &&
+                  'Uses a standalone gptme-tts server (set the URL below).'}
+                {settings.ttsProvider === 'browser' &&
+                  "Uses the browser's built-in speech synthesis."}
+                {settings.ttsProvider === 'auto' &&
+                  'Tries the gptme-server endpoint, then a gptme-tts server (if set), then the browser.'}
               </p>
-              <Input
-                id="tts-server-url"
-                type="text"
-                placeholder="http://localhost:5701"
-                value={settings.ttsServerUrl}
-                onChange={(e) => updateSettings({ ttsServerUrl: e.target.value.trim() })}
-              />
             </div>
+
+            {(settings.ttsProvider === 'external' || settings.ttsProvider === 'auto') && (
+              <div className="space-y-2">
+                <Label htmlFor="tts-server-url" className="text-sm">
+                  gptme-tts server URL
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  HTTP base URL of a running{' '}
+                  <code className="rounded bg-muted px-1">gptme-tts</code> server, e.g.{' '}
+                  <code className="rounded bg-muted px-1">http://localhost:5001</code>.
+                  {settings.ttsProvider === 'auto' && ' Leave empty to skip this engine.'}
+                </p>
+                <Input
+                  id="tts-server-url"
+                  type="text"
+                  placeholder="http://localhost:5001"
+                  value={settings.ttsServerUrl}
+                  onChange={(e) => updateSettings({ ttsServerUrl: e.target.value.trim() })}
+                />
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="voice-server-url" className="text-sm">

@@ -36,20 +36,32 @@ export function getSpeakingKey(): string | null {
   return speakingKey;
 }
 
-function getSettings(): { ttsEnabled: boolean; ttsServerUrl: string } {
+type TtsProvider = 'auto' | 'browser' | 'server' | 'external';
+
+function getSettings(): {
+  ttsEnabled: boolean;
+  ttsServerUrl: string;
+  ttsProvider: TtsProvider;
+} {
   try {
     const saved = localStorage.getItem('gptme-settings');
     if (saved) {
       const s = JSON.parse(saved);
+      const provider: TtsProvider = ['auto', 'browser', 'server', 'external'].includes(
+        s.ttsProvider
+      )
+        ? s.ttsProvider
+        : 'auto';
       return {
         ttsEnabled: s.ttsEnabled === true,
         ttsServerUrl: typeof s.ttsServerUrl === 'string' ? s.ttsServerUrl.trim() : '',
+        ttsProvider: provider,
       };
     }
   } catch {
     // ignore
   }
-  return { ttsEnabled: false, ttsServerUrl: '' };
+  return { ttsEnabled: false, ttsServerUrl: '', ttsProvider: 'auto' };
 }
 
 /** Strip markdown so the spoken text sounds natural. */
@@ -159,44 +171,9 @@ async function speakViaExternalServer(text: string, serverUrl: string, key: stri
 
 const DEFAULT_SPEAK_KEY = '__tts__';
 
-async function speak(rawText: string, key: string): Promise<void> {
-  const spoken = toSpokenText(rawText);
-  if (!spoken) return;
-
-  stopSpeaking();
-  // Mark as playing immediately so the button shows a stop/loading state during
-  // the network round-trip (playBlob/utterance re-affirm the same key on start).
-  setSpeakingKey(key);
-
-  // 1. Try the same-origin /api/v2/audio/speech endpoint first.
-  try {
-    await speakViaLocalEndpoint(spoken, key);
-    return;
-  } catch (err) {
-    if (isAbortError(err)) return;
-    if ((err as Error)?.message !== LOCAL_TTS_NOT_CONFIGURED) {
-      console.warn('Local /api/v2/audio/speech unavailable, trying alternatives:', err);
-    }
-  }
-
-  // 2. Try an external gptme-tts server if configured.
-  const { ttsServerUrl } = getSettings();
-  if (ttsServerUrl) {
-    try {
-      await speakViaExternalServer(spoken, ttsServerUrl, key);
-      return;
-    } catch (err) {
-      if (isAbortError(err)) return;
-      console.warn('External TTS server unavailable, falling back to Web Speech API:', err);
-    }
-  }
-
-  // 3. Fall back to the browser's built-in speechSynthesis.
-  if (!window.speechSynthesis) {
-    // Nothing could play — clear the provisional speaking state.
-    if (getSpeakingKey() === key) setSpeakingKey(null);
-    return;
-  }
+/** Start browser speechSynthesis. Returns false if unavailable. */
+function speakViaBrowser(spoken: string, key: string): boolean {
+  if (!window.speechSynthesis) return false;
   const utterance = new SpeechSynthesisUtterance(spoken);
   utterance.rate = 1.1;
   // Guard against a previous utterance's late onend/onerror (fired after a new
@@ -207,7 +184,77 @@ async function speak(rawText: string, key: string): Promise<void> {
   utterance.onerror = () => {
     if (getSpeakingKey() === key) setSpeakingKey(null);
   };
+  setSpeakingKey(key);
   window.speechSynthesis.speak(utterance);
+  return true;
+}
+
+function clearIfStill(key: string): void {
+  if (getSpeakingKey() === key) setSpeakingKey(null);
+}
+
+async function speak(rawText: string, key: string): Promise<void> {
+  const spoken = toSpokenText(rawText);
+  if (!spoken) return;
+
+  stopSpeaking();
+  // Mark as playing immediately so the button shows a stop/loading state during
+  // the network round-trip (playBlob/utterance re-affirm the same key on start).
+  setSpeakingKey(key);
+
+  const { ttsServerUrl, ttsProvider } = getSettings();
+
+  // Explicit engine selection. Each falls back to the browser if its engine
+  // fails, so TTS still works (and aborts — from a newer call — bail silently).
+  if (ttsProvider === 'browser') {
+    if (!speakViaBrowser(spoken, key)) clearIfStill(key);
+    return;
+  }
+  if (ttsProvider === 'server') {
+    try {
+      await speakViaLocalEndpoint(spoken, key);
+      return;
+    } catch (err) {
+      if (isAbortError(err)) return;
+      console.warn('gptme-server TTS unavailable, falling back to browser:', err);
+    }
+    if (!speakViaBrowser(spoken, key)) clearIfStill(key);
+    return;
+  }
+  if (ttsProvider === 'external') {
+    if (ttsServerUrl) {
+      try {
+        await speakViaExternalServer(spoken, ttsServerUrl, key);
+        return;
+      } catch (err) {
+        if (isAbortError(err)) return;
+        console.warn('External gptme-tts server unavailable, falling back to browser:', err);
+      }
+    }
+    if (!speakViaBrowser(spoken, key)) clearIfStill(key);
+    return;
+  }
+
+  // 'auto': gptme-server endpoint -> external gptme-tts server -> browser.
+  try {
+    await speakViaLocalEndpoint(spoken, key);
+    return;
+  } catch (err) {
+    if (isAbortError(err)) return;
+    if ((err as Error)?.message !== LOCAL_TTS_NOT_CONFIGURED) {
+      console.warn('Local /api/v2/audio/speech unavailable, trying alternatives:', err);
+    }
+  }
+  if (ttsServerUrl) {
+    try {
+      await speakViaExternalServer(spoken, ttsServerUrl, key);
+      return;
+    } catch (err) {
+      if (isAbortError(err)) return;
+      console.warn('External TTS server unavailable, falling back to Web Speech API:', err);
+    }
+  }
+  if (!speakViaBrowser(spoken, key)) clearIfStill(key);
 }
 
 /** Speak text if the global TTS toggle is enabled (auto-play on new messages). */
