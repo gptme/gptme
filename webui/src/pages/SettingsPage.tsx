@@ -6,21 +6,14 @@ import { SidebarIcons } from '@/components/SidebarIcons';
 import { MobileBottomNav } from '@/components/MobileBottomNav';
 import { useTasksQuery } from '@/stores/tasks';
 import { SettingsContent } from '@/components/SettingsContent';
-import type { SettingsCategory } from '@/stores/settingsModal';
+import { SETTINGS_CATEGORIES, type SettingsCategory } from '@/stores/settingsModal';
 import { use$ } from '@legendapp/state/react';
 import { settingsModal$ } from '@/stores/settingsModal';
 
-const VALID_CATEGORIES: SettingsCategory[] = [
-  'servers',
-  'appearance',
-  'audio',
-  'content',
-  'developer',
-  'about',
-];
-
 function toCategoryOrDefault(raw: string | undefined): SettingsCategory {
-  return VALID_CATEGORIES.includes(raw as SettingsCategory) ? (raw as SettingsCategory) : 'servers';
+  return (SETTINGS_CATEGORIES as ReadonlyArray<string>).includes(raw ?? '')
+    ? (raw as SettingsCategory)
+    : 'servers';
 }
 
 /** Full-page settings view — replaces the modal when navigated via /settings route. */
@@ -49,7 +42,7 @@ const SettingsPage: FC = () => {
 
   function handleCategoryChange(cat: SettingsCategory) {
     setActiveCategory(cat);
-    navigate(`/settings/${cat}`, { replace: true });
+    navigate(`/settings/${cat}`);
   }
 
   return (
