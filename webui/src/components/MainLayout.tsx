@@ -432,15 +432,15 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
 
   // Handle navigating a split pane to a different conversation
   const handleNavigatePane = useCallback(
-    (paneIndex: 0 | 1, newId: string, newServerId?: string) => {
+    (paneIndex: 0 | 1, newId: string, _newServerId?: string) => {
       if (!splitIds) return;
       const ids = [...splitIds];
       ids[paneIndex] = newId;
       const params = new URLSearchParams(searchParams);
       params.set('split', `${ids[0]},${ids[1]}`);
-      if (newServerId) {
-        params.set('server', newServerId);
-      }
+      // NOTE: We intentionally do not update the shared server= param here.
+      // Both panes share one server= URL param; updating it for one pane silently
+      // breaks the other. Per-pane server tracking is tracked for a future slice.
       navigate(`?${params.toString()}`);
     },
     [splitIds, searchParams, navigate]
