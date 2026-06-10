@@ -314,6 +314,57 @@ def test_device_flow_authenticate_default_server_has_base_url():
     assert result["server_url"] == DEFAULT_SERVICE_URL
 
 
+def test_get_models_url_custom_token():
+    """Custom-server tokens (no base_url) should use server_url + /v1 for model listing."""
+    from gptme.llm.llm_gptme import get_models_url
+
+    token_data = {
+        "access_token": "test",
+        "server_url": "https://custom.example.com",
+        "expires_at": 9999999999,
+    }
+    config = _mock_config()
+    with patch("gptme.llm.llm_gptme._load_token", return_value=token_data):
+        assert get_models_url(config) == "https://custom.example.com/v1"
+
+
+def test_get_models_url_env_models_url():
+    """GPTME_CLOUD_MODELS_URL should take precedence over GPTME_CLOUD_BASE_URL."""
+    from gptme.llm.llm_gptme import get_models_url
+
+    config = _mock_config(
+        env={
+            "GPTME_CLOUD_MODELS_URL": "https://custom.example.com/v1",
+            "GPTME_CLOUD_BASE_URL": "https://other.example.com/v1",
+        }
+    )
+    with patch("gptme.llm.llm_gptme._load_token", return_value=None):
+        assert get_models_url(config) == "https://custom.example.com/v1"
+
+
+def test_get_models_url_env_base_url_custom_server():
+    """GPTME_CLOUD_BASE_URL for a custom (non-Supabase) server should be used for models."""
+    from gptme.llm.llm_gptme import get_models_url
+
+    config = _mock_config(env={"GPTME_CLOUD_BASE_URL": "https://custom.example.com/v1"})
+    with patch("gptme.llm.llm_gptme._load_token", return_value=None):
+        assert get_models_url(config) == "https://custom.example.com/v1"
+
+
+def test_get_models_url_env_base_url_supabase_uses_default():
+    """GPTME_CLOUD_BASE_URL pointing at Supabase should NOT be used for models (wrong path)."""
+    from gptme.llm.llm_gptme import (
+        _SUPABASE_FUNCTIONS_V1,
+        DEFAULT_MODELS_BASE_URL,
+        get_models_url,
+    )
+
+    supabase_url = f"{_SUPABASE_FUNCTIONS_V1}/messages"
+    config = _mock_config(env={"GPTME_CLOUD_BASE_URL": supabase_url})
+    with patch("gptme.llm.llm_gptme._load_token", return_value=None):
+        assert get_models_url(config) == DEFAULT_MODELS_BASE_URL
+
+
 # --- Helpers ---
 
 

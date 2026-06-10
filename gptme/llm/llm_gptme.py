@@ -13,10 +13,16 @@ Token priority:
     2. ``GPTME_CLOUD_API_KEY`` environment variable
     3. Error with instructions
 
-Base URL priority:
+Base URL priority (chat completions):
     1. Token's ``base_url`` field (explicit, Supabase-aware)
     2. ``GPTME_CLOUD_BASE_URL`` environment variable
     3. Default: Supabase messages edge function
+
+Models URL priority:
+    1. Token's ``server_url`` field for custom-server tokens (no base_url)
+    2. ``GPTME_CLOUD_MODELS_URL`` environment variable
+    3. ``GPTME_CLOUD_BASE_URL`` for non-Supabase custom servers (env-var-only)
+    4. Default: Supabase functions/v1 base
 
 URL architecture:
     - LLM API calls go to Supabase edge functions, NOT fleet.gptme.ai.
@@ -187,15 +193,12 @@ def get_models_url(config: Config) -> str:
 
     The OpenAI SDK appends /models to the returned URL.
     Checks (in order):
-    1. Token file's ``server_url`` field (custom-server token)
+    1. Token file's ``server_url`` field (custom-server token without base_url)
        → uses server_url + /v1 as the models base
     2. ``GPTME_CLOUD_MODELS_URL`` environment variable
-    3. Default: Supabase functions/v1 base
-
-    For the default Supabase service, models are listed via the
-    functions/v1/models edge function. For custom servers (tokens
-    with server_url but no base_url), the models endpoint lives
-    at {server_url}/v1/models — matching the chat-completions base.
+    3. ``GPTME_CLOUD_BASE_URL`` env var when pointing at a non-Supabase server
+       → env-var-only users with custom OpenAI-compatible APIs
+    4. Default: Supabase functions/v1 base
     """
     token_data = _load_token()
     if token_data:
@@ -211,6 +214,14 @@ def get_models_url(config: Config) -> str:
     env_url = config.get_env("GPTME_CLOUD_MODELS_URL")
     if env_url:
         return env_url.rstrip("/")
+
+    # For env-var-only users with a custom server (GPTME_CLOUD_BASE_URL not pointing
+    # at Supabase), use the same base URL for model listing — standard OpenAI-compatible
+    # APIs serve both /chat/completions and /models from the same base.
+    base_url = config.get_env("GPTME_CLOUD_BASE_URL")
+    if base_url and DEFAULT_SERVICE_URL not in base_url:
+        return base_url.rstrip("/")
+
     return DEFAULT_MODELS_BASE_URL
 
 
