@@ -1,5 +1,6 @@
 """A2A JSON-RPC surface for gptme-server."""
 
+import json
 import logging
 import os
 import time
@@ -39,6 +40,11 @@ JSONRPC_INTERNAL_ERROR = -32603
 
 A2A_TASK_NOT_FOUND = -32001
 A2A_CONTENT_TYPE_NOT_SUPPORTED = -32005
+
+# Sentinel file written to a task's logdir when its blocking run fails. It lets
+# GetTask report TASK_STATE_FAILED even after the in-memory session is GC'd
+# (the session holds last_error, which is lost once the session is collected).
+A2A_FAILURE_SENTINEL = "a2a_failed.json"
 
 
 class A2AError(Exception):
@@ -314,6 +320,49 @@ def _resolve_model(chat_config: ChatConfig) -> str:
     raise A2AError(JSONRPC_INVALID_PARAMS, "No model specified")
 
 
+def _failure_sentinel_path(task_id: str) -> Path:
+    return get_logs_dir() / task_id / A2A_FAILURE_SENTINEL
+
+
+def _write_failure_sentinel(task_id: str, error: BaseException) -> None:
+    """Persist a task failure so GetTask can report FAILED after session GC."""
+    path = _failure_sentinel_path(task_id)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "error": str(error),
+                    "ts": datetime.now(tz=timezone.utc).isoformat(),
+                }
+            )
+        )
+    except OSError:
+        logger.exception("Failed to write A2A failure sentinel for %s", task_id)
+
+
+def _read_failure_sentinel(task_id: str) -> dict[str, Any] | None:
+    path = _failure_sentinel_path(task_id)
+    try:
+        data = json.loads(path.read_text())
+    except FileNotFoundError:
+        return None
+    except (OSError, json.JSONDecodeError):
+        logger.warning("Ignoring invalid A2A failure sentinel for %s", task_id)
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _clear_failure_sentinel(task_id: str) -> None:
+    """Remove a stale failure sentinel, e.g. when a task is resumed for retry."""
+    try:
+        _failure_sentinel_path(task_id).unlink()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        logger.exception("Failed to clear A2A failure sentinel for %s", task_id)
+
+
 def _run_task_blocking(task_id: str, session: ConversationSession) -> None:
     logdir = get_logs_dir() / task_id
     chat_config = ChatConfig.load_or_create(logdir, ChatConfig())
@@ -338,31 +387,39 @@ def _run_task_blocking(task_id: str, session: ConversationSession) -> None:
     deadline = time.monotonic() + timeout
     event_index = initial_event_count
 
-    while time.monotonic() < deadline:
-        events = session.get_events_since(event_index)
-        event_index += len(events)
-        for event in events:
-            event_type = event.get("type") if isinstance(event, dict) else None
-            if event_type == "generation_complete":
-                # generation_complete fires BEFORE session.generating = False
-                # (the finally block runs after the event). Wait briefly for
-                # generating to settle so _task_from_conversation sees the
-                # correct state instead of TASK_STATE_WORKING.
-                for _ in range(10):  # ~1s max
-                    if not session.generating:
-                        break
-                    session.event_flag.clear()
-                    session.event_flag.wait(timeout=0.1)
+    try:
+        while time.monotonic() < deadline:
+            events = session.get_events_since(event_index)
+            event_index += len(events)
+            for event in events:
+                event_type = event.get("type") if isinstance(event, dict) else None
+                if event_type == "generation_complete":
+                    # generation_complete fires BEFORE session.generating = False
+                    # (the finally block runs after the event). Wait briefly for
+                    # generating to settle so _task_from_conversation sees the
+                    # correct state instead of TASK_STATE_WORKING.
+                    for _ in range(10):  # ~1s max
+                        if not session.generating:
+                            break
+                        session.event_flag.clear()
+                        session.event_flag.wait(timeout=0.1)
+                    return
+                if event_type == "error":
+                    raise A2AError(
+                        JSONRPC_INTERNAL_ERROR,
+                        str(event.get("error") or "Internal error"),
+                        reason="TASK_FAILED",
+                        metadata={"taskId": task_id},
+                    )
+            if not session.generating:
                 return
-            if event_type == "error":
-                raise A2AError(
-                    JSONRPC_INTERNAL_ERROR,
-                    str(event.get("error") or "Internal error"),
-                )
-        if not session.generating:
-            return
-        session.event_flag.clear()
-        session.event_flag.wait(timeout=0.1)
+            session.event_flag.clear()
+            session.event_flag.wait(timeout=0.1)
+    except Exception as exc:
+        # Persist the failure so a later GetTask (after the session is GC'd)
+        # can still report TASK_STATE_FAILED instead of WORKING/COMPLETED.
+        _write_failure_sentinel(task_id, exc)
+        raise
 
     logger.info("A2A SendMessage timed out waiting for task %s", task_id)
     # Return task in WORKING state so the client knows to poll with GetTask.
@@ -416,9 +473,14 @@ def _task_from_conversation(
         (-1, None),
     )
 
+    failure = _read_failure_sentinel(task_id)
     if latest_session and latest_session.generating:
         state = "TASK_STATE_WORKING"
     elif latest_session and latest_session.last_error:
+        state = "TASK_STATE_FAILED"
+    elif failure is not None:
+        # The session that ran this task has been GC'd, but a sentinel records
+        # that it failed — surface FAILED instead of COMPLETED/SUBMITTED.
         state = "TASK_STATE_FAILED"
     elif latest_assistant:
         state = "TASK_STATE_COMPLETED"
@@ -459,6 +521,16 @@ def _task_from_conversation(
                 ],
             }
         ]
+
+    if state == "TASK_STATE_FAILED" and failure is not None:
+        error_text = str(failure.get("error") or "Task failed")
+        task.setdefault("artifacts", []).append(
+            {
+                "artifactId": "error",
+                "name": "Task error",
+                "parts": [{"text": error_text, "mediaType": "text/plain"}],
+            }
+        )
 
     if history_length is None:
         history_messages = messages
@@ -501,6 +573,10 @@ def _handle_send_message(params: dict[str, Any]) -> dict[str, Any]:
                 metadata={"taskId": task_id},
             )
         session = _append_task_message(task_id, user_text)
+
+        # Resuming a task clears any prior failure sentinel: the new message
+        # triggers a fresh run, so the old failure no longer reflects state.
+        _clear_failure_sentinel(task_id)
 
         # Guard: don't spawn a second step thread if the session is already
         # generating — the new message is appended and the existing thread
