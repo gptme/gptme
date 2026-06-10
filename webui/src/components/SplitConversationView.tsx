@@ -3,11 +3,7 @@ import { X, ChevronDown } from 'lucide-react';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 import { ConversationContent } from './ConversationContent';
 import { Button } from '@/components/ui/button';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Command,
   CommandEmpty,
@@ -69,7 +65,7 @@ function ConversationSelector({
               {allConversations.map((conv) => (
                 <CommandItem
                   key={conv.serverId ? `${conv.serverId}:${conv.id}` : conv.id}
-                  value={conv.id}
+                  value={conv.serverId ? `${conv.serverId}:${conv.id}` : conv.id}
                   keywords={[conv.name || '', conv.id]}
                   onSelect={() => {
                     onSelect(conv.id);

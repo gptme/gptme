@@ -437,7 +437,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
       const ids = [...splitIds];
       ids[paneIndex] = newId;
       const params = new URLSearchParams(searchParams);
-      params.set("split", `${ids[0]},${ids[1]}`);
+      params.set('split', `${ids[0]},${ids[1]}`);
       navigate(`?${params.toString()}`);
     },
     [splitIds, searchParams, navigate]
@@ -446,16 +446,21 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
   // Handle "Open in split view" from a conversation list context menu
   const handleOpenInSplitView = useCallback(
     (conversationId: string) => {
-      const currentId = selectedConversation$.get();
       const params = new URLSearchParams(searchParams);
-      if (currentId) {
-        params.set("split", `${currentId},${conversationId}`);
+      if (splitIds) {
+        // Already in split view: put clicked conversation in right pane, keep left
+        params.set('split', `${splitIds[0]},${conversationId}`);
       } else {
-        params.set("split", `${conversationId},${conversationId}`);
+        const currentId = selectedConversation$.get();
+        if (currentId) {
+          params.set('split', `${currentId},${conversationId}`);
+        } else {
+          params.set('split', `${conversationId},${conversationId}`);
+        }
       }
       navigate(`?${params.toString()}`);
     },
-    [searchParams, navigate]
+    [splitIds, searchParams, navigate]
   );
 
   // Keyboard shortcut: Ctrl+Shift+\ (Cmd+Shift+\ on Mac) to toggle split view

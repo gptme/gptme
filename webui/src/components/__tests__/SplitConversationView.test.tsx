@@ -59,16 +59,8 @@ jest.mock('@/components/ui/command', () => ({
   CommandGroup: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="command-group">{children}</div>
   ),
-  CommandInput: () => (
-    <div data-testid="command-input" />
-  ),
-  CommandItem: ({
-    children,
-    onSelect,
-  }: {
-    children: React.ReactNode;
-    onSelect?: () => void;
-  }) => (
+  CommandInput: () => <div data-testid="command-input" />,
+  CommandItem: ({ children, onSelect }: { children: React.ReactNode; onSelect?: () => void }) => (
     <div data-testid="command-item" onClick={onSelect}>
       {children}
     </div>
@@ -191,12 +183,14 @@ describe('SplitConversationView', () => {
     // Click one item from left selector (first 3 items)
     fireEvent.click(items[0]);
     expect(onNavigateLeft).toHaveBeenCalledTimes(1);
+    expect(onNavigateLeft).toHaveBeenCalledWith('conv-a');
     expect(onNavigateRight).not.toHaveBeenCalled();
 
     // Click one item from right selector (last 3 items)
     onNavigateLeft.mockClear();
     fireEvent.click(items[3]);
     expect(onNavigateRight).toHaveBeenCalledTimes(1);
+    expect(onNavigateRight).toHaveBeenCalledWith('conv-a');
     expect(onNavigateLeft).not.toHaveBeenCalled();
   });
 });
