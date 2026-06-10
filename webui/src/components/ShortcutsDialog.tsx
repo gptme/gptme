@@ -21,7 +21,7 @@ interface ShortcutGroup {
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform ?? '');
 const MOD = isMac ? '⌘' : 'Ctrl';
 const ALT = isMac ? '⌥' : 'Alt';
-const CONVERSATION_SEARCH_MOD = isMac ? '⌘' : 'Alt';
+const CONVERSATION_SEARCH_MOD = ALT;
 
 const SHORTCUT_GROUPS: ShortcutGroup[] = [
   {

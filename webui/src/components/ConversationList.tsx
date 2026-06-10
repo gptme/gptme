@@ -209,10 +209,11 @@ export const ConversationList: FC<Props> = ({
 
   useEffect(() => {
     const handleFilterShortcut = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() !== 'f' || (!e.altKey && !e.metaKey)) return;
+      if (e.key.toLowerCase() !== 'f' || !e.altKey || e.metaKey || e.ctrlKey) return;
+      if (!filterInputRef.current) return;
       e.preventDefault();
-      filterInputRef.current?.focus();
-      filterInputRef.current?.select();
+      filterInputRef.current.focus();
+      filterInputRef.current.select();
     };
 
     window.addEventListener('keydown', handleFilterShortcut);
