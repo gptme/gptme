@@ -430,6 +430,40 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
     }
   }, [isMobile]);
 
+  // Keyboard shortcut: Ctrl+Shift+\ (Cmd+Shift+\ on Mac) to toggle split view
+  useEffect(() => {
+    const toggleSplit = (e: KeyboardEvent) => {
+      if (e.code !== 'Backslash' || !e.shiftKey || !(e.ctrlKey || e.metaKey)) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
+      e.preventDefault();
+
+      if (splitIds) {
+        // Close split view
+        const params = new URLSearchParams(searchParams);
+        params.delete('split');
+        const qs = params.toString();
+        navigate(chatRoute(splitIds[0], qs));
+      } else {
+        // Open split view
+        const conversation = conversation$.get();
+        if (!conversation) return;
+        const params = new URLSearchParams(searchParams);
+        params.set('split', `${conversation.id},${conversation.id}`);
+        navigate(`?${params.toString()}`);
+      }
+    };
+
+    document.addEventListener('keydown', toggleSplit);
+    return () => document.removeEventListener('keydown', toggleSplit);
+  }, [splitIds, navigate, searchParams, conversation$]);
+
   // Render main content based on current section
   const renderMainContent = () => {
     if (currentSection === 'agents') {

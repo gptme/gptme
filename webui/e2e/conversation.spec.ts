@@ -131,4 +131,27 @@ test.describe('Split View', () => {
     // Split view header should be gone
     await expect(page.getByText('Split view')).not.toBeVisible();
   });
+
+  test('should toggle split view with keyboard shortcut', async ({ page }) => {
+    // Navigate to a single conversation
+    await page.goto('/chat/introduction');
+    await page.waitForLoadState('networkidle');
+
+    // Should see the conversation content
+    await expect(page.getByText(/Hello! I'm gptme/)).toBeVisible({ timeout: 10000 });
+
+    // Press keyboard shortcut (Ctrl+Shift+\) to open split view
+    await page.keyboard.press('Control+Shift+\\');
+    await page.waitForLoadState('networkidle');
+
+    // Split view header should appear
+    await expect(page.getByText('Split view')).toBeVisible({ timeout: 10000 });
+
+    // Press keyboard shortcut again to close split view
+    await page.keyboard.press('Control+Shift+\\');
+    await page.waitForLoadState('networkidle');
+
+    // Split view header should be gone
+    await expect(page.getByText('Split view')).not.toBeVisible();
+  });
 });
