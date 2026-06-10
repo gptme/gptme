@@ -298,17 +298,52 @@ export const ConversationList: FC<Props> = ({
                     autoFocus
                   />
                 ) : (
-                  <div
-                    data-testid="conversation-title"
-                    className="font-small mb-1 whitespace-nowrap"
-                    style={{
-                      maskImage:
-                        'linear-gradient(to right, black 0%, black calc(100% - 2rem), transparent 100%)',
-                      WebkitMaskImage:
-                        'linear-gradient(to right, black 0%, black calc(100% - 2rem), transparent 100%)',
-                    }}
-                  >
-                    {convState?.data?.name || conv.name || stripDate(conv.id)}
+                  <div className="mb-1 flex items-center gap-2">
+                    <div
+                      data-testid="conversation-title"
+                      className="font-small min-w-0 flex-1 whitespace-nowrap"
+                      style={{
+                        maskImage:
+                          'linear-gradient(to right, black 0%, black calc(100% - 2rem), transparent 100%)',
+                        WebkitMaskImage:
+                          'linear-gradient(to right, black 0%, black calc(100% - 2rem), transparent 100%)',
+                      }}
+                    >
+                      {convState?.data?.name || conv.name || stripDate(conv.id)}
+                    </div>
+                    <Computed>
+                      {() => {
+                        const storeConv = conversations$.get(conv.id)?.get();
+                        const isLoaded = storeConv?.data?.log?.length > 0;
+
+                        const breakdown = isLoaded ? getMessageBreakdown() : {};
+                        const count = isLoaded
+                          ? Object.values(breakdown).reduce((a, b) => a + b, 0)
+                          : conv.messages;
+
+                        if (count === undefined) {
+                          return null;
+                        }
+
+                        const badge = (
+                          <span className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                            <MessageSquare className="mr-1 h-3 w-3" />
+                            {count}
+                          </span>
+                        );
+
+                        return isLoaded ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>{badge}</TooltipTrigger>
+                            <TooltipContent>
+                              <div className="whitespace-pre">{formatBreakdown(breakdown)}</div>
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          badge
+                        );
+                      }}
+                    </Computed>
                   </div>
                 )}
                 {conv.last_message_preview && (
@@ -335,39 +370,6 @@ export const ConversationList: FC<Props> = ({
                       {new Date(conv.modified * 1000).toLocaleString()}
                     </TooltipContent>
                   </Tooltip>
-                  <Computed>
-                    {() => {
-                      const storeConv = conversations$.get(conv.id)?.get();
-                      const isLoaded = storeConv?.data?.log?.length > 0;
-
-                      const breakdown = isLoaded ? getMessageBreakdown() : {};
-                      const count = isLoaded
-                        ? Object.values(breakdown).reduce((a, b) => a + b, 0)
-                        : conv.messages;
-
-                      if (count === undefined) {
-                        return null;
-                      }
-
-                      const messageCountElement = (
-                        <span className="flex items-center">
-                          <MessageSquare className="mr-1 h-3 w-3" />
-                          {count}
-                        </span>
-                      );
-
-                      return isLoaded ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>{messageCountElement}</TooltipTrigger>
-                          <TooltipContent>
-                            <div className="whitespace-pre">{formatBreakdown(breakdown)}</div>
-                          </TooltipContent>
-                        </Tooltip>
-                      ) : (
-                        messageCountElement
-                      );
-                    }}
-                  </Computed>
 
                   {/* Cost badge: show per-conversation total cost from loaded data */}
                   <Computed>
