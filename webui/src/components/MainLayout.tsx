@@ -466,6 +466,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
     [splitIds, searchParams, navigate]
   );
 
+
   // Keyboard shortcut: Ctrl+Shift+\ (Cmd+Shift+\ on Mac) to toggle split view
   useEffect(() => {
     const toggleSplit = (e: KeyboardEvent) => {
