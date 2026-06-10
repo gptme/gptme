@@ -971,11 +971,11 @@ export const ChatInput: FC<Props> = ({
           textareaRef.current.style.height = '';
         }
       } else if (onInterrupt) {
-        // No message text, so interrupt
-        console.log('[ChatInput] Interrupting generation...', { isGenerating });
+        // No message text, so interrupt (covers both isGenerating and pendingTool states)
+        console.log('[ChatInput] Interrupting generation...', { isBusy });
         try {
           await onInterrupt();
-          console.log('[ChatInput] Generation interrupted successfully', { isGenerating });
+          console.log('[ChatInput] Generation interrupted successfully', { isBusy });
         } catch (error) {
           console.error('[ChatInput] Error interrupting generation:', error);
         }
@@ -1038,8 +1038,8 @@ export const ChatInput: FC<Props> = ({
         return;
       }
 
-      // If generating, interrupt
-      if (isGenerating && onInterrupt) {
+      // If busy (generating or pending tool confirmation), interrupt
+      if (isBusy && onInterrupt) {
         console.log('[ChatInput] Escape pressed, interrupting generation...');
         onInterrupt();
       }
