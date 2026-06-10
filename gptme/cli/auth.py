@@ -64,7 +64,11 @@ def auth_login(url: str, auth_url: str | None, no_browser: bool):
 
     Works great for SSH sessions and headless environments.
     """
-    from ..llm.llm_gptme import DEFAULT_BASE_URL, DEFAULT_DEVICE_AUTH_URL
+    from ..llm.llm_gptme import (
+        DEFAULT_BASE_URL,
+        DEFAULT_DEVICE_AUTH_URL,
+        DEFAULT_SERVICE_URL,
+    )
 
     base_url = url.rstrip("/")
     auth_base = (auth_url or DEFAULT_DEVICE_AUTH_URL).rstrip("/")
@@ -150,16 +154,17 @@ def auth_login(url: str, auth_url: str | None, no_browser: bool):
 
             from ..llm.llm_gptme import _save_token
 
-            _save_token(
-                {
-                    "access_token": access_token,
-                    "expires_at": time.time() + token_data.get("expires_in", 86400),
-                    "server_url": base_url,
-                    "base_url": DEFAULT_BASE_URL,
-                    "sub": sub,
-                },
-                base_url,
-            )
+            token_entry: dict = {
+                "access_token": access_token,
+                "expires_at": time.time() + token_data.get("expires_in", 86400),
+                "server_url": base_url,
+                "sub": sub,
+            }
+            # Only store base_url for the default Supabase service.
+            # Custom server tokens rely on the server_url+/v1 fallback in get_base_url().
+            if base_url == DEFAULT_SERVICE_URL.rstrip("/"):
+                token_entry["base_url"] = DEFAULT_BASE_URL
+            _save_token(token_entry, base_url)
 
             console.print("\n")
             console.print("[green bold]✓ Authorization successful![/green bold]")

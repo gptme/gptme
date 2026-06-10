@@ -265,13 +265,16 @@ def device_flow_authenticate(
             except (json.JSONDecodeError, KeyError) as e:
                 raise RuntimeError(f"Invalid token response: {e}") from e
 
-            # Save token; keyed by service URL, includes explicit base_url for API calls
-            result = {
+            # Save token; keyed by service URL.
+            # base_url is only set for the default Supabase service — custom servers
+            # use the server_url+/v1 fallback in get_base_url() instead.
+            result: dict = {
                 "access_token": access_token,
                 "expires_at": time.time() + token_data.get("expires_in", 86400),
                 "server_url": service_base,
-                "base_url": DEFAULT_BASE_URL,
             }
+            if service_base == DEFAULT_SERVICE_URL:
+                result["base_url"] = DEFAULT_BASE_URL
             _save_token(result, service_base)
             return result
 

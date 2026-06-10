@@ -3,7 +3,7 @@
 import json
 import time
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -256,6 +256,62 @@ def test_load_token_legacy_fleet_migration(tmp_path: Path):
     )
     assert result["access_token"] == "legacy-token"
     assert result["server_url"] == legacy_url
+
+
+def _mock_device_flow_responses(auth_uri: str = "https://gptme.ai/activate"):
+    """Return (authorize_resp, token_resp) mocks for device_flow_authenticate."""
+    auth_resp = MagicMock()
+    auth_resp.status_code = 200
+    auth_resp.json.return_value = {
+        "device_code": "dc123",
+        "user_code": "UC-123",
+        "verification_uri": auth_uri,
+        "interval": 1,
+        "expires_in": 300,
+    }
+    tok_resp = MagicMock()
+    tok_resp.status_code = 200
+    tok_resp.json.return_value = {"access_token": "test-token", "expires_in": 3600}
+    return auth_resp, tok_resp
+
+
+def test_device_flow_authenticate_custom_server_no_base_url():
+    """Custom server tokens must NOT store base_url; routing relies on server_url+/v1."""
+    from gptme.llm.llm_gptme import device_flow_authenticate
+
+    auth_resp, tok_resp = _mock_device_flow_responses()
+    custom_url = "https://custom.example.com"
+
+    with (
+        patch("requests.post", side_effect=[auth_resp, tok_resp]),
+        patch("gptme.llm.llm_gptme._save_token"),
+    ):
+        result = device_flow_authenticate(server_url=custom_url)
+
+    assert "base_url" not in result, (
+        "Custom server token must not hardcode Supabase base_url"
+    )
+    assert result["server_url"] == custom_url
+
+
+def test_device_flow_authenticate_default_server_has_base_url():
+    """Default Supabase tokens SHOULD store explicit base_url for edge fn routing."""
+    from gptme.llm.llm_gptme import (
+        DEFAULT_BASE_URL,
+        DEFAULT_SERVICE_URL,
+        device_flow_authenticate,
+    )
+
+    auth_resp, tok_resp = _mock_device_flow_responses()
+
+    with (
+        patch("requests.post", side_effect=[auth_resp, tok_resp]),
+        patch("gptme.llm.llm_gptme._save_token"),
+    ):
+        result = device_flow_authenticate()  # uses DEFAULT_SERVICE_URL
+
+    assert result.get("base_url") == DEFAULT_BASE_URL
+    assert result["server_url"] == DEFAULT_SERVICE_URL
 
 
 # --- Helpers ---
