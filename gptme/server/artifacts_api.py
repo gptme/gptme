@@ -433,17 +433,36 @@ def _iter_xml_writes(content: str) -> Iterator[_FileWrite]:
             paths = [tok for a in args for tok in a.split()]
             yield from _split_patch_many_body(paths, body)
         elif args:
-            # args[0] is the path; tolerate a stray leading tool-name token.
+            # args[0] is the path; tolerate a stray leading tool-name token. A
+            # bare tool name with no path (e.g. args="save") yields nothing.
             tokens = args[0].split()
-            raw_path = tokens[1] if tokens and tokens[0] == tool else args[0]
-            yield _FileWrite(tool, raw_path.strip(), body)
+            if tokens and tokens[0] == tool:
+                raw_path = tokens[1] if len(tokens) >= 2 else None
+            else:
+                raw_path = args[0]
+            if raw_path and raw_path.strip():
+                yield _FileWrite(tool, raw_path.strip(), body)
 
 
 def _iter_toolcall_writes(content: str) -> Iterator[_FileWrite]:
-    from ..tools.base import find_json_end, toolcall_re  # local import
+    from ..tools.base import (  # local import: avoids tools import at load
+        _codeblock_char_ranges,
+        find_json_end,
+        toolcall_re,
+    )
 
+    # Skip `@tool(...): {...}` matches inside fenced code blocks so tool-call
+    # syntax shown in examples/docs doesn't register as a real file write.
+    codeblock_ranges = _codeblock_char_ranges(content)
     search_from = 0
     while match := toolcall_re.search(content, search_from):
+        block_end = next(
+            (end for start, end in codeblock_ranges if start <= match.start() < end),
+            None,
+        )
+        if block_end is not None:
+            search_from = block_end
+            continue
         tool = match.group(1)
         json_start = match.start(3)
         json_end = find_json_end(content, json_start)

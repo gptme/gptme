@@ -479,6 +479,25 @@ class TestToolWriteArtifacts:
         assert len(arts) == 1
         assert arts[0].diff == "+line one\n+line two"
 
+    def test_toolcall_in_codeblock_ignored(self, tmp_path):
+        # Tool-call syntax shown as an example inside a fenced block is not a
+        # real write and must not produce a phantom artifact.
+        msg = Message(
+            "assistant",
+            'Here is how to use save:\n\n```\n@save(toolu_01): {"path": "x.py", '
+            '"content": "hi"}\n```\n',
+        )
+        arts = derive_artifacts(_manager_with_messages(tmp_path, [msg]))
+        assert arts == []
+
+    def test_xml_bare_tool_name_arg_no_crash(self, tmp_path):
+        # args="save" with no path must not raise; it's just skipped.
+        msg = Message(
+            "assistant", '<tool-use>\n<save args="save">\nx\n</save>\n</tool-use>'
+        )
+        arts = derive_artifacts(_manager_with_messages(tmp_path, [msg]))
+        assert arts == []
+
     def test_created_file_has_no_diff(self, tmp_path):
         # save-then-patch stays "created"; created files show full content, no diff.
         msgs = [
