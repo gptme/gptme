@@ -1812,14 +1812,16 @@ def _openai_compatible_model_to_modelmeta(
         input_side = modality.split("->")[0] if "->" in modality else ""
         supports_vision = "image" in input_side
 
+    max_output = model_data.get("max_completion_tokens")
+
     return ModelMeta(
         provider=provider,
         model=model_id,
         context=context,
-        max_output=None,
-        supports_streaming=True,
+        max_output=max_output,
+        supports_streaming=model_data.get("supports_streaming", True),
         supports_vision=supports_vision,
-        supports_reasoning=False,
+        supports_reasoning=model_data.get("supports_reasoning", False),
         price_input=0,  # pricing unknown for dynamically discovered models
         price_output=0,
     )

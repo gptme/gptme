@@ -6,7 +6,12 @@ or falls back to a ``GPTME_CLOUD_API_KEY`` environment variable.
 
 Usage:
     1. Authenticate: ``gptme-auth login``
-    2. Use models:   ``gptme -m gptme/claude-sonnet-4-6``
+    2. List models:  ``gptme --list-models`` (shows ``gptme/anthropic/MODEL`` etc.)
+    3. Use models:   ``gptme -m gptme/anthropic/claude-sonnet-4-6``
+
+    Model IDs from the gptme cloud service include a provider prefix (e.g.
+    ``anthropic/``, ``openai/``). The full model spec for gptme is therefore
+    ``gptme/<provider>/<model>`` — e.g. ``gptme/anthropic/claude-sonnet-4-6``.
 
 Token priority:
     1. Device Flow token from ``~/.config/gptme/auth/gptme-cloud-<hash>.json``
