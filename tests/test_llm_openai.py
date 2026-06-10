@@ -2576,12 +2576,12 @@ class TestGetAvailableModels:
 
     @patch("gptme.llm.llm_openai.requests.get")
     @patch("gptme.llm.llm_openai.get_config")
-    @patch("gptme.llm.llm_gptme.get_base_url")
+    @patch("gptme.llm.llm_gptme.get_models_url")
     @patch("gptme.llm.llm_gptme.get_api_key")
     def test_gptme_provider_uses_authenticated_models_endpoint(
         self,
         mock_get_api_key,
-        mock_get_base_url,
+        mock_get_models_url,
         mock_get_config,
         mock_requests_get,
     ):
@@ -2591,7 +2591,9 @@ class TestGetAvailableModels:
         get_available_models.cache_clear()
         mock_get_config.return_value = MagicMock()
         mock_get_api_key.return_value = "gptme-token"
-        mock_get_base_url.return_value = "https://fleet.gptme.ai/v1"
+        mock_get_models_url.return_value = (
+            "https://kpkxgnfpyntahyhckhgm.supabase.co/functions/v1"
+        )
         mock_response = MagicMock()
         mock_response.json.return_value = {
             "data": [{"id": "openai/gpt-5", "context_length": 256000}]
@@ -2601,7 +2603,7 @@ class TestGetAvailableModels:
         models = get_available_models("gptme")
 
         mock_requests_get.assert_called_once_with(
-            "https://fleet.gptme.ai/v1/models",
+            "https://kpkxgnfpyntahyhckhgm.supabase.co/functions/v1/models",
             headers={"Authorization": "Bearer gptme-token"},
             timeout=10,
         )
