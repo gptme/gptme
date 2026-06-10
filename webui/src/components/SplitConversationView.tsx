@@ -27,9 +27,9 @@ interface Props {
   /** Full conversation list for the pane selector dropdowns. */
   allConversations?: ConversationSummary[];
   /** Called when the left pane switches to a different conversation. */
-  onNavigateLeft?: (id: string) => void;
+  onNavigateLeft?: (id: string, serverId?: string) => void;
   /** Called when the right pane switches to a different conversation. */
-  onNavigateRight?: (id: string) => void;
+  onNavigateRight?: (id: string, serverId?: string) => void;
 }
 
 function ConversationSelector({
@@ -39,7 +39,7 @@ function ConversationSelector({
 }: {
   currentId: string;
   allConversations: ConversationSummary[];
-  onSelect: (id: string) => void;
+  onSelect: (id: string, serverId?: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const current = allConversations.find((c) => c.id === currentId);
@@ -68,7 +68,7 @@ function ConversationSelector({
                   value={conv.serverId ? `${conv.serverId}:${conv.id}` : conv.id}
                   keywords={[conv.name || '', conv.id]}
                   onSelect={() => {
-                    onSelect(conv.id);
+                    onSelect(conv.id, conv.serverId);
                     setOpen(false);
                   }}
                 >

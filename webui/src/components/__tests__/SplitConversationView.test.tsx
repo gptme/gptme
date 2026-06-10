@@ -183,14 +183,55 @@ describe('SplitConversationView', () => {
     // Click one item from left selector (first 3 items)
     fireEvent.click(items[0]);
     expect(onNavigateLeft).toHaveBeenCalledTimes(1);
-    expect(onNavigateLeft).toHaveBeenCalledWith('conv-a');
+    expect(onNavigateLeft).toHaveBeenCalledWith('conv-a', undefined);
     expect(onNavigateRight).not.toHaveBeenCalled();
 
     // Click one item from right selector (last 3 items)
     onNavigateLeft.mockClear();
     fireEvent.click(items[3]);
     expect(onNavigateRight).toHaveBeenCalledTimes(1);
-    expect(onNavigateRight).toHaveBeenCalledWith('conv-a');
+    expect(onNavigateRight).toHaveBeenCalledWith('conv-a', undefined);
     expect(onNavigateLeft).not.toHaveBeenCalled();
+  });
+
+  it('passes serverId to navigation callbacks for cross-server conversations', () => {
+    const crossServerConversations = [
+      {
+        id: 'conv-x',
+        name: 'Conv X',
+        modified: 1000,
+        messages: 2,
+        workspace: '.',
+        serverId: 'server-1',
+      },
+      {
+        id: 'conv-y',
+        name: 'Conv Y',
+        modified: 2000,
+        messages: 4,
+        workspace: '.',
+        serverId: 'server-2',
+      },
+    ];
+
+    render(
+      <SplitConversationView
+        leftId="conv-x"
+        rightId="conv-y"
+        allConversations={crossServerConversations}
+        onClose={onClose}
+        onNavigateLeft={onNavigateLeft}
+        onNavigateRight={onNavigateRight}
+      />
+    );
+
+    const items = screen.getAllByTestId('command-item');
+    // Left selector: click server-2 conversation
+    fireEvent.click(items[1]);
+    expect(onNavigateLeft).toHaveBeenCalledWith('conv-y', 'server-2');
+
+    // Right selector: click server-1 conversation
+    fireEvent.click(items[2]);
+    expect(onNavigateRight).toHaveBeenCalledWith('conv-x', 'server-1');
   });
 });

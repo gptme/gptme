@@ -432,12 +432,15 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
 
   // Handle navigating a split pane to a different conversation
   const handleNavigatePane = useCallback(
-    (paneIndex: 0 | 1, newId: string) => {
+    (paneIndex: 0 | 1, newId: string, newServerId?: string) => {
       if (!splitIds) return;
       const ids = [...splitIds];
       ids[paneIndex] = newId;
       const params = new URLSearchParams(searchParams);
       params.set('split', `${ids[0]},${ids[1]}`);
+      if (newServerId) {
+        params.set('server', newServerId);
+      }
       navigate(`?${params.toString()}`);
     },
     [splitIds, searchParams, navigate]
@@ -546,8 +549,8 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
           leftIsReadOnly={leftConversation.readonly}
           rightIsReadOnly={rightConversation.readonly}
           vertical={isMobile}
-          onNavigateLeft={(id: string) => handleNavigatePane(0, id)}
-          onNavigateRight={(id: string) => handleNavigatePane(1, id)}
+          onNavigateLeft={(id, serverId) => handleNavigatePane(0, id, serverId)}
+          onNavigateRight={(id, serverId) => handleNavigatePane(1, id, serverId)}
           onClose={() => {
             const params = new URLSearchParams(searchParams);
             params.delete('split');
