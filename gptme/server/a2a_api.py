@@ -488,6 +488,18 @@ def _handle_send_message(params: dict[str, Any]) -> dict[str, Any]:
                 metadata={"taskId": task_id},
             )
         session = _append_task_message(task_id, user_text)
+
+        # Guard: don't spawn a second step thread if the session is already
+        # generating — the new message is appended and the existing thread
+        # will process it or the client can poll with GetTask.
+        sessions = SessionManager.get_sessions_for_conversation(task_id)
+        latest_session = max(sessions, key=lambda s: s.last_activity, default=session)
+        if latest_session.generating:
+            logger.info(
+                "Task %s is already generating; returning current state",
+                task_id,
+            )
+            return {"task": _task_from_conversation(task_id)}
     else:
         task_id = _new_task_id()
         session = _create_task_conversation(task_id, user_text)
