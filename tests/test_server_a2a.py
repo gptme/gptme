@@ -69,7 +69,8 @@ def test_a2a_send_message_and_get_task(client, monkeypatch, tmp_path):
         manager = LogManager.load(conversation_id, lock=False)
         msg = Message("assistant", "A2A response")
         manager.append(msg)
-        session.generating = False
+        # Emit generation_complete BEFORE clearing generating, matching production
+        # order in session_step.py (event fires, then finally block clears flag).
         session_step_module.SessionManager.add_event(
             conversation_id,
             cast(
@@ -80,6 +81,7 @@ def test_a2a_send_message_and_get_task(client, monkeypatch, tmp_path):
                 },
             ),
         )
+        session.generating = False
 
     monkeypatch.setattr(a2a_api_module, "get_prompt", fake_prompt)
     monkeypatch.setattr(

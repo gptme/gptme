@@ -326,6 +326,10 @@ def _run_task_blocking(task_id: str, session: ConversationSession) -> None:
         model=model,
         workspace=chat_config.workspace,
         branch="main",
+        # MVP: tool execution is not auto-confirmed. Tasks that require tools
+        # return TASK_STATE_WORKING; clients should poll with GetTask.
+        # Full tool execution (auto_confirm=True + waiting for the agent loop)
+        # is deferred to a subsequent A2A phase.
         auto_confirm=False,
         stream=False,
     )
@@ -340,6 +344,15 @@ def _run_task_blocking(task_id: str, session: ConversationSession) -> None:
         for event in events:
             event_type = event.get("type") if isinstance(event, dict) else None
             if event_type == "generation_complete":
+                # generation_complete fires BEFORE session.generating = False
+                # (the finally block runs after the event). Wait briefly for
+                # generating to settle so _task_from_conversation sees the
+                # correct state instead of TASK_STATE_WORKING.
+                for _ in range(10):  # ~1s max
+                    if not session.generating:
+                        break
+                    session.event_flag.clear()
+                    session.event_flag.wait(timeout=0.1)
                 return
             if event_type == "error":
                 raise A2AError(
