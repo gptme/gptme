@@ -154,16 +154,7 @@ def test_get_base_url_from_token():
 
 
 def test_get_base_url_from_env():
-    """Should use GPTME_CLOUD_BASE_URL env var (with /v1 normalization)."""
-    from gptme.llm.llm_gptme import get_base_url
-
-    config = _mock_config(env={"GPTME_CLOUD_BASE_URL": "https://my-server.example.com"})
-    with patch("gptme.llm.llm_gptme._load_token", return_value=None):
-        assert get_base_url(config) == "https://my-server.example.com/v1"
-
-
-def test_get_base_url_from_env_with_v1():
-    """Should preserve /v1 suffix in env var."""
+    """Should return GPTME_CLOUD_BASE_URL env var as-is (no /v1 normalization)."""
     from gptme.llm.llm_gptme import get_base_url
 
     config = _mock_config(
@@ -171,6 +162,16 @@ def test_get_base_url_from_env_with_v1():
     )
     with patch("gptme.llm.llm_gptme._load_token", return_value=None):
         assert get_base_url(config) == "https://my-server.example.com/v1"
+
+
+def test_get_base_url_from_env_supabase():
+    """Should return Supabase function URL as-is from env var."""
+    from gptme.llm.llm_gptme import _SUPABASE_FUNCTIONS_V1, get_base_url
+
+    supabase_url = f"{_SUPABASE_FUNCTIONS_V1}/messages"
+    config = _mock_config(env={"GPTME_CLOUD_BASE_URL": supabase_url})
+    with patch("gptme.llm.llm_gptme._load_token", return_value=None):
+        assert get_base_url(config) == supabase_url
 
 
 def test_save_token(tmp_path: Path):

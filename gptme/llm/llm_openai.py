@@ -1693,12 +1693,12 @@ def get_available_models(provider: Provider) -> list[ModelMeta]:
         return _get_openai_compatible_models(config, provider)
 
     if provider == "gptme":
-        from .llm_gptme import get_api_key, get_base_url
+        from .llm_gptme import get_api_key, get_models_url
 
         return _get_openai_compatible_models(
             config,
             provider,
-            base_url=get_base_url(config),
+            base_url=get_models_url(config),
             api_key=get_api_key(config),
         )
 

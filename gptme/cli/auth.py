@@ -32,7 +32,7 @@ def main():
 @main.command("login")
 @click.option(
     "--url",
-    default="https://fleet.gptme.ai",
+    default="https://kpkxgnfpyntahyhckhgm.supabase.co",
     show_default=True,
     help="gptme service URL (used for LLM API and token storage).",
 )
@@ -204,7 +204,7 @@ def auth_login(url: str, auth_url: str | None, no_browser: bool):
 @main.command("logout")
 @click.option(
     "--url",
-    default="https://fleet.gptme.ai",
+    default="https://kpkxgnfpyntahyhckhgm.supabase.co",
     show_default=True,
     help="gptme service URL to log out from.",
 )
@@ -224,7 +224,7 @@ def auth_logout(url: str):
 @main.command("status")
 @click.option(
     "--url",
-    default="https://fleet.gptme.ai",
+    default="https://kpkxgnfpyntahyhckhgm.supabase.co",
     show_default=True,
     help="gptme service URL to check.",
 )
