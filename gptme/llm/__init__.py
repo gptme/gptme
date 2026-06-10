@@ -202,12 +202,15 @@ _OPENROUTER_DEFAULT_MAX_TOKENS = 16000
 
 
 def _resolve_max_tokens(model: str, max_tokens: int | None) -> int | None:
-    """Apply the GPTME_MAX_TOKENS env override or a sane default for OpenRouter models.
+    """Apply the GPTME_MAX_TOKENS env override or a sane default for providers that require it.
 
     When max_tokens is omitted, OpenRouter reserves model.max_output +
     reasoning_budget credits per request. For large models like Sonnet 4.6
     that is ~65k tokens. A partially-spent daily-budget key rejects this
     with HTTP 402 even when the actual response would fit comfortably.
+
+    The gptme cloud provider (Supabase messages function) requires max_tokens
+    explicitly — omitting it returns HTTP 400 Field required.
 
     Setting a default max_tokens reduces the reservation so partial-budget
     keys still work.
@@ -216,7 +219,10 @@ def _resolve_max_tokens(model: str, max_tokens: int | None) -> int | None:
     if max_tokens is not None:
         return max_tokens
 
-    if get_provider_from_model(model) != "openrouter":
+    provider = get_provider_from_model(model)
+
+    # Only apply defaults for providers that need them
+    if provider not in ("openrouter", "gptme"):
         return None
 
     raw = get_config().get_env("GPTME_MAX_TOKENS")
@@ -238,7 +244,14 @@ def _resolve_max_tokens(model: str, max_tokens: int | None) -> int | None:
                 )
                 _max_tokens_env_warned = True
 
-    return _OPENROUTER_DEFAULT_MAX_TOKENS
+    if provider == "openrouter":
+        return _OPENROUTER_DEFAULT_MAX_TOKENS
+
+    # provider == "gptme": use max_output from model metadata, with 4096 fallback
+    from .models import get_model  # fmt: skip
+
+    model_meta = get_model(model)
+    return model_meta.max_output or 4096
 
 
 @trace_function(name="llm.reply", attributes={"component": "llm"})
