@@ -64,7 +64,7 @@ def auth_login(url: str, auth_url: str | None, no_browser: bool):
 
     Works great for SSH sessions and headless environments.
     """
-    from ..llm.llm_gptme import DEFAULT_DEVICE_AUTH_URL
+    from ..llm.llm_gptme import DEFAULT_BASE_URL, DEFAULT_DEVICE_AUTH_URL
 
     base_url = url.rstrip("/")
     auth_base = (auth_url or DEFAULT_DEVICE_AUTH_URL).rstrip("/")
@@ -155,6 +155,7 @@ def auth_login(url: str, auth_url: str | None, no_browser: bool):
                     "access_token": access_token,
                     "expires_at": time.time() + token_data.get("expires_in", 86400),
                     "server_url": base_url,
+                    "base_url": DEFAULT_BASE_URL,
                     "sub": sub,
                 },
                 base_url,

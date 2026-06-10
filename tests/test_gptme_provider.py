@@ -153,6 +153,22 @@ def test_get_base_url_from_token():
         assert get_base_url(config) == "https://custom.gptme.ai/v1"
 
 
+def test_get_base_url_from_token_explicit():
+    """Should prefer explicit base_url field over server_url fallback."""
+    from gptme.llm.llm_gptme import get_base_url
+
+    token_data = {
+        "access_token": "test",
+        "server_url": "https://fleet.gptme.ai",
+        "base_url": "https://kpkxgnfpyntahyhckhgm.supabase.co/functions/v1/messages",
+    }
+    config = _mock_config()
+    with patch("gptme.llm.llm_gptme._load_token", return_value=token_data):
+        assert get_base_url(config) == (
+            "https://kpkxgnfpyntahyhckhgm.supabase.co/functions/v1/messages"
+        )
+
+
 def test_get_base_url_from_env():
     """Should return GPTME_CLOUD_BASE_URL env var as-is (no /v1 normalization)."""
     from gptme.llm.llm_gptme import get_base_url
