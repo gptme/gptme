@@ -321,7 +321,7 @@ export const ConversationList: FC<Props> = ({
                           ? Object.values(breakdown).reduce((a, b) => a + b, 0)
                           : conv.messages;
 
-                        if (count === undefined) {
+                        if (!count) {
                           return null;
                         }
 
