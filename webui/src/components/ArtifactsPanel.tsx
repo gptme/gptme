@@ -47,6 +47,25 @@ function toPreviewFile(artifact: Artifact): FileType | null {
   };
 }
 
+function DiffBlock({ diff }: { diff: string }) {
+  return (
+    <pre className="h-full overflow-auto bg-muted/30 p-3 font-mono text-xs leading-relaxed">
+      {diff.split('\n').map((line, i) => {
+        const cls = line.startsWith('+')
+          ? 'text-green-600 dark:text-green-400'
+          : line.startsWith('-')
+            ? 'text-red-600 dark:text-red-400'
+            : 'text-muted-foreground';
+        return (
+          <div key={i} className={cls}>
+            {line || ' '}
+          </div>
+        );
+      })}
+    </pre>
+  );
+}
+
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -65,6 +84,7 @@ function formatCreatedAt(createdAt: string): string {
 export function ArtifactsPanel({ conversationId }: ArtifactsPanelProps) {
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
+  const [showDiff, setShowDiff] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -116,6 +136,12 @@ export function ArtifactsPanel({ conversationId }: ArtifactsPanelProps) {
 
   const selectedArtifact = artifacts.find((artifact) => artifact.id === selectedArtifactId) ?? null;
   const selectedFile = selectedArtifact ? toPreviewFile(selectedArtifact) : null;
+  const selectedDiff = selectedArtifact?.diff ?? null;
+
+  // Default to the diff view when a selection has changes to show.
+  useEffect(() => {
+    setShowDiff(!!selectedDiff);
+  }, [selectedArtifactId, selectedDiff]);
 
   const openInWorkspaceRoot: WorkspaceRoot | null = selectedArtifact
     ? previewRootFor(selectedArtifact)
@@ -220,8 +246,32 @@ export function ArtifactsPanel({ conversationId }: ArtifactsPanelProps) {
           )}
         </div>
 
+        {selectedDiff && (
+          <div className="flex shrink-0 items-center gap-1 border-b px-3 py-1.5">
+            <Button
+              variant={showDiff ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-6 px-2 text-xs"
+              onClick={() => setShowDiff(true)}
+            >
+              Diff
+            </Button>
+            <Button
+              variant={!showDiff ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-6 px-2 text-xs"
+              onClick={() => setShowDiff(false)}
+              disabled={!selectedFile || !openInWorkspaceRoot}
+            >
+              Preview
+            </Button>
+          </div>
+        )}
+
         <div className="min-h-0 w-full flex-1 overflow-hidden">
-          {selectedArtifact && selectedFile && openInWorkspaceRoot ? (
+          {selectedDiff && showDiff ? (
+            <DiffBlock diff={selectedDiff} />
+          ) : selectedArtifact && selectedFile && openInWorkspaceRoot ? (
             <FilePreview
               file={selectedFile}
               conversationId={conversationId}

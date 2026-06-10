@@ -59,6 +59,7 @@ describe('ArtifactsPanel', () => {
       type: 'image',
     },
     actions: [],
+    diff: null,
   };
 
   beforeEach(() => {
@@ -102,6 +103,31 @@ describe('ArtifactsPanel', () => {
     });
     expect(mockSetters.rightSidebarVisible).toHaveBeenCalledWith(true);
     expect(mockSetters.rightSidebarActiveTab).toHaveBeenCalledWith('workspace');
+  });
+
+  it('renders the diff for a modified artifact and toggles to preview', async () => {
+    const modified: Artifact = {
+      ...artifact,
+      id: 'art_app',
+      kind: 'other',
+      title: 'app.py',
+      source: { type: 'workspace', path: 'app.py', url: null },
+      preview: { type: 'text' },
+      provenance: { message_index: 1, tool: 'patch' },
+      diff: '-old line\n+new line',
+    };
+    mockListArtifacts.mockResolvedValue([modified]);
+
+    render(<ArtifactsPanel conversationId="conv-diff" />);
+
+    await waitFor(() => {
+      expect(screen.getByText('-old line')).toBeInTheDocument();
+    });
+    expect(screen.getByText('+new line')).toBeInTheDocument();
+
+    // Toggle to the file preview.
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    expect(screen.getByTestId('file-preview')).toHaveTextContent('app.py:app.py');
   });
 
   it('shows an error when artifact loading fails', async () => {

@@ -45,6 +45,8 @@ export interface Artifact {
   provenance: ArtifactProvenance;
   preview: ArtifactPreview;
   actions: ArtifactAction[];
+  /** Unified diff of the change, for files modified by the conversation. */
+  diff: string | null;
 }
 
 export interface ArtifactListResponse {
