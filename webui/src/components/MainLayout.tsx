@@ -442,10 +442,9 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
       ) {
         return;
       }
-      e.preventDefault();
-
       if (splitIds) {
         // Close split view
+        e.preventDefault();
         const params = new URLSearchParams(searchParams);
         params.delete('split');
         const qs = params.toString();
@@ -454,6 +453,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
         // Open split view
         const conversation = conversation$.get();
         if (!conversation) return;
+        e.preventDefault();
         const params = new URLSearchParams(searchParams);
         params.set('split', `${conversation.id},${conversation.id}`);
         navigate(`?${params.toString()}`);
