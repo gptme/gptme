@@ -29,6 +29,11 @@ export interface Settings {
    * Leave empty to hide the VoiceButton.
    */
   voiceServerUrl: string;
+  /**
+   * When true, tool execution prompts are skipped and all tools are auto-confirmed.
+   * Equivalent to --no-confirm in the CLI (also known as "YOLO mode").
+   */
+  noConfirmMode: boolean;
 }
 
 interface SettingsContextType {
@@ -48,6 +53,7 @@ const defaultSettings: Settings = {
   welcomeBackground: '',
   ttsServerUrl: '',
   voiceServerUrl: '',
+  noConfirmMode: false,
 };
 
 function loadSettingsFromStorage(): Settings {

@@ -335,6 +335,29 @@ export function SettingsContent({
             <Separator />
 
             <div className="space-y-4">
+              <h4 className="text-sm font-medium">Tool Execution</h4>
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="no-confirm-toggle" className="text-sm">
+                    No-confirm mode
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Auto-confirm all tool execution prompts without asking (equivalent to{' '}
+                    <code className="font-mono">--no-confirm</code> in the CLI)
+                  </p>
+                </div>
+                <Switch
+                  id="no-confirm-toggle"
+                  checked={settings.noConfirmMode}
+                  onCheckedChange={(checked) => updateSettings({ noConfirmMode: checked })}
+                />
+              </div>
+            </div>
+
+            <Separator />
+
+            <div className="space-y-4">
               <h4 className="text-sm font-medium">Developer Options</h4>
 
               <div className="flex items-center justify-between">

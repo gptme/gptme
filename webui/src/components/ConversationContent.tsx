@@ -450,6 +450,16 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     await confirmTool('auto', { count });
   };
 
+  // When no-confirm mode is on, silently auto-confirm any pending tool without showing the dialog.
+  const pendingToolId = use$(() => conversation$?.pendingTool.get()?.id ?? null);
+  useEffect(() => {
+    if (pendingToolId && settings.noConfirmMode) {
+      void handleAutoConfirmTool(999999);
+    }
+    // handleAutoConfirmTool is stable (calls confirmTool from the hook)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingToolId, settings.noConfirmMode]);
+
   const handleScrollToBottom = () => {
     const container = scrollContainerRef.current;
     if (container) {
