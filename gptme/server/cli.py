@@ -100,6 +100,7 @@ def _install_sigterm_handler() -> None:
     """
 
     def _handle_sigterm(signum, frame):
+        logger.info("Received SIGTERM, shutting down gracefully")
         raise KeyboardInterrupt
 
     signal.signal(signal.SIGTERM, _handle_sigterm)
