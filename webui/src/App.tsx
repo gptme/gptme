@@ -92,6 +92,7 @@ const App: FC = () => {
                         <Route path={appRoutes.admin} element={<Admin />} />
                         <Route path={appRoutes.health} element={<Health />} />
                         <Route path={appRoutes.settings} element={<SettingsPage />} />
+                        <Route path={appRoutes.settingsCategory} element={<SettingsPage />} />
                         <Route path={appRoutes.workspace} element={<Workspace />} />
                         <Route path="*" element={<NotFound />} />
                       </Routes>

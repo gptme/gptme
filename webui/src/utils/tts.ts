@@ -231,7 +231,9 @@ async function speak(rawText: string, key: string): Promise<void> {
         console.warn('External gptme-tts server unavailable, falling back to browser:', err);
       }
     } else {
-      console.warn('TTS engine "external" selected but no gptme-tts server URL set; using browser.');
+      console.warn(
+        'TTS engine "external" selected but no gptme-tts server URL set; using browser.'
+      );
     }
     if (!speakViaBrowser(spoken, key)) clearIfStill(key);
     return;

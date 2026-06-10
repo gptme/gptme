@@ -12,6 +12,7 @@ export const appRoutes = {
   health: '/health',
   workspace: '/workspace/:id',
   settings: '/settings',
+  settingsCategory: '/settings/:category',
 } as const;
 
 export const cloudflareSpaRedirectRules = [
@@ -26,5 +27,6 @@ export const cloudflareSpaRedirectRules = [
   `${appRoutes.admin} / 200`,
   `${appRoutes.health} / 200`,
   `${appRoutes.settings} / 200`,
+  `${appRoutes.settings}/* / 200`,
   `${appRoutes.workspace.replace(/\/:[^/]+$/, '/*')} / 200`,
 ] as const;

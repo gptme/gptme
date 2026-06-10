@@ -1,4 +1,5 @@
 import { useState, useEffect, type FC } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { Settings } from 'lucide-react';
 import { MenuBar } from '@/components/MenuBar';
 import { SidebarIcons } from '@/components/SidebarIcons';
@@ -9,19 +10,47 @@ import type { SettingsCategory } from '@/stores/settingsModal';
 import { use$ } from '@legendapp/state/react';
 import { settingsModal$ } from '@/stores/settingsModal';
 
+const VALID_CATEGORIES: SettingsCategory[] = [
+  'servers',
+  'appearance',
+  'audio',
+  'content',
+  'developer',
+  'about',
+];
+
+function toCategoryOrDefault(raw: string | undefined): SettingsCategory {
+  return VALID_CATEGORIES.includes(raw as SettingsCategory) ? (raw as SettingsCategory) : 'servers';
+}
+
 /** Full-page settings view — replaces the modal when navigated via /settings route. */
 const SettingsPage: FC = () => {
+  const { category } = useParams<{ category?: string }>();
+  const navigate = useNavigate();
   const { data: tasks = [] } = useTasksQuery();
-  const [activeCategory, setActiveCategory] = useState<SettingsCategory>('appearance');
+  const [activeCategory, setActiveCategory] = useState<SettingsCategory>(
+    toCategoryOrDefault(category)
+  );
+
+  // Keep state in sync when URL param changes (e.g. browser back/forward)
+  useEffect(() => {
+    setActiveCategory(toCategoryOrDefault(category));
+  }, [category]);
 
   // Observe external requests (e.g. ServerSelector configure button) to switch category
   const externalRequest = use$(settingsModal$);
   useEffect(() => {
     if (externalRequest.open && externalRequest.category) {
-      setActiveCategory(externalRequest.category);
+      handleCategoryChange(externalRequest.category);
       settingsModal$.open.set(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [externalRequest.open, externalRequest.category]);
+
+  function handleCategoryChange(cat: SettingsCategory) {
+    setActiveCategory(cat);
+    navigate(`/settings/${cat}`, { replace: true });
+  }
 
   return (
     <div className="flex h-screen flex-col">
@@ -36,7 +65,10 @@ const SettingsPage: FC = () => {
             <p className="text-sm text-muted-foreground">Customize your gptme experience</p>
           </div>
 
-          <SettingsContent activeCategory={activeCategory} onCategoryChange={setActiveCategory} />
+          <SettingsContent
+            activeCategory={activeCategory}
+            onCategoryChange={handleCategoryChange}
+          />
         </div>
       </div>
       <MobileBottomNav />
