@@ -352,6 +352,7 @@ def _run_task_blocking(task_id: str, session: ConversationSession) -> None:
         session.event_flag.wait(timeout=0.1)
 
     logger.info("A2A SendMessage timed out waiting for task %s", task_id)
+    # Return task in WORKING state so the client knows to poll with GetTask.
 
 
 def _a2a_message_from_log(
@@ -393,9 +394,13 @@ def _task_from_conversation(
     ]
     sessions = SessionManager.get_sessions_for_conversation(task_id)
     latest_session = max(sessions, key=lambda item: item.last_activity, default=None)
-    latest_assistant = next(
-        (message for message in reversed(messages) if message.role == "assistant"),
-        None,
+    latest_assistant_index, latest_assistant = next(
+        (
+            (len(messages) - 1 - i, m)
+            for i, m in enumerate(reversed(messages))
+            if m.role == "assistant"
+        ),
+        (-1, None),
     )
 
     if latest_session and latest_session.generating:
@@ -429,7 +434,7 @@ def _task_from_conversation(
 
     if latest_assistant is not None:
         response_message = _a2a_message_from_log(
-            latest_assistant, task_id, context_id, len(messages) - 1
+            latest_assistant, task_id, context_id, latest_assistant_index
         )
         task["status"]["message"] = response_message
         task["artifacts"] = [
