@@ -231,6 +231,102 @@ def test_a2a_get_task_not_found_returns_a2a_error(client, monkeypatch, tmp_path)
     assert data["error"]["data"][0]["reason"] == "TASK_NOT_FOUND"
 
 
+def test_a2a_rejects_non_a2a_conversation(client, monkeypatch, tmp_path):
+    """Task IDs are namespace-fenced: a conversation not created via A2A (no
+    origin marker) must report TASK_NOT_FOUND for both GetTask and resume,
+    instead of leaking arbitrary user conversations through the agent endpoint.
+    """
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+
+    # A conversation that exists on disk but was created by another surface
+    # (webui/CLI): no a2a_origin.json marker.
+    task_id = "a2a-foreign-conversation"
+    (tmp_path / task_id).mkdir(parents=True)
+
+    get_task_response = client.post(
+        "/api/a2a",
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "GetTask",
+            "params": {"id": task_id},
+        },
+    )
+    assert get_task_response.status_code == 200
+    get_error = get_task_response.get_json()["error"]
+    assert get_error["code"] == -32001
+    assert get_error["data"][0]["reason"] == "TASK_NOT_FOUND"
+
+    resume_response = client.post(
+        "/api/a2a",
+        json={
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "SendMessage",
+            "params": {
+                "message": {
+                    "role": "ROLE_USER",
+                    "parts": [{"text": "resume foreign conversation"}],
+                    "messageId": "client-message-1",
+                    "taskId": task_id,
+                }
+            },
+        },
+    )
+    assert resume_response.status_code == 200
+    resume_error = resume_response.get_json()["error"]
+    assert resume_error["code"] == -32001
+    assert resume_error["data"][0]["reason"] == "TASK_NOT_FOUND"
+
+
+def test_a2a_send_message_writes_origin_marker(client, monkeypatch, tmp_path):
+    """A2A-created conversations get an origin marker so their task IDs stay
+    reachable via GetTask/resume while foreign conversations do not."""
+    import gptme.server.a2a_api as a2a_api_module
+    import gptme.server.session_step as session_step_module
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+    from gptme.server.api_v2_common import EventType
+
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path))
+
+    def fake_prompt(**kwargs):
+        return [Message("system", "test prompt")]
+
+    def fake_start_step_thread(
+        conversation_id,
+        session,
+        model,
+        workspace,
+        branch="main",
+        auto_confirm=False,
+        stream=True,
+    ):
+        manager = LogManager.load(conversation_id, lock=False)
+        manager.append(Message("assistant", "A2A response"))
+        session_step_module.SessionManager.add_event(
+            conversation_id,
+            cast(
+                EventType,
+                {
+                    "type": "generation_complete",
+                    "message": {"role": "assistant", "content": "A2A response"},
+                },
+            ),
+        )
+        session.generating = False
+
+    monkeypatch.setattr(a2a_api_module, "get_prompt", fake_prompt)
+    monkeypatch.setattr(
+        a2a_api_module, "_resolve_model", lambda chat_config: "openai/gpt-4o-mini"
+    )
+    monkeypatch.setattr(a2a_api_module, "_start_step_thread", fake_start_step_thread)
+
+    response = client.post("/api/a2a", json=_send_message_request("hello"))
+    task_id = response.get_json()["result"]["task"]["id"]
+    assert (tmp_path / task_id / "a2a_origin.json").exists()
+
+
 def test_a2a_unknown_method_returns_jsonrpc_error(client):
     response = client.post(
         "/api/a2a",

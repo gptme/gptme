@@ -46,6 +46,13 @@ A2A_CONTENT_TYPE_NOT_SUPPORTED = -32005
 # (the session holds last_error, which is lost once the session is collected).
 A2A_FAILURE_SENTINEL = "a2a_failed.json"
 
+# Marker file written to a task's logdir when the conversation is created via the
+# A2A endpoint. Task IDs are namespace-fenced to A2A-created conversations: a
+# missing marker means the conversation belongs to another surface (webui, CLI,
+# …) and must not be reachable as an A2A task, so GetTask/resume report it as
+# not found rather than leaking arbitrary user conversations.
+A2A_ORIGIN_MARKER = "a2a_origin.json"
+
 
 class A2AError(Exception):
     """JSON-RPC/A2A error with a protocol code."""
@@ -255,6 +262,7 @@ def _create_task_conversation(task_id: str, user_text: str) -> ConversationSessi
     logdir = get_logs_dir() / task_id
     request_config = _request_chat_config(logdir)
     logdir.mkdir(parents=True, exist_ok=False)
+    _write_origin_marker(task_id)
     chat_config = ChatConfig.load_or_create(logdir, request_config)
 
     msgs = get_prompt(
@@ -318,6 +326,43 @@ def _resolve_model(chat_config: ChatConfig) -> str:
     if model := Config.from_workspace(chat_config.workspace).get_env("MODEL"):
         return model
     raise A2AError(JSONRPC_INVALID_PARAMS, "No model specified")
+
+
+def _origin_marker_path(task_id: str) -> Path:
+    return get_logs_dir() / task_id / A2A_ORIGIN_MARKER
+
+
+def _write_origin_marker(task_id: str) -> None:
+    """Mark a conversation as A2A-created so its task ID is reachable via A2A."""
+    path = _origin_marker_path(task_id)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "a2a_origin": True,
+                    "ts": datetime.now(tz=timezone.utc).isoformat(),
+                }
+            )
+        )
+    except OSError:
+        logger.exception("Failed to write A2A origin marker for %s", task_id)
+
+
+def _require_a2a_origin(task_id: str) -> None:
+    """Reject task IDs for conversations not created via the A2A endpoint.
+
+    Without this fence any valid gptme conversation ID would be readable and
+    resumable through ``/api/a2a``. A2A clients should only reach the tasks they
+    created, so a missing marker surfaces as TASK_NOT_FOUND.
+    """
+    if not _origin_marker_path(task_id).exists():
+        raise A2AError(
+            A2A_TASK_NOT_FOUND,
+            "Task not found",
+            reason="TASK_NOT_FOUND",
+            metadata={"taskId": task_id},
+        )
 
 
 def _failure_sentinel_path(task_id: str) -> Path:
@@ -446,6 +491,7 @@ def _task_from_conversation(
     *,
     history_length: int | None = None,
 ) -> dict[str, Any]:
+    _require_a2a_origin(task_id)
     try:
         manager = LogManager.load(task_id, lock=False)
     except FileNotFoundError as exc:
@@ -572,6 +618,9 @@ def _handle_send_message(params: dict[str, Any]) -> dict[str, Any]:
                 reason="TASK_NOT_FOUND",
                 metadata={"taskId": task_id},
             )
+        # Fence resume to A2A-created conversations: reject before appending so a
+        # non-A2A conversation is never mutated via the agent endpoint.
+        _require_a2a_origin(task_id)
         session = _append_task_message(task_id, user_text)
 
         # Resuming a task clears any prior failure sentinel: the new message
