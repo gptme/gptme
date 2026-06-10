@@ -21,6 +21,7 @@ from typing import Any, Literal, cast, get_args
 import flask
 from pydantic import BaseModel, Field
 
+from ..codeblock import Codeblock
 from ..logmanager import LogManager
 from .api_v2_common import _validate_conversation_id
 from .auth import require_auth
@@ -311,6 +312,112 @@ def _artifacts_from_messages(
     return out
 
 
+# File-writing tools whose target becomes a conversation artifact, keyed by the
+# markdown codeblock langtag. "save" creates a file; the rest modify one.
+_FILE_WRITE_TOOLS = {"save", "append", "patch"}
+_CREATE_TOOLS = {"save"}
+
+
+def _normalize_workspace_path(raw: str, workspace: Path) -> str | None:
+    """Resolve a tool-written path to a workspace-relative path.
+
+    Returns None for empty paths or files outside the workspace (those can't be
+    previewed via the workspace root).
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    candidate = Path(raw) if Path(raw).is_absolute() else workspace / raw
+    try:
+        return str(candidate.resolve().relative_to(workspace))
+    except (ValueError, OSError):
+        return None
+
+
+def _artifacts_from_tool_writes(
+    manager: LogManager, target_id: str | None = None
+) -> list[Artifact]:
+    """Collect artifacts for workspace files created/modified by the conversation.
+
+    Parses file-writing codeblocks (save/append/patch) from assistant messages —
+    reliable and unaffected by parallel agents, unlike a workspace diff. Uses the
+    markdown codeblock parser (not the ToolUse registry) so it works even when
+    the server process hasn't initialized tools. Dedups by path: a file saved
+    then patched is reported once, marked as created.
+    """
+    workspace = manager.workspace
+    # relpath -> {tool, created, message_index, created_at}
+    by_path: dict[str, dict[str, Any]] = {}
+    for idx, msg in enumerate(manager.log):
+        if msg.role != "assistant":
+            continue
+        for cb in Codeblock.iter_from_markdown(msg.content):
+            # langtag is e.g. "save path/to/file"; first token is the tool.
+            parts = cb.lang.strip().split(None, 1)
+            if len(parts) != 2:
+                continue
+            tool, raw_path = parts[0], parts[1]
+            if tool not in _FILE_WRITE_TOOLS:
+                continue
+            relpath = _normalize_workspace_path(raw_path, workspace)
+            if not relpath:
+                continue
+            ts = msg.timestamp
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            created = tool in _CREATE_TOOLS
+            entry = by_path.get(relpath)
+            if entry is None:
+                by_path[relpath] = {
+                    "tool": tool,
+                    "created": created,
+                    "message_index": idx,  # first touch
+                    "created_at": ts.isoformat(),  # last touch (updated below)
+                }
+            else:
+                entry["created"] = entry["created"] or created
+                entry["tool"] = tool  # most recent operation
+                entry["created_at"] = ts.isoformat()
+
+    out: list[Artifact] = []
+    for relpath, info in by_path.items():
+        artifact_id = _artifact_id(f"workspace:{relpath}")
+        if target_id is not None and artifact_id != target_id:
+            continue
+        mime_type, _ = mimetypes.guess_type(relpath)
+        kind = classify_kind(Path(relpath), mime_type)
+        size: int | None = None
+        try:
+            size = (workspace / relpath).stat().st_size
+        except OSError:
+            pass
+        out.append(
+            Artifact(
+                id=artifact_id,
+                kind=kind,
+                title=Path(relpath).name,
+                source=ArtifactSource(type="workspace", path=relpath, url=None),
+                created_at=info["created_at"],
+                size=size,
+                mime_type=mime_type,
+                provenance=ArtifactProvenance(
+                    message_index=info["message_index"],
+                    # "save" => created; otherwise the most recent modifying tool.
+                    tool="save" if info["created"] else info["tool"],
+                ),
+                preview=ArtifactPreview(type=_PREVIEW_FOR_KIND.get(kind, "none")),
+                actions=[
+                    ArtifactAction(type="download", panel=None, artifact_id=None),
+                    ArtifactAction(type="open_workspace", panel=None, artifact_id=None),
+                    ArtifactAction(
+                        type="open_panel", panel="artifacts", artifact_id=artifact_id
+                    ),
+                ],
+            )
+        )
+    return out
+
+
 def derive_artifacts(
     manager: LogManager, target_id: str | None = None
 ) -> list[Artifact]:
@@ -378,6 +485,12 @@ def derive_artifacts(
                 preview=ArtifactPreview(type=_PREVIEW_FOR_KIND.get(kind, "none")),
                 actions=actions,
             )
+
+    # Phase 3: workspace files created/modified by file-writing tool uses.
+    # setdefault so an attachment with the same id (none, ids are namespaced)
+    # or a richer metadata descriptor (merged below) takes precedence.
+    for art in _artifacts_from_tool_writes(manager, target_id=target_id):
+        by_id.setdefault(art.id, art)
 
     # Merge in tool/plugin-declared artifacts; these win on id collision.
     for art in _artifacts_from_messages(manager, target_id=target_id):

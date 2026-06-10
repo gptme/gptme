@@ -5,7 +5,7 @@ import { FilePreview } from '@/components/workspace/FilePreview';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { rightSidebarActiveTab$, rightSidebarVisible$ } from '@/stores/sidebar';
-import { workspaceNavigateTo$ } from '@/stores/workspaceExplorer';
+import { workspaceNavigateTo$, type WorkspaceRoot } from '@/stores/workspaceExplorer';
 import type { Artifact } from '@/types/artifact';
 import type { FileType } from '@/types/workspace';
 import { useArtifactsApi } from '@/utils/artifactsApi';
@@ -18,14 +18,28 @@ function getAttachmentRelativePath(sourcePath: string): string {
   return sourcePath.replace(/^attachments\/?/, '');
 }
 
+/** Which workspace root an artifact is previewed/downloaded under, or null if it isn't file-backed. */
+function previewRootFor(artifact: Artifact): WorkspaceRoot | null {
+  if (!artifact.source.path) return null;
+  if (artifact.source.type === 'attachment') return 'attachments';
+  if (artifact.source.type === 'workspace') return 'workspace';
+  return null;
+}
+
 function toPreviewFile(artifact: Artifact): FileType | null {
-  if (artifact.source.type !== 'attachment' || !artifact.source.path) {
+  const root = previewRootFor(artifact);
+  if (!root || !artifact.source.path) {
     return null;
   }
 
   return {
     name: artifact.title,
-    path: getAttachmentRelativePath(artifact.source.path),
+    // attachment paths are stored logdir-relative ("attachments/x"); workspace
+    // paths are already workspace-relative.
+    path:
+      root === 'attachments'
+        ? getAttachmentRelativePath(artifact.source.path)
+        : artifact.source.path,
     type: 'file',
     size: artifact.size ?? 0,
     modified: artifact.created_at,
@@ -103,19 +117,26 @@ export function ArtifactsPanel({ conversationId }: ArtifactsPanelProps) {
   const selectedArtifact = artifacts.find((artifact) => artifact.id === selectedArtifactId) ?? null;
   const selectedFile = selectedArtifact ? toPreviewFile(selectedArtifact) : null;
 
+  const openInWorkspaceRoot: WorkspaceRoot | null = selectedArtifact
+    ? previewRootFor(selectedArtifact)
+    : null;
+
   const handleOpenInWorkspace = () => {
-    if (selectedArtifact?.source.type !== 'attachment' || !selectedArtifact.source.path) {
+    if (!selectedArtifact?.source.path || !openInWorkspaceRoot) {
       return;
     }
 
-    const relativePath = getAttachmentRelativePath(selectedArtifact.source.path);
+    const relativePath =
+      openInWorkspaceRoot === 'attachments'
+        ? getAttachmentRelativePath(selectedArtifact.source.path)
+        : selectedArtifact.source.path;
     const directory = relativePath.includes('/')
       ? relativePath.slice(0, relativePath.lastIndexOf('/'))
       : '';
 
     workspaceNavigateTo$.set({
       path: directory,
-      root: 'attachments',
+      root: openInWorkspaceRoot,
     });
     rightSidebarVisible$.set(true);
     rightSidebarActiveTab$.set('workspace');
@@ -143,9 +164,7 @@ export function ArtifactsPanel({ conversationId }: ArtifactsPanelProps) {
             variant="outline"
             size="sm"
             onClick={handleOpenInWorkspace}
-            disabled={
-              selectedArtifact?.source.type !== 'attachment' || !selectedArtifact?.source.path
-            }
+            disabled={!openInWorkspaceRoot || !selectedArtifact?.source.path}
             title="Open in workspace viewer"
           >
             <FolderOpen className="mr-2 h-4 w-4" />
@@ -202,8 +221,12 @@ export function ArtifactsPanel({ conversationId }: ArtifactsPanelProps) {
         </div>
 
         <div className="min-h-0 w-full flex-1 overflow-hidden">
-          {selectedArtifact && selectedFile ? (
-            <FilePreview file={selectedFile} conversationId={conversationId} root="attachments" />
+          {selectedArtifact && selectedFile && openInWorkspaceRoot ? (
+            <FilePreview
+              file={selectedFile}
+              conversationId={conversationId}
+              root={openInWorkspaceRoot}
+            />
           ) : selectedArtifact ? (
             <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
               <Package className="h-8 w-8 text-muted-foreground" />

@@ -310,3 +310,54 @@ class TestArtifactsFromMessages:
         filtered = derive_artifacts(manager, target_id=target)
         assert len(filtered) == 1
         assert filtered[0].id == target
+
+
+class TestToolWriteArtifacts:
+    """Phase 3: workspace files created/modified by file-writing tool uses."""
+
+    def test_save_creates_workspace_artifact(self, tmp_path):
+        msg = Message(
+            "assistant",
+            "Saving:\n\n```save sub/factorial.py\ndef f():\n    return 1\n```\n",
+        )
+        arts = derive_artifacts(_manager_with_messages(tmp_path, [msg]))
+        assert len(arts) == 1
+        art = arts[0]
+        assert art.source.type == "workspace"
+        assert art.source.path == "sub/factorial.py"
+        assert art.title == "factorial.py"
+        assert art.provenance.tool == "save"  # created
+        assert art.provenance.message_index == 0
+
+    def test_patch_marks_modified(self, tmp_path):
+        msg = Message(
+            "assistant",
+            "```patch app.py\n<<<<<<< ORIGINAL\na\n=======\nb\n>>>>>>> UPDATED\n```\n",
+        )
+        arts = derive_artifacts(_manager_with_messages(tmp_path, [msg]))
+        assert len(arts) == 1
+        assert arts[0].provenance.tool == "patch"  # modified, not created
+
+    def test_save_then_patch_dedups_as_created(self, tmp_path):
+        msgs = [
+            Message("assistant", "```save app.py\nx = 1\n```\n"),
+            Message(
+                "assistant",
+                "```patch app.py\n<<<<<<< ORIGINAL\nx = 1\n=======\nx = 2\n>>>>>>> UPDATED\n```\n",
+            ),
+        ]
+        arts = derive_artifacts(_manager_with_messages(tmp_path, msgs))
+        assert len(arts) == 1
+        assert arts[0].provenance.tool == "save"  # created wins over later modify
+        assert arts[0].provenance.message_index == 0  # first touch
+
+    def test_path_outside_workspace_skipped(self, tmp_path):
+        msg = Message("assistant", "```save /etc/passwd\nhi\n```\n")
+        arts = derive_artifacts(_manager_with_messages(tmp_path, [msg]))
+        assert arts == []
+
+    def test_user_message_tool_blocks_ignored(self, tmp_path):
+        # Only assistant messages count (user examples shouldn't create artifacts).
+        msg = Message("user", "```save evil.py\nx\n```\n")
+        arts = derive_artifacts(_manager_with_messages(tmp_path, [msg]))
+        assert arts == []
