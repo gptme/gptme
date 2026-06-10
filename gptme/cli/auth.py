@@ -236,10 +236,15 @@ def auth_logout(url: str):
 )
 def auth_status(url: str):
     """Show current login status for gptme cloud."""
-    from ..llm.llm_gptme import _load_token
+    from ..llm.llm_gptme import DEFAULT_SERVICE_URL, _load_token
 
     base_url = url.rstrip("/")
     token_data = _load_token(base_url)
+    # Migration fallback: when checking the default Supabase URL and no new
+    # token exists, _load_token() (no args) also searches legacy paths like
+    # fleet.gptme.ai tokens saved before the Supabase URL migration.
+    if not token_data and base_url == DEFAULT_SERVICE_URL:
+        token_data = _load_token()
 
     if not token_data:
         console.print(f"[yellow]Not logged in to {base_url}[/yellow]")

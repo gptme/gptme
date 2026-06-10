@@ -258,6 +258,45 @@ def test_load_token_legacy_fleet_migration(tmp_path: Path):
     assert result["server_url"] == legacy_url
 
 
+def test_auth_status_shows_logged_in_for_legacy_fleet_token(tmp_path: Path):
+    """auth_status should show 'Logged in' even for legacy fleet.gptme.ai tokens.
+
+    Regression guard: auth_status was passing explicit Supabase URL to
+    _load_token(), bypassing the migration fallback that finds old fleet.gptme.ai
+    tokens during the URL-migration upgrade window.
+    """
+    import hashlib
+
+    from click.testing import CliRunner
+
+    from gptme.cli.auth import main as auth_main
+
+    legacy_url = "https://fleet.gptme.ai"
+    url_hash = hashlib.sha256(legacy_url.encode()).hexdigest()[:12]
+    legacy_token_path = tmp_path / f"gptme-cloud-{url_hash}.json"
+    legacy_token_path.write_text(
+        json.dumps(
+            {
+                "access_token": "legacy-token",
+                "expires_at": time.time() + 3600,
+                "server_url": legacy_url,
+                "sub": "user-legacy",
+            }
+        )
+    )
+
+    runner = CliRunner()
+    with patch("gptme.llm.llm_gptme._TOKEN_DIR", tmp_path):
+        result = runner.invoke(auth_main, ["status"])
+
+    assert result.exit_code == 0, result.output
+    assert "Logged in" in result.output, (
+        "auth_status must find legacy fleet token via migration fallback; "
+        f"got: {result.output!r}"
+    )
+    assert "Not logged in" not in result.output
+
+
 def _mock_device_flow_responses(auth_uri: str = "https://gptme.ai/activate"):
     """Return (authorize_resp, token_resp) mocks for device_flow_authenticate."""
     auth_resp = MagicMock()
