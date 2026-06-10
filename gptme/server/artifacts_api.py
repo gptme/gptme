@@ -371,17 +371,19 @@ def _artifacts_from_tool_writes(
                 by_path[relpath] = {
                     "tool": tool,
                     "created": created,
-                    "message_index": idx,  # first touch
-                    "created_at": ts.isoformat(),  # last touch (updated below)
+                    "message_index": idx,  # first touch (kept across writes)
+                    "created_at": ts.isoformat(),  # touch time; updated on later writes
                 }
             else:
                 entry["created"] = entry["created"] or created
                 entry["tool"] = tool  # most recent operation
-                entry["created_at"] = ts.isoformat()
+                entry["created_at"] = ts.isoformat()  # most recent touch
 
     out: list[Artifact] = []
     for relpath, info in by_path.items():
-        artifact_id = _artifact_id(f"workspace:{relpath}")
+        # Key the id on the path (same scheme as workspace descriptors in Phase 2)
+        # so a metadata-declared artifact for the same file can override this one.
+        artifact_id = _artifact_id(relpath)
         if target_id is not None and artifact_id != target_id:
             continue
         mime_type, _ = mimetypes.guess_type(relpath)

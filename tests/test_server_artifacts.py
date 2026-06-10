@@ -338,6 +338,29 @@ class TestToolWriteArtifacts:
         assert len(arts) == 1
         assert arts[0].provenance.tool == "patch"  # modified, not created
 
+    def test_append_marks_modified(self, tmp_path):
+        msg = Message("assistant", "```append notes.md\nmore text\n```\n")
+        arts = derive_artifacts(_manager_with_messages(tmp_path, [msg]))
+        assert len(arts) == 1
+        assert arts[0].title == "notes.md"
+        assert arts[0].provenance.tool == "append"  # modified, not created
+
+    def test_metadata_descriptor_overrides_tool_write(self, tmp_path):
+        # A metadata-declared workspace artifact for the same path wins (richer
+        # provenance), so the file isn't listed twice.
+        msg = Message(
+            "assistant",
+            "```save app.py\nx = 1\n```\n",
+            metadata={
+                "artifacts": [
+                    {"source_type": "workspace", "path": "app.py", "tool": "custom"}
+                ]
+            },
+        )
+        arts = derive_artifacts(_manager_with_messages(tmp_path, [msg]))
+        assert len(arts) == 1  # not duplicated
+        assert arts[0].provenance.tool == "custom"  # metadata wins
+
     def test_save_then_patch_dedups_as_created(self, tmp_path):
         msgs = [
             Message("assistant", "```save app.py\nx = 1\n```\n"),
