@@ -14,9 +14,15 @@ Token priority:
     3. Error with instructions
 
 Base URL priority:
-    1. Token's ``server_url`` field
+    1. Token's ``server_url`` field (Supabase URL → resolved to messages endpoint)
     2. ``GPTME_CLOUD_BASE_URL`` environment variable
-    3. Default: ``https://fleet.gptme.ai/v1``
+    3. Default: Supabase messages edge function endpoint
+
+Architecture note:
+    The gptme.ai API lives on Supabase Edge Functions, NOT on fleet.gptme.ai.
+    fleet.gptme.ai is only for user instance management (fleet-operator).
+    - LLM completions: ``https://<project>.supabase.co/functions/v1/messages``
+    - Model listing:   ``https://<project>.supabase.co/functions/v1/models``
 """
 
 import hashlib
@@ -35,15 +41,22 @@ class GptmeAuthError(KeyError):
     """Raised when no valid gptme.ai credentials are found."""
 
 
-# Default base URL for the gptme cloud API proxy
-DEFAULT_BASE_URL = "https://fleet.gptme.ai/v1"
-
-# Default service URL (for auth endpoints, without /v1)
-DEFAULT_SERVICE_URL = "https://fleet.gptme.ai"
-
-# Device auth has moved off fleet-operator and onto Supabase edge functions.
-# The CLI polls these two endpoints during the RFC 8628 device authorization flow.
+# Supabase project URL — all gptme.ai API functions live here
 _SUPABASE_URL = "https://kpkxgnfpyntahyhckhgm.supabase.co"
+
+# Default base URL for LLM completions (OpenAI-compatible endpoint).
+# Supabase routes /functions/v1/messages/* to the messages edge function,
+# so the OpenAI client calling POST /chat/completions lands at the right place.
+DEFAULT_BASE_URL = f"{_SUPABASE_URL}/functions/v1/messages"
+
+# Default service URL (Supabase project root, used for token storage keying).
+# fleet.gptme.ai is NOT used for API calls — only for user instance management.
+DEFAULT_SERVICE_URL = _SUPABASE_URL
+
+# Functions root URL — used for model listing (GET /functions/v1/models).
+DEFAULT_MODELS_BASE_URL = f"{_SUPABASE_URL}/functions/v1"
+
+# Device auth edge function endpoint (RFC 8628 device authorization flow).
 DEFAULT_DEVICE_AUTH_URL = f"{_SUPABASE_URL}/functions/v1/device-auth"
 
 # Token storage directory
@@ -116,22 +129,30 @@ def get_api_key(config: Config) -> str:
 
 
 def get_base_url(config: Config) -> str:
-    """Get the base URL for the gptme cloud API.
+    """Get the base URL for the gptme cloud LLM completions endpoint.
 
     Checks (in order):
     1. Token file's ``server_url`` field
     2. ``GPTME_CLOUD_BASE_URL`` environment variable
-    3. Default: https://fleet.gptme.ai/v1
+    3. Default: Supabase messages edge function
+
+    The returned URL is used as the OpenAI client ``base_url``.  The OpenAI
+    client appends ``/chat/completions`` to it — Supabase routes all
+    ``/functions/v1/messages/*`` sub-paths to the messages edge function.
     """
     # Check token file for server URL
     token_data = _load_token()
     if token_data and token_data.get("server_url"):
         server_url = token_data["server_url"].rstrip("/")
+        # Supabase token (new default): resolve to messages endpoint
+        if server_url == _SUPABASE_URL:
+            return DEFAULT_BASE_URL
+        # Legacy fleet token or custom URL: append /v1 if not already present
         if not server_url.endswith("/v1"):
             server_url += "/v1"
         return server_url
 
-    # Check env var (normalize /v1 suffix)
+    # Check env var
     env_url = config.get_env("GPTME_CLOUD_BASE_URL")
     if env_url:
         env_url = env_url.rstrip("/")
@@ -140,6 +161,20 @@ def get_base_url(config: Config) -> str:
         return env_url
 
     return DEFAULT_BASE_URL
+
+
+def get_models_base_url(config: Config) -> str:
+    """Get the base URL for gptme cloud model listing.
+
+    Returns a URL where appending ``/models`` reaches the models endpoint.
+    For Supabase this is ``/functions/v1``; for legacy fleet/custom URLs
+    the base URL already ends in ``/v1``.
+    """
+    base_url = get_base_url(config)
+    # Strip the messages function name to get the functions root
+    if base_url.endswith("/messages"):
+        return base_url.rsplit("/messages", 1)[0]
+    return base_url
 
 
 def device_flow_authenticate(
