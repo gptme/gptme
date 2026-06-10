@@ -22,6 +22,7 @@
 - [Configuration](https://gptme.org/docs/_sources/config.rst)
 - [Providers](https://gptme.org/docs/_sources/providers.rst)
 - [Custom Providers](https://gptme.org/docs/_sources/custom-providers.md)
+- [Choosing your model](https://gptme.org/docs/_sources/model-routing.md)
 - [Security Considerations](https://gptme.org/docs/_sources/security.rst)
 - [Features](https://gptme.org/docs/_sources/features.rst)
 - [Core Concepts](https://gptme.org/docs/_sources/concepts.rst)

@@ -35,6 +35,7 @@ See the `README <https://github.com/gptme/gptme/blob/master/README.md>`_ file fo
    cli
    config
    providers
+   model-routing
    security
 
 .. toctree::

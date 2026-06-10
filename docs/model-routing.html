@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Finetuning &#8212; gptme</title>
+    <title>Choosing your model &#8212; gptme</title>
   
   
   
@@ -46,13 +46,13 @@
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="_static/asciinema-player_3.6.3.js"></script>
     <script src="_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'finetuning';</script>
-    <link rel="canonical" href="https://gptme.org/docs/finetuning.html" />
+    <script>DOCUMENTATION_OPTIONS.pagename = 'model-routing';</script>
+    <link rel="canonical" href="https://gptme.org/docs/model-routing.html" />
     <link rel="icon" href="_static/logo.png"/>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Design: Hook-Based Tool Confirmations" href="design/hook-based-confirmations.html" />
-    <link rel="prev" title="GitHub Bot" href="bot.html" />
+    <link rel="next" title="Security Considerations" href="security.html" />
+    <link rel="prev" title="Custom Providers" href="custom-providers.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -149,7 +149,7 @@
         <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
     <div class="bd-toc-item navbar-nav active">
         <p aria-level="2" class="caption" role="heading"><span class="caption-text">User Guide</span></p>
-<ul class="nav bd-sidenav">
+<ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="getting-started.html">Getting Started</a></li>
 <li class="toctree-l1"><a class="reference internal" href="system-dependencies.html">System Dependencies</a></li>
 <li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
@@ -175,7 +175,7 @@
 <li class="toctree-l2"><a class="reference internal" href="custom-providers.html">Custom Providers</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="model-routing.html">Choosing your model</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Choosing your model</a></li>
 <li class="toctree-l1"><a class="reference internal" href="security.html">Security Considerations</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Agents &amp; Extensibility</span></p>
@@ -194,7 +194,7 @@
 <li class="toctree-l1"><a class="reference internal" href="skills.html">Skills</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Developer Guide</span></p>
-<ul class="current nav bd-sidenav">
+<ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="contributing.html">Contributing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="building.html">Building Executables</a></li>
 <li class="toctree-l1"><a class="reference internal" href="custom_tool.html">Custom Tools</a></li>
@@ -204,7 +204,7 @@
 <li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
 <li class="toctree-l1"><a class="reference internal" href="evals.html">Evals</a></li>
 <li class="toctree-l1"><a class="reference internal" href="bot.html">GitHub Bot</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Finetuning</a></li>
+<li class="toctree-l1"><a class="reference internal" href="finetuning.html">Finetuning</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Design Documents</span></p>
 <ul class="nav bd-sidenav">
@@ -354,7 +354,7 @@
       
       
       
-      <li><a href="https://github.com/gptme/gptme/edit/main/docs/finetuning.md" target="_blank"
+      <li><a href="https://github.com/gptme/gptme/edit/main/docs/model-routing.md" target="_blank"
    class="btn btn-sm btn-source-edit-button dropdown-item"
    title="Suggest edit"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -384,7 +384,7 @@
       
       
       
-      <li><a href="_sources/finetuning.md" target="_blank"
+      <li><a href="_sources/model-routing.md" target="_blank"
    class="btn btn-sm btn-download-source-button dropdown-item"
    title="Download source file"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -460,7 +460,7 @@
               
 
 <div id="jb-print-docs-body" class="onlyprint">
-    <h1>Finetuning</h1>
+    <h1>Choosing your model</h1>
     <!-- Table of contents -->
     <div id="print-main-content">
         <div id="jb-print-toc">
@@ -470,11 +470,11 @@
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#current-scope">Current scope</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#collect-local-conversations">Collect local conversations</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-is-not-maintained-here">What is not maintained here</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#training-stack-pointers">Training stack pointers</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#model-suggestions">Model suggestions</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pick-a-model-per-session">Pick a model per session</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-key-many-models-openrouter">One key, many models: OpenRouter</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#set-a-default-model">Set a default model</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#per-agent-models">Per-agent models</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#see-also">See also</a></li>
 </ul>
             </nav>
         </div>
@@ -486,72 +486,90 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="finetuning">
-<h1>Finetuning<a class="headerlink" href="#finetuning" title="Link to this heading">#</a></h1>
-<p>This page documents the experimental fine-tuning support that still exists in
-the repository. It is not a maintained end-to-end training guide.</p>
-<section id="current-scope">
-<h2>Current scope<a class="headerlink" href="#current-scope" title="Link to this heading">#</a></h2>
-<p>Today <code class="docutils literal notranslate"><span class="pre">gptme</span></code> ships one helper for this workflow:
-<code class="docutils literal notranslate"><span class="pre">scripts/train/collect.py</span></code>.</p>
-<p>That script:</p>
-<ul class="simple">
-<li><p>reads local conversation logs from <code class="docutils literal notranslate"><span class="pre">~/.local/share/gptme/logs/</span></code></p></li>
-<li><p>filters out generated-name/test conversations and low-quality chats</p></li>
-<li><p>strips leading system prompts</p></li>
-<li><p>renders each conversation with the selected Hugging Face chat template</p></li>
-<li><p>writes <code class="docutils literal notranslate"><span class="pre">train.csv</span></code> and <code class="docutils literal notranslate"><span class="pre">train.jsonl</span></code></p></li>
-</ul>
-<p>The files are written to your current working directory, not to a <code class="docutils literal notranslate"><span class="pre">train/</span></code>
-subdirectory in the repo.</p>
-</section>
-<section id="collect-local-conversations">
-<h2>Collect local conversations<a class="headerlink" href="#collect-local-conversations" title="Link to this heading">#</a></h2>
-<p>From the repository root, run:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>./scripts/train/collect.py<span class="w"> </span>--model<span class="w"> </span><span class="s2">&quot;HuggingFaceH4/zephyr-7b-beta&quot;</span>
+  <section id="choosing-your-model">
+<h1>Choosing your model<a class="headerlink" href="#choosing-your-model" title="Link to this heading">#</a></h1>
+<p>gptme is model-agnostic: it works with any LLM through a single <code class="docutils literal notranslate"><span class="pre">--model</span></code> flag, and
+you can pick a different model for every task. Use a small, fast model for quick
+questions and a powerful reasoning model for complex code — without changing tools,
+formats, or workflow.</p>
+<p>This page is a task-oriented guide to <em>picking</em> a model. For the full provider
+reference (credentials, OAuth onboarding, OpenAI-compatible servers), see
+<a class="reference internal" href="providers.html"><span class="doc">Providers</span></a>.</p>
+<section id="pick-a-model-per-session">
+<h2>Pick a model per session<a class="headerlink" href="#pick-a-model-per-session" title="Link to this heading">#</a></h2>
+<p>Pass <code class="docutils literal notranslate"><span class="pre">--model</span></code> (<code class="docutils literal notranslate"><span class="pre">-m</span></code>) as <code class="docutils literal notranslate"><span class="pre">&lt;provider&gt;/&lt;model&gt;</span></code> to choose the model for a single run:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Quick question — small, cheap, fast</span>
+gptme<span class="w"> </span><span class="s2">&quot;what does this regex match?&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/qwen/qwen3-max
+
+<span class="c1"># Complex coding — powerful reasoning model</span>
+gptme<span class="w"> </span><span class="s2">&quot;refactor this module for testability&quot;</span><span class="w"> </span>-m<span class="w"> </span>anthropic/claude-sonnet-4-6
+
+<span class="c1"># Use a provider default (no model specified)</span>
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>anthropic
 </pre></div>
 </div>
-<p>Pick a model whose chat template matches the format you want in the resulting
-training data. The script uses <code class="docutils literal notranslate"><span class="pre">transformers.pipeline(...)</span></code> and
-<code class="docutils literal notranslate"><span class="pre">tokenizer.apply_chat_template(...)</span></code> to turn stored chats into prompt text.
-Run it in an environment where <code class="docutils literal notranslate"><span class="pre">torch</span></code> and <code class="docutils literal notranslate"><span class="pre">transformers</span></code> are already
-installed.</p>
+<p>List the models gptme knows about at any time:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s1">&#39;/models&#39;</span><span class="w"> </span>-<span class="w"> </span><span class="s1">&#39;/exit&#39;</span>
+</pre></div>
+</div>
+<p>The rule of thumb: <strong>match the model to the job.</strong> Triage, summarization, and
+quick lookups run fine on small models; multi-step coding and reasoning benefit
+from a frontier model. Picking per task keeps cost down without capping capability.</p>
 </section>
-<section id="what-is-not-maintained-here">
-<h2>What is not maintained here<a class="headerlink" href="#what-is-not-maintained-here" title="Link to this heading">#</a></h2>
-<p>This page intentionally does <strong>not</strong> claim a supported workflow for:</p>
-<ul class="simple">
-<li><p>mixing in OpenAssistant or other public datasets</p></li>
-<li><p>importing exported ChatGPT conversations</p></li>
-<li><p>splitting train and validation sets</p></li>
-<li><p>training with a specific stack such as Axolotl, Transformers, or OpenPipe</p></li>
-</ul>
-<p>Older revisions of this page sketched those steps, but they were incomplete and
-had drifted out of sync with the repo. Until <code class="docutils literal notranslate"><span class="pre">gptme</span></code> grows a maintained
-fine-tuning pipeline again, treat this document as a narrow note about the
-collector script rather than a full recipe.</p>
+<section id="one-key-many-models-openrouter">
+<h2>One key, many models: OpenRouter<a class="headerlink" href="#one-key-many-models-openrouter" title="Link to this heading">#</a></h2>
+<p><a class="reference external" href="https://openrouter.ai/">OpenRouter</a> is the easiest way to reach many models
+without managing a separate API key for each provider. With one
+<code class="docutils literal notranslate"><span class="pre">OPENROUTER_API_KEY</span></code> you can route to 100+ models from Anthropic, OpenAI, Google,
+DeepSeek, xAI, and more:</p>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/anthropic/claude-sonnet-4-6
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/deepseek/deepseek-v4-pro
+gptme<span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="w"> </span>-m<span class="w"> </span>openrouter/x-ai/grok-4
+</pre></div>
+</div>
+<p>gptme applies privacy-first defaults for OpenRouter (data collection denied,
+provider routing requires full parameter support). See the OpenRouter section of
+the <a class="reference internal" href="providers.html"><span class="doc">Providers</span></a> page for configuration details, quantization controls, and
+provider pinning.</p>
 </section>
-<section id="training-stack-pointers">
-<h2>Training stack pointers<a class="headerlink" href="#training-stack-pointers" title="Link to this heading">#</a></h2>
-<p>If you want to take the exported data further, start with upstream docs for the
-training stack you actually plan to use:</p>
-<ul class="simple">
-<li><p><a class="reference external" href="https://github.com/OpenAccess-AI-Collective/axolotl">Axolotl</a></p></li>
-<li><p><a class="reference external" href="https://huggingface.co/docs/transformers/training">Hugging Face Transformers</a></p></li>
-<li><p><a class="reference external" href="https://ai.meta.com/llama/get-started/#fine-tuning">Examples for Llama fine-tuning</a></p></li>
-<li><p><a class="reference external" href="https://openpipe.ai/">OpenPipe</a></p></li>
-</ul>
+<section id="set-a-default-model">
+<h2>Set a default model<a class="headerlink" href="#set-a-default-model" title="Link to this heading">#</a></h2>
+<p>If you mostly use one model, set it once in <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> (project) or
+<code class="docutils literal notranslate"><span class="pre">~/.config/gptme/config.toml</span></code> (global) instead of passing <code class="docutils literal notranslate"><span class="pre">--model</span></code> every time:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="c1"># gptme.toml or ~/.config/gptme/config.toml</span>
+<span class="n">model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;openrouter/qwen/qwen3-max&quot;</span>
+</pre></div>
+</div>
+<p>With a default configured, <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">&quot;query&quot;</span></code> uses that model, and <code class="docutils literal notranslate"><span class="pre">--model</span></code> still
+overrides it per run when you need something stronger or cheaper.</p>
+<p>See <a class="reference internal" href="config.html"><span class="doc">Configuration</span></a> for the full config reference.</p>
 </section>
-<section id="model-suggestions">
-<h2>Model suggestions<a class="headerlink" href="#model-suggestions" title="Link to this heading">#</a></h2>
+<section id="per-agent-models">
+<h2>Per-agent models<a class="headerlink" href="#per-agent-models" title="Link to this heading">#</a></h2>
+<p>When you run multiple agents — for example a team of agents each handling a
+different role — each can have its own model. Set the model in the agent’s own
+config so a fast routing agent and a reasoning-heavy coding agent can coexist
+without per-call flags:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="c1"># router-agent/gptme.toml — cheap, fast, handles triage and dispatch</span>
+<span class="n">model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;openrouter/qwen/qwen3-max&quot;</span>
+</pre></div>
+</div>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="c1"># coder-agent/gptme.toml — frontier model for complex implementation</span>
+<span class="n">model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;anthropic/claude-sonnet-4-6&quot;</span>
+</pre></div>
+</div>
+<p>This is how an agent “brain” pins its default model: configure it once in the
+agent’s config, override per session only when a specific task needs a different
+model. No vendor lock-in, no format changes.</p>
+</section>
+<section id="see-also">
+<h2>See also<a class="headerlink" href="#see-also" title="Link to this heading">#</a></h2>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">HuggingFaceH4/zephyr-7b-beta</span></code></p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">teknium/Replit-v2-CodeInstruct-3B</span></code></p>
-<ul>
-<li><p>This was previously used for testing/debugging, but availability and local
-hardware support may vary.</p></li>
-</ul>
-</li>
+<li><p><a class="reference internal" href="providers.html"><span class="doc">Providers</span></a> — full provider reference: credentials, OAuth,
+OpenAI-compatible servers, local models</p></li>
+<li><p><a class="reference internal" href="custom-providers.html"><span class="doc">Custom Providers</span></a> — add your own OpenAI-compatible provider</p></li>
+<li><p><a class="reference internal" href="config.html"><span class="doc">Configuration</span></a> — <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code> and global config reference</p></li>
+<li><p><a class="reference internal" href="evals.html"><span class="doc">Evals</span></a> — how different models perform on gptme’s benchmark suite</p></li>
 </ul>
 </section>
 </section>
@@ -568,20 +586,20 @@ hardware support may vary.</p></li>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="bot.html"
+       href="custom-providers.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">GitHub Bot</p>
+        <p class="prev-next-title">Custom Providers</p>
       </div>
     </a>
     <a class="right-next"
-       href="design/hook-based-confirmations.html"
+       href="security.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Design: Hook-Based Tool Confirmations</p>
+        <p class="prev-next-title">Security Considerations</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -602,11 +620,11 @@ hardware support may vary.</p></li>
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#current-scope">Current scope</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#collect-local-conversations">Collect local conversations</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-is-not-maintained-here">What is not maintained here</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#training-stack-pointers">Training stack pointers</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#model-suggestions">Model suggestions</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pick-a-model-per-session">Pick a model per session</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-key-many-models-openrouter">One key, many models: OpenRouter</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#set-a-default-model">Set a default model</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#per-agent-models">Per-agent models</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#see-also">See also</a></li>
 </ul>
   </nav></div>
 
