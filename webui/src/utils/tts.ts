@@ -36,7 +36,7 @@ export function getSpeakingKey(): string | null {
   return speakingKey;
 }
 
-type TtsProvider = 'auto' | 'browser' | 'server' | 'external';
+export type TtsProvider = 'auto' | 'browser' | 'server' | 'external';
 
 function getSettings(): {
   ttsEnabled: boolean;
@@ -230,6 +230,8 @@ async function speak(rawText: string, key: string): Promise<void> {
         if (isAbortError(err)) return;
         console.warn('External gptme-tts server unavailable, falling back to browser:', err);
       }
+    } else {
+      console.warn('TTS engine "external" selected but no gptme-tts server URL set; using browser.');
     }
     if (!speakViaBrowser(spoken, key)) clearIfStill(key);
     return;
