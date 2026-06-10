@@ -1,4 +1,4 @@
-import { useState, useEffect, type FC } from 'react';
+import { useState, useEffect, useCallback, type FC } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Settings } from 'lucide-react';
 import { MenuBar } from '@/components/MenuBar';
@@ -30,6 +30,14 @@ const SettingsPage: FC = () => {
     setActiveCategory(toCategoryOrDefault(category));
   }, [category]);
 
+  const handleCategoryChange = useCallback(
+    (cat: SettingsCategory) => {
+      setActiveCategory(cat);
+      navigate(`/settings/${cat}`);
+    },
+    [navigate]
+  );
+
   // Observe external requests (e.g. ServerSelector configure button) to switch category
   const externalRequest = use$(settingsModal$);
   useEffect(() => {
@@ -37,13 +45,7 @@ const SettingsPage: FC = () => {
       handleCategoryChange(externalRequest.category);
       settingsModal$.open.set(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [externalRequest.open, externalRequest.category]);
-
-  function handleCategoryChange(cat: SettingsCategory) {
-    setActiveCategory(cat);
-    navigate(`/settings/${cat}`);
-  }
+  }, [externalRequest.open, externalRequest.category, handleCategoryChange]);
 
   return (
     <div className="flex h-screen flex-col">
