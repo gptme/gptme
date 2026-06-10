@@ -79,6 +79,32 @@ def _start_parent_death_watcher(
     thread.start()
 
 
+def _install_sigterm_handler() -> None:
+    """Make SIGTERM trigger the same graceful shutdown path as Ctrl+C (SIGINT).
+
+    Werkzeug's dev server (`app.run()`) catches `KeyboardInterrupt` in its
+    serve loop and exits cleanly, which lets the `finally: shutdown_telemetry()`
+    block run. Python only raises `KeyboardInterrupt` for SIGINT, though — the
+    default SIGTERM handler terminates the process immediately without unwinding
+    the stack, so on `systemctl stop`, container scale-down, or a rolling
+    restart the cleanup block never runs and any in-flight SSE stream is cut
+    mid-token.
+
+    Re-raising SIGTERM as `KeyboardInterrupt` routes it through the existing
+    clean-shutdown path. This also makes the parent-death watcher's self-SIGTERM
+    (see `_start_parent_death_watcher`) actually shut the server down gracefully,
+    as its comment already assumes.
+
+    Signal handlers can only be installed from the main thread; this is called
+    from the `serve` command before `app.run()`, which runs there.
+    """
+
+    def _handle_sigterm(signum, frame):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, _handle_sigterm)
+
+
 @click.group(cls=DefaultGroup, default="serve", default_if_no_args=True)
 def main():
     """gptme server commands."""
@@ -234,6 +260,10 @@ def serve(
     init_auth(host=host, display=True)
 
     app = create_app(cors_origin=cors_origin, host=host, webui_dir=webui_dir)
+
+    # Route SIGTERM through the same clean-shutdown path as Ctrl+C so the
+    # `finally` block below runs on `systemctl stop` / container scale-down.
+    _install_sigterm_handler()
 
     try:
         app.run(debug=debug, host=host, port=port)
