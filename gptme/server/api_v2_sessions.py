@@ -8,6 +8,7 @@ Data models live in session_models.py; execution logic in session_step.py.
 
 import dataclasses
 import logging
+import threading
 import time
 import uuid
 from collections.abc import Generator
@@ -60,6 +61,20 @@ from .session_step import (  # noqa: F401
 )
 
 logger = logging.getLogger(__name__)
+
+# Graceful shutdown coordination — checked by SSE streams on each wait cycle.
+# Set by the SIGTERM handler registered in cli.py.
+_shutdown_event = threading.Event()
+
+
+def set_shutdown_event() -> None:
+    """Set the shutdown event, signaling all SSE streams to drain and exit."""
+    _shutdown_event.set()
+
+
+def is_shutting_down() -> bool:
+    """Return True if the server is shutting down."""
+    return _shutdown_event.is_set()
 
 
 def _get_request_json_object() -> dict | tuple[flask.Response, int]:
@@ -248,7 +263,17 @@ def api_conversation_events(conversation_id: str):
                 if last_event_index < session.events_count:
                     continue
 
+                # Wake immediately if the server is shutting down so SSE streams
+                # can drain gracefully instead of hanging until the next event.
+                if _shutdown_event.is_set():
+                    yield f"data: {flask.json.dumps({'type': 'shutdown'})}\n\n"
+                    break
+
                 session.event_flag.wait(timeout=15)
+
+                if _shutdown_event.is_set():
+                    yield f"data: {flask.json.dumps({'type': 'shutdown'})}\n\n"
+                    break
 
         except GeneratorExit:
             # Client disconnected
@@ -541,6 +566,12 @@ def api_conversation_step(conversation_id: str):
                     }
                 )
         session.event_flag.clear()
+        if _shutdown_event.is_set():
+            # Server shutting down — return early so the HTTP request can complete
+            # and the step keeps running in the background thread.
+            return flask.jsonify(
+                {"status": "ok", "message": "Step started", "session_id": session_id}
+            )
         session.event_flag.wait(timeout=_POLL_INTERVAL)
 
     # Timeout without error or token — generation is slow but not failed

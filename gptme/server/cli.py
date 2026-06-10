@@ -13,6 +13,7 @@ from gptme.config import set_config_from_workspace
 
 from ..init import init, init_logging
 from ..telemetry import init_telemetry, shutdown_telemetry
+from .api_v2_sessions import set_shutdown_event
 from .app import create_app
 from .auth import get_server_token, init_auth
 from .constants import _pick_fallback_model
@@ -157,6 +158,17 @@ def main():
         "can detect Tauri exit even when the bootloader survives reparenting."
     ),
 )
+@click.option(
+    "--graceful-timeout",
+    type=int,
+    default=30,
+    help=(
+        "Seconds to wait for active SSE streams to drain after SIGTERM before "
+        "forcing exit. Active streams receive a 'shutdown' event and are given "
+        "this long to complete. Default: 30. Set to 0 to disable graceful drain "
+        "(immediate exit on SIGTERM)."
+    ),
+)
 def serve(
     debug: bool,
     verbose: bool,
@@ -168,6 +180,7 @@ def serve(
     webui_dir: Path | None,
     exit_on_parent_death: bool,
     watch_pid: int | None,
+    graceful_timeout: int = 30,
 ):  # pragma: no cover
     """
     Starts a server and web UI for gptme.
@@ -235,8 +248,41 @@ def serve(
 
     app = create_app(cors_origin=cors_origin, host=host, webui_dir=webui_dir)
 
+    # Graceful shutdown: when SIGTERM arrives, signal all SSE streams to drain
+    # (they check _shutdown_event on their next wait cycle) and call Flask's
+    # shutdown to stop accepting new requests. We then wait for either the
+    # Flask shutdown to complete or for the graceful_timeout to elapse.
+    _graceful_done = threading.Event()
+
+    def _sigterm_handler(signum: int, frame) -> None:
+        logger.info("SIGTERM received, initiating graceful shutdown...")
+        set_shutdown_event()
+        app.shutdown_gracefully()
+        _graceful_done.set()
+
+    signal.signal(signal.SIGTERM, _sigterm_handler)
+
     try:
-        app.run(debug=debug, host=host, port=port)
+        # Run Flask in a background thread so we can wait for shutdown in the
+        # main thread. threaded=True is required for SSE streams to not block
+        # each other.
+        def _run_flask() -> None:
+            app.run(debug=debug, host=host, port=port, threaded=True)
+
+        _flask_thread = threading.Thread(
+            target=_run_flask, name="flask-app", daemon=True
+        )
+        _flask_thread.start()
+
+        click.echo(
+            f"Server running on {host}:{port} "
+            f"(graceful-timeout={graceful_timeout}s, Ctrl+C to stop)"
+        )
+
+        # Wait for SIGTERM-driven shutdown or Ctrl+C
+        _graceful_done.wait(timeout=graceful_timeout if graceful_timeout > 0 else None)
+        if not _graceful_done.is_set():
+            logger.info("Graceful-timeout reached, exiting...")
     finally:
         shutdown_telemetry()
 
