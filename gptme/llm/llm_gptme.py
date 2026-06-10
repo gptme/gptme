@@ -185,12 +185,29 @@ def get_base_url(config: Config) -> str:
 def get_models_url(config: Config) -> str:
     """Get the base URL for gptme cloud model listing.
 
-    Returns the Supabase functions/v1 base so the OpenAI SDK can append
-    /models and reach the models edge function.
+    The OpenAI SDK appends /models to the returned URL.
     Checks (in order):
-    1. ``GPTME_CLOUD_MODELS_URL`` environment variable
-    2. Default: Supabase functions/v1 base
+    1. Token file's ``server_url`` field (custom-server token)
+       → uses server_url + /v1 as the models base
+    2. ``GPTME_CLOUD_MODELS_URL`` environment variable
+    3. Default: Supabase functions/v1 base
+
+    For the default Supabase service, models are listed via the
+    functions/v1/models edge function. For custom servers (tokens
+    with server_url but no base_url), the models endpoint lives
+    at {server_url}/v1/models — matching the chat-completions base.
     """
+    token_data = _load_token()
+    if token_data:
+        # Custom-server token (server_url without explicit base_url)
+        if not token_data.get("base_url") and token_data.get("server_url"):
+            server_url = token_data["server_url"].rstrip("/")
+            if not server_url.endswith("/v1"):
+                server_url += "/v1"
+            return server_url
+        # Default (Supabase) token with base_url — use the default models URL
+        # which is the functions/v1 base the SDK needs for /models.
+
     env_url = config.get_env("GPTME_CLOUD_MODELS_URL")
     if env_url:
         return env_url.rstrip("/")
