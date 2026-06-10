@@ -10,6 +10,7 @@ import {
   FileJson,
   Trash2,
   BookOpen,
+  Columns2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -55,6 +56,7 @@ interface Props {
   hasNextPage?: boolean;
   selectedId$?: Observable<string | null>;
   showServerLabels?: boolean;
+  onOpenInSplitView?: (conversationId: string) => void;
 }
 
 export const ConversationList: FC<Props> = ({
@@ -69,6 +71,7 @@ export const ConversationList: FC<Props> = ({
   hasNextPage = false,
   selectedId$,
   showServerLabels = false,
+  onOpenInSplitView,
 }) => {
   const { api, isConnected$ } = useApi();
   const isConnected = use$(isConnected$);
@@ -499,6 +502,17 @@ export const ConversationList: FC<Props> = ({
               </ContextMenuItem>
             </ContextMenuSubContent>
           </ContextMenuSub>
+          {onOpenInSplitView && (
+            <ContextMenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenInSplitView(conv.id);
+              }}
+            >
+              <Columns2 className="mr-2 h-4 w-4" />
+              Open in split view
+            </ContextMenuItem>
+          )}
           <ContextMenuSeparator />
           <ContextMenuItem
             className="text-destructive focus:text-destructive"

@@ -83,6 +83,9 @@ interface Props {
   // Multi-backend
   showServerLabels?: boolean;
 
+  // Split view
+  onOpenInSplitView?: (conversationId: string) => void;
+
   // Task props
   tasks: Task[];
   selectedTaskId?: string;
@@ -112,6 +115,7 @@ export const UnifiedSidebar: FC<Props> = ({
   tasksLoading = false,
   tasksError = false,
   onTasksRetry,
+  onOpenInSplitView,
 }) => {
   const selectedWorkspace = use$(selectedWorkspace$);
   const selectedAgent = use$(selectedAgent$);
@@ -391,6 +395,7 @@ export const UnifiedSidebar: FC<Props> = ({
               fetchNextPage={fetchNextPage}
               hasNextPage={hasNextPage}
               showServerLabels={showServerLabels}
+              onOpenInSplitView={onOpenInSplitView}
             />
           )}
 

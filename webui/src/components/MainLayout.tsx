@@ -430,6 +430,34 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
     }
   }, [isMobile]);
 
+  // Handle navigating a split pane to a different conversation
+  const handleNavigatePane = useCallback(
+    (paneIndex: 0 | 1, newId: string) => {
+      if (!splitIds) return;
+      const ids = [...splitIds];
+      ids[paneIndex] = newId;
+      const params = new URLSearchParams(searchParams);
+      params.set("split", `${ids[0]},${ids[1]}`);
+      navigate(`?${params.toString()}`);
+    },
+    [splitIds, searchParams, navigate]
+  );
+
+  // Handle "Open in split view" from a conversation list context menu
+  const handleOpenInSplitView = useCallback(
+    (conversationId: string) => {
+      const currentId = selectedConversation$.get();
+      const params = new URLSearchParams(searchParams);
+      if (currentId) {
+        params.set("split", `${currentId},${conversationId}`);
+      } else {
+        params.set("split", `${conversationId},${conversationId}`);
+      }
+      navigate(`?${params.toString()}`);
+    },
+    [searchParams, navigate]
+  );
+
   // Keyboard shortcut: Ctrl+Shift+\ (Cmd+Shift+\ on Mac) to toggle split view
   useEffect(() => {
     const toggleSplit = (e: KeyboardEvent) => {
@@ -508,10 +536,13 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
         <SplitConversationView
           leftId={splitIds[0]}
           rightId={splitIds[1]}
+          allConversations={allConversations}
           serverId={serverParam || undefined}
           leftIsReadOnly={leftConversation.readonly}
           rightIsReadOnly={rightConversation.readonly}
           vertical={isMobile}
+          onNavigateLeft={(id: string) => handleNavigatePane(0, id)}
+          onNavigateRight={(id: string) => handleNavigatePane(1, id)}
           onClose={() => {
             const params = new URLSearchParams(searchParams);
             params.delete('split');
@@ -607,6 +638,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
                 tasksLoading={tasksLoading}
                 tasksError={!!tasksError}
                 onTasksRetry={() => refetchTasks()}
+                onOpenInSplitView={handleOpenInSplitView}
               />
             </div>
           </SheetContent>
@@ -717,6 +749,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
             tasksLoading={tasksLoading}
             tasksError={!!tasksError}
             onTasksRetry={() => refetchTasks()}
+            onOpenInSplitView={handleOpenInSplitView}
           />
         </ResizablePanel>
 
