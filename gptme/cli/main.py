@@ -858,7 +858,10 @@ def main(
     # We pass the tool_allowlist CLI argument. If it's not provided, init_tools
     # will load it from the environment variable TOOL_ALLOWLIST or the chat config.
     logger.debug(f"Using tools: {config.chat.tools}")
-    tools = init_tools(config.chat.tools)
+    try:
+        tools = init_tools(config.chat.tools)
+    except ValueError as e:
+        raise click.UsageError(str(e)) from e
 
     # Check if we're opening an existing conversation (via --resume, --name, or pick)
     # If so, skip generating initial messages (including expensive context_cmd)
