@@ -67,6 +67,12 @@ _TOKEN_DIR = (
     Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "gptme" / "auth"
 )
 
+# Legacy service URLs whose token files should be checked as a migration fallback
+# when no token exists at the current DEFAULT_SERVICE_URL path.
+_LEGACY_SERVICE_URLS = [
+    "https://fleet.gptme.ai",
+]
+
 
 def _get_token_path(service_url: str | None = None) -> Path:
     """Get path to the Device Flow token file.
@@ -85,7 +91,20 @@ def _load_token(service_url: str | None = None) -> dict | None:
     """
     token_path = _get_token_path(service_url)
     if not token_path.exists():
-        return None
+        # Migration: if using the default URL and no new token exists, check
+        # legacy service URL paths so users authenticated before the Supabase
+        # migration can still be found (their token has a server_url field
+        # that get_base_url() uses to reconstruct the old-style URL).
+        if service_url is None:
+            for legacy_url in _LEGACY_SERVICE_URLS:
+                legacy_path = _get_token_path(legacy_url)
+                if legacy_path.exists():
+                    token_path = legacy_path
+                    break
+            else:
+                return None
+        else:
+            return None
 
     try:
         data = json.loads(token_path.read_text())

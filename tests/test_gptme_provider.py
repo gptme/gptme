@@ -226,6 +226,38 @@ def test_token_path_uses_url_hash():
     assert "gptme-cloud-" in path2.name
 
 
+def test_load_token_legacy_fleet_migration(tmp_path: Path):
+    """Should find old fleet.gptme.ai token when no new Supabase token exists.
+
+    Covers the upgrade path: user authenticated before the Supabase URL migration.
+    Their token is stored at the fleet.gptme.ai hash path; _load_token() must
+    find it so get_base_url() can reconstruct the old-style URL via server_url.
+    """
+    import hashlib
+
+    from gptme.llm.llm_gptme import _load_token
+
+    legacy_url = "https://fleet.gptme.ai"
+    url_hash = hashlib.sha256(legacy_url.encode()).hexdigest()[:12]
+    legacy_token_path = tmp_path / f"gptme-cloud-{url_hash}.json"
+    token_data = {
+        "access_token": "legacy-token",
+        "expires_at": time.time() + 3600,
+        "server_url": legacy_url,
+    }
+    legacy_token_path.write_text(json.dumps(token_data))
+
+    # Patch _TOKEN_DIR so _get_token_path resolves into tmp_path
+    with patch("gptme.llm.llm_gptme._TOKEN_DIR", tmp_path):
+        result = _load_token()  # no service_url → default path (Supabase) won't exist
+
+    assert result is not None, (
+        "Legacy fleet token should be found via migration fallback"
+    )
+    assert result["access_token"] == "legacy-token"
+    assert result["server_url"] == legacy_url
+
+
 # --- Helpers ---
 
 
