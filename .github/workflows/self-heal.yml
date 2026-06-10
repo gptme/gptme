@@ -274,7 +274,7 @@ jobs:
 
     steps:
       - name: Checkout base repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: base
 
@@ -285,7 +285,7 @@ jobs:
           path: /tmp/artifacts
 
       - name: Checkout PR head
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ needs.analyze.outputs.head_sha }}
           path: pr-head
@@ -350,7 +350,6 @@ jobs:
             fi
           done <<< "$VALIDATION_COMMANDS"
           echo "validation_passed=${PASSED}" >> "$GITHUB_OUTPUT"
-          echo "failed_commands=${FAILED_CMDS}" >> "$GITHUB_OUTPUT"
 
       - name: Create draft PR
         if: steps.apply.outputs.applied == 'true' && steps.apply.outputs.validation_passed == 'true'
@@ -359,6 +358,7 @@ jobs:
           PR_NUMBER: ${{ needs.analyze.outputs.pr_number }}
           HEAD_REF: ${{ needs.analyze.outputs.head_sha }}
         run: |
+          set -eo pipefail
           cd pr-head
           FIX_BRANCH="self-heal/pr-${PR_NUMBER}-run-${{ github.run_id }}"
           git config user.name "gptme-bot"
