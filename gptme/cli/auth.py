@@ -216,13 +216,29 @@ def auth_login(url: str, auth_url: str | None, no_browser: bool):
 )
 def auth_logout(url: str):
     """Remove stored credentials for gptme cloud."""
-    from ..llm.llm_gptme import _get_token_path
+    from ..llm.llm_gptme import (
+        _LEGACY_SERVICE_URLS,
+        DEFAULT_SERVICE_URL,
+        _get_token_path,
+    )
 
     base_url = url.rstrip("/")
     token_path = _get_token_path(base_url)
     if token_path.exists():
         token_path.unlink()
         console.print(f"[green]✓ Logged out from {base_url}[/green]")
+    elif base_url == DEFAULT_SERVICE_URL:
+        # Migration fallback: check legacy service URL paths so users authenticated
+        # before the Supabase migration can actually log out.
+        for legacy_url in _LEGACY_SERVICE_URLS:
+            legacy_path = _get_token_path(legacy_url)
+            if legacy_path.exists():
+                legacy_path.unlink()
+                console.print(
+                    f"[green]✓ Logged out (removed legacy token from {legacy_url})[/green]"
+                )
+                return
+        console.print(f"[yellow]No credentials stored for {base_url}[/yellow]")
     else:
         console.print(f"[yellow]No credentials stored for {base_url}[/yellow]")
 
