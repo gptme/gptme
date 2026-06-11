@@ -438,7 +438,7 @@ export const ConversationList: FC<Props> = ({
                   <div className="mb-1 flex items-center gap-2">
                     {!isDemo && (
                       <button
-                        className={`shrink-0 rounded p-0.5 transition-colors hover:text-yellow-500 focus:outline-none ${
+                        className={`shrink-0 rounded p-0.5 transition-colors hover:text-yellow-500 focus:outline-none focus-visible:text-yellow-500 focus-visible:opacity-100 ${
                           isStarred(conv.id)
                             ? 'text-yellow-500 opacity-100'
                             : 'text-muted-foreground opacity-0 group-hover:opacity-100'
@@ -448,6 +448,9 @@ export const ConversationList: FC<Props> = ({
                           toggleStar(conv.id);
                         }}
                         title={isStarred(conv.id) ? 'Unstar conversation' : 'Star conversation'}
+                        aria-label={
+                          isStarred(conv.id) ? 'Unstar conversation' : 'Star conversation'
+                        }
                       >
                         <Star
                           className="h-3 w-3"

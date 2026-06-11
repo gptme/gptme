@@ -32,6 +32,11 @@ export function useStarredConversations() {
     return () => window.removeEventListener('storage', handler);
   }, []);
 
+  // Sync to localStorage whenever starred changes
+  useEffect(() => {
+    saveStarred(starred);
+  }, [starred]);
+
   const toggleStar = useCallback((id: string) => {
     setStarred((prev) => {
       const next = new Set(prev);
@@ -40,7 +45,6 @@ export function useStarredConversations() {
       } else {
         next.add(id);
       }
-      saveStarred(next);
       return next;
     });
   }, []);
