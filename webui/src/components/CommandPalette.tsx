@@ -62,7 +62,9 @@ export function CommandPalette() {
     });
   }, []);
 
-  // Toggle command palette with Cmd+K or Ctrl+K
+  // Toggle command palette with Cmd+K or Ctrl+K; close on Escape.
+  // The Escape handler is explicit because cmdk v1 intercepts the key at the
+  // element level before Radix UI Dialog's DismissableLayer sees it.
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
@@ -72,12 +74,14 @@ export function CommandPalette() {
           commandPaletteOpen$.set(next);
           return next;
         });
+      } else if (e.key === 'Escape') {
+        setOpen(false);
       }
     };
 
     document.addEventListener('keydown', down);
     return () => document.removeEventListener('keydown', down);
-  }, []);
+  }, [setOpen]);
 
   // Alt+N — new conversation (skip when typing in an input)
   useEffect(() => {
