@@ -863,6 +863,13 @@ def api_conversations():
     Get a list of user conversations with metadata using the V2 API.
     Supports optional search filtering by conversation name, id, or last message preview.
     Pass ``detail=true`` to include cost/token stats (slower full scan).
+
+    Each item exposes ``id``, ``name``, ``created``, ``modified``,
+    ``message_count`` (alias of ``messages``), ``last_updated`` (alias of
+    ``modified``), and a ``last_message_preview`` for the most recent
+    user/assistant turn. ``message_count`` and ``last_updated`` are always
+    populated (cheap fast-tail scan), so list-level UIs can render a stats
+    badge without per-row detail fetches.
     """
     try:
         limit = int(request.args.get("limit", 100))
@@ -892,8 +899,12 @@ def api_conversations():
     response_items = []
     for conv in conversations:
         item = asdict(conv)
-        if not detail:
-            item.pop("messages", None)
+        # `messages` is the message count (int), not message content — both
+        # the fast tail-scan and full scan populate it, so it is safe to keep
+        # in the response regardless of `detail`.
+        # Add stable webui-facing aliases: `message_count` and `last_updated`.
+        item["message_count"] = conv.messages
+        item["last_updated"] = conv.modified
         response_items.append(item)
     return flask.jsonify(response_items)
 

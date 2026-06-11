@@ -30,10 +30,34 @@ logger = logging.getLogger(__name__)
 class ConversationListItem(BaseModel):
     """A conversation list item."""
 
+    id: str = Field(..., description="Conversation ID")
     name: str = Field(..., description="Conversation name")
     path: str = Field(..., description="Conversation path")
-    created: str = Field(..., description="Creation timestamp")
-    modified: str = Field(..., description="Last modified timestamp")
+    created: float = Field(..., description="Creation timestamp (Unix epoch)")
+    modified: float = Field(..., description="Last-modified timestamp (Unix epoch)")
+    last_updated: float = Field(
+        ...,
+        description="Alias for `modified` — last-updated timestamp (Unix epoch). Stable, webui-facing alias.",
+    )
+    messages: int = Field(..., description="Message count (legacy alias)")
+    message_count: int = Field(
+        ...,
+        description="Message count — stable, webui-facing alias for `messages`.",
+    )
+    branches: int = Field(..., description="Branch count")
+    workspace: str = Field(..., description="Workspace path")
+    agent_name: str | None = Field(None, description="Agent name")
+    agent_path: str | None = Field(None, description="Agent config path")
+    model: str | None = Field(None, description="Model name")
+    total_cost: float = Field(0.0, description="Total cost")
+    total_input_tokens: int = Field(0, description="Total input tokens")
+    total_output_tokens: int = Field(0, description="Total output tokens")
+    last_message_role: str | None = Field(
+        None, description="Last message role (user/assistant/system)"
+    )
+    last_message_preview: str | None = Field(
+        None, description="Preview of the last message"
+    )
 
 
 class Message(BaseModel):

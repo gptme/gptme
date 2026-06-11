@@ -208,23 +208,32 @@ def test_api_conversation_list_detail_flag(client: FlaskClient, tmp_path, monkey
         "fixture must be > _TAIL_BYTES to trigger fast path"
     )
 
-    # Default (detail=false) should return zeroed stats and omit the message count
+    # Default (detail=false) should return zeroed cost/token stats but keep
+    # the message count and `last_updated` (both come from the cheap tail scan).
     response = client.get("/api/v2/conversations")
     assert response.status_code == 200
     data = response.get_json()
     assert isinstance(data, list)
     assert len(data) == 1
-    assert "messages" not in data[0]
+    # `messages` and `message_count` are stable aliases for the count and are
+    # always populated by the tail scan, regardless of `detail`.
+    assert data[0]["messages"] == len(messages)
+    assert data[0]["message_count"] == len(messages)
+    # `last_updated` is the stable alias for `modified`.
+    assert data[0]["last_updated"] == data[0]["modified"]
+    # Cost/token stats are zeroed in fast mode.
     assert data[0]["total_cost"] == 0.0
     assert data[0]["total_input_tokens"] == 0
+    assert data[0]["total_output_tokens"] == 0
 
-    # detail=true should return actual stats and include the message count
+    # detail=true should return actual cost/token stats alongside the count.
     response = client.get("/api/v2/conversations?detail=true")
     assert response.status_code == 200
     data = response.get_json()
     assert isinstance(data, list)
     assert len(data) == 1
     assert data[0]["messages"] == len(messages)
+    assert data[0]["message_count"] == len(messages)
     assert data[0]["total_cost"] > 0
     assert data[0]["total_input_tokens"] > 0
     assert data[0]["total_output_tokens"] > 0

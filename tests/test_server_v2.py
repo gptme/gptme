@@ -1248,6 +1248,68 @@ def test_v2_conversations_list(client: FlaskClient):
     assert isinstance(data, list)
 
 
+def test_v2_conversations_list_exposes_message_count_and_last_updated(
+    client: FlaskClient,
+):
+    """Fast-mode (default) list response must include ``message_count`` and
+    ``last_updated`` aliases for the webui stats badge. Both come from the
+    cheap tail-only scan and are stable aliases for the legacy ``messages``
+    and ``modified`` fields.
+    """
+    response = client.get("/api/v2/conversations")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert isinstance(data, list)
+    # No conversations in this isolated test client: shape still validated.
+    # With conversations: each item carries the new aliases and the legacy
+    # fields stay in sync.
+    for item in data:
+        assert "message_count" in item
+        assert "last_updated" in item
+        assert isinstance(item["message_count"], int)
+        assert isinstance(item["last_updated"], (int, float))
+        # Stable aliases mirror the legacy fields.
+        assert item["message_count"] == item["messages"]
+        assert item["last_updated"] == item["modified"]
+
+
+def test_v2_conversations_list_keeps_messages_in_fast_mode(
+    client: FlaskClient, tmp_path, monkeypatch
+):
+    """Regression: ``messages`` (the count) must remain in the fast-mode
+    response. A previous bug stripped it via ``item.pop("messages", None)``,
+    which broke webui stats that read either ``messages`` or the new
+    ``message_count`` alias.
+    """
+    # Create a real conversation with a non-test prefix so it isn't filtered
+    # out by ``_is_test_conversation_id`` (``test-`` and ``tmp`` prefixes are
+    # skipped by the user-facing list endpoint).
+    convname = f"msglist-{random.randint(0, 1000000)}"
+    response = client.put(
+        f"/api/v2/conversations/{convname}",
+        json={"prompt": "You are an AI assistant for testing."},
+    )
+    assert response.status_code == 200
+
+    response = client.get("/api/v2/conversations")
+    assert response.status_code == 200
+    data = response.get_json()
+    matching = [c for c in data if c["id"] == convname]
+    assert matching, f"created conversation {convname} not in list"
+    item = matching[0]
+    assert "messages" in item, "fast-mode response must keep `messages` (count)"
+    assert "message_count" in item, (
+        "fast-mode response must include `message_count` alias"
+    )
+    assert "last_updated" in item, (
+        "fast-mode response must include `last_updated` alias"
+    )
+    assert "modified" in item, "fast-mode response must keep `modified`"
+    assert item["messages"] == item["message_count"]
+    assert item["modified"] == item["last_updated"]
+    assert item["message_count"] >= 1  # at least the system prompt
+
+
 def test_v2_conversation_get(v2_conv, client: FlaskClient):
     """Test getting a V2 conversation."""
     conversation_id = v2_conv["conversation_id"]
