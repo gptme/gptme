@@ -473,6 +473,23 @@ export const ConversationList: FC<Props> = ({
                     </TooltipContent>
                   </Tooltip>
 
+                  {/* Token estimate from list summary (available when detail=True) */}
+                  {(() => {
+                    const summaryTokens =
+                      (conv.total_input_tokens ?? 0) +
+                      (conv.total_output_tokens ?? 0) +
+                      (conv.total_cache_read_tokens ?? 0) +
+                      (conv.total_cache_creation_tokens ?? 0);
+                    if (summaryTokens === 0) return null;
+                    return (
+                      <span className="flex items-center text-muted-foreground">
+                        <span className="text-[10px] text-muted-foreground/60">
+                          {formatTokens(summaryTokens)} tok
+                        </span>
+                      </span>
+                    );
+                  })()}
+
                   {/* Cost badge: show per-conversation total cost from loaded data */}
                   <Computed>
                     {() => {

@@ -41,7 +41,9 @@ export interface ConversationSummary {
   name: string;
   created?: number; // Unix timestamp of first message
   modified: number; // Unix timestamp of last file modification
-  messages?: number; // Message count, present only when list requests opt into detail=true
+  messages?: number; // Message count. Always populated from list endpoint (fast path) since PR #2833.
+  message_count?: number; // Stable alias for `messages`, same value. Added in PR #2833.
+  last_updated?: number; // Stable alias for `modified`. Added in PR #2833.
   branch?: string;
   workspace?: string;
   readonly?: boolean; // For demo conversations
