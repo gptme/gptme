@@ -1,0 +1,78 @@
+import { test, expect } from '@playwright/test';
+
+test.describe('Keyboard Navigation', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByTestId('conversation-list')).toBeVisible({ timeout: 10000 });
+  });
+
+  test('command palette: Ctrl+K opens, Esc closes', async ({ page }) => {
+    const input = page.getByPlaceholder('Type a command or search conversations...');
+    await expect(input).not.toBeVisible();
+
+    await page.keyboard.press('Control+k');
+    await expect(input).toBeVisible({ timeout: 3000 });
+
+    await page.keyboard.press('Escape');
+    await expect(input).not.toBeVisible({ timeout: 3000 });
+  });
+
+  test('shortcuts dialog: ? opens, Esc closes', async ({ page }) => {
+    // Click body to ensure focus is not in an input before pressing ?
+    await page.locator('body').click();
+
+    const dialog = page.getByRole('dialog', { name: /keyboard shortcuts/i });
+    await expect(dialog).not.toBeVisible();
+
+    await page.keyboard.press('?');
+    await expect(dialog).toBeVisible({ timeout: 3000 });
+    await expect(dialog.getByText(/command palette/i)).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(dialog).not.toBeVisible({ timeout: 3000 });
+  });
+
+  test('conversation rows: Tab-focusable and Enter selects', async ({ page }) => {
+    const firstRow = page
+      .getByTestId('conversation-list')
+      .locator('[role="button"][tabindex="0"]')
+      .first();
+    await expect(firstRow).toBeVisible({ timeout: 5000 });
+
+    // The row must be in the tab order
+    expect(await firstRow.getAttribute('tabindex')).toBe('0');
+    expect(await firstRow.getAttribute('role')).toBe('button');
+
+    // Focus and activate via keyboard
+    await firstRow.focus();
+    await expect(firstRow).toBeFocused();
+    await page.keyboard.press('Enter');
+
+    // After selection, aria-pressed flips to true
+    await expect(firstRow).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('focus trap: Tab stays inside an open dialog', async ({ page }) => {
+    // Open the shortcuts dialog (Radix UI Dialog traps focus)
+    await page.locator('body').click();
+    await page.keyboard.press('?');
+
+    const dialog = page.getByRole('dialog', { name: /keyboard shortcuts/i });
+    await expect(dialog).toBeVisible({ timeout: 3000 });
+
+    // Tab through several cycles; focus must always stay inside the dialog
+    for (let i = 0; i < 6; i++) {
+      await page.keyboard.press('Tab');
+      const outsideFocus = await page.evaluate(() => {
+        const active = document.activeElement;
+        const dlg = document.querySelector('[role="dialog"]');
+        return dlg ? !dlg.contains(active) : false;
+      });
+      expect(outsideFocus).toBe(false);
+    }
+
+    await page.keyboard.press('Escape');
+    await expect(dialog).not.toBeVisible({ timeout: 3000 });
+  });
+});
