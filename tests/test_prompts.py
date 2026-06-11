@@ -189,6 +189,44 @@ exclude = ["*.lock", "*.jsonl"]
     )
 
 
+def test_prompt_workspace_exclude_dir_patterns(tmp_path):
+    """Test that [prompt] exclude patterns work for directory-relative paths."""
+    from gptme.prompts import prompt_workspace
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    # Files at root level
+    (workspace / "README.md").write_text("# Project")
+
+    # Files in subdirectory that should be excluded
+    dist = workspace / "dist"
+    dist.mkdir()
+    (dist / "bundle.js").write_text("// bundled")
+    (dist / "bundle.css").write_text("/* styles */")
+
+    (workspace / "gptme.toml").write_text(
+        """
+[prompt]
+files = ["README.md", "dist/*.js", "dist/*.css"]
+exclude = ["dist/*.js"]
+"""
+    )
+
+    msgs = list(prompt_workspace(workspace, include_user_context=False))
+    attached_files: list[str] = []
+    for msg in msgs:
+        attached_files.extend(str(f) for f in msg.files)
+
+    assert any("README.md" in f for f in attached_files), "README.md should be included"
+    assert any("bundle.css" in f for f in attached_files), (
+        "dist/*.css should be included"
+    )
+    assert not any("bundle.js" in f for f in attached_files), (
+        "dist/*.js should be excluded"
+    )
+
+
 def test_workspace_git_status_in_git_repo(tmp_path):
     """Test that git status is included in workspace prompt for git repos."""
     import subprocess

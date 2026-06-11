@@ -331,13 +331,22 @@ def prompt_workspace(
     # Apply exclude patterns from project config (glob-matched against file names and paths)
     if project and project.exclude:
         before_count = len(context_files)
+
+        def _is_excluded(f: Path, patterns: list[str]) -> bool:
+            rel = None
+            try:
+                rel = f.relative_to(workspace_resolved)
+            except ValueError:
+                pass
+            for pat in patterns:
+                if fnmatch.fnmatch(f.name, pat):
+                    return True
+                if rel is not None and fnmatch.fnmatch(str(rel), pat):
+                    return True
+            return False
+
         context_files = [
-            f
-            for f in context_files
-            if not any(
-                fnmatch.fnmatch(f.name, pat) or fnmatch.fnmatch(str(f), pat)
-                for pat in project.exclude
-            )
+            f for f in context_files if not _is_excluded(f, project.exclude)
         ]
         excluded_count = before_count - len(context_files)
         if excluded_count:
