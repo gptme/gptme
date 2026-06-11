@@ -1,3 +1,4 @@
+import fnmatch
 import logging
 import subprocess
 from collections.abc import Generator
@@ -326,6 +327,23 @@ def prompt_workspace(
                         seen_paths.add(rp)
                 else:
                     logger.debug(f"User-configured file not found: {p}")
+
+    # Apply exclude patterns from project config (glob-matched against file names and paths)
+    if project and project.exclude:
+        before_count = len(context_files)
+        context_files = [
+            f
+            for f in context_files
+            if not any(
+                fnmatch.fnmatch(f.name, pat) or fnmatch.fnmatch(str(f), pat)
+                for pat in project.exclude
+            )
+        ]
+        excluded_count = before_count - len(context_files)
+        if excluded_count:
+            logger.debug(
+                f"Excluded {excluded_count} file(s) via project config exclude patterns"
+            )
 
     # Get tree output if enabled
     if tree_output := get_tree_output(workspace):

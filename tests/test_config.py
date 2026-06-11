@@ -235,6 +235,34 @@ def test_get_config():
     assert config
 
 
+def test_project_config_exclude_field():
+    """Test that [prompt] exclude list is parsed correctly from gptme.toml."""
+    import tomlkit
+
+    toml_str = """
+[prompt]
+files = ["README.md", "*.lock"]
+exclude = ["*.lock", "*.jsonl"]
+"""
+    config_data = dict(tomlkit.loads(toml_str))
+    project_config = ProjectConfig.from_dict(config_data)
+    assert project_config.files == ["README.md", "*.lock"]
+    assert project_config.exclude == ["*.lock", "*.jsonl"]
+
+
+def test_project_config_exclude_field_default():
+    """Test that [prompt] exclude defaults to an empty list."""
+    import tomlkit
+
+    toml_str = """
+[prompt]
+files = ["README.md"]
+"""
+    config_data = dict(tomlkit.loads(toml_str))
+    project_config = ProjectConfig.from_dict(config_data)
+    assert project_config.exclude == []
+
+
 def test_env_vars_loaded_in_correct_priority(monkeypatch, tmp_path):
     temp_user_config = str(tmp_path / "config.toml")
     temp_project_config = str(tmp_path / "gptme.toml")

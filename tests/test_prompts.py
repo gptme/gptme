@@ -149,6 +149,46 @@ files = ["../outside/secret.txt", "README.md"]
     assert "../outside/secret.txt" not in content, "Path traversal should be blocked"
 
 
+def test_prompt_workspace_exclude_patterns(tmp_path):
+    """Test that [prompt] exclude patterns filter context files."""
+    from gptme.prompts import prompt_workspace
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    # Files that should be included
+    (workspace / "README.md").write_text("# Project")
+    (workspace / "pyproject.toml").write_text("[project]\nname = 'test'")
+
+    # Files that should be excluded by pattern
+    (workspace / "uv.lock").write_text("lock file content")
+    (workspace / "session.jsonl").write_text('{"role": "user"}')
+
+    (workspace / "gptme.toml").write_text(
+        """
+[prompt]
+files = ["README.md", "pyproject.toml", "*.lock", "*.jsonl"]
+exclude = ["*.lock", "*.jsonl"]
+"""
+    )
+
+    msgs = list(prompt_workspace(workspace, include_user_context=False))
+    attached_files: list[str] = []
+    for msg in msgs:
+        attached_files.extend(str(f) for f in msg.files)
+
+    assert any("README.md" in f for f in attached_files), "README.md should be included"
+    assert any("pyproject.toml" in f for f in attached_files), (
+        "pyproject.toml should be included"
+    )
+    assert not any("uv.lock" in f for f in attached_files), (
+        "*.lock files should be excluded"
+    )
+    assert not any("session.jsonl" in f for f in attached_files), (
+        "*.jsonl files should be excluded"
+    )
+
+
 def test_workspace_git_status_in_git_repo(tmp_path):
     """Test that git status is included in workspace prompt for git repos."""
     import subprocess

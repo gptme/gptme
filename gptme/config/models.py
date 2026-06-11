@@ -263,6 +263,7 @@ class ProjectConfig:
     base_prompt: str | None = None
     prompt: str | None = None
     files: list[str] | None = None
+    exclude: list[str] = field(default_factory=list)
     context_cmd: str | None = None
     rag: RagConfig = field(default_factory=RagConfig)
     agent: AgentConfig | None = None
@@ -294,12 +295,14 @@ class ProjectConfig:
             prompt = prompt_data.pop("prompt", None)
             base_prompt = prompt_data.pop("base_prompt", None)
             files = prompt_data.pop("files", None)
+            exclude = prompt_data.pop("exclude", [])
             context_cmd = prompt_data.pop("context_cmd", None)
         else:
             # Old format: flat structure, prompt_data contains the prompt string
             prompt = prompt_data
             base_prompt = config_data.pop("base_prompt", None)
             files = config_data.pop("files", None)
+            exclude = []
             context_cmd = config_data.pop("context_cmd", None)
 
         rag = _build_section("rag", RagConfig, _pop_object_section(config_data, "rag"))
@@ -380,6 +383,7 @@ class ProjectConfig:
             prompt=prompt,
             base_prompt=base_prompt,
             files=files,
+            exclude=exclude,
             context_cmd=context_cmd,
             rag=rag,
             agent=agent,
