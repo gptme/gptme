@@ -11,6 +11,7 @@ code-review
 debug-python
 automate-task
 refactor
+minimal-context
 ```
 
 ## File Editing
@@ -27,6 +28,9 @@ refactor
 
 ## Refactor Code
 [Refactor across files](refactor.md) — rename, extract, and reshape code across a codebase.
+
+## Minimal Context Mode
+[Use minimal context for token-efficient sessions](minimal-context.md) — trim the system prompt by scoping tools, switching to short mode, and using agent profiles. Includes per-section token measurement with `--show-prompt-stats`.
 
 ---
 
