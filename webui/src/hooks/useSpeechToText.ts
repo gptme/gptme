@@ -163,7 +163,12 @@ export function useSpeechToText(): UseSpeechToTextReturn {
       return;
     }
 
-    if (!serverEnabled || recordingRef.current) return;
+    if (recordingRef.current) return;
+    if (!serverEnabled) {
+      // User explicitly chose server mode but server is not configured
+      if (prefersServerStt) setState('error');
+      return;
+    }
 
     setInterimTranscript('');
     setState('listening');

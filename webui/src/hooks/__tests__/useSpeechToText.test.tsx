@@ -197,6 +197,45 @@ describe('useSpeechToText', () => {
     expect(handler).toHaveBeenCalledWith('server transcript');
   });
 
+  it('sets error state when server mode is selected but OpenRouter is not configured', async () => {
+    // User explicitly chose server but hasn't configured OpenRouter
+    useUserSettingsMock.mockReturnValue({
+      settings: { providers_configured: [] },
+      isLoading: false,
+      error: null,
+      refetch: jest.fn(),
+    });
+    useSettingsMock.mockReturnValue({
+      settings: { sttProvider: 'server' },
+      updateSettings: jest.fn(),
+      resetSettings: jest.fn(),
+    });
+    // Browser STT is also available (the problematic scenario)
+    class MockSpeechRecognition {
+      continuous = false;
+      interimResults = false;
+      lang = '';
+      onstart: (() => void) | null = null;
+      onresult: ((event: unknown) => void) | null = null;
+      onerror: ((event: unknown) => void) | null = null;
+      onend: (() => void) | null = null;
+      start = jest.fn();
+      stop = jest.fn();
+      abort = jest.fn();
+    }
+    (window as Window & { SpeechRecognition?: unknown }).SpeechRecognition = MockSpeechRecognition;
+
+    const { result } = renderHook(() => useSpeechToText());
+
+    act(() => {
+      result.current.startListening();
+    });
+
+    // Should surface an error instead of silently doing nothing
+    expect(result.current.state).toBe('error');
+    expect(transcribeAudio).not.toHaveBeenCalled();
+  });
+
   it('records and transcribes through the server fallback when browser STT is unavailable', async () => {
     const handler = jest.fn();
     const { result } = renderHook(() => useSpeechToText());
