@@ -249,9 +249,21 @@ export const ServerConfiguration: FC = () => {
           return (
             <div
               key={server.id}
+              role="button"
+              tabIndex={0}
+              aria-pressed={isPrimary}
+              aria-label={`Set ${server.name} as primary server`}
               onClick={() => handleSetPrimary(server.id)}
+              onKeyDown={(e) => {
+                // Only act when the row itself is focused, so Enter/Space on the
+                // nested action buttons doesn't also set this server primary.
+                if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+                  e.preventDefault();
+                  handleSetPrimary(server.id);
+                }
+              }}
               className={cn(
-                'flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors hover:bg-muted/40',
+                'flex cursor-pointer items-center justify-between rounded-lg border p-3 transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
                 isPrimary && 'border-primary/30 bg-primary/5'
               )}
             >

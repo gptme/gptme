@@ -187,6 +187,42 @@ describe('ConversationList', () => {
   // component tests and manual testing. The context menu wraps existing functionality that
   // is already tested elsewhere (DeleteConversationConfirmationDialog, exportConversation utils).
 
+  describe('keyboard accessibility', () => {
+    // Resolve the clickable row (role="button") from the nested title element.
+    const getRow = () => {
+      const row = screen.getByTestId('conversation-title').closest('[role="button"]');
+      expect(row).not.toBeNull();
+      return row as HTMLElement;
+    };
+
+    it('exposes the conversation row as a focusable button', () => {
+      renderWithProviders(<ConversationList {...defaultProps} />);
+      const row = getRow();
+      expect(row).toHaveAttribute('role', 'button');
+      expect(row).toHaveAttribute('tabindex', '0');
+    });
+
+    it('selects the conversation on Enter', () => {
+      renderWithProviders(<ConversationList {...defaultProps} />);
+      const row = getRow();
+      fireEvent.keyDown(row, { key: 'Enter' });
+      expect(defaultProps.onSelect).toHaveBeenCalledWith('test-conv-1', undefined);
+    });
+
+    it('selects the conversation on Space', () => {
+      renderWithProviders(<ConversationList {...defaultProps} />);
+      const row = getRow();
+      fireEvent.keyDown(row, { key: ' ' });
+      expect(defaultProps.onSelect).toHaveBeenCalledWith('test-conv-1', undefined);
+    });
+
+    it('reflects selection state via aria-pressed', () => {
+      const selectedId$ = observable<string | null>('test-conv-1');
+      renderWithProviders(<ConversationList {...defaultProps} selectedId$={selectedId$} />);
+      expect(getRow()).toHaveAttribute('aria-pressed', 'true');
+    });
+  });
+
   describe('date group headers', () => {
     it('renders date group headers for conversations', () => {
       const now = Date.now() / 1000;
