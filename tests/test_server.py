@@ -830,3 +830,137 @@ def test_spa_fallback_api_returns_json(tmp_path: Path):
         # non-api path → SPA fallback serves index.html
         response = c.get("/some/deep/link")
         assert response.status_code == 200
+
+
+# --- Message edit (PATCH) and delete (DELETE) edge cases ---
+
+
+@pytest.fixture
+def conv_with_messages(client: FlaskClient):
+    """Create a conversation with a system message and a user message.
+
+    Returns (convname, user_msg_index) since the server prepends its own
+    system messages so the client-supplied messages don't start at index 0.
+    """
+    import random
+
+    convname = f"test-edit-{random.randint(0, 1000000)}"
+    response = client.put(
+        f"/api/v2/conversations/{convname}",
+        json={
+            "messages": [
+                {"role": "system", "content": "you are a test assistant"},
+                {"role": "user", "content": "hello world"},
+            ]
+        },
+    )
+    assert response.status_code == 200
+
+    # Discover the actual index of the first user message (server prepends
+    # its own system messages so the index is not always 0 or 1).
+    r = client.get(f"/api/v2/conversations/{convname}")
+    log = r.get_json().get("log", [])
+    user_idx = next(i for i, m in enumerate(log) if m["role"] == "user")
+    return convname, user_idx
+
+
+def test_api_v2_edit_message_nonexistent_conversation(client: FlaskClient):
+    """PATCH on a conversation that does not exist returns 404, not 500."""
+    response = client.patch(
+        "/api/v2/conversations/does-not-exist-xyz/messages/0",
+        json={"content": "updated"},
+    )
+    assert response.status_code == 404
+    data = response.get_json()
+    assert data is not None
+    assert "error" in data
+
+
+def test_api_v2_edit_message_out_of_range(conv_with_messages, client: FlaskClient):
+    """PATCH with an index beyond the message count returns 404."""
+    convname, _ = conv_with_messages
+    response = client.patch(
+        f"/api/v2/conversations/{convname}/messages/999",
+        json={"content": "updated"},
+    )
+    assert response.status_code == 404
+    data = response.get_json()
+    assert data is not None
+    assert "error" in data
+
+
+def test_api_v2_edit_message_no_content_no_truncate(
+    conv_with_messages, client: FlaskClient
+):
+    """PATCH with neither content nor truncate=1 returns 400."""
+    convname, user_idx = conv_with_messages
+    response = client.patch(
+        f"/api/v2/conversations/{convname}/messages/{user_idx}",
+        json={},
+    )
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data is not None
+    assert "error" in data
+
+
+def test_api_v2_edit_message_non_user_message(conv_with_messages, client: FlaskClient):
+    """PATCH to edit a system message (index 0) returns 400."""
+    convname, _ = conv_with_messages
+    response = client.patch(
+        f"/api/v2/conversations/{convname}/messages/0",
+        json={"content": "trying to edit system message"},
+    )
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data is not None
+    assert "error" in data
+
+
+def test_api_v2_edit_message_success(conv_with_messages, client: FlaskClient):
+    """PATCH editing a user message returns 200 with updated content."""
+    convname, user_idx = conv_with_messages
+    response = client.patch(
+        f"/api/v2/conversations/{convname}/messages/{user_idx}",
+        json={"content": "updated message content"},
+    )
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data is not None
+    # Response should contain the updated log
+    assert "log" in data
+
+
+def test_api_v2_delete_message_nonexistent_conversation(client: FlaskClient):
+    """DELETE on a conversation that does not exist returns 404, not 500."""
+    response = client.delete(
+        "/api/v2/conversations/does-not-exist-xyz/messages/0",
+    )
+    assert response.status_code == 404
+    data = response.get_json()
+    assert data is not None
+    assert "error" in data
+
+
+def test_api_v2_delete_message_out_of_range(conv_with_messages, client: FlaskClient):
+    """DELETE with an index beyond the message count returns 404."""
+    convname, _ = conv_with_messages
+    response = client.delete(
+        f"/api/v2/conversations/{convname}/messages/999",
+    )
+    assert response.status_code == 404
+    data = response.get_json()
+    assert data is not None
+    assert "error" in data
+
+
+def test_api_v2_delete_message_system_message(conv_with_messages, client: FlaskClient):
+    """DELETE of a system message (index 0) returns 400."""
+    convname, _ = conv_with_messages
+    response = client.delete(
+        f"/api/v2/conversations/{convname}/messages/0",
+    )
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data is not None
+    assert "error" in data
