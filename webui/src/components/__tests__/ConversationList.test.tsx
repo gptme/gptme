@@ -155,7 +155,10 @@ describe('ConversationList', () => {
       target: { value: 'alpha' },
     });
 
-    expect(screen.getByText('Alpha Project')).toBeInTheDocument();
+    // getByText can't find text split across <mark> nodes; use testid + textContent instead
+    const titles = screen.getAllByTestId('conversation-title');
+    expect(titles).toHaveLength(1);
+    expect(titles[0]).toHaveTextContent('Alpha Project');
     expect(screen.queryByText('Beta Notes')).not.toBeInTheDocument();
   });
 
