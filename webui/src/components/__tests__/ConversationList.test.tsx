@@ -221,6 +221,20 @@ describe('ConversationList', () => {
       renderWithProviders(<ConversationList {...defaultProps} selectedId$={selectedId$} />);
       expect(getRow()).toHaveAttribute('aria-pressed', 'true');
     });
+
+    it('does not select when Enter is pressed on a nested child element', () => {
+      renderWithProviders(<ConversationList {...defaultProps} />);
+      const title = screen.getByTestId('conversation-title');
+      fireEvent.keyDown(title, { key: 'Enter' });
+      expect(defaultProps.onSelect).not.toHaveBeenCalled();
+    });
+
+    it('does not select when Space is pressed on a nested child element', () => {
+      renderWithProviders(<ConversationList {...defaultProps} />);
+      const title = screen.getByTestId('conversation-title');
+      fireEvent.keyDown(title, { key: ' ' });
+      expect(defaultProps.onSelect).not.toHaveBeenCalled();
+    });
   });
 
   describe('date group headers', () => {
