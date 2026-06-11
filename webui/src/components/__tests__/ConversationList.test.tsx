@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { ConversationList } from '../ConversationList';
 import '@testing-library/jest-dom';
 import { observable } from '@legendapp/state';
@@ -268,6 +268,11 @@ describe('ConversationList', () => {
       fireEvent.click(screen.getByLabelText('Clear conversation search'));
 
       // Local state clears immediately
+      expect(screen.getByLabelText('Search conversations')).toHaveValue('');
+      expect(screen.getByText('Beta Notes')).toBeInTheDocument();
+
+      // Flush the 300ms debounce — verifies the URL param write fires and doesn't corrupt state
+      act(() => jest.runAllTimers());
       expect(screen.getByLabelText('Search conversations')).toHaveValue('');
       expect(screen.getByText('Beta Notes')).toBeInTheDocument();
 

@@ -165,8 +165,10 @@ export const ConversationList: FC<Props> = ({
   );
 
   // Sync URL → local state on browser back/forward (skip our own debounced writes).
+  // Cancel any pending debounced write so a navigation event can't overwrite the new URL.
   useEffect(() => {
     if (prevUrlSearchRef.current !== urlSearch) {
+      if (filterDebounceRef.current) clearTimeout(filterDebounceRef.current);
       prevUrlSearchRef.current = urlSearch;
       setFilterQuery(urlSearch);
     }
