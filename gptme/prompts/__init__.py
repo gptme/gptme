@@ -317,6 +317,7 @@ def get_prompt(
 
     # Combine core messages into one system prompt
     result = []
+    core_prompt: Message | None = None
     if core_msgs:
         core_prompt = _join_messages(core_msgs)
         result.append(core_prompt)
@@ -332,8 +333,10 @@ def get_prompt(
     # Insert an explicit static/dynamic boundary before context_cmd output.
     # This keeps the prompt structure stable and makes the cacheable prefix
     # visible to both humans and providers with block-level prompt caching.
+    boundary_added = False
     if dynamic_context_msgs and result:
         result.append(Message("system", SYSTEM_PROMPT_CACHE_BOUNDARY))
+        boundary_added = True
 
     # Dynamic context last (changes every session, least cacheable)
     result.extend(dynamic_context_msgs)
@@ -346,17 +349,16 @@ def get_prompt(
     for i, msg in enumerate(result):
         result[i] = msg.replace(hide=True, pinned=True)
 
-    # Per-section token stats (must happen after hide/pinned so counts
-    # reflect the actual prompt the model sees)
+    # Per-section token stats run after every prompt section is populated.
     if show_prompt_stats:
         effective_model = model or get_recommended_model("openai")
         _log_prompt_stats(
-            core_msgs=core_msgs,
+            core_prompt=core_prompt,
             agent_config_msgs=agent_config_msgs,
             workspace_msgs=workspace_msgs,
             dynamic_context_msgs=dynamic_context_msgs,
             chat_history_msgs=chat_history_msgs,
-            static_dynamic_boundary=bool(dynamic_context_msgs and result),
+            static_dynamic_boundary=boundary_added,
             model=effective_model,
         )
 
@@ -365,7 +367,7 @@ def get_prompt(
 
 def _log_prompt_stats(
     *,
-    core_msgs: list[Message],
+    core_prompt: Message | None,
     agent_config_msgs: list[Message],
     workspace_msgs: list[Message],
     dynamic_context_msgs: list[Message],
@@ -374,9 +376,9 @@ def _log_prompt_stats(
     model: str,
 ) -> None:
     """Log per-section token counts for the assembled system prompt."""
-    sections: list[tuple[str, list[Message]]] = [
-        ("Core (identity + tools)", core_msgs),
-    ]
+    sections: list[tuple[str, list[Message]]] = []
+    if core_prompt is not None:
+        sections.append(("Core (identity + tools)", [core_prompt]))
     if agent_config_msgs:
         sections.append(("Agent config", agent_config_msgs))
     if workspace_msgs:

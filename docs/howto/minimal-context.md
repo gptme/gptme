@@ -145,7 +145,7 @@ change for capable models.
 
 Profiles enforce tool subsets and add behavior guards.
 
-## What's not yet trimable
+## What's not yet trimmable
 
 The base prompt is assembled from four sections: `prompt_gptme` (core identity),
 `prompt_user`, `prompt_tools`, and `prompt_workspace` (AGENTS.md, context files).

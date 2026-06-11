@@ -1,11 +1,13 @@
+import logging
 import os
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from gptme.message import len_tokens
-from gptme.prompts import get_prompt
+from gptme.message import Message, len_tokens
+from gptme.prompts import _join_messages, get_prompt
 from gptme.tools import get_tools, init_tools
 
 
@@ -354,6 +356,71 @@ def test_dynamic_context_has_explicit_cache_boundary(tmp_path):
     assert boundary_idx is not None, "Should include cache-boundary marker"
     assert dynamic_idx is not None, "Should include context_cmd output"
     assert file_idx < boundary_idx < dynamic_idx
+
+
+def test_show_prompt_stats_counts_joined_core_prompt(caplog, monkeypatch):
+    """Core prompt stats should include join separators inserted at assembly time."""
+    import gptme.prompts as prompts
+
+    core_msgs = [
+        Message("system", "aaaa"),
+        Message("system", "bbbb"),
+        Message("system", "cccc"),
+    ]
+
+    monkeypatch.setattr(
+        prompts,
+        "prompt_gptme",
+        lambda interactive, model, agent_name, tool_format: core_msgs,
+    )
+    monkeypatch.setattr(prompts, "prompt_chat_history", lambda: [])
+
+    with caplog.at_level(logging.INFO, logger="gptme.prompts"):
+        get_prompt([], prompt="short", show_prompt_stats=True, model="gpt-4")
+
+    joined_tokens = len_tokens(_join_messages(core_msgs), "gpt-4")
+    split_tokens = len_tokens(core_msgs, "gpt-4")
+    assert joined_tokens > split_tokens
+
+    match = re.search(
+        r"Core \(identity \+ tools\)\s+(\d+)\s+",
+        caplog.text,
+    )
+    assert match is not None
+    assert int(match.group(1)) == joined_tokens
+
+
+def test_show_prompt_stats_only_reports_boundary_when_inserted(
+    caplog, monkeypatch, tmp_path
+):
+    """Boundary stats should match the actual assembled prompt."""
+    import gptme.prompts as prompts
+
+    workspace = tmp_path / "agent"
+    workspace.mkdir()
+    (workspace / "gptme.toml").write_text(
+        '[prompt]\ncontext_cmd = "echo DYNAMIC_ONLY"\n'
+    )
+
+    monkeypatch.setattr(
+        prompts,
+        "prompt_gptme",
+        lambda interactive, model, agent_name, tool_format: [],
+    )
+    monkeypatch.setattr(prompts, "prompt_workspace", lambda *args, **kwargs: [])
+    monkeypatch.setattr(prompts, "prompt_chat_history", lambda: [])
+
+    with caplog.at_level(logging.INFO, logger="gptme.prompts"):
+        msgs = get_prompt(
+            [],
+            prompt="short",
+            agent_path=workspace,
+            show_prompt_stats=True,
+            model="gpt-4",
+        )
+
+    assert all("System Prompt Cache Boundary" not in msg.content for msg in msgs)
+    assert "Static/dynamic boundary" not in caplog.text
 
 
 def test_prompt_workspace_sorts_glob_matches_deterministically(tmp_path, monkeypatch):
