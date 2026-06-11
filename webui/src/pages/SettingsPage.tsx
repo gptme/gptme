@@ -48,7 +48,16 @@ const SettingsPage: FC = () => {
   }, [externalRequest.open, externalRequest.category, handleCategoryChange]);
 
   return (
-    <div className="flex h-screen flex-col">
+    <div
+      className="flex h-screen flex-col"
+      tabIndex={-1}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.stopPropagation();
+          navigate(-1);
+        }
+      }}
+    >
       <MenuBar />
       <div className="flex min-h-0 flex-1">
         <SidebarIcons tasks={tasks} />
