@@ -13,6 +13,7 @@ import {
   BookOpen,
   Columns2,
   X,
+  Star,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,6 +38,7 @@ import {
   getExportableMessages,
 } from '@/utils/exportConversation';
 import { DeleteConversationConfirmationDialog } from './DeleteConversationConfirmationDialog';
+import { useStarredConversations } from '@/hooks/useStarredConversations';
 
 import type { MessageRole, ConversationSummary } from '@/types/conversation';
 import { type FC, useRef, useEffect, useState, useCallback } from 'react';
@@ -79,6 +81,9 @@ export const ConversationList: FC<Props> = ({
 }) => {
   const { api, isConnected$ } = useApi();
   const isConnected = use$(isConnected$);
+
+  const { isStarred, toggleStar } = useStarredConversations();
+  const [showStarredOnly, setShowStarredOnly] = useState(false);
 
   // Context menu state
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
@@ -295,8 +300,18 @@ export const ConversationList: FC<Props> = ({
 
   // Separate demo conversations from real ones
   const demoIds = new Set(demoConversations.map((d) => d.id));
-  const realConversations = conversations.filter((c) => !demoIds.has(c.id));
+  const allRealConversations = conversations.filter((c) => !demoIds.has(c.id));
   const demos = conversations.filter((c) => demoIds.has(c.id));
+
+  // Apply filter, then sort starred to top
+  const filteredConversations = showStarredOnly
+    ? allRealConversations.filter((c) => isStarred(c.id))
+    : allRealConversations;
+  const realConversations = [...filteredConversations].sort((a, b) => {
+    const aStarred = isStarred(a.id) ? 1 : 0;
+    const bStarred = isStarred(b.id) ? 1 : 0;
+    return bStarred - aStarred; // starred first
+  });
 
   // strip leading YYYY-MM-DD from name if present
   function stripDate(name: string) {
@@ -387,7 +402,7 @@ export const ConversationList: FC<Props> = ({
               role="button"
               tabIndex={0}
               aria-pressed={isSelected}
-              className={`cursor-pointer rounded-lg py-2 pl-2 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+              className={`group cursor-pointer rounded-lg py-2 pl-2 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
                 isSelected ? 'bg-accent' : ''
               }`}
               onClick={() => onSelect(conv.id, conv.serverId)}
@@ -421,6 +436,25 @@ export const ConversationList: FC<Props> = ({
                   />
                 ) : (
                   <div className="mb-1 flex items-center gap-2">
+                    {!isDemo && (
+                      <button
+                        className={`shrink-0 rounded p-0.5 transition-colors hover:text-yellow-500 focus:outline-none ${
+                          isStarred(conv.id)
+                            ? 'text-yellow-500 opacity-100'
+                            : 'text-muted-foreground opacity-0 group-hover:opacity-100'
+                        }`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleStar(conv.id);
+                        }}
+                        title={isStarred(conv.id) ? 'Unstar conversation' : 'Star conversation'}
+                      >
+                        <Star
+                          className="h-3 w-3"
+                          fill={isStarred(conv.id) ? 'currentColor' : 'none'}
+                        />
+                      </button>
+                    )}
                     <div
                       data-testid="conversation-title"
                       className="font-small min-w-0 flex-1 whitespace-nowrap"
@@ -662,6 +696,16 @@ export const ConversationList: FC<Props> = ({
           <ContextMenuItem
             onClick={(e) => {
               e.stopPropagation();
+              toggleStar(conv.id);
+            }}
+          >
+            <Star className="mr-2 h-4 w-4" fill={isStarred(conv.id) ? 'currentColor' : 'none'} />
+            {isStarred(conv.id) ? 'Unstar' : 'Star'}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            onClick={(e) => {
+              e.stopPropagation();
               handleStartRename(conv);
             }}
           >
@@ -786,6 +830,24 @@ export const ConversationList: FC<Props> = ({
       {!isLoading && !isError && hasNoFilteredMatches && (
         <div className="px-2 py-4 text-sm text-muted-foreground">
           No conversations match your search.
+        </div>
+      )}
+
+      {/* Star filter toggle */}
+      {!isLoading && !isError && allRealConversations.length > 0 && (
+        <div className="flex px-2 pb-1">
+          <button
+            className={`flex items-center gap-1 rounded px-2 py-0.5 text-xs transition-colors ${
+              showStarredOnly
+                ? 'bg-yellow-500/20 text-yellow-600 dark:text-yellow-400'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+            onClick={() => setShowStarredOnly((v) => !v)}
+            title={showStarredOnly ? 'Show all conversations' : 'Show starred only'}
+          >
+            <Star className="h-3 w-3" fill={showStarredOnly ? 'currentColor' : 'none'} />
+            {showStarredOnly ? 'Starred' : 'All'}
+          </button>
         </div>
       )}
 
