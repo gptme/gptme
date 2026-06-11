@@ -246,7 +246,7 @@ export const ConversationList: FC<Props> = ({
 
   function highlightText(text: string, query: string) {
     if (!query) return text;
-    const idx = text.toLowerCase().indexOf(query.toLowerCase());
+    const idx = text.toLowerCase().indexOf(query);
     if (idx === -1) return text;
     return (
       <>
