@@ -48,10 +48,15 @@ class ConversationListItem(BaseModel):
     workspace: str = Field(..., description="Workspace path")
     agent_name: str | None = Field(None, description="Agent name")
     agent_path: str | None = Field(None, description="Agent config path")
+    agent_avatar: str | None = Field(None, description="Agent avatar filename")
+    agent_urls: dict[str, str] | None = Field(
+        None, description="Agent URLs (e.g. web, api)"
+    )
     model: str | None = Field(None, description="Model name")
     total_cost: float = Field(0.0, description="Total cost")
     total_input_tokens: int = Field(0, description="Total input tokens")
     total_output_tokens: int = Field(0, description="Total output tokens")
+    total_cache_read_tokens: int = Field(0, description="Total cache read tokens")
     last_message_role: str | None = Field(
         None, description="Last message role (user/assistant/system)"
     )
