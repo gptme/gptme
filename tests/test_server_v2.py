@@ -1267,7 +1267,7 @@ def test_v2_conversations_list_exposes_message_count_and_last_updated(
         assert "message_count" in item
         assert "last_updated" in item
         assert isinstance(item["message_count"], int)
-        assert isinstance(item["last_updated"], (int, float))
+        assert isinstance(item["last_updated"], int | float)
         # Stable aliases mirror the legacy fields.
         assert item["message_count"] == item["messages"]
         assert item["last_updated"] == item["modified"]
