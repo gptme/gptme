@@ -474,21 +474,54 @@ export const ConversationList: FC<Props> = ({
                   </Tooltip>
 
                   {/* Token estimate from list summary (available when detail=True) */}
-                  {(() => {
-                    const summaryTokens =
-                      (conv.total_input_tokens ?? 0) +
-                      (conv.total_output_tokens ?? 0) +
-                      (conv.total_cache_read_tokens ?? 0) +
-                      (conv.total_cache_creation_tokens ?? 0);
-                    if (summaryTokens === 0) return null;
-                    return (
-                      <span className="flex items-center text-muted-foreground">
-                        <span className="text-[10px] text-muted-foreground/60">
-                          {formatTokens(summaryTokens)} tok
-                        </span>
-                      </span>
-                    );
-                  })()}
+                  <Computed>
+                    {() => {
+                      const storeConv = conversations$.get(conv.id)?.get();
+                      const isLoaded = storeConv?.data?.log?.length > 0;
+                      // Hide when cost badge shows (it already includes token count)
+                      if (isLoaded) return null;
+                      const summaryTokens =
+                        (conv.total_input_tokens ?? 0) +
+                        (conv.total_output_tokens ?? 0) +
+                        (conv.total_cache_read_tokens ?? 0) +
+                        (conv.total_cache_creation_tokens ?? 0);
+                      if (summaryTokens === 0) return null;
+                      return (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="flex items-center text-muted-foreground">
+                              <span className="text-[10px] text-muted-foreground/60">
+                                {formatTokens(summaryTokens)} tok
+                              </span>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <div className="space-y-1 text-xs">
+                              <div className="font-medium">Token estimate</div>
+                              {(conv.total_input_tokens ?? 0) > 0 && (
+                                <div>Input: {formatTokens(conv.total_input_tokens!)} tokens</div>
+                              )}
+                              {(conv.total_output_tokens ?? 0) > 0 && (
+                                <div>Output: {formatTokens(conv.total_output_tokens!)} tokens</div>
+                              )}
+                              {(conv.total_cache_read_tokens ?? 0) > 0 && (
+                                <div>
+                                  Cache read: {formatTokens(conv.total_cache_read_tokens!)} tokens
+                                </div>
+                              )}
+                              {(conv.total_cache_creation_tokens ?? 0) > 0 && (
+                                <div>
+                                  Cache create: {formatTokens(conv.total_cache_creation_tokens!)}{' '}
+                                  tokens
+                                </div>
+                              )}
+                              <div>Total: {formatTokens(summaryTokens)} tokens</div>
+                            </div>
+                          </TooltipContent>
+                        </Tooltip>
+                      );
+                    }}
+                  </Computed>
 
                   {/* Cost badge: show per-conversation total cost from loaded data */}
                   <Computed>
