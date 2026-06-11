@@ -266,6 +266,29 @@ export const ConversationList: FC<Props> = ({
     return () => window.removeEventListener('keydown', handleFilterShortcut);
   }, []);
 
+  useEffect(() => {
+    const handleSlashShortcut = (e: KeyboardEvent) => {
+      if (e.key !== '/' || e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
+      if (!filterInputRef.current) return;
+      // Don't steal '/' from other focused inputs/textareas/contenteditable
+      const active = document.activeElement;
+      if (
+        active instanceof HTMLInputElement ||
+        active instanceof HTMLTextAreaElement ||
+        active instanceof HTMLSelectElement ||
+        (active instanceof HTMLElement && active.isContentEditable)
+      ) {
+        return;
+      }
+      e.preventDefault();
+      filterInputRef.current.focus();
+      filterInputRef.current.select();
+    };
+
+    window.addEventListener('keydown', handleSlashShortcut);
+    return () => window.removeEventListener('keydown', handleSlashShortcut);
+  }, []);
+
   if (!conversations) {
     return null;
   }

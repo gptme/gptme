@@ -203,6 +203,30 @@ describe('ConversationList', () => {
     expect(searchInput).toHaveFocus();
   });
 
+  it('focuses the conversation search with /', () => {
+    renderWithProviders(<ConversationList {...defaultProps} />);
+    const searchInput = screen.getByLabelText('Search conversations');
+
+    fireEvent.keyDown(window, { key: '/' });
+
+    expect(searchInput).toHaveFocus();
+  });
+
+  it('does not focus search when / is pressed while an input is focused', () => {
+    renderWithProviders(<ConversationList {...defaultProps} />);
+    const searchInput = screen.getByLabelText('Search conversations');
+
+    // Focus the search input itself (simulates already-focused input)
+    searchInput.focus();
+    const wasFocused = document.activeElement === searchInput;
+
+    fireEvent.keyDown(window, { key: '/' });
+
+    // Input is still focused (not blurred/refocused), and was already focused before
+    expect(wasFocused).toBe(true);
+    expect(searchInput).toHaveFocus();
+  });
+
   it('shows end-of-list message when no more pages', () => {
     renderWithProviders(<ConversationList {...defaultProps} hasNextPage={false} />);
     expect(screen.getByText("You've reached the end of your conversations.")).toBeInTheDocument();
