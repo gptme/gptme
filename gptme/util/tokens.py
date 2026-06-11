@@ -12,7 +12,7 @@ if typing.TYPE_CHECKING:
 # Global cache mapping hashes to token counts
 _token_cache: dict[tuple[str, str], int] = {}
 
-_warned_models = set()
+_warned_models: set[str] = set()
 
 logger = logging.getLogger(__name__)
 
