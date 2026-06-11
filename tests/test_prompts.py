@@ -423,6 +423,54 @@ def test_show_prompt_stats_only_reports_boundary_when_inserted(
     assert "Static/dynamic boundary" not in caplog.text
 
 
+def test_show_prompt_stats_handles_empty_prompt_sections(caplog, monkeypatch):
+    """Stats logging should not crash when every prompt section is empty."""
+    import gptme.prompts as prompts
+
+    monkeypatch.setattr(
+        prompts,
+        "prompt_gptme",
+        lambda interactive, model, agent_name, tool_format: [],
+    )
+    monkeypatch.setattr(prompts, "prompt_chat_history", lambda: [])
+
+    with caplog.at_level(logging.INFO, logger="gptme.prompts"):
+        msgs = get_prompt([], prompt="short", show_prompt_stats=True, model="gpt-4")
+
+    assert msgs == []
+    assert "No prompt sections to report." in caplog.text
+
+
+def test_show_prompt_stats_includes_profile_prompt(caplog, monkeypatch):
+    """Profile prompt stats should match the extra system message appended by the CLI."""
+    import gptme.prompts as prompts
+
+    monkeypatch.setattr(
+        prompts,
+        "prompt_gptme",
+        lambda interactive, model, agent_name, tool_format: [],
+    )
+    monkeypatch.setattr(prompts, "prompt_chat_history", lambda: [])
+
+    profile_msg = Message("system", "# Agent Profile: isolated\n\nProfile guidance")
+
+    with caplog.at_level(logging.INFO, logger="gptme.prompts"):
+        msgs = get_prompt(
+            [],
+            prompt="short",
+            profile_prompt=profile_msg,
+            show_prompt_stats=True,
+            model="gpt-4",
+        )
+
+    assert msgs == [profile_msg.replace(hide=True, pinned=True)]
+    assert "Agent profile" in caplog.text
+
+    match = re.search(r"Agent profile\s+(\d+)\s+", caplog.text)
+    assert match is not None
+    assert int(match.group(1)) == len_tokens([profile_msg], "gpt-4")
+
+
 def test_prompt_workspace_sorts_glob_matches_deterministically(tmp_path, monkeypatch):
     """Glob matches should not depend on filesystem traversal order."""
     from gptme.prompts import prompt_workspace

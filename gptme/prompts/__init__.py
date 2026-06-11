@@ -121,6 +121,7 @@ def get_prompt(
     context_mode: ContextMode | None = None,
     context_include: list[str] | None = None,
     include_user_context: bool = True,
+    profile_prompt: Message | None = None,
     show_prompt_stats: bool = False,
 ) -> list[Message]:
     """
@@ -168,6 +169,7 @@ def get_prompt(
         context_include: Components to include in selective mode
         include_user_context: Whether to include user-level prompt files and
             agent instruction files from ~/.config/gptme
+        profile_prompt: Optional profile system prompt appended after chat history
 
     Returns a list of messages: [core_system_prompt, workspace_prompt, ...].
 
@@ -345,6 +347,9 @@ def get_prompt(
     chat_history_msgs = list(prompt_chat_history())
     result.extend(chat_history_msgs)
 
+    if profile_prompt is not None:
+        result.append(profile_prompt)
+
     # Set hide=True, pinned=True for all messages
     for i, msg in enumerate(result):
         result[i] = msg.replace(hide=True, pinned=True)
@@ -358,6 +363,7 @@ def get_prompt(
             workspace_msgs=workspace_msgs,
             dynamic_context_msgs=dynamic_context_msgs,
             chat_history_msgs=chat_history_msgs,
+            profile_prompt=profile_prompt,
             static_dynamic_boundary=boundary_added,
             model=effective_model,
         )
@@ -372,6 +378,7 @@ def _log_prompt_stats(
     workspace_msgs: list[Message],
     dynamic_context_msgs: list[Message],
     chat_history_msgs: list[Message],
+    profile_prompt: Message | None,
     static_dynamic_boundary: bool,
     model: str,
 ) -> None:
@@ -395,6 +402,8 @@ def _log_prompt_stats(
         sections.append(("Dynamic context (context_cmd)", dynamic_context_msgs))
     if chat_history_msgs:
         sections.append(("Chat history", chat_history_msgs))
+    if profile_prompt is not None:
+        sections.append(("Agent profile", [profile_prompt]))
 
     # Count per section
     rows: list[tuple[str, int, float]] = []
@@ -403,6 +412,10 @@ def _log_prompt_stats(
         tokens = len_tokens(msgs, model) if msgs else 0
         total += tokens
         rows.append((name, tokens, 0.0))
+
+    if not rows:
+        logger.info("No prompt sections to report.")
+        return
 
     # Compute percentages
     if total > 0:

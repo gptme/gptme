@@ -899,6 +899,13 @@ def main(
         )
         sys.exit(1)
 
+    profile_msg = None
+    if selected_profile and selected_profile.system_prompt:
+        profile_msg = Message(
+            "system",
+            f"# Agent Profile: {selected_profile.name}\n\n{selected_profile.system_prompt}",
+        )
+
     if is_existing_conversation:
         logger.debug("Existing conversation found, skipping initial prompt generation")
         initial_msgs = []
@@ -921,16 +928,9 @@ def main(
             context_include=[item for val in context_include for item in val.split(",")]
             if context_include
             else None,
+            profile_prompt=profile_msg,
             show_prompt_stats=show_prompt_stats,
         )
-
-    # Append profile system prompt if using a profile
-    if selected_profile and selected_profile.system_prompt:
-        profile_msg = Message(
-            "system",
-            f"# Agent Profile: {selected_profile.name}\n\n{selected_profile.system_prompt}",
-        )
-        initial_msgs.append(profile_msg)
 
     # register a handler for Ctrl-C
     set_interruptible()  # prepare, user should be able to Ctrl+C until user prompt ready
