@@ -27,7 +27,7 @@ test.describe('Keyboard Navigation', () => {
 
     await page.keyboard.press('?');
     await expect(dialog).toBeVisible({ timeout: 3000 });
-    await expect(dialog.getByText(/command palette/i)).toBeVisible();
+    await expect(dialog.getByText('Open command palette')).toBeVisible();
 
     await page.keyboard.press('Escape');
     await expect(dialog).not.toBeVisible({ timeout: 3000 });
@@ -39,10 +39,6 @@ test.describe('Keyboard Navigation', () => {
       .locator('[role="button"][tabindex="0"]')
       .first();
     await expect(firstRow).toBeVisible({ timeout: 5000 });
-
-    // The row must be in the tab order
-    expect(await firstRow.getAttribute('tabindex')).toBe('0');
-    expect(await firstRow.getAttribute('role')).toBe('button');
 
     // Focus and activate via keyboard
     await firstRow.focus();
@@ -67,7 +63,7 @@ test.describe('Keyboard Navigation', () => {
       const outsideFocus = await page.evaluate(() => {
         const active = document.activeElement;
         const dlg = document.querySelector('[role="dialog"]');
-        return dlg ? !dlg.contains(active) : false;
+        return dlg ? !dlg.contains(active) : true;
       });
       expect(outsideFocus).toBe(false);
     }
