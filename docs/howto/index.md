@@ -6,12 +6,16 @@ Each guide gives you a copy-pasteable pattern you can adapt immediately.
 ```{toctree}
 :maxdepth: 1
 
+minimal-context
 edit-files
 code-review
 debug-python
 automate-task
 refactor
 ```
+
+## Minimal Context
+[Run gptme with minimal context](minimal-context.md) — measure and trim prompt sections for cheaper, tighter specialized runs.
 
 ## File Editing
 [Edit files surgically](edit-files.md) — patch, save, and inspect without rewriting whole files.

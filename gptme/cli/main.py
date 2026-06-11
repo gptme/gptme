@@ -9,6 +9,7 @@ import shlex
 import shutil
 import signal
 import sys
+import tempfile
 import traceback
 from datetime import datetime, timezone
 from itertools import islice
@@ -41,7 +42,13 @@ from ..logmanager import (
 )
 from ..message import Message
 from ..profiles import get_profile
-from ..prompts import ContextMode, get_prompt
+from ..prompts import (
+    ContextMode,
+    PromptSectionStat,
+    format_prompt_stats,
+    get_prompt,
+    get_prompt_stats,
+)
 from ..telemetry import init_telemetry, shutdown_telemetry
 from ..tools import ToolFormat, get_available_tools, init_tools
 from ..util import epoch_to_age
@@ -49,6 +56,7 @@ from ..util.auto_naming import generate_conversation_id
 from ..util.context import md_codeblock
 from ..util.interrupt import handle_keyboard_interrupt, set_interruptible
 from ..util.prompt import add_history
+from ..util.tokens import len_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -420,6 +428,11 @@ Run 'gptme-util --help' for all utility commands."""
     help="Show hidden system messages.",
 )
 @click.option(
+    "--show-prompt-stats",
+    is_flag=True,
+    help="Show startup system-prompt token stats for the current configuration and exit.",
+)
+@click.option(
     "-v",
     "--verbose",
     is_flag=True,
@@ -510,6 +523,7 @@ def main(
     non_interactive: bool,
     output_format: str,
     show_hidden: bool,
+    show_prompt_stats: bool,
     version: bool,
     version_json: bool,
     resume: bool,
@@ -774,6 +788,81 @@ def main(
             )
         return prompt_msgs
 
+    if show_prompt_stats:
+        stats_root = Path(tempfile.mkdtemp(prefix="gptme-prompt-stats-"))
+        try:
+            stats_logdir = stats_root / "log"
+            if workspace == "@log":
+                stats_workspace_path = stats_logdir / "workspace"
+                stats_workspace_path.mkdir(parents=True, exist_ok=True)
+            else:
+                stats_workspace_path = Path(workspace) if workspace else Path.cwd()
+
+            try:
+                config = setup_config_from_cli(
+                    workspace=stats_workspace_path,
+                    logdir=stats_logdir,
+                    model=model,
+                    tool_allowlist=tool_allowlist_str,
+                    tool_format=tool_format,
+                    stream=stream,
+                    interactive=interactive,
+                    agent_path=Path(agent_path) if agent_path else None,
+                )
+            except ValueError as e:
+                raise click.UsageError(str(e)) from e
+            assert config.chat and config.chat.tool_format
+
+            logger.debug(f"Using tools: {config.chat.tools}")
+            try:
+                tools = init_tools(config.chat.tools)
+            except ValueError as e:
+                raise click.UsageError(str(e)) from e
+
+            stats_context_mode: ContextMode | None = (
+                "selective" if context_include else None
+            )
+            stats = get_prompt_stats(
+                tools=tools,
+                prompt=prompt_system,
+                interactive=config.chat.interactive,
+                tool_format=config.chat.tool_format,
+                model=config.chat.model,
+                workspace=stats_workspace_path,
+                agent_path=config.chat.agent,
+                context_mode=stats_context_mode,
+                context_include=[
+                    item for val in context_include for item in val.split(",")
+                ]
+                if context_include
+                else None,
+            )
+            extra_sections: list[PromptSectionStat] = []
+            if selected_profile and selected_profile.system_prompt:
+                profile_msg = Message(
+                    "system",
+                    f"# Agent Profile: {selected_profile.name}\n\n{selected_profile.system_prompt}",
+                )
+                extra_sections.append(
+                    PromptSectionStat(
+                        name="agent_profile",
+                        messages=1,
+                        chars=len(profile_msg.content),
+                        tokens=len_tokens(profile_msg, config.chat.model or "gpt-4"),
+                    )
+                )
+            header = (
+                "System prompt stats"
+                f" (prompt={prompt_system}, tool_format={config.chat.tool_format}, "
+                f"tools={len(tools)}, interactive={config.chat.interactive})"
+            )
+            click.echo(
+                format_prompt_stats(stats, header=header, extra_sections=extra_sections)
+            )
+            return
+        finally:
+            shutil.rmtree(stats_root, ignore_errors=True)
+
     logdir_preexisting = True
 
     if resume:
@@ -823,7 +912,7 @@ def main(
             )
 
     if workspace == "@log":
-        workspace_path: Path | None = logdir / "workspace"
+        workspace_path = logdir / "workspace"
         assert workspace_path  # mypy not smart enough to see its not None
         workspace_path.mkdir(parents=True, exist_ok=True)
     else:
@@ -845,15 +934,6 @@ def main(
         raise click.UsageError(str(e)) from e
     assert config.chat and config.chat.tool_format
 
-    # init telemetry with agent name and interactive mode
-    agent_config = config.chat.agent_config
-    agent_name = agent_config.name if agent_config else None
-    init_telemetry(
-        service_name="gptme-cli",
-        agent_name=agent_name,
-        interactive=interactive,
-    )
-
     # early init tools to generate system prompt
     # We pass the tool_allowlist CLI argument. If it's not provided, init_tools
     # will load it from the environment variable TOOL_ALLOWLIST or the chat config.
@@ -862,6 +942,15 @@ def main(
         tools = init_tools(config.chat.tools)
     except ValueError as e:
         raise click.UsageError(str(e)) from e
+
+    # init telemetry with agent name and interactive mode
+    agent_config = config.chat.agent_config
+    agent_name = agent_config.name if agent_config else None
+    init_telemetry(
+        service_name="gptme-cli",
+        agent_name=agent_name,
+        interactive=interactive,
+    )
 
     # Check if we're opening an existing conversation (via --resume, --name, or pick)
     # If so, skip generating initial messages (including expensive context_cmd)

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from gptme.message import len_tokens
-from gptme.prompts import get_prompt
+from gptme.prompts import format_prompt_stats, get_prompt, get_prompt_stats
 from gptme.tools import get_tools, init_tools
 
 
@@ -93,6 +93,57 @@ def test_get_prompt_selective_components():
     # Full mode should have more content
     full_mode = get_prompt(get_tools(), prompt="full", context_mode="full")
     assert len(full_mode) >= len(empty_selective)
+
+
+def test_get_prompt_stats_breaks_out_sections():
+    stats = get_prompt_stats(
+        get_tools(),
+        prompt="full",
+        context_mode="selective",
+        context_include=[],
+    )
+
+    names = [section.name for section in stats.sections]
+    assert "prompt_gptme" in names
+    assert "prompt_tools" in names
+    assert "prompt_project" in names
+    assert stats.total_tokens == sum(section.tokens for section in stats.sections)
+    assert stats.cacheable_tokens >= stats.dynamic_tokens
+
+
+def test_get_prompt_stats_includes_workspace_and_dynamic_context(tmp_path):
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    (workspace / "README.md").write_text("# Prompt Stats")
+    (workspace / "gptme.toml").write_text(
+        '[prompt]\nfiles = ["README.md"]\ncontext_cmd = "echo DYNAMIC_STATS_MARKER"\n'
+    )
+
+    stats = get_prompt_stats(
+        get_tools(),
+        prompt="full",
+        workspace=workspace,
+    )
+
+    by_name = {section.name: section for section in stats.sections}
+    assert by_name["prompt_workspace"].tokens > 0
+    assert by_name["prompt_context_cmd_project"].tokens > 0
+    assert stats.dynamic_tokens >= by_name["prompt_context_cmd_project"].tokens
+
+
+def test_format_prompt_stats_outputs_summary_table():
+    stats = get_prompt_stats(
+        get_tools(),
+        prompt="short",
+        context_mode="selective",
+        context_include=[],
+    )
+
+    rendered = format_prompt_stats(stats, header="Prompt stats")
+    assert "Prompt stats" in rendered
+    assert "section" in rendered
+    assert "prompt_gptme" in rendered
+    assert "total" in rendered
 
 
 def test_prompt_systeminfo_uses_workspace(tmp_path):

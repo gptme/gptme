@@ -6,6 +6,8 @@ import threading
 import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
+from typing import Any
 
 import click
 import pytest
@@ -87,6 +89,63 @@ def test_version(runner: CliRunner):
     result = runner.invoke(cli.main, ["--version"])
     assert result.exit_code == 0
     assert "gptme" in result.output
+
+
+def test_show_prompt_stats_exits_before_chat(monkeypatch, tmp_path: Path, runner):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=["shell", "read"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            agent=None,
+        ),
+        project=None,
+    )
+    seen: dict[str, Any] = {}
+
+    monkeypatch.setattr(cli, "setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr(cli, "init_tools", lambda _: [])
+    monkeypatch.setattr(
+        cli,
+        "get_prompt_stats",
+        lambda **kwargs: (
+            seen.update(kwargs=kwargs)
+            or SimpleNamespace(
+                sections=[],
+                total_messages=0,
+                total_chars=0,
+                total_tokens=0,
+                cacheable_tokens=0,
+                dynamic_tokens=0,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        cli,
+        "format_prompt_stats",
+        lambda stats, header=None, extra_sections=None: "prompt-stats-output",
+    )
+    monkeypatch.setattr(cli, "chat", lambda *args, **kwargs: pytest.fail("chat ran"))
+    monkeypatch.setattr(
+        cli,
+        "init_telemetry",
+        lambda **kwargs: pytest.fail("telemetry should not start for prompt stats"),
+    )
+
+    result = runner.invoke(cli.main, ["--show-prompt-stats"], input="")
+
+    assert result.exit_code == 0
+    assert "prompt-stats-output" in result.output
+    assert seen["kwargs"]["workspace"] is not None
+    assert seen["kwargs"]["model"] == "local/test"
 
 
 @pytest.mark.skipif(os.name == "nt", reason="SIGALRM-based pipe guard is POSIX-only")

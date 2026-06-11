@@ -7,6 +7,7 @@ When prompting, it is important to provide clear instructions and avoid any ambi
 
 import logging
 from contextvars import ContextVar
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
@@ -15,6 +16,7 @@ from ..llm.models import get_recommended_model
 from ..message import Message
 from ..tools import ToolFormat, ToolSpec, get_available_tools
 from ..util import document_prompt_function
+from ..util.tokens import len_tokens
 
 # Agent instruction files — always loaded (layered: user-level + project-level)
 # These are the standard filenames used across different AI coding tools.
@@ -65,6 +67,24 @@ Static bootstrap content ends above. Session-volatile context starts below.
 ContextMode = Literal["full", "selective"]
 
 
+@dataclass(frozen=True)
+class PromptSectionStat:
+    name: str
+    messages: int
+    chars: int
+    tokens: int
+
+
+@dataclass(frozen=True)
+class PromptStats:
+    sections: list[PromptSectionStat]
+    total_messages: int
+    total_chars: int
+    total_tokens: int
+    cacheable_tokens: int
+    dynamic_tokens: int
+
+
 def _join_messages(msgs: list[Message]) -> Message:
     """Combine several system prompt messages into one."""
     role = msgs[0].role if msgs else "system"
@@ -84,6 +104,323 @@ def _xml_section(tag: str, content: str) -> str:
     Only use xml_escape() on leaf text that should not contain markup.
     """
     return f"<{tag}>\n{content.strip()}\n</{tag}>"
+
+
+def _build_core_prompt_sections(
+    *,
+    prompt: PromptType | str,
+    interactive: bool,
+    model: str | None,
+    agent_name: str | None,
+    tool_format: ToolFormat,
+    tools: list[ToolSpec],
+    workspace: Path | None,
+    include_tools: bool,
+    is_selective: bool,
+) -> list[tuple[str, list[Message]]]:
+    """Build named core prompt sections in display order."""
+    sections: list[tuple[str, list[Message]]] = []
+
+    def add(name: str, msgs: list[Message]) -> None:
+        if msgs:
+            sections.append((name, msgs))
+
+    if is_selective and not include_tools:
+        add(
+            "prompt_gptme",
+            list(prompt_gptme(interactive, model, agent_name, tool_format=tool_format)),
+        )
+        return sections
+
+    if prompt == "full":
+        add(
+            "prompt_gptme",
+            list(prompt_gptme(interactive, model, agent_name, tool_format=tool_format)),
+        )
+        if include_tools:
+            add(
+                "prompt_tools",
+                list(prompt_tools(tools=tools, tool_format=tool_format, model=model)),
+            )
+        if interactive:
+            add("prompt_user", list(prompt_user(tool_format=tool_format)))
+        add("prompt_project", list(prompt_project(tool_format=tool_format)))
+        add(
+            "prompt_systeminfo",
+            list(prompt_systeminfo(workspace, tool_format=tool_format)),
+        )
+        add("prompt_timeinfo", list(prompt_timeinfo(tool_format=tool_format)))
+        if include_tools:
+            add(
+                "prompt_skills_summary",
+                list(prompt_skills_summary(tool_format=tool_format)),
+            )
+        return sections
+
+    if prompt == "short":
+        add(
+            "prompt_gptme",
+            list(
+                prompt_gptme(
+                    interactive,
+                    model,
+                    agent_name=agent_name,
+                    tool_format=tool_format,
+                    compact=True,
+                )
+            ),
+        )
+        if include_tools:
+            add(
+                "prompt_tools",
+                list(
+                    prompt_tools(
+                        examples=False,
+                        tools=tools,
+                        tool_format=tool_format,
+                        model=model,
+                    )
+                ),
+            )
+        if interactive:
+            add("prompt_user", list(prompt_user(tool_format=tool_format)))
+        add("prompt_project", list(prompt_project(tool_format=tool_format)))
+        return sections
+
+    add("custom_prompt", [Message("system", prompt)])
+    if include_tools:
+        add(
+            "prompt_tools",
+            list(prompt_tools(tools=tools, tool_format=tool_format, model=model)),
+        )
+    return sections
+
+
+def _build_prompt_sections(
+    *,
+    tools: list[ToolSpec],
+    tool_format: ToolFormat,
+    prompt: PromptType | str,
+    interactive: bool,
+    model: str | None,
+    workspace: Path | None,
+    agent_path: Path | None,
+    context_mode: ContextMode | None,
+    context_include: list[str] | None,
+    include_user_context: bool,
+) -> tuple[
+    list[tuple[str, list[Message]]],
+    list[tuple[str, list[Message]]],
+    list[tuple[str, list[Message]]],
+]:
+    """Build named prompt sections for core, cacheable workspace, and dynamic parts."""
+    agent_config = get_project_config(agent_path)
+    agent_name = (
+        agent_config.agent.name if agent_config and agent_config.agent else None
+    )
+
+    effective_mode = context_mode or "full"
+    include_set = set(context_include or [])
+    if "all" in include_set:
+        include_set.update(("files", "cmd"))
+    include_set.discard("agent")
+    include_set.discard("agent-config")
+    is_selective = effective_mode == "selective"
+    include_tools = bool(tools)
+    include_workspace = effective_mode == "full" or (
+        is_selective and "files" in include_set
+    )
+    include_agent_config = bool(agent_path)
+    include_context_cmd = effective_mode == "full" or (
+        is_selective and "cmd" in include_set
+    )
+
+    core_sections = _build_core_prompt_sections(
+        prompt=prompt,
+        interactive=interactive,
+        model=model,
+        agent_name=agent_name,
+        tool_format=tool_format,
+        tools=tools,
+        workspace=workspace,
+        include_tools=include_tools,
+        is_selective=is_selective,
+    )
+
+    cacheable_sections: list[tuple[str, list[Message]]] = []
+    if include_agent_config:
+        cacheable_sections.append(
+            (
+                "prompt_agent_workspace",
+                list(
+                    prompt_workspace(
+                        agent_path,
+                        title="Agent Config",
+                        include_path=True,
+                        include_context_cmd=False,
+                        include_user_context=include_user_context,
+                    )
+                ),
+            )
+        )
+    if include_workspace and workspace and workspace != agent_path:
+        cacheable_sections.append(
+            (
+                "prompt_workspace",
+                list(
+                    prompt_workspace(
+                        workspace,
+                        include_context_cmd=False,
+                        include_user_context=include_user_context,
+                    )
+                ),
+            )
+        )
+
+    dynamic_sections: list[tuple[str, list[Message]]] = []
+    if include_context_cmd:
+        for ws, title, section_name in [
+            (
+                agent_path if include_agent_config else None,
+                "Agent",
+                "prompt_context_cmd_agent",
+            ),
+            (
+                workspace if include_workspace and workspace != agent_path else None,
+                "Project",
+                "prompt_context_cmd_project",
+            ),
+        ]:
+            if ws is None:
+                continue
+            ws_project = get_project_config(ws)
+            if (
+                ws_project
+                and ws_project.context_cmd
+                and (
+                    cmd_output := get_project_context_cmd_output(
+                        ws_project.context_cmd, ws
+                    )
+                )
+            ):
+                dynamic_sections.append(
+                    (
+                        section_name,
+                        [
+                            Message(
+                                "system",
+                                f"## {title} computed context\n\n" + cmd_output,
+                            )
+                        ],
+                    )
+                )
+
+    chat_history_msgs = list(prompt_chat_history())
+    if chat_history_msgs:
+        dynamic_sections.append(("prompt_chat_history", chat_history_msgs))
+
+    return core_sections, cacheable_sections, dynamic_sections
+
+
+def _section_stat(
+    name: str, msgs: list[Message], model: str | None
+) -> PromptSectionStat:
+    token_model = model or "gpt-4"
+    return PromptSectionStat(
+        name=name,
+        messages=len(msgs),
+        chars=sum(len(msg.content) for msg in msgs),
+        tokens=len_tokens(msgs, token_model),
+    )
+
+
+def get_prompt_stats(
+    tools: list[ToolSpec],
+    tool_format: ToolFormat = "markdown",
+    prompt: PromptType | str = "full",
+    interactive: bool = True,
+    model: str | None = None,
+    workspace: Path | None = None,
+    agent_path: Path | None = None,
+    context_mode: ContextMode | None = None,
+    context_include: list[str] | None = None,
+    include_user_context: bool = True,
+) -> PromptStats:
+    """Return token statistics for each startup prompt section."""
+    core_sections, cacheable_sections, dynamic_sections = _build_prompt_sections(
+        tools=tools,
+        tool_format=tool_format,
+        prompt=prompt,
+        interactive=interactive,
+        model=model,
+        workspace=workspace,
+        agent_path=agent_path,
+        context_mode=context_mode,
+        context_include=context_include,
+        include_user_context=include_user_context,
+    )
+
+    stats = [
+        _section_stat(name, msgs, model)
+        for name, msgs in (*core_sections, *cacheable_sections, *dynamic_sections)
+    ]
+    total_messages = sum(stat.messages for stat in stats)
+    total_chars = sum(stat.chars for stat in stats)
+    total_tokens = sum(stat.tokens for stat in stats)
+    cacheable_tokens = sum(
+        _section_stat(name, msgs, model).tokens
+        for name, msgs in (*core_sections, *cacheable_sections)
+    )
+    dynamic_tokens = sum(
+        _section_stat(name, msgs, model).tokens for name, msgs in dynamic_sections
+    )
+    return PromptStats(
+        sections=stats,
+        total_messages=total_messages,
+        total_chars=total_chars,
+        total_tokens=total_tokens,
+        cacheable_tokens=cacheable_tokens,
+        dynamic_tokens=dynamic_tokens,
+    )
+
+
+def format_prompt_stats(
+    stats: PromptStats,
+    *,
+    header: str | None = None,
+    extra_sections: list[PromptSectionStat] | None = None,
+) -> str:
+    """Format prompt stats as a compact plain-text table."""
+    sections = list(stats.sections)
+    if extra_sections:
+        sections.extend(extra_sections)
+
+    total_messages = sum(section.messages for section in sections)
+    total_chars = sum(section.chars for section in sections)
+    total_tokens = sum(section.tokens for section in sections)
+    cacheable_tokens = stats.cacheable_tokens + sum(
+        section.tokens for section in (extra_sections or [])
+    )
+
+    name_width = max(
+        len("section"), *(len(section.name) for section in sections), len("total")
+    )
+    lines = []
+    if header:
+        lines.append(header)
+    lines.append(f"{'section':<{name_width}}  {'msgs':>4}  {'chars':>8}  {'tokens':>8}")
+    lines.extend(
+        [
+            f"{section.name:<{name_width}}  {section.messages:>4}  {section.chars:>8}  {section.tokens:>8}"
+            for section in sections
+        ]
+    )
+    lines.append(
+        f"{'total':<{name_width}}  {total_messages:>4}  {total_chars:>8}  {total_tokens:>8}"
+    )
+    lines.append(f"cacheable_tokens: {cacheable_tokens}")
+    lines.append(f"dynamic_tokens:   {total_tokens - cacheable_tokens}")
+    return "\n".join(lines)
 
 
 # Sub-module imports for orchestration
@@ -169,171 +506,37 @@ def get_prompt(
 
     Returns a list of messages: [core_system_prompt, workspace_prompt, ...].
     """
-    agent_config = get_project_config(agent_path)
-    agent_name = (
-        agent_config.agent.name if agent_config and agent_config.agent else None
+    core_sections, cacheable_sections, dynamic_sections = _build_prompt_sections(
+        tools=tools,
+        tool_format=tool_format,
+        prompt=prompt,
+        interactive=interactive,
+        model=model,
+        workspace=workspace,
+        agent_path=agent_path,
+        context_mode=context_mode,
+        context_include=context_include,
+        include_user_context=include_user_context,
     )
 
-    # Default context_mode to "full" if not specified
-    effective_mode = context_mode or "full"
-    include_set = set(context_include or [])
-
-    # Determine what to include based on context_mode
-    # Expand aliases
-    if "all" in include_set:
-        include_set.update(("files", "cmd"))
-    # Legacy: "agent" in context_include is ignored (agent-path is now always loaded)
-    include_set.discard("agent")
-    include_set.discard("agent-config")
-    is_selective = effective_mode == "selective"
-    # Tools are always included when they're loaded — no need to opt-in via --context-include
-    include_tools = bool(tools)
-    include_workspace = effective_mode == "full" or (
-        is_selective and "files" in include_set
-    )
-    # Agent workspace is always loaded when --agent-path is provided
-    include_agent_config = bool(agent_path)
-    include_context_cmd = effective_mode == "full" or (
-        is_selective and "cmd" in include_set
-    )
-
-    # Generate core system messages (without workspace context)
-    core_msgs: list[Message]
-    if is_selective and not include_tools:
-        # Selective mode with no tools loaded: base prompt only
-        core_msgs = list(
-            prompt_gptme(interactive, model, agent_name, tool_format=tool_format)
-        )
-    elif prompt == "full":
-        if include_tools:
-            core_msgs = list(
-                prompt_full(
-                    interactive,
-                    tools,
-                    tool_format,
-                    model,
-                    agent_name=agent_name,
-                    workspace=workspace,
-                )
-            )
-        else:
-            # Full mode without tools
-            # Note: skills summary is intentionally excluded here since skills
-            # require tool access (e.g., `cat <path>`) to load on-demand
-            core_msgs = list(
-                prompt_gptme(interactive, model, agent_name, tool_format=tool_format)
-            )
-            if interactive:
-                core_msgs.extend(prompt_user(tool_format=tool_format))
-            core_msgs.extend(prompt_project(tool_format=tool_format))
-            core_msgs.extend(prompt_systeminfo(workspace, tool_format=tool_format))
-            core_msgs.extend(prompt_timeinfo(tool_format=tool_format))
-    elif prompt == "short":
-        if include_tools:
-            core_msgs = list(
-                prompt_short(
-                    interactive,
-                    tools,
-                    tool_format,
-                    model=model,
-                    agent_name=agent_name,
-                )
-            )
-        else:
-            core_msgs = list(
-                prompt_gptme(interactive, model, agent_name, tool_format=tool_format)
-            )
-    else:
-        core_msgs = [Message("system", prompt)]
-        if tools and include_tools:
-            core_msgs.extend(
-                prompt_tools(tools=tools, tool_format=tool_format, model=model)
-            )
-
-    # Generate workspace messages separately (if included)
-    # Always exclude context_cmd here — it's collected separately below
-    # for better prompt caching (static/semi-static content first, dynamic last).
-    workspace_msgs = (
-        list(
-            prompt_workspace(
-                workspace,
-                include_context_cmd=False,
-                include_user_context=include_user_context,
-            )
-        )
-        if include_workspace and workspace and workspace != agent_path
-        else []
-    )
-
-    # Agent config workspace (separate from project, only with --agent-path)
-    agent_config_msgs = (
-        list(
-            prompt_workspace(
-                agent_path,
-                title="Agent Config",
-                include_path=True,
-                include_context_cmd=False,
-                include_user_context=include_user_context,
-            )
-        )
-        if include_agent_config
-        else []
-    )
-
-    # Collect dynamic context_cmd outputs separately.
-    # By placing these after all static/semi-static content, we maximize the
-    # prompt prefix that can be cached across conversation starts (core prompt,
-    # workspace files, agent config rarely change; context_cmd changes every session).
-    dynamic_context_msgs: list[Message] = []
-    if include_context_cmd:
-        for ws, title in [
-            (agent_path if include_agent_config else None, "Agent"),
-            (
-                workspace if include_workspace and workspace != agent_path else None,
-                "Project",
-            ),
-        ]:
-            if ws is None:
-                continue
-            ws_project = get_project_config(ws)
-            if (
-                ws_project
-                and ws_project.context_cmd
-                and (
-                    cmd_output := get_project_context_cmd_output(
-                        ws_project.context_cmd, ws
-                    )
-                )
-            ):
-                dynamic_context_msgs.append(
-                    Message("system", f"## {title} computed context\n\n" + cmd_output)
-                )
-
-    # Combine core messages into one system prompt
+    core_msgs = [msg for _, msgs in core_sections for msg in msgs]
     result = []
     if core_msgs:
         core_prompt = _join_messages(core_msgs)
         result.append(core_prompt)
 
-    # Add agent config messages separately (if included)
-    if include_agent_config:
-        result.extend(agent_config_msgs)
-
-    # Add workspace messages separately (if included)
-    if include_workspace:
-        result.extend(workspace_msgs)
+    for _, msgs in cacheable_sections:
+        result.extend(msgs)
 
     # Insert an explicit static/dynamic boundary before context_cmd output.
     # This keeps the prompt structure stable and makes the cacheable prefix
     # visible to both humans and providers with block-level prompt caching.
-    if dynamic_context_msgs and result:
+    if dynamic_sections and result:
         result.append(Message("system", SYSTEM_PROMPT_CACHE_BOUNDARY))
 
     # Dynamic context last (changes every session, least cacheable)
-    result.extend(dynamic_context_msgs)
-
-    # Chat history (also dynamic)
-    result.extend(prompt_chat_history())
+    for _, msgs in dynamic_sections:
+        result.extend(msgs)
 
     # Set hide=True, pinned=True for all messages
     for i, msg in enumerate(result):
@@ -366,12 +569,16 @@ __all__ = [
     "ContextMode",
     "DEFAULT_CONTEXT_FILES",
     "PromptType",
+    "PromptSectionStat",
+    "PromptStats",
     "_loaded_agent_files_var",
     "_truncate_context_output",
     "_xml_section",
     "find_agent_files_in_tree",
+    "format_prompt_stats",
     "get_project_context_cmd_output",
     "get_prompt",
+    "get_prompt_stats",
     "prompt_chat_history",
     "prompt_full",
     "prompt_gptme",
