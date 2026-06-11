@@ -1256,14 +1256,22 @@ def test_v2_conversations_list_exposes_message_count_and_last_updated(
     cheap tail-only scan and are stable aliases for the legacy ``messages``
     and ``modified`` fields.
     """
+    # Create a conversation with a non-test prefix so it isn't filtered out
+    # by the user-facing list endpoint (which skips ``test-`` and ``tmp`` prefixes).
+    convname = f"msglist-shape-{random.randint(0, 1000000)}"
+    put_response = client.put(
+        f"/api/v2/conversations/{convname}",
+        json={"prompt": "You are an AI assistant for testing."},
+    )
+    assert put_response.status_code == 200
+
     response = client.get("/api/v2/conversations")
     assert response.status_code == 200
     data = response.get_json()
     assert isinstance(data, list)
-    # No conversations in this isolated test client: shape still validated.
-    # With conversations: each item carries the new aliases and the legacy
-    # fields stay in sync.
-    for item in data:
+    matching = [c for c in data if c["id"] == convname]
+    assert matching, f"created conversation {convname} not in list"
+    for item in matching:
         assert "message_count" in item
         assert "last_updated" in item
         assert isinstance(item["message_count"], int)
