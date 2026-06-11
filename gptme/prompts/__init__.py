@@ -15,6 +15,7 @@ from ..llm.models import get_recommended_model
 from ..message import Message
 from ..tools import ToolFormat, ToolSpec, get_available_tools
 from ..util import document_prompt_function
+from ..util.tokens import len_tokens
 
 # Agent instruction files — always loaded (layered: user-level + project-level)
 # These are the standard filenames used across different AI coding tools.
@@ -120,6 +121,7 @@ def get_prompt(
     context_mode: ContextMode | None = None,
     context_include: list[str] | None = None,
     include_user_context: bool = True,
+    show_prompt_stats: bool = False,
 ) -> list[Message]:
     """
     Get the initial system prompt.
@@ -168,6 +170,10 @@ def get_prompt(
             agent instruction files from ~/.config/gptme
 
     Returns a list of messages: [core_system_prompt, workspace_prompt, ...].
+
+    If ``show_prompt_stats`` is True, per-section token counts are logged at
+    INFO level after assembly. Uses the configured model for accurate counting
+    when tiktoken is available, falling back to character-based approximation.
     """
     agent_config = get_project_config(agent_path)
     agent_name = (
@@ -333,13 +339,86 @@ def get_prompt(
     result.extend(dynamic_context_msgs)
 
     # Chat history (also dynamic)
-    result.extend(prompt_chat_history())
+    chat_history_msgs = list(prompt_chat_history())
+    result.extend(chat_history_msgs)
 
     # Set hide=True, pinned=True for all messages
     for i, msg in enumerate(result):
         result[i] = msg.replace(hide=True, pinned=True)
 
+    # Per-section token stats (must happen after hide/pinned so counts
+    # reflect the actual prompt the model sees)
+    if show_prompt_stats:
+        effective_model = model or get_recommended_model("openai")
+        _log_prompt_stats(
+            core_msgs=core_msgs,
+            agent_config_msgs=agent_config_msgs,
+            workspace_msgs=workspace_msgs,
+            dynamic_context_msgs=dynamic_context_msgs,
+            chat_history_msgs=chat_history_msgs,
+            static_dynamic_boundary=bool(dynamic_context_msgs and result),
+            model=effective_model,
+        )
+
     return result
+
+
+def _log_prompt_stats(
+    *,
+    core_msgs: list[Message],
+    agent_config_msgs: list[Message],
+    workspace_msgs: list[Message],
+    dynamic_context_msgs: list[Message],
+    chat_history_msgs: list[Message],
+    static_dynamic_boundary: bool,
+    model: str,
+) -> None:
+    """Log per-section token counts for the assembled system prompt."""
+    sections: list[tuple[str, list[Message]]] = [
+        ("Core (identity + tools)", core_msgs),
+    ]
+    if agent_config_msgs:
+        sections.append(("Agent config", agent_config_msgs))
+    if workspace_msgs:
+        sections.append(("Workspace files", workspace_msgs))
+    if static_dynamic_boundary:
+        # Boundary message itself is a single short Message in result
+        sections.append(
+            (
+                "Static/dynamic boundary",
+                [Message("system", SYSTEM_PROMPT_CACHE_BOUNDARY)],
+            )
+        )
+    if dynamic_context_msgs:
+        sections.append(("Dynamic context (context_cmd)", dynamic_context_msgs))
+    if chat_history_msgs:
+        sections.append(("Chat history", chat_history_msgs))
+
+    # Count per section
+    rows: list[tuple[str, int, float]] = []
+    total = 0
+    for name, msgs in sections:
+        tokens = len_tokens(msgs, model) if msgs else 0
+        total += tokens
+        rows.append((name, tokens, 0.0))
+
+    # Compute percentages
+    if total > 0:
+        rows = [(name, tokens, tokens / total * 100) for name, tokens, _pct in rows]
+
+    # Build table
+    lines = ["", "=== System prompt token breakdown ==="]
+    col_name = max(len(r[0]) for r in rows) + 2
+    lines.append(f"  {'Section':<{col_name}} {'Tokens':>8}  {'Pct':>6}")
+    lines.append(f"  {'-' * col_name} {'-' * 8}  {'-' * 6}")
+    for name, tokens, pct in rows:
+        lines.append(f"  {name:<{col_name}} {tokens:>8}  {pct:>5.1f}%")
+    lines.append(f"  {'-' * col_name} {'-' * 8}  {'-' * 6}")
+    lines.append(f"  {'Total':<{col_name}} {total:>8}")
+    lines.append("=====================================")
+
+    for line in lines:
+        logger.info(line)
 
 
 document_prompt_function(

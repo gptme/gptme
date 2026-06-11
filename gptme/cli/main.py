@@ -465,6 +465,13 @@ Run 'gptme-util --help' for all utility commands."""
     hidden=True,
 )
 @click.option(
+    "--show-prompt-stats",
+    "show_prompt_stats",
+    is_flag=True,
+    default=False,
+    help="Log per-section token counts for the assembled system prompt at startup.",
+)
+@click.option(
     "--architect",
     "architect_enabled",
     is_flag=True,
@@ -523,6 +530,7 @@ def main(
     auto_accept_architect: bool,
     context_include: tuple[str, ...],
     output_schema: str | None,
+    show_prompt_stats: bool = False,
 ):
     """Main entrypoint for the CLI."""
 
@@ -913,6 +921,7 @@ def main(
             context_include=[item for val in context_include for item in val.split(",")]
             if context_include
             else None,
+            show_prompt_stats=show_prompt_stats,
         )
 
     # Append profile system prompt if using a profile
