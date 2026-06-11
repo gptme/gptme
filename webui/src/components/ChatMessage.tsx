@@ -51,6 +51,14 @@ function MessageMetaLabel({
 
   useEffect(() => {
     if (!timestamp) return;
+    const date = new Date(timestamp);
+    if (isNaN(date.getTime())) return;
+
+    // Only auto-refresh for recent messages (<1h old). Older messages change
+    // so slowly (hours → days) that per-minute updates are wasteful.
+    const ageMs = Date.now() - date.getTime();
+    if (ageMs > 60 * 60 * 1000) return;
+
     const id = setInterval(() => setTick((t) => t + 1), 60_000);
     return () => clearInterval(id);
   }, [timestamp]);
