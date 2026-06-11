@@ -478,8 +478,13 @@ export const ConversationList: FC<Props> = ({
                     {() => {
                       const storeConv = conversations$.get(conv.id)?.get();
                       const isLoaded = storeConv?.data?.log?.length > 0;
-                      // Hide when cost badge shows (it already includes token count)
-                      if (isLoaded) return null;
+                      // Hide only when cost badge will show (isLoaded AND has cost data).
+                      // Without the hasData check, loaded convs without per-message usage
+                      // metadata would silently show nothing.
+                      if (isLoaded) {
+                        const cost = computeConversationCost(storeConv!.data!.log);
+                        if (cost.hasData) return null;
+                      }
                       const summaryTokens =
                         (conv.total_input_tokens ?? 0) +
                         (conv.total_output_tokens ?? 0) +
