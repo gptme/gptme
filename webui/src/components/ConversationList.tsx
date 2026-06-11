@@ -294,13 +294,9 @@ export const ConversationList: FC<Props> = ({
     return () => window.removeEventListener('keydown', handleSlashShortcut);
   }, []);
 
-  if (!conversations) {
-    return null;
-  }
-  // Separate demo conversations from real ones
+  // Separate demo conversations from real ones (computed before early return to satisfy Rules of Hooks)
   const demoIds = new Set(demoConversations.map((d) => d.id));
-  const allRealConversations = conversations.filter((c) => !demoIds.has(c.id));
-  const demos = conversations.filter((c) => demoIds.has(c.id));
+  const allRealConversations = conversations ? conversations.filter((c) => !demoIds.has(c.id)) : [];
 
   // Apply filter, then sort starred to top
   const realConversations = useMemo(() => {
@@ -309,6 +305,11 @@ export const ConversationList: FC<Props> = ({
       : allRealConversations;
     return [...filtered].sort((a, b) => (isStarred(b.id) ? 1 : 0) - (isStarred(a.id) ? 1 : 0));
   }, [allRealConversations, showStarredOnly, isStarred]);
+
+  if (!conversations) {
+    return null;
+  }
+  const demos = conversations.filter((c) => demoIds.has(c.id));
 
   // strip leading YYYY-MM-DD from name if present
   function stripDate(name: string) {
