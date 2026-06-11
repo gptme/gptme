@@ -12,6 +12,12 @@ export interface Settings {
    * - 'external': a standalone gptme-tts server at `ttsServerUrl`
    */
   ttsProvider: TtsProvider;
+  /**
+   * Which STT engine to use:
+   * - 'browser': use the browser's built-in SpeechRecognition API (fall back to server if unavailable)
+   * - 'server': always use the server-side transcription via MediaRecorder + /api/v2/audio/transcriptions
+   */
+  sttProvider: 'browser' | 'server';
   blocksDefaultOpen: boolean;
   showHiddenMessages: boolean;
   showInitialSystem: boolean;
@@ -46,6 +52,7 @@ const defaultSettings: Settings = {
   chimeEnabled: true,
   ttsEnabled: false,
   ttsProvider: 'auto',
+  sttProvider: 'browser',
   blocksDefaultOpen: true,
   showHiddenMessages: false,
   showInitialSystem: false,

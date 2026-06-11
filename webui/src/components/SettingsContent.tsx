@@ -286,6 +286,33 @@ export function SettingsContent({
               </div>
             )}
 
+            <Separator />
+
+            <div className="space-y-2">
+              <Label htmlFor="stt-engine" className="text-sm">
+                Speech-to-text engine
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Choose which engine transcribes your microphone input for dictation.
+              </p>
+              <Select
+                value={settings.sttProvider}
+                onValueChange={(value: 'browser' | 'server') =>
+                  updateSettings({ sttProvider: value })
+                }
+              >
+                <SelectTrigger id="stt-engine" className="w-full">
+                  <SelectValue placeholder="Select STT engine" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="browser">Browser (SpeechRecognition API)</SelectItem>
+                  <SelectItem value="server">Server (OpenRouter / API)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <Separator />
+
             <div className="space-y-2">
               <Label htmlFor="voice-server-url" className="text-sm">
                 Voice server URL

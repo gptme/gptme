@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useApi } from '@/contexts/ApiContext';
 import { useUserSettings } from '@/hooks/useUserSettings';
+import { useSettings } from '@/contexts/SettingsContext';
 
 export type STTState = 'idle' | 'listening' | 'transcribing' | 'error';
 
@@ -82,7 +83,8 @@ function getLanguageCode(): string | undefined {
 
 export function useSpeechToText(): UseSpeechToTextReturn {
   const { api } = useApi();
-  const { settings } = useUserSettings();
+  const { settings: userSettings } = useUserSettings();
+  const { settings: clientSettings } = useSettings();
   const [state, setState] = useState<STTState>('idle');
   const [interimTranscript, setInterimTranscript] = useState('');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -93,18 +95,21 @@ export function useSpeechToText(): UseSpeechToTextReturn {
   const abortControllerRef = useRef<AbortController | null>(null);
   const SpeechRecognitionClass = getSpeechRecognitionClass();
   const browserSupported = SpeechRecognitionClass !== null;
-  const serverFallbackSupported =
-    !browserSupported &&
-    settings?.providers_configured.includes('openrouter') === true &&
-    canUseRecordedFallback();
-  const isSupported = browserSupported || serverFallbackSupported;
+  const serverConfigured =
+    userSettings?.providers_configured.includes('openrouter') === true && canUseRecordedFallback();
+  const prefersServerStt = clientSettings.sttProvider === 'server';
+  const serverFallbackSupported = !browserSupported && serverConfigured;
+  // When user explicitly chooses server mode, use server STT even if browser supports it
+  const serverEnabled = serverConfigured && (prefersServerStt || serverFallbackSupported);
+  const isSupported = browserSupported || serverConfigured;
 
   const releaseRecordingSession = useCallback((session: RecordingSession | null) => {
     session?.stream.getTracks().forEach((track) => track.stop());
   }, []);
 
   const startListening = useCallback(() => {
-    if (SpeechRecognitionClass) {
+    // When user explicitly chooses server STT, skip browser path
+    if (SpeechRecognitionClass && !prefersServerStt) {
       if (recognitionRef.current) return;
 
       const recognition = new SpeechRecognitionClass();
@@ -158,7 +163,7 @@ export function useSpeechToText(): UseSpeechToTextReturn {
       return;
     }
 
-    if (!serverFallbackSupported || recordingRef.current) return;
+    if (!serverEnabled || recordingRef.current) return;
 
     setInterimTranscript('');
     setState('listening');
@@ -250,7 +255,7 @@ export function useSpeechToText(): UseSpeechToTextReturn {
         }
       }
     })();
-  }, [SpeechRecognitionClass, api, releaseRecordingSession, serverFallbackSupported]);
+  }, [SpeechRecognitionClass, api, releaseRecordingSession, serverEnabled, prefersServerStt]);
 
   const stopListening = useCallback(() => {
     if (recognitionRef.current) {
