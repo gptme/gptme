@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 
 const STORAGE_KEY = 'gptme:starred-conversations';
 
@@ -20,11 +20,24 @@ function saveStarred(ids: Set<string>) {
 
 export function useStarredConversations() {
   const [starred, setStarred] = useState<Set<string>>(() => loadStarred());
+  const skipNextSave = useRef(false);
+
+  // Persist to localStorage, but skip when the change originated from another tab
+  // to avoid a cross-tab echo loop (tab B updates state → saves → triggers storage
+  // event in tab A → tab A updates state → saves → …).
+  useEffect(() => {
+    if (skipNextSave.current) {
+      skipNextSave.current = false;
+      return;
+    }
+    saveStarred(starred);
+  }, [starred]);
 
   // Sync across tabs
   useEffect(() => {
     const handler = (e: StorageEvent) => {
       if (e.key === STORAGE_KEY) {
+        skipNextSave.current = true;
         setStarred(loadStarred());
       }
     };

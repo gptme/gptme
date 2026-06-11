@@ -41,7 +41,7 @@ import { DeleteConversationConfirmationDialog } from './DeleteConversationConfir
 import { useStarredConversations } from '@/hooks/useStarredConversations';
 
 import type { MessageRole, ConversationSummary } from '@/types/conversation';
-import { type FC, useRef, useEffect, useState, useCallback } from 'react';
+import { type FC, useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Computed, use$ } from '@legendapp/state/react';
 import { type Observable } from '@legendapp/state';
@@ -297,21 +297,18 @@ export const ConversationList: FC<Props> = ({
   if (!conversations) {
     return null;
   }
-
   // Separate demo conversations from real ones
   const demoIds = new Set(demoConversations.map((d) => d.id));
   const allRealConversations = conversations.filter((c) => !demoIds.has(c.id));
   const demos = conversations.filter((c) => demoIds.has(c.id));
 
   // Apply filter, then sort starred to top
-  const filteredConversations = showStarredOnly
-    ? allRealConversations.filter((c) => isStarred(c.id))
-    : allRealConversations;
-  const realConversations = [...filteredConversations].sort((a, b) => {
-    const aStarred = isStarred(a.id) ? 1 : 0;
-    const bStarred = isStarred(b.id) ? 1 : 0;
-    return bStarred - aStarred; // starred first
-  });
+  const realConversations = useMemo(() => {
+    const filtered = showStarredOnly
+      ? allRealConversations.filter((c) => isStarred(c.id))
+      : allRealConversations;
+    return [...filtered].sort((a, b) => (isStarred(b.id) ? 1 : 0) - (isStarred(a.id) ? 1 : 0));
+  }, [allRealConversations, showStarredOnly, isStarred]);
 
   // strip leading YYYY-MM-DD from name if present
   function stripDate(name: string) {
@@ -441,7 +438,7 @@ export const ConversationList: FC<Props> = ({
                         className={`shrink-0 rounded p-0.5 transition-colors hover:text-yellow-500 focus:outline-none focus-visible:text-yellow-500 focus-visible:opacity-100 ${
                           isStarred(conv.id)
                             ? 'text-yellow-500 opacity-100'
-                            : 'text-muted-foreground opacity-0 group-hover:opacity-100'
+                            : 'text-muted-foreground opacity-0 focus-visible:opacity-100 group-hover:opacity-100'
                         }`}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -840,13 +837,14 @@ export const ConversationList: FC<Props> = ({
       {!isLoading && !isError && allRealConversations.length > 0 && (
         <div className="flex px-2 pb-1">
           <button
+            aria-label={showStarredOnly ? 'Show all conversations' : 'Show starred only'}
+            aria-pressed={showStarredOnly}
             className={`flex items-center gap-1 rounded px-2 py-0.5 text-xs transition-colors ${
               showStarredOnly
                 ? 'bg-yellow-500/20 text-yellow-600 dark:text-yellow-400'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
             onClick={() => setShowStarredOnly((v) => !v)}
-            title={showStarredOnly ? 'Show all conversations' : 'Show starred only'}
           >
             <Star className="h-3 w-3" fill={showStarredOnly ? 'currentColor' : 'none'} />
             {showStarredOnly ? 'Starred' : 'All'}
