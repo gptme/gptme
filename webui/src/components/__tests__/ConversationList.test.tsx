@@ -212,19 +212,23 @@ describe('ConversationList', () => {
     expect(searchInput).toHaveFocus();
   });
 
-  it('does not focus search when / is pressed while an input is focused', () => {
+  it('does not focus search when / is pressed while a different input is focused', () => {
     renderWithProviders(<ConversationList {...defaultProps} />);
     const searchInput = screen.getByLabelText('Search conversations');
 
-    // Focus the search input itself (simulates already-focused input)
-    searchInput.focus();
-    const wasFocused = document.activeElement === searchInput;
+    // Simulate a message input (not the search box) being focused
+    const messageInput = document.createElement('input');
+    document.body.appendChild(messageInput);
+    messageInput.focus();
+    expect(document.activeElement).toBe(messageInput);
 
     fireEvent.keyDown(window, { key: '/' });
 
-    // Input is still focused (not blurred/refocused), and was already focused before
-    expect(wasFocused).toBe(true);
-    expect(searchInput).toHaveFocus();
+    // Guard must fire: search should not steal focus
+    expect(searchInput).not.toHaveFocus();
+    expect(messageInput).toHaveFocus();
+
+    document.body.removeChild(messageInput);
   });
 
   it('shows end-of-list message when no more pages', () => {
