@@ -842,8 +842,6 @@ def conv_with_messages(client: FlaskClient):
     Returns (convname, user_msg_index) since the server prepends its own
     system messages so the client-supplied messages don't start at index 0.
     """
-    import random
-
     convname = f"test-edit-{random.randint(0, 1000000)}"
     response = client.put(
         f"/api/v2/conversations/{convname}",
@@ -860,8 +858,9 @@ def conv_with_messages(client: FlaskClient):
     # its own system messages so the index is not always 0 or 1).
     r = client.get(f"/api/v2/conversations/{convname}")
     log = r.get_json().get("log", [])
-    user_idx = next(i for i, m in enumerate(log) if m["role"] == "user")
-    return convname, user_idx
+    user_indices = [i for i, m in enumerate(log) if m["role"] == "user"]
+    assert user_indices, f"No user message found in log: {log!r}"
+    return convname, user_indices[0]
 
 
 def test_api_v2_edit_message_nonexistent_conversation(client: FlaskClient):
@@ -964,3 +963,30 @@ def test_api_v2_delete_message_system_message(conv_with_messages, client: FlaskC
     data = response.get_json()
     assert data is not None
     assert "error" in data
+
+
+def test_api_v2_delete_message_success(conv_with_messages, client: FlaskClient):
+    """DELETE of a user message returns 200 and removes the message."""
+    convname, user_idx = conv_with_messages
+
+    # Get initial message count
+    r = client.get(f"/api/v2/conversations/{convname}")
+    initial_count = len(r.get_json().get("log", []))
+
+    # Delete the user message
+    response = client.delete(
+        f"/api/v2/conversations/{convname}/messages/{user_idx}",
+    )
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data is not None
+    assert "log" in data
+
+    # Verify the message was removed
+    r = client.get(f"/api/v2/conversations/{convname}")
+    final_log = r.get_json().get("log", [])
+    assert len(final_log) == initial_count - 1
+    # Verify no message at the deleted index has the original user content
+    assert not any(
+        m["role"] == "user" and m["content"] == "hello world" for m in final_log
+    )
