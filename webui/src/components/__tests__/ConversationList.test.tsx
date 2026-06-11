@@ -251,7 +251,9 @@ describe('ConversationList', () => {
       });
 
       expect(screen.getByLabelText('Search conversations')).toHaveValue('alpha');
-      expect(screen.getByText('Alpha Project')).toBeInTheDocument();
+      // getByText fails when highlightText splits 'Alpha' into a <mark> element;
+      // toHaveTextContent checks the full textContent including child nodes.
+      expect(screen.getByTestId('conversation-title')).toHaveTextContent('Alpha Project');
       expect(screen.queryByText('Beta Notes')).not.toBeInTheDocument();
     });
 
