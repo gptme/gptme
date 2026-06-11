@@ -646,7 +646,7 @@ export const ConversationList: FC<Props> = ({
           <div key={group}>
             <div
               data-testid="date-group-header"
-              className="sticky top-0 z-10 bg-background/95 px-2 py-1.5 text-xs font-medium text-muted-foreground backdrop-blur supports-[backdrop-filter]:bg-background/60"
+              className="sticky top-11 z-10 bg-background/95 px-2 py-1.5 text-xs font-medium text-muted-foreground backdrop-blur supports-[backdrop-filter]:bg-background/60"
             >
               {group}
             </div>
