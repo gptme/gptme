@@ -40,6 +40,7 @@ import { DeleteConversationConfirmationDialog } from './DeleteConversationConfir
 
 import type { MessageRole, ConversationSummary } from '@/types/conversation';
 import { type FC, useRef, useEffect, useState, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Computed, use$ } from '@legendapp/state/react';
 import { type Observable } from '@legendapp/state';
 import { conversations$ } from '@/stores/conversations';
@@ -83,10 +84,18 @@ export const ConversationList: FC<Props> = ({
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
-  const [filterQuery, setFilterQuery] = useState('');
   // Guard against double-submit: onKeyDown(Enter) sets this before onBlur fires
   const renameCommittedRef = useRef(false);
   const filterInputRef = useRef<HTMLInputElement>(null);
+
+  // URL-synced search state: local state for immediate input responsiveness,
+  // with debounced writes to ?search= URL param.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlSearch = searchParams.get('search') ?? '';
+  const [filterQuery, setFilterQuery] = useState(urlSearch);
+  const filterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track our own URL writes to avoid echo-syncing back to local state.
+  const prevUrlSearchRef = useRef(urlSearch);
 
   const handleExportMarkdown = useCallback((conv: ConversationSummary) => {
     const storeConv = conversations$.get(conv.id)?.get();
@@ -153,6 +162,41 @@ export const ConversationList: FC<Props> = ({
       setRenamingId(null);
     },
     [api, renameValue]
+  );
+
+  // Sync URL → local state on browser back/forward (skip our own debounced writes).
+  useEffect(() => {
+    if (prevUrlSearchRef.current !== urlSearch) {
+      prevUrlSearchRef.current = urlSearch;
+      setFilterQuery(urlSearch);
+    }
+  }, [urlSearch]);
+
+  // Flush debounce timer on unmount.
+  useEffect(() => {
+    return () => {
+      if (filterDebounceRef.current) clearTimeout(filterDebounceRef.current);
+    };
+  }, []);
+
+  const handleFilterChange = useCallback(
+    (value: string) => {
+      setFilterQuery(value);
+      if (filterDebounceRef.current) clearTimeout(filterDebounceRef.current);
+      filterDebounceRef.current = setTimeout(() => {
+        prevUrlSearchRef.current = value;
+        setSearchParams(
+          (prev) => {
+            const next = new URLSearchParams(prev);
+            if (value) next.set('search', value);
+            else next.delete('search');
+            return next;
+          },
+          { replace: true }
+        );
+      }, 300);
+    },
+    [setSearchParams]
   );
 
   // Refs for infinite scrolling
@@ -579,7 +623,7 @@ export const ConversationList: FC<Props> = ({
             <Input
               ref={filterInputRef}
               value={filterQuery}
-              onChange={(e) => setFilterQuery(e.target.value)}
+              onChange={(e) => handleFilterChange(e.target.value)}
               placeholder="Search conversations"
               aria-label="Search conversations"
               className="h-8 pl-8 pr-8 text-sm"
@@ -592,7 +636,7 @@ export const ConversationList: FC<Props> = ({
                 aria-label="Clear conversation search"
                 className="absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2"
                 onClick={() => {
-                  setFilterQuery('');
+                  handleFilterChange('');
                   filterInputRef.current?.focus();
                 }}
               >

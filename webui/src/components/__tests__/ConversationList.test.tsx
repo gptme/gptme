@@ -4,6 +4,7 @@ import '@testing-library/jest-dom';
 import { observable } from '@legendapp/state';
 import type { ConversationSummary } from '@/types/conversation';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { MemoryRouter } from 'react-router-dom';
 
 // Mock the ApiContext
 const mockDeleteConversation = jest.fn().mockResolvedValue(undefined);
@@ -76,8 +77,13 @@ const createConversation = (overrides: Partial<ConversationSummary> = {}): Conve
 });
 
 // Helper to render with required providers
-const renderWithProviders = (ui: React.ReactElement) => {
-  return render(<TooltipProvider>{ui}</TooltipProvider>);
+const renderWithProviders = (ui: React.ReactElement, { initialSearch = '' } = {}) => {
+  const initialEntries = initialSearch ? [`/?search=${encodeURIComponent(initialSearch)}`] : ['/'];
+  return render(
+    <MemoryRouter initialEntries={initialEntries}>
+      <TooltipProvider>{ui}</TooltipProvider>
+    </MemoryRouter>
+  );
 };
 
 describe('ConversationList', () => {
@@ -229,6 +235,44 @@ describe('ConversationList', () => {
       <ConversationList {...defaultProps} conversations={[conv]} showServerLabels={true} />
     );
     expect(screen.getByText('server-1')).toBeInTheDocument();
+  });
+
+  describe('URL search state persistence', () => {
+    it('populates filter from ?search= URL param on mount', () => {
+      const convs = [
+        createConversation({ id: 'conv-1', name: 'Alpha Project' }),
+        createConversation({ id: 'conv-2', name: 'Beta Notes' }),
+      ];
+      renderWithProviders(<ConversationList {...defaultProps} conversations={convs} />, {
+        initialSearch: 'alpha',
+      });
+
+      expect(screen.getByLabelText('Search conversations')).toHaveValue('alpha');
+      expect(screen.getByText('Alpha Project')).toBeInTheDocument();
+      expect(screen.queryByText('Beta Notes')).not.toBeInTheDocument();
+    });
+
+    it('clears URL search when clear button is clicked', async () => {
+      jest.useFakeTimers();
+      const convs = [
+        createConversation({ id: 'conv-1', name: 'Alpha Project' }),
+        createConversation({ id: 'conv-2', name: 'Beta Notes' }),
+      ];
+      renderWithProviders(<ConversationList {...defaultProps} conversations={convs} />, {
+        initialSearch: 'alpha',
+      });
+
+      // Verify initial filter active
+      expect(screen.queryByText('Beta Notes')).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByLabelText('Clear conversation search'));
+
+      // Local state clears immediately
+      expect(screen.getByLabelText('Search conversations')).toHaveValue('');
+      expect(screen.getByText('Beta Notes')).toBeInTheDocument();
+
+      jest.useRealTimers();
+    });
   });
 
   // Note: Radix UI ContextMenu requires pointer events that JSDOM doesn't fully support.
