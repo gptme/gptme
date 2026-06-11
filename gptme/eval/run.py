@@ -18,7 +18,7 @@ from concurrent.futures import (
 )
 from multiprocessing import Manager, Process
 from pathlib import Path
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 from tqdm import tqdm
 
@@ -37,7 +37,28 @@ from .types import (
     Status,
 )
 
+if TYPE_CHECKING:
+    from ..message import Message
+
 logger = logging.getLogger(__name__)
+
+
+def count_tool_calls(messages: list["Message"]) -> int:
+    """Count runnable tool calls in a conversation log.
+
+    Mirrors ``execute_msg`` semantics: only assistant messages can run tools,
+    and only runnable tool-uses are counted. This is the per-task tool-efficiency
+    signal — for equal completion, fewer tool calls is a cheaper, faster session.
+    """
+    from ..tools import ToolUse
+
+    return sum(
+        1
+        for msg in messages
+        if msg.role == "assistant"
+        for tu in ToolUse.iter_from_content(msg.content)
+        if tu.is_runnable
+    )
 
 
 class ProcessSuccess(TypedDict):
@@ -303,6 +324,7 @@ def execute(
     time_gen = 0.0
     time_run = 0.0
     time_eval = 0.0
+    tool_calls = 0
 
     prompt = test["prompt"]
     if adversarial:
@@ -455,13 +477,17 @@ def execute(
 
             _evaluate_checks(test["expect"], ctx)
 
+            # Load the parent conversation log once: used for the tool-efficiency
+            # metric (always) and any trajectory checks (when defined).
+            try:
+                messages = LogManager.load(log_dir, lock=False).log.messages
+            except Exception as e:
+                print(f"Error while loading conversation log: {e}")
+                messages = []
+            tool_calls = count_tool_calls(messages)
+
             check_log = test.get("check_log", {})
             if check_log:
-                try:
-                    messages = LogManager.load(log_dir, lock=False).log.messages
-                except Exception as e:
-                    print(f"Error while loading conversation log: {e}")
-                    messages = []
                 _evaluate_checks(check_log, messages)
             print("--- End of results ---")
 
@@ -482,6 +508,7 @@ def execute(
             log_dir=log_dir,
             workspace_dir=workspace_dir,
             cost=cost,
+            tool_calls=tool_calls,
         )
 
 

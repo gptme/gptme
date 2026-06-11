@@ -91,6 +91,14 @@ class EvalResult:
     log_dir: Path
     workspace_dir: Path
     cost: "CostSummary | None" = field(default=None)
+    tool_calls: int = field(default=0)
+    """Number of runnable tool calls in the parent conversation log.
+
+    For equal completion, fewer tool calls indicate a more efficient (cheaper,
+    faster) session — a tool-efficiency signal that scales with the suite. Counts
+    runnable tool-uses in assistant messages only (matching ``execute_msg``
+    semantics); nested subagent tool-uses are not counted.
+    """
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-compatible dict."""
@@ -100,6 +108,7 @@ class EvalResult:
             "passed": all(c.passed for c in self.results) if self.results else False,
             "cases": [c.to_dict() for c in self.results],
             "timings": self.timings,
+            "tool_calls": self.tool_calls,
         }
         if self.cost is not None:
             d["cost"] = self.cost.to_dict()

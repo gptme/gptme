@@ -373,6 +373,7 @@ def print_model_results_table(model_results: dict[ModelConfig, list[EvalResult]]
                 else:
                     row.append(
                         f"{checkmark} {duration:.0f}s/{gen_tokens + run_tokens}tok"
+                        f"/{result.tool_calls}tc"
                     )
             except StopIteration:
                 row.append("❌ N/A")
