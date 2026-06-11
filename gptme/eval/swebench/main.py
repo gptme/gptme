@@ -65,7 +65,8 @@ logger = logging.getLogger(__name__)
     default=False,
     help=(
         "After generating patches, run the official SWE-bench harness to evaluate "
-        "them. Requires Docker and swebench[evaluation] extras. "
+        "them. Requires Docker plus gptme's narrow SWE-bench extra "
+        "(`pip install gptme[swebench]` or `uv sync --extra swebench`). "
         "Without this flag, only the fast file-coverage heuristic is used."
     ),
 )
