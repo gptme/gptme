@@ -367,7 +367,7 @@ def print_model_results_table(model_results: dict[ModelConfig, list[EvalResult]]
                 duration = sum(result.timings.values())
                 gen_tokens = len_tokens(result.gen_stdout, "gpt-4")
                 run_tokens = len_tokens(result.run_stdout, "gpt-4")
-                reason = "timeout" if result.status == "timeout" else ""
+                reason = result.status if result.status in {"timeout", "error"} else ""
                 if reason:
                     row.append(f"{checkmark} {reason}")
                 else:
@@ -915,6 +915,7 @@ def read_results_from_csv(filename: str) -> dict[ModelConfig, list[EvalResult]]:
                 run_stderr=read_log_file(test_dir / "run_stderr.txt"),
                 log_dir=Path(row.get("Log Dir", str(test_dir))),
                 workspace_dir=Path(row.get("Workspace Dir", str(test_dir))),
+                tool_calls=int(row.get("Tool Calls", 0) or 0),
             )
             model_results[config].append(result)
     return dict(model_results)
@@ -1010,6 +1011,7 @@ def write_results(
             "Test",
             "Passed",
             "Score",
+            "Tool Calls",
             "Total Duration",
             "Generation Time",
             "Run Time",
@@ -1053,6 +1055,7 @@ def write_results(
                     "Test": result.name,
                     "Passed": "true" if passed else "false",
                     "Score": score,
+                    "Tool Calls": result.tool_calls,
                     "Total Duration": round(sum(result.timings.values()), 2),
                     "Generation Time": round(result.timings["gen"], 2),
                     "Run Time": round(result.timings["run"], 2),
