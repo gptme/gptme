@@ -478,6 +478,12 @@ Run 'gptme-util --help' for all utility commands."""
     hidden=True,
 )
 @click.option(
+    "--no-workspace",
+    "no_workspace",
+    is_flag=True,
+    help="Skip all workspace context (prompt files and context_cmd). Tools and agent config are still included.",
+)
+@click.option(
     "--architect",
     "architect_enabled",
     is_flag=True,
@@ -536,6 +542,7 @@ def main(
     editor_model: str | None,
     auto_accept_architect: bool,
     context_include: tuple[str, ...],
+    no_workspace: bool,
     output_schema: str | None,
 ):
     """Main entrypoint for the CLI."""
@@ -820,7 +827,16 @@ def main(
                 raise click.UsageError(str(e)) from e
 
             stats_context_mode: ContextMode | None = (
-                "selective" if context_include else None
+                "selective" if (context_include or no_workspace) else None
+            )
+            stats_context_include: list[str] | None = (
+                []
+                if no_workspace
+                else (
+                    [item for val in context_include for item in val.split(",")]
+                    if context_include
+                    else None
+                )
             )
             stats = get_prompt_stats(
                 tools=tools,
@@ -831,11 +847,7 @@ def main(
                 workspace=stats_workspace_path,
                 agent_path=config.chat.agent,
                 context_mode=stats_context_mode,
-                context_include=[
-                    item for val in context_include for item in val.split(",")
-                ]
-                if context_include
-                else None,
+                context_include=stats_context_include,
             )
             extra_sections: list[PromptSectionStat] = []
             if selected_profile and selected_profile.system_prompt:
@@ -984,9 +996,18 @@ def main(
         logger.debug("Existing conversation found, skipping initial prompt generation")
         initial_msgs = []
     else:
-        # Infer context mode: --context-include implies selective mode
+        # Infer context mode: --context-include / --no-workspace both imply selective mode
         effective_context_mode: ContextMode | None = (
-            "selective" if context_include else None
+            "selective" if (context_include or no_workspace) else None
+        )
+        effective_context_include: list[str] | None = (
+            []
+            if no_workspace
+            else (
+                [item for val in context_include for item in val.split(",")]
+                if context_include
+                else None
+            )
         )
 
         # get initial system prompt
@@ -999,9 +1020,7 @@ def main(
             workspace=workspace_path,
             agent_path=config.chat.agent,
             context_mode=effective_context_mode,
-            context_include=[item for val in context_include for item in val.split(",")]
-            if context_include
-            else None,
+            context_include=effective_context_include,
         )
 
     # Append profile system prompt if using a profile

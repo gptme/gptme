@@ -143,6 +143,35 @@ def test_get_prompt_stats_includes_workspace_and_dynamic_context(tmp_path):
     assert stats.dynamic_tokens >= by_name["prompt_context_cmd_project"].tokens
 
 
+def test_no_workspace_excludes_workspace_context(tmp_path):
+    """Test that --no-workspace (selective mode, empty include) skips files and context_cmd."""
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    (workspace / "README.md").write_text("# No-Workspace Test")
+    (workspace / "gptme.toml").write_text(
+        '[prompt]\nfiles = ["README.md"]\ncontext_cmd = "echo NO_WORKSPACE_MARKER"\n'
+    )
+
+    # Simulate --no-workspace: selective mode with empty include list
+    stats = get_prompt_stats(
+        get_tools(),
+        prompt="full",
+        workspace=workspace,
+        context_mode="selective",
+        context_include=[],
+    )
+
+    by_name = {section.name: section for section in stats.sections}
+    assert "prompt_workspace" not in by_name, (
+        "workspace files should be absent with --no-workspace"
+    )
+    assert "prompt_context_cmd_project" not in by_name, (
+        "context_cmd should be absent with --no-workspace"
+    )
+    assert "prompt_tools" in by_name, "tools should still be included"
+    assert "prompt_gptme" in by_name, "core gptme prompt should still be included"
+
+
 def test_format_prompt_stats_outputs_summary_table():
     stats = get_prompt_stats(
         get_tools(),
