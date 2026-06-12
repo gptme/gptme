@@ -369,6 +369,8 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
     },
     confirmTool: async () => {},
     deleteConversation: async () => {},
+    patchConversationMetadata: async () => {},
+    getConversationMetadata: async () => ({ starred: false }),
     createAgent: async () => notImpl('createAgent'),
     deleteSession: async () => {},
     getExternalSession: async () => notImpl('getExternalSession'),

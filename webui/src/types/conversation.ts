@@ -61,6 +61,11 @@ export interface ConversationSummary {
   total_output_tokens?: number;
   total_cache_read_tokens?: number;
   total_cache_creation_tokens?: number;
+  // Metadata sidecar fields (populated by server from metadata.toml)
+  starred?: boolean;
+  description?: string | null;
+  tags?: string[];
+  pinned_order?: number | null;
 }
 
 export interface GenerateCallbacks {

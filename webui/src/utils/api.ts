@@ -1513,6 +1513,37 @@ export class ApiClient {
     );
   }
 
+  async patchConversationMetadata(
+    conversationId: string,
+    metadata: { starred?: boolean; description?: string | null; tags?: string[] | null }
+  ): Promise<void> {
+    if (!this.isConnected) {
+      throw new ApiClientError('Not connected to API');
+    }
+
+    await this.fetchJson<{ starred: boolean; description?: string | null; tags?: string[] }>(
+      `${this.baseUrl}/api/v2/conversations/${conversationId}/metadata`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(metadata),
+        signal: this.controller?.signal,
+      }
+    );
+  }
+
+  async getConversationMetadata(conversationId: string): Promise<{
+    starred: boolean;
+    description?: string | null;
+    tags?: string[];
+    pinned_order?: number | null;
+  }> {
+    if (!this.isConnected) {
+      throw new ApiClientError('Not connected to API');
+    }
+
+    return this.fetchJson(`${this.baseUrl}/api/v2/conversations/${conversationId}/metadata`);
+  }
+
   async deleteConversation(logfile: string): Promise<void> {
     if (!this.isConnected) {
       throw new ApiClientError('Not connected to API');
