@@ -1318,6 +1318,29 @@ def test_v2_conversations_list_keeps_messages_in_fast_mode(
     assert item["message_count"] >= 1  # at least the system prompt
 
 
+def test_v2_conversations_list_keeps_messages_on_cache_hit(client: FlaskClient):
+    """Regression: cached fast-mode responses must preserve ``messages``."""
+    convname = f"msglist-cache-hit-{random.randint(0, 1000000)}"
+    response = client.put(
+        f"/api/v2/conversations/{convname}",
+        json={"prompt": "You are an AI assistant for testing."},
+    )
+    assert response.status_code == 200
+
+    response = client.get("/api/v2/conversations")
+    assert response.status_code == 200
+
+    response = client.get("/api/v2/conversations")
+    assert response.status_code == 200
+    data = response.get_json()
+    matching = [c for c in data if c["id"] == convname]
+    assert matching, f"created conversation {convname} not in cached list"
+    item = matching[0]
+    assert "messages" in item, "cached fast-mode response must keep `messages`"
+    assert item["messages"] == item["message_count"]
+    assert item["modified"] == item["last_updated"]
+
+
 def test_v2_conversation_get(v2_conv, client: FlaskClient):
     """Test getting a V2 conversation."""
     conversation_id = v2_conv["conversation_id"]

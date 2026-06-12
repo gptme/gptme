@@ -899,7 +899,7 @@ def api_conversations():
             cached = _conversations_cache
             response_items = [asdict(c) for c in cached[:limit]]
             for item in response_items:
-                item["message_count"] = item.pop("messages")
+                item["message_count"] = item["messages"]
                 item["last_updated"] = item["modified"]
             return flask.jsonify(response_items)
 
