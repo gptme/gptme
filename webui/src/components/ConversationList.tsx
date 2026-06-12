@@ -42,6 +42,7 @@ import { DeleteConversationConfirmationDialog } from './DeleteConversationConfir
 import { useConversationMetadata } from '@/hooks/useConversationMetadata';
 import type { MessageRole, ConversationSummary } from '@/types/conversation';
 import { type FC, useRef, useEffect, useState, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { Computed, use$ } from '@legendapp/state/react';
 import { type Observable } from '@legendapp/state';
@@ -83,6 +84,7 @@ export const ConversationList: FC<Props> = ({
   const isConnected = use$(isConnected$);
 
   const { toggleStar } = useConversationMetadata();
+  const queryClient = useQueryClient();
   const [showStarredOnly, setShowStarredOnly] = useState(false);
 
   // Separately track local star state for optimistic UI updates.
@@ -452,7 +454,9 @@ export const ConversationList: FC<Props> = ({
                           // Optimistic update
                           setOptimisticStars((prev) => ({ ...prev, [conv.id]: newVal }));
                           await toggleStar(conv.id, getIsStarred(conv));
-                          // Clear optimistic state on success (server state takes over)
+                          // Invalidate cache so server state reflects the toggle before
+                          // the optimistic entry is cleared.
+                          await queryClient.invalidateQueries({ queryKey: ['conversations'] });
                           setOptimisticStars((prev) => {
                             const next = { ...prev };
                             delete next[conv.id];
@@ -750,20 +754,23 @@ export const ConversationList: FC<Props> = ({
                 e.stopPropagation();
                 const newVal = !getIsStarred(conv);
                 setOptimisticStars((prev) => ({ ...prev, [conv.id]: newVal }));
-                toggleStar(conv.id, getIsStarred(conv)).then(() => {
-                  setOptimisticStars((prev) => {
-                    const next = { ...prev };
-                    delete next[conv.id];
-                    return next;
+                toggleStar(conv.id, getIsStarred(conv))
+                  .then(async () => {
+                    await queryClient.invalidateQueries({ queryKey: ['conversations'] });
+                    setOptimisticStars((prev) => {
+                      const next = { ...prev };
+                      delete next[conv.id];
+                      return next;
+                    });
+                  })
+                  .catch((err) => {
+                    console.error('Failed to toggle star from context menu:', err);
+                    setOptimisticStars((prev) => {
+                      const next = { ...prev };
+                      delete next[conv.id];
+                      return next;
+                    });
                   });
-                }).catch((err) => {
-                  console.error('Failed to toggle star from context menu:', err);
-                  setOptimisticStars((prev) => {
-                    const next = { ...prev };
-                    delete next[conv.id];
-                    return next;
-                  });
-                });
               }}
             >
               <Star className="mr-2 h-4 w-4" fill={getIsStarred(conv) ? 'currentColor' : 'none'} />
