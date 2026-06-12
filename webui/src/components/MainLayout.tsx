@@ -31,11 +31,7 @@ import { Loader2, GitBranch, Columns2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { ConversationSummary } from '@/types/conversation';
 import type { Task, CreateTaskRequest } from '@/types/task';
-import {
-  selectedConversation$,
-  initConversation,
-  conversations$,
-} from '@/stores/conversations';
+import { selectedConversation$, initConversation, conversations$ } from '@/stores/conversations';
 import {
   leftSidebarVisible$,
   rightSidebarVisible$,
@@ -181,7 +177,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
     const primaryServer = registry.servers.find((s) => s.id === registry.activeServerId);
     const all =
       data?.pages.flatMap(
-        (page: { conversations: ConversationSummary[]; nextCursor: number | undefined }) =>
+        (page: { conversations: ConversationSummary[]; nextCursor: string | undefined }) =>
           page.conversations.map((conv) => ({
             ...conv,
             serverId: registry.activeServerId,
@@ -217,7 +213,6 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
     if (!isConnected) return [];
     return apiConversations;
   }, [isConnected, apiConversations]);
-
 
   // Reactive computation for store conversations using Legend State
   const storeConversations$ = useObservable(() => {

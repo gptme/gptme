@@ -246,7 +246,7 @@ describe('ApiClient conversation list detail flag', () => {
     // First page with detail
     await client.getConversationsPaginated(undefined, 50, true);
     // Second page with cursor
-    await client.getConversationsPaginated(1717500000, 50);
+    await client.getConversationsPaginated('1717500000|conv-123', 50);
 
     expect(global.fetch).toHaveBeenNthCalledWith(
       1,
@@ -260,7 +260,7 @@ describe('ApiClient conversation list detail flag', () => {
     );
     expect(global.fetch).toHaveBeenNthCalledWith(
       3,
-      'http://127.0.0.1:5700/api/v2/conversations?limit=50&paginated=1&detail=false&cursor=1717500000',
+      'http://127.0.0.1:5700/api/v2/conversations?limit=50&paginated=1&detail=false&cursor=1717500000%7Cconv-123',
       expect.any(Object)
     );
   });

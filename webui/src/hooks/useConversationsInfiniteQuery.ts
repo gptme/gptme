@@ -13,20 +13,18 @@ export function useConversationsInfiniteQuery(enabled: boolean = true) {
     // already controls when the query fires. staleTime=30s prevents redundant
     // refetches within a fresh window (common during auto-connect handshake).
     queryKey: ['conversations', connectionConfig.baseUrl],
-    queryFn: async ({ pageParam }: { pageParam: number | undefined }) => {
+    queryFn: async ({ pageParam }: { pageParam: string | undefined }) => {
       try {
-        const result = await api.getConversationsPaginated(pageParam, 50);
-        console.log('Fetched conversations page:', result);
-        return result;
+        return await api.getConversationsPaginated(pageParam, 50);
       } catch (err) {
         console.error('Failed to fetch conversations:', err);
         throw err;
       }
     },
-    initialPageParam: undefined as number | undefined,
+    initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage: {
       conversations: ConversationSummary[];
-      nextCursor: number | undefined;
+      nextCursor: string | undefined;
     }) => lastPage.nextCursor,
     enabled: isConnected && enabled,
     staleTime: 30_000,

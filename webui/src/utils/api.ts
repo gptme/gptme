@@ -979,12 +979,12 @@ export class ApiClient {
   }
 
   async getConversationsPaginated(
-    cursor: number | undefined = undefined,
+    cursor: string | undefined = undefined,
     pageSize: number = 50,
     detail: boolean = false
   ): Promise<{
     conversations: ConversationSummary[];
-    nextCursor: number | undefined;
+    nextCursor: string | undefined;
   }> {
     if (!this.isConnected) {
       throw new ApiClientError('Not connected to API');
@@ -992,18 +992,14 @@ export class ApiClient {
     try {
       let url = `${this.baseUrl}/api/v2/conversations?limit=${pageSize}&paginated=1&detail=${detail}`;
       if (cursor !== undefined) {
-        url += `&cursor=${cursor}`;
+        url += `&cursor=${encodeURIComponent(cursor)}`;
       }
       const response = await this.fetchJson<{
         conversations: ConversationSummary[];
-        next_cursor: number | null;
+        next_cursor: string | null;
       }>(url);
 
       const nextCursor = response.next_cursor ?? undefined;
-
-      console.log(
-        `[API] Cursor pagination: cursor=${cursor}, pageSize=${pageSize}, fetched=${response.conversations.length}, nextCursor=${nextCursor}`
-      );
 
       return { conversations: response.conversations, nextCursor };
     } catch (error) {

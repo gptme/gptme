@@ -118,6 +118,27 @@ _ALLOWED_AVATAR_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".ico"}
 # - delete (without --force): calls input() waiting for stdin that never arrives
 _SERVER_BLOCKED_COMMANDS = {"exit", "restart", "edit", "delete"}
 
+
+def _parse_conversation_cursor(raw: str) -> tuple[float, str | None]:
+    """Parse a conversation pagination cursor.
+
+    Supports both the legacy numeric timestamp cursor and the opaque composite
+    cursor returned by the paginated API: ``<modified>|<quoted-conversation-id>``.
+    """
+    if "|" not in raw:
+        return float(raw), None
+
+    modified_raw, quoted_conv_id = raw.split("|", 1)
+    if not quoted_conv_id:
+        raise ValueError("missing conversation id")
+    return float(modified_raw), urllib.parse.unquote(quoted_conv_id)
+
+
+def _encode_conversation_cursor(conv: ConversationMeta) -> str:
+    """Encode a stable pagination cursor for a conversation."""
+    return f"{conv.modified:.17g}|{urllib.parse.quote(conv.id, safe='')}"
+
+
 _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
 _DEFAULT_OPENROUTER_STT_MODEL = "openai/whisper-1"
 _MAX_TRANSCRIPTION_AUDIO_BYTES = 25 * 1024 * 1024
@@ -858,14 +879,14 @@ def api_external_session(external_session_id: str):
         {
             "name": "cursor",
             "in": "query",
-            "schema": {"type": "number"},
-            "description": "Unix timestamp cursor for pagination. When combined with paginated=1, returns conversations with modified < cursor (i.e. older than the cursor). Omit for the first page.",
+            "schema": {"type": "string"},
+            "description": "Opaque pagination cursor returned by the previous paginated response. New clients should pass it through unchanged; legacy numeric Unix timestamp cursors are still accepted.",
         },
         {
             "name": "paginated",
             "in": "query",
             "schema": {"type": "boolean", "default": False},
-            "description": "If true, return a paginated response object {conversations: [...], next_cursor: number|null} instead of a bare list. Use cursor param for page 2+.",
+            "description": "If true, return a paginated response object {conversations: [...], next_cursor: string|null} instead of a bare list. Use cursor param for page 2+.",
         },
     ],
 )
@@ -884,8 +905,8 @@ def api_conversations():
     badge without per-row detail fetches.
 
     Pass ``paginated=1`` to opt into cursor pagination: the response becomes
-    ``{conversations: [...], next_cursor: float|null}``. Pass ``cursor=<ts>``
-    on page 2+ to fetch conversations older than that Unix timestamp.
+    ``{conversations: [...], next_cursor: string|null}``. Pass the returned
+    cursor back unchanged on page 2+.
     """
     try:
         limit = int(request.args.get("limit", 100))
@@ -904,12 +925,15 @@ def api_conversations():
     )
     cursor_raw = request.args.get("cursor")
     cursor_ts: float | None = None
+    cursor_id: str | None = None
     if cursor_raw:
         try:
-            cursor_ts = float(cursor_raw)
+            cursor_ts, cursor_id = _parse_conversation_cursor(cursor_raw)
         except (ValueError, TypeError):
             return flask.jsonify(
-                {"error": "cursor must be a numeric Unix timestamp"}
+                {
+                    "error": "cursor must be a numeric Unix timestamp or opaque cursor token"
+                }
             ), 400
 
     global \
@@ -918,7 +942,7 @@ def api_conversations():
         _conversations_cache_time
     logs_dir = conversations_module.get_logs_dir()
 
-    # Cursor pagination path — returns {conversations: [...], next_cursor: float|null}
+    # Cursor pagination path — returns {conversations: [...], next_cursor: string|null}
     if paginated:
         # Load full list (use cache when possible for the common non-search, non-detail case)
         full_list: list[ConversationMeta]
@@ -949,9 +973,21 @@ def api_conversations():
         else:
             full_list = list(get_user_conversations(detail=detail))
 
-        # Apply cursor filter: return conversations older than the cursor timestamp
+        # Keep pagination deterministic even when multiple conversations share
+        # the same modified timestamp.
+        full_list = sorted(
+            full_list, key=lambda conv: (conv.modified, conv.id), reverse=True
+        )
+
+        # Apply cursor filter: composite cursors paginate on (modified, id),
+        # legacy numeric cursors fall back to timestamp-only filtering.
         if cursor_ts is not None:
-            paged = [c for c in full_list if c.modified < cursor_ts]
+            if cursor_id is None:
+                paged = [c for c in full_list if c.modified < cursor_ts]
+            else:
+                paged = [
+                    c for c in full_list if (c.modified, c.id) < (cursor_ts, cursor_id)
+                ]
         else:
             paged = full_list
 
@@ -967,8 +1003,9 @@ def api_conversations():
             item["last_updated"] = conv.modified
             page_items.append(item)
 
-        # next_cursor = modified of the oldest item in this page (used as cursor for next request)
-        next_cursor: float | None = page[-1].modified if has_more and page else None
+        next_cursor: str | None = (
+            _encode_conversation_cursor(page[-1]) if has_more and page else None
+        )
 
         return flask.jsonify({"conversations": page_items, "next_cursor": next_cursor})
 

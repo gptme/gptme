@@ -2,6 +2,7 @@ import copy
 import random
 import threading
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -99,6 +100,64 @@ def test_api_conversation_list_with_limit(client: FlaskClient):
     data = response.get_json()
     assert isinstance(data, list)
     assert len(data) <= 5
+
+
+def test_api_conversation_list_paginated_cursor_preserves_equal_timestamps(
+    client: FlaskClient, monkeypatch
+):
+    """Composite cursors must not drop conversations at equal-timestamp page boundaries."""
+    import gptme.server.api_v2 as api_v2_module
+    from gptme.logmanager import ConversationMeta
+
+    api_v2_module._invalidate_conversations_cache()
+
+    base = ConversationMeta(
+        id="seed",
+        name="seed",
+        path="/tmp/seed/conversation.jsonl",
+        created=0.0,
+        modified=0.0,
+        messages=1,
+        branches=1,
+        workspace="",
+        agent_name=None,
+        agent_path=None,
+        agent_avatar=None,
+        agent_urls=None,
+        model=None,
+        total_cost=0.0,
+        total_input_tokens=0,
+        total_output_tokens=0,
+        total_cache_read_tokens=0,
+        last_message_role="user",
+        last_message_preview="preview",
+    )
+    conversations = [
+        replace(base, id="c", name="c", modified=99.0),
+        replace(base, id="b", name="b", modified=99.0),
+        replace(base, id="a", name="a", modified=99.0),
+        replace(base, id="d", name="d", modified=98.0),
+    ]
+
+    monkeypatch.setattr(
+        api_v2_module,
+        "get_user_conversations",
+        lambda detail=False: iter(conversations),
+    )
+
+    page1 = client.get("/api/v2/conversations?paginated=1&limit=2")
+    assert page1.status_code == 200
+    page1_data = page1.get_json()
+    assert [item["id"] for item in page1_data["conversations"]] == ["c", "b"]
+    assert page1_data["next_cursor"] == "99|b"
+
+    page2 = client.get(
+        f"/api/v2/conversations?paginated=1&limit=2&cursor={page1_data['next_cursor']}"
+    )
+    assert page2.status_code == 200
+    page2_data = page2.get_json()
+    assert [item["id"] for item in page2_data["conversations"]] == ["a", "d"]
+    assert page2_data["next_cursor"] is None
 
 
 def test_api_conversation_search(client: FlaskClient, tmp_path, monkeypatch):
