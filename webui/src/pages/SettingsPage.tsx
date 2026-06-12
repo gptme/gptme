@@ -62,9 +62,15 @@ const SettingsPage: FC = () => {
       onKeyDown={(e) => {
         if (e.key === 'Escape') {
           e.stopPropagation();
-          // Navigate back if there is prior history,
-          // otherwise fall back to /chat (e.g. direct link or new tab).
-          if (window.history.length > 1) {
+          // A fresh tab always has at least one `about:blank` entry in
+          // its history, so a direct URL load on /settings leaves
+          // window.history.length at 2 (about:blank + /settings). Using
+          // `> 2` as the threshold excludes that case: navigate(-1) on a
+          // 2-entry history would land on about:blank, so we fall back
+          // to /chat instead. Any value >= 3 means the user reached
+          // /settings from at least one in-app page and going back is
+          // safe.
+          if (window.history.length > 2) {
             navigate(-1);
           } else {
             navigate('/chat');
