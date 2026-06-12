@@ -114,12 +114,13 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
   ];
 
   return (
-    <div
+    <nav
       className={`hidden h-full flex-col overflow-hidden border-r bg-background transition-[width] duration-200 ease-in-out md:flex ${
         isExpanded ? 'w-44' : 'w-11'
       }`}
       data-testid="nav-sidebar"
       data-expanded={isExpanded}
+      aria-label="Main navigation"
     >
       {/* Navigation Items */}
       <div className="flex-shrink-0 space-y-1 p-1">
@@ -136,6 +137,7 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
                     className="relative h-8 w-full min-w-0 justify-start gap-2 px-2"
                     onClick={() => handleNavigateToSection(section)}
                     aria-label={label}
+                    aria-current={isActive ? 'page' : undefined}
                   >
                     <Icon className="h-4 w-4 flex-shrink-0" />
                     <span
@@ -329,6 +331,6 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
           </Tooltip>
         </TooltipProvider>
       </div>
-    </div>
+    </nav>
   );
 };

@@ -653,7 +653,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
         </Sheet>
 
         {/* Main Content */}
-        <div className="flex-1 overflow-hidden">{renderMainContent()}</div>
+        <main className="flex-1 overflow-hidden" aria-label="Main content">{renderMainContent()}</main>
 
         {/* Right Sidebar - Sheet for mobile */}
         {currentSection === 'chat' && (
@@ -764,7 +764,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
         <ResizableHandle />
 
         <ResizablePanel defaultSize={60} minSize={30} className="overflow-hidden">
-          {renderMainContent()}
+          <main className="h-full" aria-label="Main content">{renderMainContent()}</main>
         </ResizablePanel>
 
         {/* Conditional right sidebar for chat */}
