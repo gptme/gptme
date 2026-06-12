@@ -979,8 +979,8 @@ export class ApiClient {
   }
 
   async getConversationsPaginated(
-    pageParam: number = 0,
-    pageSize: number = 20,
+    cursor: number | undefined = undefined,
+    pageSize: number = 50,
     detail: boolean = false
   ): Promise<{
     conversations: ConversationSummary[];
@@ -990,24 +990,22 @@ export class ApiClient {
       throw new ApiClientError('Not connected to API');
     }
     try {
-      // Fetch one more than needed to detect if there are more conversations
-      const fetchLimit = pageParam + pageSize + 1;
-      const allConversations = await this.fetchJson<ConversationSummary[]>(
-        `${this.baseUrl}/api/v2/conversations?limit=${fetchLimit}&detail=${detail}`
-      );
+      let url = `${this.baseUrl}/api/v2/conversations?limit=${pageSize}&paginated=1&detail=${detail}`;
+      if (cursor !== undefined) {
+        url += `&cursor=${cursor}`;
+      }
+      const response = await this.fetchJson<{
+        conversations: ConversationSummary[];
+        next_cursor: number | null;
+      }>(url);
 
-      // Slice to get only the requested page
-      const conversations = allConversations.slice(pageParam, pageParam + pageSize);
-
-      // Check if there are more conversations by seeing if we got the extra one
-      const hasMore = allConversations.length > pageParam + pageSize;
-      const nextCursor = hasMore ? pageParam + pageSize : undefined;
+      const nextCursor = response.next_cursor ?? undefined;
 
       console.log(
-        `[API] Pagination: pageParam=${pageParam}, pageSize=${pageSize}, fetched=${allConversations.length}, returning=${conversations.length}, hasMore=${hasMore}`
+        `[API] Cursor pagination: cursor=${cursor}, pageSize=${pageSize}, fetched=${response.conversations.length}, nextCursor=${nextCursor}`
       );
 
-      return { conversations, nextCursor };
+      return { conversations: response.conversations, nextCursor };
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
         throw new ApiClientError('Request aborted', 499);

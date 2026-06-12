@@ -34,8 +34,7 @@ function useAllConversations() {
   return useQuery({
     queryKey: ['conversations-all', connectionConfig.baseUrl, isConnected],
     queryFn: async () => {
-      const result = await api.getConversationsPaginated(0, 100000, true);
-      return result.conversations;
+      return await api.getConversations(100000, true);
     },
     enabled: isConnected,
     staleTime: 60 * 1000,

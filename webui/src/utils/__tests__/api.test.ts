@@ -230,27 +230,37 @@ describe('ApiClient conversation list detail flag', () => {
     jest.restoreAllMocks();
   });
 
-  it('requests paginated conversation lists with detail=false by default', async () => {
+  it('requests paginated conversation lists with cursor pagination', async () => {
+    const mockResponse = { conversations: [], next_cursor: null };
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => [],
+      json: async () => mockResponse,
     } as Response);
 
     const client = new ApiClient('http://127.0.0.1:5700');
     client.setConnected(true);
 
-    await client.getConversationsPaginated(0, 50);
-    await client.getConversationsPaginated(0, 50, true);
+    // First page (no cursor)
+    await client.getConversationsPaginated(undefined, 50);
+    // First page with detail
+    await client.getConversationsPaginated(undefined, 50, true);
+    // Second page with cursor
+    await client.getConversationsPaginated(1717500000, 50);
 
     expect(global.fetch).toHaveBeenNthCalledWith(
       1,
-      'http://127.0.0.1:5700/api/v2/conversations?limit=51&detail=false',
+      'http://127.0.0.1:5700/api/v2/conversations?limit=50&paginated=1&detail=false',
       expect.any(Object)
     );
     expect(global.fetch).toHaveBeenNthCalledWith(
       2,
-      'http://127.0.0.1:5700/api/v2/conversations?limit=51&detail=true',
+      'http://127.0.0.1:5700/api/v2/conversations?limit=50&paginated=1&detail=true',
+      expect.any(Object)
+    );
+    expect(global.fetch).toHaveBeenNthCalledWith(
+      3,
+      'http://127.0.0.1:5700/api/v2/conversations?limit=50&paginated=1&detail=false&cursor=1717500000',
       expect.any(Object)
     );
   });

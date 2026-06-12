@@ -29,7 +29,7 @@ export function useSecondaryServerConversations() {
         if (!client) return [];
 
         try {
-          const result = await client.getConversationsPaginated(0, 50);
+          const result = await client.getConversationsPaginated(undefined, 50);
           return result.conversations.map((conv) => ({
             ...conv,
             serverId: server.id,
