@@ -2031,6 +2031,7 @@ def api_conversation_config_patch(conversation_id: str):
         manager.log = Log(new_system_msgs + remaining_msgs)
     manager.write()
 
+    _invalidate_conversations_cache()
     return flask.jsonify(
         {
             "status": "ok",
