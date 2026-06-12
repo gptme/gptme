@@ -866,10 +866,10 @@ def api_external_session(external_session_id: str):
             "description": "Maximum number of conversations to return",
         },
         {
-            "name": "search",
+            "name": "q",
             "in": "query",
             "schema": {"type": "string"},
-            "description": "Filter conversations by name, id, or last message preview (case-insensitive substring match)",
+            "description": "Filter conversations by name, id, or last message preview (case-insensitive substring match). Alias: search.",
         },
         {
             "name": "detail",
@@ -914,7 +914,8 @@ def api_conversations():
     except (ValueError, TypeError):
         return flask.jsonify({"error": "limit must be an integer"}), 400
     limit = max(1, min(limit, 1000))
-    search = request.args.get("search", "").strip().lower()
+    # ?q= is the primary filter param; ?search= is accepted as a backward-compat alias
+    search = (request.args.get("q") or request.args.get("search", "")).strip().lower()
     detail_val = request.args.get("detail")
     detail = detail_val is not None and detail_val.lower() in ("", "1", "true", "yes")
     paginated_val = request.args.get("paginated")

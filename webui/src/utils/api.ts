@@ -968,7 +968,7 @@ export class ApiClient {
     }
     try {
       return await this.fetchJson<ConversationSummary[]>(
-        `${this.baseUrl}/api/v2/conversations?search=${encodeURIComponent(query)}&limit=${limit}&detail=${detail}`
+        `${this.baseUrl}/api/v2/conversations?q=${encodeURIComponent(query)}&limit=${limit}&detail=${detail}`
       );
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
