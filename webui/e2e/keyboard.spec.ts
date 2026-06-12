@@ -45,8 +45,8 @@ test.describe('Keyboard Navigation', () => {
     await expect(firstRow).toBeFocused();
     await page.keyboard.press('Enter');
 
-    // After selection, aria-pressed flips to true
-    await expect(firstRow).toHaveAttribute('aria-pressed', 'true');
+    // After selection, aria-selected flips to true
+    await expect(firstRow).toHaveAttribute('aria-selected', 'true');
   });
 
   test('focus trap: Tab stays inside an open dialog', async ({ page }) => {

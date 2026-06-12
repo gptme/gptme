@@ -620,7 +620,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
             <SheetHeader className="flex-shrink-0 border-b p-4">
               <SheetTitle className="text-left text-base font-semibold">Navigation</SheetTitle>
             </SheetHeader>
-            <div className="min-h-0 flex-1">
+            <section role="navigation" aria-label="Conversations" className="min-h-0 flex-1">
               <UnifiedSidebar
                 conversations={allConversations}
                 selectedConversationId$={selectedConversation$}
@@ -648,12 +648,14 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
                 onTasksRetry={() => refetchTasks()}
                 onOpenInSplitView={handleOpenInSplitView}
               />
-            </div>
+            </section>
           </SheetContent>
         </Sheet>
 
         {/* Main Content */}
-        <div className="flex-1 overflow-hidden">{renderMainContent()}</div>
+        <main role="main" aria-label="Chat content" className="flex-1 overflow-hidden">
+          {renderMainContent()}
+        </main>
 
         {/* Right Sidebar - Sheet for mobile */}
         {currentSection === 'chat' && (
@@ -738,33 +740,37 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
             leftSidebarCollapsed$.set(false);
           }}
         >
-          <UnifiedSidebar
-            conversations={allConversations}
-            selectedConversationId$={selectedConversation$}
-            onSelectConversation={handleSelectConversation}
-            conversationsLoading={isLoading}
-            conversationsFetching={isFetching}
-            conversationsError={isError}
-            conversationsErrorObj={error as Error}
-            onConversationsRetry={() => refetch()}
-            fetchNextPage={fetchNextPage}
-            hasNextPage={hasNextPage}
-            showServerLabels={showServerLabels}
-            tasks={tasks}
-            selectedTaskId={selectedTaskId || undefined}
-            onSelectTask={handleSelectTask}
-            onCreateTask={() => setShowCreateTaskDialog(true)}
-            tasksLoading={tasksLoading}
-            tasksError={!!tasksError}
-            onTasksRetry={() => refetchTasks()}
-            onOpenInSplitView={handleOpenInSplitView}
-          />
+          <section role="navigation" aria-label="Conversations">
+            <UnifiedSidebar
+              conversations={allConversations}
+              selectedConversationId$={selectedConversation$}
+              onSelectConversation={handleSelectConversation}
+              conversationsLoading={isLoading}
+              conversationsFetching={isFetching}
+              conversationsError={isError}
+              conversationsErrorObj={error as Error}
+              onConversationsRetry={() => refetch()}
+              fetchNextPage={fetchNextPage}
+              hasNextPage={hasNextPage}
+              showServerLabels={showServerLabels}
+              tasks={tasks}
+              selectedTaskId={selectedTaskId || undefined}
+              onSelectTask={handleSelectTask}
+              onCreateTask={() => setShowCreateTaskDialog(true)}
+              tasksLoading={tasksLoading}
+              tasksError={!!tasksError}
+              onTasksRetry={() => refetchTasks()}
+              onOpenInSplitView={handleOpenInSplitView}
+            />
+          </section>
         </ResizablePanel>
 
         <ResizableHandle />
 
         <ResizablePanel defaultSize={60} minSize={30} className="overflow-hidden">
-          {renderMainContent()}
+          <main role="main" aria-label="Chat content">
+            {renderMainContent()}
+          </main>
         </ResizablePanel>
 
         {/* Conditional right sidebar for chat */}

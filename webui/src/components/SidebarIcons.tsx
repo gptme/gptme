@@ -136,6 +136,7 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
                     className="relative h-8 w-full min-w-0 justify-start gap-2 px-2"
                     onClick={() => handleNavigateToSection(section)}
                     aria-label={label}
+                    aria-current={isActive ? 'page' : undefined}
                   >
                     <Icon className="h-4 w-4 flex-shrink-0" />
                     <span
