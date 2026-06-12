@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type FC } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  memo,
+  type FC,
+} from 'react';
 import type { Message, MessageMetadata, StreamingMessage } from '@/types/conversation';
 import { MessageAvatar } from './MessageAvatar';
 import { useMessageChainType } from '@/utils/messageUtils';
@@ -146,7 +154,7 @@ interface Props {
   messageIndex?: number;
 }
 
-export const ChatMessage: FC<Props> = ({
+const ChatMessageComponent: FC<Props> = ({
   message$,
   previousMessage$,
   nextMessage$,
@@ -753,3 +761,5 @@ export const ChatMessage: FC<Props> = ({
     </Memo>
   );
 };
+
+export const ChatMessage = memo(ChatMessageComponent);
