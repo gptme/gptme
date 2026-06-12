@@ -941,7 +941,11 @@ def api_conversations():
                 if len(conversations) >= limit:
                     break
     else:
-        conversations = list(islice(get_user_conversations(detail=detail), limit))
+        # Cache the full list (up to the maximum allowed limit) so that any
+        # requested limit can be served from a single cache entry without the
+        # limit-mismatch truncation that occurs when the cache was built for a
+        # smaller limit (e.g. page 1 warms with limit=51, page 2 asks for 101).
+        conversations = list(islice(get_user_conversations(detail=detail), 1000))
     response_items = []
     for conv in conversations:
         item = asdict(conv)
@@ -958,7 +962,7 @@ def api_conversations():
         _conversations_cache_logs_dir = logs_dir
         _conversations_cache_time = time.monotonic()
 
-    return flask.jsonify(response_items)
+    return flask.jsonify(response_items[:limit])
 
 
 @v2_api.route("/api/v2/conversations/<string:conversation_id>")
