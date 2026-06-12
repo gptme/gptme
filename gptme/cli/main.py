@@ -552,6 +552,12 @@ def main(
     if not name or not name.strip():
         name = "random"
 
+    if no_workspace and context_include:
+        raise click.UsageError(
+            "--no-workspace and --context are mutually exclusive: "
+            "--no-workspace strips all workspace context, so --context values would be silently ignored."
+        )
+
     # Apply agent profile if specified
     selected_profile = None
     if agent_profile:

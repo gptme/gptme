@@ -148,6 +148,68 @@ def test_show_prompt_stats_exits_before_chat(monkeypatch, tmp_path: Path, runner
     assert seen["kwargs"]["model"] == "local/test"
 
 
+def test_no_workspace_flag_wires_correctly(monkeypatch, tmp_path: Path, runner):
+    """--no-workspace should pass context_mode=selective, context_include=[] to get_prompt_stats."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+
+    fake_config = SimpleNamespace(
+        chat=SimpleNamespace(
+            agent_config=None,
+            tools=["shell", "read"],
+            interactive=False,
+            tool_format="markdown",
+            model="local/test",
+            workspace=tmp_path,
+            stream=False,
+            agent=None,
+        ),
+        project=None,
+    )
+    seen: dict[str, Any] = {}
+
+    monkeypatch.setattr(cli, "setup_config_from_cli", lambda **_: fake_config)
+    monkeypatch.setattr(cli, "init_tools", lambda _: [])
+    monkeypatch.setattr(
+        cli,
+        "get_prompt_stats",
+        lambda **kwargs: (
+            seen.update(kwargs=kwargs)
+            or SimpleNamespace(
+                sections=[],
+                total_messages=0,
+                total_chars=0,
+                total_tokens=0,
+                cacheable_tokens=0,
+                dynamic_tokens=0,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        cli,
+        "format_prompt_stats",
+        lambda stats, header=None, extra_sections=None: "prompt-stats-output",
+    )
+    monkeypatch.setattr(cli, "chat", lambda *args, **kwargs: pytest.fail("chat ran"))
+    monkeypatch.setattr(cli, "init_telemetry", lambda **kwargs: None)
+
+    result = runner.invoke(
+        cli.main, ["--no-workspace", "--show-prompt-stats"], input=""
+    )
+
+    assert result.exit_code == 0, result.output
+    assert seen["kwargs"]["context_mode"] == "selective"
+    assert seen["kwargs"]["context_include"] == []
+
+
+def test_no_workspace_and_context_mutually_exclusive(runner):
+    """--no-workspace and --context together should produce a UsageError."""
+    result = runner.invoke(cli.main, ["--no-workspace", "--context", "files", "hello"])
+    assert result.exit_code != 0
+    assert "mutually exclusive" in result.output
+
+
 @pytest.mark.skipif(os.name == "nt", reason="SIGALRM-based pipe guard is POSIX-only")
 def test_read_stdin_open_pipe_without_data_returns_empty(monkeypatch):
     """An idle pipe should not block forever waiting for stdin bytes."""
