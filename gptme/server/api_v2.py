@@ -915,7 +915,9 @@ def api_conversations():
         return flask.jsonify({"error": "limit must be an integer"}), 400
     limit = max(1, min(limit, 1000))
     # ?q= is the primary filter param; ?search= is accepted as a backward-compat alias
-    search = (request.args.get("q") or request.args.get("search", "")).strip().lower()
+    # Use None-check so explicit ?q= (even empty) takes precedence over ?search=
+    q = request.args.get("q")
+    search = (q if q is not None else request.args.get("search", "")).strip().lower()
     detail_val = request.args.get("detail")
     detail = detail_val is not None and detail_val.lower() in ("", "1", "true", "yes")
     paginated_val = request.args.get("paginated")

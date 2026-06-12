@@ -270,6 +270,27 @@ def test_api_conversation_search_q_param_takes_precedence(
     assert data[0]["id"] == "q-wins"
 
 
+def test_api_conversation_search_empty_q_overrides_search(
+    client: FlaskClient, tmp_path, monkeypatch
+):
+    """Test that explicit empty ?q= overrides ?search= (not a falsy-or fallthrough)."""
+    monkeypatch.setattr("gptme.logmanager.conversations.get_logs_dir", lambda: tmp_path)
+
+    conv_dir = tmp_path / "search-only"
+    conv_dir.mkdir()
+    (conv_dir / "conversation.jsonl").write_text(
+        '{"role": "system", "content": "hello", "timestamp": "2026-01-01T00:00:00"}\n'
+    )
+
+    # ?q= explicitly empty + ?search=search-only: empty q= should win → no filter → returns all
+    response = client.get("/api/v2/conversations?q=&search=search-only")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert isinstance(data, list)
+    # empty q= means "no filter", so all conversations are returned (not just search-only match)
+    assert len(data) >= 1
+
+
 def test_api_conversation_list_detail_flag(client: FlaskClient, tmp_path, monkeypatch):
     """Test that detail=true returns cost/token stats while default (false) zeroes them."""
     import json
@@ -328,9 +349,9 @@ def test_api_conversation_list_detail_flag(client: FlaskClient, tmp_path, monkey
         }
     )
     conv_file.write_text("\n".join(json.dumps(m) for m in messages) + "\n")
-    assert (
-        conv_file.stat().st_size > 8192
-    ), "fixture must be > _TAIL_BYTES to trigger fast path"
+    assert conv_file.stat().st_size > 8192, (
+        "fixture must be > _TAIL_BYTES to trigger fast path"
+    )
 
     # Default (detail=false) should return zeroed cost/token stats but keep
     # the message count and `last_updated` (both come from the cheap tail scan).
@@ -434,9 +455,9 @@ def test_debug_errors_enabled(monkeypatch):
     # Test falsy values
     for value in ["0", "false", "no", ""]:
         monkeypatch.setenv("GPTME_DEBUG_ERRORS", value)
-        assert (
-            _is_debug_errors_enabled() is False
-        ), f"Should be False for value: {value}"
+        assert _is_debug_errors_enabled() is False, (
+            f"Should be False for value: {value}"
+        )
 
 
 def test_default_model_propagation():
@@ -791,9 +812,9 @@ def test_api_v2_conversation_post_tools_validation(conv, client: FlaskClient):
         json={"role": "user", "content": "hello", "tools": ["shell"]},
     )
     body = response.get_json()
-    assert (
-        response.status_code == 200
-    ), f"Expected 200 for valid tools list, got {response.status_code}: {body}"
+    assert response.status_code == 200, (
+        f"Expected 200 for valid tools list, got {response.status_code}: {body}"
+    )
 
 
 # --- Cookie-based authentication tests ---
@@ -968,9 +989,9 @@ def test_http_errors_return_json(client: FlaskClient):
     # 404: invalid message index type (-1 doesn't match <int:index> pattern)
     response = client.delete("/api/v2/conversations/any-conv/messages/-1")
     assert response.status_code in (404, 405)
-    assert response.content_type.startswith(
-        "application/json"
-    ), f"Expected JSON, got {response.content_type}: {response.data[:200]}"
+    assert response.content_type.startswith("application/json"), (
+        f"Expected JSON, got {response.content_type}: {response.data[:200]}"
+    )
     data = response.get_json()
     assert data is not None
     assert "error" in data
