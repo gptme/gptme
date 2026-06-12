@@ -454,6 +454,43 @@ def test_api_conversation_get_no_pagination_fields_without_limit(
     assert "before" not in data
 
 
+def test_api_conversation_get_etag_pagination_isolation(conv, client: FlaskClient):
+    # Populate messages
+    for i in range(5):
+        client.post(
+            f"/api/v2/conversations/{conv}",
+            json={"role": "user", "content": f"msg {i}"},
+        )
+
+    full_r = client.get(f"/api/v2/conversations/{conv}")
+    full_etag = full_r.headers["ETag"]
+
+    page1_r = client.get(f"/api/v2/conversations/{conv}?limit=2")
+    page1_etag = page1_r.headers["ETag"]
+
+    cursor = page1_r.get_json()["before"]
+    page2_r = client.get(f"/api/v2/conversations/{conv}?limit=2&before={cursor}")
+    page2_etag = page2_r.headers["ETag"]
+
+    # All three ETags must be distinct — different slices, different validators.
+    assert full_etag != page1_etag
+    assert page1_etag != page2_etag
+
+    # Repeating the same paginated request with its own ETag must return 304.
+    r304 = client.get(
+        f"/api/v2/conversations/{conv}?limit=2",
+        headers={"If-None-Match": page1_etag},
+    )
+    assert r304.status_code == 304
+
+    # Using the full-response ETag for a paginated request must NOT return 304.
+    r200 = client.get(
+        f"/api/v2/conversations/{conv}?limit=2",
+        headers={"If-None-Match": full_etag},
+    )
+    assert r200.status_code == 200
+
+
 def test_api_conversation_post(conv, client: FlaskClient):
     response = client.post(
         f"/api/v2/conversations/{conv}",

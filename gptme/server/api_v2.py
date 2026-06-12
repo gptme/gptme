@@ -1153,9 +1153,11 @@ def api_conversation(conversation_id: str):
 
     logdir = get_logs_dir() / conversation_id
     etag = _etag_conversation(logdir)
-    if etag and request.if_none_match.contains_weak(etag):
+    # Pagination params change the response body, so incorporate them into the ETag.
+    etag_paged = f"{etag}-{limit}-{before}" if (etag and limit is not None) else etag
+    if etag_paged and request.if_none_match.contains_weak(etag_paged):
         resp = flask.make_response("", 304)
-        resp.set_etag(etag, weak=True)
+        resp.set_etag(etag_paged, weak=True)
         resp.cache_control.no_cache = True
         return resp
 
@@ -1222,8 +1224,8 @@ def api_conversation(conversation_id: str):
         }
 
     resp = flask.make_response(flask.jsonify(log_dict))
-    if etag:
-        resp.set_etag(etag, weak=True)
+    if etag_paged:
+        resp.set_etag(etag_paged, weak=True)
         resp.cache_control.no_cache = True
     return resp
 
