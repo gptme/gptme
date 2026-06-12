@@ -756,6 +756,13 @@ export const ConversationList: FC<Props> = ({
                     delete next[conv.id];
                     return next;
                   });
+                }).catch((err) => {
+                  console.error('Failed to toggle star from context menu:', err);
+                  setOptimisticStars((prev) => {
+                    const next = { ...prev };
+                    delete next[conv.id];
+                    return next;
+                  });
                 });
               }}
             >
