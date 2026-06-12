@@ -707,6 +707,12 @@ system prompt, a narrow tool set, and selective context:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--system<span class="w"> </span>short<span class="w"> </span>--tools<span class="w"> </span>shell,read,patch,save<span class="w"> </span>--context<span class="w"> </span>files<span class="w"> </span><span class="s2">&quot;fix the failing test&quot;</span>
 </pre></div>
 </div>
+<p>Use <code class="docutils literal notranslate"><span class="pre">--no-workspace</span></code> to skip all project-specific context (prompt files and
+<code class="docutils literal notranslate"><span class="pre">context_cmd</span></code> output) in one flag — tools and the core prompt are still
+included:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--no-workspace<span class="w"> </span>--system<span class="w"> </span>short<span class="w"> </span>--tools<span class="w"> </span>shell,read,patch,save<span class="w"> </span><span class="s2">&quot;apply this patch&quot;</span>
+</pre></div>
+</div>
 <p>Measure the prompt before and after with:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--show-prompt-stats
 </pre></div>

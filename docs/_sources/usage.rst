@@ -187,6 +187,14 @@ system prompt, a narrow tool set, and selective context:
 
     gptme --system short --tools shell,read,patch,save --context files "fix the failing test"
 
+Use ``--no-workspace`` to skip all project-specific context (prompt files and
+``context_cmd`` output) in one flag — tools and the core prompt are still
+included:
+
+.. code-block:: bash
+
+    gptme --no-workspace --system short --tools shell,read,patch,save "apply this patch"
+
 Measure the prompt before and after with:
 
 .. code-block:: bash

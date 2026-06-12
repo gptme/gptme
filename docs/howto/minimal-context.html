@@ -490,6 +490,7 @@ document.write(`
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#restrict-tools">1. Restrict tools</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#use-the-short-system-prompt">2. Use the short system prompt</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#trim-workspace-context-when-it-is-not-helping">3. Trim workspace context when it is not helping</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#skip-workspace-context-entirely-with-no-workspace">4. Skip workspace context entirely with <code class="docutils literal notranslate"><span class="pre">--no-workspace</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#good-defaults-for-specialized-sessions">Good defaults for specialized sessions</a></li>
@@ -558,9 +559,31 @@ gptme<span class="w"> </span>--context<span class="w"> </span>files<span class="
 gptme<span class="w"> </span>--context<span class="w"> </span>cmd<span class="w"> </span><span class="s2">&quot;summarize the current repo status&quot;</span>
 </pre></div>
 </div>
-<p>This does <strong>not</strong> yet provide a full <code class="docutils literal notranslate"><span class="pre">--no-workspace</span></code> mode. If you want to skip
-project instructions entirely today, run gptme from a smaller workspace or a
-separate agent path.</p>
+</section>
+<section id="skip-workspace-context-entirely-with-no-workspace">
+<h3>4. Skip workspace context entirely with <code class="docutils literal notranslate"><span class="pre">--no-workspace</span></code><a class="headerlink" href="#skip-workspace-context-entirely-with-no-workspace" title="Link to this heading">#</a></h3>
+<p>Use <code class="docutils literal notranslate"><span class="pre">--no-workspace</span></code> to skip all project-specific context (prompt files <strong>and</strong>
+<code class="docutils literal notranslate"><span class="pre">context_cmd</span></code> output) in a single flag. Tools and the core assistant prompt are
+still included — only the workspace layer is stripped:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--no-workspace<span class="w"> </span><span class="s2">&quot;summarize this file: src/parser.py&quot;</span>
+</pre></div>
+</div>
+<p>This is equivalent to <code class="docutils literal notranslate"><span class="pre">--context</span></code> with no items specified, and it is the right
+choice when:</p>
+<ul class="simple">
+<li><p>You are running a specialized one-shot command that should not load project
+instructions or dynamic context at all.</p></li>
+<li><p>You want to compare baseline model behavior without workspace prompt influence.</p></li>
+<li><p>You are inside a project with a heavy <code class="docutils literal notranslate"><span class="pre">context_cmd</span></code> and only need basic tools.</p></li>
+</ul>
+<p>Combine it with other levers for the minimal possible prompt:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--no-workspace<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--system<span class="w"> </span>short<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--tools<span class="w"> </span>shell,read,patch,save<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">&quot;apply this patch and run the tests&quot;</span>
+</pre></div>
+</div>
 </section>
 </section>
 <section id="good-defaults-for-specialized-sessions">
@@ -591,6 +614,7 @@ They do not subtract the base <code class="docutils literal notranslate"><span c
 <p>Compare the before/after prompt surface instead of guessing:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--show-prompt-stats
 gptme<span class="w"> </span>--show-prompt-stats<span class="w"> </span>--system<span class="w"> </span>short<span class="w"> </span>--tools<span class="w"> </span>shell,read,patch,save<span class="w"> </span>--context<span class="w"> </span>files
+gptme<span class="w"> </span>--show-prompt-stats<span class="w"> </span>--no-workspace<span class="w"> </span>--system<span class="w"> </span>short<span class="w"> </span>--tools<span class="w"> </span>shell,read,patch,save
 </pre></div>
 </div>
 <p>If <code class="docutils literal notranslate"><span class="pre">prompt_workspace</span></code> or <code class="docutils literal notranslate"><span class="pre">prompt_context_cmd_project</span></code> still dominates, the next
@@ -649,6 +673,7 @@ core assistant prompt.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#restrict-tools">1. Restrict tools</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#use-the-short-system-prompt">2. Use the short system prompt</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#trim-workspace-context-when-it-is-not-helping">3. Trim workspace context when it is not helping</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#skip-workspace-context-entirely-with-no-workspace">4. Skip workspace context entirely with <code class="docutils literal notranslate"><span class="pre">--no-workspace</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#good-defaults-for-specialized-sessions">Good defaults for specialized sessions</a></li>

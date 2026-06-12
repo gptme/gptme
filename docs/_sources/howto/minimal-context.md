@@ -60,9 +60,33 @@ gptme --context files "review this module"
 gptme --context cmd "summarize the current repo status"
 ```
 
-This does **not** yet provide a full `--no-workspace` mode. If you want to skip
-project instructions entirely today, run gptme from a smaller workspace or a
-separate agent path.
+### 4. Skip workspace context entirely with `--no-workspace`
+
+Use `--no-workspace` to skip all project-specific context (prompt files **and**
+`context_cmd` output) in a single flag. Tools and the core assistant prompt are
+still included — only the workspace layer is stripped:
+
+```bash
+gptme --no-workspace "summarize this file: src/parser.py"
+```
+
+This is equivalent to `--context` with no items specified, and it is the right
+choice when:
+
+- You are running a specialized one-shot command that should not load project
+  instructions or dynamic context at all.
+- You want to compare baseline model behavior without workspace prompt influence.
+- You are inside a project with a heavy `context_cmd` and only need basic tools.
+
+Combine it with other levers for the minimal possible prompt:
+
+```bash
+gptme \
+  --no-workspace \
+  --system short \
+  --tools shell,read,patch,save \
+  "apply this patch and run the tests"
+```
 
 ## Good defaults for specialized sessions
 
@@ -98,6 +122,7 @@ Compare the before/after prompt surface instead of guessing:
 ```bash
 gptme --show-prompt-stats
 gptme --show-prompt-stats --system short --tools shell,read,patch,save --context files
+gptme --show-prompt-stats --no-workspace --system short --tools shell,read,patch,save
 ```
 
 If `prompt_workspace` or `prompt_context_cmd_project` still dominates, the next
