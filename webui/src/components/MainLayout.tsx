@@ -740,7 +740,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
             leftSidebarCollapsed$.set(false);
           }}
         >
-          <nav aria-label="Conversations">
+          <nav aria-label="Conversations" className="h-full">
             <UnifiedSidebar
               conversations={allConversations}
               selectedConversationId$={selectedConversation$}
@@ -768,7 +768,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
         <ResizableHandle />
 
         <ResizablePanel defaultSize={60} minSize={30} className="overflow-hidden">
-          <main role="main" aria-label="Chat content">
+          <main role="main" aria-label="Chat content" className="h-full overflow-hidden">
             {renderMainContent()}
           </main>
         </ResizablePanel>
