@@ -220,6 +220,7 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
                   variant="secondary"
                   className="relative h-8 w-full min-w-0 justify-start gap-2 px-2"
                   aria-label="Settings"
+                  aria-current="page"
                   onClick={() => navigate('/settings')}
                 >
                   <span className="relative flex-shrink-0">
