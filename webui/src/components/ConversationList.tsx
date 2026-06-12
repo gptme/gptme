@@ -386,7 +386,7 @@ export const ConversationList: FC<Props> = ({
             <div
               role="button"
               tabIndex={0}
-              aria-selected={isSelected}
+              aria-pressed={isSelected}
               className={`cursor-pointer rounded-lg py-2 pl-2 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
                 isSelected ? 'bg-accent' : ''
               }`}

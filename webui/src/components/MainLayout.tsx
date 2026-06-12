@@ -620,7 +620,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
             <SheetHeader className="flex-shrink-0 border-b p-4">
               <SheetTitle className="text-left text-base font-semibold">Navigation</SheetTitle>
             </SheetHeader>
-            <section role="navigation" aria-label="Conversations" className="min-h-0 flex-1">
+            <nav aria-label="Conversations" className="min-h-0 flex-1">
               <UnifiedSidebar
                 conversations={allConversations}
                 selectedConversationId$={selectedConversation$}
@@ -648,7 +648,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
                 onTasksRetry={() => refetchTasks()}
                 onOpenInSplitView={handleOpenInSplitView}
               />
-            </section>
+            </nav>
           </SheetContent>
         </Sheet>
 
@@ -740,7 +740,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
             leftSidebarCollapsed$.set(false);
           }}
         >
-          <section role="navigation" aria-label="Conversations">
+          <nav aria-label="Conversations">
             <UnifiedSidebar
               conversations={allConversations}
               selectedConversationId$={selectedConversation$}
@@ -762,7 +762,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
               onTasksRetry={() => refetchTasks()}
               onOpenInSplitView={handleOpenInSplitView}
             />
-          </section>
+          </nav>
         </ResizablePanel>
 
         <ResizableHandle />

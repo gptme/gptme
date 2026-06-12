@@ -51,7 +51,7 @@ const TaskListItem: FC<{ task: Task; isSelected: boolean; onClick: () => void }>
     <div
       role="button"
       tabIndex={0}
-      aria-selected={isSelected}
+      aria-pressed={isSelected}
       className={`mb-1 cursor-pointer rounded-md p-2 text-sm transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
         isSelected ? 'bg-accent ring-1 ring-primary' : ''
       }`}

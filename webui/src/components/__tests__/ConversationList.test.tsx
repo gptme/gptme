@@ -347,10 +347,10 @@ describe('ConversationList', () => {
       expect(defaultProps.onSelect).toHaveBeenCalledWith('test-conv-1', undefined);
     });
 
-    it('reflects selection state via aria-selected', () => {
+    it('reflects selection state via aria-pressed', () => {
       const selectedId$ = observable<string | null>('test-conv-1');
       renderWithProviders(<ConversationList {...defaultProps} selectedId$={selectedId$} />);
-      expect(getRow()).toHaveAttribute('aria-selected', 'true');
+      expect(getRow()).toHaveAttribute('aria-pressed', 'true');
     });
 
     it('does not select when Enter is pressed on a nested child element', () => {
