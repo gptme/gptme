@@ -183,7 +183,7 @@ def _count_messages(path: str, mtime: float) -> int:
 
 
 def _fast_scan_tail(
-    conv_fn: Path, file_size: int
+    conv_fn: Path, file_size: int, mtime: float
 ) -> tuple[int, str | None, bytes | None]:
     """Read only the tail of a JSONL file to extract preview and model.
 
@@ -193,11 +193,18 @@ def _fast_scan_tail(
     on the next miss. Small files (<= _TAIL_BYTES) skip the cache since the
     full scan is already cheap.
 
+    Args:
+        conv_fn: Path to the conversation JSONL file.
+        file_size: Size of the file in bytes (caller has already stat'd).
+        mtime: Modification time of the file (caller has already stat'd).
+            Used as part of the cache key to auto-invalidate when the
+            conversation is appended to.
+
     Returns (message_count, model, last_user_or_assistant_line).
     """
     # Count messages — use LRU cache when file is large enough to benefit
     if file_size > _TAIL_BYTES:
-        len_msgs = _count_messages(str(conv_fn), conv_fn.stat().st_mtime)
+        len_msgs = _count_messages(str(conv_fn), mtime)
     else:
         len_msgs = 0
         with open(conv_fn, "rb") as f:
@@ -313,7 +320,9 @@ def get_conversations(
 
         log = Log.read_jsonl(conv_fn, limit=1)
 
-        file_size = conv_fn.stat().st_size
+        stat = conv_fn.stat()
+        file_size = stat.st_size
+        mtime = stat.st_mtime
 
         if detail or file_size <= _TAIL_BYTES:
             # Full scan: exact counts + cost/token aggregation
@@ -328,7 +337,9 @@ def get_conversations(
             ) = _full_scan(conv_fn)
         else:
             # Fast scan: tail-only for preview + model, fast line count
-            len_msgs, conv_model, last_msg_line = _fast_scan_tail(conv_fn, file_size)
+            len_msgs, conv_model, last_msg_line = _fast_scan_tail(
+                conv_fn, file_size, mtime
+            )
             conv_cost = 0.0
             conv_input_tokens = 0
             conv_output_tokens = 0
@@ -339,7 +350,7 @@ def get_conversations(
         )
 
         assert len(log) <= 1
-        modified = conv_fn.stat().st_mtime
+        modified = mtime
         first_timestamp = log[0].timestamp.timestamp() if log else modified
         # Try to get display name from ChatConfig, fallback to folder name
         chat_config = ChatConfig.from_logdir(conv_fn.parent)

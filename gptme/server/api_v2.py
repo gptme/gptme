@@ -2035,6 +2035,8 @@ def api_conversation_config_patch(conversation_id: str):
         manager.log = Log(new_system_msgs + remaining_msgs)
     manager.write()
 
+    # Invalidate the conversations list cache — config PATCH can change display
+    # name, tools, or system prompt that appear in conversation metadata.
     _invalidate_conversations_cache()
     return flask.jsonify(
         {
