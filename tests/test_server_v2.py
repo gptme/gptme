@@ -1337,6 +1337,13 @@ def test_v2_conversations_list_keeps_messages_on_cache_hit(client: FlaskClient):
     assert matching, f"created conversation {convname} not in cached list"
     item = matching[0]
     assert "messages" in item, "cached fast-mode response must keep `messages`"
+    assert "message_count" in item, (
+        "cached fast-mode response must include `message_count` alias"
+    )
+    assert "last_updated" in item, (
+        "cached fast-mode response must include `last_updated` alias"
+    )
+    assert "modified" in item, "cached fast-mode response must keep `modified`"
     assert item["messages"] == item["message_count"]
     assert item["modified"] == item["last_updated"]
 
