@@ -4,6 +4,7 @@ Provides read-only conversation discovery (get_conversations, list_conversations
 and mutation operations (rename, delete) that work on persisted conversation logs.
 """
 
+import functools
 import json
 import logging
 import re
@@ -157,24 +158,52 @@ def _parse_preview(last_msg_line: bytes) -> tuple[str | None, str | None]:
 _TAIL_BYTES = 8192
 
 
+@functools.lru_cache(maxsize=256)
+def _count_messages(path: str, mtime: float) -> int:
+    """Count non-empty lines in a conversation JSONL file.
+
+    Cached by (path, mtime) — when the file changes (mtime updates), the
+    cache key changes and the next call re-scans. mtime is passed as the
+    cache key component; its value is not used in the counting logic.
+
+    Args:
+        path: The conversation.jsonl file path.
+        mtime: File modification time — used as part of the cache key to
+            auto-invalidate when the conversation is appended to.
+
+    Returns:
+        Number of non-empty JSONL lines.
+    """
+    count = 0
+    with open(path, "rb") as f:
+        for line in f:
+            if line.strip():
+                count += 1
+    return count
+
+
 def _fast_scan_tail(
     conv_fn: Path, file_size: int
 ) -> tuple[int, str | None, bytes | None]:
     """Read only the tail of a JSONL file to extract preview and model.
 
-    For the message count, does a fast newline count over the full file
-    (much cheaper than JSON-parsing every line).
+    For the message count, uses an LRU cache keyed by (path, mtime) to
+    avoid re-scanning the full file when listing conversations. When the
+    file's mtime changes (new messages appended), the cache auto-invalidates
+    on the next miss. Small files (<= _TAIL_BYTES) skip the cache since the
+    full scan is already cheap.
 
     Returns (message_count, model, last_user_or_assistant_line).
     """
-    # Fast line count: count non-empty lines without JSON parsing.
-    # The gain is from avoiding json.loads() on every metadata line;
-    # the full file is still read for the line count (I/O unchanged).
-    len_msgs = 0
-    with open(conv_fn, "rb") as f:
-        for line in f:
-            if line.strip():
-                len_msgs += 1
+    # Count messages — use LRU cache when file is large enough to benefit
+    if file_size > _TAIL_BYTES:
+        len_msgs = _count_messages(str(conv_fn), conv_fn.stat().st_mtime)
+    else:
+        len_msgs = 0
+        with open(conv_fn, "rb") as f:
+            for line in f:
+                if line.strip():
+                    len_msgs += 1
 
     # Read tail for preview + model
     last_msg_line: bytes | None = None
