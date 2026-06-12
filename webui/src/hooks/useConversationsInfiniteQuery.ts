@@ -8,7 +8,11 @@ export function useConversationsInfiniteQuery(enabled: boolean = true) {
   const isConnected = use$(api.isConnected$);
 
   return useInfiniteQuery({
-    queryKey: ['conversations', connectionConfig.baseUrl, isConnected],
+    // Remove isConnected from queryKey to avoid a second query identity when
+    // isConnected flips from false→true on auto-connect. The `enabled` flag
+    // already controls when the query fires. staleTime=30s prevents redundant
+    // refetches within a fresh window (common during auto-connect handshake).
+    queryKey: ['conversations', connectionConfig.baseUrl],
     queryFn: async ({ pageParam }: { pageParam: number }) => {
       try {
         const result = await api.getConversationsPaginated(pageParam, 50);
@@ -25,7 +29,7 @@ export function useConversationsInfiniteQuery(enabled: boolean = true) {
       nextCursor: number | undefined;
     }) => lastPage.nextCursor,
     enabled: isConnected && enabled,
-    staleTime: 0,
+    staleTime: 30_000,
     gcTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });

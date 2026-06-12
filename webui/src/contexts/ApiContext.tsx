@@ -175,10 +175,6 @@ export function ApiProvider({
         client.setConnected(true);
 
         await queryClient.invalidateQueries();
-        await queryClient.refetchQueries({
-          queryKey: ['conversations'],
-          type: 'active',
-        });
 
         toast.success('Connected to gptme server');
       } catch (error) {
@@ -294,10 +290,6 @@ export function ApiProvider({
           stopAutoConnect();
 
           await queryClient.invalidateQueries();
-          await queryClient.refetchQueries({
-            queryKey: ['conversations'],
-            type: 'active',
-          });
 
           if (!isInitialAttempt) {
             toast.success('Connected to gptme server');
