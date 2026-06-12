@@ -260,6 +260,43 @@ def test_api_conversation_list_detail_flag(client: FlaskClient, tmp_path, monkey
     assert data[0]["total_output_tokens"] > 0
 
 
+def test_api_conversation_list_cache_tracks_patched_logs_dir(
+    client: FlaskClient, tmp_path, monkeypatch
+):
+    """Changing the conversations logs dir should bypass stale cached list responses."""
+    import gptme.server.api_v2 as api_v2_module
+
+    first_logs_dir = tmp_path / "logs-a"
+    second_logs_dir = tmp_path / "logs-b"
+    first_logs_dir.mkdir()
+    second_logs_dir.mkdir()
+
+    api_v2_module._invalidate_conversations_cache()
+
+    monkeypatch.setattr(
+        "gptme.logmanager.conversations.get_logs_dir", lambda: first_logs_dir
+    )
+    response = client.get("/api/v2/conversations")
+    assert response.status_code == 200
+    assert response.get_json() == []
+
+    conv_dir = second_logs_dir / "cache-target"
+    conv_dir.mkdir()
+    (conv_dir / "conversation.jsonl").write_text(
+        '{"role": "system", "content": "hello", "timestamp": "2026-01-01T00:00:00"}\n'
+    )
+
+    monkeypatch.setattr(
+        "gptme.logmanager.conversations.get_logs_dir", lambda: second_logs_dir
+    )
+    response = client.get("/api/v2/conversations")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert isinstance(data, list)
+    assert len(data) == 1
+    assert data[0]["id"] == "cache-target"
+
+
 def test_api_conversation_get(conv, client: FlaskClient):
     response = client.get(f"/api/v2/conversations/{conv}")
     assert response.status_code == 200
