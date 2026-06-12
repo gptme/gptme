@@ -13,7 +13,7 @@ pytestmark = pytest.mark.integration
 def app(tmp_path, monkeypatch):
     from gptme.server.app import create_app
 
-    monkeypatch.setenv("GPTME_LOGS_DIR", str(tmp_path / "logs"))
+    monkeypatch.setenv("GPTME_LOGS_HOME", str(tmp_path / "logs"))
     app = create_app()
     app.config["TESTING"] = True
     app.config["AUTH_DISABLED"] = True

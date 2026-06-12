@@ -1043,14 +1043,18 @@ def api_conversations():
         if elapsed < _CONVERSATIONS_CACHE_TTL:
             cached = _conversations_cache
             etag = _etag_conversations(cached[:limit])
-            if request.if_none_match.contains(etag):
-                return flask.make_response("", 304)
+            if request.if_none_match.contains_weak(etag):
+                resp = flask.make_response("", 304)
+                resp.set_etag(etag, weak=True)
+                resp.cache_control.no_cache = True
+                return resp
             response_items = [asdict(c) for c in cached[:limit]]
             for item in response_items:
                 item["message_count"] = item["messages"]
                 item["last_updated"] = item["modified"]
             resp = flask.make_response(flask.jsonify(response_items))
-            resp.set_etag(etag)
+            resp.set_etag(etag, weak=True)
+            resp.cache_control.no_cache = True
             return resp
 
     # Use fast tail-only scan for list/search by default — reads last 8KB for
@@ -1088,10 +1092,14 @@ def api_conversations():
         _conversations_cache_logs_dir = logs_dir
         _conversations_cache_time = time.monotonic()
         etag = _etag_conversations(conversations)
-        if request.if_none_match.contains(etag):
-            return flask.make_response("", 304)
+        if request.if_none_match.contains_weak(etag):
+            resp = flask.make_response("", 304)
+            resp.set_etag(etag, weak=True)
+            resp.cache_control.no_cache = True
+            return resp
         resp = flask.make_response(flask.jsonify(response_items))
-        resp.set_etag(etag)
+        resp.set_etag(etag, weak=True)
+        resp.cache_control.no_cache = True
         return resp
 
     return flask.jsonify(response_items)
@@ -1113,8 +1121,11 @@ def api_conversation(conversation_id: str):
 
     logdir = get_logs_dir() / conversation_id
     etag = _etag_conversation(logdir)
-    if etag and request.if_none_match.contains(etag):
-        return flask.make_response("", 304)
+    if etag and request.if_none_match.contains_weak(etag):
+        resp = flask.make_response("", 304)
+        resp.set_etag(etag, weak=True)
+        resp.cache_control.no_cache = True
+        return resp
 
     try:
         manager = LogManager.load(conversation_id, lock=False)
@@ -1165,7 +1176,8 @@ def api_conversation(conversation_id: str):
 
     resp = flask.make_response(flask.jsonify(log_dict))
     if etag:
-        resp.set_etag(etag)
+        resp.set_etag(etag, weak=True)
+        resp.cache_control.no_cache = True
     return resp
 
 
