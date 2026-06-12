@@ -95,7 +95,9 @@ def test_get_prompt_selective_components():
     assert len(full_mode) >= len(empty_selective)
 
 
-def test_get_prompt_stats_breaks_out_sections():
+def test_get_prompt_stats_breaks_out_sections(monkeypatch):
+    monkeypatch.chdir(Path(__file__).resolve().parents[1])
+
     stats = get_prompt_stats(
         get_tools(),
         prompt="full",
