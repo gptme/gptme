@@ -832,25 +832,6 @@ def api_external_session(external_session_id: str):
     return flask.jsonify(session)
 
 
-# Cache for the conversation list endpoint.
-# Populated on the first request after invalidation, served for subsequent
-# requests within TTL. Short TTL keeps stale data bounded while reducing
-# redundant filesystem scans on rapid page loads/mounts (which the webui
-# triggers on every navigation with staleTime=0).
-_CONVERSATIONS_CACHE_TTL = 5  # seconds
-_conversations_cache: list[dict] | None = None
-_conversations_cache_time: float = 0
-_conversations_cache_dir: str = ""
-
-
-def _invalidate_conversations_cache() -> None:
-    """Invalidate the conversation list cache."""
-    global _conversations_cache, _conversations_cache_time, _conversations_cache_dir
-    _conversations_cache = None
-    _conversations_cache_time = 0
-    _conversations_cache_dir = ""
-
-
 @v2_api.route("/api/v2/conversations")
 @require_auth
 @api_doc_simple(
@@ -915,10 +896,7 @@ def api_conversations():
         and _conversations_cache_logs_dir == logs_dir
     ):
         elapsed = time.monotonic() - _conversations_cache_time
-        if (
-            _conversations_cache is not None
-            and elapsed < _CONVERSATIONS_CACHE_TTL
-        ):
+        if elapsed < _CONVERSATIONS_CACHE_TTL:
             cached = _conversations_cache
             response_items = [asdict(c) for c in cached[:limit]]
             for item in response_items:
@@ -941,11 +919,10 @@ def api_conversations():
                 if len(conversations) >= limit:
                     break
     else:
-        # Cache the full list (up to the maximum allowed limit) so that any
-        # requested limit can be served from a single cache entry without the
-        # limit-mismatch truncation that occurs when the cache was built for a
-        # smaller limit (e.g. page 1 warms with limit=51, page 2 asks for 101).
-        conversations = list(islice(get_user_conversations(detail=detail), 1000))
+        # The API limit is capped at 1000, so a cold-cache fill does not need
+        # to scan beyond that bound.
+        all_conversations = list(islice(get_user_conversations(detail=detail), 1000))
+        conversations = all_conversations[:limit]
     response_items = []
     for conv in conversations:
         item = asdict(conv)
@@ -962,7 +939,7 @@ def api_conversations():
         _conversations_cache_logs_dir = logs_dir
         _conversations_cache_time = time.monotonic()
 
-    return flask.jsonify(response_items[:limit])
+    return flask.jsonify(response_items)
 
 
 @v2_api.route("/api/v2/conversations/<string:conversation_id>")
@@ -2707,6 +2684,8 @@ def api_user_settings():
             "config_files": get_user_config_runtime_info(),
         }
     )
+
+
 # In-memory conversations list cache.
 # Caches the full list (no search, no detail) for _CONVERSATIONS_CACHE_TTL seconds.
 # Invalidated on conversation create/update/delete via _invalidate_conversations_cache().
