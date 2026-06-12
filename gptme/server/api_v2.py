@@ -5,6 +5,7 @@ This module contains the main conversation CRUD endpoints for the V2 API.
 Session management, tool execution, and agent creation are handled by separate modules.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -415,6 +416,24 @@ def _validate_config_key_path(key: str) -> str:
     if any(not segment.strip() for segment in trimmed.split(".")):
         raise ValueError("key must be a dotted path with non-empty segments")
     return trimmed
+
+
+def _etag_conversations(conversations: "list[ConversationMeta]") -> str:
+    """Compute a stable ETag from conversation IDs and modification times."""
+    h = hashlib.md5()
+    for c in conversations:
+        h.update(f"{c.id}:{c.modified}\n".encode())
+    return h.hexdigest()[:16]
+
+
+def _etag_conversation(logdir: "Path") -> str:
+    """Compute ETag from the conversation log file's mtime."""
+    logfile = logdir / "conversation.jsonl"
+    try:
+        mtime = logfile.stat().st_mtime
+    except OSError:
+        return ""
+    return hashlib.md5(str(mtime).encode()).hexdigest()[:16]
 
 
 v2_api = flask.Blueprint("v2_api", __name__)
@@ -1023,11 +1042,16 @@ def api_conversations():
         elapsed = time.monotonic() - _conversations_cache_time
         if elapsed < _CONVERSATIONS_CACHE_TTL:
             cached = _conversations_cache
+            etag = _etag_conversations(cached[:limit])
+            if request.if_none_match.contains(etag):
+                return flask.make_response("", 304)
             response_items = [asdict(c) for c in cached[:limit]]
             for item in response_items:
                 item["message_count"] = item["messages"]
                 item["last_updated"] = item["modified"]
-            return flask.jsonify(response_items)
+            resp = flask.make_response(flask.jsonify(response_items))
+            resp.set_etag(etag)
+            return resp
 
     # Use fast tail-only scan for list/search by default — reads last 8KB for
     # preview/model, skips json.loads() on every metadata line.
@@ -1063,6 +1087,12 @@ def api_conversations():
         _conversations_cache = all_conversations
         _conversations_cache_logs_dir = logs_dir
         _conversations_cache_time = time.monotonic()
+        etag = _etag_conversations(conversations)
+        if request.if_none_match.contains(etag):
+            return flask.make_response("", 304)
+        resp = flask.make_response(flask.jsonify(response_items))
+        resp.set_etag(etag)
+        return resp
 
     return flask.jsonify(response_items)
 
@@ -1081,6 +1111,11 @@ def api_conversation(conversation_id: str):
     if error := _validate_conversation_id(conversation_id):
         return error
 
+    logdir = get_logs_dir() / conversation_id
+    etag = _etag_conversation(logdir)
+    if etag and request.if_none_match.contains(etag):
+        return flask.make_response("", 304)
+
     try:
         manager = LogManager.load(conversation_id, lock=False)
     except FileNotFoundError:
@@ -1089,7 +1124,6 @@ def api_conversation(conversation_id: str):
         ), 404
 
     # Create and set config
-    logdir = get_logs_dir() / conversation_id
     chat_config = ChatConfig.load_or_create(logdir, ChatConfig()).save()
     log_dict = manager.to_dict(branches=True)
     log_dict["logdir"] = str(logdir)
@@ -1129,7 +1163,10 @@ def api_conversation(conversation_id: str):
             "last_error": latest.last_error,
         }
 
-    return flask.jsonify(log_dict)
+    resp = flask.make_response(flask.jsonify(log_dict))
+    if etag:
+        resp.set_etag(etag)
+    return resp
 
 
 @v2_api.route("/api/v2/conversations/<string:conversation_id>", methods=["PUT"])
