@@ -160,6 +160,7 @@
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="howto/index.html">How-To Guides</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="howto/minimal-context.html">Run gptme with minimal context</a></li>
 <li class="toctree-l2"><a class="reference internal" href="howto/edit-files.html">How to Edit Files</a></li>
 <li class="toctree-l2"><a class="reference internal" href="howto/code-review.html">How to Review Code</a></li>
 <li class="toctree-l2"><a class="reference internal" href="howto/debug-python.html">How to Debug Python</a></li>
@@ -479,6 +480,7 @@
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#multiprompt-syntax">Multiprompt syntax</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#queue-follow-up-prompts">Queue follow-up prompts</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-selection-patterns">Tool Selection Patterns</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#minimal-context-mode">Minimal context mode</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#skip-confirmation-prompts">Skip confirmation prompts</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#non-interactive-mode">Non-interactive mode</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#machine-readable-output">Machine-readable output</a></li>
@@ -518,10 +520,11 @@
 <li><p><a class="reference internal" href="#multiprompt-syntax" id="id7">Multiprompt syntax</a></p></li>
 <li><p><a class="reference internal" href="#queue-follow-up-prompts" id="id8">Queue follow-up prompts</a></p></li>
 <li><p><a class="reference internal" href="#tool-selection-patterns" id="id9">Tool Selection Patterns</a></p></li>
-<li><p><a class="reference internal" href="#skip-confirmation-prompts" id="id10">Skip confirmation prompts</a></p></li>
-<li><p><a class="reference internal" href="#non-interactive-mode" id="id11">Non-interactive mode</a></p></li>
-<li><p><a class="reference internal" href="#machine-readable-output" id="id12">Machine-readable output</a></p></li>
-<li><p><a class="reference internal" href="#pre-commit-integration" id="id13">Pre-commit Integration</a></p></li>
+<li><p><a class="reference internal" href="#minimal-context-mode" id="id10">Minimal context mode</a></p></li>
+<li><p><a class="reference internal" href="#skip-confirmation-prompts" id="id11">Skip confirmation prompts</a></p></li>
+<li><p><a class="reference internal" href="#non-interactive-mode" id="id12">Non-interactive mode</a></p></li>
+<li><p><a class="reference internal" href="#machine-readable-output" id="id13">Machine-readable output</a></p></li>
+<li><p><a class="reference internal" href="#pre-commit-integration" id="id14">Pre-commit Integration</a></p></li>
 </ul>
 </li>
 </ul>
@@ -682,6 +685,22 @@ with repeated screenshots:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>profile<span class="w"> </span>list
 </pre></div>
 </div>
+</section>
+<section id="minimal-context-mode">
+<h3>Minimal context mode<a class="headerlink" href="#minimal-context-mode" title="Link to this heading">#</a></h3>
+<p>When you want a tighter startup prompt for a specialized task, combine a short
+system prompt, a narrow tool set, and selective context:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--system<span class="w"> </span>short<span class="w"> </span>--tools<span class="w"> </span>shell,read,patch,save<span class="w"> </span>--context<span class="w"> </span>files<span class="w"> </span><span class="s2">&quot;fix the failing test&quot;</span>
+</pre></div>
+</div>
+<p>Measure the prompt before and after with:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--show-prompt-stats
+</pre></div>
+</div>
+<p>That prints per-section token counts for the startup system prompt so you can
+see whether the cost is coming from tool docs, user profile text, workspace
+prompt files, or dynamic <code class="docutils literal notranslate"><span class="pre">context_cmd</span></code> output.</p>
+<p>For a deeper recipe, see <a class="reference internal" href="howto/minimal-context.html"><span class="doc">Run gptme with minimal context</span></a>.</p>
 </section>
 <section id="skip-confirmation-prompts">
 <h3>Skip confirmation prompts<a class="headerlink" href="#skip-confirmation-prompts" title="Link to this heading">#</a></h3>
@@ -849,6 +868,7 @@ def my_function(x: int, y: int) -> int:
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#multiprompt-syntax">Multiprompt syntax</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#queue-follow-up-prompts">Queue follow-up prompts</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-selection-patterns">Tool Selection Patterns</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#minimal-context-mode">Minimal context mode</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#skip-confirmation-prompts">Skip confirmation prompts</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#non-interactive-mode">Non-interactive mode</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#machine-readable-output">Machine-readable output</a></li>

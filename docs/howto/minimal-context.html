@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>v0.19.0 &#8212; gptme</title>
+    <title>Run gptme with minimal context &#8212; gptme</title>
   
   
   
@@ -46,13 +46,13 @@
     <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="../_static/asciinema-player_3.6.3.js"></script>
     <script src="../_static/scripts/sphinx-book-theme.js?v=887ef09a"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'releases/v0.19.0';</script>
-    <link rel="canonical" href="https://gptme.org/docs/releases/v0.19.0.html" />
+    <script>DOCUMENTATION_OPTIONS.pagename = 'howto/minimal-context';</script>
+    <link rel="canonical" href="https://gptme.org/docs/howto/minimal-context.html" />
     <link rel="icon" href="../_static/logo.png"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="v0.18.0" href="v0.18.0.html" />
-    <link rel="prev" title="v0.20.0" href="v0.20.0.html" />
+    <link rel="next" title="How to Edit Files" href="edit-files.html" />
+    <link rel="prev" title="How-To Guides" href="index.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -149,7 +149,7 @@
         <div class="sidebar-primary-item"><nav class="bd-links bd-docs-nav" aria-label="Main">
     <div class="bd-toc-item navbar-nav active">
         <p aria-level="2" class="caption" role="heading"><span class="caption-text">User Guide</span></p>
-<ul class="nav bd-sidenav">
+<ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="../getting-started.html">Getting Started</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../system-dependencies.html">System Dependencies</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../usage.html">Usage</a></li>
@@ -159,13 +159,13 @@
 <li class="toctree-l2"><a class="reference internal" href="../projects.html">Projects</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="../howto/index.html">How-To Guides</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../howto/minimal-context.html">Run gptme with minimal context</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../howto/edit-files.html">How to Edit Files</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../howto/code-review.html">How to Review Code</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../howto/debug-python.html">How to Debug Python</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../howto/automate-task.html">How to Automate Tasks</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../howto/refactor.html">How to Refactor Code</a></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">How-To Guides</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Run gptme with minimal context</a></li>
+<li class="toctree-l2"><a class="reference internal" href="edit-files.html">How to Edit Files</a></li>
+<li class="toctree-l2"><a class="reference internal" href="code-review.html">How to Review Code</a></li>
+<li class="toctree-l2"><a class="reference internal" href="debug-python.html">How to Debug Python</a></li>
+<li class="toctree-l2"><a class="reference internal" href="automate-task.html">How to Automate Tasks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="refactor.html">How to Refactor Code</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../tools.html">Tools</a></li>
@@ -213,64 +213,64 @@
 <li class="toctree-l1"><a class="reference internal" href="../design/elicitation.html">Design: Generalized Elicitation</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">About</span></p>
-<ul class="current nav bd-sidenav">
+<ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="../alternatives.html">Alternatives</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../arewetiny.html">Are we tiny?</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../misc/acronyms.html">What does “gptme” stand for?</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../timeline.html">Timeline</a></li>
-<li class="toctree-l1 current active has-children"><a class="reference internal" href="../changelog.html">Changelog</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
-<li class="toctree-l2"><a class="reference internal" href="v0.31.0.html">v0.31.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.30.0.html">v0.30.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.29.0.html">v0.29.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.28.3.html">v0.28.3</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.28.2.html">v0.28.2</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.28.1.html">v0.28.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.28.0.html">v0.28.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.27.0.html">v0.27.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.26.0.html">v0.26.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.25.0.html">v0.25.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.24.1.html">v0.24.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.24.0.html">v0.24.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.23.0.html">v0.23.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.22.0.html">v0.22.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.21.0.html">v0.21.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.20.0.html">v0.20.0</a></li>
-<li class="toctree-l2 current active"><a class="current reference internal" href="#">v0.19.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.18.0.html">v0.18.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.17.0.html">v0.17.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.16.0.html">v0.16.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.15.0.html">v0.15.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.14.0.html">v0.14.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.13.0.html">v0.13.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.12.0.html">v0.12.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.11.0.html">v0.11.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.10.5.html">v0.10.5</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.10.4.html">v0.10.4</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.10.3.html">v0.10.3</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.10.2.html">v0.10.2</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.10.1.html">v0.10.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.10.0.html">v0.10.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.9.4.html">v0.9.4</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.9.3.html">v0.9.3</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.9.2.html">v0.9.2</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.9.1.html">v0.9.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.9.0.html">v0.9.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.8.1.html">v0.8.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.8.0.html">v0.8.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.7.0.html">v0.7.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.6.1.html">v0.6.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.6.0.html">v0.6.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.5.0.html">v0.5.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.4.2.html">v0.4.2</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.4.1.html">v0.4.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.4.0.html">v0.4.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.3.3.html">v0.3.3</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.3.2.html">v0.3.2</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.3.1.html">v0.3.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.3.0.html">v0.3.0</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.2.2.html">v0.2.2</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.2.1.html">v0.2.1</a></li>
-<li class="toctree-l2"><a class="reference internal" href="v0.1.1.html">v0.1.1</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../changelog.html">Changelog</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.31.0.html">v0.31.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.30.0.html">v0.30.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.29.0.html">v0.29.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.28.3.html">v0.28.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.28.2.html">v0.28.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.28.1.html">v0.28.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.28.0.html">v0.28.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.27.0.html">v0.27.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.26.0.html">v0.26.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.25.0.html">v0.25.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.24.1.html">v0.24.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.24.0.html">v0.24.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.23.0.html">v0.23.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.22.0.html">v0.22.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.21.0.html">v0.21.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.20.0.html">v0.20.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.19.0.html">v0.19.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.18.0.html">v0.18.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.17.0.html">v0.17.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.16.0.html">v0.16.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.15.0.html">v0.15.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.14.0.html">v0.14.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.13.0.html">v0.13.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.12.0.html">v0.12.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.11.0.html">v0.11.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.5.html">v0.10.5</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.4.html">v0.10.4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.3.html">v0.10.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.2.html">v0.10.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.1.html">v0.10.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.10.0.html">v0.10.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.9.4.html">v0.9.4</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.9.3.html">v0.9.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.9.2.html">v0.9.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.9.1.html">v0.9.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.9.0.html">v0.9.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.8.1.html">v0.8.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.8.0.html">v0.8.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.7.0.html">v0.7.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.6.1.html">v0.6.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.6.0.html">v0.6.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.5.0.html">v0.5.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.4.2.html">v0.4.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.4.1.html">v0.4.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.4.0.html">v0.4.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.3.3.html">v0.3.3</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.3.2.html">v0.3.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.3.1.html">v0.3.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.3.0.html">v0.3.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.2.2.html">v0.2.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.2.1.html">v0.2.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../releases/v0.1.1.html">v0.1.1</a></li>
 </ul>
 </details></li>
 </ul>
@@ -355,7 +355,7 @@
       
       
       
-      <li><a href="https://github.com/gptme/gptme/edit/main/docs/releases/v0.19.0.md" target="_blank"
+      <li><a href="https://github.com/gptme/gptme/edit/main/docs/howto/minimal-context.md" target="_blank"
    class="btn btn-sm btn-source-edit-button dropdown-item"
    title="Suggest edit"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -385,7 +385,7 @@
       
       
       
-      <li><a href="../_sources/releases/v0.19.0.md" target="_blank"
+      <li><a href="../_sources/howto/minimal-context.md" target="_blank"
    class="btn btn-sm btn-download-source-button dropdown-item"
    title="Download source file"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -461,7 +461,7 @@
               
 
 <div id="jb-print-docs-body" class="onlyprint">
-    <h1>v0.19.0</h1>
+    <h1>Run gptme with minimal context</h1>
     <!-- Table of contents -->
     <div id="print-main-content">
         <div id="jb-print-toc">
@@ -471,14 +471,15 @@
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#contributors">Contributors</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#changelog">Changelog</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme">📦 gptme</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#features-3">✨ Features (3)</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fixes-13">🐛 Fixes (13)</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#misc-8">🔨 Misc (8)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#measure-first">Measure first</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#use-the-three-practical-levers">Use the three practical levers</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#restrict-tools">1. Restrict tools</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#use-the-short-system-prompt">2. Use the short system prompt</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#trim-workspace-context-when-it-is-not-helping">3. Trim workspace context when it is not helping</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#good-defaults-for-specialized-sessions">Good defaults for specialized sessions</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#iterate-with-stats">Iterate with stats</a></li>
 </ul>
             </nav>
         </div>
@@ -490,69 +491,97 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="v0-19-0">
-<h1>v0.19.0<a class="headerlink" href="#v0-19-0" title="Link to this heading">#</a></h1>
-<p>These are the release notes for gptme version v0.19.0.</p>
-<section id="contributors">
-<h2>Contributors<a class="headerlink" href="#contributors" title="Link to this heading">#</a></h2>
-<p>Thanks to everyone who contributed to this release:</p>
-<p>&#64;erikbjare</p>
-</section>
-<section id="changelog">
-<h2>Changelog<a class="headerlink" href="#changelog" title="Link to this heading">#</a></h2>
-<p>Changes since v0.18.2:</p>
-</section>
-<section id="gptme">
-<h2>📦 gptme<a class="headerlink" href="#gptme" title="Link to this heading">#</a></h2>
-<section id="features-3">
-<h3>✨ Features (3)<a class="headerlink" href="#features-3" title="Link to this heading">#</a></h3>
+  <section id="run-gptme-with-minimal-context">
+<h1>Run gptme with minimal context<a class="headerlink" href="#run-gptme-with-minimal-context" title="Link to this heading">#</a></h1>
+<p>Use this pattern when you want a cheaper, tighter startup prompt for a
+specialized task or an isolated automation run.</p>
+<section id="measure-first">
+<h2>Measure first<a class="headerlink" href="#measure-first" title="Link to this heading">#</a></h2>
+<p>Start by checking where the prompt tokens actually go for your current setup:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--show-prompt-stats
+</pre></div>
+</div>
+<p>That prints per-section counts for the startup system prompt, including:</p>
 <ul class="simple">
-<li><p>feat: added screenshot tool (<a class="reference external" href="https://github.com/gptme/gptme/issues/92">#92</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/f4c63c2a"><code class="docutils literal notranslate"><span class="pre">f4c63c2a</span></code></a>)</p></li>
-<li><p>feat: added vision tool (<a class="reference external" href="https://github.com/gptme/gptme/commit/597c66c5"><code class="docutils literal notranslate"><span class="pre">597c66c5</span></code></a>)</p></li>
-<li><p>feat: added -t/–tools option to specify which tools to load (<a class="reference external" href="https://github.com/gptme/gptme/commit/48d559b4"><code class="docutils literal notranslate"><span class="pre">48d559b4</span></code></a>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">prompt_gptme</span></code> for the core assistant instructions</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">prompt_tools</span></code> for tool documentation</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">prompt_user</span></code> for user profile text</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">prompt_workspace</span></code> for AGENTS/CLAUDE files and configured prompt files</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">prompt_context_cmd_*</span></code> for dynamic <code class="docutils literal notranslate"><span class="pre">context_cmd</span></code> output</p></li>
 </ul>
+<p>For most code tasks, <code class="docutils literal notranslate"><span class="pre">prompt_tools</span></code> is the biggest section by far. That means
+the highest-leverage trim is usually tool scoping, not rewriting the base prompt.</p>
 </section>
-<section id="fixes-13">
-<h3>🐛 Fixes (13)<a class="headerlink" href="#fixes-13" title="Link to this heading">#</a></h3>
-<details><summary>Click to expand</summary>
-<p>
-<ul class="simple">
-<li><p>fix: fixed lint (<a class="reference external" href="https://github.com/gptme/gptme/commit/a3bcf495"><code class="docutils literal notranslate"><span class="pre">a3bcf495</span></code></a>)</p></li>
-<li><p>fix: removed incorrect calls to register_function, removed dead code (<a class="reference external" href="https://github.com/gptme/gptme/commit/a4fa62ef"><code class="docutils literal notranslate"><span class="pre">a4fa62ef</span></code></a>)</p></li>
-<li><p>fix: more patch tool refactor (<a class="reference external" href="https://github.com/gptme/gptme/commit/9627b73b"><code class="docutils literal notranslate"><span class="pre">9627b73b</span></code></a>)</p></li>
-<li><p>fix: removed emoji from ask_execute, added secret <code class="docutils literal notranslate"><span class="pre">auto</span></code> answer in ask_execute (<a class="reference external" href="https://github.com/gptme/gptme/commit/5eddc6a5"><code class="docutils literal notranslate"><span class="pre">5eddc6a5</span></code></a>)</p></li>
-<li><p>fix: added patch previews (<a class="reference external" href="https://github.com/gptme/gptme/commit/dd7be0dd"><code class="docutils literal notranslate"><span class="pre">dd7be0dd</span></code></a>)</p></li>
-<li><p>fix: completed diff_minimal (<a class="reference external" href="https://github.com/gptme/gptme/commit/df9d83cf"><code class="docutils literal notranslate"><span class="pre">df9d83cf</span></code></a>)</p></li>
-<li><p>fix: flush stdin before asking to execute (prevent unread input from answering before asked) (<a class="reference external" href="https://github.com/gptme/gptme/commit/6ab4dbe2"><code class="docutils literal notranslate"><span class="pre">6ab4dbe2</span></code></a>)</p></li>
-<li><p>fix: implemented example_to_xml to support xml-ify prompt (<a class="reference external" href="https://github.com/gptme/gptme/issues/146">#146</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/5f37d104"><code class="docutils literal notranslate"><span class="pre">5f37d104</span></code></a>)</p></li>
-<li><p>fix: init tools in evals (<a class="reference external" href="https://github.com/gptme/gptme/commit/44e76ff4"><code class="docutils literal notranslate"><span class="pre">44e76ff4</span></code></a>)</p></li>
-<li><p>fix: improved patch warning message on large patches (<a class="reference external" href="https://github.com/gptme/gptme/commit/5e635b6c"><code class="docutils literal notranslate"><span class="pre">5e635b6c</span></code></a>)</p></li>
-<li><p>fix: froze more dataclasses (<a class="reference external" href="https://github.com/gptme/gptme/commit/953f8016"><code class="docutils literal notranslate"><span class="pre">953f8016</span></code></a>)</p></li>
-<li><p>fix: improve tool init logic for tools needing it (python), added toolspec args docs (<a class="reference external" href="https://github.com/gptme/gptme/commit/f8e5cd68"><code class="docutils literal notranslate"><span class="pre">f8e5cd68</span></code></a>)</p></li>
-<li><p>fix: use prompt chaining in subagent task to improve reliability (<a class="reference external" href="https://github.com/gptme/gptme/commit/0dd6583c"><code class="docutils literal notranslate"><span class="pre">0dd6583c</span></code></a>)</p></li>
-</ul>
-</p>
-</details>
+<section id="use-the-three-practical-levers">
+<h2>Use the three practical levers<a class="headerlink" href="#use-the-three-practical-levers" title="Link to this heading">#</a></h2>
+<section id="restrict-tools">
+<h3>1. Restrict tools<a class="headerlink" href="#restrict-tools" title="Link to this heading">#</a></h3>
+<p>Only load the tools the task actually needs:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tools<span class="w"> </span>shell,read,patch,save<span class="w"> </span><span class="s2">&quot;rename the public API and update tests&quot;</span>
+</pre></div>
+</div>
+<p>If you only need a couple of extras on top of defaults, use additive syntax:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tools<span class="w"> </span>+browser<span class="w"> </span><span class="s2">&quot;open the docs site and summarize the API changes&quot;</span>
+</pre></div>
+</div>
 </section>
-<section id="misc-8">
-<h3>🔨 Misc (8)<a class="headerlink" href="#misc-8" title="Link to this heading">#</a></h3>
-<details><summary>Click to expand</summary>
-<p>
-<ul class="simple">
-<li><p>chore: bump version to 0.19.0 (<a class="reference external" href="https://github.com/gptme/gptme/commit/bbe3586a"><code class="docutils literal notranslate"><span class="pre">bbe3586a</span></code></a>)</p></li>
-<li><p>docs: remove completed TODOs (<a class="reference external" href="https://github.com/gptme/gptme/commit/337b025c"><code class="docutils literal notranslate"><span class="pre">337b025c</span></code></a>)</p></li>
-<li><p>refactor: refactor patch tool, with plans for producing minimal diffs to replace inefficient diffs in log (<a class="reference external" href="https://github.com/gptme/gptme/commit/e2b2d6a0"><code class="docutils literal notranslate"><span class="pre">e2b2d6a0</span></code></a>)</p></li>
-<li><p>docs: fixed docstring for gptme.prompts (<a class="reference external" href="https://github.com/gptme/gptme/commit/027cb06f"><code class="docutils literal notranslate"><span class="pre">027cb06f</span></code></a>)</p></li>
-<li><p>docs: keep copyright year up-to-date (<a class="reference external" href="https://github.com/gptme/gptme/commit/1ac4aee0"><code class="docutils literal notranslate"><span class="pre">1ac4aee0</span></code></a>)</p></li>
-<li><p>docs: fixed automation docs (<a class="reference external" href="https://github.com/gptme/gptme/commit/a70b5b5e"><code class="docutils literal notranslate"><span class="pre">a70b5b5e</span></code></a>)</p></li>
-<li><p>docs: changed erik.bjareholt.com/gptme/ links to gptme.org/ (<a class="reference external" href="https://github.com/gptme/gptme/commit/52baf5b9"><code class="docutils literal notranslate"><span class="pre">52baf5b9</span></code></a>)</p></li>
-<li><p>docs: added minimal automation docs (<a class="reference external" href="https://github.com/gptme/gptme/issues/144">#144</a>) (<a class="reference external" href="https://github.com/gptme/gptme/commit/3902b865"><code class="docutils literal notranslate"><span class="pre">3902b865</span></code></a>)</p></li>
-</ul>
-</p>
-</details>
-<p><em>(excluded 2 less relevant <a class="reference external" href="https://github.com/gptme/gptme/compare/v0.18.2...v0.19.0">commits</a>)</em></p>
-<p><strong>Full Changelog</strong>: https://github.com/gptme/gptme/compare/v0.18.2…v0.19.0</p>
+<section id="use-the-short-system-prompt">
+<h3>2. Use the short system prompt<a class="headerlink" href="#use-the-short-system-prompt" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">--system</span> <span class="pre">short</span></code> keeps the same broad behavior but drops the longer wording and
+tool examples:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--system<span class="w"> </span>short<span class="w"> </span>--tools<span class="w"> </span>shell,read,patch,save<span class="w"> </span><span class="s2">&quot;fix the failing test&quot;</span>
+</pre></div>
+</div>
 </section>
+<section id="trim-workspace-context-when-it-is-not-helping">
+<h3>3. Trim workspace context when it is not helping<a class="headerlink" href="#trim-workspace-context-when-it-is-not-helping" title="Link to this heading">#</a></h3>
+<p>Use <code class="docutils literal notranslate"><span class="pre">--context</span></code> to control whether prompt files and <code class="docutils literal notranslate"><span class="pre">context_cmd</span></code> output are
+included:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Keep static prompt files, skip dynamic context_cmd output</span>
+gptme<span class="w"> </span>--context<span class="w"> </span>files<span class="w"> </span><span class="s2">&quot;review this module&quot;</span>
+
+<span class="c1"># Keep dynamic context_cmd output, skip prompt files</span>
+gptme<span class="w"> </span>--context<span class="w"> </span>cmd<span class="w"> </span><span class="s2">&quot;summarize the current repo status&quot;</span>
+</pre></div>
+</div>
+<p>This does <strong>not</strong> yet provide a full <code class="docutils literal notranslate"><span class="pre">--no-workspace</span></code> mode. If you want to skip
+project instructions entirely today, run gptme from a smaller workspace or a
+separate agent path.</p>
+</section>
+</section>
+<section id="good-defaults-for-specialized-sessions">
+<h2>Good defaults for specialized sessions<a class="headerlink" href="#good-defaults-for-specialized-sessions" title="Link to this heading">#</a></h2>
+<p>For a focused coding run:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--system<span class="w"> </span>short<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--tools<span class="w"> </span>shell,read,patch,save<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--context<span class="w"> </span>files<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">&quot;update the parser and make the tests pass&quot;</span>
+</pre></div>
+</div>
+<p>For a constrained automation or factory-style cell:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--agent-profile<span class="w"> </span>isolated<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--system<span class="w"> </span>short<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--tools<span class="w"> </span>shell,read,patch,save,complete<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--non-interactive<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="s2">&quot;apply the requested refactor and finish when tests pass&quot;</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">--agent-profile</span> <span class="pre">isolated</span></code> is useful when you want stricter behavior and a
+hard tool subset, but remember that profiles currently <strong>add</strong> instructions.
+They do not subtract the base <code class="docutils literal notranslate"><span class="pre">prompt_gptme</span></code> or workspace prompt.</p>
+</section>
+<section id="iterate-with-stats">
+<h2>Iterate with stats<a class="headerlink" href="#iterate-with-stats" title="Link to this heading">#</a></h2>
+<p>Compare the before/after prompt surface instead of guessing:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--show-prompt-stats
+gptme<span class="w"> </span>--show-prompt-stats<span class="w"> </span>--system<span class="w"> </span>short<span class="w"> </span>--tools<span class="w"> </span>shell,read,patch,save<span class="w"> </span>--context<span class="w"> </span>files
+</pre></div>
+</div>
+<p>If <code class="docutils literal notranslate"><span class="pre">prompt_workspace</span></code> or <code class="docutils literal notranslate"><span class="pre">prompt_context_cmd_project</span></code> still dominates, the next
+improvement is likely in your workspace prompt files or <code class="docutils literal notranslate"><span class="pre">gptme.toml</span></code>, not in the
+core assistant prompt.</p>
 </section>
 </section>
 
@@ -568,20 +597,20 @@
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="v0.20.0.html"
+       href="index.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">v0.20.0</p>
+        <p class="prev-next-title">How-To Guides</p>
       </div>
     </a>
     <a class="right-next"
-       href="v0.18.0.html"
+       href="edit-files.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">v0.18.0</p>
+        <p class="prev-next-title">How to Edit Files</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -602,14 +631,15 @@
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#contributors">Contributors</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#changelog">Changelog</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme">📦 gptme</a><ul class="nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#features-3">✨ Features (3)</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#fixes-13">🐛 Fixes (13)</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#misc-8">🔨 Misc (8)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#measure-first">Measure first</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#use-the-three-practical-levers">Use the three practical levers</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#restrict-tools">1. Restrict tools</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#use-the-short-system-prompt">2. Use the short system prompt</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#trim-workspace-context-when-it-is-not-helping">3. Trim workspace context when it is not helping</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#good-defaults-for-specialized-sessions">Good defaults for specialized sessions</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#iterate-with-stats">Iterate with stats</a></li>
 </ul>
   </nav></div>
 

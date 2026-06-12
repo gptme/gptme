@@ -11,6 +11,7 @@
 - [Automation](https://gptme.org/docs/_sources/automation.rst)
 - [Projects](https://gptme.org/docs/_sources/projects.rst)
 - [How-To Guides](https://gptme.org/docs/_sources/howto/index.md)
+- [Run gptme with minimal context](https://gptme.org/docs/_sources/howto/minimal-context.md)
 - [How to Edit Files](https://gptme.org/docs/_sources/howto/edit-files.md)
 - [How to Review Code](https://gptme.org/docs/_sources/howto/code-review.md)
 - [How to Debug Python](https://gptme.org/docs/_sources/howto/debug-python.md)

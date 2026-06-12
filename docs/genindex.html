@@ -167,6 +167,7 @@ window.addEventListener("load", () => mermaid.run());
 </ul>
 </details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="howto/index.html">How-To Guides</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="howto/minimal-context.html">Run gptme with minimal context</a></li>
 <li class="toctree-l2"><a class="reference internal" href="howto/edit-files.html">How to Edit Files</a></li>
 <li class="toctree-l2"><a class="reference internal" href="howto/code-review.html">How to Review Code</a></li>
 <li class="toctree-l2"><a class="reference internal" href="howto/debug-python.html">How to Debug Python</a></li>
@@ -745,8 +746,6 @@ window.addEventListener("load", () => mermaid.run());
         <li><a href="cli.html#cmdoption-gptme-output-format">gptme command line option</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     --parallel
 
@@ -754,6 +753,8 @@ window.addEventListener("load", () => mermaid.run());
         <li><a href="cli.html#cmdoption-gptme-eval-p">gptme-eval command line option</a>
 </li>
       </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     --path
 
@@ -810,6 +811,13 @@ window.addEventListener("load", () => mermaid.run());
 
       <ul>
         <li><a href="cli.html#cmdoption-gptme-show-hidden">gptme command line option</a>
+</li>
+      </ul></li>
+      <li>
+    --show-prompt-stats
+
+      <ul>
+        <li><a href="cli.html#cmdoption-gptme-show-prompt-stats">gptme command line option</a>
 </li>
       </ul></li>
       <li>
@@ -1101,6 +1109,10 @@ window.addEventListener("load", () => mermaid.run());
 </li>
         <li><a href="api.html#gptme.message.Message.__init__">(gptme.message.Message method)</a>
 </li>
+        <li><a href="prompts.html#gptme.prompts.PromptSectionStat.__init__">(gptme.prompts.PromptSectionStat method)</a>
+</li>
+        <li><a href="prompts.html#gptme.prompts.PromptStats.__init__">(gptme.prompts.PromptStats method)</a>
+</li>
         <li><a href="api.html#gptme.tools.Parameter.__init__">(gptme.tools.Parameter method)</a>
 </li>
         <li><a href="api.html#gptme.tools.ToolSpec.__init__">(gptme.tools.ToolSpec method)</a>
@@ -1215,6 +1227,8 @@ window.addEventListener("load", () => mermaid.run());
         <li><a href="api.html#gptme.message.Message.format">(gptme.message.Message method)</a>
 </li>
       </ul></li>
+      <li><a href="prompts.html#gptme.prompts.format_prompt_stats">format_prompt_stats() (in module gptme.prompts)</a>
+</li>
       <li><a href="api.html#gptme.config.ChatConfig.from_dict">from_dict() (gptme.config.ChatConfig class method)</a>
 
       <ul>
@@ -1280,6 +1294,8 @@ window.addEventListener("load", () => mermaid.run());
 </li>
       <li><a href="prompts.html#gptme.prompts.get_prompt">get_prompt() (in module gptme.prompts)</a>
 </li>
+      <li><a href="prompts.html#gptme.prompts.get_prompt_stats">get_prompt_stats() (in module gptme.prompts)</a>
+</li>
       <li><a href="api.html#gptme.logmanager.get_user_conversations">get_user_conversations() (in module gptme.logmanager)</a>
 </li>
       <li>
@@ -1317,6 +1333,8 @@ window.addEventListener("load", () => mermaid.run());
         <li><a href="cli.html#cmdoption-gptme-r">--resume</a>
 </li>
         <li><a href="cli.html#cmdoption-gptme-show-hidden">--show-hidden</a>
+</li>
+        <li><a href="cli.html#cmdoption-gptme-show-prompt-stats">--show-prompt-stats</a>
 </li>
         <li><a href="cli.html#cmdoption-gptme-stream">--stream</a>
 </li>
@@ -1854,10 +1872,10 @@ window.addEventListener("load", () => mermaid.run());
 </li>
       <li><a href="prompts.html#gptme.prompts.prompt_gptme">prompt_gptme() (in module gptme.prompts)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="prompts.html#gptme.prompts.prompt_project">prompt_project() (in module gptme.prompts)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="prompts.html#gptme.prompts.prompt_short">prompt_short() (in module gptme.prompts)</a>
 </li>
       <li><a href="prompts.html#gptme.prompts.prompt_skills_summary">prompt_skills_summary() (in module gptme.prompts)</a>
@@ -1879,6 +1897,10 @@ window.addEventListener("load", () => mermaid.run());
         <li><a href="cli.html#cmdoption-gptme-arg-PROMPTS">gptme command line option</a>
 </li>
       </ul></li>
+      <li><a href="prompts.html#gptme.prompts.PromptSectionStat">PromptSectionStat (class in gptme.prompts)</a>
+</li>
+      <li><a href="prompts.html#gptme.prompts.PromptStats">PromptStats (class in gptme.prompts)</a>
+</li>
       <li>
     PROVIDER_NAME
 
