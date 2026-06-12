@@ -193,9 +193,14 @@ def auto_reply_hook(
         return  # Has tools, no need to prompt
 
     # Count consecutive auto-replies
+    # Both auto-reply variants share this prefix:
+    # "No tool call detected in last message. You have incomplete todos:\n..."
+    # "No tool call detected in last message. Did you mean to finish? ..."
+    _AUTO_REPLY_MARKER = "No tool call detected in last message"
+
     auto_reply_count = 0
     for msg in reversed(manager.log.messages):
-        if msg.role == "user" and "use the `complete` tool" in msg.content:
+        if msg.role == "user" and _AUTO_REPLY_MARKER in msg.content:
             auto_reply_count += 1
         elif msg.role == "assistant":
             # Stop counting when we hit an assistant message with tools

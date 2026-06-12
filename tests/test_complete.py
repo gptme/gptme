@@ -210,6 +210,40 @@ class TestTodoContinuationEnforcer:
         assert "Implement feature X" in result[0].content
         assert "Write tests" in result[0].content
 
+    def test_two_auto_replies_with_incomplete_todos_exits(self):
+        """Should exit after 2 consecutive no-tool replies even with incomplete todos."""
+        # Add incomplete todos
+        todo._current_todos["1"] = {
+            "id": "1",
+            "text": "Implement feature X",
+            "state": "in_progress",
+            "created": "2025-01-01T00:00:00",
+            "updated": "2025-01-01T00:00:00",
+        }
+
+        messages = [
+            Message("assistant", "Working\n```shell\nls\n```"),
+            Message(
+                "user",
+                "<system>No tool call detected in last message. You have incomplete todos:\n- Implement feature X (in_progress)\n\nPlease continue working on these tasks, or mark them complete/remove them before finishing.</system>",
+            ),
+            Message("assistant", "First response without tools"),
+            Message(
+                "user",
+                "<system>No tool call detected in last message. You have incomplete todos:\n- Implement feature X (in_progress)\n\nPlease continue working on these tasks, or mark them complete/remove them before finishing.</system>",
+            ),
+            Message("assistant", "Second response without tools"),
+        ]
+
+        manager = MagicMock()
+        manager.log = Log(messages)
+
+        # Should raise SessionCompleteException (not cycle infinitely)
+        with pytest.raises(SessionCompleteException) as exc_info:
+            list(auto_reply_hook(manager, interactive=False, prompt_queue=None))
+
+        assert "2 auto-reply confirmations" in str(exc_info.value)
+
     def test_auto_reply_without_incomplete_todos(self):
         """Should show normal message when no incomplete todos."""
         # Add only completed todos
