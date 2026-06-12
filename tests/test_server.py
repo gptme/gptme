@@ -171,6 +171,23 @@ def test_api_conversation_list_detail_flag(client: FlaskClient, tmp_path, monkey
     """Test that detail=true returns cost/token stats while default (false) zeroes them."""
     import json
 
+    import gptme.server.api_v2 as api_v2_module
+
+    api_v2_module._invalidate_conversations_cache()
+
+    empty_logs_dir = tmp_path / "empty-logs"
+    empty_logs_dir.mkdir()
+
+    # Prime the list cache against a different logs dir first. Without scoping
+    # the cache to the active logs dir, the second request below reuses the
+    # stale empty result instead of scanning the populated tmp_path.
+    monkeypatch.setattr(
+        "gptme.logmanager.conversations.get_logs_dir", lambda: empty_logs_dir
+    )
+    response = client.get("/api/v2/conversations")
+    assert response.status_code == 200
+    assert response.get_json() == []
+
     monkeypatch.setattr("gptme.logmanager.conversations.get_logs_dir", lambda: tmp_path)
 
     # Create a conversation with an assistant message that carries usage info

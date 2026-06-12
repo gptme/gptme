@@ -62,6 +62,7 @@ from ..config.user import (
 )
 from ..dirs import get_logs_dir
 from ..logmanager import ConversationMeta, Log, LogManager, get_user_conversations
+from ..logmanager import conversations as conversations_module
 from ..message import Message
 from ..tools import get_toolchain, get_tools, init_tools
 from ..util.content import is_message_command
@@ -880,9 +881,19 @@ def api_conversations():
     detail = detail_val is not None and detail_val.lower() in ("", "1", "true", "yes")
 
     # Use cached list for the common case (no search, no detail).
-    # Cache is invalidated on conversation create/update/delete.
-    global _conversations_cache, _conversations_cache_time
-    if not search and not detail and _conversations_cache is not None:
+    # Cache is invalidated on conversation create/update/delete and scoped to
+    # the current logs dir so test/workspace swaps do not reuse stale results.
+    global \
+        _conversations_cache, \
+        _conversations_cache_logs_dir, \
+        _conversations_cache_time
+    logs_dir = conversations_module.get_logs_dir()
+    if (
+        not search
+        and not detail
+        and _conversations_cache is not None
+        and _conversations_cache_logs_dir == logs_dir
+    ):
         elapsed = time.monotonic() - _conversations_cache_time
         if elapsed < _CONVERSATIONS_CACHE_TTL:
             cached = _conversations_cache
@@ -925,6 +936,7 @@ def api_conversations():
     # a higher limit return the correct number of items (not truncated).
     if not search and not detail:
         _conversations_cache = all_conversations
+        _conversations_cache_logs_dir = logs_dir
         _conversations_cache_time = time.monotonic()
 
     return flask.jsonify(response_items)
@@ -2681,11 +2693,16 @@ _CONVERSATIONS_CACHE_TTL = (
     30.0  # seconds — covers page navigation refresh within a session
 )
 _conversations_cache: list[ConversationMeta] | None = None
+_conversations_cache_logs_dir: Path | None = None
 _conversations_cache_time: float = 0.0
 
 
 def _invalidate_conversations_cache() -> None:
     """Invalidate the conversations list cache."""
-    global _conversations_cache, _conversations_cache_time
+    global \
+        _conversations_cache, \
+        _conversations_cache_logs_dir, \
+        _conversations_cache_time
     _conversations_cache = None
+    _conversations_cache_logs_dir = None
     _conversations_cache_time = 0.0
