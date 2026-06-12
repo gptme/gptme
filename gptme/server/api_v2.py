@@ -427,13 +427,19 @@ def _etag_conversations(conversations: "list[ConversationMeta]") -> str:
 
 
 def _etag_conversation(logdir: "Path") -> str:
-    """Compute ETag from the conversation log file's mtime."""
+    """Compute ETag from the conversation log file's mtime and size.
+
+    Including size prevents stale 304s on filesystems with 1-second mtime
+    granularity where two writes within the same tick leave mtime unchanged.
+    """
     logfile = logdir / "conversation.jsonl"
     try:
-        mtime = logfile.stat().st_mtime
+        stat = logfile.stat()
+        mtime = stat.st_mtime
+        size = stat.st_size
     except OSError:
         return ""
-    return hashlib.md5(str(mtime).encode()).hexdigest()[:16]
+    return hashlib.md5(f"{mtime}:{size}".encode()).hexdigest()[:16]
 
 
 v2_api = flask.Blueprint("v2_api", __name__)
