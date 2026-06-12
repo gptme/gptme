@@ -405,7 +405,7 @@ export const ConversationList: FC<Props> = ({
               role="button"
               tabIndex={0}
               aria-pressed={isSelected}
-              className={`cursor-pointer rounded-lg py-2 pl-2 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+              className={`group cursor-pointer rounded-lg py-2 pl-2 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
                 isSelected ? 'bg-accent' : ''
               }`}
               onClick={() => onSelect(conv.id, conv.serverId)}
@@ -788,7 +788,9 @@ export const ConversationList: FC<Props> = ({
   const filteredDemos = demos.filter(matchesFilter);
   const hasFilter = normalizedFilter.length > 0;
   const hasNoFilteredMatches =
-    hasFilter && filteredRealConversations.length === 0 && filteredDemos.length === 0;
+    (hasFilter || showStarredOnly) &&
+    filteredRealConversations.length === 0 &&
+    filteredDemos.length === 0;
 
   return (
     <div
@@ -874,7 +876,9 @@ export const ConversationList: FC<Props> = ({
       )}
       {!isLoading && !isError && hasNoFilteredMatches && (
         <div className="px-2 py-4 text-sm text-muted-foreground">
-          No conversations match your search.
+          {showStarredOnly && !hasFilter
+            ? 'No starred conversations.'
+            : 'No conversations match your search.'}
         </div>
       )}
 
