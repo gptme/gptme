@@ -417,17 +417,25 @@ def test_api_conversation_get_before_cursor(conv, client: FlaskClient):
     r2 = client.get(f"/api/v2/conversations/{conv}?limit=2&before={cursor}")
     data2 = r2.get_json()
     assert len(data2["log"]) == 2
-    # The page-2 messages must be older than page-1 messages
-    assert data2["log"][0]["timestamp"] < data1["log"][0]["timestamp"]
+    # Page-2 messages must be entirely before page-1 messages (non-overlapping).
+    # Content is deterministic (we posted "msg 0"…"msg 9"), so compare by content.
+    page1_contents = {m["content"] for m in data1["log"]}
+    page2_contents = {m["content"] for m in data2["log"]}
+    assert page1_contents.isdisjoint(page2_contents)
 
 
 def test_api_conversation_get_limit_invalid(conv, client: FlaskClient):
-    response = client.get(f"/api/v2/conversations/{conv}?limit=notanumber")
-    assert response.status_code == 400
+    for bad in ["notanumber", "0", "-5", "-1"]:
+        response = client.get(f"/api/v2/conversations/{conv}?limit={bad}")
+        assert response.status_code == 400, f"expected 400 for limit={bad}"
 
 
 def test_api_conversation_get_before_invalid(conv, client: FlaskClient):
+    # negative before
     response = client.get(f"/api/v2/conversations/{conv}?limit=5&before=-1")
+    assert response.status_code == 400
+    # before without limit is not allowed
+    response = client.get(f"/api/v2/conversations/{conv}?before=5")
     assert response.status_code == 400
 
 

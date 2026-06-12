@@ -1137,8 +1137,10 @@ def api_conversation(conversation_id: str):
         limit = int(request.args["limit"]) if "limit" in request.args else None
     except (ValueError, TypeError):
         return flask.jsonify({"error": "limit must be a positive integer"}), 400
+    if limit is not None and limit <= 0:
+        return flask.jsonify({"error": "limit must be a positive integer"}), 400
     if limit is not None:
-        limit = max(1, min(limit, 10000))
+        limit = min(limit, 10000)
 
     try:
         before = int(request.args["before"]) if "before" in request.args else None
@@ -1146,6 +1148,8 @@ def api_conversation(conversation_id: str):
         return flask.jsonify({"error": "before must be a non-negative integer"}), 400
     if before is not None and before < 0:
         return flask.jsonify({"error": "before must be a non-negative integer"}), 400
+    if before is not None and limit is None:
+        return flask.jsonify({"error": "before requires limit to be set"}), 400
 
     logdir = get_logs_dir() / conversation_id
     etag = _etag_conversation(logdir)
