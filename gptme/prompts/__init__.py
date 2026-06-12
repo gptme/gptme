@@ -182,9 +182,9 @@ def _build_core_prompt_sections(
                     )
                 ),
             )
-        if interactive:
-            add("prompt_user", list(prompt_user(tool_format=tool_format)))
-        add("prompt_project", list(prompt_project(tool_format=tool_format)))
+            if interactive:
+                add("prompt_user", list(prompt_user(tool_format=tool_format)))
+            add("prompt_project", list(prompt_project(tool_format=tool_format)))
         return sections
 
     add("custom_prompt", [Message("system", prompt)])
@@ -364,16 +364,12 @@ def get_prompt_stats(
         _section_stat(name, msgs, model)
         for name, msgs in (*core_sections, *cacheable_sections, *dynamic_sections)
     ]
+    cacheable_section_count = len(core_sections) + len(cacheable_sections)
     total_messages = sum(stat.messages for stat in stats)
     total_chars = sum(stat.chars for stat in stats)
     total_tokens = sum(stat.tokens for stat in stats)
-    cacheable_tokens = sum(
-        _section_stat(name, msgs, model).tokens
-        for name, msgs in (*core_sections, *cacheable_sections)
-    )
-    dynamic_tokens = sum(
-        _section_stat(name, msgs, model).tokens for name, msgs in dynamic_sections
-    )
+    cacheable_tokens = sum(stat.tokens for stat in stats[:cacheable_section_count])
+    dynamic_tokens = sum(stat.tokens for stat in stats[cacheable_section_count:])
     return PromptStats(
         sections=stats,
         total_messages=total_messages,

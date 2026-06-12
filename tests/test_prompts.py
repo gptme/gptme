@@ -111,6 +111,17 @@ def test_get_prompt_stats_breaks_out_sections():
     assert stats.cacheable_tokens >= stats.dynamic_tokens
 
 
+def test_get_prompt_stats_short_without_tools_keeps_minimal_core():
+    stats = get_prompt_stats(
+        [],
+        prompt="short",
+        context_mode="selective",
+        context_include=[],
+    )
+
+    assert [section.name for section in stats.sections] == ["prompt_gptme"]
+
+
 def test_get_prompt_stats_includes_workspace_and_dynamic_context(tmp_path):
     workspace = tmp_path / "project"
     workspace.mkdir()
