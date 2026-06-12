@@ -77,7 +77,7 @@ class PromptSectionStat:
 
 @dataclass(frozen=True)
 class PromptStats:
-    sections: list[PromptSectionStat]
+    sections: tuple[PromptSectionStat, ...]
     total_messages: int
     total_chars: int
     total_tokens: int
@@ -360,10 +360,10 @@ def get_prompt_stats(
         include_user_context=include_user_context,
     )
 
-    stats = [
+    stats = tuple(
         _section_stat(name, msgs, model)
         for name, msgs in (*core_sections, *cacheable_sections, *dynamic_sections)
-    ]
+    )
     cacheable_section_count = len(core_sections) + len(cacheable_sections)
     total_messages = sum(stat.messages for stat in stats)
     total_chars = sum(stat.chars for stat in stats)

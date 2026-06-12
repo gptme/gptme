@@ -103,6 +103,7 @@ def test_get_prompt_stats_breaks_out_sections():
         context_include=[],
     )
 
+    assert isinstance(stats.sections, tuple)
     names = [section.name for section in stats.sections]
     assert "prompt_gptme" in names
     assert "prompt_tools" in names
