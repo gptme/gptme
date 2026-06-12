@@ -367,20 +367,35 @@ class TestLogWarnOnce:
             log_warn_once(test_msg)  # second call — should be suppressed
         assert test_msg not in caplog.text
 
-    def test_threaded_warn_once(self, caplog):
+    def test_threaded_warn_once(self):
         """Concurrent callers should not race the warning de-dup cache."""
-        import logging
         from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier, Lock
 
         test_msg = f"threaded-dedup-test-message-{id(self)}"
-        with (
-            caplog.at_level(logging.WARNING),
-            ThreadPoolExecutor(max_workers=8) as executor,
-        ):
-            list(executor.map(log_warn_once, [test_msg] * 32))
+        thread_count = 32
+        barrier = Barrier(thread_count)
+        state = {"calls": 0}
+        calls_lock = Lock()
 
-        warnings = [r for r in caplog.records if test_msg in r.getMessage()]
-        assert len(warnings) == 1
+        def _count_warning(message):
+            assert message == test_msg
+            with calls_lock:
+                state["calls"] += 1
+
+        def _worker(_):
+            barrier.wait()
+            log_warn_once(test_msg)
+
+        with (
+            patch(
+                "gptme.llm.models.resolution.logger.warning", side_effect=_count_warning
+            ),
+            ThreadPoolExecutor(max_workers=thread_count) as executor,
+        ):
+            list(executor.map(_worker, range(thread_count)))
+
+        assert state["calls"] == 1
 
     def test_get_model_unknown_warns_once(self, caplog):
         """get_model on an unknown model should warn once across repeated calls.
