@@ -881,10 +881,13 @@ def api_conversations():
 
     # Use cached list for the common case (no search, no detail).
     # Cache is invalidated on conversation create/update/delete.
-    global _conversations_cache, _conversations_cache_time
+    global _conversations_cache, _conversations_cache_time, _conversations_cache_dir
     if not search and not detail and _conversations_cache is not None:
         elapsed = time.monotonic() - _conversations_cache_time
-        if elapsed < _CONVERSATIONS_CACHE_TTL:
+        if (
+            elapsed < _CONVERSATIONS_CACHE_TTL
+            and str(get_logs_dir()) == _conversations_cache_dir
+        ):
             cached = _conversations_cache
             response_items = [asdict(c) for c in cached[:limit]]
             for item in response_items:
@@ -926,6 +929,7 @@ def api_conversations():
     if not search and not detail:
         _conversations_cache = all_conversations
         _conversations_cache_time = time.monotonic()
+        _conversations_cache_dir = str(get_logs_dir())
 
     return flask.jsonify(response_items)
 
@@ -2682,10 +2686,12 @@ _CONVERSATIONS_CACHE_TTL = (
 )
 _conversations_cache: list[ConversationMeta] | None = None
 _conversations_cache_time: float = 0.0
+_conversations_cache_dir: str = ""
 
 
 def _invalidate_conversations_cache() -> None:
     """Invalidate the conversations list cache."""
-    global _conversations_cache, _conversations_cache_time
+    global _conversations_cache, _conversations_cache_time, _conversations_cache_dir
     _conversations_cache = None
     _conversations_cache_time = 0.0
+    _conversations_cache_dir = ""
