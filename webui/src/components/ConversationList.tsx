@@ -14,6 +14,7 @@ import {
   Columns2,
   X,
   Star,
+  ArrowUpDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -86,6 +87,16 @@ export const ConversationList: FC<Props> = ({
   const { toggleStar } = useConversationMetadata();
   const queryClient = useQueryClient();
   const [showStarredOnly, setShowStarredOnly] = useState(false);
+
+  type SortBy = 'recent' | 'longest' | 'alpha';
+  const SORT_STORAGE_KEY = 'gptme:conv-sort';
+  const [sortBy, setSortBy] = useState<SortBy>(
+    () => (localStorage.getItem(SORT_STORAGE_KEY) as SortBy | null) ?? 'recent'
+  );
+  const handleSortChange = (value: SortBy) => {
+    setSortBy(value);
+    localStorage.setItem(SORT_STORAGE_KEY, value);
+  };
 
   // Separately track local star state for optimistic UI updates.
   // Keyed by conversation ID, value is the optimistic starred value.
@@ -806,6 +817,16 @@ export const ConversationList: FC<Props> = ({
     filteredRealConversations.length === 0 &&
     filteredDemos.length === 0;
 
+  // Sort filtered conversations. 'recent' keeps server order (modified desc); others sort flat.
+  const sortedRealConversations =
+    sortBy === 'recent'
+      ? filteredRealConversations
+      : filteredRealConversations.slice().sort((a, b) => {
+          if (sortBy === 'longest') return (b.messages ?? 0) - (a.messages ?? 0);
+          // alpha
+          return getConversationName(a).localeCompare(getConversationName(b));
+        });
+
   return (
     <div
       ref={scrollContainerRef}
@@ -840,9 +861,9 @@ export const ConversationList: FC<Props> = ({
               </Button>
             )}
           </div>
-          {/* Star filter toggle */}
+          {/* Star filter toggle + sort control */}
           {realConversations.length > 0 && (
-            <div className="flex px-1 pt-1">
+            <div className="flex items-center justify-between px-1 pt-1">
               <button
                 aria-label={showStarredOnly ? 'Show all conversations' : 'Show starred only'}
                 aria-pressed={showStarredOnly}
@@ -855,6 +876,19 @@ export const ConversationList: FC<Props> = ({
               >
                 <Star className="h-3 w-3" fill={showStarredOnly ? 'currentColor' : 'none'} />
                 {showStarredOnly ? 'Starred' : 'All'}
+              </button>
+              <button
+                aria-label="Sort conversations"
+                className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                onClick={() => {
+                  const next: SortBy =
+                    sortBy === 'recent' ? 'longest' : sortBy === 'longest' ? 'alpha' : 'recent';
+                  handleSortChange(next);
+                }}
+                title={`Sort: ${sortBy === 'recent' ? 'Recent' : sortBy === 'longest' ? 'Longest' : 'A-Z'} (click to cycle)`}
+              >
+                <ArrowUpDown className="h-3 w-3" />
+                {sortBy === 'recent' ? 'Recent' : sortBy === 'longest' ? 'Longest' : 'A-Z'}
               </button>
             </div>
           )}
@@ -896,11 +930,12 @@ export const ConversationList: FC<Props> = ({
         </div>
       )}
 
-      {/* Render real conversations grouped by date */}
+      {/* Render real conversations: grouped by date for 'recent', flat list for other sorts */}
       {!isLoading &&
         !isError &&
+        sortBy === 'recent' &&
         groupByDate<ConversationSummary>(
-          filteredRealConversations,
+          sortedRealConversations,
           (c) => c.created ?? c.modified
         ).map(({ group, items }) => (
           <div key={group}>
@@ -921,6 +956,17 @@ export const ConversationList: FC<Props> = ({
             </div>
           </div>
         ))}
+      {!isLoading && !isError && sortBy !== 'recent' && (
+        <div className="space-y-2 px-2">
+          {sortedRealConversations.map((conv) => (
+            <ConversationItem
+              key={conv.serverId ? `${conv.serverId}:${conv.id}` : conv.id}
+              conv={conv}
+              showLabel={showServerLabels}
+            />
+          ))}
+        </div>
+      )}
 
       {/* Loading indicator for fetching more */}
       {isFetching && !isLoading && (
