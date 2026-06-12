@@ -547,7 +547,7 @@ description = "Backport of compression.zstd"
 optional = true
 python-versions = "<3.14,>=3.10"
 groups = ["main"]
-markers = "python_version < \"3.14\" and extra == \"server\""
+markers = "python_version < \"3.14\" and (extra == \"server\" or extra == \"all\")"
 files = [
     {file = "backports_zstd-1.5.0-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:09045a00d9dad12dab49e029b26c197637b882cf4adc737a373404ba2aaabbca"},
     {file = "backports_zstd-1.5.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:e51edd66db6855bee020c951ca5c2e816777bfe77f87742fbbfae9a32d482fec"},
@@ -754,7 +754,7 @@ description = "Python bindings for the Brotli compression library"
 optional = true
 python-versions = "*"
 groups = ["main"]
-markers = "platform_python_implementation != \"PyPy\" and extra == \"server\""
+markers = "platform_python_implementation != \"PyPy\" and (extra == \"server\" or extra == \"all\")"
 files = [
     {file = "brotli-1.2.0-cp27-cp27m-macosx_10_9_x86_64.whl", hash = "sha256:99cfa69813d79492f0e5d52a20fd18395bc82e671d5d40bd5a91d13e75e468e8"},
     {file = "brotli-1.2.0-cp27-cp27m-manylinux1_i686.whl", hash = "sha256:3ebe801e0f4e56d17cd386ca6600573e3706ce1845376307f5d2cbd32149b69a"},
@@ -865,7 +865,7 @@ description = "Python CFFI bindings to the Brotli library"
 optional = true
 python-versions = ">=3.8"
 groups = ["main"]
-markers = "platform_python_implementation == \"PyPy\" and extra == \"server\""
+markers = "platform_python_implementation == \"PyPy\" and (extra == \"server\" or extra == \"all\")"
 files = [
     {file = "brotlicffi-1.2.0.1-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:2c85e65913cf2b79c57a3fdd05b98d9731d9255dc0cb696b09376cc091b9cddd"},
     {file = "brotlicffi-1.2.0.1-cp314-cp314t-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:535f2d05d0273408abc13fc0eebb467afac17b0ad85090c8913690d40207dac5"},
@@ -2231,7 +2231,7 @@ description = "Compress responses in your Flask app with gzip, deflate, brotli o
 optional = true
 python-versions = ">=3.9"
 groups = ["main"]
-markers = "extra == \"server\""
+markers = "extra == \"server\" or extra == \"all\""
 files = [
     {file = "flask_compress-1.24-py3-none-any.whl", hash = "sha256:1e63668eb6e3242bd4f6ad98825a924e3984409be90c125477893d586007d00c"},
     {file = "flask_compress-1.24.tar.gz", hash = "sha256:14097cefe59ecb3e466d52a6aeb62f34f125a9f7dadf1f33a53e430ce4a50f31"},
@@ -10958,7 +10958,7 @@ cffi = ["cffi (>=1.17,<2.0) ; platform_python_implementation != \"PyPy\" and pyt
 
 [extras]
 acp = ["agent-client-protocol"]
-all = ["agent-client-protocol", "dspy", "flask", "flask-cors", "matplotlib", "numpy", "opentelemetry-api", "opentelemetry-exporter-otlp", "opentelemetry-exporter-prometheus", "opentelemetry-instrumentation-anthropic", "opentelemetry-instrumentation-flask", "opentelemetry-instrumentation-openai", "opentelemetry-instrumentation-requests", "opentelemetry-instrumentation-threading", "opentelemetry-sdk", "pandas", "playwright", "pydantic", "scipy", "sentence-transformers", "sounddevice"]
+all = ["agent-client-protocol", "dspy", "flask", "flask-compress", "flask-cors", "matplotlib", "numpy", "opentelemetry-api", "opentelemetry-exporter-otlp", "opentelemetry-exporter-prometheus", "opentelemetry-instrumentation-anthropic", "opentelemetry-instrumentation-flask", "opentelemetry-instrumentation-openai", "opentelemetry-instrumentation-requests", "opentelemetry-instrumentation-threading", "opentelemetry-sdk", "pandas", "playwright", "pydantic", "scipy", "sentence-transformers", "sounddevice"]
 browser = ["playwright"]
 computer = []
 datascience = ["matplotlib", "numpy", "pandas"]
@@ -10973,4 +10973,4 @@ telemetry = ["opentelemetry-api", "opentelemetry-exporter-otlp", "opentelemetry-
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "f869f15aeff0b799a2ae7f07e2f5c565432512c17499d691fde06ff8ba57550c"
+content-hash = "14ad52f427eb8245692b23002d6d7ac178dffa2f9e83289b1d4dbb8a24b77078"

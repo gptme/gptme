@@ -179,7 +179,7 @@ swebench = ["datasets", "swebench"]  # narrow install for the SWE-bench public b
 eval = ["dspy", "sentence-transformers", "datasets", "swebench", "terminal-bench"]
 all = [
     # server
-    "flask", "flask-cors", "pydantic",
+    "flask", "flask-cors", "flask-compress", "pydantic",
     # acp
     "agent-client-protocol",
     # browser
