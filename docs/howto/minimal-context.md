@@ -70,8 +70,7 @@ still included — only the workspace layer is stripped:
 gptme --no-workspace "summarize this file: src/parser.py"
 ```
 
-This is equivalent to `--context` with no items specified, and it is the right
-choice when:
+It is the right choice when:
 
 - You are running a specialized one-shot command that should not load project
   instructions or dynamic context at all.
