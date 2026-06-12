@@ -5,10 +5,10 @@ import json
 from logging import getLogger
 from typing import TYPE_CHECKING, Literal, cast
 
-import mcp.types as mcp_types
-
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
+
+    import mcp.types as mcp_types
 
     from ..hooks.elicitation import ElicitationRequest, ElicitationResponse
 
@@ -71,6 +71,8 @@ def _extract_content_text(
     Per MCP spec, content items can be TextContent, ImageContent, AudioContent,
     ResourceLink, or EmbeddedResource. This function handles all types gracefully.
     """
+    import mcp.types as mcp_types
+
     if isinstance(item, str):
         return item
     if isinstance(item, mcp_types.TextContent):
@@ -573,6 +575,8 @@ def read_mcp_resource(server_name: str, uri: str) -> str:
         )
 
     try:
+        import mcp.types as mcp_types
+
         result = client.read_resource(uri)
         contents = result.contents
 
@@ -905,6 +909,8 @@ def _elicitation_response_to_mcp_result(
     response: ElicitationResponse,
 ) -> mcp_types.ElicitResult:
     """Convert gptme's ElicitationResponse to MCP's ElicitResult."""
+    import mcp.types as mcp_types
+
     if response.cancelled:
         return mcp_types.ElicitResult(action="cancel", content=None)
 
@@ -937,6 +943,8 @@ def _create_elicitation_handler(server_name: str):
         params: mcp_types.ElicitRequestParams,
     ) -> mcp_types.ElicitResult | mcp_types.ErrorData:
         """Handle elicitation request from MCP server via shared hook system."""
+        import mcp.types as mcp_types
+
         from ..hooks.elicitation import elicit
 
         logger.info(f"Elicitation request from {server_name}: {params.message}")

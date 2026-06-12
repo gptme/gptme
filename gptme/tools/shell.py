@@ -33,8 +33,6 @@ from contextvars import ContextVar
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import bashlex
-
 from ..message import Message
 from ..util import get_installed_programs
 from ..util.ask_execute import execute_with_confirmation
@@ -1828,6 +1826,8 @@ def _find_max_heredoc_pos(node, current_max: int = 0) -> int:
 
 
 def split_commands(script: str) -> list[str]:
+    import bashlex
+
     # Preprocess script to handle quoted heredoc delimiters that bashlex can't parse
     processed_script = _preprocess_quoted_heredocs(script)
 
