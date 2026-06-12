@@ -313,7 +313,8 @@ def get_conversations(
 
         log = Log.read_jsonl(conv_fn, limit=1)
 
-        file_size = conv_fn.stat().st_size
+        conv_stat = conv_fn.stat()
+        file_size = conv_stat.st_size
 
         if detail or file_size <= _TAIL_BYTES:
             # Full scan: exact counts + cost/token aggregation
@@ -339,7 +340,7 @@ def get_conversations(
         )
 
         assert len(log) <= 1
-        modified = conv_fn.stat().st_mtime
+        modified = conv_stat.st_mtime
         first_timestamp = log[0].timestamp.timestamp() if log else modified
         # Try to get display name from ChatConfig, fallback to folder name
         chat_config = ChatConfig.from_logdir(conv_fn.parent)
@@ -365,6 +366,12 @@ def get_conversations(
             else None
         )
 
+        # Count branches only when doing a full detail scan — the fast-scan
+        # path (used by the list/search endpoint) skips this per-directory
+        # glob since the webui list view doesn't display branch counts.
+        n_branches = (
+            1 + len(list(conv_fn.parent.glob("branches/*.jsonl"))) if detail else 1
+        )
         yield ConversationMeta(
             id=conv_id,
             name=display_name,
@@ -372,7 +379,7 @@ def get_conversations(
             created=first_timestamp,
             modified=modified,
             messages=len_msgs,
-            branches=1 + len(list(conv_fn.parent.glob("branches/*.jsonl"))),
+            branches=n_branches,
             workspace=str(chat_config.workspace),
             agent_name=agent_name,
             agent_path=str(agent_path) if agent_path else None,

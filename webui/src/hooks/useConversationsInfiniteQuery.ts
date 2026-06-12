@@ -15,9 +15,7 @@ export function useConversationsInfiniteQuery(enabled: boolean = true) {
     queryKey: ['conversations', connectionConfig.baseUrl],
     queryFn: async ({ pageParam }: { pageParam: number }) => {
       try {
-        const result = await api.getConversationsPaginated(pageParam, 50);
-        console.log('Fetched conversations page:', result);
-        return result;
+        return await api.getConversationsPaginated(pageParam, 50);
       } catch (err) {
         console.error('Failed to fetch conversations:', err);
         throw err;
