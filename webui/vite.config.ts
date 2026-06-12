@@ -34,7 +34,7 @@ export default defineConfig(({ mode }) => ({
         manualChunks: {
           'vendor-react': ['react', 'react-dom', 'react-router-dom'],
           'vendor-query': ['@tanstack/react-query'],
-          'vendor-legend': ['@legendapp/state'],
+          'vendor-legend': ['@legendapp/state', '@legendapp/state/react'],
           'vendor-radix': [
             '@radix-ui/react-accordion',
             '@radix-ui/react-dialog',
