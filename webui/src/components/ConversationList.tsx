@@ -52,6 +52,27 @@ import { toast } from 'sonner';
 
 type MessageBreakdown = Partial<Record<MessageRole, number>>;
 
+type SortBy = 'recent' | 'longest' | 'alpha';
+const SORT_STORAGE_KEY = 'gptme:conv-sort';
+const SORT_VALUES: SortBy[] = ['recent', 'longest', 'alpha'];
+
+function readSortPreference(): SortBy {
+  try {
+    const raw = localStorage.getItem(SORT_STORAGE_KEY);
+    return (SORT_VALUES.includes(raw as SortBy) ? raw : 'recent') as SortBy;
+  } catch {
+    return 'recent';
+  }
+}
+
+function writeSortPreference(value: SortBy): void {
+  try {
+    localStorage.setItem(SORT_STORAGE_KEY, value);
+  } catch {
+    // Silently ignore storage errors (restricted environments, quota exceeded)
+  }
+}
+
 interface Props {
   conversations: ConversationSummary[];
   onSelect: (id: string, serverId?: string) => void;
@@ -88,14 +109,10 @@ export const ConversationList: FC<Props> = ({
   const queryClient = useQueryClient();
   const [showStarredOnly, setShowStarredOnly] = useState(false);
 
-  type SortBy = 'recent' | 'longest' | 'alpha';
-  const SORT_STORAGE_KEY = 'gptme:conv-sort';
-  const [sortBy, setSortBy] = useState<SortBy>(
-    () => (localStorage.getItem(SORT_STORAGE_KEY) as SortBy | null) ?? 'recent'
-  );
+  const [sortBy, setSortBy] = useState<SortBy>(readSortPreference);
   const handleSortChange = (value: SortBy) => {
     setSortBy(value);
-    localStorage.setItem(SORT_STORAGE_KEY, value);
+    writeSortPreference(value);
   };
 
   // Separately track local star state for optimistic UI updates.
@@ -878,7 +895,7 @@ export const ConversationList: FC<Props> = ({
                 {showStarredOnly ? 'Starred' : 'All'}
               </button>
               <button
-                aria-label="Sort conversations"
+                aria-label={`Sort conversations: ${sortBy === 'recent' ? 'Recent' : sortBy === 'longest' ? 'Longest' : 'A-Z'} (click to cycle)`}
                 className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
                 onClick={() => {
                   const next: SortBy =
