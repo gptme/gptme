@@ -32,7 +32,6 @@ import { Button } from '@/components/ui/button';
 import type { ConversationSummary } from '@/types/conversation';
 import type { Task, CreateTaskRequest } from '@/types/task';
 import {
-  initializeConversations,
   selectedConversation$,
   initConversation,
   conversations$,
@@ -219,16 +218,6 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
     return apiConversations;
   }, [isConnected, apiConversations]);
 
-  useEffect(() => {
-    if (isConnected && apiConversations.length) {
-      console.log('[MainLayout] Initializing API conversations');
-      void initializeConversations(
-        api,
-        apiConversations.map((c) => c.id),
-        10
-      );
-    }
-  }, [isConnected, apiConversations, api]);
 
   // Reactive computation for store conversations using Legend State
   const storeConversations$ = useObservable(() => {
