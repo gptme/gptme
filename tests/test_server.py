@@ -172,6 +172,10 @@ def test_api_conversation_list_detail_flag(client: FlaskClient, tmp_path, monkey
     import json
 
     monkeypatch.setattr("gptme.logmanager.conversations.get_logs_dir", lambda: tmp_path)
+    # Also patch api_v2's own get_logs_dir import used for the conversations cache key.
+    # Without this, prior-test cache data (keyed on the real logs dir) hits when
+    # api_v2.get_logs_dir() still returns the real path even though the scanner uses tmp_path.
+    monkeypatch.setattr("gptme.server.api_v2.get_logs_dir", lambda: tmp_path)
 
     # Create a conversation with an assistant message that carries usage info
     conv_dir = tmp_path / "stats-conversation"
