@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, type FC } from 'react';
+import { useState, useEffect, useCallback, useRef, type FC } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Settings } from 'lucide-react';
 import { MenuBar } from '@/components/MenuBar';
@@ -21,9 +21,16 @@ const SettingsPage: FC = () => {
   const { category } = useParams<{ category?: string }>();
   const navigate = useNavigate();
   const { data: tasks = [] } = useTasksQuery();
+  const containerRef = useRef<HTMLDivElement>(null);
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>(
     toCategoryOrDefault(category)
   );
+
+  // Auto-focus the container so the Escape key handler works immediately on mount,
+  // without requiring the user to click inside the page first.
+  useEffect(() => {
+    containerRef.current?.focus();
+  }, []);
 
   // Keep state in sync when URL param changes (e.g. browser back/forward)
   useEffect(() => {
@@ -49,12 +56,19 @@ const SettingsPage: FC = () => {
 
   return (
     <div
+      ref={containerRef}
       className="flex h-screen flex-col"
       tabIndex={-1}
       onKeyDown={(e) => {
         if (e.key === 'Escape') {
           e.stopPropagation();
-          navigate(-1);
+          // Navigate back if there is prior history,
+          // otherwise fall back to /chat (e.g. direct link or new tab).
+          if (window.history.length > 1) {
+            navigate(-1);
+          } else {
+            navigate('/chat');
+          }
         }
       }}
     >

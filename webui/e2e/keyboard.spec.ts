@@ -72,3 +72,31 @@ test.describe('Keyboard Navigation', () => {
     await expect(dialog).not.toBeVisible({ timeout: 3000 });
   });
 });
+
+test.describe('Keyboard Navigation — Settings Page', () => {
+  test('Escape navigates back to /chat (with history)', async ({ page }) => {
+    // Navigate to /chat first to establish history
+    await page.goto('/chat');
+    await page.waitForLoadState('networkidle');
+
+    // Navigate to /settings
+    await page.goto('/settings');
+    await page.waitForLoadState('networkidle');
+    await expect(page.locator('h1', { hasText: 'Settings' })).toBeVisible({ timeout: 5000 });
+
+    // Press Escape — should navigate back to /chat
+    await page.keyboard.press('Escape');
+    await expect(page).toHaveURL(/\/chat$/, { timeout: 5000 });
+  });
+
+  test('Escape falls back to /chat (no history)', async ({ page }) => {
+    // Navigate directly to /settings (no prior history)
+    await page.goto('/settings');
+    await page.waitForLoadState('networkidle');
+    await expect(page.locator('h1', { hasText: 'Settings' })).toBeVisible({ timeout: 5000 });
+
+    // Press Escape — should fall back to /chat since there's no history
+    await page.keyboard.press('Escape');
+    await expect(page).toHaveURL(/\/chat$/, { timeout: 5000 });
+  });
+});
