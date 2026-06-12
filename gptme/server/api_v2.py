@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import wait as futures_wait
 from dataclasses import asdict, replace
 from datetime import datetime, timezone
+from itertools import islice
 from pathlib import Path
 from typing import Literal, cast
 
@@ -831,6 +832,25 @@ def api_external_session(external_session_id: str):
     return flask.jsonify(session)
 
 
+# Cache for the conversation list endpoint.
+# Populated on the first request after invalidation, served for subsequent
+# requests within TTL. Short TTL keeps stale data bounded while reducing
+# redundant filesystem scans on rapid page loads/mounts (which the webui
+# triggers on every navigation with staleTime=0).
+_CONVERSATIONS_CACHE_TTL = 5  # seconds
+_conversations_cache: list[dict] | None = None
+_conversations_cache_time: float = 0
+_conversations_cache_dir: str = ""
+
+
+def _invalidate_conversations_cache() -> None:
+    """Invalidate the conversation list cache."""
+    global _conversations_cache, _conversations_cache_time, _conversations_cache_dir
+    _conversations_cache = None
+    _conversations_cache_time = 0
+    _conversations_cache_dir = ""
+
+
 @v2_api.route("/api/v2/conversations")
 @require_auth
 @api_doc_simple(
@@ -895,7 +915,10 @@ def api_conversations():
         and _conversations_cache_logs_dir == logs_dir
     ):
         elapsed = time.monotonic() - _conversations_cache_time
-        if elapsed < _CONVERSATIONS_CACHE_TTL:
+        if (
+            _conversations_cache is not None
+            and elapsed < _CONVERSATIONS_CACHE_TTL
+        ):
             cached = _conversations_cache
             response_items = [asdict(c) for c in cached[:limit]]
             for item in response_items:
@@ -918,8 +941,7 @@ def api_conversations():
                 if len(conversations) >= limit:
                     break
     else:
-        all_conversations = list(get_user_conversations(detail=detail))
-        conversations = all_conversations[:limit] if limit > 0 else all_conversations
+        conversations = list(islice(get_user_conversations(detail=detail), limit))
     response_items = []
     for conv in conversations:
         item = asdict(conv)
@@ -931,9 +953,6 @@ def api_conversations():
         item["last_updated"] = conv.modified
         response_items.append(item)
 
-    # Update cache for the common case (no search, no detail).
-    # Cache stores the full, unlimited list so that subsequent requests with
-    # a higher limit return the correct number of items (not truncated).
     if not search and not detail:
         _conversations_cache = all_conversations
         _conversations_cache_logs_dir = logs_dir
@@ -2684,8 +2703,6 @@ def api_user_settings():
             "config_files": get_user_config_runtime_info(),
         }
     )
-
-
 # In-memory conversations list cache.
 # Caches the full list (no search, no detail) for _CONVERSATIONS_CACHE_TTL seconds.
 # Invalidated on conversation create/update/delete via _invalidate_conversations_cache().
