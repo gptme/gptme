@@ -9,6 +9,7 @@ from importlib import resources
 from pathlib import Path
 
 import flask
+from flask_compress import Compress
 from flask_cors import CORS
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,12 @@ def create_app(
     """
     static_folder = _resolve_static_folder(webui_dir)
     app = flask.Flask(__name__, static_folder=static_folder)
+
+    # Enable gzip compression on API responses (reduces bandwidth ~5-10x for JSON).
+    # Compresses responses >= MIN_SIZE (default 500 bytes) for clients that send
+    # Accept-Encoding: gzip. Flask-Compress handles content negotiation and
+    # varies compression level on content-type.
+    Compress(app)
 
     # Capture the server's default model from the startup context
     # This is needed because ContextVar doesn't propagate across request contexts

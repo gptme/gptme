@@ -39,6 +39,11 @@ gptme-dspy = "gptme.eval.dspy:main"
 gptme-eval-trends = "gptme.eval.trends:main"
 gptme-status = "gptme.cli.cmd_status:status"
 
+[project.optional-dependencies]
+server = [
+    "flask-compress>=1.14",
+]
+
 [tool.poetry]
 packages = [
     { include = "gptme" },
