@@ -1120,10 +1120,32 @@ def api_conversation(conversation_id: str):
     """Get conversation (V2).
 
     Retrieve a conversation with all its messages and metadata using the V2 API.
+
+    Supports optional message pagination:
+    - ``limit=N`` returns only the last N messages (default: all messages).
+    - ``before=<index>`` combined with ``limit`` returns the N messages ending at
+      ``<index>`` (exclusive), enabling "load older" pagination.  When ``limit``
+      is set, the response includes ``total_messages``, ``has_more``, and
+      ``before`` (the cursor for the next older page when ``has_more`` is true).
     """
     # Validate conversation_id to prevent path traversal
     if error := _validate_conversation_id(conversation_id):
         return error
+
+    # Parse pagination params early for fast-fail on bad input
+    try:
+        limit = int(request.args["limit"]) if "limit" in request.args else None
+    except (ValueError, TypeError):
+        return flask.jsonify({"error": "limit must be a positive integer"}), 400
+    if limit is not None:
+        limit = max(1, min(limit, 10000))
+
+    try:
+        before = int(request.args["before"]) if "before" in request.args else None
+    except (ValueError, TypeError):
+        return flask.jsonify({"error": "before must be a non-negative integer"}), 400
+    if before is not None and before < 0:
+        return flask.jsonify({"error": "before must be a non-negative integer"}), 400
 
     logdir = get_logs_dir() / conversation_id
     etag = _etag_conversation(logdir)
@@ -1152,6 +1174,21 @@ def api_conversation(conversation_id: str):
                 _abs_to_rel_workspace(f, chat_config.workspace, manager.logdir)
                 for f in files
             ]
+
+    # Apply message pagination when limit is specified.
+    # Only the active-branch log is paginated; branches dict is left intact
+    # (used for branch switching, not message display).
+    if limit is not None:
+        all_messages = log_dict["log"]
+        total = len(all_messages)
+        end = min(before, total) if before is not None else total
+        end = max(0, end)
+        start = max(0, end - limit)
+        log_dict["log"] = all_messages[start:end]
+        log_dict["total_messages"] = total
+        log_dict["has_more"] = start > 0
+        if start > 0:
+            log_dict["before"] = start  # cursor for the next older page
 
     # Include agent info if available
     agent_config = chat_config.agent_config
