@@ -590,6 +590,52 @@ def get_client() -> "Anthropic | None":
     return _anthropic
 
 
+# Separate Anthropic client for the gptme cloud gateway. Kept distinct from the
+# primary `_anthropic` client so a session can mix a real `anthropic/...` model
+# (real key) and a `gptme/anthropic/...` model (gateway + device token) without
+# the two clobbering each other (no reinit thrash on model switch).
+_anthropic_gptme: "Anthropic | None" = None
+# Device token the cached client was built with, so we rebuild after a token
+# refresh / re-login instead of holding a stale (eventually expired) credential.
+_anthropic_gptme_key: str | None = None
+
+
+def _get_gptme_client() -> "Anthropic":
+    """Lazily build the Anthropic client pointed at the gptme.ai gateway.
+
+    Uses the gptme device-token auth (sent as x-api-key) and the gateway base
+    URL. The Supabase messages function ignores the SDK's trailing path, so the
+    native Anthropic request lands on it and is forwarded verbatim to Anthropic.
+    Rebuilt when the device token changes (cheap: get_api_key reads the cached
+    token file) so a mid-session re-login takes effect.
+    """
+    global _anthropic_gptme, _anthropic_gptme_key
+    from anthropic import NOT_GIVEN, Anthropic  # fmt: skip
+
+    from ..config import get_config  # fmt: skip
+    from .llm_gptme import get_api_key, get_base_url  # fmt: skip
+
+    config = get_config()
+    api_key = get_api_key(config)
+    if _anthropic_gptme is None or _anthropic_gptme_key != api_key:
+        timeout_str = config.get_env("LLM_API_TIMEOUT")
+        try:
+            timeout = float(timeout_str) if timeout_str else NOT_GIVEN
+        except ValueError as parse_err:
+            raise ValueError(
+                f"Invalid LLM_API_TIMEOUT value: {timeout_str!r}. Must be a valid number."
+            ) from parse_err
+
+        _anthropic_gptme = Anthropic(
+            api_key=api_key,
+            max_retries=5,
+            base_url=get_base_url(config),
+            timeout=timeout,
+        )
+        _anthropic_gptme_key = api_key
+    return _anthropic_gptme
+
+
 class CacheControl(TypedDict):
     type: Literal["ephemeral"]
 
@@ -625,10 +671,12 @@ def chat(
     max_tokens: int | None = None,
     temperature: float | None = None,
     top_p: float | None = None,
+    via_gptme: bool = False,
 ) -> tuple[str, MessageMetadata | None]:
     from anthropic import NOT_GIVEN  # fmt: skip
 
-    if not _anthropic:
+    client = _get_gptme_client() if via_gptme else _anthropic
+    if not client:
         raise RuntimeError("LLM not initialized")
     messages_dicts, system_messages, tools_dict = _prepare_messages_for_api(
         messages, tools
@@ -657,7 +705,7 @@ def chat(
         schema_name = output_schema.__name__
         messages_dicts = _inject_schema_instruction(messages_dicts, schema_name)
 
-    api_model = f"anthropic/{model}" if _is_proxy else model
+    api_model = f"anthropic/{model}" if (via_gptme or _is_proxy) else model
 
     model_meta = get_model(f"anthropic/{model}")
     use_thinking = _should_use_thinking(model_meta, tools)
@@ -677,7 +725,7 @@ def chat(
 
     _temperature = temperature if temperature is not None else TEMPERATURE
     _top_p = top_p if top_p is not None else TOP_P
-    response = _anthropic.messages.create(  # type: ignore[call-overload, misc]
+    response = client.messages.create(  # type: ignore[call-overload, misc]
         model=api_model,
         messages=messages_dicts,
         system=system_messages,
@@ -723,6 +771,7 @@ def stream(
     temperature: float | None = None,
     top_p: float | None = None,
     _partial: dict | None = None,
+    via_gptme: bool = False,
 ) -> Generator[str, None, MessageMetadata | None]:
     import anthropic.types  # fmt: skip
     from anthropic import NOT_GIVEN  # fmt: skip
@@ -733,7 +782,8 @@ def stream(
     # in the output before </think> for round-trip preservation.
     _current_block_signature: str | None = None
 
-    if not _anthropic:
+    client = _get_gptme_client() if via_gptme else _anthropic
+    if not client:
         raise RuntimeError("LLM not initialized")
     messages_dicts, system_messages, tools_dict = _prepare_messages_for_api(
         messages, tools, model=model
@@ -762,7 +812,7 @@ def stream(
         schema_name = output_schema.__name__
         messages_dicts = _inject_schema_instruction(messages_dicts, schema_name)
 
-    api_model = f"anthropic/{model}" if _is_proxy else model
+    api_model = f"anthropic/{model}" if (via_gptme or _is_proxy) else model
 
     model_meta = get_model(f"anthropic/{model}")
     use_thinking = _should_use_thinking(model_meta, tools)
@@ -779,7 +829,7 @@ def stream(
 
     _temperature = temperature if temperature is not None else TEMPERATURE
     _top_p = top_p if top_p is not None else TOP_P
-    with _anthropic.messages.stream(  # type: ignore[call-arg, misc]
+    with client.messages.stream(  # type: ignore[call-arg, misc]
         model=api_model,
         messages=messages_dicts,
         system=system_messages,

@@ -1,6 +1,7 @@
 import logging
 import threading
 from contextvars import ContextVar
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import cast
 
@@ -269,6 +270,30 @@ def get_model(model: str) -> ModelMeta:
                                 price_output=model_meta.price_output,
                                 knowledge_cutoff=model_meta.knowledge_cutoff,
                             )
+
+                    # gptme cloud models carry their real backend as a prefix in
+                    # `.model` (e.g. "anthropic/claude-sonnet-4-6"). A 2-segment
+                    # request like "gptme/claude-sonnet-4-6" has no backend, so the
+                    # exact match above fails. Match on the bare (last) segment and
+                    # return the backend-prefixed model so downstream routing knows
+                    # which provider/SDK to use. Deterministic tie-break: fewest
+                    # path segments (prefer a direct backend over an openrouter
+                    # re-export), then anthropic-first, then name.
+                    if provider == "gptme" and "/" not in model_name:
+                        suffix_matches = [
+                            m
+                            for m in models
+                            if m.model.rsplit("/", 1)[-1] == model_name
+                        ]
+                        if suffix_matches:
+                            suffix_matches.sort(
+                                key=lambda m: (
+                                    m.model.count("/"),
+                                    not m.model.startswith("anthropic/"),
+                                    m.model,
+                                )
+                            )
+                            return replace(suffix_matches[0])
                 except Exception as e:
                     # Fall back to unknown model metadata
                     logger.debug(

@@ -363,6 +363,28 @@ def _get_base_model(model: str) -> str:
     return model.split("/", 1)[1]
 
 
+def _gptme_backend(model: str) -> tuple[str, str] | None:
+    """For a gptme cloud model, return (backend_provider, bare_model).
+
+    gptme cloud models carry their real backend as a prefix in the resolved
+    ModelMeta.model (e.g. "anthropic/claude-sonnet-4-6", "openai/gpt-5",
+    "openrouter/openai/gpt-5.4"). This recovers that backend so a request can be
+    routed through the right SDK. Returns None for non-gptme models or when the
+    backend can't be determined (degraded/offline resolution).
+    """
+    from .models import get_model  # fmt: skip
+
+    if get_provider_from_model(model) != "gptme":
+        return None
+    meta = get_model(model)
+    if str(meta.provider) != "gptme" or "/" not in meta.model:
+        return None
+    backend, bare = meta.model.split("/", 1)
+    if backend not in ("anthropic", "openai", "openrouter"):
+        return None
+    return backend, bare
+
+
 @trace_function(name="llm.chat_complete", attributes={"component": "llm"})
 def _chat_complete(
     messages: list[Message],
@@ -377,6 +399,25 @@ def _chat_complete(
         raise ValueError(f"max_tokens must be a positive integer, got {max_tokens}")
     max_tokens = _resolve_max_tokens(model, max_tokens)
     provider = get_provider_from_model(model)
+
+    # Anthropic-backed gptme cloud models must use the Anthropic SDK (native
+    # format) — the gateway forwards the body verbatim to Anthropic, which
+    # rejects the OpenAI-only `stream_options`. openai/openrouter-backed gptme
+    # models stay on the OpenAI path below (the gateway forwards to those APIs,
+    # which accept the OpenAI request shape).
+    if (backend := _gptme_backend(model)) and backend[0] == "anthropic":
+        from .llm_anthropic import chat as chat_anthropic
+
+        return chat_anthropic(
+            messages,
+            backend[1],
+            tools,
+            output_schema=output_schema,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            via_gptme=True,
+        )
 
     # Providers with native constrained decoding support
     # Custom providers and plugin providers are OpenAI-compatible, route through OpenAI path
@@ -482,6 +523,26 @@ def _stream(
         raise ValueError(f"max_tokens must be a positive integer, got {max_tokens}")
     max_tokens = _resolve_max_tokens(model, max_tokens)
     provider = get_provider_from_model(model)
+
+    # Anthropic-backed gptme cloud models use the Anthropic SDK (native format);
+    # see the matching note in _chat_complete.
+    if (backend := _gptme_backend(model)) and backend[0] == "anthropic":
+        from .llm_anthropic import stream as stream_anthropic
+
+        gptme_partial: dict = {}
+        gen = stream_anthropic(
+            messages,
+            backend[1],
+            tools,
+            output_schema=output_schema,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            _partial=gptme_partial,
+            via_gptme=True,
+        )
+        return _StreamWithMetadata(gen, model, partial=gptme_partial)
+
     # Custom providers and plugin providers are OpenAI-compatible, route through OpenAI path
     if (
         provider in PROVIDERS_OPENAI

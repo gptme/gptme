@@ -445,6 +445,188 @@ def test_get_models_url_env_base_url_supabase_uses_default():
         assert get_models_url(config) == DEFAULT_MODELS_BASE_URL
 
 
+# --- Per-backend routing ---
+
+
+def _gptme_model_list():
+    """Fake gptme cloud model list: backend embedded as a prefix in `.model`."""
+    from gptme.llm.models import ModelMeta
+
+    return [
+        ModelMeta(
+            provider="gptme",
+            model="anthropic/claude-sonnet-4-6",
+            context=200_000,
+            max_output=64_000,
+            supports_reasoning=True,
+        ),
+        ModelMeta(
+            provider="gptme",
+            model="openai/gpt-5",
+            context=400_000,
+            max_output=64_000,
+            supports_reasoning=True,
+        ),
+        # Same bare name under a different backend — tie-break must prefer the
+        # direct backend (openai/gpt-5) over the openrouter re-export.
+        ModelMeta(provider="gptme", model="openrouter/openai/gpt-5", context=400_000),
+        ModelMeta(provider="gptme", model="openrouter/openai/gpt-5.4", context=400_000),
+    ]
+
+
+def _patch_model_list():
+    return patch(
+        "gptme.llm.models.listing._get_models_for_provider",
+        return_value=_gptme_model_list(),
+    )
+
+
+def test_gptme_two_segment_resolves_to_backend():
+    """gptme/<bare> resolves to the backend-prefixed model with real metadata."""
+    from gptme.llm.models.resolution import get_model
+
+    with _patch_model_list():
+        m = get_model("gptme/claude-sonnet-4-6")
+    assert m.model == "anthropic/claude-sonnet-4-6"
+    assert m.max_output == 64_000  # real metadata, not the degraded 128k fallback
+
+
+def test_gptme_two_segment_tiebreak_prefers_direct_backend():
+    """Ambiguous bare name prefers the direct backend over an openrouter re-export."""
+    from gptme.llm.models.resolution import get_model
+
+    with _patch_model_list():
+        m = get_model("gptme/gpt-5")
+    assert m.model == "openai/gpt-5"
+
+
+def test_gptme_backend_helper():
+    from gptme.llm import _gptme_backend
+
+    with _patch_model_list():
+        assert _gptme_backend("gptme/claude-sonnet-4-6") == (
+            "anthropic",
+            "claude-sonnet-4-6",
+        )
+        assert _gptme_backend("gptme/anthropic/claude-sonnet-4-6") == (
+            "anthropic",
+            "claude-sonnet-4-6",
+        )
+        assert _gptme_backend("gptme/gpt-5") == ("openai", "gpt-5")
+        assert _gptme_backend("gptme/openrouter/openai/gpt-5.4") == (
+            "openrouter",
+            "openai/gpt-5.4",
+        )
+    # A real (non-gptme) provider must not be treated as a gptme model
+    assert _gptme_backend("anthropic/claude-sonnet-4-6") is None
+
+
+def test_max_tokens_param_name():
+    """OpenAI gpt-5/o-series need max_completion_tokens; others keep max_tokens."""
+    from gptme.llm.llm_openai import _max_tokens_param_name
+
+    assert _max_tokens_param_name("openai", "gpt-5") == "max_completion_tokens"
+    assert _max_tokens_param_name("openai", "o3-mini") == "max_completion_tokens"
+    assert _max_tokens_param_name("openai", "gpt-4o") == "max_tokens"
+    # Future families in the same lines keep working without a code change
+    assert _max_tokens_param_name("openai", "o5") == "max_completion_tokens"
+    assert _max_tokens_param_name("openai", "gpt-6") == "max_completion_tokens"
+    assert _max_tokens_param_name("gptme", "openai/gpt-5") == "max_completion_tokens"
+    assert _max_tokens_param_name("gptme", "openai/gpt-4o") == "max_tokens"
+    # OpenRouter (incl. openrouter-backed gptme) keeps max_tokens
+    assert _max_tokens_param_name("gptme", "openrouter/openai/gpt-5.4") == "max_tokens"
+    assert (
+        _max_tokens_param_name("openrouter", "openrouter/openai/gpt-5") == "max_tokens"
+    )
+
+
+def test_gptme_api_model_wire_name():
+    """gptme provider sends the backend-prefixed wire model; others unchanged."""
+    from gptme.llm.llm_openai import _gptme_api_model
+    from gptme.llm.models import ModelMeta
+
+    mm = ModelMeta(provider="gptme", model="openai/gpt-5", context=1)
+    assert (
+        _gptme_api_model("gptme", mm, False, "gptme/gpt-5", "gpt-5") == "openai/gpt-5"
+    )
+
+    mm2 = ModelMeta(provider="openai", model="gpt-4o", context=1)
+    assert _gptme_api_model("openai", mm2, False, "openai/gpt-4o", "gpt-4o") == "gpt-4o"
+    assert (
+        _gptme_api_model("openai", mm2, True, "openai/gpt-4o", "gpt-4o")
+        == "openai/gpt-4o"
+    )
+
+
+def test_gptme_anthropic_uses_anthropic_sdk_no_stream_options():
+    """Anthropic-backed gptme models route via the Anthropic SDK (native, no
+    stream_options) and never touch the user's real anthropic client."""
+    from gptme.llm import _chat_complete
+    from gptme.message import Message
+
+    gateway = MagicMock()
+    block = MagicMock()
+    block.type = "text"
+    block.text = "hi"
+    resp = MagicMock()
+    resp.content = [block]
+    gateway.messages.create.return_value = resp
+
+    real_client = MagicMock()  # the user's real (direct) anthropic client
+
+    with (
+        _patch_model_list(),
+        patch("gptme.llm.llm_anthropic._get_gptme_client", return_value=gateway),
+        patch("gptme.llm.llm_anthropic._anthropic", real_client),
+        patch(
+            "gptme.llm.llm_anthropic._record_usage",
+            return_value={"model": "anthropic/claude-sonnet-4-6"},
+        ),
+    ):
+        content, _meta = _chat_complete(
+            [Message("system", "You are helpful."), Message("user", "hello")],
+            "gptme/claude-sonnet-4-6",
+            None,
+        )
+
+    assert content == "hi"
+    kwargs = gateway.messages.create.call_args.kwargs
+    assert kwargs["model"] == "anthropic/claude-sonnet-4-6"
+    assert "stream_options" not in kwargs
+    # No hijack: the real anthropic client must be untouched
+    real_client.messages.create.assert_not_called()
+
+
+def test_gptme_openai_chat_sends_max_completion_tokens():
+    """openai-backed gptme models stay on the OpenAI SDK path, send the
+    backend-prefixed wire model, and use max_completion_tokens for gpt-5."""
+    from gptme.llm import _chat_complete
+    from gptme.message import Message
+
+    client = MagicMock()
+    choice = MagicMock()
+    choice.message.content = "hi"
+    choice.message.tool_calls = None
+    choice.finish_reason = "stop"
+    resp = MagicMock()
+    resp.choices = [choice]
+    client.chat.completions.create.return_value = resp
+
+    with (
+        _patch_model_list(),
+        patch("gptme.llm.llm_openai.get_client", return_value=client),
+        patch(
+            "gptme.llm.llm_openai._record_usage", return_value={"model": "openai/gpt-5"}
+        ),
+    ):
+        _chat_complete([Message("user", "hi")], "gptme/openai/gpt-5", None)
+
+    kwargs = client.chat.completions.create.call_args.kwargs
+    assert kwargs["model"] == "openai/gpt-5"
+    assert "max_completion_tokens" in kwargs
+    assert "max_tokens" not in kwargs
+
+
 # --- Helpers ---
 
 
