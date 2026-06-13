@@ -2197,7 +2197,11 @@ def api_conversation_config_patch(conversation_id: str):
         if "model" in chat_patch and not isinstance(
             chat_patch["model"], str | type(None)
         ):
-            return flask.jsonify({"error": "model must be a string"}), 400
+            return flask.jsonify(
+                {
+                    "error": "model must be a string (e.g. 'gpt-4', 'claude-sonnet-4-5-20250929')"
+                }
+            ), 400
 
     logdir = get_logs_dir() / conversation_id
 
@@ -2515,7 +2519,11 @@ def api_user_api_key():
     if not isinstance(api_key, str):
         return flask.jsonify({"error": "api_key must be a string"}), 400
     if model is not None and not isinstance(model, str):
-        return flask.jsonify({"error": "model must be a string"}), 400
+        return flask.jsonify(
+            {
+                "error": "model must be a string (e.g. 'gpt-4', 'claude-sonnet-4-5-20250929')"
+            }
+        ), 400
     if provider not in PROVIDER_API_KEYS:
         return flask.jsonify({"error": f"Unknown provider: {provider}"}), 400
 
@@ -2576,7 +2584,11 @@ def api_user_default_model():
 
     model = req_json.get("model")
     if not isinstance(model, str):
-        return flask.jsonify({"error": "model must be a string"}), 400
+        return flask.jsonify(
+            {
+                "error": "model must be a string (e.g. 'gpt-4', 'claude-sonnet-4-5-20250929')"
+            }
+        ), 400
 
     try:
         trimmed_model = _validate_model_input(model)
