@@ -26,6 +26,7 @@ import type { ConversationSummary } from '@/types/conversation';
 
 const PAGE_SIZE = 50;
 const MIN_SERVER_SEARCH_LEN = 3;
+const SERVER_SEARCH_LIMIT = 200;
 
 /** Fetch all conversation summaries for calendar/stats */
 function useAllConversations() {
@@ -50,7 +51,7 @@ function useServerSearch(query: string) {
 
   return useQuery({
     queryKey: ['conversations-search', connectionConfig.baseUrl, query],
-    queryFn: () => api.searchConversations(query, 200),
+    queryFn: () => api.searchConversations(query, SERVER_SEARCH_LIMIT),
     enabled: isConnected && query.length >= MIN_SERVER_SEARCH_LEN,
     staleTime: 30 * 1000,
     gcTime: 2 * 60 * 1000,
@@ -146,6 +147,10 @@ export const HistoryView: FC = () => {
 
   const { data: serverSearchResults, isFetching: isSearchFetching } =
     useServerSearch(debouncedSearch);
+  const useServerResults =
+    debouncedSearch.length >= MIN_SERVER_SEARCH_LEN && serverSearchResults !== undefined;
+  const showServerSearchLimitNotice =
+    useServerResults && serverSearchResults.length === SERVER_SEARCH_LIMIT;
 
   // Build activity map from conversations
   const activityData = useMemo(() => {
@@ -233,8 +238,6 @@ export const HistoryView: FC = () => {
   // they arrive; shorter queries (and while the server fetch is in-flight) fall
   // back to client-side filtering of the full list.
   const filteredConversations = useMemo(() => {
-    const useServerResults =
-      debouncedSearch.length >= MIN_SERVER_SEARCH_LEN && serverSearchResults !== undefined;
     const source: ConversationSummary[] = useServerResults ? serverSearchResults : conversations;
 
     let filtered: ConversationSummary[] = source;
@@ -260,7 +263,7 @@ export const HistoryView: FC = () => {
     const sorted = filtered === source ? [...filtered] : filtered;
     sorted.sort((a, b) => b.modified - a.modified);
     return sorted;
-  }, [conversations, serverSearchResults, selectedDate, searchQuery, debouncedSearch]);
+  }, [conversations, serverSearchResults, selectedDate, searchQuery, useServerResults]);
 
   // Reset visible count when filters change
   useEffect(() => {
@@ -461,6 +464,12 @@ export const HistoryView: FC = () => {
                 />
               </div>
             </div>
+            {showServerSearchLimitNotice && (
+              <div className="border-b bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
+                Showing up to {SERVER_SEARCH_LIMIT.toLocaleString()} server search matches. Refine
+                your query if expected conversations are missing.
+              </div>
+            )}
 
             {/* List */}
             <div ref={scrollRef} className="max-h-[600px] overflow-y-auto">
