@@ -15,6 +15,22 @@ def test_chat_config_from_logdir(tmp_path: Path):
     assert loaded.model == "test-model"
 
 
+def test_chat_config_from_logdir_workspace_symlink(tmp_path: Path):
+    """from_logdir must not crash when 'workspace' is a pre-existing symlink.
+
+    Some older conversations have a manually-created 'workspace' symlink
+    instead of a directory. mkdir(exist_ok=True) raises FileExistsError on a
+    symlink/non-dir, which previously 500'd the conversations list endpoint.
+    """
+    logdir = tmp_path / "conv"
+    logdir.mkdir()
+    target = tmp_path / "linked-workspace"
+    (logdir / "workspace").symlink_to(target)  # broken symlink (target absent)
+
+    loaded = ChatConfig.from_logdir(logdir)
+    assert loaded.workspace == target
+
+
 def test_chat_config_load_or_create(tmp_path: Path):
     """Test loading or creating ChatConfig with CLI overrides."""
     # Test with no existing config

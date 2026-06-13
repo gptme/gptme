@@ -166,7 +166,13 @@ class ChatConfig:
             # This ensures server sessions get isolated workspaces
             # instead of sharing the server process's cwd.
             workspace = path / "workspace"
-            workspace.mkdir(parents=True, exist_ok=True)
+            # mkdir(exist_ok=True) only tolerates a pre-existing *directory*;
+            # it still raises FileExistsError when the path is a symlink or
+            # file (e.g. a manually-linked workspace). Skip creation if the
+            # path already exists in any form (is_symlink() also catches
+            # broken symlinks, which exists() does not).
+            if not (workspace.is_symlink() or workspace.exists()):
+                workspace.mkdir(parents=True, exist_ok=True)
             return cls(_logdir=path, workspace=workspace.resolve())
         try:
             if tomllib is not None:
