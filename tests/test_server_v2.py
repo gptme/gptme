@@ -2030,6 +2030,26 @@ def test_v2_chat_config_patch_validates_tools_before_init(
     assert expected_error in data["error"]
 
 
+@pytest.mark.parametrize(
+    "bad_model",
+    [12345, 3.14, True, ["gpt-4"], {"name": "gpt-4"}],
+)
+def test_v2_chat_config_patch_rejects_non_string_model(
+    client: FlaskClient, bad_model: object
+):
+    """Config PATCH should reject non-string model values with 400 not 500."""
+    conv = create_conversation(client)
+    conversation_id = conv["conversation_id"]
+
+    response = client.patch(
+        f"/api/v2/conversations/{conversation_id}/config",
+        json={"chat": {"model": bad_model}},
+    )
+
+    assert response.status_code == 400
+    assert "model must be a string" in response.get_json()["error"]
+
+
 def test_v2_chat_config_patch_rejected_during_generation(client: FlaskClient):
     """Config PATCH should return 409 when a session is actively generating."""
     conv = create_conversation(client)

@@ -2128,16 +2128,21 @@ def api_conversation_config_patch(conversation_id: str):
     if not isinstance(req_json, dict):
         return flask.jsonify({"error": "JSON body must be an object"}), 400
 
-    # Extract tool allowlist early for type-checking (no side effects).
+    # Extract and type-check fields early (no side effects).
     # init_tools validation is deferred to after the 404/409 guards because it
     # mutates process-wide state (loaded_tools, _tools_init_lock).
     tool_allowlist: list[str] | None = None
     chat_patch = req_json.get("chat")
-    if isinstance(chat_patch, dict) and "tools" in chat_patch:
-        raw_allowlist = _get_optional_string_list_field(chat_patch, "tools")
-        if isinstance(raw_allowlist, tuple):
-            return raw_allowlist  # 400: bad type, no side effects
-        tool_allowlist = raw_allowlist  # narrowed to list[str] | None
+    if isinstance(chat_patch, dict):
+        if "tools" in chat_patch:
+            raw_allowlist = _get_optional_string_list_field(chat_patch, "tools")
+            if isinstance(raw_allowlist, tuple):
+                return raw_allowlist  # 400: bad type, no side effects
+            tool_allowlist = raw_allowlist  # narrowed to list[str] | None
+        if "model" in chat_patch and not isinstance(
+            chat_patch["model"], (str, type(None))
+        ):
+            return flask.jsonify({"error": "model must be a string"}), 400
 
     logdir = get_logs_dir() / conversation_id
 
