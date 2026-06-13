@@ -12,6 +12,8 @@ from typing_extensions import NotRequired
 from .utils import extract_tool_uses_from_assistant_message, parameters2dict
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Generator, Iterable
+
     from ..message import Message
     from ..tools import ToolSpec
 
@@ -306,6 +308,119 @@ def _messages_to_responses_input(
 
     instructions = "\n\n".join(instructions_parts).strip() or None
     return instructions, items
+
+
+def _stream_responses_events(
+    event_iter: Iterable[Any],
+    *,
+    usage_callback: Callable[[Any], None] | None = None,
+) -> Generator[str, None, None]:
+    """Process a Responses API event stream, yielding formatted text chunks.
+
+    Works with both OpenAI SDK event objects and raw SSE dicts from the
+    subscription provider — ``_obj_get()`` handles both dict and attribute access.
+    Accepts ``response.reasoning_text.delta`` (SDK) or ``response.reasoning.delta``
+    (chatgpt.com backend) interchangeably.
+
+    ``usage_callback`` is called with the usage object from ``response.completed``
+    events; subscription streams (which use ``response.done``) never trigger it.
+    """
+    in_reasoning_block = False
+    seen_reasoning_delta = False
+    in_duplicate_thinking_block = False
+    pending = ""
+    func_call_items: dict[int, tuple[str, str]] = {}  # output_index -> (name, call_id)
+    header_emitted: set[int] = set()
+
+    for event in event_iter:
+        event_type = _obj_get(event, "type", "")
+
+        if event_type in ("response.reasoning_text.delta", "response.reasoning.delta"):
+            delta = _obj_get(event, "delta", "")
+            if delta:
+                if not in_reasoning_block:
+                    if pending:
+                        yield pending.replace("<thinking>", "<think>").replace(
+                            "</thinking>", "</think>"
+                        )
+                        pending = ""
+                    yield "<think>\n"
+                    in_reasoning_block = True
+                    seen_reasoning_delta = True
+                yield delta
+
+        elif event_type == "response.output_text.delta":
+            if in_reasoning_block:
+                yield "\n</think>\n"
+                in_reasoning_block = False
+
+            delta = _obj_get(event, "delta", "")
+            if delta:
+                text = pending + delta
+                pending = ""
+
+                if seen_reasoning_delta:
+                    text, pending, in_duplicate_thinking_block = (
+                        _filter_duplicate_thinking_text(
+                            text, in_thinking_block=in_duplicate_thinking_block
+                        )
+                    )
+                else:
+                    for tag in ("<thinking>", "</thinking>"):
+                        pending = _longest_suffix_prefix(text, tag)
+                        if pending:
+                            text = text[: -len(pending)]
+                            break
+                    text = text.replace("<thinking>", "<think>").replace(
+                        "</thinking>", "</think>"
+                    )
+
+                if text:
+                    yield text
+
+        elif event_type == "response.output_item.added":
+            if in_reasoning_block:
+                yield "\n</think>\n"
+                in_reasoning_block = False
+            if pending and not in_duplicate_thinking_block:
+                yield pending.replace("<thinking>", "<think>").replace(
+                    "</thinking>", "</think>"
+                )
+            pending = ""
+
+            item = _obj_get(event, "item", None)
+            if item is not None and _obj_get(item, "type") == "function_call":
+                output_index = _obj_get(event, "output_index", 0)
+                func_call_items[output_index] = (
+                    _obj_get(item, "name", ""),
+                    _obj_get(item, "call_id", "") or _obj_get(item, "id", ""),
+                )
+
+        elif event_type == "response.function_call_arguments.delta":
+            output_index = _obj_get(event, "output_index", 0)
+            if output_index not in header_emitted:
+                name, call_id = func_call_items.get(output_index, ("", ""))
+                yield f"\n@{name}({call_id}): "
+                header_emitted.add(output_index)
+            delta = _obj_get(event, "delta", "")
+            if delta:
+                yield delta
+
+        elif event_type in ("response.completed", "response.done"):
+            if usage_callback is not None and event_type == "response.completed":
+                response_obj = _obj_get(event, "response", None)
+                if response_obj is not None:
+                    usage = _obj_get(response_obj, "usage", None)
+                    if usage is not None:
+                        usage_callback(usage)
+            break
+
+    if in_reasoning_block:
+        yield "\n</think>\n"
+    if pending and not in_duplicate_thinking_block:
+        yield pending.replace("<thinking>", "<think>").replace(
+            "</thinking>", "</think>"
+        )
 
 
 def _extract_usage_token_counts(usage: Any) -> UsageTokenCounts:

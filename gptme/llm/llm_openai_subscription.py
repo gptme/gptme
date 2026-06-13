@@ -51,9 +51,8 @@ import requests
 
 from ..message import Message
 from .openai_responses import (
-    _filter_duplicate_thinking_text,
-    _longest_suffix_prefix,
     _messages_to_responses_input,
+    _stream_responses_events,
     _tool_spec_to_responses_tool,
 )
 
@@ -545,115 +544,18 @@ def stream(
         error_text = response.text[:500]
         raise ValueError(f"Codex API error {response.status_code}: {error_text}")
 
-    in_reasoning_block = False
-    # Track whether this stream uses structured reasoning.delta events.
-    # When true, skip <thinking>→<think> text conversion to avoid double-wrapping:
-    # gpt-5.4 can emit BOTH response.reasoning.delta AND raw <thinking> tags in
-    # output_text.delta for the same content, causing <think><think>...</think></think>.
-    seen_reasoning_delta = False
-    # Buffer to detect tags split across SSE chunks (max tag length is ~11 chars)
-    pending = ""
-    in_duplicate_thinking_block = False
+    def _sse_events():
+        for line in response.iter_lines():
+            if not line:
+                continue
+            data = _parse_sse_response(line)
+            if data is None:
+                continue
+            if data.get("done"):
+                return
+            yield data
 
-    for line in response.iter_lines():
-        if not line:
-            continue
-
-        data = _parse_sse_response(line)
-        if data is None:
-            continue
-
-        if data.get("done"):
-            break
-
-        # Handle Responses API SSE events
-        event_type = data.get("type", "")
-
-        if event_type == "response.reasoning.delta":
-            # Structured reasoning content — wrap in <think> blocks
-            delta_text = data.get("delta", "")
-            if delta_text:
-                seen_reasoning_delta = True
-                if not in_reasoning_block:
-                    # Flush any pending partial-tag buffer before opening think block
-                    if pending:
-                        yield pending.replace("<thinking>", "<think>").replace(
-                            "</thinking>", "</think>"
-                        )
-                        pending = ""
-                    yield "<think>\n"
-                    in_reasoning_block = True
-                yield delta_text
-
-        elif event_type == "response.output_text.delta":
-            # Text output — close any open reasoning block first, then handle
-            # <thinking> tags that some models emit as plain text.
-            # Only convert <thinking> tags when no structured reasoning.delta was seen —
-            # if both mechanisms fire (gpt-5.4 emits both), skip text conversion to
-            # avoid double-wrapping <think><think>...</think></think>.
-            if in_reasoning_block:
-                yield "\n</think>\n"
-                in_reasoning_block = False
-
-            delta_text = data.get("delta", "")
-            if delta_text:
-                # Combine with any pending partial-tag buffer
-                text = pending + delta_text
-                pending = ""
-
-                if seen_reasoning_delta:
-                    text, pending, in_duplicate_thinking_block = (
-                        _filter_duplicate_thinking_text(
-                            text, in_thinking_block=in_duplicate_thinking_block
-                        )
-                    )
-                else:
-                    for tag in ("<thinking>", "</thinking>"):
-                        pending = _longest_suffix_prefix(text, tag)
-                        if pending:
-                            text = text[: -len(pending)]
-                            break
-                    text = text.replace("<thinking>", "<think>").replace(
-                        "</thinking>", "</think>"
-                    )
-                if text:
-                    yield text
-
-        elif event_type == "response.output_item.added":
-            # Function call start: emit @name(call_id): prefix
-            if in_reasoning_block:
-                yield "\n</think>\n"
-                in_reasoning_block = False
-            if pending and not in_duplicate_thinking_block:
-                yield pending.replace("<thinking>", "<think>").replace(
-                    "</thinking>", "</think>"
-                )
-            pending = ""
-            item = data.get("item", {})
-            if item.get("type") == "function_call":
-                name = item.get("name", "")
-                call_id = item.get("call_id", "")
-                yield f"\n@{name}({call_id}): "
-
-        elif event_type == "response.function_call_arguments.delta":
-            # Function call argument chunks
-            delta_text = data.get("delta", "")
-            if delta_text:
-                yield delta_text
-
-        elif event_type == "response.done":
-            break
-
-    # Flush any remaining state.
-    # Invariant: pending and in_reasoning_block are mutually exclusive —
-    # reasoning.delta always flushes pending before setting in_reasoning_block.
-    # Close the reasoning block first so any pending text lands outside it.
-    if in_reasoning_block:
-        yield "\n</think>\n"
-    if pending and not in_duplicate_thinking_block:
-        yield pending.replace("<thinking>", "<think>").replace(
-            "</thinking>", "</think>"
-        )
+    yield from _stream_responses_events(_sse_events())
 
 
 def chat(

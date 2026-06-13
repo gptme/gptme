@@ -31,10 +31,9 @@ from .openai_responses import (
     ToolCallFunction,
     _content_to_responses_input,  # noqa: F401
     _extract_usage_token_counts,
-    _filter_duplicate_thinking_text,
-    _longest_suffix_prefix,
     _messages_dicts_to_responses_input,
     _obj_get,
+    _stream_responses_events,
     _tool_spec_to_responses_tool,
 )
 from .utils import (
@@ -1068,100 +1067,14 @@ def _stream_responses(
         if top_p_value is not None:
             kwargs["top_p"] = top_p_value
 
-    # Track function-call items: output_index -> (item_id, name, call_id)
-    func_call_items: dict[int, tuple[str, str, str]] = {}
-    header_emitted: set[int] = set()
-    # Guard against double-wrapping: some models emit BOTH structured
-    # reasoning deltas AND raw <thinking> tags in output_text.delta.
-    # If structured reasoning was seen, skip text-tag conversion so
-    # the output doesn't become <think><think>...</think></think>.
-    seen_reasoning_delta = False
-    in_reasoning_block = False
-    in_duplicate_thinking_block = False
-    # Buffer for detecting <thinking> / </thinking> tags split across
-    # SSE chunks (max tag length is ~11 characters).
-    pending = ""
     captured_metadata: MessageMetadata | None = None
 
+    def _capture_usage(usage: Any) -> None:
+        nonlocal captured_metadata
+        captured_metadata = _record_usage(usage, model)
+
     stream = client.responses.create(**kwargs)
-
-    for event in stream:
-        if event.type == "response.output_item.added":
-            item = event.item
-            if _obj_get(item, "type") == "function_call":
-                func_call_items[event.output_index] = (
-                    _obj_get(item, "id") or _obj_get(item, "call_id") or "",
-                    _obj_get(item, "name", ""),
-                    _obj_get(item, "call_id", ""),
-                )
-
-        elif event.type == "response.reasoning_text.delta":
-            if not in_reasoning_block:
-                # Flush any partial-tag buffer before opening think block
-                if pending:
-                    yield pending.replace("<thinking>", "<think>").replace(
-                        "</thinking>", "</think>"
-                    )
-                    pending = ""
-                yield "<think>\n"
-                in_reasoning_block = True
-                seen_reasoning_delta = True
-            yield event.delta
-
-        elif event.type == "response.output_text.delta":
-            if in_reasoning_block:
-                yield "\n</think>\n"
-                in_reasoning_block = False
-
-            delta_text = event.delta
-            if delta_text:
-                # Combine with any previous partial-tag buffer
-                text = pending + delta_text
-                pending = ""
-
-                if seen_reasoning_delta:
-                    text, pending, in_duplicate_thinking_block = (
-                        _filter_duplicate_thinking_text(
-                            text, in_thinking_block=in_duplicate_thinking_block
-                        )
-                    )
-                else:
-                    # Hold back potential partial tag suffix to check in
-                    # next chunk. A trailing `<` is buffered because it
-                    # could be the start of either <thinking> or
-                    # </thinking>.
-                    for tag in ("<thinking>", "</thinking>"):
-                        pending = _longest_suffix_prefix(text, tag)
-                        if pending:
-                            text = text[: -len(pending)]
-                            break
-
-                    # Convert <thinking>/</thinking> to <think>/</think>
-                    text = text.replace("<thinking>", "<think>").replace(
-                        "</thinking>", "</think>"
-                    )
-                if text:
-                    yield text
-
-        elif event.type == "response.function_call_arguments.delta":
-            output_index = event.output_index
-            if output_index not in header_emitted:
-                _, name, call_id = func_call_items.get(output_index, ("", "", ""))
-                yield f"\n@{name}({call_id}): "
-                header_emitted.add(output_index)
-            yield event.delta
-
-        elif event.type == "response.completed":
-            if event.response.usage:
-                captured_metadata = _record_usage(event.response.usage, model)
-
-    # Flush any remaining state.
-    if in_reasoning_block:
-        yield "\n</think>\n"
-    if pending and not in_duplicate_thinking_block:
-        yield pending.replace("<thinking>", "<think>").replace(
-            "</thinking>", "</think>"
-        )
+    yield from _stream_responses_events(stream, usage_callback=_capture_usage)
 
     return captured_metadata
 
