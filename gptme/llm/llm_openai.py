@@ -207,10 +207,15 @@ def _make_response_format(output_schema):
 
 
 def _responses_api_enabled() -> bool:
+    """Check whether the Responses API is enabled.
+
+    Enabled by default for models that support it (gpt-5 class, o-series).
+    Set GPTME_OPENAI_RESPONSES_API=0 to force Chat Completions for debugging.
+    """
     value = os.environ.get("GPTME_OPENAI_RESPONSES_API")
     if value is None:
-        return False
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+        return True  # default-on for supported models
+    return value.strip().lower() not in {"0", "false", "no", "off"}
 
 
 def _should_use_responses_api(
