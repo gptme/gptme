@@ -110,6 +110,7 @@ export const ConversationList: FC<Props> = ({
   const [showStarredOnly, setShowStarredOnly] = useState(false);
 
   const [sortBy, setSortBy] = useState<SortBy>(readSortPreference);
+  const useInfiniteScroll = sortBy === 'recent';
   const handleSortChange = (value: SortBy) => {
     setSortBy(value);
     writeSortPreference(value);
@@ -256,15 +257,15 @@ export const ConversationList: FC<Props> = ({
   const isFetchingRef = useRef(isFetching);
   isFetchingRef.current = isFetching;
 
-  // Set up intersection observer for infinite scrolling
+  // Keep infinite scroll for the date-grouped default view only.
+  // Flat sorts use an explicit pager so loaded pages do not reshuffle mid-scroll.
   useEffect(() => {
     if (observer.current) observer.current.disconnect();
 
-    // Only set up observer if we have content and can scroll
     const container = scrollContainerRef.current;
     const sentinel = loadMoreSentinelRef.current;
 
-    if (!container || !sentinel || !hasNextPage) {
+    if (!useInfiniteScroll || !container || !sentinel || !hasNextPage) {
       return;
     }
 
@@ -272,12 +273,10 @@ export const ConversationList: FC<Props> = ({
       (entries) => {
         const entry = entries[0];
         if (entry.isIntersecting && hasNextPage && !isFetchingRef.current) {
-          // Additional check: ensure we actually have scrollable content or are near the bottom
           const containerHeight = container.clientHeight;
           const scrollHeight = container.scrollHeight;
           const scrollTop = container.scrollTop;
 
-          // Load if we have scrollable content and are near the bottom, OR if content doesn't fill container yet
           const hasScrollableContent = scrollHeight > containerHeight;
           const nearBottom = scrollTop + containerHeight >= scrollHeight - 100;
 
@@ -299,7 +298,7 @@ export const ConversationList: FC<Props> = ({
     return () => {
       if (observer.current) observer.current.disconnect();
     };
-  }, [hasNextPage, fetchNextPage]); // isFetching accessed via ref to avoid observer recreation
+  }, [useInfiniteScroll, hasNextPage, fetchNextPage]); // isFetching accessed via ref to avoid observer recreation
 
   useEffect(() => {
     const handleFilterShortcut = (e: KeyboardEvent) => {
@@ -993,8 +992,30 @@ export const ConversationList: FC<Props> = ({
         </div>
       )}
 
+      {/* Keep flat sorts stable while still allowing more pages on demand. */}
+      {!isLoading && !isError && sortBy !== 'recent' && hasNextPage && (
+        <div className="px-2 pb-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full"
+            onClick={() => fetchNextPage()}
+            disabled={isFetching}
+          >
+            {isFetching ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Loading more conversations...
+              </>
+            ) : (
+              'Load more conversations'
+            )}
+          </Button>
+        </div>
+      )}
+
       {/* Sentinel element for infinite loading */}
-      <div ref={loadMoreSentinelRef} style={{ height: '1px' }} />
+      {useInfiniteScroll && <div ref={loadMoreSentinelRef} style={{ height: '1px' }} />}
 
       {/* End message */}
       {!hasFilter && !hasNextPage && realConversations.length > 0 && (
