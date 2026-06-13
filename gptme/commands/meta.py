@@ -13,6 +13,7 @@ from .base import CommandContext, command
 
 Actions = Literal[
     "log",
+    "backtrack",
     "checkpoint",
     "undo",
     "edit",
@@ -41,6 +42,7 @@ Actions = Literal[
 
 action_descriptions: dict[Actions, str] = {
     "undo": "Undo the last action",
+    "backtrack": "Rewind conversation to a checkpoint or message index",
     "log": "Show the conversation log",
     "checkpoint": "Manage workspace checkpoints",
     "edit": "Edit the conversation in your editor",
