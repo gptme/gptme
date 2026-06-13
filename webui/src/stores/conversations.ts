@@ -68,6 +68,14 @@ export interface ConversationState {
   temperature?: number;
   // Nucleus sampling top_p, persisted across operations. Undefined = provider default.
   topP?: number;
+  // Window metadata: tracks which slice of the full conversation is loaded.
+  // Absolute index of log[0] in the full conversation; 0 = full log from start.
+  logOffset: number;
+  // True when there are older messages that exist before logOffset.
+  hasMoreBefore: boolean;
+  // False for placeholder/prefetch entries that have not been properly hydrated
+  // from the API. Replaces the fragile hasExistingMessages check.
+  isWindowHydrated: boolean;
 }
 
 // Central store for all conversations
@@ -101,6 +109,9 @@ export function updateConversation(id: string, update: Partial<ConversationState
       needsInitialStep: false,
       initialStepStream: undefined,
       currentBranch: 'main',
+      logOffset: 0,
+      hasMoreBefore: false,
+      isWindowHydrated: false,
     });
   }
   // mergeIntoObservable treats an undefined value as "delete this key". `data`
@@ -271,6 +282,11 @@ export function initConversation(
     needsInitialStep: options?.needsInitialStep ?? false,
     initialStepStream: options?.initialStepStream,
     currentBranch: 'main',
+    logOffset: 0,
+    hasMoreBefore: false,
+    // Treat pre-supplied data (e.g. demo conversations) as hydrated;
+    // placeholder conversations created without data are NOT hydrated.
+    isWindowHydrated: data !== undefined,
   };
   conversations$.set(id, initial);
 }
@@ -301,9 +317,25 @@ export function setTopP(id: string, topP: number | undefined) {
   updateConversation(id, { topP });
 }
 
-// Update conversation data in the store
+// Index translation helpers — all server-bound ops and index-keyed maps use absolute indices.
+export function toAbsoluteIndex(logOffset: number, localIndex: number): number {
+  return logOffset + localIndex;
+}
+export function toLocalIndex(logOffset: number, absoluteIndex: number): number {
+  return absoluteIndex - logOffset;
+}
+
+// Update conversation data in the store, extracting window metadata from the response.
+// 'before' in a paged response = absolute index of log[0] when has_more=true.
 export function updateConversationData(id: string, data: ConversationResponse) {
-  conversations$.get(id)?.data.set(data);
+  const conv = conversations$.get(id);
+  if (!conv) return;
+  // Derive offset: server sets 'before = start' only when has_more (start > 0).
+  const logOffset = data.has_more ? (data.before ?? 0) : 0;
+  conv.data.set(data);
+  conv.logOffset.set(logOffset);
+  conv.hasMoreBefore.set(data.has_more ?? false);
+  conv.isWindowHydrated.set(true);
 }
 
 /** Switch to a different branch, updating the displayed log */
@@ -316,11 +348,32 @@ export function setCurrentBranch(id: string, branch: string) {
   conv.data.log.set(branches[branch]);
 }
 
-/** Replace the entire log (used after server-side edit) */
+/** Replace the entire log (used after server-side edit).
+ *  Server mutations (edit/delete/rerun) return the full log, so window metadata
+ *  is reset to a full-log state (offset=0, no older messages). */
 export function replaceLog(id: string, log: Message[]) {
   const conv = conversations$.get(id);
   if (!conv) return;
   conv.data.log.set(log);
+  conv.logOffset.set(0);
+  conv.hasMoreBefore.set(false);
+  conv.isWindowHydrated.set(true);
+}
+
+/** Prepend an older page of messages (for "load older" UX in Slice 2).
+ *  Updates logOffset and hasMoreBefore to reflect the newly extended window. */
+export function prependLogPage(
+  id: string,
+  olderLog: Message[],
+  olderOffset: number,
+  hasMoreBefore: boolean
+) {
+  const conv = conversations$.get(id);
+  if (!conv) return;
+  const currentLog = conv.data.log.get() as Message[];
+  conv.data.log.set([...olderLog, ...currentLog]);
+  conv.logOffset.set(olderOffset);
+  conv.hasMoreBefore.set(hasMoreBefore);
 }
 
 /** Update branch data */

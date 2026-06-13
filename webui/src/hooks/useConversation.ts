@@ -118,13 +118,17 @@ export function useConversation(conversationId: string, serverId?: string) {
           return;
         }
 
-        // Check if conversation already has data (e.g., from placeholder)
-        const hasExistingMessages = conversation$?.data.log.peek()?.length > 0;
+        // Only fetch from API when the window has not been properly hydrated.
+        // A non-zero log.length is not sufficient: a windowed prefetch or
+        // a placeholder conversation with injected messages would bypass the
+        // real API load and leave indices wrong. isWindowHydrated is set by
+        // updateConversationData() and initConversation(data).
+        const isWindowHydrated = conversation$?.isWindowHydrated?.peek() === true;
         console.log('[useConversation] Loading conversation', {
           conversationId,
-          hasExistingMessages,
+          isWindowHydrated,
         });
-        if (!hasExistingMessages) {
+        if (!isWindowHydrated) {
           // Only load from API if we don't already have conversation data
           try {
             const data = await api.getConversation(conversationId);

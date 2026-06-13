@@ -104,10 +104,15 @@ function extractToolSteps(content: string): ToolStepDetail[] {
  * Groups intermediate messages in each turn (between user messages),
  * keeping the last assistant message visible as the "response".
  * A "step" = one tool-use cycle (assistant action + system result).
+ *
+ * @param logOffset Absolute index of messages[0] in the full conversation.
+ *   All map keys are emitted as absolute indices (logOffset + localIndex).
+ *   isHidden is always called with LOCAL indices (array positions).
  */
 export function buildStepRoles(
   messages: Message[],
-  isHidden: (idx: number) => boolean
+  isHidden: (idx: number) => boolean,
+  logOffset: number = 0
 ): Map<number, StepRole> {
   const roles = new Map<number, StepRole>();
 
@@ -183,10 +188,11 @@ export function buildStepRoles(
         }
       }
 
-      // Use message index of first step as stable group ID
+      // Use absolute index of first step as stable group ID.
       // (incrementing counters shift when messages change, breaking expanded state)
       const firstIdx = stepIndices[0];
-      const stableGroupId = firstIdx;
+      const absFirstIdx = logOffset + firstIdx;
+      const stableGroupId = absFirstIdx; // absolute for stable identity across prepends
 
       // count = tool-call steps (not raw messages); fall back to message count if no system msgs
       const groupStart: Extract<StepRole, { type: 'group-start' }> = {
@@ -201,16 +207,16 @@ export function buildStepRoles(
         groupStart.steps = allSteps;
       }
 
-      roles.set(firstIdx, groupStart);
+      roles.set(absFirstIdx, groupStart);
 
       // Mark the rest as grouped (hidden when collapsed)
       for (let k = 1; k < stepIndices.length; k++) {
-        roles.set(stepIndices[k], { type: 'grouped', groupId: stableGroupId });
+        roles.set(logOffset + stepIndices[k], { type: 'grouped', groupId: stableGroupId });
       }
 
       // Mark response
       if (responseIdx >= 0) {
-        roles.set(responseIdx, { type: 'response' });
+        roles.set(logOffset + responseIdx, { type: 'response' });
       }
     }
 

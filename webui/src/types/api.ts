@@ -100,6 +100,11 @@ export interface ConversationResponse {
   branches: Record<string, Message[]>;
   workspace: string;
   agent?: AgentInfo;
+  // Pagination metadata (only present when limit param was used)
+  total_messages?: number;
+  has_more?: boolean;
+  // Cursor for the next older page = absolute index of log[0] (present when has_more=true)
+  before?: number;
 }
 
 export enum ToolFormat {

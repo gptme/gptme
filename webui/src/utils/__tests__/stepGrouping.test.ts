@@ -313,4 +313,94 @@ describe('buildStepRoles', () => {
       ]);
     }
   });
+
+  describe('logOffset', () => {
+    // These tests verify Slice 1 of windowed pagination:
+    // buildStepRoles emits absolute indices (logOffset + localIndex) so that
+    // edit/delete/rerun targeting the correct server-side message position.
+
+    it('defaults to logOffset=0, producing local indices (backward-compat)', () => {
+      const messages = [
+        msg('user', 'do something'), // local 0
+        msg('assistant', 'using tool'), // local 1 - step
+        msg('system', 'saved file'), // local 2 - step
+        msg('assistant', 'done'), // local 3 - response
+      ];
+      const roles = buildStepRoles(messages, neverHidden);
+      // With logOffset=0, absolute == local
+      expect(roles.get(1)?.type).toBe('group-start');
+      expect(roles.get(2)?.type).toBe('grouped');
+      expect(roles.get(3)?.type).toBe('response');
+      // Local indices 0..3 should NOT appear under different keys
+      expect(roles.has(0)).toBe(false);
+    });
+
+    it('offsets all map keys by logOffset', () => {
+      const messages = [
+        msg('user', 'do something'), // local 0, absolute 150
+        msg('assistant', 'using tool'), // local 1, absolute 151 - step
+        msg('system', 'saved file'), // local 2, absolute 152 - step
+        msg('assistant', 'done'), // local 3, absolute 153 - response
+      ];
+      const logOffset = 150;
+      const roles = buildStepRoles(messages, neverHidden, logOffset);
+
+      // Local indices must NOT appear as keys
+      expect(roles.has(1)).toBe(false);
+      expect(roles.has(2)).toBe(false);
+      expect(roles.has(3)).toBe(false);
+
+      // Absolute indices must be present
+      expect(roles.get(151)?.type).toBe('group-start');
+      expect(roles.get(152)?.type).toBe('grouped');
+      expect(roles.get(153)?.type).toBe('response');
+    });
+
+    it('uses absolute index as groupId for stable expansion tracking', () => {
+      const messages = [
+        msg('user', 'do something'), // local 0, absolute 50
+        msg('assistant', 'using tool'), // local 1, absolute 51 - step
+        msg('system', 'saved file'), // local 2, absolute 52 - step
+        msg('assistant', 'done'), // local 3, absolute 53 - response
+      ];
+      const roles = buildStepRoles(messages, neverHidden, 50);
+
+      const start = roles.get(51);
+      expect(start?.type).toBe('group-start');
+      if (start?.type === 'group-start') {
+        // groupId = absolute index of first step (51)
+        expect(start.groupId).toBe(51);
+      }
+
+      const grouped = roles.get(52);
+      expect(grouped?.type).toBe('grouped');
+      if (grouped?.type === 'grouped') {
+        // grouped also references the same absolute groupId
+        expect(grouped.groupId).toBe(51);
+      }
+    });
+
+    it('isHidden receives local indices regardless of logOffset', () => {
+      // isHidden must still work with local array indices (0-based in messages[])
+      const hiddenLocalIdx = new Set([1]); // hide local index 1
+      const isHidden = (idx: number) => hiddenLocalIdx.has(idx);
+
+      const messages = [
+        msg('user', 'do something'), // local 0, absolute 100
+        msg('assistant', 'using tool'), // local 1 — HIDDEN, absolute 101
+        msg('system', 'saved file'), // local 2, absolute 102 - step
+        msg('assistant', 'step 2'), // local 3, absolute 103 - step
+        msg('assistant', 'done'), // local 4, absolute 104 - response
+      ];
+      const roles = buildStepRoles(messages, isHidden, 100);
+
+      // With local idx 1 hidden, only 2 visible intermediate steps remain
+      // (local 2 and 3), so grouping triggers — group-start at absolute 102
+      expect(roles.get(102)?.type).toBe('group-start');
+      expect(roles.get(103)?.type).toBe('grouped');
+      expect(roles.get(104)?.type).toBe('response');
+      // The hidden message at absolute 101 should not appear in the map
+      expect(roles.has(101)).toBe(false);
+    });
+  });
 });
