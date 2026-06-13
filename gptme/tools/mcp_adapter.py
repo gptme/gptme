@@ -11,11 +11,11 @@ if TYPE_CHECKING:
     import mcp.types as mcp_types
 
     from ..hooks.elicitation import ElicitationRequest, ElicitationResponse
+    from ..mcp.client import MCPClient
+    from ..mcp.registry import MCPRegistry
 
 from gptme.config import Config, MCPServerConfig, get_config, set_config
 
-from ..mcp.client import MCPClient, MCPInterruptedError
-from ..mcp.registry import MCPRegistry, format_server_details, format_server_list
 from ..message import Message
 from ..util.ask_execute import execute_with_confirmation
 from .base import (
@@ -36,11 +36,21 @@ _mcp_clients: dict[str, MCPClient] = {}
 # Add type annotation for tool_specs
 tool_specs: list[ToolSpec] = []
 
-# Global registry instance
-_registry = MCPRegistry()
+# Lazy-initialized registry instance (loaded on first MCP registry call)
+_registry_instance: MCPRegistry | None = None
 
 # Cache of dynamically loaded servers
 _dynamic_servers: dict[str, MCPClient] = {}
+
+
+def _get_registry() -> MCPRegistry:
+    """Lazy getter for MCPRegistry — defers the import until first MCP registry call."""
+    global _registry_instance
+    if _registry_instance is None:
+        from ..mcp.registry import MCPRegistry
+
+        _registry_instance = MCPRegistry()
+    return _registry_instance
 
 
 def get_mcp_clients() -> dict[str, MCPClient]:
@@ -95,6 +105,8 @@ def _extract_content_text(
 
 def _restart_mcp_client(server_name: str, config: Config) -> MCPClient:
     """Restart an MCP client by reconnecting to the server"""
+    from ..mcp.client import MCPClient
+
     logger.info(f"Restarting MCP client for server: {server_name}")
 
     # Get existing client if any
@@ -163,6 +175,7 @@ def _call_mcp_tool_with_retry(
 # Function to create MCP tools
 def create_mcp_tools(config: Config) -> list[ToolSpec]:
     """Create tool specs for all MCP tools from the config"""
+    from ..mcp.client import MCPClient
 
     tool_specs: list[ToolSpec] = []
 
@@ -263,6 +276,8 @@ def create_mcp_execute_function(
         content: str, tool_name: str
     ) -> Generator[Message, None, None]:
         """Actual MCP tool implementation."""
+        from ..mcp.client import MCPInterruptedError
+
         try:
             # Get the client for getting tool definition
             tool_def = None
@@ -361,12 +376,15 @@ def search_mcp_servers(query: str = "", registry: str = "all", limit: int = 10) 
     Returns:
         Formatted list of servers
     """
+    from ..mcp.registry import format_server_list
+
+    registry_obj = _get_registry()
     if registry == "all":
-        results = _registry.search_all(query, limit)
+        results = registry_obj.search_all(query, limit)
     elif registry == "official":
-        results = _registry.search_official_registry(query, limit)
+        results = registry_obj.search_official_registry(query, limit)
     elif registry == "mcp.so":
-        results = _registry.search_mcp_so(query, limit)
+        results = registry_obj.search_mcp_so(query, limit)
     else:
         return f"Unknown registry: {registry}. Use 'all', 'official', or 'mcp.so'."
 
@@ -383,7 +401,9 @@ def get_mcp_server_info(name: str) -> str:
     Returns:
         Formatted server details
     """
-    server = _registry.get_server_details(name)
+    from ..mcp.registry import format_server_details
+
+    server = _get_registry().get_server_details(name)
     if not server:
         return f"Server '{name}' not found in any registry."
 
@@ -412,7 +432,7 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
 
     # If not in config, try to find in registry
     if not server_config:
-        server_info = _registry.get_server_details(name)
+        server_info = _get_registry().get_server_details(name)
         if not server_info:
             return f"Server '{name}' not found in config or registries."
 
@@ -444,6 +464,8 @@ def load_mcp_server(name: str, config_override: dict | None = None) -> str:
         config_added = True
 
     try:
+        from ..mcp.client import MCPClient
+
         # Create client and connect
         client = MCPClient(config=config)
         tools, session = client.connect(name)
@@ -532,6 +554,8 @@ def list_mcp_resources(server_name: str) -> str:
             f"Server '{server_name}' is not loaded. Use `mcp load {server_name}` first."
         )
 
+    from ..mcp.client import MCPInterruptedError
+
     try:
         result = client.list_resources()
         resources = result.resources
@@ -573,6 +597,8 @@ def read_mcp_resource(server_name: str, uri: str) -> str:
         return (
             f"Server '{server_name}' is not loaded. Use `mcp load {server_name}` first."
         )
+
+    from ..mcp.client import MCPInterruptedError
 
     try:
         import mcp.types as mcp_types
@@ -619,6 +645,8 @@ def list_mcp_resource_templates(server_name: str) -> str:
             f"Server '{server_name}' is not loaded. Use `mcp load {server_name}` first."
         )
 
+    from ..mcp.client import MCPInterruptedError
+
     try:
         result = client.list_resource_templates()
         templates = result.resourceTemplates
@@ -659,6 +687,8 @@ def list_mcp_prompts(server_name: str) -> str:
         return (
             f"Server '{server_name}' is not loaded. Use `mcp load {server_name}` first."
         )
+
+    from ..mcp.client import MCPInterruptedError
 
     try:
         result = client.list_prompts()
@@ -707,6 +737,8 @@ def get_mcp_prompt(
         return (
             f"Server '{server_name}' is not loaded. Use `mcp load {server_name}` first."
         )
+
+    from ..mcp.client import MCPInterruptedError
 
     try:
         result = client.get_prompt(name, arguments)
