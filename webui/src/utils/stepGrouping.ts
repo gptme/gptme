@@ -168,8 +168,14 @@ export function buildStepRoles(
     // Intermediate steps: everything except the response
     const stepIndices = visibleIndices.filter((idx) => idx !== responseIdx);
 
-    // Only group if there are 2+ intermediate steps (e.g. assistant tool call + system output)
-    if (stepIndices.length >= 2) {
+    // Group when:
+    // - 2+ intermediate steps (the common multi-tool-call case), OR
+    // - exactly 1 intermediate step that is a system message (hook/context injection
+    //   like "# Relevant Lessons" or agent_awareness, which are noise to the user)
+    const shouldGroup =
+      stepIndices.length >= 2 ||
+      (stepIndices.length === 1 && messages[stepIndices[0]].role === 'system');
+    if (shouldGroup) {
       // Detect tools used and count tool-call steps (system messages = tool results)
       const toolSet = new Set<string>();
       let toolCallCount = 0;

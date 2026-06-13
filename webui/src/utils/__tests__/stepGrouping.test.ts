@@ -17,9 +17,9 @@ describe('buildStepRoles', () => {
     expect(buildStepRoles(messages, neverHidden).size).toBe(0);
   });
 
-  it('returns empty map when fewer than 2 intermediate steps', () => {
+  it('returns empty map when only an assistant response and no intermediates', () => {
     const messages = [msg('user', 'do something'), msg('assistant', 'done')];
-    // Only 0 intermediate steps (single response) — below threshold
+    // 0 intermediate steps — no grouping needed
     expect(buildStepRoles(messages, neverHidden).size).toBe(0);
   });
 
@@ -104,17 +104,45 @@ describe('buildStepRoles', () => {
     expect(roles.get(4)?.type).toBe('response');
   });
 
-  it('does not group when only 1 visible intermediate step', () => {
+  it('collapses single pre-response system hook (agent_awareness / lessons injection)', () => {
+    // Core issue scenario: a hook fires after the user message and emits a system
+    // message before the assistant reply. It's noise — collapse it.
+    const messages = [
+      msg('user', 'write a fibonacci function'), // 0
+      msg('system', '# Relevant Lessons\n## Testing Patterns'), // 1 - pre-hook (visible)
+      msg('assistant', 'Here is a fibonacci function...'), // 2 - response
+    ];
+
+    const roles = buildStepRoles(messages, neverHidden);
+    expect(roles.get(1)?.type).toBe('group-start');
+    expect(roles.get(2)?.type).toBe('response');
+  });
+
+  it('groups a single visible intermediate system step when assistant step is hidden', () => {
     const messages = [
       msg('user', 'do work'), // 0
       msg('assistant', 'step 1'), // 1 - hidden
-      msg('system', 'saved'), // 2
-      msg('assistant', 'done'), // 3
+      msg('system', 'saved'), // 2 - visible system step
+      msg('assistant', 'done'), // 3 - response
     ];
 
     const isHidden = (idx: number) => idx === 1;
     const roles = buildStepRoles(messages, isHidden);
-    // Only 1 visible intermediate step — below threshold
+    // 1 visible intermediate system message — collapsed as a step group
+    expect(roles.get(2)?.type).toBe('group-start');
+    expect(roles.get(3)?.type).toBe('response');
+  });
+
+  it('does not group when single intermediate step is an assistant message', () => {
+    // A lone intermediate assistant message should stay visible (it is real content)
+    const messages = [
+      msg('user', 'what is X?'), // 0
+      msg('assistant', 'thinking...'), // 1 - intermediate assistant
+      msg('assistant', 'X is Y'), // 2 - response
+    ];
+
+    const roles = buildStepRoles(messages, neverHidden);
+    // Single intermediate assistant — not a hook, do not collapse
     expect(roles.size).toBe(0);
   });
 
@@ -137,7 +165,7 @@ describe('buildStepRoles', () => {
     expect(roles.get(3)?.type).toBe('grouped');
     expect(roles.get(4)?.type).toBe('response');
 
-    // Second turn: only 1 step — no grouping
+    // Second turn: only 1 intermediate assistant step — not a system/hook, no grouping
     expect(roles.has(6)).toBe(false);
     expect(roles.has(7)).toBe(false);
   });
@@ -249,19 +277,20 @@ describe('buildStepRoles', () => {
     expect(roles.get(2)?.type).toBe('grouped');
   });
 
-  it('does not collapse response when runnable fence is followed by non-tool system message', () => {
-    // Regression: assistant message includes a runnable fence (e.g. ```shell) as a
-    // *suggestion* (the user hasn't run it), followed only by a meta system message.
-    // The assistant is the real response and must NOT be absorbed into a step group.
+  it('keeps assistant response visible when a post-hook system message is collapsed', () => {
+    // The assistant response (with a runnable fence as a *suggestion*) must stay visible;
+    // the trailing system message (hook/context) is collapsed into a 1-step group.
     const messages = [
       msg('user', 'how do I init a git repo?'), // 0
       msg('assistant', 'Run:\n\n```shell\ngit init\n```\n\nThen add a README.'), // 1 - response
-      msg('system', '# Relevant Lessons\n## Git Workflow'), // 2 - post-hook, not a tool result
+      msg('system', '# Relevant Lessons\n## Git Workflow'), // 2 - post-hook, collapsed
     ];
 
     const roles = buildStepRoles(messages, neverHidden);
-    // Only 1 step after the response — below threshold, no grouping at all
-    expect(roles.size).toBe(0);
+    // Response is still the assistant message at index 1 — NOT collapsed
+    expect(roles.get(1)?.type).toBe('response');
+    // The trailing system hook becomes a collapsed 1-step group
+    expect(roles.get(2)?.type).toBe('group-start');
   });
 
   it('keeps assistant tool-use messages collapsed when later tool output follows', () => {
