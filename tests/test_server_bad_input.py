@@ -173,6 +173,17 @@ def test_conversations_limit_capped():
     print("  PASS: conversations limit=9999 accepted (capped)")
 
 
+def test_external_session_invalid_days():
+    """Non-positive days values should return 400 before the provider check."""
+    for bad_days in ("-1", "0", "-100"):
+        status, data = _req("GET", f"/api/v2/external-sessions/some-id?days={bad_days}")
+        assert status == 400, f"expected 400 for days={bad_days}, got {status}: {data}"
+        assert isinstance(data, dict) and "error" in data, (
+            f"expected error dict for days={bad_days}, got {data}"
+        )
+        print(f"  PASS: external-session days={bad_days} rejected")
+
+
 def test_get_session_nonexistent():
     """Getting a non-existent session should return 404."""
     cid, _session_id, _ = _create_conversation()
