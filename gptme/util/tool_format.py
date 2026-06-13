@@ -51,7 +51,7 @@ def tool_to_dict(tool: "ToolSpec") -> dict[str, Any]:
         "disabled_by_default": tool.disabled_by_default,
         "block_types": tool.block_types,
         "has_execute": bool(tool.execute),
-        "functions": [f.__name__ for f in tool.functions] if tool.functions else [],
+        "functions": [f.name for f in tool.functions] if tool.functions else [],
         "commands": list(tool.commands.keys()) if tool.commands else [],
         "is_mcp": bool(tool.is_mcp),
     }

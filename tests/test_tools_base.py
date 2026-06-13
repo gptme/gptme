@@ -15,6 +15,7 @@ from gptme.hooks import HookType
 from gptme.message import Message
 from gptme.tools.base import (
     Parameter,
+    ToolFunction,
     ToolSpec,
     ToolUse,
     _codeblock_char_ranges,
@@ -202,6 +203,90 @@ class TestCallableSignature:
         assert sig == "bare()"
 
 
+# ── ToolFunction ──────────────────────────────────────────────────
+
+
+class TestToolFunction:
+    def test_from_callable_infers_name(self):
+        def my_func(x: int) -> str:
+            """Does something."""
+            return ""
+
+        tf = ToolFunction.from_callable(my_func)
+        assert tf.name == "my_func"
+
+    def test_from_callable_infers_description(self):
+        def documented(x: int) -> str:
+            """This is a docstring."""
+            return ""
+
+        tf = ToolFunction.from_callable(documented)
+        assert tf.description == "This is a docstring."
+
+    def test_from_callable_no_docstring(self):
+        def nodoc():
+            pass
+
+        tf = ToolFunction.from_callable(nodoc)
+        assert tf.description == ""
+
+    def test_from_callable_group(self):
+        def fn():
+            pass
+
+        tf = ToolFunction.from_callable(fn, group="discord")
+        assert tf.group == "discord"
+
+    def test_default_hints_empty(self):
+        def fn():
+            pass
+
+        tf = ToolFunction.from_callable(fn)
+        assert tf.hints == frozenset()
+
+    def test_explicit_hints(self):
+        def fn():
+            pass
+
+        tf = ToolFunction(name="fn", fn=fn, hints=frozenset({"read-only"}))
+        assert "read-only" in tf.hints
+
+    def test_fn_is_callable(self):
+        def adder(a: int, b: int) -> int:
+            return a + b
+
+        tf = ToolFunction.from_callable(adder)
+        assert tf.fn(2, 3) == 5
+
+    def test_frozen(self):
+        def fn():
+            pass
+
+        tf = ToolFunction.from_callable(fn)
+        with pytest.raises((AttributeError, TypeError)):
+            tf.name = "new_name"  # type: ignore[misc]
+
+    def test_functions_description_uses_toolfunction_metadata(self):
+        def helper(name: str) -> bool:
+            """Checks a name."""
+            return True
+
+        tf = ToolFunction.from_callable(helper)
+        spec = ToolSpec(name="t", desc="", functions=[tf])
+        desc = spec.get_functions_description()
+        assert "helper" in desc
+        assert "Checks a name" in desc
+
+    def test_functions_description_explicit_description(self):
+        def helper(name: str) -> bool:
+            return True
+
+        tf = ToolFunction(name="helper", fn=helper, description="Custom description")
+        spec = ToolSpec(name="t", desc="", functions=[tf])
+        desc = spec.get_functions_description()
+        assert "Custom description" in desc
+
+
 # ── ToolSpec ───────────────────────────────────────────────────────
 
 
@@ -289,7 +374,9 @@ class TestToolSpec:
             """Does something."""
             return ""
 
-        tool = ToolSpec(name="t", desc="", functions=[my_func])
+        tool = ToolSpec(
+            name="t", desc="", functions=[ToolFunction.from_callable(my_func)]
+        )
         result = tool.get_instructions("markdown")
         assert "my_func" in result
         assert "Does something" in result
@@ -299,7 +386,9 @@ class TestToolSpec:
             """Checks a name."""
             return True
 
-        tool = ToolSpec(name="t", desc="", functions=[helper])
+        tool = ToolSpec(
+            name="t", desc="", functions=[ToolFunction.from_callable(helper)]
+        )
         desc = tool.get_functions_description()
         assert "helper" in desc
         assert "Checks a name" in desc

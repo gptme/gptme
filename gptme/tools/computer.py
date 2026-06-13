@@ -82,7 +82,7 @@ import subprocess
 from enum import Enum
 from typing import TYPE_CHECKING, Literal, TypedDict
 
-from .base import ToolSpec, ToolUse
+from .base import ToolFunction, ToolSpec, ToolUse
 from .computer_transport import get_transport
 from .screenshot import screenshot
 from .vision import view_image
@@ -1001,7 +1001,7 @@ tool = ToolSpec(
     desc="Control the computer through X11 (keyboard, mouse, screen)",
     instructions=instructions,
     examples=examples,
-    functions=[computer],
+    functions=[ToolFunction.from_callable(computer)],
     disabled_by_default=True,
 )
 

@@ -11,7 +11,7 @@ Tests cover:
 from typing import Any
 from unittest.mock import patch
 
-from gptme.tools.base import ToolSpec
+from gptme.tools.base import ToolFunction, ToolSpec
 from gptme.util.tool_format import (
     format_langtags,
     format_tool_info,
@@ -80,7 +80,7 @@ class TestToolToDict:
         def my_func():
             pass
 
-        d = tool_to_dict(_tool(functions=[my_func]))
+        d = tool_to_dict(_tool(functions=[ToolFunction.from_callable(my_func)]))
         assert d["functions"] == ["my_func"]
 
     def test_no_functions(self):

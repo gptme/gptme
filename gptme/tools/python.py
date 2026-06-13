@@ -334,7 +334,7 @@ def get_installed_python_libraries() -> list[str]:
 
 def get_functions():
     return "\n".join(
-        [f"- {callable_signature(func)}" for func in registered_functions.values()]
+        [f"- {callable_signature(fn)}" for fn in registered_functions.values()]
     )
 
 
@@ -399,8 +399,8 @@ def init() -> ToolSpec:
     # Register python functions from other tools
     for loaded_tool in get_tools():
         if loaded_tool.functions:
-            for func in loaded_tool.functions:
-                register_function(func)
+            for tf in loaded_tool.functions:
+                register_function(tf.fn)
 
     python_libraries = get_installed_python_libraries()
     python_libraries_str = (

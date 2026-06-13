@@ -47,7 +47,7 @@ from ..config import RagConfig, get_project_config
 from ..dirs import get_project_gptme_dir
 from ..llm import _chat_complete
 from ..message import Message
-from .base import ToolSpec, ToolUse
+from .base import ToolFunction, ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
 
@@ -281,7 +281,9 @@ tool = ToolSpec(
     desc="RAG (Retrieval-Augmented Generation) for context-aware assistance",
     instructions=instructions,
     examples=examples,
-    functions=[rag_index, rag_search, rag_status],
+    functions=[
+        ToolFunction.from_callable(f) for f in [rag_index, rag_search, rag_status]
+    ],
     available=_has_gptme_rag,
     init=init,
     hooks={

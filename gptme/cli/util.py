@@ -838,7 +838,7 @@ def tools_call(tool_name: str, function_name: str, arg: list[str]):
         sys.exit(1)
 
     function = (
-        [f for f in tool.functions if f.__name__ == function_name] or None
+        [f for f in tool.functions if f.name == function_name] or None
         if tool.functions
         else None
     )
@@ -861,7 +861,7 @@ def tools_call(tool_name: str, function_name: str, arg: list[str]):
         print(f"Function '{function_name}' not found in tool '{tool_name}'.")
         print("Available functions:")
         for f in tool.functions:
-            print(f"- {f.__name__}")
+            print(f"- {f.name}")
         sys.exit(1)
     else:
         # Parse arguments into a dictionary, ensuring proper typing
@@ -876,7 +876,7 @@ def tools_call(tool_name: str, function_name: str, arg: list[str]):
             key, value = arg_str.split("=", 1)
             kwargs[key] = value
         try:
-            return_val = function[0](**kwargs)
+            return_val = function[0].fn(**kwargs)
             print(return_val)
         except TypeError as e:
             click.echo(f"Error calling function: {e}", err=True)
