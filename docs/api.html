@@ -648,10 +648,12 @@ document.write(`
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.UserPromptConfig.__init__"><code class="docutils literal notranslate"><span class="pre">UserPromptConfig.__init__()</span></code></a></li>
 </ul>
 </li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ensure_workspace_dir"><code class="docutils literal notranslate"><span class="pre">ensure_workspace_dir()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.get_config"><code class="docutils literal notranslate"><span class="pre">get_config()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.get_project_config"><code class="docutils literal notranslate"><span class="pre">get_project_config()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.load_user_config"><code class="docutils literal notranslate"><span class="pre">load_user_config()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.reload_config"><code class="docutils literal notranslate"><span class="pre">reload_config()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.require_workspace_exists"><code class="docutils literal notranslate"><span class="pre">require_workspace_exists()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.set_config"><code class="docutils literal notranslate"><span class="pre">set_config()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.set_config_from_workspace"><code class="docutils literal notranslate"><span class="pre">set_config_from_workspace()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.set_config_value"><code class="docutils literal notranslate"><span class="pre">set_config_value()</span></code></a></li>
@@ -1567,6 +1569,17 @@ cost limits, and strategy-specific parameters.</p>
 </dd></dl>
 
 <dl class="py function">
+<dt class="sig sig-object py" id="gptme.config.ensure_workspace_dir">
+<span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">ensure_workspace_dir</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">workspace</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.14)"><span class="pre">Path</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.config.ensure_workspace_dir" title="Link to this definition">#</a></dt>
+<dd><p>Create the workspace directory unless it already exists in some form.</p>
+<p>mkdir(parents=True, exist_ok=True) only tolerates a pre-existing
+<em>directory</em>; it still raises FileExistsError when the path is a symlink or
+file (e.g. a manually-linked workspace). Skip creation when the path
+already exists in any form. is_symlink() also catches broken symlinks,
+which exists() reports as absent.</p>
+</dd></dl>
+
+<dl class="py function">
 <dt class="sig sig-object py" id="gptme.config.get_config">
 <span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">get_config</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#gptme.config.Config" title="gptme.config.core.Config"><span class="pre">Config</span></a></span></span><a class="headerlink" href="#gptme.config.get_config" title="Link to this definition">#</a></dt>
 <dd><p>Get the current configuration.</p>
@@ -1600,6 +1613,15 @@ This allows committing preferences to dotfiles while keeping secrets separate.</
 <dt class="sig sig-object py" id="gptme.config.reload_config">
 <span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">reload_config</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#gptme.config.Config" title="gptme.config.core.Config"><span class="pre">Config</span></a></span></span><a class="headerlink" href="#gptme.config.reload_config" title="Link to this definition">#</a></dt>
 <dd><p>Reload the configuration files.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="gptme.config.require_workspace_exists">
+<span class="sig-prename descclassname"><span class="pre">gptme.config.</span></span><span class="sig-name descname"><span class="pre">require_workspace_exists</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">workspace</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.14)"><span class="pre">Path</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#gptme.config.require_workspace_exists" title="Link to this definition">#</a></dt>
+<dd><p>Raise an actionable error if a configured workspace is missing.</p>
+<p>Workspaces may be symlinks to external directories that later get moved or
+deleted. We surface a clear message instead of a bare FileNotFoundError
+(CLI) or a silently-dying step thread (server) when about to chdir into it.</p>
 </dd></dl>
 
 <dl class="py function">
@@ -1989,10 +2011,12 @@ variable, then to the embedded legacy static bundle.</p></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.UserPromptConfig.__init__"><code class="docutils literal notranslate"><span class="pre">UserPromptConfig.__init__()</span></code></a></li>
 </ul>
 </li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.ensure_workspace_dir"><code class="docutils literal notranslate"><span class="pre">ensure_workspace_dir()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.get_config"><code class="docutils literal notranslate"><span class="pre">get_config()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.get_project_config"><code class="docutils literal notranslate"><span class="pre">get_project_config()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.load_user_config"><code class="docutils literal notranslate"><span class="pre">load_user_config()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.reload_config"><code class="docutils literal notranslate"><span class="pre">reload_config()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.require_workspace_exists"><code class="docutils literal notranslate"><span class="pre">require_workspace_exists()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.set_config"><code class="docutils literal notranslate"><span class="pre">set_config()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.set_config_from_workspace"><code class="docutils literal notranslate"><span class="pre">set_config_from_workspace()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.config.set_config_value"><code class="docutils literal notranslate"><span class="pre">set_config_value()</span></code></a></li>
