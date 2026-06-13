@@ -145,6 +145,34 @@ def test_get_conversation_bad_id():
     print("  PASS: 404 on nonexistent conversation")
 
 
+def test_conversations_invalid_limit():
+    """Non-positive limit values should return 400, not silently clamp."""
+    for bad_limit in ("-1", "0", "-100"):
+        status, data = _req("GET", f"/api/v2/conversations?limit={bad_limit}")
+        assert status == 400, (
+            f"expected 400 for limit={bad_limit}, got {status}: {data}"
+        )
+        assert isinstance(data, dict) and "error" in data, (
+            f"expected error dict for limit={bad_limit}, got {data}"
+        )
+        print(f"  PASS: conversations limit={bad_limit} rejected")
+
+
+def test_conversations_valid_limits():
+    """Valid limit values should work (1, positive integers, up to 1000)."""
+    for good_limit in ("1", "10", "100", "1000"):
+        status, _data = _req("GET", f"/api/v2/conversations?limit={good_limit}")
+        assert status == 200, f"expected 200 for limit={good_limit}, got {status}"
+    print("  PASS: conversations valid limits accepted")
+
+
+def test_conversations_limit_capped():
+    """limit > 1000 should be silently capped to 1000 (not rejected)."""
+    status, _data = _req("GET", "/api/v2/conversations?limit=9999")
+    assert status == 200, f"expected 200 for limit=9999 (capped), got {status}"
+    print("  PASS: conversations limit=9999 accepted (capped)")
+
+
 def test_get_session_nonexistent():
     """Getting a non-existent session should return 404."""
     cid, _session_id, _ = _create_conversation()
@@ -354,6 +382,9 @@ def main():
     test_get_conversation_bad_id()
     test_create_existing_conversation_duplicate()
     test_get_conversation_traversal_attempt()
+    test_conversations_invalid_limit()
+    test_conversations_valid_limits()
+    test_conversations_limit_capped()
 
     print("\n=== Session / step edge cases ===")
     test_step_no_session()
@@ -424,11 +455,12 @@ def main():
     print(f"  V2 root: {s}" if s == 200 else f"  V2 root: {s}")
 
     # Probe: list conversations with invalid limit
-    s, d = _req("GET", "/api/v2/conversations?limit=-1")
-    if s == 200:
-        print("  List conversations with limit=-1: OK (clamped)")
-    else:
-        print(f"  List conversations with limit=-1: {s}")
+    _expect_error(
+        "GET", "/api/v2/conversations?limit=-1", None, 400, "conversations limit=-1"
+    )
+    _expect_error(
+        "GET", "/api/v2/conversations?limit=0", None, 400, "conversations limit=0"
+    )
 
     print("\n=== Session / step interactive endpoints ===")
     cid, sid, _ = _create_conversation()
