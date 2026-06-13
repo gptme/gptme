@@ -1,9 +1,12 @@
 import json
+import logging
 from unittest.mock import patch
 
 import pytest
 
+from gptme.llm import PROVIDER_DEFAULT_MODELS
 from gptme.llm.models import (
+    MODEL_ALIASES,
     MODELS,
     ModelMeta,
     _find_closest_model_properties,
@@ -27,6 +30,27 @@ def test_get_model_provider_only():
     model = get_model("openai")
     assert model.provider == "openai"
     assert model.model == "gpt-5"  # current recommended model
+
+
+@pytest.mark.parametrize(
+    ("provider", "full_model"),
+    sorted(PROVIDER_DEFAULT_MODELS.items()),
+)
+def test_provider_default_models_resolve_without_unknown_fallback(
+    provider, full_model, caplog
+):
+    """Provider default models should stay synced with the model registry."""
+    with caplog.at_level(logging.WARNING):
+        model = get_model(full_model)
+
+    assert model.full == full_model
+    assert model.provider_key == provider
+    assert not any("Unknown model" in record.message for record in caplog.records)
+
+    if provider != "openrouter":
+        _, model_name = full_model.split("/", 1)
+        model_name = MODEL_ALIASES.get(provider, {}).get(model_name, model_name)
+        assert model_name in MODELS[provider]
 
 
 def test_get_model_unknown_provider_model():

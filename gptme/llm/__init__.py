@@ -91,7 +91,7 @@ PROVIDER_DEFAULT_MODELS: dict[str, str] = {
     "openai": "openai/gpt-4o-mini",
     "openrouter": "openrouter/anthropic/claude-haiku-4-5",
     "gemini": "gemini/gemini-2.0-flash",
-    "groq": "groq/llama-3.1-8b-instant",
+    "groq": "groq/llama-3.3-70b-versatile",
     "xai": "xai/grok-3-mini",
     "deepseek": "deepseek/deepseek-chat",
     "moonshot": "moonshot/kimi-k2.6",
