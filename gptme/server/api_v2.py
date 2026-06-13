@@ -79,6 +79,7 @@ from .api_v2_common import (
 from .api_v2_sessions import SessionManager, sessions_api
 from .auth import require_auth
 from .external_sessions import get_external_session_provider
+from .metrics import record_cache_result, update_conversation_metrics
 from .openapi_docs import (
     CONVERSATION_ID_PARAM,
     ApiRootResponse,
@@ -984,11 +985,15 @@ def api_conversations():
                 < _CONVERSATIONS_CACHE_TTL
             ):
                 full_list = _cached
+                record_cache_result(hit=True)
             else:
                 full_list = list(get_user_conversations(detail=False))
                 _conversations_cache = full_list
                 _conversations_cache_logs_dir = logs_dir
                 _conversations_cache_time = time.monotonic()
+                record_cache_result(hit=False)
+                n_msgs = sum(c.messages for c in full_list)
+                update_conversation_metrics(len(full_list), n_msgs)
         elif search:
             full_list = [
                 conv
@@ -1051,6 +1056,7 @@ def api_conversations():
         elapsed = time.monotonic() - _conversations_cache_time
         if elapsed < _CONVERSATIONS_CACHE_TTL:
             cached = _conversations_cache
+            record_cache_result(hit=True)
             etag = _etag_conversations(cached[:limit])
             if request.if_none_match.contains_weak(etag):
                 resp = flask.make_response("", 304)
@@ -1100,6 +1106,9 @@ def api_conversations():
         _conversations_cache = all_conversations
         _conversations_cache_logs_dir = logs_dir
         _conversations_cache_time = time.monotonic()
+        record_cache_result(hit=False)
+        n_msgs = sum(c.messages for c in all_conversations)
+        update_conversation_metrics(len(all_conversations), n_msgs)
         etag = _etag_conversations(conversations)
         if request.if_none_match.contains_weak(etag):
             resp = flask.make_response("", 304)

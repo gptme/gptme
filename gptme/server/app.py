@@ -157,6 +157,11 @@ def create_app(
 
     init_auth(host=host, display=False)
 
+    # Register Prometheus metrics middleware and /api/v0/metrics endpoint
+    from .metrics import init_metrics  # fmt: skip
+
+    init_metrics(app)
+
     # Track whether we're serving a custom webui build (not the legacy bundle).
     # Used below to gate SPA-specific route behaviour.
     is_custom_webui = static_folder != static_path
