@@ -528,6 +528,9 @@ def test_max_tokens_param_name():
     assert _max_tokens_param_name("openai", "gpt-5") == "max_completion_tokens"
     assert _max_tokens_param_name("openai", "o3-mini") == "max_completion_tokens"
     assert _max_tokens_param_name("openai", "gpt-4o") == "max_tokens"
+    # Future families in the same lines keep working without a code change
+    assert _max_tokens_param_name("openai", "o5") == "max_completion_tokens"
+    assert _max_tokens_param_name("openai", "gpt-6") == "max_completion_tokens"
     assert _max_tokens_param_name("gptme", "openai/gpt-5") == "max_completion_tokens"
     assert _max_tokens_param_name("gptme", "openai/gpt-4o") == "max_tokens"
     # OpenRouter (incl. openrouter-backed gptme) keeps max_tokens

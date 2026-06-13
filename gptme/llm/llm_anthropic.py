@@ -595,6 +595,9 @@ def get_client() -> "Anthropic | None":
 # (real key) and a `gptme/anthropic/...` model (gateway + device token) without
 # the two clobbering each other (no reinit thrash on model switch).
 _anthropic_gptme: "Anthropic | None" = None
+# Device token the cached client was built with, so we rebuild after a token
+# refresh / re-login instead of holding a stale (eventually expired) credential.
+_anthropic_gptme_key: str | None = None
 
 
 def _get_gptme_client() -> "Anthropic":
@@ -603,15 +606,18 @@ def _get_gptme_client() -> "Anthropic":
     Uses the gptme device-token auth (sent as x-api-key) and the gateway base
     URL. The Supabase messages function ignores the SDK's trailing path, so the
     native Anthropic request lands on it and is forwarded verbatim to Anthropic.
+    Rebuilt when the device token changes (cheap: get_api_key reads the cached
+    token file) so a mid-session re-login takes effect.
     """
-    global _anthropic_gptme
-    if _anthropic_gptme is None:
-        from anthropic import NOT_GIVEN, Anthropic  # fmt: skip
+    global _anthropic_gptme, _anthropic_gptme_key
+    from anthropic import NOT_GIVEN, Anthropic  # fmt: skip
 
-        from ..config import get_config  # fmt: skip
-        from .llm_gptme import get_api_key, get_base_url  # fmt: skip
+    from ..config import get_config  # fmt: skip
+    from .llm_gptme import get_api_key, get_base_url  # fmt: skip
 
-        config = get_config()
+    config = get_config()
+    api_key = get_api_key(config)
+    if _anthropic_gptme is None or _anthropic_gptme_key != api_key:
         timeout_str = config.get_env("LLM_API_TIMEOUT")
         try:
             timeout = float(timeout_str) if timeout_str else NOT_GIVEN
@@ -621,11 +627,12 @@ def _get_gptme_client() -> "Anthropic":
             ) from parse_err
 
         _anthropic_gptme = Anthropic(
-            api_key=get_api_key(config),
+            api_key=api_key,
             max_retries=5,
             base_url=get_base_url(config),
             timeout=timeout,
         )
+        _anthropic_gptme_key = api_key
     return _anthropic_gptme
 
 

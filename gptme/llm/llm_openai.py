@@ -801,21 +801,27 @@ def _gptme_api_model(
     return model if is_proxy else base_model
 
 
+# OpenAI's reasoning-era models reject `max_tokens` and require
+# `max_completion_tokens`: the o-series (o1, o3, o4, o5, ...) and gpt-5 and
+# later (gpt-5..gpt-9, gpt-10+). Matched by family so new releases in these
+# lines keep working without a code change; older models (gpt-4o, etc.) keep
+# `max_tokens`.
+_OPENAI_MAX_COMPLETION_RE = re.compile(r"^(?:o\d|gpt-(?:[5-9]|\d\d))")
+
+
 def _max_tokens_param_name(provider: Provider, api_model: str) -> str:
     """Choose between ``max_tokens`` and ``max_completion_tokens``.
 
-    OpenAI's gpt-5 / o-series reject ``max_tokens`` and require
-    ``max_completion_tokens``. This applies only when the request actually
-    targets OpenAI's API: the native ``openai`` provider, or a gptme cloud model
-    whose backend is openai. OpenRouter (including openrouter-backed gptme
-    models) keeps ``max_tokens``.
+    Applies only when the request actually targets OpenAI's API: the native
+    ``openai`` provider, or a gptme cloud model whose backend is openai.
+    OpenRouter (including openrouter-backed gptme models) keeps ``max_tokens``.
     """
     targets_openai = provider == "openai" or (
         provider == "gptme" and api_model.startswith("openai/")
     )
     if targets_openai:
         bare = api_model.rsplit("/", 1)[-1].split("@")[0].lower()
-        if bare.startswith(("gpt-5", "o1", "o3", "o4")):
+        if _OPENAI_MAX_COMPLETION_RE.match(bare):
             return "max_completion_tokens"
     return "max_tokens"
 
