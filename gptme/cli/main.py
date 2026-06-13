@@ -84,6 +84,12 @@ def _validate_model_param(
 script_path = Path(os.path.realpath(__file__))
 _STDIN_PIPE_GRACE_PERIOD = 1.0
 
+# Sub-timeout used by the inner read loop in `_read_stdin` to disambiguate
+# "data ready" from "pipe fd is readable but write end is open and idle".
+# Tuned to 100ms — generous enough to bridge small producer gaps without
+# being so long that an idle pipe stalls the prompt for a noticeable beat.
+_STDIN_PIPE_INTER_CHUNK_TIMEOUT = 0.1
+
 
 class CommaSeparatedChoice(click.ParamType):
     """Click type that validates comma-separated values against a set of choices."""
@@ -1335,8 +1341,6 @@ def _read_stdin() -> str:
     # Use os.read + select with sub-timeouts rather than sys.stdin.read() which
     # blocks until EOF on a pipe — "readable" from select on a pipe fd can
     # fire even when the write end is open but idle (e.g. under uv run).
-    import os  # fmt: skip
-
     try:
         fd = sys.stdin.fileno()
     except (OSError, ValueError, AttributeError):
@@ -1349,7 +1353,7 @@ def _read_stdin() -> str:
 
     try:
         while time.monotonic() < deadline:
-            r, _, _ = select.select([fd], [], [], 0.05)
+            r, _, _ = select.select([fd], [], [], _STDIN_PIPE_INTER_CHUNK_TIMEOUT)
             if not r:
                 # No data arrived within the sub-timeout — pipe is open but idle.
                 # Don't block on read; return what we have.

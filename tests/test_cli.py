@@ -265,6 +265,35 @@ def test_read_stdin_waits_briefly_for_slow_pipe_writer(monkeypatch):
         read_file.close()
 
 
+def test_read_stdin_does_not_truncate_chunks_separated_by_subtimeout(monkeypatch):
+    """Multiple chunks arriving with inter-chunk gaps > 50ms must not be truncated.
+
+    Regression test for the Greptile-flagged concern: the previous 50ms inner
+    sub-timeout could silently drop chunks from pipelines that write in bursts
+    with inter-chunk gaps slightly above 50ms. The new sub-timeout (100ms via
+    `_STDIN_PIPE_INTER_CHUNK_TIMEOUT`) bridges typical small producer gaps.
+    """
+    read_fd, write_fd = os.pipe()
+    read_file = os.fdopen(read_fd)
+    monkeypatch.setattr(cli.sys, "stdin", read_file)
+
+    chunks = [b"first ", b"second ", b"third"]
+
+    def _writer():
+        for chunk in chunks:
+            time.sleep(0.08)  # > old 50ms, < new 100ms sub-timeout
+            os.write(write_fd, chunk)
+        os.close(write_fd)
+
+    writer = threading.Thread(target=_writer)
+    writer.start()
+    try:
+        assert cli._read_stdin() == "first second third"
+    finally:
+        writer.join()
+        read_file.close()
+
+
 @pytest.mark.parametrize("bad_name", ["../bad-name", ".", "..", "foo/bar", "foo\\bar"])
 def test_name_rejects_path_traversal(bad_name: str, runner: CliRunner):
     result = runner.invoke(
