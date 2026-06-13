@@ -78,13 +78,11 @@ def resolve_conv_checkpoint(
     logdir: Path,
     identifier: str,
 ) -> ConvCheckpoint:
-    """Resolve a label, 1-based index, or bare integer to a checkpoint.
+    """Resolve a label or bare integer to a checkpoint.
 
     Priority:
     1. Pure decimal integer → treat as **message index** (not checkpoint #).
     2. Otherwise → match against checkpoint labels (most-recent match wins).
-    3. Decimal integer that matches no message-index check → try as 1-based
-       checkpoint list index.
     """
     records = list_conv_checkpoints(logdir)
 

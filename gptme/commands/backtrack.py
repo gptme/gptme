@@ -40,6 +40,9 @@ def _print_usage() -> None:
     print()
     print("Options for rewind:")
     print(f"  --reason <text>{_SEP}Inject a corrective summary explaining the rewind.")
+    print(
+        f"  <label> <text> {_SEP}Shorthand: extra words after the label become the reason."
+    )
 
 
 def _auto_label(records_count: int) -> str:
@@ -47,6 +50,9 @@ def _auto_label(records_count: int) -> str:
 
 
 def _complete_backtrack(partial: str, _prev: list[str]) -> list[tuple[str, str]]:
+    # Checkpoint labels are not included here because the completer runs without
+    # access to the LogManager (and thus the sidecar file). Use /backtrack list
+    # to see available labels; a closure-based completer could surface them in future.
     completions: list[tuple[str, str]] = [
         ("mark", "Save current position as a checkpoint"),
         ("list", "List saved checkpoints"),
@@ -80,6 +86,14 @@ def cmd_backtrack(ctx: CommandContext) -> Generator[Message, None, None]:
         existing = list_conv_checkpoints(ctx.manager.logdir)
         if label is None:
             label = _auto_label(len(existing))
+        # Warn if a checkpoint with this label already exists
+        existing_labels = [r for r in existing if r.label == label]
+        if existing_labels:
+            prev = existing_labels[-1]
+            print(
+                f"Warning: checkpoint '{label}' already exists at index {prev.index}; "
+                f"creating a new one at index {index}."
+            )
         record = save_conv_checkpoint(ctx.manager.logdir, index, label)
         print(f"Checkpoint '{record.label}' saved at message index {record.index}.")
         return

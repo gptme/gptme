@@ -120,6 +120,19 @@ class TestBacktrackCommand:
         assert records[0].label == "my-label"
         assert records[0].index == 4
 
+    def test_mark_duplicate_label_warns(self, tmp_path, capsys):
+        manager = _make_manager(tmp_path, n_messages=4)
+        list(handle_cmd("/backtrack mark dup", manager))
+        capsys.readouterr()  # clear first mark output
+        manager = _make_manager(tmp_path, n_messages=6)
+        list(handle_cmd("/backtrack mark dup", manager))
+        out = capsys.readouterr().out
+        assert "Warning" in out
+        assert "dup" in out
+        # Both records should be saved
+        records = list_conv_checkpoints(tmp_path)
+        assert len(records) == 2
+
     def test_list_empty(self, tmp_path, capsys):
         manager = _make_manager(tmp_path)
         list(handle_cmd("/backtrack list", manager))
