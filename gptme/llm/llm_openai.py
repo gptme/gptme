@@ -128,12 +128,17 @@ def _record_usage(usage, model: str) -> MessageMetadata | None:
     # Determine the provider for telemetry
     # For OpenRouter models, detect the underlying provider from the model string
     # e.g., "openrouter/anthropic/claude-sonnet-4.5" -> "anthropic"
+    # gptme cloud models embed the real backend (gptme/openai/gpt-5,
+    # gptme/openrouter/...), so strip the gptme/ prefix before detecting.
     provider = "openai"
-    if model.startswith("openrouter/"):
-        parts = model.split("/")
+    detect = model.removeprefix("gptme/")
+    if detect.startswith("openrouter/"):
+        parts = detect.split("/")
         if len(parts) >= 2:
             # openrouter/anthropic/... -> anthropic
             provider = parts[1]
+    elif detect.startswith("anthropic/"):
+        provider = "anthropic"
 
     # Record the LLM request with token usage
     record_llm_request(
@@ -777,6 +782,44 @@ def _maybe_apply_verbosity(body: dict[str, Any], model_meta: ModelMeta) -> None:
     body["verbosity"] = OPENAI_VERBOSITY
 
 
+def _gptme_api_model(
+    provider: Provider,
+    model_meta: ModelMeta,
+    is_proxy: bool,
+    model: str,
+    base_model: str,
+) -> str:
+    """Model name to send on the wire.
+
+    For gptme cloud models, send the backend-prefixed id (e.g. "openai/gpt-5",
+    "openrouter/openai/gpt-5.4") so the gateway routes to the right backend.
+    Otherwise keep the existing behaviour: provider-prefixed under LLM_PROXY,
+    bare model name otherwise.
+    """
+    if provider == "gptme" and "/" in model_meta.model:
+        return model_meta.model
+    return model if is_proxy else base_model
+
+
+def _max_tokens_param_name(provider: Provider, api_model: str) -> str:
+    """Choose between ``max_tokens`` and ``max_completion_tokens``.
+
+    OpenAI's gpt-5 / o-series reject ``max_tokens`` and require
+    ``max_completion_tokens``. This applies only when the request actually
+    targets OpenAI's API: the native ``openai`` provider, or a gptme cloud model
+    whose backend is openai. OpenRouter (including openrouter-backed gptme
+    models) keeps ``max_tokens``.
+    """
+    targets_openai = provider == "openai" or (
+        provider == "gptme" and api_model.startswith("openai/")
+    )
+    if targets_openai:
+        bare = api_model.rsplit("/", 1)[-1].split("@")[0].lower()
+        if bare.startswith(("gpt-5", "o1", "o3", "o4")):
+            return "max_completion_tokens"
+    return "max_tokens"
+
+
 @retry_on_openai_error()
 def chat(
     messages: list[Message],
@@ -802,7 +845,7 @@ def chat(
     is_reasoner = model_meta.supports_reasoning
 
     # make the model name prefix with the provider if using LLM_PROXY, to make proxy aware of the provider
-    api_model = model if is_proxy else base_model
+    api_model = _gptme_api_model(provider, model_meta, is_proxy, model, base_model)
 
     if _should_use_responses_api(provider, model_meta, client):
         instructions, input_items, responses_tools = (
@@ -875,7 +918,7 @@ def chat(
     if response_format is not None:
         optional_kwargs["response_format"] = response_format
     if max_tokens is not None:
-        optional_kwargs["max_tokens"] = max_tokens
+        optional_kwargs[_max_tokens_param_name(provider, api_model)] = max_tokens
 
     response = client.chat.completions.create(
         model=api_model.split("@")[0],
@@ -1191,7 +1234,7 @@ def stream(
     is_reasoner = model_meta.supports_reasoning
 
     # make the model name prefix with the provider if using LLM_PROXY, to make proxy aware of the provider
-    api_model = model if is_proxy else base_model
+    api_model = _gptme_api_model(provider, model_meta, is_proxy, model, base_model)
 
     # Dispatch to Responses API streaming when enabled for GPT-5 class models
     if _should_use_responses_api(provider, model_meta, client):
@@ -1226,7 +1269,7 @@ def stream(
     if response_format is not None:
         optional_kwargs["response_format"] = response_format
     if max_tokens is not None:
-        optional_kwargs["max_tokens"] = max_tokens
+        optional_kwargs[_max_tokens_param_name(provider, api_model)] = max_tokens
 
     for chunk_raw in client.chat.completions.create(
         model=api_model.split("@")[0],
