@@ -29,7 +29,7 @@ import gptme
 
 from ..chat import chat
 from ..commands import _gen_help
-from ..config import setup_config_from_cli
+from ..config import ensure_workspace_dir, setup_config_from_cli
 from ..constants import MULTIPROMPT_SEPARATOR
 from ..dirs import get_logs_dir
 from ..init import init_logging
@@ -939,7 +939,7 @@ def main(
     if workspace == "@log":
         workspace_path = logdir / "workspace"
         assert workspace_path  # mypy not smart enough to see its not None
-        workspace_path.mkdir(parents=True, exist_ok=True)
+        ensure_workspace_dir(workspace_path)
     else:
         workspace_path = Path(workspace) if workspace else Path.cwd()
 

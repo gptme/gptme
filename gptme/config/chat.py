@@ -42,6 +42,34 @@ def _coerce_config_path(value: object, field_name: str) -> Path:
     return Path(value).expanduser().resolve()
 
 
+def ensure_workspace_dir(workspace: Path) -> None:
+    """Create the workspace directory unless it already exists in some form.
+
+    mkdir(parents=True, exist_ok=True) only tolerates a pre-existing
+    *directory*; it still raises FileExistsError when the path is a symlink or
+    file (e.g. a manually-linked workspace). Skip creation when the path
+    already exists in any form. is_symlink() also catches broken symlinks,
+    which exists() reports as absent.
+    """
+    if not (workspace.is_symlink() or workspace.exists()):
+        workspace.mkdir(parents=True, exist_ok=True)
+
+
+def require_workspace_exists(workspace: Path) -> None:
+    """Raise an actionable error if a configured workspace is missing.
+
+    Workspaces may be symlinks to external directories that later get moved or
+    deleted. We surface a clear message instead of a bare FileNotFoundError
+    (CLI) or a silently-dying step thread (server) when about to chdir into it.
+    """
+    if not workspace.exists():
+        raise FileNotFoundError(
+            f"Configured workspace does not exist: {workspace}\n"
+            "It may have been moved or deleted. Restore the directory, or update "
+            "the conversation's workspace (chat.workspace in its config.toml)."
+        )
+
+
 @dataclass
 class ChatConfig:
     """Configuration for a chat session."""
@@ -99,7 +127,7 @@ class ChatConfig:
                     raise ValueError("Cannot use '@log' workspace without logdir")
                 chat_data["workspace"] = (_logdir / "workspace").resolve()
                 if create_workspace:
-                    chat_data["workspace"].mkdir(parents=True, exist_ok=True)
+                    ensure_workspace_dir(chat_data["workspace"])
             else:
                 chat_data["workspace"] = _coerce_config_path(
                     workspace_value, "workspace"
@@ -166,13 +194,7 @@ class ChatConfig:
             # This ensures server sessions get isolated workspaces
             # instead of sharing the server process's cwd.
             workspace = path / "workspace"
-            # mkdir(exist_ok=True) only tolerates a pre-existing *directory*;
-            # it still raises FileExistsError when the path is a symlink or
-            # file (e.g. a manually-linked workspace). Skip creation if the
-            # path already exists in any form (is_symlink() also catches
-            # broken symlinks, which exists() does not).
-            if not (workspace.is_symlink() or workspace.exists()):
-                workspace.mkdir(parents=True, exist_ok=True)
+            ensure_workspace_dir(workspace)
             return cls(_logdir=path, workspace=workspace.resolve())
         try:
             if tomllib is not None:
@@ -276,7 +298,7 @@ class ChatConfig:
             # Workspace IS the log workspace — ensure the directory exists
             # (from_logdir creates it for new conversations, but callers
             # constructing ChatConfig directly may not have)
-            self.workspace.mkdir(parents=True, exist_ok=True)
+            ensure_workspace_dir(self.workspace)
 
         return self
 

@@ -12,7 +12,7 @@ Split into sub-modules for maintainability:
 # Re-export everything for backward compatibility.
 # All existing ``from gptme.config import X`` statements continue to work.
 
-from .chat import ChatConfig
+from .chat import ChatConfig, ensure_workspace_dir, require_workspace_exists
 from .cli_setup import setup_config_from_cli
 from .core import (
     Config,
@@ -64,7 +64,9 @@ __all__ = [
     "UserPromptConfig",
     # Core functions
     "_config_var",
+    "ensure_workspace_dir",
     "get_config",
+    "require_workspace_exists",
     "set_config",
     "set_config_from_workspace",
     "reload_config",

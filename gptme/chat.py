@@ -6,7 +6,7 @@ from collections.abc import Callable, Generator
 from pathlib import Path
 
 from .commands import execute_cmd
-from .config import ChatConfig, get_config
+from .config import ChatConfig, get_config, require_workspace_exists
 from .constants import (
     DECLINED_CONTENT,
     INTERRUPT_CONTENT,
@@ -130,6 +130,7 @@ def chat(
         # Initialize workspace
         if not is_output_json():
             console.log(f"Using workspace: {path_with_tilde(workspace)}")
+        require_workspace_exists(workspace)
         os.chdir(workspace)
 
         # print log (suppressed in JSON output mode)

@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ..config import ChatConfig
+from ..config import ChatConfig, require_workspace_exists
 from ..dirs import get_logs_dir
 from ..executor import prepare_execution_environment
 from ..hooks import HookType, trigger_hook
@@ -578,6 +578,22 @@ def step(
         branch=branch,
         lock=False,
     )
+
+    # Fail cleanly if the configured workspace is missing (e.g. an external
+    # symlinked workspace that was moved/deleted). step() runs in a daemon
+    # thread, so an uncaught error here would silently leave the session stuck
+    # in "generating"; emit a visible error event and stop instead of letting
+    # the later os.chdir(workspace) crash the thread.
+    try:
+        require_workspace_exists(workspace)
+    except FileNotFoundError as e:
+        ws_error_event: ErrorEvent = {"type": "error", "error": str(e)}
+        _persist_generation_error(manager, session, str(e))
+        SessionManager.add_event(conversation_id, ws_error_event)
+        session.last_error = str(e)
+        session.generating = False
+        session.generating_since = None
+        return
 
     # Set the model as default before triggering hooks
     # This ensures hooks like token_awareness can access the model
