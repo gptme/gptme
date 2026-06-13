@@ -5,6 +5,7 @@ import {
   updateConversationData,
   replaceLog,
   prependLogPage,
+  setCurrentBranch,
   toAbsoluteIndex,
   toLocalIndex,
 } from '../conversations';
@@ -158,5 +159,46 @@ describe('prependLogPage', () => {
     const conv = conversations$.get(id);
     expect(conv?.logOffset.get()).toBe(0);
     expect(conv?.hasMoreBefore.get()).toBe(false);
+  });
+});
+
+describe('setCurrentBranch window metadata reset', () => {
+  const id = 'test-conv-4';
+
+  beforeEach(() => {
+    // Initialize with windowed state and a branch available
+    const mainLog = [msg('user', 'hi'), msg('assistant', 'hello')];
+    const altLog = [msg('user', 'alt start'), msg('assistant', 'alt reply')];
+    initConversation(id, {
+      id,
+      name: 'Test',
+      log: mainLog,
+      logfile: id,
+      branches: { main: mainLog, alt: altLog },
+      workspace: '/workspace',
+    });
+    // Simulate windowed state: logOffset=100, hasMoreBefore=true
+    conversations$.get(id)?.logOffset.set(100);
+    conversations$.get(id)?.hasMoreBefore.set(true);
+  });
+
+  it('resets window metadata when switching branches', () => {
+    setCurrentBranch(id, 'alt');
+
+    const conv = conversations$.get(id);
+    expect(conv?.currentBranch.get()).toBe('alt');
+    // Branch logs are always full logs — window must be reset to avoid stale offset
+    expect(conv?.logOffset.get()).toBe(0);
+    expect(conv?.hasMoreBefore.get()).toBe(false);
+    expect(conv?.isWindowHydrated.get()).toBe(true);
+  });
+
+  it('does not switch to a non-existent branch', () => {
+    setCurrentBranch(id, 'nonexistent');
+
+    const conv = conversations$.get(id);
+    // Branch unchanged, window metadata unchanged
+    expect(conv?.currentBranch.get()).toBe('main');
+    expect(conv?.logOffset.get()).toBe(100); // still the windowed offset
   });
 });

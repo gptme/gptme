@@ -332,10 +332,12 @@ export function updateConversationData(id: string, data: ConversationResponse) {
   if (!conv) return;
   // Derive offset: server sets 'before = start' only when has_more (start > 0).
   const logOffset = data.has_more ? (data.before ?? 0) : 0;
-  conv.data.set(data);
-  conv.logOffset.set(logOffset);
-  conv.hasMoreBefore.set(data.has_more ?? false);
-  conv.isWindowHydrated.set(true);
+  batch(() => {
+    conv.data.set(data);
+    conv.logOffset.set(logOffset);
+    conv.hasMoreBefore.set(data.has_more ?? false);
+    conv.isWindowHydrated.set(true);
+  });
 }
 
 /** Switch to a different branch, updating the displayed log */
@@ -344,8 +346,14 @@ export function setCurrentBranch(id: string, branch: string) {
   if (!conv) return;
   const branches = conv.data.branches?.get();
   if (!branches || !branches[branch]) return;
-  conv.currentBranch.set(branch);
-  conv.data.log.set(branches[branch]);
+  // Reset window metadata: branch logs are always full logs, never windowed.
+  batch(() => {
+    conv.currentBranch.set(branch);
+    conv.data.log.set(branches[branch]);
+    conv.logOffset.set(0);
+    conv.hasMoreBefore.set(false);
+    conv.isWindowHydrated.set(true);
+  });
 }
 
 /** Replace the entire log (used after server-side edit).
@@ -354,10 +362,12 @@ export function setCurrentBranch(id: string, branch: string) {
 export function replaceLog(id: string, log: Message[]) {
   const conv = conversations$.get(id);
   if (!conv) return;
-  conv.data.log.set(log);
-  conv.logOffset.set(0);
-  conv.hasMoreBefore.set(false);
-  conv.isWindowHydrated.set(true);
+  batch(() => {
+    conv.data.log.set(log);
+    conv.logOffset.set(0);
+    conv.hasMoreBefore.set(false);
+    conv.isWindowHydrated.set(true);
+  });
 }
 
 /** Prepend an older page of messages (for "load older" UX in Slice 2).
@@ -371,9 +381,11 @@ export function prependLogPage(
   const conv = conversations$.get(id);
   if (!conv) return;
   const currentLog = conv.data.log.get() as Message[];
-  conv.data.log.set([...olderLog, ...currentLog]);
-  conv.logOffset.set(olderOffset);
-  conv.hasMoreBefore.set(hasMoreBefore);
+  batch(() => {
+    conv.data.log.set([...olderLog, ...currentLog]);
+    conv.logOffset.set(olderOffset);
+    conv.hasMoreBefore.set(hasMoreBefore);
+  });
 }
 
 /** Update branch data */

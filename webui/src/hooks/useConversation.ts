@@ -9,6 +9,7 @@ import { use$ } from '@legendapp/state/react';
 import {
   conversations$,
   updateConversation,
+  updateConversationData,
   setGenerating,
   setConnected,
   setConnectionStatus,
@@ -136,7 +137,8 @@ export function useConversation(conversationId: string, serverId?: string) {
             // Also load the chat config
             try {
               const chatConfig = await api.getChatConfig(conversationId);
-              updateConversation(conversationId, { data, chatConfig, loadError: null });
+              updateConversationData(conversationId, data);
+              updateConversation(conversationId, { chatConfig, loadError: null });
               console.log(`[useConversation] Loaded conversation and config for ${conversationId}`);
             } catch (error) {
               console.warn(
@@ -144,7 +146,8 @@ export function useConversation(conversationId: string, serverId?: string) {
                 error
               );
               // Still update with conversation data even if config fails
-              updateConversation(conversationId, { data, loadError: null });
+              updateConversationData(conversationId, data);
+              updateConversation(conversationId, { loadError: null });
             }
           } catch (error) {
             console.warn(
@@ -733,7 +736,8 @@ export function useConversation(conversationId: string, serverId?: string) {
   const rerunFromMessage = async (index: number) => {
     if (!conversation$) return;
     const log = conversation$.data.log.get();
-    const isLastMessage = index === log.length - 1;
+    const localIndex = index - conversation$.logOffset.get();
+    const isLastMessage = localIndex === log.length - 1;
 
     try {
       if (!isLastMessage) {
