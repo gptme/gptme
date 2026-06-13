@@ -13,6 +13,7 @@ from gptme.tools.computer import (
     MODIFIER_KEYS,
     _chunks,
     _get_display_resolution,
+    _linux_scroll,
     _parse_key_sequence,
     _run_xdotool,
     _scale_coordinates,
@@ -900,3 +901,102 @@ def test_computer_cursor_position_macos_bad_output(mock_run, mock_res):
     mock_run.return_value = mock.MagicMock(stdout="not,valid,output\n")
     with pytest.raises(RuntimeError, match="Failed to get cursor position"):
         computer("cursor_position")
+
+
+# === scroll action tests ===
+
+_MOCK_LINUX_RES = (1366, 768)
+
+
+def test_linux_scroll_down_calls_xdotool():
+    """_linux_scroll down issues xdotool click 5 (scroll-down button)."""
+    calls = []
+
+    def fake_xdotool(cmd: str, display: str) -> str:
+        calls.append(cmd)
+        return ""
+
+    with mock.patch("gptme.tools.computer._run_xdotool", side_effect=fake_xdotool):
+        _linux_scroll(100, 200, "down", ":1", amount=3)
+
+    # First call should be mousemove, then 3 click 5 calls
+    assert calls[0].startswith("mousemove")
+    click_calls = [c for c in calls if c.startswith("click")]
+    assert all("5" in c for c in click_calls), (
+        f"Expected button 5 (scroll down), got: {click_calls}"
+    )
+    assert len(click_calls) == 3
+
+
+def test_linux_scroll_up_calls_xdotool():
+    """_linux_scroll up issues xdotool click 4 (scroll-up button)."""
+    calls = []
+
+    def fake_xdotool(cmd: str, display: str) -> str:
+        calls.append(cmd)
+        return ""
+
+    with mock.patch("gptme.tools.computer._run_xdotool", side_effect=fake_xdotool):
+        _linux_scroll(100, 200, "up", ":1", amount=2)
+
+    click_calls = [c for c in calls if c.startswith("click")]
+    assert all("4" in c for c in click_calls), (
+        f"Expected button 4 (scroll up), got: {click_calls}"
+    )
+    assert len(click_calls) == 2
+
+
+def test_linux_scroll_invalid_direction():
+    """_linux_scroll raises ValueError for unknown direction."""
+    with pytest.raises(ValueError, match="Invalid scroll direction"):
+        _linux_scroll(100, 200, "diagonal", ":1")
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", False)
+@mock.patch(
+    "gptme.tools.computer._get_display_resolution", return_value=_MOCK_LINUX_RES
+)
+def test_computer_scroll_linux(mock_res):
+    """computer('scroll') on Linux calls _linux_scroll with correct args."""
+    scroll_calls = []
+
+    def fake_scroll(x, y, direction, display, amount=3):
+        scroll_calls.append((x, y, direction, display, amount))
+
+    with mock.patch("gptme.tools.computer._linux_scroll", side_effect=fake_scroll):
+        result = computer("scroll", text="down", coordinate=(512, 400))
+
+    assert result is None
+    assert len(scroll_calls) == 1
+    _, _, direction, _, _ = scroll_calls[0]
+    assert direction == "down"
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", False)
+@mock.patch(
+    "gptme.tools.computer._get_display_resolution", return_value=_MOCK_LINUX_RES
+)
+def test_computer_scroll_missing_coordinate(mock_res):
+    """computer('scroll') raises ValueError when coordinate is missing."""
+    with pytest.raises(ValueError, match="coordinate is required"):
+        computer("scroll", text="down")
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", False)
+@mock.patch(
+    "gptme.tools.computer._get_display_resolution", return_value=_MOCK_LINUX_RES
+)
+def test_computer_scroll_missing_direction(mock_res):
+    """computer('scroll') raises ValueError when direction text is missing."""
+    with pytest.raises(ValueError, match="text.*direction.*required"):
+        computer("scroll", coordinate=(512, 400))
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", False)
+@mock.patch(
+    "gptme.tools.computer._get_display_resolution", return_value=_MOCK_LINUX_RES
+)
+def test_computer_scroll_invalid_direction(mock_res):
+    """computer('scroll') raises ValueError for an invalid direction string."""
+    with pytest.raises(ValueError, match="Invalid scroll direction"):
+        computer("scroll", text="sideways", coordinate=(512, 400))

@@ -132,9 +132,12 @@ Action = Literal[
     "right_click",
     "middle_click",
     "double_click",
+    "scroll",
     "screenshot",
     "cursor_position",
 ]
+
+ScrollDirection = Literal["up", "down", "left", "right"]
 
 
 class _Resolution(TypedDict):
@@ -466,6 +469,61 @@ def _linux_type(text: str, display: str) -> None:
         )
 
 
+def _linux_scroll(
+    x: int, y: int, direction: str, display: str, amount: int = 3
+) -> None:
+    """Scroll in a direction at (x, y) using xdotool on Linux/X11.
+
+    Button mapping: 4=up, 5=down, 6=left, 7=right.
+    """
+    button_map = {"up": "4", "down": "5", "left": "6", "right": "7"}
+    button = button_map.get(direction)
+    if button is None:
+        raise ValueError(f"Invalid scroll direction: {direction!r}")
+    _run_xdotool(f"mousemove --sync {x} {y}", display)
+    for _ in range(amount):
+        _run_xdotool(f"click {button}", display)
+
+
+def _macos_scroll(x: int, y: int, direction: str, amount: int = 3) -> None:
+    """Scroll in a direction at (x, y) on macOS using Quartz scroll wheel events."""
+    try:
+        from Quartz import (  # type: ignore[import-not-found]
+            CGEventCreateScrollWheelEvent,
+            CGEventPost,
+            CGEventSetLocation,
+            kCGHIDEventTap,
+            kCGScrollEventUnitLine,
+        )
+        from Quartz.CoreGraphics import CGPoint  # type: ignore[import-not-found]
+    except ImportError:
+        raise RuntimeError(
+            "pyobjc-framework-Quartz is required for scroll on macOS. "
+            "Install with: pip install pyobjc-framework-Quartz"
+        ) from None
+
+    _macos_mouse_move(x, y)
+
+    delta_y = 0
+    delta_x = 0
+    if direction == "up":
+        delta_y = amount
+    elif direction == "down":
+        delta_y = -amount
+    elif direction == "left":
+        delta_x = amount
+    elif direction == "right":
+        delta_x = -amount
+    else:
+        raise ValueError(f"Invalid scroll direction: {direction!r}")
+
+    event = CGEventCreateScrollWheelEvent(
+        None, kCGScrollEventUnitLine, 2, delta_y, delta_x
+    )
+    CGEventSetLocation(event, CGPoint(x, y))
+    CGEventPost(kCGHIDEventTap, event)
+
+
 def _macos_click(button: int) -> None:
     """
     Click mouse button using cliclick on macOS.
@@ -581,6 +639,18 @@ def _dispatch_transport(
         }[action]
         click_fn()
         print(f"Performed {action}")
+        return None
+
+    if action == "scroll":
+        if not coordinate:
+            raise ValueError("coordinate is required for scroll")
+        if not text:
+            raise ValueError(
+                "text (direction: up/down/left/right) is required for scroll"
+            )
+        x, y = coordinate
+        transport.scroll(x, y, text)
+        print(f"Scrolled {text} at {x},{y}")
         return None
 
     if action == "screenshot":
@@ -743,6 +813,27 @@ def computer(
             _run_xdotool(f"click {click_arg}", display)
 
         print(f"Performed {action}")
+        return None
+    if action == "scroll":
+        if not coordinate:
+            raise ValueError("coordinate is required for scroll")
+        if not text:
+            raise ValueError(
+                "text (direction: up/down/left/right) is required for scroll"
+            )
+        direction = text.lower()
+        if direction not in ("up", "down", "left", "right"):
+            raise ValueError(
+                f"Invalid scroll direction: {direction!r}. Must be up/down/left/right"
+            )
+        sx, sy = _scale_coordinates(
+            _ScalingSource.API, coordinate[0], coordinate[1], width, height
+        )
+        if IS_MACOS:
+            _macos_scroll(sx, sy, direction)
+        else:
+            _linux_scroll(sx, sy, direction, display)
+        print(f"Scrolled {direction} at {coordinate[0]},{coordinate[1]}")
         return None
     if action == "screenshot":
         path = screenshot()  # Use existing screenshot function
@@ -929,6 +1020,7 @@ Available actions:
 - mouse_move: Move mouse to coordinates
 - left_click, right_click, middle_click, double_click: Mouse clicks
 - left_click_drag: Click and drag to coordinates
+- scroll: Scroll the mouse wheel at coordinates (text="up"/"down"/"left"/"right")
 - screenshot: Take and view a screenshot
 - cursor_position: Get current mouse position
 
@@ -969,6 +1061,11 @@ User: Double-click at current position
 Assistant: I'll perform a double-click.
 {ToolUse("ipython", [], 'computer("double_click")').to_output(tool_format)}
 System: Performed double_click
+
+User: Scroll down in the page at (512, 400)
+Assistant: I'll scroll down at those coordinates.
+{ToolUse("ipython", [], 'computer("scroll", coordinate=(512, 400), text="down")').to_output(tool_format)}
+System: Scrolled down at 512,400
 """
 
     # Platform-specific keyboard shortcut examples

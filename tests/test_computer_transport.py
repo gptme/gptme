@@ -54,6 +54,9 @@ class StubTransport(ComputerTransport):
     def left_click_drag(self, x: int, y: int) -> None:
         pass
 
+    def scroll(self, x: int, y: int, direction: str, amount: int = 3) -> None:
+        pass
+
     def screenshot(self, width: int = 0, height: int = 0) -> Path:
         return Path("/tmp/stub.png")
 
@@ -81,7 +84,7 @@ class TestComputerTransportABC(unittest.TestCase):
             IncompleteTransport()  # type: ignore[abstract]
 
     def test_abstract_method_surface_matches_expected(self):
-        """The 11 abstract methods match gptme's computer() action set."""
+        """The 12 abstract methods match gptme's computer() action set."""
         abstract = {
             name
             for name in dir(ComputerTransport)
@@ -101,6 +104,7 @@ class TestComputerTransportABC(unittest.TestCase):
             "middle_click",
             "double_click",
             "left_click_drag",
+            "scroll",
             "screenshot",
             "cursor_position",
         }
@@ -723,6 +727,91 @@ class TestResizeImage(unittest.TestCase):
         ):
             _resize_image(Path("/tmp/shot.png"), 100, 100)
         self.assertIn("bad image", str(ctx.exception))
+
+
+class TestNativeTransportScroll(unittest.TestCase):
+    """Scroll dispatches to the correct platform helper."""
+
+    def test_linux_scroll_down_calls_xdotool(self):
+        """scroll() on Linux must call _linux_scroll with the right args."""
+        transport = NativeComputerTransport()
+        calls: list[tuple] = []
+
+        def fake_scroll(x, y, direction, display, amount=3):
+            calls.append((x, y, direction, display, amount))
+
+        with (
+            patch("gptme.tools.computer.IS_MACOS", False),
+            patch("gptme.tools.computer._linux_scroll", side_effect=fake_scroll),
+            patch("gptme.tools.computer._get_api_resolution", return_value=(1366, 768)),
+            patch(
+                "gptme.tools.computer._get_display_resolution",
+                return_value=(1366, 768),
+            ),
+            patch.dict(os.environ, {"DISPLAY": ":1"}),
+        ):
+            transport.scroll(100, 200, "down")
+
+        self.assertEqual(len(calls), 1)
+        _, _, direction, _, amount = calls[0]
+        self.assertEqual(direction, "down")
+        self.assertEqual(amount, 3)
+
+    def test_linux_scroll_up_custom_amount(self):
+        """scroll() passes the amount parameter through to _linux_scroll."""
+        transport = NativeComputerTransport()
+        calls: list[tuple] = []
+
+        def fake_scroll(x, y, direction, display, amount=3):
+            calls.append((x, y, direction, display, amount))
+
+        with (
+            patch("gptme.tools.computer.IS_MACOS", False),
+            patch("gptme.tools.computer._linux_scroll", side_effect=fake_scroll),
+            patch("gptme.tools.computer._get_api_resolution", return_value=(1366, 768)),
+            patch(
+                "gptme.tools.computer._get_display_resolution",
+                return_value=(1366, 768),
+            ),
+            patch.dict(os.environ, {"DISPLAY": ":1"}),
+        ):
+            transport.scroll(512, 400, "up", amount=5)
+
+        self.assertEqual(calls[0][2], "up")
+        self.assertEqual(calls[0][4], 5)
+
+
+class TestDispatchTransportScroll(unittest.TestCase):
+    """_dispatch_transport routes scroll actions correctly."""
+
+    def test_scroll_dispatched_with_coordinate_and_direction(self):
+        """scroll with coordinate and text=direction must call transport.scroll()."""
+        stub = StubTransport()
+        stub.scroll = MagicMock()  # type: ignore[method-assign]
+
+        from gptme.tools.computer import _dispatch_transport
+
+        _dispatch_transport(stub, "scroll", text="down", coordinate=(100, 200))
+
+        stub.scroll.assert_called_once_with(100, 200, "down")
+
+    def test_scroll_missing_coordinate_raises(self):
+        """scroll without coordinate must raise ValueError."""
+        stub = StubTransport()
+
+        from gptme.tools.computer import _dispatch_transport
+
+        with self.assertRaises(ValueError, msg="coordinate is required for scroll"):
+            _dispatch_transport(stub, "scroll", text="up")
+
+    def test_scroll_missing_direction_raises(self):
+        """scroll without text (direction) must raise ValueError."""
+        stub = StubTransport()
+
+        from gptme.tools.computer import _dispatch_transport
+
+        with self.assertRaises(ValueError, msg="text.*direction.*required"):
+            _dispatch_transport(stub, "scroll", coordinate=(100, 200))
 
 
 if __name__ == "__main__":
