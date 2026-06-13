@@ -132,17 +132,38 @@ def test_get_models_for_provider_gptme_dynamic_fetch(mock_get_available_models):
 
 
 @patch("gptme.llm.models.listing._get_models_for_provider")
+def test_get_model_name_only_dynamic_fetch_skipped_without_slash(mock_get_models):
+    """Test that OpenRouter dynamic fetch is skipped for bare model names without '/'.
+
+    OpenRouter models are always provider/model format, so a bare name without '/'
+    cannot match. The API timeout makes this a ~10s hang for nonexistent models.
+    """
+    model = get_model("test-model")
+    assert model.provider == "unknown"
+    assert model.model == "test-model"
+    assert model.context == 128_000
+
+    # Should NOT try OpenRouter dynamic fetch (no "/" in model name)
+    mock_get_models.assert_not_called()
+
+
+@patch("gptme.llm.models.listing._get_models_for_provider")
 def test_get_model_name_only_with_dynamic_fetch(mock_get_models):
-    """Test model lookup by name only with dynamic fetching from OpenRouter."""
-    # Mock OpenRouter dynamic model
+    """Test model lookup by name only with dynamic fetching from OpenRouter.
+
+    Dynamic fetch is only attempted when the model name contains '/' (OpenRouter
+    format: provider/model).
+    """
+    # Mock OpenRouter dynamic model — model name includes "/"
     dynamic_model = ModelMeta(
-        provider="openrouter", model="test-model", context=100_000
+        provider="openrouter", model="test-provider/test-model", context=100_000
     )
     mock_get_models.return_value = [dynamic_model]
 
-    model = get_model("test-model")
+    # The name includes "/" so it could be an OpenRouter model
+    model = get_model("test-provider/test-model")
     assert model.provider == "openrouter"
-    assert model.model == "test-model"
+    assert model.model == "test-provider/test-model"
     assert model.context == 100_000
 
     # Should have tried OpenRouter dynamic fetch

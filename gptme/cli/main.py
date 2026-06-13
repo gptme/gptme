@@ -10,6 +10,7 @@ import shutil
 import signal
 import sys
 import tempfile
+import time
 import traceback
 from datetime import datetime, timezone
 from itertools import islice
@@ -1330,13 +1331,34 @@ def _read_stdin() -> str:
     if not readable:
         return ""
 
-    chunk_size = 1024  # 1 KB
-    all_data = ""
+    # stdin is readable (data available or pipe open but idle).
+    # Use os.read + select with sub-timeouts rather than sys.stdin.read() which
+    # blocks until EOF on a pipe — "readable" from select on a pipe fd can
+    # fire even when the write end is open but idle (e.g. under uv run).
+    import os  # fmt: skip
 
-    while True:
-        chunk = sys.stdin.read(chunk_size)
-        if not chunk:
-            break
-        all_data += chunk
+    try:
+        fd = sys.stdin.fileno()
+    except (OSError, ValueError, AttributeError):
+        # No real fd (e.g. StringIO in tests or piped stdin where fileno fails).
+        # Use blocking read — safe because non-pipe fds return immediately.
+        return sys.stdin.read()
+
+    all_data = ""
+    deadline = time.monotonic() + _STDIN_PIPE_GRACE_PERIOD
+
+    try:
+        while time.monotonic() < deadline:
+            r, _, _ = select.select([fd], [], [], 0.05)
+            if not r:
+                # No data arrived within the sub-timeout — pipe is open but idle.
+                # Don't block on read; return what we have.
+                break
+            chunk = os.read(fd, 4096)
+            if not chunk:
+                break  # EOF
+            all_data += chunk.decode("utf-8", errors="replace")
+    except (OSError, ValueError):
+        pass
 
     return all_data
