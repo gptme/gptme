@@ -47,6 +47,10 @@ def test_provider_default_models_resolve_without_unknown_fallback(
     assert model.provider_key == provider
     assert not any("Unknown model" in record.message for record in caplog.records)
 
+    # openrouter models are dynamic (fetched from the API at runtime) and are not
+    # in the static MODELS registry. _find_closest_model_properties also suppresses
+    # log_warn_once for openrouter, so the caplog assertion above is the only live
+    # check for that provider — the MODELS[provider] lookup would always be skipped.
     if provider != "openrouter":
         _, model_name = full_model.split("/", 1)
         model_name = MODEL_ALIASES.get(provider, {}).get(model_name, model_name)
