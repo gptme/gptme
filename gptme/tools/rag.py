@@ -29,7 +29,13 @@ Configure RAG in your ``gptme.toml``::
    - Search indexed documents with ``rag_search``
    - Check index status with ``rag_status``
 
-2. Automatic Context Enhancement
+2. Conversation Indexing
+
+   - Index past gptme conversations with ``rag_index_conversations``
+   - Only indexes user and assistant messages (skips system prompts)
+   - Enables semantic search across your conversation history
+
+3. Automatic Context Enhancement
 
    - Retrieves semantically similar documents
    - Preserves conversation flow with hidden context messages
@@ -38,13 +44,14 @@ Configure RAG in your ``gptme.toml``::
 import logging
 import shutil
 import subprocess
+import tempfile
 import time
 from dataclasses import replace
 from functools import lru_cache
 from pathlib import Path
 
 from ..config import RagConfig, get_project_config
-from ..dirs import get_project_gptme_dir
+from ..dirs import get_logs_dir, get_project_gptme_dir
 from ..llm import _chat_complete
 from ..message import Message
 from .base import ToolSpec, ToolUse
@@ -78,6 +85,18 @@ User: Show index status
 Assistant: I'll check the current status of the RAG index.
 {ToolUse("ipython", [], "rag_status()").to_output(tool_format)}
 System: Index contains 42 documents
+
+User: Index my past conversations so I can search them
+Assistant: I'll index your recent conversations with RAG.
+{ToolUse("ipython", [], "rag_index_conversations()").to_output(tool_format)}
+System: Indexed 47 conversations.
+Indexed 47 paths
+
+User: Index only the last 10 conversations
+Assistant: I'll index just the 10 most recent conversations.
+{ToolUse("ipython", [], "rag_index_conversations(n=10)").to_output(tool_format)}
+System: Indexed 10 conversations.
+Indexed 10 paths
 """
 
 
@@ -165,6 +184,83 @@ def rag_status() -> str:
     cmd = ["gptme-rag", "status"]
     result = _run_rag_cmd(cmd)
     return result.stdout.strip()
+
+
+def rag_index_conversations(
+    n: int = 100,
+    output_dir: str | None = None,
+) -> str:
+    """Index past gptme conversations for semantic search.
+
+    Exports user and assistant messages from conversation logs (skipping system
+    prompts) into text files and indexes them with gptme-rag.
+
+    Args:
+        n: Maximum number of recent conversations to index (default: 100).
+        output_dir: Directory to write exported conversation files.
+            Defaults to a temporary directory managed by gptme-rag.
+
+    Returns:
+        Status message from the indexing operation.
+    """
+    from ..logmanager import _gen_read_jsonl
+
+    logs_dir = get_logs_dir()
+    conv_files = sorted(
+        logs_dir.glob("*/conversation.jsonl"),
+        key=lambda f: -f.stat().st_mtime,
+    )[:n]
+
+    if not conv_files:
+        return "No conversations found to index."
+
+    if output_dir:
+        export_path = Path(output_dir)
+        export_path.mkdir(parents=True, exist_ok=True)
+        cleanup = False
+    else:
+        _tmpdir = tempfile.mkdtemp(prefix="gptme-rag-convs-")
+        export_path = Path(_tmpdir)
+        cleanup = True
+
+    exported = 0
+    try:
+        for conv_file in conv_files:
+            conv_id = conv_file.parent.name
+            msgs = list(_gen_read_jsonl(conv_file))
+            # Only include user and assistant messages — system prompts add noise
+            content_msgs = [m for m in msgs if m.role in ("user", "assistant")]
+            if not content_msgs:
+                continue
+
+            lines = []
+            for msg in content_msgs:
+                role_label = msg.role.capitalize()
+                # Handle multimodal content (list) — extract text parts only
+                if isinstance(msg.content, list):
+                    text = " ".join(
+                        part.get("text", "")
+                        for part in msg.content
+                        if isinstance(part, dict) and part.get("type") == "text"
+                    )
+                else:
+                    text = msg.content
+                if text.strip():
+                    lines.append(f"**{role_label}**: {text.strip()}")
+
+            if lines:
+                out_file = export_path / f"{conv_id}.md"
+                out_file.write_text("\n\n".join(lines))
+                exported += 1
+
+        if exported == 0:
+            return "No conversation content to index."
+
+        result = _run_rag_cmd(["gptme-rag", "index", str(export_path)])
+        return f"Indexed {exported} conversations.\n{result.stdout.strip()}"
+    finally:
+        if cleanup:
+            shutil.rmtree(export_path, ignore_errors=True)
 
 
 def init() -> ToolSpec:
@@ -281,7 +377,7 @@ tool = ToolSpec(
     desc="RAG (Retrieval-Augmented Generation) for context-aware assistance",
     instructions=instructions,
     examples=examples,
-    functions=[rag_index, rag_search, rag_status],
+    functions=[rag_index, rag_search, rag_status, rag_index_conversations],
     available=_has_gptme_rag,
     init=init,
     hooks={
