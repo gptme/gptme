@@ -2,6 +2,10 @@
 
 import pytest
 
+flask = pytest.importorskip(
+    "flask", reason="flask not installed, install server extras (-E server)"
+)
+
 
 @pytest.fixture()
 def metrics_client(tmp_path):

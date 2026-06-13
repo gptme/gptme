@@ -9,8 +9,10 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from typing import TYPE_CHECKING
 
-import flask
+if TYPE_CHECKING:
+    import flask
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +113,8 @@ def update_conversation_metrics(n_conversations: int, n_messages: int) -> None:
 
 def metrics_view() -> flask.Response:
     """Render current metrics in Prometheus text format."""
+    import flask
+
     if not _available:
         return flask.Response("prometheus_client not installed\n", status=503)
     output = generate_latest()
@@ -123,6 +127,8 @@ def init_metrics(app: flask.Flask) -> None:
     Registers before/after request hooks for request counting and latency
     tracking. No-op when ``prometheus_client`` is not installed.
     """
+    import flask
+
     if not _available:
         logger.debug("prometheus_client not installed; metrics endpoint disabled")
         return
