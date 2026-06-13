@@ -153,9 +153,7 @@ def init_metrics(app: flask.Flask) -> None:
         # Use the Flask route rule as the endpoint label to avoid per-resource
         # cardinality explosion (e.g. "/api/v2/conversations/<id>" not the real id)
         endpoint = (
-            flask.request.url_rule.rule
-            if flask.request.url_rule
-            else flask.request.path
+            flask.request.url_rule.rule if flask.request.url_rule else "<not_found>"
         )
         requests_total.labels(
             method=flask.request.method,

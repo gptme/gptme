@@ -75,6 +75,18 @@ def test_metrics_helper_functions():
     sse_connection_close()
 
 
+def test_metrics_404_uses_sentinel_endpoint(metrics_client):
+    """Unmatched routes use the '<not_found>' sentinel to prevent cardinality explosion."""
+    # Hit a path that matches no route
+    metrics_client.get("/this/path/does/not/exist/at/all")
+    resp = metrics_client.get("/api/v0/metrics")
+    data = resp.get_data(as_text=True)
+    # Raw path must NOT appear as a Prometheus label value
+    assert "/this/path/does/not/exist/at/all" not in data
+    # The sentinel must be used instead
+    assert "<not_found>" in data
+
+
 def test_metrics_module_graceful_without_prometheus(monkeypatch):
     """Metrics helpers are no-ops when prometheus_client is not installed."""
     import gptme.server.metrics as m
