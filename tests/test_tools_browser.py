@@ -918,7 +918,7 @@ class TestToolSpec:
 
     def test_tool_functions_include_core(self):
         assert tool.functions is not None
-        fn_names = [f.__name__ for f in tool.functions]
+        fn_names = [f.name for f in tool.functions]
         assert "read_url" in fn_names
         assert "search" in fn_names
         assert "screenshot_url" in fn_names
