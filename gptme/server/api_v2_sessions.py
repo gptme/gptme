@@ -253,14 +253,14 @@ def api_conversation_events(conversation_id: str):
                 session.event_flag.wait(timeout=15)
 
         except GeneratorExit:
-            # Client disconnected
+            raise
+        finally:
             sse_connection_close()
             if session:
                 session.clients.discard(client_id)
                 if not session.clients:
                     # If no clients are connected, mark the session for cleanup
                     session.active = False
-            raise
 
     return flask.Response(
         generate_events(),

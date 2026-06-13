@@ -111,7 +111,7 @@ def update_conversation_metrics(n_conversations: int, n_messages: int) -> None:
     messages_total.set(n_messages)
 
 
-def metrics_view() -> flask.Response:
+def metrics_view() -> "flask.Response":
     """Render current metrics in Prometheus text format."""
     import flask
 
@@ -121,7 +121,7 @@ def metrics_view() -> flask.Response:
     return flask.Response(output, mimetype=CONTENT_TYPE_LATEST)
 
 
-def init_metrics(app: flask.Flask) -> None:
+def init_metrics(app: "flask.Flask") -> None:
     """Wire metrics middleware into the Flask app.
 
     Registers before/after request hooks for request counting and latency
