@@ -2140,7 +2140,7 @@ def api_conversation_config_patch(conversation_id: str):
                 return raw_allowlist  # 400: bad type, no side effects
             tool_allowlist = raw_allowlist  # narrowed to list[str] | None
         if "model" in chat_patch and not isinstance(
-            chat_patch["model"], (str, type(None))
+            chat_patch["model"], str | type(None)
         ):
             return flask.jsonify({"error": "model must be a string"}), 400
 
