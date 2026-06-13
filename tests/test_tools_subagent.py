@@ -1908,21 +1908,32 @@ def test_planner_with_role_uses_role_for_self_profile(mock_create_thread: MagicM
         assert "profile_name" in kwargs
 
 
-@patch("gptme.tools.subagent.execution._create_subagent_thread")
-def test_planner_subtask_role_overrides_planner_profile(mock_create_thread: MagicMock):
+@patch("gptme.tools.subagent.execution._monitor_subprocess")
+@patch("gptme.tools.subagent.execution._run_subagent_subprocess")
+def test_planner_subtask_role_overrides_planner_profile(
+    mock_run_subprocess: MagicMock,
+    mock_monitor: MagicMock,
+):
     """Subtask role wins over planner-level profile.
 
     When the planner itself carries a profile (e.g. role=implement → "developer"),
     a subtask with its own role (e.g. role=verify → "verifier") must still resolve
     to the subtask's profile — not silently inherit the planner's.
 
+    role=verify also switches the executor to subprocess mode (Phase 2 behaviour),
+    so this test verifies both the profile override AND the correct execution backend.
+
     This is the regression case flagged by Greptile: the old guard
     `profile_name is None` meant subtask roles were silently dropped as soon
     as the planner had any profile of its own.
     """
+    mock_run_subprocess.return_value = MagicMock()  # fake Popen
+
     subtasks: list[SubtaskDef] = [
         {"id": "verify", "description": "Verify the output", "role": "verify"},
     ]
+
+    initial_count = len(_subagents)
 
     # Planner inherits role=implement → profile_name="developer" in _run_planner
     subagent(
@@ -1933,12 +1944,174 @@ def test_planner_subtask_role_overrides_planner_profile(mock_create_thread: Magi
         subtasks=subtasks,
     )
 
-    _wait_for_new_subagent_threads(0, timeout=2.0)
-
-    mock_create_thread.assert_called_once()
-    kwargs = mock_create_thread.call_args[1]
+    # role=verify routes to subprocess backend (not thread mode)
+    mock_run_subprocess.assert_called_once()
+    sub_kwargs = mock_run_subprocess.call_args[1]
     # Subtask role=verify must resolve to "verifier", overriding planner's "developer"
-    assert kwargs["profile_name"] == "verifier", (
-        f"Expected subtask role 'verify' to resolve to 'verifier', got {kwargs['profile_name']!r}. "
+    assert sub_kwargs.get("profile") == "verifier", (
+        f"Expected subtask role 'verify' to resolve to 'verifier', got {sub_kwargs.get('profile')!r}. "
         "Per-subtask role should always override planner-level profile."
     )
+
+    new_agents = _subagents[initial_count:]
+    assert len(new_agents) == 1
+    assert new_agents[0].execution_mode == "subprocess"
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: Subprocess/isolated forwarding from subtask roles
+# ---------------------------------------------------------------------------
+
+
+@patch("gptme.tools.subagent.execution._monitor_subprocess")
+@patch("gptme.tools.subagent.execution._run_subagent_subprocess")
+def test_planner_subtask_role_verify_uses_subprocess(
+    mock_run_subprocess: MagicMock,
+    mock_monitor: MagicMock,
+):
+    """role='verify' on a subtask must launch that executor in subprocess mode."""
+    mock_run_subprocess.return_value = MagicMock()  # fake Popen
+
+    initial_count = len(_subagents)
+    subtasks: list[SubtaskDef] = [
+        {"id": "check", "description": "Validate the output", "role": "verify"},
+    ]
+
+    subagent(
+        agent_id="test-verify-sub",
+        prompt="Build and verify",
+        mode="planner",
+        subtasks=subtasks,
+    )
+
+    # Subprocess backend should have been called for the verify subtask
+    mock_run_subprocess.assert_called_once()
+    call_kwargs = mock_run_subprocess.call_args[1]
+    assert call_kwargs.get("profile") == "verifier"
+
+    # A monitor thread should have been started
+    mock_monitor.assert_called_once()
+
+    # The registered Subagent should carry execution_mode="subprocess"
+    new_agents = _subagents[initial_count:]
+    assert len(new_agents) == 1
+    sa = new_agents[0]
+    assert sa.execution_mode == "subprocess"
+    assert sa.agent_id == "test-verify-sub-check"
+
+
+@patch("gptme.tools.subagent.execution._monitor_subprocess")
+@patch("gptme.tools.subagent.execution._run_subagent_subprocess")
+def test_planner_subtask_role_verify_sets_isolated(
+    mock_run_subprocess: MagicMock,
+    mock_monitor: MagicMock,
+):
+    """role='verify' on a subtask should request isolated execution."""
+    mock_run_subprocess.return_value = MagicMock()
+
+    initial_count = len(_subagents)
+    subtasks: list[SubtaskDef] = [
+        {"id": "check2", "description": "Verify output", "role": "verify"},
+    ]
+
+    subagent(
+        agent_id="test-verify-isolated",
+        prompt="context",
+        mode="planner",
+        subtasks=subtasks,
+    )
+
+    new_agents = _subagents[initial_count:]
+    assert len(new_agents) == 1
+    sa = new_agents[0]
+    assert sa.isolated is True
+
+
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
+def test_planner_subtask_role_explore_uses_thread_mode(mock_create_thread: MagicMock):
+    """role='explore' should NOT trigger subprocess mode — stays thread mode."""
+    initial_count = len(_subagents)
+    subtasks: list[SubtaskDef] = [
+        {"id": "scan", "description": "Explore the codebase", "role": "explore"},
+    ]
+
+    subagent(
+        agent_id="test-explore-thread",
+        prompt="context",
+        mode="planner",
+        subtasks=subtasks,
+    )
+
+    _wait_for_new_subagent_threads(initial_count, timeout=1.0)
+
+    # Thread backend used, not subprocess
+    mock_create_thread.assert_called_once()
+
+    new_agents = _subagents[initial_count:]
+    assert len(new_agents) == 1
+    sa = new_agents[0]
+    assert sa.execution_mode == "thread"
+
+
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
+def test_planner_subtask_role_implement_uses_thread_mode(mock_create_thread: MagicMock):
+    """role='implement' should use thread mode (not subprocess)."""
+    initial_count = len(_subagents)
+    subtasks: list[SubtaskDef] = [
+        {"id": "build", "description": "Implement the feature", "role": "implement"},
+    ]
+
+    subagent(
+        agent_id="test-impl-thread",
+        prompt="context",
+        mode="planner",
+        subtasks=subtasks,
+    )
+
+    _wait_for_new_subagent_threads(initial_count, timeout=1.0)
+
+    mock_create_thread.assert_called_once()
+
+    new_agents = _subagents[initial_count:]
+    assert len(new_agents) == 1
+    sa = new_agents[0]
+    assert sa.execution_mode == "thread"
+
+
+@patch("gptme.tools.subagent.execution._monitor_subprocess")
+@patch("gptme.tools.subagent.execution._run_subagent_subprocess")
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
+def test_planner_mixed_roles_use_correct_backends(
+    mock_create_thread: MagicMock,
+    mock_run_subprocess: MagicMock,
+    mock_monitor: MagicMock,
+):
+    """Mixed-role subtasks: impl→thread, verify→subprocess."""
+    mock_run_subprocess.return_value = MagicMock()
+
+    initial_count = len(_subagents)
+    subtasks: list[SubtaskDef] = [
+        {"id": "impl", "description": "Build it", "role": "implement"},
+        {"id": "verify", "description": "Verify it", "role": "verify"},
+    ]
+
+    subagent(
+        agent_id="test-mixed",
+        prompt="context",
+        mode="planner",
+        subtasks=subtasks,
+    )
+
+    _wait_for_new_subagent_threads(initial_count, timeout=1.0)
+
+    # impl → thread; verify → subprocess
+    mock_create_thread.assert_called_once()
+    mock_run_subprocess.assert_called_once()
+    mock_monitor.assert_called_once()
+
+    new_agents = _subagents[initial_count:]
+    assert len(new_agents) == 2
+
+    by_id = {sa.agent_id: sa for sa in new_agents}
+    assert by_id["test-mixed-impl"].execution_mode == "thread"
+    assert by_id["test-mixed-verify"].execution_mode == "subprocess"
