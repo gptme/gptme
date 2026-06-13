@@ -7,6 +7,7 @@ Only active when ``prometheus_client`` is installed (included in the ``server`` 
 from __future__ import annotations
 
 import logging
+import threading
 import time
 
 import flask
@@ -64,7 +65,8 @@ if _available:
     )
 
 
-# Thread-safe hit/miss counters for the conversation-list cache
+# Hit/miss counters for the conversation-list cache (protected by _cache_lock)
+_cache_lock = threading.Lock()
 _cache_hits = 0
 _cache_misses = 0
 
@@ -88,14 +90,15 @@ def record_cache_result(hit: bool, cache_name: str = "conversation_list") -> Non
     if not _available:
         return
     global _cache_hits, _cache_misses
-    if hit:
-        _cache_hits += 1
-    else:
-        _cache_misses += 1
-    total = _cache_hits + _cache_misses
-    cache_hit_ratio.labels(cache_name=cache_name).set(
-        _cache_hits / total if total else 0.0
-    )
+    with _cache_lock:
+        if hit:
+            _cache_hits += 1
+        else:
+            _cache_misses += 1
+        total = _cache_hits + _cache_misses
+        cache_hit_ratio.labels(cache_name=cache_name).set(
+            _cache_hits / total if total else 0.0
+        )
 
 
 def update_conversation_metrics(n_conversations: int, n_messages: int) -> None:
