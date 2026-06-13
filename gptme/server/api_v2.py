@@ -141,6 +141,32 @@ def _encode_conversation_cursor(conv: ConversationMeta) -> str:
     return f"{conv.modified:.17g}|{urllib.parse.quote(conv.id, safe='')}"
 
 
+def _generate_fork_conversation_id() -> str:
+    """Generate a unique conversation id for a forked conversation."""
+    timestamp = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    base = f"chat-{timestamp.replace(':', '-').replace('.', '-')}-fork"
+    logs_dir = get_logs_dir()
+    candidate = base
+    suffix = 2
+    while (logs_dir / candidate).exists():
+        candidate = f"{base}-{suffix}"
+        suffix += 1
+    return candidate
+
+
+def _fork_workspace_path(
+    source_config: ChatConfig, source_logdir: Path, target_logdir: Path
+) -> Path:
+    """Keep @log-style workspaces inside the new conversation tree."""
+    try:
+        relative = source_config.workspace.resolve().relative_to(
+            source_logdir.resolve()
+        )
+    except ValueError:
+        return source_config.workspace
+    return (target_logdir / relative).resolve()
+
+
 _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
 _DEFAULT_OPENROUTER_STT_MODEL = "openai/whisper-1"
 _MAX_TRANSCRIPTION_AUDIO_BYTES = 25 * 1024 * 1024
@@ -1764,6 +1790,125 @@ def api_conversation_delete_message(conversation_id: str, index: int):
 
     _invalidate_conversations_cache()
     return flask.jsonify(log_dict)
+
+
+@v2_api.route("/api/v2/conversations/<string:conversation_id>/fork", methods=["POST"])
+@require_auth
+@api_doc(
+    summary="Fork conversation into a new conversation (V2)",
+    description="Create a new conversation containing messages 0..after_message from a source conversation branch.",
+    responses={
+        200: SessionResponse,
+        400: ErrorResponse,
+        404: ErrorResponse,
+        409: ErrorResponse,
+    },
+    parameters=[
+        CONVERSATION_ID_PARAM,
+        {
+            "name": "after_message",
+            "in": "query",
+            "required": True,
+            "schema": {"type": "integer"},
+            "description": "Last message index to include in the forked conversation",
+        },
+    ],
+    tags=["conversations-v2"],
+)
+def api_conversation_fork(conversation_id: str):
+    """Fork a conversation branch into a new standalone conversation."""
+    if error := _validate_conversation_id(conversation_id):
+        return error
+
+    raw_after_message = request.args.get("after_message")
+    if raw_after_message is None:
+        return flask.jsonify(
+            {"error": "after_message query parameter is required"}
+        ), 400
+    try:
+        after_message = int(raw_after_message)
+    except ValueError:
+        return flask.jsonify({"error": "after_message must be an integer"}), 400
+
+    req_json = request.get_json(silent=True)
+    if req_json is None:
+        if request.get_data(cache=True):
+            return flask.jsonify({"error": "Malformed JSON in request body"}), 400
+        req_json = {}
+    elif not isinstance(req_json, dict):
+        return flask.jsonify({"error": "JSON body must be an object"}), 400
+
+    branch = req_json.get("branch", "main")
+    if error := _validate_branch(branch):
+        return error
+
+    sessions = SessionManager.get_sessions_for_conversation(conversation_id)
+    for sess in sessions:
+        if sess.generating:
+            return (
+                flask.jsonify({"error": "Cannot fork while generation is in progress"}),
+                409,
+            )
+
+    source_logdir = get_logs_dir() / conversation_id
+    if not source_logdir.exists():
+        return (
+            flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
+            404,
+        )
+
+    try:
+        source_manager = LogManager.load(
+            conversation_id, branch=cast(str, branch), lock=False
+        )
+    except FileNotFoundError:
+        return (
+            flask.jsonify({"error": f"Branch not found: {branch}"}),
+            404,
+        )
+
+    msgs = list(source_manager.log.messages)
+    if after_message < 0 or after_message >= len(msgs):
+        return (
+            flask.jsonify(
+                {
+                    "error": f"Message index {after_message} out of range (0-{len(msgs) - 1})"
+                }
+            ),
+            404,
+        )
+
+    target_conversation_id = _generate_fork_conversation_id()
+    target_logdir = get_logs_dir() / target_conversation_id
+    shutil.copytree(
+        source_logdir,
+        target_logdir,
+        symlinks=True,
+        ignore=shutil.ignore_patterns(".lock"),
+    )
+
+    shutil.rmtree(target_logdir / "branches", ignore_errors=True)
+    shutil.rmtree(target_logdir / "views", ignore_errors=True)
+    (target_logdir / ".lock").unlink(missing_ok=True)
+    Log(msgs[: after_message + 1]).write_jsonl(target_logdir / "conversation.jsonl")
+
+    source_config = ChatConfig.from_logdir(source_logdir)
+    target_config = ChatConfig.from_logdir(target_logdir)
+    target_config.name = f"Fork of {source_manager.name} @ msg {after_message + 1}"
+    target_config.workspace = _fork_workspace_path(
+        source_config, source_logdir, target_logdir
+    )
+    target_config.save()
+
+    session = SessionManager.create_session(target_conversation_id)
+    _invalidate_conversations_cache()
+    return flask.jsonify(
+        {
+            "status": "ok",
+            "conversation_id": target_conversation_id,
+            "session_id": session.id,
+        }
+    )
 
 
 @v2_api.route("/api/v2/conversations/<string:conversation_id>", methods=["DELETE"])

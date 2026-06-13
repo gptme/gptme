@@ -181,4 +181,25 @@ describe('ChatMessage', () => {
 
     consoleSpy.mockRestore();
   });
+
+  it('renders fork button and calls onFork with the message index', () => {
+    const onFork = jest.fn();
+    const message$ = observable<Message>({
+      role: 'assistant',
+      content: 'Fork me',
+      timestamp: new Date().toISOString(),
+    });
+
+    renderWithProviders(
+      <ChatMessage
+        message$={message$}
+        conversationId={testConversationId}
+        messageIndex={3}
+        onFork={onFork}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fork from here' }));
+    expect(onFork).toHaveBeenCalledWith(3);
+  });
 });

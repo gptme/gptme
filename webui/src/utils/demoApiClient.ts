@@ -342,6 +342,22 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
     },
     editMessage: async () => notImpl('editMessage'),
     deleteMessage: async () => notImpl('deleteMessage'),
+    forkConversation: async (logfile, index, branch = 'main') => {
+      const source = clone(getLocalConversation(logfile));
+      const branchLog = clone(source.branches[branch] ?? source.log).slice(0, index + 1);
+      const conversation_id = `demo/fork-${Date.now()}`;
+      const session_id = `demo-session-${localConversations.size + 1}`;
+      localConversations.set(conversation_id, {
+        id: conversation_id,
+        name: `Fork of ${source.name} @ msg ${index + 1}`,
+        log: branchLog,
+        logfile: conversation_id,
+        branches: { main: branchLog },
+        workspace: source.workspace,
+      });
+      sessions$.set(conversation_id, session_id);
+      return { status: 'ok', conversation_id, session_id };
+    },
     rerunTools: async () => notImpl('rerunTools'),
     uploadFiles: async () => notImpl('uploadFiles'),
     transcribeAudio: async () => notImpl('transcribeAudio'),

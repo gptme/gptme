@@ -25,6 +25,11 @@ describe('useConversation', () => {
   const mockedUseApi = useApi as jest.MockedFunction<typeof useApi>;
   const subscribeToEvents = jest.fn().mockResolvedValue(undefined);
   const step = jest.fn().mockResolvedValue(undefined);
+  const forkConversation = jest.fn().mockResolvedValue({
+    status: 'ok',
+    conversation_id: 'chat-forked',
+    session_id: 'session-forked',
+  });
   const closeEventStream = jest.fn();
   let eventHandlers:
     | {
@@ -39,6 +44,7 @@ describe('useConversation', () => {
       return Promise.resolve();
     });
     step.mockClear();
+    forkConversation.mockClear();
     closeEventStream.mockClear();
 
     initConversation(
@@ -65,6 +71,7 @@ describe('useConversation', () => {
         ({
           subscribeToEvents,
           step,
+          forkConversation,
           closeEventStream,
           getConversation: jest.fn(),
           getChatConfig: jest.fn().mockResolvedValue(null),
@@ -107,5 +114,16 @@ describe('useConversation', () => {
         'initialStepStream'
       )
     ).toBe(false);
+  });
+
+  it('forks from the current branch', async () => {
+    conversations$.get('chat-placeholder')?.currentBranch.set('feature');
+    const { result } = renderHook(() => useConversation('chat-placeholder'));
+
+    await act(async () => {
+      await expect(result.current.forkConversation(0)).resolves.toBe('chat-forked');
+    });
+
+    expect(forkConversation).toHaveBeenCalledWith('chat-placeholder', 0, 'feature');
   });
 });

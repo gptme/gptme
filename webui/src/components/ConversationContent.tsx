@@ -5,6 +5,7 @@ import { ChatInput, type ChatOptions } from './ChatInput';
 import { CollapsedStepGroup } from './CollapsedStepGroup';
 import { useConversation } from '@/hooks/useConversation';
 import { BranchIndicator } from './BranchIndicator';
+import { chatRoute } from '@/utils/routes';
 import { computeForkPoints } from '@/utils/branchUtils';
 import { buildStepRoles, type StepRole } from '@/utils/stepGrouping';
 
@@ -19,6 +20,7 @@ import { useSettings } from '@/contexts/SettingsContext';
 import { useModels } from '@/hooks/useModels';
 import { AlertTriangle, ArrowDown, RefreshCw, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useNavigate } from 'react-router-dom';
 
 interface Props {
   conversationId: string;
@@ -36,10 +38,12 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     deleteMessage,
     rerunFromMessage,
     regenerateMessage,
+    forkConversation,
     switchBranch,
     confirmTool,
     interruptGeneration,
   } = useConversation(conversationId, serverId);
+  const navigate = useNavigate();
   const loadError = use$(() => conversation$?.loadError.get() ?? null);
   const messageCount = use$(() => conversation$?.data.log.get()?.length ?? 0);
   const connectionStatus = use$(() => conversation$?.connectionStatus.get() ?? 'disconnected');
@@ -223,6 +227,13 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
       next.add(groupId);
     }
     expandedGroups$.set(next);
+  };
+
+  const handleForkConversation = async (index: number) => {
+    const forkedConversationId = await forkConversation(index);
+    if (forkedConversationId) {
+      navigate(chatRoute(forkedConversationId));
+    }
   };
 
   // Recompute step roles when messages or visibility settings change.
@@ -676,6 +687,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
                   onDelete={isReadOnly ? undefined : deleteMessage}
                   onRerun={isReadOnly ? undefined : rerunFromMessage}
                   onRegenerate={isReadOnly ? undefined : regenerateMessage}
+                  onFork={isReadOnly ? undefined : handleForkConversation}
                   messageIndex={index}
                 />
                 {/* Branch indicator at fork points */}

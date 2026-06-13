@@ -230,6 +230,12 @@ export interface ToolConfirmationRequest {
   count?: number;
 }
 
+export interface ForkConversationResponse {
+  status: string;
+  conversation_id: string;
+  session_id: string;
+}
+
 export type EventStreamConnectionState =
   | { status: 'connecting' }
   | { status: 'connected' }
@@ -1215,6 +1221,23 @@ export class ApiClient {
     return this.fetchJson<ConversationResponse>(url, {
       method: 'DELETE',
     });
+  }
+
+  async forkConversation(
+    logfile: string,
+    index: number,
+    branch: string = 'main'
+  ): Promise<ForkConversationResponse> {
+    if (!this.isConnected) {
+      throw new ApiClientError('Not connected to API');
+    }
+    const url = `${this.baseUrl}/api/v2/conversations/${logfile}/fork?after_message=${index}`;
+    const response = await this.fetchJson<ForkConversationResponse>(url, {
+      method: 'POST',
+      body: JSON.stringify({ branch }),
+    });
+    this.sessions$.set(response.conversation_id, response.session_id);
+    return response;
   }
 
   async rerunTools(logfile: string): Promise<{ status: string; tool_ids: string[] }> {

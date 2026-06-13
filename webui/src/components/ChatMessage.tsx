@@ -26,6 +26,7 @@ import {
   Play,
   RefreshCw,
   Trash2,
+  GitBranch,
   Download,
   ExternalLink,
   FileText,
@@ -151,6 +152,7 @@ interface Props {
   onDelete?: (index: number) => void;
   onRerun?: (index: number) => void;
   onRegenerate?: (index: number) => void;
+  onFork?: (index: number) => void;
   messageIndex?: number;
 }
 
@@ -166,6 +168,7 @@ const ChatMessageComponent: FC<Props> = ({
   onDelete,
   onRerun,
   onRegenerate,
+  onFork,
   messageIndex,
 }) => {
   const { api, connectionConfig } = useApi();
@@ -601,6 +604,18 @@ const ChatMessageComponent: FC<Props> = ({
                             <Pencil size={14} />
                           </Button>
                         )}
+                      {onFork && messageIndex !== undefined && !isEditing$.get() && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onFork(messageIndex)}
+                          className="h-7 w-7 p-0"
+                          aria-label="Fork from here"
+                          title="Fork from here"
+                        >
+                          <GitBranch size={14} />
+                        </Button>
+                      )}
                       {messageIndex !== undefined && message$.role.get() === 'assistant' && (
                         <>
                           {onRerun && (

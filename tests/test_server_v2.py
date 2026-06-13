@@ -12,6 +12,8 @@ import tomlkit
 
 from gptme.config import ChatConfig, MCPConfig
 from gptme.llm.models import ModelMeta, get_default_model
+from gptme.logmanager import LogManager
+from gptme.message import Message
 from gptme.prompts import get_prompt
 from gptme.tools import get_toolchain
 
@@ -1626,6 +1628,70 @@ def test_v2_conversation_post_nonexistent_branch_returns_404(
     # Must say "Branch not found", not "Conversation not found"
     assert "branch" in data["error"].lower()
     assert "no-such-branch" in data["error"]
+
+
+def test_v2_conversation_fork_creates_truncated_copy(v2_conv, client: FlaskClient):
+    conversation_id = v2_conv["conversation_id"]
+    manager = LogManager.load(conversation_id, lock=False)
+    manager.append(Message("user", "first"))
+    manager.append(Message("assistant", "reply"))
+    manager.append(Message("user", "follow-up"))
+    manager.append(Message("assistant", "after cut"))
+    fork_index = len(manager.log.messages) - 2
+
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}/fork?after_message={fork_index}",
+        json={},
+    )
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data is not None
+    assert data["status"] == "ok"
+    assert data["session_id"]
+    fork_id = data["conversation_id"]
+    assert fork_id != conversation_id
+
+    fork_response = client.get(f"/api/v2/conversations/{fork_id}")
+    assert fork_response.status_code == 200
+    fork_data = fork_response.get_json()
+    assert fork_data is not None
+    assert [msg["content"] for msg in fork_data["log"][-3:]] == [
+        "first",
+        "reply",
+        "follow-up",
+    ]
+    assert all(msg["content"] != "after cut" for msg in fork_data["log"])
+    assert sorted(fork_data["branches"].keys()) == ["main"]
+    assert fork_data["name"].startswith("Fork of ")
+
+
+def test_v2_conversation_fork_can_copy_non_main_branch(v2_conv, client: FlaskClient):
+    conversation_id = v2_conv["conversation_id"]
+    manager = LogManager.load(conversation_id, lock=False)
+    manager.append(Message("user", "first"))
+    manager.append(Message("assistant", "reply"))
+    manager.branch("alt")
+    manager.append(Message("assistant", "branch answer"))
+
+    alt_messages = list(
+        LogManager.load(conversation_id, branch="alt", lock=False).log.messages
+    )
+    fork_index = len(alt_messages) - 1
+
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}/fork?after_message={fork_index}",
+        json={"branch": "alt"},
+    )
+
+    assert response.status_code == 200
+    fork_id = response.get_json()["conversation_id"]
+
+    fork_response = client.get(f"/api/v2/conversations/{fork_id}")
+    assert fork_response.status_code == 200
+    fork_data = fork_response.get_json()
+    assert fork_data is not None
+    assert fork_data["log"][-1]["content"] == "branch answer"
 
 
 @pytest.mark.parametrize("cmd", ["exit", "restart", "edit", "delete"])
