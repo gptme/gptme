@@ -25,6 +25,7 @@ from . import (  # noqa: F401
     llm,
     meta,
     session,
+    snapshot,
 )
 
 # Re-export core types and functions from base
