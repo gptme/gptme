@@ -12,7 +12,7 @@ Package structure:
 
 # Re-export public API for backward compatibility
 # Re-export ToolUse for examples()
-from ..base import ToolSpec, ToolUse
+from ..base import ToolFunction, ToolSpec, ToolUse
 from .api import subagent, subagent_read_log, subagent_status, subagent_wait
 from .batch import BatchJob, subagent_batch
 from .hooks import (
@@ -278,11 +278,14 @@ tool = ToolSpec(
     instructions=instructions,
     examples=examples,
     functions=[
-        subagent,
-        subagent_status,
-        subagent_wait,
-        subagent_read_log,
-        subagent_batch,
+        ToolFunction.from_callable(f)
+        for f in [
+            subagent,
+            subagent_status,
+            subagent_wait,
+            subagent_read_log,
+            subagent_batch,
+        ]
     ],
     disabled_by_default=True,
     hooks={

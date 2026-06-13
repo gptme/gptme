@@ -86,7 +86,7 @@ from ..util.gh import (
     parse_github_url,
     transform_github_url,
 )
-from .base import ToolSpec, ToolUse
+from .base import ToolFunction, ToolSpec, ToolUse
 
 try:
     import pypdf
@@ -1036,18 +1036,21 @@ services with APIs, prefer shell or Python over scraping.""",
     },
     examples=examples,
     functions=[
-        read_url,
-        search,
-        screenshot_url,
-        snapshot_url,
-        open_page,
-        close_page,
-        read_page_text,
-        click_element,
-        fill_element,
-        scroll_page,
-        read_logs,
-        pdf_to_images,
+        ToolFunction.from_callable(f)
+        for f in [
+            read_url,
+            search,
+            screenshot_url,
+            snapshot_url,
+            open_page,
+            close_page,
+            read_page_text,
+            click_element,
+            fill_element,
+            scroll_page,
+            read_logs,
+            pdf_to_images,
+        ]
     ],
     available=has_browser_tool,
     init=init,

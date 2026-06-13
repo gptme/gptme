@@ -23,6 +23,7 @@ from ._allowlist import (
 from .base import (
     Parameter,
     ToolFormat,
+    ToolFunction,
     ToolSpec,
     ToolUse,
     get_tool_format,
@@ -43,6 +44,7 @@ __all__ = [
     "ToolSpec",
     "ToolUse",
     "ToolFormat",
+    "ToolFunction",
     "Parameter",
     # functions
     "get_tool_format",

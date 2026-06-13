@@ -11,7 +11,7 @@ from pathlib import Path
 from PIL import Image
 
 from ..message import Message
-from .base import ToolSpec
+from .base import ToolFunction, ToolSpec
 
 # Track temp files for cleanup on exit
 _temp_files: list[Path] = []
@@ -118,5 +118,5 @@ tool = ToolSpec(
     name="vision",
     desc="Viewing images",
     instructions=instructions,
-    functions=[view_image],
+    functions=[ToolFunction.from_callable(view_image)],
 )

@@ -14,7 +14,7 @@ from typing import Literal
 
 from ..logmanager.conversations import _format_duration
 from ..message import Message
-from .base import ToolSpec, ToolUse
+from .base import ToolFunction, ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
 
@@ -784,7 +784,9 @@ tool = ToolSpec(
         "or read a specific conversation by ID with read_chat().",
     },
     examples=examples,
-    functions=[list_chats, search_chats, read_chat],
+    functions=[
+        ToolFunction.from_callable(f) for f in [list_chats, search_chats, read_chat]
+    ],
 )
 
 __doc__ = tool.get_doc(__doc__)

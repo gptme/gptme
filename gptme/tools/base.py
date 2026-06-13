@@ -176,6 +176,41 @@ class Parameter:
     required: bool = False
 
 
+@dataclass(frozen=True)
+class ToolFunction:
+    """A structured callable exposed as a tool function, independent of execution runtime.
+
+    Replaces bare ``Callable`` entries in ``ToolSpec.functions`` with explicit
+    metadata so prompt rendering, IPython registration, and future runtimes all
+    consume the same description instead of introspecting raw Python objects.
+
+    Args:
+        name: Function name used in prompts and lookups.
+        fn: The actual callable to invoke.
+        description: Human-readable description shown in the tool prompt.
+        group: Logical grouping (e.g. "discord", "github") for allowlist patterns.
+        parameters: Explicit parameter schema; if empty, derived from fn's annotations.
+        hints: Capability tags (e.g. ``{"read-only"}``, ``{"destructive"}``).
+    """
+
+    name: str
+    fn: Callable
+    description: str = ""
+    group: str | None = None
+    parameters: list[Parameter] = field(default_factory=list)
+    hints: frozenset[str] = field(default_factory=frozenset)
+
+    @classmethod
+    def from_callable(cls, fn: Any, group: str | None = None) -> ToolFunction:
+        """Construct a ToolFunction from a plain callable, inferring metadata."""
+        return cls(
+            name=fn.__name__,
+            fn=fn,
+            description=fn.__doc__ or "",
+            group=group,
+        )
+
+
 def derive_type(t) -> str:
     """Convert a type annotation to a human-readable string for tool signatures.
 
@@ -266,7 +301,7 @@ class ToolSpec:
     instructions: str = ""
     instructions_format: dict[str, str] = field(default_factory=dict)
     examples: str | Callable[[str], str] = ""
-    functions: list[Callable] | None = None
+    functions: list[ToolFunction] | None = None
     init: InitFunc | None = None
     execute: ExecuteFunc | None = None
     block_types: list[str] = field(default_factory=list)
@@ -432,14 +467,12 @@ class ToolSpec:
         # return a prompt with a brief description of the available functions
         if self.functions:
             description = "The following Python functions are available using the `ipython` tool:\n\n```txt\n"
-            return (
-                description
-                + "\n".join(
-                    f"{callable_signature(func)}: {func.__doc__ or 'No description'}"
-                    for func in self.functions
-                )
-                + "\n```"
-            )
+            lines = []
+            for tf in self.functions:
+                sig = callable_signature(tf.fn)
+                doc = tf.description or "No description"
+                lines.append(f"{sig}: {doc}")
+            return description + "\n".join(lines) + "\n```"
         return "None"
 
 

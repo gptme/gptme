@@ -9,7 +9,7 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .base import ToolSpec, ToolUse
+from .base import ToolFunction, ToolSpec, ToolUse
 
 OUTPUT_DIR = Path("/tmp/outputs")
 IS_MACOS = platform.system() == "Darwin"
@@ -157,6 +157,6 @@ tool = ToolSpec(
     desc="Take a screenshot",
     available=_is_available,
     instructions=INSTRUCTIONS,
-    functions=[screenshot],
+    functions=[ToolFunction.from_callable(screenshot)],
     examples=examples,
 )
