@@ -766,7 +766,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fb3e64b4ea0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fbcb9b90f40&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -2067,6 +2067,7 @@ Key features:
 <span class="k">-</span><span class="w"> </span>acp_command=&quot;claude-code-acp&quot;: Use a different ACP agent (default: gptme-acp)
 <span class="k">-</span><span class="w"> </span>isolated=True: Run subagent in a git worktree for filesystem isolation
 <span class="k">-</span><span class="w"> </span>subagent_batch(): Start multiple subagents in parallel
+<span class="k">-</span><span class="w"> </span>subagent_cancel(): Cancel a running subagent (SIGTERM for subprocess, marks result for threads)
 <span class="k">-</span><span class="w"> </span>Hook-based notifications: Completions delivered as system messages
 
 <span class="gu">## Agent Profiles for Subagents</span>
@@ -2183,6 +2184,19 @@ The following Python functions are available using the <span class="sb">`ipython
 
 <span class="s">            Executors use the `complete` tool to signal completion with a summary.</span>
 <span class="s">            The full conversation log is available at the logdir path.</span>
+
+<span class="s">subagent_cancel(agent_id: str) -&gt; str: Cancel a running subagent.</span>
+
+<span class="s">    For subprocess-mode subagents, sends SIGTERM (then SIGKILL after 5s) to the</span>
+<span class="s">    process. For thread-mode subagents, marks the result as cancelled — the thread</span>
+<span class="s">    continues until its next natural checkpoint but the result is already recorded</span>
+<span class="s">    as failure so callers won&#39;t block waiting for it.</span>
+
+<span class="s">    Args:</span>
+<span class="s">        agent_id: The subagent to cancel</span>
+
+<span class="s">    Returns:</span>
+<span class="s">        A human-readable status message</span>
 
 <span class="s">subagent_status(agent_id: str) -&gt; dict: Returns the status of a subagent.</span>
 <span class="s">subagent_wait(agent_id: str, timeout: int) -&gt; dict: Waits for a subagent to finish.</span>
@@ -2612,7 +2626,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 15067</p>
+<p>Tokens: 15197</p>
 </dd></dl>
 
 <dl class="py function">

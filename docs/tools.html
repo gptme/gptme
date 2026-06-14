@@ -526,6 +526,13 @@ document.write(`
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#lessons">Lessons</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#todo">Todo</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mcp">MCP</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-selection-allowlists">Tool Selection &amp; Allowlists</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#basic-usage">Basic usage</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hint-based-patterns">Hint-based patterns</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#mcp-tool-annotations">MCP tool annotations</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#example-profiles">Example profiles</a></li>
+</ul>
+</li>
 </ul>
             </nav>
         </div>
@@ -1353,6 +1360,7 @@ Key features:
 <span class="k">-</span><span class="w"> </span>acp_command=&quot;claude-code-acp&quot;: Use a different ACP agent (default: gptme-acp)
 <span class="k">-</span><span class="w"> </span>isolated=True: Run subagent in a git worktree for filesystem isolation
 <span class="k">-</span><span class="w"> </span>subagent_batch(): Start multiple subagents in parallel
+<span class="k">-</span><span class="w"> </span>subagent_cancel(): Cancel a running subagent (SIGTERM for subprocess, marks result for threads)
 <span class="k">-</span><span class="w"> </span>Hook-based notifications: Completions delivered as system messages
 
 <span class="gu">## Agent Profiles for Subagents</span>
@@ -1957,6 +1965,24 @@ is_complete() to check status, and get_completed() for partial results.</p>
 <span class="n">results</span> <span class="o">=</span> <span class="n">job</span><span class="o">.</span><span class="n">wait_all</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">300</span><span class="p">)</span>
 </pre></div>
 </div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.subagent.</span></span><span class="sig-name descname"><span class="pre">subagent_cancel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">agent_id</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></span></dt>
+<dd><p>Cancel a running subagent.</p>
+<p>For subprocess-mode subagents, sends SIGTERM (then SIGKILL after 5s) to the
+process. For thread-mode subagents, marks the result as cancelled — the thread
+continues until its next natural checkpoint but the result is already recorded
+as failure so callers won’t block waiting for it.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>agent_id</strong> – The subagent to cancel</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A human-readable status message</p>
+</dd>
+</dl>
 </dd></dl>
 
 <dl class="py function">
@@ -4362,6 +4388,158 @@ roots remove filesystem file:///home/user/project
 </dd></dl>
 
 </section>
+<section id="tool-selection-allowlists">
+<span id="tool-allowlist"></span><h2>Tool Selection &amp; Allowlists<a class="headerlink" href="#tool-selection-allowlists" title="Link to this heading">#</a></h2>
+<p>By default gptme loads its full built-in toolset. You can restrict which tools
+are active for a given run — either to reduce the agent’s surface area or to
+build read-only / sandboxed profiles.</p>
+<section id="basic-usage">
+<h3>Basic usage<a class="headerlink" href="#basic-usage" title="Link to this heading">#</a></h3>
+<p>Pass a comma-separated list of tool names to <code class="docutils literal notranslate"><span class="pre">--tools</span></code> (CLI) or set the
+<code class="docutils literal notranslate"><span class="pre">TOOL_ALLOWLIST</span></code> environment variable:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Exact names — only these tools are loaded</span>
+gptme<span class="w"> </span>--tools<span class="w"> </span>save,patch,shell,python<span class="w"> </span><span class="s2">&quot;refactor this file&quot;</span>
+
+<span class="c1"># Additive: start from defaults and add more</span>
+gptme<span class="w"> </span>--tools<span class="w"> </span>+rag,browser<span class="w"> </span><span class="s2">&quot;research this topic&quot;</span>
+
+<span class="c1"># Subtractive: start from defaults and remove specific tools</span>
+gptme<span class="w"> </span>--tools<span class="w"> </span>-shell,computer<span class="w"> </span><span class="s2">&quot;safer mode&quot;</span>
+
+<span class="c1"># Disable all tools (pure conversation)</span>
+gptme<span class="w"> </span>--tools<span class="w"> </span><span class="s2">&quot;&quot;</span><span class="w"> </span><span class="s2">&quot;just talk to me&quot;</span>
+</pre></div>
+</div>
+<p>Glob patterns (<code class="docutils literal notranslate"><span class="pre">*</span></code>, <code class="docutils literal notranslate"><span class="pre">?</span></code>, <code class="docutils literal notranslate"><span class="pre">[...]</span></code>) are also supported, matched against tool
+names with <a class="reference external" href="https://docs.python.org/3/library/fnmatch.html#fnmatch.fnmatchcase" title="(in Python v3.14)"><code class="xref py py-func docutils literal notranslate"><span class="pre">fnmatch.fnmatchcase()</span></code></a>.</p>
+</section>
+<section id="hint-based-patterns">
+<span id="hint-allowlist"></span><h3>Hint-based patterns<a class="headerlink" href="#hint-based-patterns" title="Link to this heading">#</a></h3>
+<p>Tools can carry <strong>capability hints</strong> — semantic tags that describe what a tool
+does. Hint-based allowlist entries let you match entire categories of tools at
+once using the <code class="docutils literal notranslate"><span class="pre">hint:</span></code> prefix:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Allow only tools annotated as read-only (safe for untrusted workspaces)</span>
+gptme<span class="w"> </span>--tools<span class="w"> </span><span class="s2">&quot;hint:read-only&quot;</span><span class="w"> </span><span class="s2">&quot;summarise this repo&quot;</span>
+
+<span class="c1"># Mix exact names with hint patterns</span>
+gptme<span class="w"> </span>--tools<span class="w"> </span><span class="s2">&quot;shell,patch,hint:read-only&quot;</span><span class="w"> </span><span class="s2">&quot;analyse and fix&quot;</span>
+</pre></div>
+</div>
+<p>The following hints are defined:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 80.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Hint</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">read-only</span></code></p></td>
+<td><p>Tool only reads state; never writes, creates, or deletes.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">destructive</span></code></p></td>
+<td><p>Tool may modify or delete state. Use with caution in automated runs.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">idempotent</span></code></p></td>
+<td><p>Tool is safe to call multiple times with the same arguments.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">closed-world</span></code></p></td>
+<td><p>Tool affects only local state; it does not make network requests or
+reach outside the current environment.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Built-in gptme tools do not carry hints in the current release. Hints are
+currently populated automatically from <strong>MCP tool annotations</strong> (see below).
+You can also set hints explicitly when <a class="reference internal" href="custom_tool.html"><span class="doc">writing custom tools</span></a>.</p>
+</div>
+</section>
+<section id="mcp-tool-annotations">
+<h3>MCP tool annotations<a class="headerlink" href="#mcp-tool-annotations" title="Link to this heading">#</a></h3>
+<p>When gptme connects to an MCP server, each tool’s
+<a class="reference external" href="https://modelcontextprotocol.io/docs/concepts/tools#tool-annotations">ToolAnnotations</a>
+are mapped to gptme hints:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 40.0%" />
+<col style="width: 30.0%" />
+<col style="width: 30.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>MCP annotation</p></th>
+<th class="head"><p>Value</p></th>
+<th class="head"><p>gptme hint</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">readOnlyHint</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">read-only</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">destructiveHint</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">true</span></code> (and not read-only)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">destructive</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">idempotentHint</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">idempotent</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">openWorldHint</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">false</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">closed-world</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Example MCP server configuration that exposes a read-only filesystem tool:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;my-tools&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;My safe read-only tools&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;tools&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;read_file&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Read a file from disk&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;annotations&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nt">&quot;readOnlyHint&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;idempotentHint&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">]</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>Once connected, <code class="docutils literal notranslate"><span class="pre">gptme</span> <span class="pre">--tools</span> <span class="pre">&quot;hint:read-only&quot;</span></code> will include <code class="docutils literal notranslate"><span class="pre">read_file</span></code>
+while excluding any MCP tools without the <code class="docutils literal notranslate"><span class="pre">read-only</span></code> annotation.</p>
+</section>
+<section id="example-profiles">
+<h3>Example profiles<a class="headerlink" href="#example-profiles" title="Link to this heading">#</a></h3>
+<p><strong>Read-only research agent</strong> — cannot write files or run commands:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tools<span class="w"> </span><span class="s2">&quot;browser,rag,chats,hint:read-only&quot;</span><span class="w"> </span><span class="s2">&quot;research X&quot;</span>
+</pre></div>
+</div>
+<p><strong>Minimal coding agent</strong> — file editing only, no shell or browser:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tools<span class="w"> </span><span class="s2">&quot;read,save,patch,morph,python&quot;</span><span class="w"> </span><span class="s2">&quot;refactor this module&quot;</span>
+</pre></div>
+</div>
+<p><strong>Safe MCP integration</strong> — built-in defaults plus only read-only MCP tools:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gptme<span class="w"> </span>--tools<span class="w"> </span><span class="s2">&quot;+hint:read-only&quot;</span><span class="w"> </span><span class="s2">&quot;help me explore this codebase&quot;</span>
+</pre></div>
+</div>
+<p><strong>Subagent with restricted tool set</strong> — useful in <code class="docutils literal notranslate"><span class="pre">[agent]</span></code> config or when
+spawning subagents programmatically:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="c1"># gptme.toml</span>
+<span class="k">[env]</span>
+<span class="n">TOOL_ALLOWLIST</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;shell,patch,save,read,hint:read-only&quot;</span>
+</pre></div>
+</div>
+</section>
+</section>
 </section>
 
 
@@ -4450,6 +4628,13 @@ roots remove filesystem file:///home/user/project
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#lessons">Lessons</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#todo">Todo</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mcp">MCP</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-selection-allowlists">Tool Selection &amp; Allowlists</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#basic-usage">Basic usage</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#hint-based-patterns">Hint-based patterns</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#mcp-tool-annotations">MCP tool annotations</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#example-profiles">Example profiles</a></li>
+</ul>
+</li>
 </ul>
   </nav></div>
 

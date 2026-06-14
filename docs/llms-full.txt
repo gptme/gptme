@@ -2220,6 +2220,158 @@ See :doc:`mcp` for configuration and usage details.
     :members:
     :noindex:
 
+.. _tool-allowlist:
+
+Tool Selection & Allowlists
+----------------------------
+
+By default gptme loads its full built-in toolset. You can restrict which tools
+are active for a given run — either to reduce the agent's surface area or to
+build read-only / sandboxed profiles.
+
+Basic usage
+^^^^^^^^^^^
+
+Pass a comma-separated list of tool names to ``--tools`` (CLI) or set the
+``TOOL_ALLOWLIST`` environment variable:
+
+.. code-block:: bash
+
+    # Exact names — only these tools are loaded
+    gptme --tools save,patch,shell,python "refactor this file"
+
+    # Additive: start from defaults and add more
+    gptme --tools +rag,browser "research this topic"
+
+    # Subtractive: start from defaults and remove specific tools
+    gptme --tools -shell,computer "safer mode"
+
+    # Disable all tools (pure conversation)
+    gptme --tools "" "just talk to me"
+
+Glob patterns (``*``, ``?``, ``[...]``) are also supported, matched against tool
+names with :func:`fnmatch.fnmatchcase`.
+
+.. _hint-allowlist:
+
+Hint-based patterns
+^^^^^^^^^^^^^^^^^^^
+
+Tools can carry **capability hints** — semantic tags that describe what a tool
+does. Hint-based allowlist entries let you match entire categories of tools at
+once using the ``hint:`` prefix:
+
+.. code-block:: bash
+
+    # Allow only tools annotated as read-only (safe for untrusted workspaces)
+    gptme --tools "hint:read-only" "summarise this repo"
+
+    # Mix exact names with hint patterns
+    gptme --tools "shell,patch,hint:read-only" "analyse and fix"
+
+The following hints are defined:
+
+.. list-table::
+   :widths: 20 80
+   :header-rows: 1
+
+   * - Hint
+     - Meaning
+   * - ``read-only``
+     - Tool only reads state; never writes, creates, or deletes.
+   * - ``destructive``
+     - Tool may modify or delete state. Use with caution in automated runs.
+   * - ``idempotent``
+     - Tool is safe to call multiple times with the same arguments.
+   * - ``closed-world``
+     - Tool affects only local state; it does not make network requests or
+       reach outside the current environment.
+
+.. note::
+
+    Built-in gptme tools do not carry hints in the current release. Hints are
+    currently populated automatically from **MCP tool annotations** (see below).
+    You can also set hints explicitly when :doc:`writing custom tools <custom_tool>`.
+
+MCP tool annotations
+^^^^^^^^^^^^^^^^^^^^^
+
+When gptme connects to an MCP server, each tool's
+`ToolAnnotations <https://modelcontextprotocol.io/docs/concepts/tools#tool-annotations>`_
+are mapped to gptme hints:
+
+.. list-table::
+   :widths: 40 30 30
+   :header-rows: 1
+
+   * - MCP annotation
+     - Value
+     - gptme hint
+   * - ``readOnlyHint``
+     - ``true``
+     - ``read-only``
+   * - ``destructiveHint``
+     - ``true`` (and not read-only)
+     - ``destructive``
+   * - ``idempotentHint``
+     - ``true``
+     - ``idempotent``
+   * - ``openWorldHint``
+     - ``false``
+     - ``closed-world``
+
+Example MCP server configuration that exposes a read-only filesystem tool:
+
+.. code-block:: json
+
+    {
+      "name": "my-tools",
+      "description": "My safe read-only tools",
+      "tools": [
+        {
+          "name": "read_file",
+          "description": "Read a file from disk",
+          "annotations": {
+            "readOnlyHint": true,
+            "idempotentHint": true
+          }
+        }
+      ]
+    }
+
+Once connected, ``gptme --tools "hint:read-only"`` will include ``read_file``
+while excluding any MCP tools without the ``read-only`` annotation.
+
+Example profiles
+^^^^^^^^^^^^^^^^
+
+**Read-only research agent** — cannot write files or run commands:
+
+.. code-block:: bash
+
+    gptme --tools "browser,rag,chats,hint:read-only" "research X"
+
+**Minimal coding agent** — file editing only, no shell or browser:
+
+.. code-block:: bash
+
+    gptme --tools "read,save,patch,morph,python" "refactor this module"
+
+**Safe MCP integration** — built-in defaults plus only read-only MCP tools:
+
+.. code-block:: bash
+
+    gptme --tools "+hint:read-only" "help me explore this codebase"
+
+**Subagent with restricted tool set** — useful in ``[agent]`` config or when
+spawning subagents programmatically:
+
+.. code-block:: toml
+
+    # gptme.toml
+    [env]
+    TOOL_ALLOWLIST = "shell,patch,save,read,hint:read-only"
+
 
 Commands
 ========
