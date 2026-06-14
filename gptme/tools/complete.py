@@ -461,7 +461,10 @@ def stuck_detect_hook(
     if classification != "unknown":
         rca_hint = f" Likely cause: {classification}"
         if evidence:
-            rca_hint += f" — {evidence}"
+            # Sanitize evidence before embedding in the <system> XML tag to prevent
+            # tool output containing </system> from prematurely closing the tag.
+            safe_evidence = evidence.replace("<", "[").replace(">", "]")
+            rca_hint += f" — {safe_evidence}"
         rca_hint += "."
     else:
         rca_hint = ""
