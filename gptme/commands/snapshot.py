@@ -24,6 +24,7 @@ from collections import Counter
 from pathlib import Path
 
 from ..workspace_snapshot import (
+    SNAPSHOT_REF,
     Shadow,
     get_snapshot_n_msgs,
     init_shadow,
@@ -36,6 +37,78 @@ from ..workspace_snapshot import (
 from .base import CommandContext, command
 
 DEFAULT_PRUNE_DAYS = 30
+
+
+def _print_prunable(
+    shadow: Shadow,
+    days: int | None,
+    max_entries: int | None,
+) -> None:
+    """Print snapshots that would be removed by a prune, without removing them."""
+    import time
+
+    would_drop = 0
+    listed: set[str] = set()
+
+    if days is not None:
+        cutoff = int(time.time()) - days * 86400
+        log = shadow.run(
+            "log",
+            f"--before=@{cutoff}",
+            "--format=%h\t%cr\t%s",
+            SNAPSHOT_REF,
+            check=False,
+        )
+        if log.returncode == 0 and log.stdout.strip():
+            lines = [ln for ln in log.stdout.strip().splitlines() if ln]
+            # Always keep the most recent snapshot even if it predates cutoff.
+            # The prune_by_age implementation uses keep_count or 1, so if ALL
+            # commits are older than cutoff we keep 1; reflect that here.
+            total_res = shadow.run("rev-list", "--count", SNAPSHOT_REF, check=False)
+            total = int(total_res.stdout.strip()) if total_res.returncode == 0 else 0
+            if total > 0 and len(lines) == total:
+                lines = lines[:-1]  # keep the oldest one (last in log order)
+            for ln in lines:
+                parts = ln.split("\t", 2)
+                if len(parts) == 3:
+                    sha, age, subject = parts
+                    if sha not in listed:
+                        print(f"  {sha}  {age:>15}  {subject}")
+                        listed.add(sha)
+                        would_drop += 1
+
+    if max_entries is not None:
+        total_res = shadow.run("rev-list", "--count", SNAPSHOT_REF, check=False)
+        if total_res.returncode == 0:
+            try:
+                total = int(total_res.stdout.strip())
+            except ValueError:
+                total = 0
+            to_skip = max_entries  # skip the newest max_entries; list the rest
+            if total > max_entries:
+                log = shadow.run(
+                    "log",
+                    f"--skip={to_skip}",
+                    "--format=%h\t%cr\t%s",
+                    SNAPSHOT_REF,
+                    check=False,
+                )
+                if log.returncode == 0 and log.stdout.strip():
+                    for ln in log.stdout.strip().splitlines():
+                        if not ln:
+                            continue
+                        parts = ln.split("\t", 2)
+                        if len(parts) == 3:
+                            sha, age, subject = parts
+                            if sha not in listed:
+                                print(f"  {sha}  {age:>15}  {subject}")
+                                listed.add(sha)
+                                would_drop += 1
+
+    if would_drop > 0:
+        print(f"Would prune {would_drop} snapshot(s).")
+    else:
+        print("No snapshots to prune.")
 
 
 def _print_usage() -> None:
@@ -51,7 +124,7 @@ def _print_usage() -> None:
         "  diff <sha>                  Show diff between current workspace and a snapshot."
     )
     print(
-        "  prune [--days N] [--max-entries K]  Remove old snapshots "
+        "  prune [--days N] [--max-entries K] [--dry-run|-n]  Remove old snapshots "
         f"(defaults to {DEFAULT_PRUNE_DAYS} days)."
     )
 
@@ -221,6 +294,7 @@ def cmd_snapshot(ctx: CommandContext) -> None:
     if subcommand == "prune":
         days: int | None = None
         max_entries: int | None = None
+        dry_run = False
         idx = 0
         while idx < len(args):
             arg = args[idx]
@@ -252,6 +326,8 @@ def cmd_snapshot(ctx: CommandContext) -> None:
                         f"snapshot: --max-entries must be an integer, got {args[idx]!r}"
                     )
                     return
+            elif arg in ("--dry-run", "-n"):
+                dry_run = True
             else:
                 print(f"snapshot: unknown argument {arg!r}")
                 _print_usage()
@@ -263,6 +339,10 @@ def cmd_snapshot(ctx: CommandContext) -> None:
 
         workspace_shadow = _workspace_shadow(ctx)
         if workspace_shadow is None:
+            return
+
+        if dry_run:
+            _print_prunable(workspace_shadow, days=days, max_entries=max_entries)
             return
 
         dropped = 0

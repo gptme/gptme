@@ -298,12 +298,17 @@ def restore(shadow: Shadow, snapshot_id: str) -> bool:
     return True
 
 
-def prune(shadow: Shadow, keep: int = DEFAULT_MAX_SNAPSHOTS) -> int:
+def prune(
+    shadow: Shadow, keep: int = DEFAULT_MAX_SNAPSHOTS, dry_run: bool = False
+) -> int:
     """Keep newest ``keep`` snapshots; drop the rest. Returns dropped count.
 
     Implementation: collect the ``keep`` newest (tree, message) pairs, replay
     them as a fresh orphan chain, and point SNAPSHOT_REF at the new tip.
     Older commits become unreachable and ``git gc`` can reclaim them.
+
+    When ``dry_run=True``, compute and return the would-be dropped count
+    without modifying the snapshot history.
     """
     if not shadow.initialized() or keep <= 0:
         return 0
@@ -317,6 +322,8 @@ def prune(shadow: Shadow, keep: int = DEFAULT_MAX_SNAPSHOTS) -> int:
     if total <= keep:
         return 0
     to_drop = total - keep
+    if dry_run:
+        return to_drop
     # Collect (tree, full body) for the ``keep`` newest commits in one pass.
     # Use ASCII control characters as record/field separators so commit bodies
     # can still contain ordinary newlines.
@@ -358,12 +365,15 @@ def prune(shadow: Shadow, keep: int = DEFAULT_MAX_SNAPSHOTS) -> int:
     return to_drop
 
 
-def prune_by_age(shadow: Shadow, days: int = 30) -> int:
+def prune_by_age(shadow: Shadow, days: int = 30, dry_run: bool = False) -> int:
     """Drop snapshots older than ``days`` days. Returns dropped count.
 
     Always keeps at least one snapshot (the most recent) regardless of age.
     Implementation mirrors :func:`prune`: collect entries to keep, replay as a
     fresh orphan chain, and point SNAPSHOT_REF at the new tip.
+
+    When ``dry_run=True``, compute and return the would-be dropped count
+    without modifying the snapshot history.
     """
     if not shadow.initialized() or days <= 0:
         return 0
@@ -392,6 +402,8 @@ def prune_by_age(shadow: Shadow, days: int = 30) -> int:
     to_drop = total_count - keep_count
     if to_drop <= 0:
         return 0
+    if dry_run:
+        return to_drop
     # Fetch only the survivors we need to replay.
     log_output = shadow.run(
         "log",
