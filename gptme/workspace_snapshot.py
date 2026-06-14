@@ -147,12 +147,23 @@ def init_shadow(workspace: Path) -> Shadow:
     return shadow
 
 
-def snapshot(shadow: Shadow, label: str = "snapshot", stage: bool = True) -> str | None:
-    """Create a snapshot. Returns short SHA, or ``None`` on failure."""
+def snapshot(
+    shadow: Shadow,
+    label: str = "snapshot",
+    stage: bool = True,
+    n_msgs: int | None = None,
+) -> str | None:
+    """Create a snapshot. Returns short SHA, or ``None`` on failure.
+
+    When *n_msgs* is provided it is embedded in the commit message so that
+    :func:`get_snapshot_n_msgs` can later reconstruct the conversation size at
+    snapshot time for the ``/snapshot diff`` conversation-summary feature.
+    """
     if not shadow.initialized():
         return None
     if stage:
         shadow.run("add", "-A")
+    commit_msg = label if n_msgs is None else f"{label}\nn_msgs={n_msgs}"
     # Allow empty so consecutive identical snapshots still record a ref.
     # Bypass user hooks: internal bookkeeping, not a social commit.
     result = shadow.run(
@@ -161,7 +172,7 @@ def snapshot(shadow: Shadow, label: str = "snapshot", stage: bool = True) -> str
         "--no-verify",
         "--no-gpg-sign",
         "-m",
-        label,
+        commit_msg,
         check=False,
     )
     if result.returncode != 0:
@@ -169,6 +180,20 @@ def snapshot(shadow: Shadow, label: str = "snapshot", stage: bool = True) -> str
         return None
     sha = shadow.run("rev-parse", "--short", "HEAD").stdout.strip()
     return sha
+
+
+def get_snapshot_n_msgs(shadow: Shadow, sha: str) -> int | None:
+    """Return the conversation message count embedded in a snapshot, or ``None``."""
+    result = shadow.run("log", "--format=%B", "-1", sha, check=False)
+    if result.returncode != 0:
+        return None
+    for line in result.stdout.splitlines()[1:]:
+        if line.startswith("n_msgs="):
+            try:
+                return int(line.split("=", 1)[1].strip())
+            except ValueError:
+                pass
+    return None
 
 
 def list_snapshots(shadow: Shadow, limit: int = 20) -> list[tuple[str, str]]:
