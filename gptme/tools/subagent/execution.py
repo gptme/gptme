@@ -164,7 +164,7 @@ def _create_subagent_thread(
         available_tools = [
             tool
             for tool in loaded_tools
-            if tool_matches_allowlist(tool.name, tool_allowlist)
+            if tool_matches_allowlist(tool.name, tool_allowlist, tool.hints)
         ]
         # Always include the complete tool so subagent can signal completion
         complete_tools = [t for t in loaded_tools if t.name == "complete"]

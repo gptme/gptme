@@ -2210,3 +2210,65 @@ def test_planner_mixed_roles_use_correct_backends(
     by_id = {sa.agent_id: sa for sa in new_agents}
     assert by_id["test-mixed-impl"].execution_mode == "thread"
     assert by_id["test-mixed-verify"].execution_mode == "subprocess"
+
+
+@patch("gptme.tools.subagent.execution.set_tools")
+@patch("gptme.tools.subagent.execution.get_tools")
+@patch("gptme.tools.subagent.execution.matching_allowlist_tools")
+def test_hint_allowlist_filters_subagent_tools(
+    mock_matching: MagicMock,
+    mock_get_tools: MagicMock,
+    mock_set_tools: MagicMock,
+    tmp_path,
+):
+    """Regression: execution.py must forward tool.hints to tool_matches_allowlist.
+
+    Without the fix (PR #2890), hint:* entries in a subagent profile's tool list
+    silently matched nothing — the third argument (tool.hints) was missing, so
+    hint-based filtering always excluded everything.
+    """
+    from gptme.profiles import Profile
+    from gptme.tools.base import ToolSpec
+    from gptme.tools.subagent.execution import _create_subagent_thread
+
+    tool_ro = ToolSpec(
+        name="browser", desc="browse web", hints=frozenset({"read-only"})
+    )
+    tool_rw = ToolSpec(name="shell", desc="run shell")
+    tool_complete = ToolSpec(name="complete", desc="signal done")
+
+    mock_get_tools.return_value = [tool_ro, tool_rw, tool_complete]
+    # Make matching_allowlist_tools return a non-empty list so no "unknown" warning fires
+    mock_matching.return_value = [tool_ro]
+
+    with (
+        patch("gptme.chat.chat"),
+        patch("gptme.executor.prepare_execution_environment"),
+        patch("gptme.llm.models.set_default_model"),
+        patch("gptme.profiles.get_profile") as mock_get_profile,
+        patch("gptme.prompts.get_prompt", return_value=[]),
+    ):
+        mock_get_profile.return_value = Profile(
+            name="readonly",
+            description="read-only profile",
+            tools=["hint:read-only"],
+        )
+        _create_subagent_thread(
+            prompt="summarise this doc",
+            logdir=tmp_path,
+            model=None,
+            context_mode="full",
+            context_include=None,
+            workspace=tmp_path,
+            profile_name="readonly",
+        )
+
+    # set_tools must have been called with the hint-filtered tool list
+    assert mock_set_tools.called
+    available = mock_set_tools.call_args[0][0]
+
+    # browser (has read-only hint) and complete (always included) should be present
+    assert tool_ro in available
+    assert tool_complete in available
+    # shell (no hint) must be excluded
+    assert tool_rw not in available
