@@ -569,15 +569,28 @@ def _run_planner(
 
         if resolved_use_subprocess:
             # Subprocess mode: better output isolation for verify/sensitive roles
-            process = _run_subagent_subprocess(
-                prompt=executor_prompt,
-                logdir=logdir,
-                model=model,
-                workspace=workspace,
-                context_mode=context_mode,
-                context_include=context_include,
-                profile=resolved_profile,
-            )
+            try:
+                process = _run_subagent_subprocess(
+                    prompt=executor_prompt,
+                    logdir=logdir,
+                    model=model,
+                    workspace=workspace,
+                    context_mode=context_mode,
+                    context_include=context_include,
+                    profile=resolved_profile,
+                )
+            except Exception:
+                # Cleanup worktree/tmpdir before re-raising — monitor thread never starts
+                if resolved_isolated and worktree_path:
+                    from ...util.git_worktree import cleanup_worktree
+
+                    try:
+                        cleanup_worktree(worktree_path, repo_path)
+                    except Exception as ce:
+                        logger.warning(
+                            f"Failed to cleanup isolation for {executor_id}: {ce}"
+                        )
+                raise
 
             sa = Subagent(
                 executor_id,
@@ -616,17 +629,32 @@ def _run_planner(
                 log_dir=logdir,
                 ws=workspace,
                 subtask_profile=resolved_profile,
+                _isolated=resolved_isolated,
+                _worktree=worktree_path,
+                _repo=repo_path,
+                _eid=executor_id,
             ):
-                _create_subagent_thread(
-                    prompt=prompt,
-                    logdir=log_dir,
-                    model=model,
-                    context_mode=context_mode,
-                    context_include=context_include,
-                    workspace=ws,
-                    target="planner",
-                    profile_name=subtask_profile,
-                )
+                try:
+                    _create_subagent_thread(
+                        prompt=prompt,
+                        logdir=log_dir,
+                        model=model,
+                        context_mode=context_mode,
+                        context_include=context_include,
+                        workspace=ws,
+                        target="planner",
+                        profile_name=subtask_profile,
+                    )
+                finally:
+                    if _isolated and _worktree:
+                        from ...util.git_worktree import cleanup_worktree
+
+                        try:
+                            cleanup_worktree(_worktree, _repo)
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to cleanup isolation for thread subagent {_eid}: {e}"
+                            )
 
             t = threading.Thread(target=run_executor, daemon=True)
             # Register subagent BEFORE starting thread to avoid race condition
@@ -652,7 +680,7 @@ def _run_planner(
                 t.join()
                 logger.info(f"Executor {executor_id} completed")
 
-    # Parallel mode: all threads already started
+    # Parallel mode: all executors (threads/subprocesses) already started
     if execution_mode == "parallel":
         logger.info(f"Planner {agent_id} spawned {len(subtasks)} executor subagents")
     else:

@@ -1908,11 +1908,17 @@ def test_planner_with_role_uses_role_for_self_profile(mock_create_thread: MagicM
         assert "profile_name" in kwargs
 
 
+@patch(
+    "gptme.util.git_worktree.create_worktree", return_value=Path("/tmp/fake-worktree")
+)
+@patch("gptme.util.git_worktree.get_git_root", return_value=Path("/fake/root"))
 @patch("gptme.tools.subagent.execution._monitor_subprocess")
 @patch("gptme.tools.subagent.execution._run_subagent_subprocess")
 def test_planner_subtask_role_overrides_planner_profile(
     mock_run_subprocess: MagicMock,
     mock_monitor: MagicMock,
+    _mock_git_root: MagicMock,
+    _mock_create_worktree: MagicMock,
 ):
     """Subtask role wins over planner-level profile.
 
@@ -1963,11 +1969,17 @@ def test_planner_subtask_role_overrides_planner_profile(
 # ---------------------------------------------------------------------------
 
 
+@patch(
+    "gptme.util.git_worktree.create_worktree", return_value=Path("/tmp/fake-worktree")
+)
+@patch("gptme.util.git_worktree.get_git_root", return_value=Path("/fake/root"))
 @patch("gptme.tools.subagent.execution._monitor_subprocess")
 @patch("gptme.tools.subagent.execution._run_subagent_subprocess")
 def test_planner_subtask_role_verify_uses_subprocess(
     mock_run_subprocess: MagicMock,
     mock_monitor: MagicMock,
+    _mock_git_root: MagicMock,
+    _mock_create_worktree: MagicMock,
 ):
     """role='verify' on a subtask must launch that executor in subprocess mode."""
     mock_run_subprocess.return_value = MagicMock()  # fake Popen
@@ -2000,11 +2012,17 @@ def test_planner_subtask_role_verify_uses_subprocess(
     assert sa.agent_id == "test-verify-sub-check"
 
 
+@patch(
+    "gptme.util.git_worktree.create_worktree", return_value=Path("/tmp/fake-worktree")
+)
+@patch("gptme.util.git_worktree.get_git_root", return_value=Path("/fake/root"))
 @patch("gptme.tools.subagent.execution._monitor_subprocess")
 @patch("gptme.tools.subagent.execution._run_subagent_subprocess")
 def test_planner_subtask_role_verify_sets_isolated(
     mock_run_subprocess: MagicMock,
     mock_monitor: MagicMock,
+    _mock_git_root: MagicMock,
+    _mock_create_worktree: MagicMock,
 ):
     """role='verify' on a subtask should request isolated execution."""
     mock_run_subprocess.return_value = MagicMock()
@@ -2078,6 +2096,10 @@ def test_planner_subtask_role_implement_uses_thread_mode(mock_create_thread: Mag
     assert sa.execution_mode == "thread"
 
 
+@patch(
+    "gptme.util.git_worktree.create_worktree", return_value=Path("/tmp/fake-worktree")
+)
+@patch("gptme.util.git_worktree.get_git_root", return_value=Path("/fake/root"))
 @patch("gptme.tools.subagent.execution._monitor_subprocess")
 @patch("gptme.tools.subagent.execution._run_subagent_subprocess")
 @patch("gptme.tools.subagent.execution._create_subagent_thread")
@@ -2085,6 +2107,8 @@ def test_planner_mixed_roles_use_correct_backends(
     mock_create_thread: MagicMock,
     mock_run_subprocess: MagicMock,
     mock_monitor: MagicMock,
+    _mock_git_root: MagicMock,
+    _mock_create_worktree: MagicMock,
 ):
     """Mixed-role subtasks: impl→thread, verify→subprocess."""
     mock_run_subprocess.return_value = MagicMock()
