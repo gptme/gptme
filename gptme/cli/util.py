@@ -606,6 +606,13 @@ def llm():
     default=None,
     help="Sampling temperature (0.0=deterministic, higher=more creative). Range: 0.0–2.0.",
 )
+@click.option(
+    "--output-format",
+    type=click.Choice(["text", "json"], case_sensitive=False),
+    default="text",
+    show_default=True,
+    help="Output format: 'text' (default) or 'json' (includes model and usage metadata). Incompatible with --stream.",
+)
 def llm_generate(
     prompt: str | None,
     model: str | None,
@@ -613,6 +620,7 @@ def llm_generate(
     system_prompt: str,
     max_tokens: int | None,
     temperature: float | None,
+    output_format: str,
 ):
     """Generate a response from an LLM without any formatting."""
 
@@ -641,6 +649,8 @@ def llm_generate(
         raise click.UsageError("--max-tokens must be a positive integer.")
     if temperature is not None and not (0.0 <= temperature <= 2.0):
         raise click.UsageError("--temperature must be between 0.0 and 2.0.")
+    if output_format == "json" and stream:
+        raise click.UsageError("--output-format json is incompatible with --stream.")
 
     # Capture stderr to suppress console output during initialization
     stderr_capture = io.StringIO()
@@ -693,8 +703,17 @@ def llm_generate(
             ):
                 print(chunk, end="", flush=True)
             print()  # Final newline
+        elif output_format == "json":
+            # Return structured JSON with content and metadata
+            response, metadata = _chat_complete(
+                messages, model, None, max_tokens=max_tokens, temperature=temperature
+            )
+            result: dict = {"content": response, "model": model}
+            if metadata and "usage" in metadata:
+                result["usage"] = dict(metadata["usage"])
+            print(json.dumps(result))
         else:
-            # Get complete response and print it
+            # Get complete response and print it (plain text)
             response, _ = _chat_complete(
                 messages, model, None, max_tokens=max_tokens, temperature=temperature
             )
