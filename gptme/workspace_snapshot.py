@@ -323,9 +323,34 @@ def prune_by_age(shadow: Shadow, days: int = 30) -> int:
     if not shadow.initialized() or days <= 0:
         return 0
     cutoff = int(time.time()) - days * 86400
-    # Fetch all commits: hash, tree, commit-timestamp, full body.
+    total = shadow.run("rev-list", "--count", SNAPSHOT_REF, check=False)
+    if total.returncode != 0:
+        return 0
+    try:
+        total_count = int(total.stdout.strip())
+    except ValueError:
+        return 0
+    recent = shadow.run(
+        "rev-list",
+        "--count",
+        f"--since=@{cutoff}",
+        SNAPSHOT_REF,
+        check=False,
+    )
+    if recent.returncode != 0:
+        return 0
+    try:
+        keep_count = int(recent.stdout.strip())
+    except ValueError:
+        return 0
+    keep_count = keep_count or 1
+    to_drop = total_count - keep_count
+    if to_drop <= 0:
+        return 0
+    # Fetch only the survivors we need to replay.
     log_output = shadow.run(
         "log",
+        f"-{keep_count}",
         "--format=%H%x1f%T%x1f%ct%x1f%B%x1e",
         SNAPSHOT_REF,
         check=False,
@@ -349,23 +374,16 @@ def prune_by_age(shadow: Shadow, days: int = 30) -> int:
             continue
         if tree and body:
             all_entries.append((tree, body, ts))
-    if not all_entries:
-        return 0
-    # Keep entries within the age window; always retain the newest one.
-    keep = [(t, b, ts) for t, b, ts in all_entries if ts >= cutoff]
-    if not keep:
-        keep = [all_entries[0]]  # always retain the most recent
-    to_drop = len(all_entries) - len(keep)
-    if to_drop == 0:
+    if len(all_entries) != keep_count:
         return 0
     # Rebuild orphan chain oldest-first (entries arrive newest-first from log).
-    keep.reverse()
-    first_tree, first_msg, _ = keep[0]
+    all_entries.reverse()
+    first_tree, first_msg, _ = all_entries[0]
     res = shadow.run("commit-tree", first_tree, "-m", first_msg, check=False)
     if res.returncode != 0:
         return 0
     parent = res.stdout.strip()
-    for tree, msg, _ in keep[1:]:
+    for tree, msg, _ in all_entries[1:]:
         res = shadow.run("commit-tree", tree, "-p", parent, "-m", msg, check=False)
         if res.returncode != 0:
             return 0

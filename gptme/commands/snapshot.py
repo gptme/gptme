@@ -214,7 +214,7 @@ def cmd_snapshot(ctx: CommandContext) -> None:
         return
 
     if subcommand == "prune":
-        days = 30
+        days: int | None = None
         max_entries: int | None = None
         idx = 0
         while idx < len(args):
@@ -226,6 +226,9 @@ def cmd_snapshot(ctx: CommandContext) -> None:
                     return
                 try:
                     days = int(args[idx])
+                    if days <= 0:
+                        print("snapshot: --days must be a positive integer")
+                        return
                 except ValueError:
                     print(f"snapshot: --days must be an integer, got {args[idx]!r}")
                     return
@@ -251,7 +254,9 @@ def cmd_snapshot(ctx: CommandContext) -> None:
         if workspace_shadow is None:
             return
 
-        dropped = prune_by_age(workspace_shadow, days=days)
+        dropped = 0
+        if days is not None:
+            dropped += prune_by_age(workspace_shadow, days=days)
         if max_entries is not None:
             dropped += prune(workspace_shadow, keep=max_entries)
         if dropped > 0:
