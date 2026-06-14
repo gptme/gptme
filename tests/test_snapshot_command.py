@@ -346,6 +346,20 @@ class TestSnapshotConversationSummary:
         out = capsys.readouterr().out
         assert "no new messages" in out.lower()
 
+    def test_diff_with_meta_and_clean_workspace_prints_no_changes(
+        self, workspace, isolated_state_dir, capsys
+    ):
+        """diff should still say the workspace is clean when metadata is present."""
+        shadow = init_shadow(workspace)
+        sha = snapshot(shadow, label="checkpoint", n_msgs=4)
+        assert sha is not None
+
+        manager = _make_manager(workspace, n_msgs=4)
+        with patch("gptme.commands.snapshot.Shadow.for_workspace", return_value=shadow):
+            _run_cmd(manager, f"diff {sha}")
+        out = capsys.readouterr().out
+        assert "no changes between current workspace and snapshot" in out.lower()
+
     def test_diff_without_meta_skips_summary(
         self, workspace, isolated_state_dir, capsys
     ):

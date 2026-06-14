@@ -201,8 +201,7 @@ def cmd_snapshot(ctx: CommandContext) -> None:
         output = result.stdout
         if output:
             print(output, end="")
-        elif snap_n_msgs is None:
-            # Only print "no changes" when there was no conversation summary above.
+        else:
             print(f"No changes between current workspace and snapshot {sha}.")
         return
 
