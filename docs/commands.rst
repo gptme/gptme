@@ -395,7 +395,11 @@ The ``<sha>`` is the short SHA shown by ``/snapshot list``.
 
    /snapshot create before-attempt-1
    # ... let the agent make changes ...
-   /snapshot list                     # sha: ab1234  before-attempt-1
+   /snapshot list
+   # output:
+   # SHA        Label
+   # ----------------------------------------
+   # ab1234     before-attempt-1
    /snapshot restore ab1234           # roll back; try a different approach
 
 /backtrack
