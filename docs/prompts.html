@@ -766,7 +766,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f60c21bd120&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f1bea190b80&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -810,99 +810,17 @@ The following Python functions are available using the <span class="sb">`ipython
 
 <span class="sb">```txt</span>
 <span class="s">read_url(url: str, max_pages: Union[int, None]) -&gt; str: Read a webpage or PDF in a text format.</span>
-
-<span class="s">    Args:</span>
-<span class="s">        url: URL to read</span>
-<span class="s">        max_pages: For PDFs only - maximum pages to read (default: 10).</span>
-<span class="s">                   Set to 0 to read all pages. Ignored for web pages.</span>
-
 <span class="s">search(query: str, engine: Union[Literal[&quot;google&quot;, &quot;duckduckgo&quot;, &quot;perplexity&quot;], None]) -&gt; str: Search for a query on a search engine.</span>
-
-<span class="s">    If no engine is specified, automatically chooses the best available backend</span>
-<span class="s">    and falls back to the next usable backend on failure.</span>
-
 <span class="s">screenshot_url(url: str, path: Union[Path, str, None]) -&gt; Path: Take a screenshot of a webpage.</span>
 <span class="s">snapshot_url(url: str) -&gt; str: Get the ARIA accessibility snapshot of a webpage.</span>
-
-<span class="s">    Returns a structured text representation of the page&#39;s accessibility tree,</span>
-<span class="s">    showing interactive elements (buttons, links, inputs) with their roles and names.</span>
-<span class="s">    Useful for understanding page structure and finding elements to interact with.</span>
-
-<span class="s">    The output includes a metadata header with the page title and current URL</span>
-<span class="s">    (which may differ from the requested URL after redirects).</span>
-
 <span class="s">open_page(url: str) -&gt; str: Open a page for interactive browsing. Returns ARIA accessibility snapshot.</span>
-
-<span class="s">    Use this instead of read_url() when you need to interact with the page</span>
-<span class="s">    (click buttons, fill forms, scroll). The page stays open for subsequent</span>
-<span class="s">    click_element(), fill_element(), and scroll_page() calls.</span>
-
-<span class="s">    The output includes a metadata header with the page title and current URL.</span>
-
 <span class="s">close_page() -&gt; str: Close the current interactive browsing page.</span>
-
-<span class="s">    Frees browser resources. A new page can be opened with open_page().</span>
-
 <span class="s">read_page_text() -&gt; str: Read the full text content of the current interactive page as Markdown.</span>
-
-<span class="s">    Requires open_page() to be called first. Returns the page body converted</span>
-<span class="s">    to Markdown, preserving text formatting. Useful for reading article text,</span>
-<span class="s">    documentation, or other content after navigating to a page.</span>
-
-<span class="s">    Unlike read_url(), this reads from the current interactive session — so</span>
-<span class="s">    it reflects the page state after any clicks, form fills, or navigation.</span>
-
 <span class="s">click_element(selector: str) -&gt; str: Click an element on the current page and return updated ARIA snapshot.</span>
-
-<span class="s">    Requires open_page() to be called first.</span>
-
-<span class="s">    Args:</span>
-<span class="s">        selector: Playwright selector to find the element. Supports:</span>
-<span class="s">            - CSS: &quot;#submit-btn&quot;, &quot;.nav-link&quot;, &quot;button&quot;</span>
-<span class="s">            - Text: &quot;text=Submit&quot;, &quot;text=Log in&quot;</span>
-<span class="s">            - Role: &quot;role=button[name=&#39;Submit&#39;]&quot;</span>
-<span class="s">            - Chained: &quot;form &gt;&gt; text=Submit&quot;</span>
-
 <span class="s">fill_element(selector: str, value: str) -&gt; str: Fill a form field on the current page and return updated ARIA snapshot.</span>
-
-<span class="s">    Requires open_page() to be called first. Clears any existing value before filling.</span>
-
-<span class="s">    Args:</span>
-<span class="s">        selector: Playwright selector for the input/textarea element.</span>
-<span class="s">        value: Text to fill into the field.</span>
-
 <span class="s">scroll_page(direction: str, amount: int) -&gt; str: Scroll the current page and return updated ARIA snapshot.</span>
-
-<span class="s">    Requires open_page() to be called first.</span>
-
-<span class="s">    Args:</span>
-<span class="s">        direction: &quot;up&quot; or &quot;down&quot; (default: &quot;down&quot;)</span>
-<span class="s">        amount: Pixels to scroll (default: 500)</span>
-
 <span class="s">read_logs() -&gt; str: Read browser console logs from the last read URL.</span>
 <span class="s">pdf_to_images(url_or_path: str, output_dir: Union[str, Path, None], pages: Union[tuple[int, int], None], dpi: int) -&gt; list[Path]: Convert PDF pages to images using auto-detected CLI tools.</span>
-
-<span class="s">    Auto-detects and uses the first available tool: pdftoppm, ImageMagick convert, or vips.</span>
-
-<span class="s">    Args:</span>
-<span class="s">        url_or_path: URL or local path to PDF file</span>
-<span class="s">        output_dir: Directory to save images (default: creates temp directory)</span>
-<span class="s">        pages: Optional tuple of (first_page, last_page) to convert (1-indexed).</span>
-<span class="s">               If None, converts all pages.</span>
-<span class="s">        dpi: Resolution for output images (default: 150)</span>
-
-<span class="s">    Returns:</span>
-<span class="s">        List of paths to generated PNG images</span>
-
-<span class="s">    Raises:</span>
-<span class="s">        RuntimeError: If no PDF-to-image tools are available</span>
-<span class="s">        subprocess.CalledProcessError: If conversion fails</span>
-
-<span class="s">    Example:</span>
-<span class="s">        &gt;&gt;&gt; images = pdf_to_images(&quot;https://example.com/doc.pdf&quot;)</span>
-<span class="s">        &gt;&gt;&gt; for img in images:</span>
-<span class="s">        ...     view_image(img)  # Analyze with vision tool</span>
-
 <span class="sb">```</span>
 
 <span class="gu">### Examples</span>
@@ -1069,35 +987,9 @@ Do <span class="gs">**not**</span> use chats for:
 The following Python functions are available using the <span class="sb">`ipython`</span> tool:
 
 <span class="sb">```txt</span>
-<span class="s">list_chats(max_results: int, include_summary: bool):</span>
-<span class="s">    List recent chat conversations and optionally summarize them using an LLM.</span>
-
-<span class="s">    Args:</span>
-<span class="s">        max_results (int): Maximum number of conversations to display.</span>
-<span class="s">        include_summary (bool): Whether to include a summary of each conversation.</span>
-<span class="s">            If True, uses an LLM to generate a comprehensive summary.</span>
-<span class="s">            If False, uses a simple strategy showing snippets of the first and last messages.</span>
-
-<span class="s">search_chats(query: str, max_results: int, sort: Literal[&quot;date&quot;, &quot;count&quot;], context_lines: int, max_matches: int):</span>
-<span class="s">    Search past conversation logs for the given query and print a summary of the results.</span>
-
-<span class="s">    Args:</span>
-<span class="s">        query (str): The search query.</span>
-<span class="s">        max_results (int): Maximum number of conversations to display.</span>
-<span class="s">        system (bool): Whether to include system messages in the search.</span>
-<span class="s">        context_lines (int): Number of lines to show around each match.</span>
-<span class="s">        max_matches (int): Maximum number of matches to show per conversation.</span>
-
-<span class="s">read_chat(id: str, max_results: int, incl_system: bool, context_messages: int, start_message: Union[int, None]):</span>
-<span class="s">    Read a specific conversation log.</span>
-
-<span class="s">    Args:</span>
-<span class="s">        id (str): The id of the conversation to read.</span>
-<span class="s">        max_results (int): Maximum number of messages to display.</span>
-<span class="s">        incl_system (bool): Whether to include system messages.</span>
-<span class="s">        context_messages (int): Number of messages to show before start_message.</span>
-<span class="s">        start_message (int | None): Start from this message number (1-indexed), if specified.</span>
-
+<span class="s">list_chats(max_results: int, include_summary: bool): List recent chat conversations and optionally summarize them using an LLM.</span>
+<span class="s">search_chats(query: str, max_results: int, sort: Literal[&quot;date&quot;, &quot;count&quot;], context_lines: int, max_matches: int): Search past conversation logs for the given query and print a summary of the results.</span>
+<span class="s">read_chat(id: str, max_results: int, incl_system: bool, context_messages: int, start_message: Union[int, None]): Read a specific conversation log.</span>
 <span class="sb">```</span>
 
 <span class="gu">### Examples</span>
@@ -1207,14 +1099,7 @@ Common modifiers (ctrl, alt, cmd/super, shift) work consistently across platform
 The following Python functions are available using the <span class="sb">`ipython`</span> tool:
 
 <span class="sb">```txt</span>
-<span class="s">computer(action: Action, text: str | None, coordinate: tuple[int, int] | None) -&gt; Message | None:</span>
-<span class="s">    Perform computer interactions in X11 or macOS environments.</span>
-
-<span class="s">    Args:</span>
-<span class="s">        action: The type of action to perform</span>
-<span class="s">        text: Text to type or key sequence to send</span>
-<span class="s">        coordinate: X,Y coordinates for mouse actions</span>
-
+<span class="s">computer(action: Action, text: str | None, coordinate: tuple[int, int] | None) -&gt; Message | None: Perform computer interactions in X11 or macOS environments.</span>
 <span class="sb">```</span>
 
 <span class="gu">### Examples</span>
@@ -1795,18 +1680,6 @@ The following Python functions are available using the <span class="sb">`ipython
 <span class="s">rag_search(query: str, return_full: bool) -&gt; str: Search indexed documents.</span>
 <span class="s">rag_status() -&gt; str: Show index status.</span>
 <span class="s">rag_index_conversations(n: int, output_dir: Union[str, None]) -&gt; str: Index past gptme conversations for semantic search.</span>
-
-<span class="s">    Exports user and assistant messages from conversation logs (skipping system</span>
-<span class="s">    prompts) into text files and indexes them with gptme-rag.</span>
-
-<span class="s">    Args:</span>
-<span class="s">        n: Maximum number of recent conversations to index (default: 100).</span>
-<span class="s">        output_dir: Directory to write exported conversation files.</span>
-<span class="s">            Defaults to a temporary directory managed by gptme-rag.</span>
-
-<span class="s">    Returns:</span>
-<span class="s">        Status message from the indexing operation.</span>
-
 <span class="sb">```</span>
 
 <span class="gu">### Examples</span>
@@ -1952,9 +1825,7 @@ Do <span class="gs">**not**</span> use screenshot for:
 The following Python functions are available using the <span class="sb">`ipython`</span> tool:
 
 <span class="sb">```txt</span>
-<span class="s">screenshot(path: Union[Path, None]) -&gt; Path:</span>
-<span class="s">    Take a screenshot and save it to a file.</span>
-
+<span class="s">screenshot(path: Union[Path, None]) -&gt; Path: Take a screenshot and save it to a file.</span>
 <span class="sb">```</span>
 
 <span class="gu">### Examples</span>
@@ -2139,144 +2010,11 @@ The following Python functions are available using the <span class="sb">`ipython
 
 <span class="sb">```txt</span>
 <span class="s">subagent(agent_id: str, prompt: str, mode: Literal[&quot;executor&quot;, &quot;planner&quot;], subtasks: Union[list[SubtaskDef], None], execution_mode: Literal[&quot;parallel&quot;, &quot;sequential&quot;], context_mode: Literal[&quot;full&quot;, &quot;selective&quot;], context_include: Union[list[str], None], output_schema: Union[type, None], use_subprocess: Union[bool, None], use_acp: bool, acp_command: str, profile: Union[str, None], model: Union[str, None], isolated: Union[bool, None], timeout: int, role: Union[Literal[&quot;general&quot;, &quot;explore&quot;, &quot;implement&quot;, &quot;verify&quot;], None]): Starts an asynchronous subagent. Returns None immediately.</span>
-
-<span class="s">    Subagent completions are delivered via the LOOP_CONTINUE hook, enabling</span>
-<span class="s">    a &quot;fire-and-forget-then-get-alerted&quot; pattern where the orchestrator can</span>
-<span class="s">    continue working and get notified when subagents finish.</span>
-
-<span class="s">    Profile auto-detection: If ``agent_id`` matches a known profile name</span>
-<span class="s">    (e.g. &quot;explorer&quot;, &quot;researcher&quot;, &quot;developer&quot;, &quot;verifier&quot;) or a common role alias</span>
-<span class="s">    (&quot;explore&quot;→&quot;explorer&quot;, &quot;research&quot;→&quot;researcher&quot;, &quot;impl&quot;/&quot;dev&quot;→&quot;developer&quot;, &quot;verify&quot;→&quot;verifier&quot;),</span>
-<span class="s">    the profile is applied automatically — no need to pass ``profile`` separately.</span>
-
-<span class="s">    Role-based defaults (``role`` parameter):</span>
-
-<span class="s">    - ``&quot;explore&quot;``: Defaults profile to ``explorer`` (read-only analysis)</span>
-<span class="s">    - ``&quot;implement&quot;``: Defaults profile to ``developer`` (full capability)</span>
-<span class="s">    - ``&quot;verify&quot;``: Defaults profile to ``verifier`` plus ``use_subprocess=True`` and ``isolated=True`` (read-only validation in isolation)</span>
-
-<span class="s">    Explicit arguments override role defaults.</span>
-
-<span class="s">    Args:</span>
-<span class="s">        agent_id: Unique identifier for the subagent. If it matches a known</span>
-<span class="s">            profile name (or a common alias like ``impl``/``dev``), that</span>
-<span class="s">            profile is auto-applied (unless ``profile`` is explicitly set</span>
-<span class="s">            to something else).</span>
-<span class="s">        prompt: Task prompt for the subagent (used as context for planner mode)</span>
-<span class="s">        mode: &quot;executor&quot; for single task, &quot;planner&quot; for delegating to multiple executors</span>
-<span class="s">        subtasks: List of subtask definitions for planner mode (required when mode=&quot;planner&quot;)</span>
-<span class="s">        execution_mode: &quot;parallel&quot; (default) runs all subtasks concurrently,</span>
-<span class="s">                       &quot;sequential&quot; runs subtasks one after another.</span>
-<span class="s">                       Only applies to planner mode.</span>
-<span class="s">        context_mode: Controls what context is shared with the subagent:</span>
-<span class="s">            - &quot;full&quot; (default): Share complete context (agent identity, tools, workspace)</span>
-<span class="s">            - &quot;selective&quot;: Share only specified context components (requires context_include)</span>
-<span class="s">        context_include: For selective mode, list of context components to include:</span>
-<span class="s">            - Thread mode supports &quot;agent&quot; and &quot;tools&quot;</span>
-<span class="s">            - Subprocess mode also supports &quot;workspace&quot;, which maps to the CLI&#39;s &quot;files&quot; context</span>
-<span class="s">            Legacy subprocess values like &quot;files&quot;, &quot;cmd&quot;, and &quot;all&quot; are still accepted.</span>
-<span class="s">        use_subprocess: If True, run subagent in subprocess for output isolation.</span>
-<span class="s">            Subprocess mode captures stdout/stderr separately from the parent.</span>
-<span class="s">        use_acp: If True, run subagent via ACP (Agent Client Protocol).</span>
-<span class="s">            This enables multi-harness support — the subagent can be any</span>
-<span class="s">            ACP-compatible agent (gptme, Claude Code, Cursor, etc.).</span>
-<span class="s">            Requires the ``acp`` package: pip install &#39;gptme[acp]&#39;.</span>
-<span class="s">        acp_command: ACP agent command to invoke (default: &quot;gptme-acp&quot;).</span>
-<span class="s">            Only used when use_acp=True. Can be any ACP-compatible CLI.</span>
-<span class="s">        profile: Agent profile name to apply. Profiles provide:</span>
-<span class="s">            - System prompt customization (behavioral hints)</span>
-<span class="s">            - Tool access restrictions (which tools the subagent can use)</span>
-<span class="s">            - Behavior rules (read-only, no-network, etc.)</span>
-<span class="s">            Use &#39;gptme-util profile list&#39; to see available profiles.</span>
-<span class="s">            Built-in profiles: default, explorer, researcher, developer, verifier, isolated, computer-use, browser-use.</span>
-<span class="s">            If not set, auto-detected from agent_id when it matches a profile name.</span>
-<span class="s">        model: Model to use for the subagent. Overrides parent&#39;s model.</span>
-<span class="s">            Useful for routing cheap tasks to faster/cheaper models.</span>
-<span class="s">        isolated: If True, run the subagent in a git worktree for filesystem</span>
-<span class="s">            isolation. The subagent gets its own copy of the repository and</span>
-<span class="s">            can modify files without affecting the parent. The worktree is</span>
-<span class="s">            automatically cleaned up after the subagent completes.</span>
-<span class="s">            Falls back to a temporary directory if not in a git repo.</span>
-<span class="s">        timeout: Maximum seconds before the subprocess monitor kills the</span>
-<span class="s">            subagent (default 1800 = 30 min). Only applies to subprocess mode.</span>
-
-<span class="s">    Returns:</span>
-<span class="s">        None: Starts asynchronous execution.</span>
-<span class="s">            In executor mode, starts a single task execution.</span>
-<span class="s">            In planner mode, starts execution of all subtasks using the specified execution_mode.</span>
-
-<span class="s">            Executors use the `complete` tool to signal completion with a summary.</span>
-<span class="s">            The full conversation log is available at the logdir path.</span>
-
 <span class="s">subagent_cancel(agent_id: str) -&gt; str: Cancel a running subagent.</span>
-
-<span class="s">    For subprocess-mode subagents, sends SIGTERM (then SIGKILL after 5s) to the</span>
-<span class="s">    process. For thread-mode subagents, marks the result as cancelled — the thread</span>
-<span class="s">    continues until its next natural checkpoint but the result is already recorded</span>
-<span class="s">    as failure so callers won&#39;t block waiting for it.</span>
-
-<span class="s">    Args:</span>
-<span class="s">        agent_id: The subagent to cancel</span>
-
-<span class="s">    Returns:</span>
-<span class="s">        A human-readable status message</span>
-
 <span class="s">subagent_status(agent_id: str) -&gt; dict: Returns the status of a subagent.</span>
 <span class="s">subagent_wait(agent_id: str, timeout: int) -&gt; dict: Waits for a subagent to finish.</span>
-
-<span class="s">    Args:</span>
-<span class="s">        agent_id: The subagent to wait for</span>
-<span class="s">        timeout: Maximum seconds to wait (default 60)</span>
-
-<span class="s">    Returns:</span>
-<span class="s">        Status dict with &#39;status&#39; and &#39;result&#39; keys</span>
-
 <span class="s">subagent_read_log(agent_id: str, max_messages: int, include_system: bool, message_filter: Union[str, None]) -&gt; str: Read the conversation log of a subagent.</span>
-
-<span class="s">    Args:</span>
-<span class="s">        agent_id: The subagent to read logs from</span>
-<span class="s">        max_messages: Maximum number of messages to return</span>
-<span class="s">        include_system: Whether to include system messages</span>
-<span class="s">        message_filter: Filter messages by role (user/assistant/system) or None for all</span>
-
-<span class="s">    Returns:</span>
-<span class="s">        Formatted log output showing the conversation</span>
-
 <span class="s">subagent_batch(tasks: list[tuple[str, str]], use_subprocess: bool, use_acp: bool, acp_command: str) -&gt; BatchJob: Start multiple subagents in parallel and return a BatchJob to manage them.</span>
-
-<span class="s">    This is a convenience function for fire-and-gather patterns where you want</span>
-<span class="s">    to run multiple independent tasks concurrently.</span>
-
-<span class="s">    With the hook-based notification system, completion messages are delivered</span>
-<span class="s">    automatically via the LOOP_CONTINUE hook. The BatchJob provides additional</span>
-<span class="s">    utilities for explicit synchronization when needed.</span>
-
-<span class="s">    Args:</span>
-<span class="s">        tasks: List of (agent_id, prompt) tuples</span>
-<span class="s">        use_subprocess: If True, run subagents in subprocesses for output isolation</span>
-<span class="s">        use_acp: If True, run subagents via ACP protocol</span>
-<span class="s">        acp_command: ACP agent command (default: &quot;gptme-acp&quot;)</span>
-
-<span class="s">    Returns:</span>
-<span class="s">        A BatchJob instance for managing the parallel subagents.</span>
-<span class="s">        The BatchJob provides wait_all(timeout) to wait for completion,</span>
-<span class="s">        is_complete() to check status, and get_completed() for partial results.</span>
-
-<span class="s">    Example::</span>
-
-<span class="s">        job = subagent_batch([</span>
-<span class="s">            (&quot;impl&quot;, &quot;Implement feature X&quot;),</span>
-<span class="s">            (&quot;test&quot;, &quot;Write tests for feature X&quot;),</span>
-<span class="s">            (&quot;docs&quot;, &quot;Document feature X&quot;),</span>
-<span class="s">        ])</span>
-<span class="s">        # Orchestrator continues with other work...</span>
-<span class="s">        # Completion messages delivered via LOOP_CONTINUE hook:</span>
-<span class="s">        #   &quot;✅ Subagent &#39;impl&#39; completed: Feature implemented&quot;</span>
-<span class="s">        #   &quot;✅ Subagent &#39;test&#39; completed: 5 tests added&quot;</span>
-<span class="s">        #</span>
-<span class="s">        # Or explicitly wait for all if needed:</span>
-<span class="s">        results = job.wait_all(timeout=300)</span>
-
 <span class="sb">```</span>
 
 <span class="gu">### Examples</span>
@@ -2649,7 +2387,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 15398</p>
+<p>Tokens: 12979</p>
 </dd></dl>
 
 <dl class="py function">
