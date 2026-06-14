@@ -300,6 +300,16 @@ class TestExecutePatchAnchored:
         msgs = _collect(execute_patch_anchored("not json!", None, {"path": str(f)}))
         assert "invalid json" in msgs[0].lower() or "patch_anchored" in msgs[0].lower()
 
+    def test_invalid_op_rejected(self, tmp_path: Path) -> None:
+        f = tmp_path / "file.txt"
+        f.write_text("hello\n")
+        anchors = self._anchors_for(f.read_text())
+        ops = json.dumps([{"anchor": anchors[0].anchor, "op": "append"}])
+        msgs = _collect(execute_patch_anchored(ops, None, {"path": str(f)}))
+        assert "invalid field 'op'" in msgs[0].lower()
+        assert "append" in msgs[0]
+        assert f.read_text() == "hello\n"
+
     def test_nonexistent_file(self, tmp_path: Path) -> None:
         ops = '[{"anchor": "a:1", "op": "delete"}]'
         msgs = _collect(
