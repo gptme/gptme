@@ -594,8 +594,25 @@ def llm():
     show_default=True,
     help="System message to prepend.",
 )
+@click.option(
+    "--max-tokens",
+    type=int,
+    default=None,
+    help="Maximum number of tokens to generate.",
+)
+@click.option(
+    "--temperature",
+    type=float,
+    default=None,
+    help="Sampling temperature (0.0=deterministic, higher=more creative).",
+)
 def llm_generate(
-    prompt: str | None, model: str | None, stream: bool, system_prompt: str
+    prompt: str | None,
+    model: str | None,
+    stream: bool,
+    system_prompt: str,
+    max_tokens: int | None,
+    temperature: float | None,
 ):
     """Generate a response from an LLM without any formatting."""
 
@@ -616,10 +633,14 @@ def llm_generate(
         print("Error: Empty prompt provided.", file=sys.stderr)
         sys.exit(1)
 
-    # Validate empty model before initialization (before redirect_stderr
-    # so Click can print the UsageError to real stderr, not the captured sink)
+    # Validate parameters before initialization (before redirect_stderr
+    # so Click can print errors to real stderr, not the captured sink)
     if model is not None and not model.strip():
         raise click.UsageError("Model name cannot be empty.")
+    if max_tokens is not None and max_tokens <= 0:
+        raise click.UsageError("--max-tokens must be a positive integer.")
+    if temperature is not None and not (0.0 <= temperature <= 2.0):
+        raise click.UsageError("--temperature must be between 0.0 and 2.0.")
 
     # Capture stderr to suppress console output during initialization
     stderr_capture = io.StringIO()
@@ -667,12 +688,16 @@ def llm_generate(
     try:
         if stream:
             # Stream response directly to stdout
-            for chunk in _stream(messages, model, None):
+            for chunk in _stream(
+                messages, model, None, max_tokens=max_tokens, temperature=temperature
+            ):
                 print(chunk, end="", flush=True)
             print()  # Final newline
         else:
             # Get complete response and print it
-            response, _ = _chat_complete(messages, model, None)
+            response, _ = _chat_complete(
+                messages, model, None, max_tokens=max_tokens, temperature=temperature
+            )
             print(response)
     except Exception as e:
         print(f"Error generating response: {e}", file=sys.stderr)
