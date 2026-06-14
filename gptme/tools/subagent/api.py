@@ -486,6 +486,55 @@ def subagent(
         t.start()
 
 
+def subagent_cancel(agent_id: str) -> str:
+    """Cancel a running subagent.
+
+    For subprocess-mode subagents, sends SIGTERM (then SIGKILL after 5s) to the
+    process. For thread-mode subagents, marks the result as cancelled — the thread
+    continues until its next natural checkpoint but the result is already recorded
+    as failure so callers won't block waiting for it.
+
+    Args:
+        agent_id: The subagent to cancel
+
+    Returns:
+        A human-readable status message
+    """
+    with _subagents_lock:
+        sa = next((s for s in _subagents if s.agent_id == agent_id), None)
+
+    if sa is None:
+        raise ValueError(f"Subagent with ID {agent_id} not found.")
+
+    if not sa.is_running():
+        return f"Subagent '{agent_id}' is not running (already finished)."
+
+    if sa.execution_mode == "subprocess" and sa.process:
+        sa.process.terminate()
+        try:
+            sa.process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            sa.process.kill()
+            sa.process.wait()
+        with _subagent_results_lock:
+            _subagent_results[agent_id] = ReturnType(
+                "failure", "Cancelled by orchestrator"
+            )
+        logger.info(f"Subagent '{agent_id}' subprocess terminated.")
+        return f"Subagent '{agent_id}' cancelled."
+    # Thread/ACP mode: threads cannot be forcefully stopped in Python.
+    # Mark the result so the orchestrator sees it as cancelled immediately.
+    with _subagent_results_lock:
+        _subagent_results[agent_id] = ReturnType("failure", "Cancelled by orchestrator")
+    logger.info(
+        f"Subagent '{agent_id}' marked cancelled (thread will stop at next checkpoint)."
+    )
+    return (
+        f"Subagent '{agent_id}' marked as cancelled. "
+        "The background thread will stop at its next natural checkpoint."
+    )
+
+
 def subagent_status(agent_id: str) -> dict:
     """Returns the status of a subagent."""
     with _subagents_lock:

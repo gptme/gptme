@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from gptme.tools.subagent.api import subagent_cancel
 from gptme.tools.subagent.batch import BatchJob
 from gptme.tools.subagent.hooks import (
     _get_complete_instruction,
@@ -21,6 +22,11 @@ from gptme.tools.subagent.types import (
     ReturnType,
     Subagent,
     _completion_queue,
+    _subagent_results,
+    _subagent_results_lock,
+    _subagents,
+    _subagents_lock,
+    resolve_role_defaults,
 )
 
 # ---------------------------------------------------------------------------
@@ -262,3 +268,144 @@ class TestBatchJob:
     def test_get_completed_empty(self):
         job = BatchJob(agent_ids=["x"])
         assert job.get_completed() == {}
+
+
+# ---------------------------------------------------------------------------
+# resolve_role_defaults tests
+# ---------------------------------------------------------------------------
+
+
+class TestResolveRoleDefaults:
+    def test_none_role_returns_false_defaults(self):
+        use_sub, use_iso, profile = resolve_role_defaults(None)
+        assert use_sub is False
+        assert use_iso is False
+        assert profile is None
+
+    def test_none_role_respects_explicit_subprocess(self):
+        use_sub, use_iso, profile = resolve_role_defaults(
+            None, explicit_use_subprocess=True
+        )
+        assert use_sub is True
+        assert profile is None
+
+    def test_none_role_respects_explicit_isolated(self):
+        use_sub, use_iso, profile = resolve_role_defaults(None, explicit_isolated=True)
+        assert use_iso is True
+
+    def test_explore_role_sets_explorer_profile(self):
+        use_sub, use_iso, profile = resolve_role_defaults("explore")
+        assert profile == "explorer"
+        assert use_sub is False
+        assert use_iso is False
+
+    def test_implement_role_sets_developer_profile(self):
+        use_sub, use_iso, profile = resolve_role_defaults("implement")
+        assert profile == "developer"
+        assert use_sub is False
+        assert use_iso is False
+
+    def test_general_role_sets_default_profile(self):
+        _, _, profile = resolve_role_defaults("general")
+        assert profile == "default"
+
+    def test_verify_role_enables_subprocess_and_isolated(self):
+        use_sub, use_iso, profile = resolve_role_defaults("verify")
+        assert use_sub is True
+        assert use_iso is True
+        assert profile == "verifier"
+
+    def test_explicit_args_override_verify_role_defaults(self):
+        use_sub, use_iso, profile = resolve_role_defaults(
+            "verify",
+            explicit_use_subprocess=False,
+            explicit_isolated=False,
+        )
+        assert use_sub is False
+        assert use_iso is False
+        assert profile == "verifier"
+
+    def test_explicit_subprocess_true_overrides_explore_default(self):
+        use_sub, use_iso, _ = resolve_role_defaults(
+            "explore", explicit_use_subprocess=True
+        )
+        assert use_sub is True
+
+    def test_explicit_isolated_true_overrides_implement_default(self):
+        _, use_iso, _ = resolve_role_defaults("implement", explicit_isolated=True)
+        assert use_iso is True
+
+
+# ---------------------------------------------------------------------------
+# subagent_cancel tests
+# ---------------------------------------------------------------------------
+
+
+class TestSubagentCancel:
+    _logdir = Path("/tmp/test-log")
+
+    def setup_method(self):
+        """Clear global subagent registry before each test."""
+        with _subagents_lock:
+            _subagents.clear()
+        with _subagent_results_lock:
+            _subagent_results.clear()
+
+    def _register(self, agent_id: str, **kwargs) -> Subagent:
+        sa = Subagent(
+            agent_id=agent_id,
+            prompt="test",
+            thread=kwargs.get("thread"),
+            logdir=self._logdir,
+            model=None,
+            process=kwargs.get("process"),
+            execution_mode=kwargs.get("execution_mode", "thread"),
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+        return sa
+
+    def test_cancel_unknown_raises(self):
+        with pytest.raises(ValueError, match="not found"):
+            subagent_cancel("nonexistent")
+
+    def test_cancel_finished_subagent(self):
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = False
+        self._register("done-agent", thread=mock_thread)
+        result = subagent_cancel("done-agent")
+        assert "not running" in result
+
+    def test_cancel_subprocess_terminates_process(self):
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None  # still running
+        mock_proc.wait.return_value = 0
+        self._register("proc-agent", process=mock_proc, execution_mode="subprocess")
+        result = subagent_cancel("proc-agent")
+        mock_proc.terminate.assert_called_once()
+        assert "cancelled" in result.lower()
+        with _subagent_results_lock:
+            assert _subagent_results["proc-agent"].status == "failure"
+            assert "Cancelled" in (_subagent_results["proc-agent"].result or "")
+
+    def test_cancel_subprocess_kills_on_timeout(self):
+        import subprocess as _subprocess
+
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        mock_proc.wait.side_effect = [
+            _subprocess.TimeoutExpired(cmd="gptme", timeout=5),
+            0,
+        ]
+        self._register("slow-proc", process=mock_proc, execution_mode="subprocess")
+        subagent_cancel("slow-proc")
+        mock_proc.kill.assert_called_once()
+
+    def test_cancel_thread_marks_result(self):
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = True
+        self._register("thread-agent", thread=mock_thread)
+        result = subagent_cancel("thread-agent")
+        assert "cancelled" in result.lower()
+        with _subagent_results_lock:
+            assert _subagent_results["thread-agent"].status == "failure"

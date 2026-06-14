@@ -13,7 +13,13 @@ Package structure:
 # Re-export public API for backward compatibility
 # Re-export ToolUse for examples()
 from ..base import ToolFunction, ToolSpec, ToolUse
-from .api import subagent, subagent_read_log, subagent_status, subagent_wait
+from .api import (
+    subagent,
+    subagent_cancel,
+    subagent_read_log,
+    subagent_status,
+    subagent_wait,
+)
 from .batch import BatchJob, subagent_batch
 from .hooks import (
     _get_complete_instruction,
@@ -227,6 +233,7 @@ Key features:
 - acp_command="claude-code-acp": Use a different ACP agent (default: gptme-acp)
 - isolated=True: Run subagent in a git worktree for filesystem isolation
 - subagent_batch(): Start multiple subagents in parallel
+- subagent_cancel(): Cancel a running subagent (SIGTERM for subprocess, marks result for threads)
 - Hook-based notifications: Completions delivered as system messages
 
 ## Agent Profiles for Subagents
@@ -281,6 +288,7 @@ tool = ToolSpec(
         ToolFunction.from_callable(f)
         for f in [
             subagent,
+            subagent_cancel,
             subagent_status,
             subagent_wait,
             subagent_read_log,
@@ -301,6 +309,7 @@ __doc__ = tool.get_doc(__doc__)
 __all__ = [
     # Public API
     "subagent",
+    "subagent_cancel",
     "subagent_status",
     "subagent_wait",
     "subagent_read_log",
