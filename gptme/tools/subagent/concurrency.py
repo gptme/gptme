@@ -31,21 +31,21 @@ def _max_concurrent() -> int:
             logger.warning(
                 f"Ignoring invalid GPTME_SUBAGENT_MAX_CONCURRENT={env_val!r}: {e}"
             )
-    config_mc: int | None = None
     try:
         from gptme.config import get_config
 
         project = get_config().project
         if project is not None:
-            config_mc = project.subagent.max_concurrent
+            mc = project.subagent.max_concurrent
+            if mc is not None:
+                if mc < 1:
+                    logger.warning(
+                        f"Ignoring invalid [subagent] max_concurrent={mc!r}: must be >= 1"
+                    )
+                else:
+                    return mc
     except Exception:
         pass
-    if config_mc is not None:
-        if config_mc < 1:
-            raise ValueError(
-                f"[subagent] max_concurrent in gptme.toml must be >= 1, got {config_mc}"
-            )
-        return config_mc
     return min(8, os.cpu_count() or 2)
 
 
@@ -61,6 +61,8 @@ def get_slot_sem() -> threading.BoundedSemaphore:
 def _reset_slot_sem(max_concurrent: int | None = None) -> None:
     """Reset the semaphore (for testing only)."""
     global _slot_sem
+    if max_concurrent is not None and max_concurrent < 1:
+        raise ValueError(f"max_concurrent must be >= 1, got {max_concurrent}")
     with _slot_sem_lock:
         _slot_sem = (
             threading.BoundedSemaphore(max_concurrent)

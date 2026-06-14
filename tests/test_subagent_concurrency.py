@@ -54,6 +54,36 @@ class TestMaxConcurrent:
         val = _max_concurrent()
         assert val >= 1, "negative env var must not produce a deadlocking semaphore"
 
+    def test_config_zero_falls_back_to_default(self, monkeypatch):
+        """Config max_concurrent=0 must warn and fall back to default, not deadlock."""
+        monkeypatch.delenv("GPTME_SUBAGENT_MAX_CONCURRENT", raising=False)
+        from unittest.mock import MagicMock, patch
+
+        mock_project = MagicMock()
+        mock_project.subagent.max_concurrent = 0
+        mock_config = MagicMock()
+        mock_config.project = mock_project
+        with patch("gptme.config.get_config", return_value=mock_config):
+            val = _max_concurrent()
+        assert val >= 1, (
+            "config max_concurrent=0 must not produce a deadlocking semaphore"
+        )
+
+    def test_config_negative_falls_back_to_default(self, monkeypatch):
+        """Config max_concurrent=-1 must warn and fall back to default."""
+        monkeypatch.delenv("GPTME_SUBAGENT_MAX_CONCURRENT", raising=False)
+        from unittest.mock import MagicMock, patch
+
+        mock_project = MagicMock()
+        mock_project.subagent.max_concurrent = -1
+        mock_config = MagicMock()
+        mock_config.project = mock_project
+        with patch("gptme.config.get_config", return_value=mock_config):
+            val = _max_concurrent()
+        assert val >= 1, (
+            "config max_concurrent=-1 must not raise into background threads"
+        )
+
 
 class TestGetSlotSem:
     def test_returns_bounded_semaphore(self):
@@ -70,6 +100,16 @@ class TestGetSlotSem:
         _reset_slot_sem()
         sem2 = get_slot_sem()
         assert sem1 is not sem2
+
+    def test_reset_zero_raises(self):
+        """_reset_slot_sem(0) must raise to prevent creating a deadlocking semaphore."""
+        with pytest.raises(ValueError, match="must be >= 1"):
+            _reset_slot_sem(0)
+
+    def test_reset_negative_raises(self):
+        """_reset_slot_sem(-1) must raise."""
+        with pytest.raises(ValueError, match="must be >= 1"):
+            _reset_slot_sem(-1)
 
     def test_reset_with_explicit_count(self, monkeypatch):
         monkeypatch.delenv("GPTME_SUBAGENT_MAX_CONCURRENT", raising=False)
