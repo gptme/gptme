@@ -481,8 +481,7 @@ def _linux_scroll(
     if button is None:
         raise ValueError(f"Invalid scroll direction: {direction!r}")
     _run_xdotool(f"mousemove --sync {x} {y}", display)
-    for _ in range(amount):
-        _run_xdotool(f"click {button}", display)
+    _run_xdotool(f"click --repeat {amount} {button}", display)
 
 
 def _macos_scroll(x: int, y: int, direction: str, amount: int = 3) -> None:
@@ -649,8 +648,9 @@ def _dispatch_transport(
                 "text (direction: up/down/left/right) is required for scroll"
             )
         x, y = coordinate
-        transport.scroll(x, y, text)
-        print(f"Scrolled {text} at {x},{y}")
+        direction = text.lower()
+        transport.scroll(x, y, direction)
+        print(f"Scrolled {direction} at {x},{y}")
         return None
 
     if action == "screenshot":

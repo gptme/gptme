@@ -919,13 +919,12 @@ def test_linux_scroll_down_calls_xdotool():
     with mock.patch("gptme.tools.computer._run_xdotool", side_effect=fake_xdotool):
         _linux_scroll(100, 200, "down", ":1", amount=3)
 
-    # First call should be mousemove, then 3 click 5 calls
+    # First call should be mousemove, then a single click --repeat 3 5
     assert calls[0].startswith("mousemove")
     click_calls = [c for c in calls if c.startswith("click")]
-    assert all("5" in c for c in click_calls), (
-        f"Expected button 5 (scroll down), got: {click_calls}"
-    )
-    assert len(click_calls) == 3
+    assert len(click_calls) == 1
+    assert "--repeat 3" in click_calls[0], f"Expected --repeat 3, got: {click_calls}"
+    assert "5" in click_calls[0], f"Expected button 5 (scroll down), got: {click_calls}"
 
 
 def test_linux_scroll_up_calls_xdotool():
@@ -940,10 +939,9 @@ def test_linux_scroll_up_calls_xdotool():
         _linux_scroll(100, 200, "up", ":1", amount=2)
 
     click_calls = [c for c in calls if c.startswith("click")]
-    assert all("4" in c for c in click_calls), (
-        f"Expected button 4 (scroll up), got: {click_calls}"
-    )
-    assert len(click_calls) == 2
+    assert len(click_calls) == 1
+    assert "--repeat 2" in click_calls[0], f"Expected --repeat 2, got: {click_calls}"
+    assert "4" in click_calls[0], f"Expected button 4 (scroll up), got: {click_calls}"
 
 
 def test_linux_scroll_invalid_direction():
