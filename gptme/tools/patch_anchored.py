@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 _SEPARATOR = "│"
+_VALID_OPERATIONS = {"replace", "delete", "insert_before", "insert_after"}
 
 
 def _render_anchored(path: Path, text: str) -> str:
@@ -216,6 +217,11 @@ def _parse_ops(ops_json: str) -> list[EditOperation]:
             raise ValueError(f"Operation {i} missing required field 'anchor'")
         if not op:
             raise ValueError(f"Operation {i} missing required field 'op'")
+        if op not in _VALID_OPERATIONS:
+            allowed = ", ".join(sorted(_VALID_OPERATIONS))
+            raise ValueError(
+                f"Operation {i} has invalid field 'op': {op!r}. Expected one of: {allowed}"
+            )
         ops.append(
             EditOperation(
                 anchor=anchor,

@@ -122,6 +122,10 @@ class TestParseOps:
         with pytest.raises(ValueError, match="op"):
             _parse_ops('[{"anchor": "a:1", "text": "x"}]')
 
+    def test_invalid_op(self) -> None:
+        with pytest.raises(ValueError, match="invalid field 'op'"):
+            _parse_ops('[{"anchor": "a:1", "op": "append", "text": "x"}]')
+
 
 # ---------------------------------------------------------------------------
 # execute_view_anchored
@@ -132,8 +136,6 @@ class TestExecuteViewAnchored:
     def test_renders_file_with_anchors(self, tmp_path: Path) -> None:
         f = tmp_path / "sample.py"
         f.write_text("alpha\nbeta\ngamma\n")
-        msgs = _collect(execute_view_anchored("", ["str(f)"], None))
-        # Use kwargs interface for reliability
         msgs = _collect(execute_view_anchored("", None, {"path": str(f)}))
         assert len(msgs) == 1
         rendered = msgs[0]
