@@ -54,6 +54,7 @@ Mouse:
 Screen:
     - screenshot: Take and view a screenshot
     - cursor_position: Get current mouse position
+    - wait_for_change: Poll until screen changes, then return one screenshot
 
 The tool automatically handles screen resolution scaling to ensure optimal performance
 with LLM vision capabilities.
@@ -79,6 +80,7 @@ import platform
 import shlex
 import shutil
 import subprocess
+import time
 from enum import Enum
 from typing import TYPE_CHECKING, Literal, TypedDict
 
@@ -119,6 +121,30 @@ def _make_screenshot_msg(path: Path, tool: str = "computer") -> Message | None:
     return dataclasses.replace(msg, metadata=existing)
 
 
+def _compute_change_ratio(path1: Path, path2: Path) -> float:
+    """Return fraction of pixels that differ between two screenshots (0.0–1.0).
+
+    Uses Pillow's pixel-level comparison after converting to a consistent mode.
+    Returns 0.0 if images can't be compared (mismatched sizes, load errors).
+    """
+    try:
+        from PIL import Image, ImageChops
+
+        img1 = Image.open(path1).convert("RGB")
+        img2 = Image.open(path2).convert("RGB")
+        if img1.size != img2.size:
+            return 0.0
+        diff = ImageChops.difference(img1, img2)
+        total_pixels = img1.width * img1.height
+        raw = diff.tobytes()  # 3 bytes per pixel for RGB
+        nonzero = sum(
+            1 for i in range(0, len(raw), 3) if raw[i] or raw[i + 1] or raw[i + 2]
+        )
+        return nonzero / total_pixels
+    except Exception:
+        return 0.0
+
+
 # Constants from Anthropic's implementation
 TYPING_DELAY_MS = 12
 TYPING_GROUP_SIZE = 50
@@ -135,6 +161,7 @@ Action = Literal[
     "scroll",
     "screenshot",
     "cursor_position",
+    "wait_for_change",
 ]
 
 ScrollDirection = Literal["up", "down", "left", "right"]
@@ -666,6 +693,24 @@ def _dispatch_transport(
         print(f"Cursor position: X={x},Y={y}")
         return None
 
+    if action == "wait_for_change":
+        timeout = float(text) if text else 10.0
+        poll_interval = 0.5
+        change_threshold = 0.01
+        baseline = transport.screenshot()
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            time.sleep(poll_interval)
+            current = transport.screenshot()
+            ratio = _compute_change_ratio(baseline, current)
+            if ratio >= change_threshold:
+                print(f"Screen changed ({ratio:.1%} pixels differ)")
+                return _make_screenshot_msg(current)
+        print(
+            f"No screen change detected after {timeout:.0f}s — returning current screenshot"
+        )
+        return _make_screenshot_msg(transport.screenshot())
+
     raise ValueError(f"Invalid action: {action}")
 
 
@@ -887,6 +932,62 @@ def computer(
         x, y = _scale_coordinates(_ScalingSource.COMPUTER, x, y, width, height)
         print(f"Cursor position: X={x},Y={y}")
         return None
+    if action == "wait_for_change":
+        # text holds the optional timeout (seconds) as a string; default 10s
+        timeout = float(text) if text else 10.0
+        poll_interval = 0.5
+        change_threshold = 0.01  # 1% of pixels must differ
+        baseline = screenshot()
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            time.sleep(poll_interval)
+            current = screenshot()
+            ratio = _compute_change_ratio(baseline, current)
+            if ratio >= change_threshold:
+                print(f"Screen changed ({ratio:.1%} pixels differ)")
+                path = current
+                if path.exists():
+                    try:
+                        subprocess.run(
+                            [
+                                "convert",
+                                str(path),
+                                "-resize",
+                                f"{width}x{height}!",
+                                str(path),
+                            ],
+                            check=True,
+                            capture_output=True,
+                            text=True,
+                            timeout=30,
+                        )
+                    except (
+                        subprocess.CalledProcessError,
+                        subprocess.TimeoutExpired,
+                        FileNotFoundError,
+                    ):
+                        pass
+                return _make_screenshot_msg(path)
+        print(
+            f"No screen change detected after {timeout:.0f}s — returning current screenshot"
+        )
+        path = screenshot()
+        if path.exists():
+            try:
+                subprocess.run(
+                    ["convert", str(path), "-resize", f"{width}x{height}!", str(path)],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+            except (
+                subprocess.CalledProcessError,
+                subprocess.TimeoutExpired,
+                FileNotFoundError,
+            ):
+                pass
+        return _make_screenshot_msg(path)
     raise ValueError(f"Invalid action: {action}")
 
 
@@ -1027,6 +1128,23 @@ Available actions:
 - scroll: Scroll the mouse wheel at coordinates (text="up"/"down"/"left"/"right")
 - screenshot: Take and view a screenshot
 - cursor_position: Get current mouse position
+- wait_for_change: Wait until the screen changes, then return a single screenshot.
+  Loops internally until ≥1% of pixels differ from the initial capture, or the
+  timeout (text="<seconds>", default 10) elapses. Returns one screenshot regardless
+  of how many internal polls were needed — avoids stacking redundant screenshots in
+  the conversation context. Use after triggering an action that produces a visual
+  response (page load, dialog open, animation finish).
+
+### Efficient action-verify loops
+
+Prefer wait_for_change over immediate screenshot after triggering UI changes:
+
+  computer("left_click", coordinate=(760, 540))  # trigger action
+  computer("wait_for_change", text="5")           # wait for response, see result once
+
+This prevents the conversation from accumulating multiple nearly-identical
+screenshots during transitions. Only call screenshot() directly when you need
+the current state without waiting.
 
 Note: Key names are automatically mapped between platforms.
 Common modifiers (ctrl, alt, cmd/super, shift) work consistently across platforms.
@@ -1070,6 +1188,14 @@ User: Scroll down in the page at (512, 400)
 Assistant: I'll scroll down at those coordinates.
 {ToolUse("ipython", [], 'computer("scroll", coordinate=(512, 400), text="down")').to_output(tool_format)}
 System: Scrolled down at 512,400
+
+User: Click the Submit button then wait for the result page to load
+Assistant: I'll click Submit and wait for the screen to change before returning a screenshot.
+{ToolUse("ipython", [], 'computer("left_click", coordinate=(760, 540))').to_output(tool_format)}
+System: Performed left_click
+{ToolUse("ipython", [], 'computer("wait_for_change", text="10")').to_output(tool_format)}
+System: Screen changed (23.4% pixels differ)
+Viewing image...
 """
 
     # Platform-specific keyboard shortcut examples

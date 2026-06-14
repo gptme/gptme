@@ -998,3 +998,159 @@ def test_computer_scroll_invalid_direction(mock_res):
     """computer('scroll') raises ValueError for an invalid direction string."""
     with pytest.raises(ValueError, match="Invalid scroll direction"):
         computer("scroll", text="sideways", coordinate=(512, 400))
+
+
+# ============================================================
+# _compute_change_ratio tests
+# ============================================================
+
+import tempfile
+from pathlib import Path
+
+from gptme.tools.computer import _compute_change_ratio
+
+
+def _make_png(color: tuple[int, int, int], size: tuple[int, int] = (100, 100)) -> Path:
+    """Create a temporary solid-colour PNG and return its path."""
+    from PIL import Image
+
+    img = Image.new("RGB", size, color)
+    f = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+    img.save(f.name)
+    f.close()
+    return Path(f.name)
+
+
+def test_compute_change_ratio_identical():
+    """Two identical images → 0% change."""
+    p = _make_png((100, 150, 200))
+    try:
+        assert _compute_change_ratio(p, p) == 0.0
+    finally:
+        p.unlink(missing_ok=True)
+
+
+def test_compute_change_ratio_totally_different():
+    """Completely different colours → 100% change."""
+    p1 = _make_png((0, 0, 0))
+    p2 = _make_png((255, 255, 255))
+    try:
+        ratio = _compute_change_ratio(p1, p2)
+        assert ratio == pytest.approx(1.0)
+    finally:
+        p1.unlink(missing_ok=True)
+        p2.unlink(missing_ok=True)
+
+
+def test_compute_change_ratio_partial():
+    """Half-black / half-white images → ~50% change."""
+    from PIL import Image
+
+    size = (100, 100)
+    img1 = Image.new("RGB", size, (0, 0, 0))
+    img2 = Image.new("RGB", size, (0, 0, 0))
+    # Paint the right half of img2 white
+    for x in range(50, 100):
+        for y in range(100):
+            img2.putpixel((x, y), (255, 255, 255))
+
+    f1 = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+    f2 = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+    img1.save(f1.name)
+    img2.save(f2.name)
+    f1.close()
+    f2.close()
+    p1, p2 = Path(f1.name), Path(f2.name)
+    try:
+        ratio = _compute_change_ratio(p1, p2)
+        assert 0.45 < ratio < 0.55
+    finally:
+        p1.unlink(missing_ok=True)
+        p2.unlink(missing_ok=True)
+
+
+def test_compute_change_ratio_missing_file():
+    """A missing file path returns 0.0 (no crash)."""
+    p = Path("/nonexistent/path.png")
+    assert _compute_change_ratio(p, p) == 0.0
+
+
+def test_compute_change_ratio_mismatched_sizes():
+    """Images with different sizes return 0.0 (uncomparable)."""
+    p1 = _make_png((0, 0, 0), size=(100, 100))
+    p2 = _make_png((255, 0, 0), size=(200, 200))
+    try:
+        assert _compute_change_ratio(p1, p2) == 0.0
+    finally:
+        p1.unlink(missing_ok=True)
+        p2.unlink(missing_ok=True)
+
+
+# ============================================================
+# wait_for_change action tests (unit — mocks screenshot/time)
+# ============================================================
+
+_MOCK_LINUX_RES_WFC = (1920, 1080)
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", False)
+@mock.patch(
+    "gptme.tools.computer._get_display_resolution", return_value=_MOCK_LINUX_RES_WFC
+)
+@mock.patch("gptme.tools.computer.get_transport", return_value=None)
+def test_wait_for_change_detects_change(mock_transport, mock_res, tmp_path):
+    """wait_for_change returns a message when the screen changes."""
+    from PIL import Image
+
+    def _solid(color):
+        p = tmp_path / f"{color}.png"
+        Image.new("RGB", (100, 100), color).save(p)
+        return p
+
+    baseline = _solid((0, 0, 0))
+    changed = _solid((255, 255, 255))
+
+    call_count = {"n": 0}
+
+    def _fake_screenshot():
+        call_count["n"] += 1
+        return baseline if call_count["n"] == 1 else changed
+
+    with (
+        mock.patch("gptme.tools.computer.screenshot", side_effect=_fake_screenshot),
+        mock.patch("gptme.tools.computer.time.sleep"),
+        mock.patch(
+            "gptme.tools.computer._make_screenshot_msg", return_value=mock.sentinel.msg
+        ),
+    ):
+        result = computer("wait_for_change", text="5")
+
+    assert result is mock.sentinel.msg
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", False)
+@mock.patch(
+    "gptme.tools.computer._get_display_resolution", return_value=_MOCK_LINUX_RES_WFC
+)
+@mock.patch("gptme.tools.computer.get_transport", return_value=None)
+def test_wait_for_change_timeout_returns_screenshot(mock_transport, mock_res, tmp_path):
+    """wait_for_change returns a screenshot even when timeout is reached without change."""
+    from PIL import Image
+
+    static = tmp_path / "static.png"
+    Image.new("RGB", (100, 100), (42, 42, 42)).save(static)
+
+    with (
+        mock.patch("gptme.tools.computer.screenshot", return_value=static),
+        mock.patch("gptme.tools.computer.time.sleep"),
+        mock.patch(
+            "gptme.tools.computer.time.monotonic", side_effect=[0.0, 0.0, 100.0]
+        ),
+        mock.patch(
+            "gptme.tools.computer._make_screenshot_msg",
+            return_value=mock.sentinel.timeout_msg,
+        ),
+    ):
+        result = computer("wait_for_change", text="1")
+
+    assert result is mock.sentinel.timeout_msg
