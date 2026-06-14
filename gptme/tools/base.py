@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import importlib
 import importlib.util
 import inspect
@@ -490,7 +491,7 @@ class ToolSpec:
     def get_functions_description(self) -> str:
         # return a prompt with a brief description of the available functions
         if self.functions:
-            description = "The following Python functions are available using the `ipython` tool:\n\n```txt\n"
+            description = "The following Python functions are available:\n\n```txt\n"
             lines = []
             for tf in self.functions:
                 sig = callable_signature(tf.fn)
@@ -498,6 +499,37 @@ class ToolSpec:
                 lines.append(f"{sig}: {doc}")
             return description + "\n".join(lines) + "\n```"
         return "None"
+
+    def as_function_subtoolspecs(self) -> list[ToolSpec]:
+        """Expand each ToolFunction into its own independently invocable ToolSpec.
+
+        Returns one ToolSpec per ToolFunction, each with a direct ``execute``
+        handler that calls ``fn(**kwargs)`` without requiring IPython.
+        Sub-spec names follow the ``<parent>.<function_name>`` pattern, which
+        mirrors the MCP tool naming convention (e.g. ``discord.send_message``).
+
+        This allows agents to invoke helper functions even when the IPython
+        tool is not loaded.
+
+        Example::
+
+            for sub in browser_tool.as_function_subtoolspecs():
+                # sub.name == "browser.view_image" etc.
+                init_tools([sub])
+        """
+        if not self.functions:
+            return []
+        specs = []
+        for tf in self.functions:
+            sub = ToolSpec.from_function(tf.fn)
+            specs.append(
+                dataclasses.replace(
+                    sub,
+                    name=f"{self.name}.{tf.name}",
+                    hints=tf.hints,
+                )
+            )
+        return specs
 
     @classmethod
     def from_function(cls, fn: Callable) -> ToolSpec:
