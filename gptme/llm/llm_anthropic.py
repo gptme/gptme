@@ -558,9 +558,18 @@ def _init_anthropic(
     proxy_url: str | None = None,
     proxy_key: str | None = None,
 ) -> None:
-    global _anthropic, _is_proxy
+    global _anthropic, _is_proxy, _anthropic_gptme, _anthropic_gptme_key
     proxy_key = proxy_key or None
     proxy_url = proxy_url or None
+
+    # Discard the lazily-built gptme gateway client so it rebuilds from current
+    # config on next use. _get_gptme_client only rebuilds when the device token
+    # CHANGES; a mid-session reinit() that switches proxy/timeout config while the
+    # device token stays the same would otherwise leave the gateway client pinned
+    # to the stale base_url/timeout. Resetting here keeps it symmetric with the
+    # primary _anthropic client this function rebuilds. (gptme#2876 follow-up.)
+    _anthropic_gptme = None
+    _anthropic_gptme_key = None
 
     from anthropic import NOT_GIVEN, Anthropic  # fmt: skip
 

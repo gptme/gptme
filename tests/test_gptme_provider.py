@@ -645,3 +645,31 @@ def _mock_config(env: dict[str, str] | None = None):
             raise KeyError(f"Missing environment variable: {key}")
 
     return MockConfig()
+
+
+def test_reinit_invalidates_gptme_gateway_client():
+    """reinit() must discard the lazily-built gptme gateway client so it rebuilds
+    from current config — symmetric with the primary _anthropic client.
+
+    Regression for gptme#2876 follow-up: _get_gptme_client only rebuilds on a
+    device-token CHANGE, so a mid-session reinit() that switches proxy/timeout
+    config (same device token) would otherwise leave the gateway client pinned to
+    the stale base_url/timeout.
+    """
+    from gptme.llm import llm_anthropic
+
+    sentinel = MagicMock(name="stale-gptme-client")
+    llm_anthropic._anthropic_gptme = sentinel
+    llm_anthropic._anthropic_gptme_key = "old-device-token"
+
+    # get_config and Anthropic are imported lazily *inside* _init_anthropic,
+    # so patch them at their source modules.
+    with (
+        patch("gptme.config.get_config", return_value=_mock_config()),
+        patch("anthropic.Anthropic", MagicMock()),
+    ):
+        llm_anthropic.reinit(api_key="new-real-key")
+
+    # The stale gateway client is discarded; next _get_gptme_client() rebuilds it.
+    assert llm_anthropic._anthropic_gptme is None
+    assert llm_anthropic._anthropic_gptme_key is None
