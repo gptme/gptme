@@ -239,6 +239,9 @@ def cmd_snapshot(ctx: CommandContext) -> None:
                     return
                 try:
                     max_entries = int(args[idx])
+                    if max_entries <= 0:
+                        print("snapshot: --max-entries must be a positive integer")
+                        return
                 except ValueError:
                     print(
                         f"snapshot: --max-entries must be an integer, got {args[idx]!r}"

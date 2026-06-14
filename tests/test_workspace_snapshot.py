@@ -335,6 +335,40 @@ def test_prune_by_age_always_keeps_at_least_one(
     assert remaining[0][1] in {"only-snap", "initial"}
 
 
+def test_prune_by_age_preserves_survivor_timestamps(
+    isolated_state_dir, workspace, monkeypatch
+):
+    """A second age-prune should still see survivors as old based on original dates."""
+    base = 1_700_000_000
+
+    def set_git_dates(timestamp: int) -> None:
+        git_date = f"{timestamp} +0000"
+        monkeypatch.setenv("GIT_AUTHOR_DATE", git_date)
+        monkeypatch.setenv("GIT_COMMITTER_DATE", git_date)
+
+    set_git_dates(base)
+    shadow = init_shadow(workspace)
+    for label, days_after_base in (
+        ("snap-5", 5),
+        ("snap-20", 20),
+        ("snap-29", 29),
+    ):
+        set_git_dates(base + days_after_base * 86400)
+        (workspace / f"{label}.txt").write_text(label)
+        snapshot(shadow, label=label)
+
+    monkeypatch.setattr("gptme.workspace_snapshot.time.time", lambda: base + 40 * 86400)
+    assert prune_by_age(shadow, days=30) == 2
+    assert [label for _, label in list_snapshots(shadow, limit=50)] == [
+        "snap-29",
+        "snap-20",
+    ]
+
+    monkeypatch.setattr("gptme.workspace_snapshot.time.time", lambda: base + 60 * 86400)
+    assert prune_by_age(shadow, days=30) == 1
+    assert [label for _, label in list_snapshots(shadow, limit=50)] == ["snap-29"]
+
+
 # --- hook activation gate ---------------------------------------------------
 
 

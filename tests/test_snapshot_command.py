@@ -549,3 +549,12 @@ class TestSnapshotPruneCommand:
         _run_cmd(manager, f"prune --days {value}")
         out = capsys.readouterr().out
         assert "--days must be a positive integer" in out.lower()
+
+    @pytest.mark.parametrize("value", ["0", "-1"])
+    def test_prune_max_entries_requires_positive_integer(
+        self, workspace, isolated_state_dir, capsys, value
+    ):
+        manager = _make_manager(workspace)
+        _run_cmd(manager, f"prune --max-entries {value}")
+        out = capsys.readouterr().out
+        assert "--max-entries must be a positive integer" in out.lower()

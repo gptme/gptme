@@ -54,11 +54,18 @@ class Shadow:
         return e
 
     def run(
-        self, *args: str, check: bool = True, capture: bool = True
+        self,
+        *args: str,
+        check: bool = True,
+        capture: bool = True,
+        env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess:
+        run_env = self.env()
+        if env:
+            run_env.update(env)
         return subprocess.run(
             ["git", *args],
-            env=self.env(),
+            env=run_env,
             cwd=self.workspace,
             check=check,
             text=True,
@@ -218,6 +225,51 @@ def list_snapshots(shadow: Shadow, limit: int = 20) -> list[tuple[str, str]]:
     return out
 
 
+def _git_date_env(timestamp: int) -> dict[str, str]:
+    git_date = f"{timestamp} +0000"
+    return {
+        "GIT_AUTHOR_DATE": git_date,
+        "GIT_COMMITTER_DATE": git_date,
+    }
+
+
+def _rebuild_snapshot_chain(
+    shadow: Shadow, entries: list[tuple[str, str, int]]
+) -> str | None:
+    """Replay kept snapshot commits while preserving their original timestamps."""
+    if not entries:
+        return None
+
+    entries.reverse()
+    first_tree, first_msg, first_ts = entries[0]
+    res = shadow.run(
+        "commit-tree",
+        first_tree,
+        "-m",
+        first_msg,
+        check=False,
+        env=_git_date_env(first_ts),
+    )
+    if res.returncode != 0:
+        return None
+    parent = res.stdout.strip()
+    for tree, msg, ts in entries[1:]:
+        res = shadow.run(
+            "commit-tree",
+            tree,
+            "-p",
+            parent,
+            "-m",
+            msg,
+            check=False,
+            env=_git_date_env(ts),
+        )
+        if res.returncode != 0:
+            return None
+        parent = res.stdout.strip()
+    return parent
+
+
 def restore(shadow: Shadow, snapshot_id: str) -> bool:
     """Restore the workspace tree from ``snapshot_id``.
 
@@ -270,42 +322,35 @@ def prune(shadow: Shadow, keep: int = DEFAULT_MAX_SNAPSHOTS) -> int:
     # can still contain ordinary newlines.
     log_output = shadow.run(
         "log",
-        "--format=%H%x1f%T%x1f%B%x1e",
+        "--format=%H%x1f%T%x1f%ct%x1f%B%x1e",
         f"-{keep}",
         SNAPSHOT_REF,
         check=False,
     )
     if log_output.returncode != 0 or not log_output.stdout.strip():
         return 0
-    entries: list[tuple[str, str]] = []
+    entries: list[tuple[str, str, int]] = []
     for record in log_output.stdout.split("\x1e"):
         record = record.strip()
         if not record:
             continue
-        parts = record.split("\x1f", 2)
-        if len(parts) != 3:
+        parts = record.split("\x1f", 3)
+        if len(parts) != 4:
             continue
-        _, tree, body = parts
+        _, tree, ts_str, body = parts
         tree = tree.strip()
         body = body.strip()
+        try:
+            ts = int(ts_str.strip())
+        except ValueError:
+            continue
         if tree and body:
-            entries.append((tree, body))
+            entries.append((tree, body, ts))
     if not entries:
         return 0
-    # Reverse so we build oldest-of-kept → newest (oldest is entries[-1]).
-    entries.reverse()
-    # Create an orphan root from the oldest kept commit.
-    first_tree, first_msg = entries[0]
-    res = shadow.run("commit-tree", first_tree, "-m", first_msg, check=False)
-    if res.returncode != 0:
+    parent = _rebuild_snapshot_chain(shadow, entries)
+    if parent is None:
         return 0
-    parent = res.stdout.strip()
-    # Chain remaining commits onto the orphan root.
-    for tree, msg in entries[1:]:
-        res = shadow.run("commit-tree", tree, "-p", parent, "-m", msg, check=False)
-        if res.returncode != 0:
-            return 0
-        parent = res.stdout.strip()
     # Point the ref at the new tip.
     reset = shadow.run("update-ref", SNAPSHOT_REF, parent, check=False)
     if reset.returncode != 0:
@@ -376,18 +421,9 @@ def prune_by_age(shadow: Shadow, days: int = 30) -> int:
             all_entries.append((tree, body, ts))
     if len(all_entries) != keep_count:
         return 0
-    # Rebuild orphan chain oldest-first (entries arrive newest-first from log).
-    all_entries.reverse()
-    first_tree, first_msg, _ = all_entries[0]
-    res = shadow.run("commit-tree", first_tree, "-m", first_msg, check=False)
-    if res.returncode != 0:
+    parent = _rebuild_snapshot_chain(shadow, all_entries)
+    if parent is None:
         return 0
-    parent = res.stdout.strip()
-    for tree, msg, _ in all_entries[1:]:
-        res = shadow.run("commit-tree", tree, "-p", parent, "-m", msg, check=False)
-        if res.returncode != 0:
-            return 0
-        parent = res.stdout.strip()
     reset = shadow.run("update-ref", SNAPSHOT_REF, parent, check=False)
     if reset.returncode != 0:
         return 0
