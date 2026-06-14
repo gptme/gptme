@@ -422,7 +422,10 @@ files.
 
    /backtrack mark before-tool-run     # save checkpoint
    # ... assistant makes a wrong tool call ...
-   /backtrack list                     # shows: cp1  before-tool-run  (index 12)
+   /backtrack list
+   # output:
+   #   #  Label             Index  Timestamp
+   #   1  before-tool-run      12  2026-06-14 10:23:45
    /backtrack before-tool-run --reason "The file path was wrong; try /tmp/foo.txt instead"
 
 
