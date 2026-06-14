@@ -20,7 +20,11 @@ from typing import TYPE_CHECKING, Literal
 
 from ...message import Message
 from .. import get_tools, set_tools
-from .._allowlist import matching_allowlist_tools, tool_matches_allowlist
+from .._allowlist import (
+    is_hint_pattern,
+    matching_allowlist_tools,
+    tool_matches_allowlist,
+)
 
 if TYPE_CHECKING:
     from .types import ReturnType, Status, Subagent, SubtaskDef
@@ -148,11 +152,13 @@ def _create_subagent_thread(
     if tool_allowlist is not None:
         loaded_tools = get_tools()
         loaded_names = {t.name for t in loaded_tools}
-        # Warn about unknown tool names in profile (typos, missing extras)
+        # Warn about unknown tool names in profile (typos, missing extras).
+        # Skip hint: patterns — they're always valid (match by capability tag, not name).
         unknown = {
             pattern
             for pattern in tool_allowlist
-            if not matching_allowlist_tools(pattern, loaded_tools)
+            if not is_hint_pattern(pattern)
+            and not matching_allowlist_tools(pattern, loaded_tools)
         }
         if unknown:
             logger.warning(

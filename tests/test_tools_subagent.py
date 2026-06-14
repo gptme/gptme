@@ -1317,6 +1317,8 @@ def test_create_subagent_thread_warns_on_unknown_profile_tools(tmp_path):
         ToolSpec(name="shell", desc=""),
     ]
 
+    import gptme.chat  # noqa: F401 — must import before patch.object on sys.modules["gptme.chat"]
+
     mock_prompt = MagicMock(return_value=[])
     mock_chat = MagicMock()
     mock_warn = MagicMock()
@@ -2214,20 +2216,20 @@ def test_planner_mixed_roles_use_correct_backends(
 
 @patch("gptme.tools.subagent.execution.set_tools")
 @patch("gptme.tools.subagent.execution.get_tools")
-@patch("gptme.tools.subagent.execution.matching_allowlist_tools")
 def test_hint_allowlist_filters_subagent_tools(
-    mock_matching: MagicMock,
     mock_get_tools: MagicMock,
     mock_set_tools: MagicMock,
     tmp_path,
 ):
-    """Regression: execution.py must forward tool.hints to tool_matches_allowlist.
+    """Regression: execution.py must forward tool.hints to tool_matches_allowlist,
+    and hint: patterns must never appear in the "unknown tools" warning.
 
-    Without the fix (PR #2890), hint:* entries in a subagent profile's tool list
-    silently matched nothing — the third argument (tool.hints) was missing, so
-    hint-based filtering always excluded everything.
+    Without the hint-forwarding fix (PR #2890), hint:* entries in a subagent
+    profile's tool list silently matched nothing — the third argument (tool.hints)
+    was missing, so hint-based filtering always excluded everything.
     """
 
+    import gptme.chat  # noqa: F401 — must import before patch.object on sys.modules["gptme.chat"]
     from gptme.profiles import Profile
     from gptme.tools.base import ToolSpec
     from gptme.tools.subagent.execution import _create_subagent_thread
@@ -2239,8 +2241,6 @@ def test_hint_allowlist_filters_subagent_tools(
     tool_complete = ToolSpec(name="complete", desc="signal done")
 
     mock_get_tools.return_value = [tool_ro, tool_rw, tool_complete]
-    # Make matching_allowlist_tools return a non-empty list so no "unknown" warning fires
-    mock_matching.return_value = [tool_ro]
 
     with (
         patch.object(sys.modules["gptme.chat"], "chat"),
@@ -2248,6 +2248,7 @@ def test_hint_allowlist_filters_subagent_tools(
         patch("gptme.llm.models.set_default_model"),
         patch("gptme.profiles.get_profile") as mock_get_profile,
         patch("gptme.prompts.get_prompt", return_value=[]),
+        patch("gptme.tools.subagent.execution.logger") as mock_logger,
     ):
         mock_get_profile.return_value = Profile(
             name="readonly",
@@ -2273,3 +2274,10 @@ def test_hint_allowlist_filters_subagent_tools(
     assert tool_complete in available
     # shell (no hint) must be excluded
     assert tool_rw not in available
+
+    # hint: patterns must not trigger the "unknown tools" warning — they are always
+    # valid capability-tag filters, not tool names that could be misspelt
+    for call in mock_logger.warning.call_args_list:
+        assert "hint:read-only" not in str(call), (
+            "hint: pattern incorrectly flagged as unknown tool"
+        )
