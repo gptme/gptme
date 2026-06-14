@@ -2227,6 +2227,7 @@ def test_hint_allowlist_filters_subagent_tools(
     silently matched nothing — the third argument (tool.hints) was missing, so
     hint-based filtering always excluded everything.
     """
+
     from gptme.profiles import Profile
     from gptme.tools.base import ToolSpec
     from gptme.tools.subagent.execution import _create_subagent_thread
@@ -2242,7 +2243,7 @@ def test_hint_allowlist_filters_subagent_tools(
     mock_matching.return_value = [tool_ro]
 
     with (
-        patch("gptme.chat.chat"),
+        patch.object(sys.modules["gptme.chat"], "chat"),
         patch("gptme.executor.prepare_execution_environment"),
         patch("gptme.llm.models.set_default_model"),
         patch("gptme.profiles.get_profile") as mock_get_profile,
