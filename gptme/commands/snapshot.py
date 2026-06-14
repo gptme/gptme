@@ -35,6 +35,8 @@ from ..workspace_snapshot import (
 )
 from .base import CommandContext, command
 
+DEFAULT_PRUNE_DAYS = 30
+
 
 def _print_usage() -> None:
     print("Usage: /snapshot <create|list|restore|diff|prune> ...")
@@ -48,7 +50,10 @@ def _print_usage() -> None:
     print(
         "  diff <sha>                  Show diff between current workspace and a snapshot."
     )
-    print("  prune [--days N] [--max-entries K]  Remove old snapshots.")
+    print(
+        "  prune [--days N] [--max-entries K]  Remove old snapshots "
+        f"(defaults to {DEFAULT_PRUNE_DAYS} days)."
+    )
 
 
 def _workspace_path(ctx: CommandContext) -> Path | None:
@@ -252,6 +257,9 @@ def cmd_snapshot(ctx: CommandContext) -> None:
                 _print_usage()
                 return
             idx += 1
+
+        if not args:
+            days = DEFAULT_PRUNE_DAYS
 
         workspace_shadow = _workspace_shadow(ctx)
         if workspace_shadow is None:

@@ -453,6 +453,29 @@ class TestSnapshotPrune:
 
 
 class TestSnapshotPruneCommand:
+    def test_prune_no_args_defaults_to_30_days(
+        self, workspace, isolated_state_dir, capsys
+    ):
+        """Bare prune should apply the documented 30-day age window."""
+        import time
+
+        shadow = init_shadow(workspace)
+        for i in range(4):
+            (workspace / f"f{i}.txt").write_text(str(i))
+            snapshot(shadow, label=f"snap-{i}")
+
+        future = time.time() + 31 * 86400
+        manager = _make_manager(workspace)
+        with (
+            patch("gptme.commands.snapshot.Shadow.for_workspace", return_value=shadow),
+            patch("gptme.workspace_snapshot.time.time", return_value=future),
+        ):
+            _run_cmd(manager, "prune")
+        out = capsys.readouterr().out
+        assert "pruned" in out.lower()
+        remaining = list_snapshots(shadow, limit=50)
+        assert len(remaining) == 1
+
     def test_prune_no_op_when_all_recent(self, workspace, isolated_state_dir, capsys):
         """All snapshots are fresh — nothing pruned, reports 0."""
         shadow = init_shadow(workspace)
