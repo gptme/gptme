@@ -526,6 +526,8 @@ document.write(`
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#setup">/setup</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#plugin">/plugin</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#checkpoint">/checkpoint</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#snapshot">/snapshot</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#backtrack">/backtrack</a></li>
 </ul>
 </li>
 </ul>
@@ -608,22 +610,24 @@ Commands are entered by typing a forward slash (<code class="docutils literal no
 <li><p><a class="reference internal" href="#setup" id="id29">/setup</a></p></li>
 <li><p><a class="reference internal" href="#plugin" id="id30">/plugin</a></p></li>
 <li><p><a class="reference internal" href="#checkpoint" id="id31">/checkpoint</a></p></li>
+<li><p><a class="reference internal" href="#snapshot" id="id32">/snapshot</a></p></li>
+<li><p><a class="reference internal" href="#backtrack" id="id33">/backtrack</a></p></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><p><a class="reference internal" href="#tool-commands" id="id32">Tool Commands</a></p>
+<li><p><a class="reference internal" href="#tool-commands" id="id34">Tool Commands</a></p>
 <ul>
-<li><p><a class="reference internal" href="#commit-autocommit" id="id33">/commit (autocommit)</a></p></li>
-<li><p><a class="reference internal" href="#compact-autocompact" id="id34">/compact (autocompact)</a></p></li>
-<li><p><a class="reference internal" href="#lesson-lessons" id="id35">/lesson (lessons)</a></p></li>
-<li><p><a class="reference internal" href="#pre-commit-precommit" id="id36">/pre-commit (precommit)</a></p></li>
-<li><p><a class="reference internal" href="#mcp-mcp" id="id37">/mcp (mcp)</a></p></li>
+<li><p><a class="reference internal" href="#commit-autocommit" id="id35">/commit (autocommit)</a></p></li>
+<li><p><a class="reference internal" href="#compact-autocompact" id="id36">/compact (autocompact)</a></p></li>
+<li><p><a class="reference internal" href="#lesson-lessons" id="id37">/lesson (lessons)</a></p></li>
+<li><p><a class="reference internal" href="#pre-commit-precommit" id="id38">/pre-commit (precommit)</a></p></li>
+<li><p><a class="reference internal" href="#mcp-mcp" id="id39">/mcp (mcp)</a></p></li>
 </ul>
 </li>
-<li><p><a class="reference internal" href="#tool-shortcuts" id="id38">Tool Shortcuts</a></p></li>
-<li><p><a class="reference internal" href="#keyboard-shortcuts" id="id39">Keyboard Shortcuts</a></p></li>
-<li><p><a class="reference internal" href="#command-registration" id="id40">Command Registration</a></p></li>
+<li><p><a class="reference internal" href="#tool-shortcuts" id="id40">Tool Shortcuts</a></p></li>
+<li><p><a class="reference internal" href="#keyboard-shortcuts" id="id41">Keyboard Shortcuts</a></p></li>
+<li><p><a class="reference internal" href="#command-registration" id="id42">Command Registration</a></p></li>
 </ul>
 </nav>
 <section id="overview">
@@ -905,6 +909,66 @@ large-scale changes or when experimenting with destructive operations.</p>
 </div>
 <p>The <code class="docutils literal notranslate"><span class="pre">&lt;id&gt;</span></code> can be a checkpoint number (1-based index) from <code class="docutils literal notranslate"><span class="pre">/checkpoint</span> <span class="pre">list</span></code> or a HEAD SHA prefix.</p>
 </section>
+<section id="snapshot">
+<h4>/snapshot<a class="headerlink" href="#snapshot" title="Link to this heading">#</a></h4>
+<p>Manage fine-grained workspace snapshots for rollback and agent tree-search.</p>
+<p>Records <strong>any</strong> workspace state — committed or dirty — into a side-git shadow
+repository.  Snapshots are created automatically before and after each mutating
+tool call when the <code class="docutils literal notranslate"><span class="pre">auto_snapshots</span></code> plugin is enabled (or
+<code class="docutils literal notranslate"><span class="pre">GPTME_AUTO_SNAPSHOTS=1</span></code>), giving agents a full timeline of changes they can
+roll back to.</p>
+<p>This is <strong>different</strong> from <code class="docutils literal notranslate"><span class="pre">/checkpoint</span></code>:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">/checkpoint</span></code> records a clean git HEAD; requires a committed working tree by
+default.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/snapshot</span></code> records any state (including uncommitted changes) into a
+dedicated shadow repo.  No clean-tree requirement.</p></li>
+</ul>
+<p>Requires a workspace to be configured for the session (<code class="docutils literal notranslate"><span class="pre">--workspace</span></code>).</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/snapshot create [label]     # Record current workspace state (default label: &quot;manual&quot;)
+/snapshot list [--limit N]   # List recent snapshots, newest first (default: 20)
+/snapshot restore &lt;sha&gt;      # Roll back workspace to a snapshot
+/snapshot diff &lt;sha&gt;         # Show diff between current workspace and a snapshot
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">&lt;sha&gt;</span></code> is the short SHA shown by <code class="docutils literal notranslate"><span class="pre">/snapshot</span> <span class="pre">list</span></code>.</p>
+<p><strong>Example — agent tree-search</strong>:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/snapshot create before-attempt-1
+# ... let the agent make changes ...
+/snapshot list
+# output:
+# SHA        Label
+# ----------------------------------------
+# ab1234     before-attempt-1
+/snapshot restore ab1234           # roll back; try a different approach
+</pre></div>
+</div>
+</section>
+<section id="backtrack">
+<h4>/backtrack<a class="headerlink" href="#backtrack" title="Link to this heading">#</a></h4>
+<p>Rewind the <strong>conversation</strong> to a named checkpoint or message index.</p>
+<p>Saves named markers in the conversation log so you can undo a bad exchange and
+retry with a corrective hint.  Unlike <code class="docutils literal notranslate"><span class="pre">/checkpoint</span></code> and <code class="docutils literal notranslate"><span class="pre">/snapshot</span></code>, this
+does <strong>not</strong> touch filesystem state — only the in-memory message log is
+rewound.  Use <code class="docutils literal notranslate"><span class="pre">/checkpoint</span></code> or <code class="docutils literal notranslate"><span class="pre">/snapshot</span></code> if you also need to restore
+files.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/backtrack mark [label]             # Save current position as a checkpoint (auto-label if omitted)
+/backtrack list                     # List saved checkpoints
+/backtrack &lt;label|N&gt;                # Rewind to checkpoint label or message index N
+/backtrack &lt;label|N&gt; --reason TEXT  # Rewind and inject a corrective context message
+</pre></div>
+</div>
+<p><strong>Example</strong>:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/backtrack mark before-tool-run     # save checkpoint
+# ... assistant makes a wrong tool call ...
+/backtrack list
+# output:
+#   #  Label             Index  Timestamp
+#   1  before-tool-run      12  2026-06-14 10:23:45
+/backtrack before-tool-run --reason &quot;The file path was wrong; try /tmp/foo.txt instead&quot;
+</pre></div>
+</div>
+</section>
 </section>
 </section>
 <section id="tool-commands">
@@ -1140,6 +1204,8 @@ a <code class="docutils literal notranslate"><span class="pre">.pre-commit-confi
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#setup">/setup</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#plugin">/plugin</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#checkpoint">/checkpoint</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#snapshot">/snapshot</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#backtrack">/backtrack</a></li>
 </ul>
 </li>
 </ul>

@@ -2576,6 +2576,79 @@ Requires a git workspace to be configured for the session (``--workspace``).
 
 The ``<id>`` can be a checkpoint number (1-based index) from ``/checkpoint list`` or a HEAD SHA prefix.
 
+/snapshot
+^^^^^^^^^
+
+Manage fine-grained workspace snapshots for rollback and agent tree-search.
+
+Records **any** workspace state — committed or dirty — into a side-git shadow
+repository.  Snapshots are created automatically before and after each mutating
+tool call when the ``auto_snapshots`` plugin is enabled (or
+``GPTME_AUTO_SNAPSHOTS=1``), giving agents a full timeline of changes they can
+roll back to.
+
+This is **different** from ``/checkpoint``:
+
+- ``/checkpoint`` records a clean git HEAD; requires a committed working tree by
+  default.
+
+- ``/snapshot`` records any state (including uncommitted changes) into a
+  dedicated shadow repo.  No clean-tree requirement.
+
+Requires a workspace to be configured for the session (``--workspace``).
+
+.. code-block:: text
+
+   /snapshot create [label]     # Record current workspace state (default label: "manual")
+   /snapshot list [--limit N]   # List recent snapshots, newest first (default: 20)
+   /snapshot restore <sha>      # Roll back workspace to a snapshot
+   /snapshot diff <sha>         # Show diff between current workspace and a snapshot
+
+The ``<sha>`` is the short SHA shown by ``/snapshot list``.
+
+**Example — agent tree-search**:
+
+.. code-block:: text
+
+   /snapshot create before-attempt-1
+   # ... let the agent make changes ...
+   /snapshot list
+   # output:
+   # SHA        Label
+   # ----------------------------------------
+   # ab1234     before-attempt-1
+   /snapshot restore ab1234           # roll back; try a different approach
+
+/backtrack
+^^^^^^^^^^
+
+Rewind the **conversation** to a named checkpoint or message index.
+
+Saves named markers in the conversation log so you can undo a bad exchange and
+retry with a corrective hint.  Unlike ``/checkpoint`` and ``/snapshot``, this
+does **not** touch filesystem state — only the in-memory message log is
+rewound.  Use ``/checkpoint`` or ``/snapshot`` if you also need to restore
+files.
+
+.. code-block:: text
+
+   /backtrack mark [label]             # Save current position as a checkpoint (auto-label if omitted)
+   /backtrack list                     # List saved checkpoints
+   /backtrack <label|N>                # Rewind to checkpoint label or message index N
+   /backtrack <label|N> --reason TEXT  # Rewind and inject a corrective context message
+
+**Example**:
+
+.. code-block:: text
+
+   /backtrack mark before-tool-run     # save checkpoint
+   # ... assistant makes a wrong tool call ...
+   /backtrack list
+   # output:
+   #   #  Label             Index  Timestamp
+   #   1  before-tool-run      12  2026-06-14 10:23:45
+   /backtrack before-tool-run --reason "The file path was wrong; try /tmp/foo.txt instead"
+
 Tool Commands
 -------------
 
