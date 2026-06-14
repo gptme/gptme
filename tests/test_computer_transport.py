@@ -813,6 +813,29 @@ class TestDispatchTransportScroll(unittest.TestCase):
         with self.assertRaises(ValueError, msg="text.*direction.*required"):
             _dispatch_transport(stub, "scroll", coordinate=(100, 200))
 
+    def test_scroll_invalid_direction_raises(self):
+        """scroll with an invalid direction must raise ValueError, not silently forward."""
+        stub = StubTransport()
+        stub.scroll = MagicMock()  # type: ignore[method-assign]
+
+        from gptme.tools.computer import _dispatch_transport
+
+        with self.assertRaisesRegex(ValueError, "Invalid scroll direction"):
+            _dispatch_transport(stub, "scroll", text="diagonal", coordinate=(100, 200))
+
+        stub.scroll.assert_not_called()
+
+    def test_scroll_direction_case_insensitive(self):
+        """scroll direction must be normalised to lowercase before reaching transport."""
+        stub = StubTransport()
+        stub.scroll = MagicMock()  # type: ignore[method-assign]
+
+        from gptme.tools.computer import _dispatch_transport
+
+        _dispatch_transport(stub, "scroll", text="Down", coordinate=(100, 200))
+
+        stub.scroll.assert_called_once_with(100, 200, "down")
+
 
 if __name__ == "__main__":
     unittest.main()

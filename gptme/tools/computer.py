@@ -649,6 +649,10 @@ def _dispatch_transport(
             )
         x, y = coordinate
         direction = text.lower()
+        if direction not in ("up", "down", "left", "right"):
+            raise ValueError(
+                f"Invalid scroll direction: {direction!r}. Must be up/down/left/right"
+            )
         transport.scroll(x, y, direction)
         print(f"Scrolled {direction} at {x},{y}")
         return None
