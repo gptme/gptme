@@ -5,6 +5,7 @@ requiring API keys or running actual LLM calls.
 """
 
 import importlib
+import json
 import queue
 import threading
 from pathlib import Path
@@ -232,6 +233,45 @@ class TestSubagentIsRunning:
             execution_mode="acp",
         )
         assert sa.is_running() is False
+
+    def test_read_log_bypasses_thread_liveness(self, tmp_path):
+        """Regression: _read_log() must read from log even when thread is alive.
+
+        run_subagent calls _read_log() (not status()) for exactly this reason:
+        status() returns 'running' while the thread is alive, which would poison
+        the _subagent_results cache with a wrong 'running' entry.
+        """
+        logdir = tmp_path / "subagent-log"
+        logdir.mkdir()
+        (logdir / "conversation.jsonl").write_text(
+            json.dumps(
+                {
+                    "role": "assistant",
+                    "content": "```complete\ntask done\n```",
+                    "timestamp": "2025-01-01T00:00:00+00:00",
+                }
+            )
+            + "\n"
+        )
+
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = True  # thread still "alive"
+
+        sa = Subagent(
+            agent_id="read-log-test",
+            prompt="do thing",
+            thread=mock_thread,
+            logdir=logdir,
+            model=None,
+        )
+
+        # status() returns "running" while thread is alive — old bug path
+        assert sa.status().status == "running"
+
+        # _read_log() bypasses liveness and reads from log — fixed path
+        result = sa._read_log()
+        assert result.status == "success"
+        assert "task done" in (result.result or "")
 
 
 # ---------------------------------------------------------------------------

@@ -188,13 +188,20 @@ class Subagent:
         return False
 
     def status(self) -> ReturnType:
-        # Return cached result if available (subprocess mode)
+        if self.is_running():
+            return ReturnType("running")
+        return self._read_log()
+
+    def _read_log(self) -> ReturnType:
+        """Read result from cache or conversation log, bypassing thread-liveness check.
+
+        Safe to call from within a completion handler (e.g. the run_subagent thread),
+        where status() would incorrectly return "running" because the thread is alive.
+        """
+        # Return cached result if available (set by cancel or subprocess completion)
         with _subagent_results_lock:
             if self.agent_id in _subagent_results:
                 return _subagent_results[self.agent_id]
-
-        if self.is_running():
-            return ReturnType("running")
 
         # Check if executor used the complete tool
         try:
