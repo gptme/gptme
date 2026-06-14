@@ -8,8 +8,11 @@ subagents. The limit is resolved at first use from (highest to lowest priority):
 3. ``min(8, os.cpu_count() or 2)`` safe default (mirrors Claude Code's ``min(16, cores-2)``)
 """
 
+import logging
 import os
 import threading
+
+logger = logging.getLogger(__name__)
 
 _slot_sem: threading.BoundedSemaphore | None = None
 _slot_sem_lock = threading.Lock()
@@ -19,7 +22,15 @@ def _max_concurrent() -> int:
     """Resolve max concurrent subagents from env > config > cpu-based default."""
     env_val = os.environ.get("GPTME_SUBAGENT_MAX_CONCURRENT")
     if env_val:
-        return int(env_val)
+        try:
+            val = int(env_val)
+            if val < 1:
+                raise ValueError(f"must be >= 1, got {val}")
+            return val
+        except ValueError as e:
+            logger.warning(
+                f"Ignoring invalid GPTME_SUBAGENT_MAX_CONCURRENT={env_val!r}: {e}"
+            )
     try:
         from gptme.config import get_config
 

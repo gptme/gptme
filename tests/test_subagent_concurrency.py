@@ -39,6 +39,21 @@ class TestMaxConcurrent:
         monkeypatch.setenv("GPTME_SUBAGENT_MAX_CONCURRENT", "7")
         assert _max_concurrent() == 7
 
+    def test_env_var_invalid_string_falls_back_to_default(self, monkeypatch):
+        monkeypatch.setenv("GPTME_SUBAGENT_MAX_CONCURRENT", "not-a-number")
+        val = _max_concurrent()
+        assert 1 <= val <= 16, f"fallback {val} not in reasonable range"
+
+    def test_env_var_zero_falls_back_to_default(self, monkeypatch):
+        monkeypatch.setenv("GPTME_SUBAGENT_MAX_CONCURRENT", "0")
+        val = _max_concurrent()
+        assert val >= 1, "zero env var must not produce a deadlocking semaphore"
+
+    def test_env_var_negative_falls_back_to_default(self, monkeypatch):
+        monkeypatch.setenv("GPTME_SUBAGENT_MAX_CONCURRENT", "-1")
+        val = _max_concurrent()
+        assert val >= 1, "negative env var must not produce a deadlocking semaphore"
+
 
 class TestGetSlotSem:
     def test_returns_bounded_semaphore(self):

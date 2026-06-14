@@ -279,69 +279,78 @@ def subagent(
             )
 
         def run_acp_subagent():
-            import asyncio
-
-            async def _acp_run():
-                from ...acp.client import GptmeAcpClient
-
-                collected_text: list[str] = []
-
-                def on_update(session_id: str, update) -> None:
-                    """Collect text from session updates."""
-                    # Extract text from agent_message_chunk updates
-                    update_type = getattr(update, "type", None)
-                    if update_type == "agent_message_chunk":
-                        chunk = getattr(update, "chunk", None)
-                        if chunk:
-                            text = getattr(chunk, "text", None) or (
-                                chunk.get("text") if isinstance(chunk, dict) else None
-                            )
-                            if text:
-                                collected_text.append(text)
-
-                async with GptmeAcpClient(
-                    workspace=workspace,
-                    command=acp_command,
-                    auto_confirm=True,
-                    on_update=on_update,
-                ) as client:
-                    result = await client.run(prompt, cwd=workspace)
-                    stop_reason = getattr(result, "stop_reason", "unknown")
-                    result_text = "".join(collected_text) if collected_text else None
-
-                    status = "success" if stop_reason == "end_turn" else "failure"
-                    summary = (
-                        result_text[:500]
-                        if result_text
-                        else f"ACP stop_reason={stop_reason}"
-                    )
-                    return status, summary
-
+            _sem = get_slot_sem()
+            _sem.acquire()
             try:
-                status, summary = asyncio.run(_acp_run())
+                import asyncio
 
-                result = ReturnType(status, summary)
-                if not set_subagent_result_if_absent(agent_id, result):
-                    return
-                notify_completion(
-                    agent_id,
-                    status,
-                    _exec._summarize_result(result, max_chars=200),
-                )
-            except Exception as e:
-                logger.error(f"ACP subagent {agent_id} failed: {e}", exc_info=True)
-                if not set_subagent_result_if_absent(
-                    agent_id, ReturnType("failure", str(e))
-                ):
-                    return
-                notify_completion(agent_id, "failure", f"ACP error: {e}")
-            finally:
-                with _subagents_lock:
-                    sa_ref = next(
-                        (s for s in _subagents if s.agent_id == agent_id), None
+                async def _acp_run():
+                    from ...acp.client import GptmeAcpClient
+
+                    collected_text: list[str] = []
+
+                    def on_update(session_id: str, update) -> None:
+                        """Collect text from session updates."""
+                        # Extract text from agent_message_chunk updates
+                        update_type = getattr(update, "type", None)
+                        if update_type == "agent_message_chunk":
+                            chunk = getattr(update, "chunk", None)
+                            if chunk:
+                                text = getattr(chunk, "text", None) or (
+                                    chunk.get("text")
+                                    if isinstance(chunk, dict)
+                                    else None
+                                )
+                                if text:
+                                    collected_text.append(text)
+
+                    async with GptmeAcpClient(
+                        workspace=workspace,
+                        command=acp_command,
+                        auto_confirm=True,
+                        on_update=on_update,
+                    ) as client:
+                        result = await client.run(prompt, cwd=workspace)
+                        stop_reason = getattr(result, "stop_reason", "unknown")
+                        result_text = (
+                            "".join(collected_text) if collected_text else None
+                        )
+
+                        status = "success" if stop_reason == "end_turn" else "failure"
+                        summary = (
+                            result_text[:500]
+                            if result_text
+                            else f"ACP stop_reason={stop_reason}"
+                        )
+                        return status, summary
+
+                try:
+                    status, summary = asyncio.run(_acp_run())
+
+                    result = ReturnType(status, summary)
+                    if not set_subagent_result_if_absent(agent_id, result):
+                        return
+                    notify_completion(
+                        agent_id,
+                        status,
+                        _exec._summarize_result(result, max_chars=200),
                     )
-                if sa_ref:
-                    _exec._cleanup_isolation(sa_ref)
+                except Exception as e:
+                    logger.error(f"ACP subagent {agent_id} failed: {e}", exc_info=True)
+                    if not set_subagent_result_if_absent(
+                        agent_id, ReturnType("failure", str(e))
+                    ):
+                        return
+                    notify_completion(agent_id, "failure", f"ACP error: {e}")
+                finally:
+                    with _subagents_lock:
+                        sa_ref = next(
+                            (s for s in _subagents if s.agent_id == agent_id), None
+                        )
+                    if sa_ref:
+                        _exec._cleanup_isolation(sa_ref)
+            finally:
+                _sem.release()
 
         t = threading.Thread(target=run_acp_subagent, daemon=True)
 
@@ -398,7 +407,10 @@ def subagent(
                     output_schema=output_schema_str,
                     profile=profile,
                 )
-                sa = Subagent(
+                # Create a local Subagent view with the real process for monitoring.
+                # The registered sa (in _subagents) has process=None / thread=launcher;
+                # we don't re-register to avoid a duplicate agent_id entry.
+                _sa_proc = Subagent(
                     agent_id=agent_id,
                     prompt=prompt,
                     thread=None,
@@ -412,18 +424,37 @@ def subagent(
                     repo_path=repo_path,
                     timeout=timeout,
                 )
-                with _subagents_lock:
-                    _subagents.append(sa)
                 # Monitor blocks until the process finishes (slot stays acquired)
-                _exec._monitor_subprocess(sa)
+                _exec._monitor_subprocess(_sa_proc)
             except Exception as e:
                 logger.error(
                     f"Subagent {agent_id} subprocess failed: {e}", exc_info=True
                 )
+                set_subagent_result_if_absent(agent_id, ReturnType("failure", str(e)))
+                notify_completion(agent_id, "failure", f"Subprocess failed: {e}")
             finally:
                 _sem.release()
 
         launcher = threading.Thread(target=_launch_subprocess, daemon=True)
+
+        # Pre-register with launcher thread so status/wait/cancel work while queued.
+        # process=None here; is_running() falls through to thread.is_alive().
+        sa = Subagent(
+            agent_id=agent_id,
+            prompt=prompt,
+            thread=launcher,
+            logdir=logdir,
+            model=model_name,
+            output_schema=output_schema,
+            process=None,
+            execution_mode="subprocess",
+            isolated=isolated,
+            worktree_path=worktree_path,
+            repo_path=repo_path,
+            timeout=timeout,
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
         launcher.start()
     else:
         # Thread mode: original behavior, gated by the concurrency semaphore.
