@@ -205,6 +205,9 @@ def rag_index_conversations(
     """
     from ..logmanager import _gen_read_jsonl
 
+    if n <= 0:
+        raise ValueError(f"n must be a positive integer, got {n}")
+
     logs_dir = get_logs_dir()
     conv_files = sorted(
         logs_dir.glob("*/conversation.jsonl"),
@@ -250,7 +253,7 @@ def rag_index_conversations(
 
             if lines:
                 out_file = export_path / f"{conv_id}.md"
-                out_file.write_text("\n\n".join(lines))
+                out_file.write_text("\n\n".join(lines), encoding="utf-8")
                 exported += 1
 
         if exported == 0:

@@ -1,6 +1,7 @@
 """Tests for the RAG tool."""
 
 import json
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -146,13 +147,16 @@ def test_rag_index_conversations_respects_n_limit(tmp_path):
     """Test that the n parameter limits the number of conversations indexed."""
     logs_dir = tmp_path / "logs"
     for i in range(5):
+        conv_dir = logs_dir / f"conv-{i}"
         _write_conversation(
-            logs_dir / f"conv-{i}",
+            conv_dir,
             [
                 {"role": "user", "content": f"Question {i}"},
                 {"role": "assistant", "content": f"Answer {i}"},
             ],
         )
+        mtime = 1_700_000_000 + i
+        os.utime(conv_dir / "conversation.jsonl", (mtime, mtime))
 
     export_dir = tmp_path / "export"
     mock_proc = MagicMock()
@@ -166,7 +170,47 @@ def test_rag_index_conversations_respects_n_limit(tmp_path):
 
     exported_files = list(export_dir.glob("*.md"))
     assert len(exported_files) == 3
+    assert {path.stem for path in exported_files} == {"conv-2", "conv-3", "conv-4"}
     assert "Indexed 3 conversations" in result
+
+
+def test_rag_index_conversations_rejects_non_positive_n(tmp_path):
+    """Test that non-positive n is rejected instead of silently mis-indexing."""
+    with (
+        patch("gptme.tools.rag.get_logs_dir", return_value=tmp_path),
+        pytest.raises(ValueError, match="n must be a positive integer"),
+    ):
+        rag_index_conversations(n=0, output_dir=str(tmp_path / "export"))
+
+
+def test_rag_index_conversations_writes_utf8_exports(tmp_path):
+    """Test that exported conversations are always written as UTF-8."""
+    logs_dir = tmp_path / "logs"
+    _write_conversation(
+        logs_dir / "unicode-conv",
+        [
+            {"role": "user", "content": "Hej 👋"},
+            {"role": "assistant", "content": "Hallå världen"},
+        ],
+    )
+
+    export_dir = tmp_path / "export"
+    mock_proc = MagicMock()
+    mock_proc.stdout = "Indexed 1 paths\n"
+
+    with (
+        patch("gptme.tools.rag.get_logs_dir", return_value=logs_dir),
+        patch("gptme.tools.rag._run_rag_cmd", return_value=mock_proc),
+        patch("pathlib.Path.write_text", autospec=True) as mock_write_text,
+    ):
+        result = rag_index_conversations(output_dir=str(export_dir))
+
+    assert "Indexed 1 conversations" in result
+    mock_write_text.assert_called_once_with(
+        export_dir / "unicode-conv.md",
+        "**User**: Hej 👋\n\n**Assistant**: Hallå världen",
+        encoding="utf-8",
+    )
 
 
 def test_rag_index_conversations_uses_tmpdir_by_default(tmp_path):
