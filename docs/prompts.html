@@ -766,7 +766,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f3ae7ea9120&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f60c21bd120&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1794,6 +1794,19 @@ The following Python functions are available using the <span class="sb">`ipython
 <span class="s">rag_index(paths: str, glob: Union[str, None]) -&gt; str: Index documents in specified paths.</span>
 <span class="s">rag_search(query: str, return_full: bool) -&gt; str: Search indexed documents.</span>
 <span class="s">rag_status() -&gt; str: Show index status.</span>
+<span class="s">rag_index_conversations(n: int, output_dir: Union[str, None]) -&gt; str: Index past gptme conversations for semantic search.</span>
+
+<span class="s">    Exports user and assistant messages from conversation logs (skipping system</span>
+<span class="s">    prompts) into text files and indexes them with gptme-rag.</span>
+
+<span class="s">    Args:</span>
+<span class="s">        n: Maximum number of recent conversations to index (default: 100).</span>
+<span class="s">        output_dir: Directory to write exported conversation files.</span>
+<span class="s">            Defaults to a temporary directory managed by gptme-rag.</span>
+
+<span class="s">    Returns:</span>
+<span class="s">        Status message from the indexing operation.</span>
+
 <span class="sb">```</span>
 
 <span class="gu">### Examples</span>
@@ -1812,6 +1825,16 @@ The following Python functions are available using the <span class="sb">`ipython
 <span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll check the current status of the RAG index.</span>
 <span class="sb">```ipython</span>
 <span class="n">rag_status</span><span class="p">()</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">User: Index my past conversations so I can search them</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll index your recent conversations with RAG.</span>
+<span class="sb">```ipython</span>
+<span class="n">rag_index_conversations</span><span class="p">()</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">User: Index only the last 10 conversations</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll index just the 10 most recent conversations.</span>
+<span class="sb">```ipython</span>
+<span class="n">rag_index_conversations</span><span class="p">(</span><span class="n">n</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
 <span class="sb">```</span>
 
 <span class="gu">## read</span>
@@ -2626,7 +2649,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 15197</p>
+<p>Tokens: 15398</p>
 </dd></dl>
 
 <dl class="py function">
