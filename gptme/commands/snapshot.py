@@ -20,6 +20,7 @@ then ``/snapshot restore <sha>`` to roll back a failed branch.
 
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 
 from ..workspace_snapshot import (
@@ -176,8 +177,6 @@ def cmd_snapshot(ctx: CommandContext) -> None:
             current_msgs = list(ctx.manager.log)
             delta = len(current_msgs) - snap_n_msgs
             if delta > 0:
-                from collections import Counter
-
                 role_counts = Counter(m.role for m in current_msgs[snap_n_msgs:])
                 role_str = ", ".join(
                     f"{count} {role}" for role, count in sorted(role_counts.items())
@@ -185,8 +184,13 @@ def cmd_snapshot(ctx: CommandContext) -> None:
                 print(
                     f"+{delta} message{'s' if delta != 1 else ''} since snapshot {sha} ({role_str})"
                 )
-            else:
+            elif delta == 0:
                 print(f"No new messages since snapshot {sha}.")
+            else:
+                print(
+                    f"Conversation is shorter than at snapshot time "
+                    f"({len(current_msgs)} vs {snap_n_msgs} messages)."
+                )
             print()
 
         # Workspace diff.

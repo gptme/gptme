@@ -264,17 +264,30 @@ def prune(shadow: Shadow, keep: int = DEFAULT_MAX_SNAPSHOTS) -> int:
     if total <= keep:
         return 0
     to_drop = total - keep
-    # Collect (tree, subject) for the ``keep`` newest commits, newest-first.
-    log = shadow.run(
-        "log", "--pretty=format:%T\t%s", f"-{keep}", SNAPSHOT_REF, check=False
-    )
-    if log.returncode != 0 or not log.stdout.strip():
+    # Collect (tree, full body) for the ``keep`` newest commits.
+    # Use per-commit log calls to capture %B (full body) so n_msgs=<N>
+    # metadata survives the prune-and-replay pass.
+    # Per-commit calls are slower but prune runs rarely and avoids
+    # NUL-byte parsing fragility with --pretty=format: delimiters.
+    hash_log = shadow.run("log", "--format=%H", f"-{keep}", SNAPSHOT_REF, check=False)
+    if hash_log.returncode != 0 or not hash_log.stdout.strip():
         return 0
-    entries = []
-    for line in log.stdout.splitlines():
-        if "\t" in line:
-            tree, msg = line.split("\t", 1)
-            entries.append((tree.strip(), msg.strip()))
+    entries: list[tuple[str, str]] = []
+    for commit_hash in hash_log.stdout.strip().splitlines():
+        if not commit_hash.strip():
+            continue
+        tree_res = shadow.run(
+            "log", "--format=%T", "-1", commit_hash.strip(), check=False
+        )
+        body_res = shadow.run(
+            "log", "--format=%B", "-1", commit_hash.strip(), check=False
+        )
+        if tree_res.returncode != 0 or body_res.returncode != 0:
+            continue
+        tree = tree_res.stdout.strip()
+        body = body_res.stdout.strip()
+        if tree and body:
+            entries.append((tree, body))
     if not entries:
         return 0
     # Reverse so we build oldest-of-kept → newest (oldest is entries[-1]).

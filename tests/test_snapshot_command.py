@@ -374,3 +374,65 @@ class TestSnapshotConversationSummary:
 
         # The embedded count should be recoverable.
         assert get_snapshot_n_msgs(shadow, sha) == 6
+
+
+# ── prune tests ───────────────────────────────────────────────────────────────
+
+
+class TestSnapshotPrune:
+    """Tests that prune() preserves conversation metadata (n_msgs) after
+    the retain-and-replay pass so /snapshot diff still shows the summary."""
+
+    def test_prune_includes_n_msgs_in_commit_body(self, workspace, isolated_state_dir):
+        """After pruning, metadata-bearing commits keep their n_msgs body line."""
+        from gptme.workspace_snapshot import prune
+
+        shadow = init_shadow(workspace)
+
+        # Create a few snapshots, each with a distinct n_msgs.
+        shas: list[str] = []
+        for i in range(3):
+            sha = snapshot(shadow, label=f"gen-{i}", n_msgs=10 + i)
+            assert sha is not None
+            shas.append(sha)
+
+        # Prune to keep=2 and confirm each kept commit still carries its body.
+        pruned = prune(shadow, keep=2)
+        assert pruned > 0
+
+        # The oldest (gen-0, n_msgs=10) should be gone; gen-1 and gen-2 survive.
+        survivors = [sha for sha, _ in list_snapshots(shadow, limit=10)]
+        # At least one snapshot should still have recoverable n_msgs metadata.
+        preserved = any(
+            get_snapshot_n_msgs(shadow, sha) is not None for sha in survivors
+        )
+        assert preserved, (
+            "After prune, no surviving snapshot has n_msgs metadata — "
+            "prune() dropped the commit body"
+        )
+
+    def test_prune_keep_entire_body_recovery(self, workspace, isolated_state_dir):
+        """Full round-trip: create metadata snapshots, prune, recover n_msgs
+        for the survivors via get_snapshot_n_msgs."""
+        from gptme.workspace_snapshot import prune
+
+        shadow = init_shadow(workspace)
+
+        sha_before = snapshot(shadow, label="before-prune", n_msgs=42)
+        assert sha_before is not None
+
+        # Create enough additional snapshots to trigger pruning.
+        for i in range(5):
+            snapshot(shadow, label=f"filler-{i}", n_msgs=99)
+
+        pruned = prune(shadow, keep=3)
+        assert pruned > 0, "Expected some snapshots to be pruned"
+
+        # The before-prune commit may or may not have survived,
+        # but at least one survivor should still report n_msgs=42 or 99.
+        survivors = [sha for sha, _ in list_snapshots(shadow, limit=10)]
+        recovered = {sha: get_snapshot_n_msgs(shadow, sha) for sha in survivors}
+        assert any(v in {42, 99} for v in recovered.values()), (
+            f"After prune, no surviving snapshot recovered its original "
+            f"n_msgs value. Recovered: {recovered!r}"
+        )
