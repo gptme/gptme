@@ -3189,6 +3189,7 @@ Available actions:
 <span class="k">-</span><span class="w"> </span>mouse_move: Move mouse to coordinates
 <span class="k">-</span><span class="w"> </span>left_click, right_click, middle_click, double_click: Mouse clicks
 <span class="k">-</span><span class="w"> </span>left_click_drag: Click and drag to coordinates
+<span class="k">-</span><span class="w"> </span>scroll: Scroll the mouse wheel at coordinates (text=&quot;up&quot;/&quot;down&quot;/&quot;left&quot;/&quot;right&quot;)
 <span class="k">-</span><span class="w"> </span>screenshot: Take and view a screenshot
 <span class="k">-</span><span class="w"> </span>cursor_position: Get current mouse position
 
@@ -3313,6 +3314,28 @@ Common modifiers (ctrl, alt, cmd/super, shift) work consistently across platform
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
   <td>
     <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Performed double_click</pre>
+  </td>
+</tr>
+</table><table style="width: 100%; margin-bottom: 1em">
+  
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Scroll down in the page at (512, 400)</pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">I'll scroll down at those coordinates.<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">ipython</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">computer("scroll", coordinate=(512, 400), text="down")
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Scrolled down at 512,400</pre>
   </td>
 </tr>
 </table><table style="width: 100%; margin-bottom: 1em">
