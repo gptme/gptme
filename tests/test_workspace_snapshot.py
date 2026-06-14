@@ -11,6 +11,7 @@ Covers:
 
 from __future__ import annotations
 
+import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -31,6 +32,7 @@ from gptme.workspace_snapshot import (
     init_shadow,
     list_snapshots,
     prune,
+    prune_by_age,
     restore,
     snapshot,
     tree_hash,
@@ -279,6 +281,58 @@ def test_prune_noop_when_under_limit(isolated_state_dir, workspace):
     snapshot(shadow, label="one")
     dropped = prune(shadow, keep=50)
     assert dropped == 0
+
+
+# --- prune_by_age -----------------------------------------------------------
+
+
+def test_prune_by_age_drops_old_snapshots(isolated_state_dir, workspace, monkeypatch):
+    """Mock time far into the future so existing commits appear older than 30 days."""
+    shadow = init_shadow(workspace)
+    for i in range(5):
+        (workspace / f"f{i}.txt").write_text(str(i))
+        snapshot(shadow, label=f"snap-{i}")
+
+    # Advance the clock 31 days so all commits look older than the default 30-day window.
+    future = time.time() + 31 * 86400
+    monkeypatch.setattr("gptme.workspace_snapshot.time.time", lambda: future)
+
+    n_dropped = prune_by_age(shadow, days=30)
+    # All commits were "made 31 days ago" — only the newest is preserved.
+    assert n_dropped > 0
+    remaining = list_snapshots(shadow, limit=50)
+    assert len(remaining) == 1
+    assert remaining[0][1] == "snap-4"
+
+
+def test_prune_by_age_noop_when_all_recent(isolated_state_dir, workspace):
+    """No snapshots dropped when all are within the age window."""
+    shadow = init_shadow(workspace)
+    for i in range(3):
+        (workspace / f"f{i}.txt").write_text(str(i))
+        snapshot(shadow, label=f"snap-{i}")
+
+    dropped = prune_by_age(shadow, days=30)
+    assert dropped == 0
+    remaining = list_snapshots(shadow, limit=50)
+    assert len(remaining) == 4  # init + 3 snapshots
+
+
+def test_prune_by_age_always_keeps_at_least_one(
+    isolated_state_dir, workspace, monkeypatch
+):
+    """Even when all snapshots are ancient, the newest is always preserved."""
+    shadow = init_shadow(workspace)
+    snapshot(shadow, label="only-snap")
+
+    future = time.time() + 365 * 86400  # 1 year in the future
+    monkeypatch.setattr("gptme.workspace_snapshot.time.time", lambda: future)
+
+    prune_by_age(shadow, days=30)
+    remaining = list_snapshots(shadow, limit=50)
+    assert len(remaining) == 1
+    # The newest commit was "initial" (from init_shadow) or "only-snap".
+    assert remaining[0][1] in {"only-snap", "initial"}
 
 
 # --- hook activation gate ---------------------------------------------------

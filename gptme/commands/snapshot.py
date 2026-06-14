@@ -28,6 +28,8 @@ from ..workspace_snapshot import (
     get_snapshot_n_msgs,
     init_shadow,
     list_snapshots,
+    prune,
+    prune_by_age,
     restore,
     snapshot,
 )
@@ -35,13 +37,18 @@ from .base import CommandContext, command
 
 
 def _print_usage() -> None:
-    print("Usage: /snapshot <create|list|restore|diff> ...")
+    print("Usage: /snapshot <create|list|restore|diff|prune> ...")
     print()
     print("Subcommands:")
-    print("  create [label]       Record the current workspace state as a snapshot.")
-    print("  list [--limit N]     List recent snapshots (newest first).")
-    print("  restore <sha>        Restore workspace to a snapshot.")
-    print("  diff <sha>           Show diff between current workspace and a snapshot.")
+    print(
+        "  create [label]              Record the current workspace state as a snapshot."
+    )
+    print("  list [--limit N]            List recent snapshots (newest first).")
+    print("  restore <sha>               Restore workspace to a snapshot.")
+    print(
+        "  diff <sha>                  Show diff between current workspace and a snapshot."
+    )
+    print("  prune [--days N] [--max-entries K]  Remove old snapshots.")
 
 
 def _workspace_path(ctx: CommandContext) -> Path | None:
@@ -68,17 +75,18 @@ def _workspace_shadow(ctx: CommandContext) -> Shadow | None:
 
 @command("snapshot")
 def cmd_snapshot(ctx: CommandContext) -> None:
-    """List, diff, or restore workspace auto-snapshots.
+    """List, diff, restore, or prune workspace auto-snapshots.
 
     Snapshots are created automatically by the auto_snapshots hook before and
     after each mutating tool call.  Use this command to inspect the history,
-    restore a prior state, or explicitly record a named snapshot.
+    restore a prior state, explicitly record a named snapshot, or prune old ones.
 
     Usage:
-      /snapshot create [label]     Record current workspace state
-      /snapshot list [--limit N]   Show recent snapshots
-      /snapshot restore <sha>      Roll back to a snapshot
-      /snapshot diff <sha>         Show diff from current to snapshot
+      /snapshot create [label]              Record current workspace state
+      /snapshot list [--limit N]            Show recent snapshots
+      /snapshot restore <sha>               Roll back to a snapshot
+      /snapshot diff <sha>                  Show diff from current to snapshot
+      /snapshot prune [--days N] [--max-entries K]  Remove old snapshots
     """
     if not ctx.args or ctx.args[0] in {"help", "-h", "--help"}:
         _print_usage()
@@ -203,6 +211,53 @@ def cmd_snapshot(ctx: CommandContext) -> None:
             print(output, end="")
         else:
             print(f"No changes between current workspace and snapshot {sha}.")
+        return
+
+    if subcommand == "prune":
+        days = 30
+        max_entries: int | None = None
+        idx = 0
+        while idx < len(args):
+            arg = args[idx]
+            if arg in ("--days", "-d"):
+                idx += 1
+                if idx >= len(args):
+                    print("snapshot: --days requires a value")
+                    return
+                try:
+                    days = int(args[idx])
+                except ValueError:
+                    print(f"snapshot: --days must be an integer, got {args[idx]!r}")
+                    return
+            elif arg == "--max-entries":
+                idx += 1
+                if idx >= len(args):
+                    print("snapshot: --max-entries requires a value")
+                    return
+                try:
+                    max_entries = int(args[idx])
+                except ValueError:
+                    print(
+                        f"snapshot: --max-entries must be an integer, got {args[idx]!r}"
+                    )
+                    return
+            else:
+                print(f"snapshot: unknown argument {arg!r}")
+                _print_usage()
+                return
+            idx += 1
+
+        workspace_shadow = _workspace_shadow(ctx)
+        if workspace_shadow is None:
+            return
+
+        dropped = prune_by_age(workspace_shadow, days=days)
+        if max_entries is not None:
+            dropped += prune(workspace_shadow, keep=max_entries)
+        if dropped > 0:
+            print(f"Pruned {dropped} snapshot(s).")
+        else:
+            print("No snapshots to prune.")
         return
 
     print(f"snapshot: unknown subcommand {subcommand!r}")
