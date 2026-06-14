@@ -2027,6 +2027,41 @@ def test_planner_subtask_role_verify_sets_isolated(
     assert sa.isolated is True
 
 
+@patch("gptme.tools.subagent.execution._cleanup_isolation")
+@patch("gptme.tools.subagent.execution._monitor_subprocess")
+@patch(
+    "gptme.tools.subagent.execution._run_subagent_subprocess",
+    side_effect=OSError("boom"),
+)
+@patch("gptme.util.git_worktree.create_worktree", return_value=Path("/tmp/verify-wt"))
+@patch("gptme.util.git_worktree.get_git_root", return_value=Path("/tmp/repo"))
+def test_planner_subtask_role_verify_cleans_isolation_on_launch_failure(
+    mock_get_git_root: MagicMock,
+    mock_create_worktree: MagicMock,
+    mock_run_subprocess: MagicMock,
+    mock_monitor: MagicMock,
+    mock_cleanup_isolation: MagicMock,
+):
+    """Failed subprocess launch should still clean up verify isolation."""
+    initial_count = len(_subagents)
+    subtasks: list[SubtaskDef] = [
+        {"id": "check3", "description": "Verify output", "role": "verify"},
+    ]
+
+    with pytest.raises(OSError, match="boom"):
+        subagent(
+            agent_id="test-verify-launch-failure",
+            prompt="context",
+            mode="planner",
+            subtasks=subtasks,
+        )
+
+    mock_run_subprocess.assert_called_once()
+    mock_monitor.assert_not_called()
+    mock_cleanup_isolation.assert_called_once()
+    assert len(_subagents) == initial_count
+
+
 @patch("gptme.tools.subagent.execution._create_subagent_thread")
 def test_planner_subtask_role_explore_uses_thread_mode(mock_create_thread: MagicMock):
     """role='explore' should NOT trigger subprocess mode — stays thread mode."""
@@ -2051,6 +2086,46 @@ def test_planner_subtask_role_explore_uses_thread_mode(mock_create_thread: Magic
     assert len(new_agents) == 1
     sa = new_agents[0]
     assert sa.execution_mode == "thread"
+
+
+@patch("gptme.tools.subagent.execution._cleanup_isolation")
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
+@patch(
+    "gptme.tools.subagent.types.resolve_role_defaults",
+    return_value=(False, True, "explorer"),
+)
+@patch(
+    "gptme.util.git_worktree.create_worktree",
+    return_value=Path("/tmp/thread-isolated-wt"),
+)
+@patch("gptme.util.git_worktree.get_git_root", return_value=Path("/tmp/repo"))
+def test_planner_thread_mode_cleans_isolation_after_completion(
+    mock_get_git_root: MagicMock,
+    mock_create_worktree: MagicMock,
+    mock_resolve_role_defaults: MagicMock,
+    mock_create_thread: MagicMock,
+    mock_cleanup_isolation: MagicMock,
+):
+    """Thread-mode isolated executors should also clean up their worktree."""
+    initial_count = len(_subagents)
+    subtasks: list[SubtaskDef] = [
+        {"id": "scan2", "description": "Explore the codebase", "role": "explore"},
+    ]
+
+    subagent(
+        agent_id="test-thread-isolated-cleanup",
+        prompt="context",
+        mode="planner",
+        subtasks=subtasks,
+    )
+
+    _wait_for_new_subagent_threads(initial_count, timeout=1.0)
+
+    mock_create_thread.assert_called_once()
+    mock_cleanup_isolation.assert_called_once()
+    new_agents = _subagents[initial_count:]
+    assert len(new_agents) == 1
+    assert new_agents[0].isolated is True
 
 
 @patch("gptme.tools.subagent.execution._create_subagent_thread")

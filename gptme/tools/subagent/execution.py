@@ -569,15 +569,31 @@ def _run_planner(
 
         if resolved_use_subprocess:
             # Subprocess mode: better output isolation for verify/sensitive roles
-            process = _run_subagent_subprocess(
-                prompt=executor_prompt,
-                logdir=logdir,
-                model=model,
-                workspace=workspace,
-                context_mode=context_mode,
-                context_include=context_include,
-                profile=resolved_profile,
+            cleanup_sa = Subagent(
+                executor_id,
+                executor_prompt,
+                None,
+                logdir,
+                model,
+                execution_mode="subprocess",
+                isolated=resolved_isolated,
+                worktree_path=worktree_path,
+                repo_path=repo_path,
             )
+
+            try:
+                process = _run_subagent_subprocess(
+                    prompt=executor_prompt,
+                    logdir=logdir,
+                    model=model,
+                    workspace=workspace,
+                    context_mode=context_mode,
+                    context_include=context_include,
+                    profile=resolved_profile,
+                )
+            except Exception:
+                _cleanup_isolation(cleanup_sa)
+                raise
 
             sa = Subagent(
                 executor_id,
@@ -591,6 +607,7 @@ def _run_planner(
                 worktree_path=worktree_path,
                 repo_path=repo_path,
             )
+
             with _subagents_lock:
                 _subagents.append(sa)
 
@@ -611,39 +628,53 @@ def _run_planner(
                 logger.info(f"Executor {executor_id} subprocess completed")
         else:
             # Thread mode: original behavior for explore/implement roles
+            cleanup_sa = Subagent(
+                executor_id,
+                executor_prompt,
+                None,
+                logdir,
+                model,
+                isolated=resolved_isolated,
+                worktree_path=worktree_path,
+                repo_path=repo_path,
+            )
+
             def run_executor(
                 prompt=executor_prompt,
                 log_dir=logdir,
                 ws=workspace,
                 subtask_profile=resolved_profile,
+                cleanup_subagent=cleanup_sa,
             ):
-                _create_subagent_thread(
-                    prompt=prompt,
-                    logdir=log_dir,
-                    model=model,
-                    context_mode=context_mode,
-                    context_include=context_include,
-                    workspace=ws,
-                    target="planner",
-                    profile_name=subtask_profile,
-                )
+                try:
+                    _create_subagent_thread(
+                        prompt=prompt,
+                        logdir=log_dir,
+                        model=model,
+                        context_mode=context_mode,
+                        context_include=context_include,
+                        workspace=ws,
+                        target="planner",
+                        profile_name=subtask_profile,
+                    )
+                finally:
+                    _cleanup_isolation(cleanup_subagent)
 
             t = threading.Thread(target=run_executor, daemon=True)
+            sa = Subagent(
+                executor_id,
+                executor_prompt,
+                t,
+                logdir,
+                model,
+                isolated=resolved_isolated,
+                worktree_path=worktree_path,
+                repo_path=repo_path,
+            )
             # Register subagent BEFORE starting thread to avoid race condition
             # (matches pattern in api.py — thread closure may look up _subagents)
             with _subagents_lock:
-                _subagents.append(
-                    Subagent(
-                        executor_id,
-                        executor_prompt,
-                        t,
-                        logdir,
-                        model,
-                        isolated=resolved_isolated,
-                        worktree_path=worktree_path,
-                        repo_path=repo_path,
-                    )
-                )
+                _subagents.append(sa)
             t.start()
 
             # Sequential mode: wait for each task to complete before starting next
@@ -652,7 +683,7 @@ def _run_planner(
                 t.join()
                 logger.info(f"Executor {executor_id} completed")
 
-    # Parallel mode: all threads already started
+    # Parallel mode: all executors (threads/subprocesses) already started
     if execution_mode == "parallel":
         logger.info(f"Planner {agent_id} spawned {len(subtasks)} executor subagents")
     else:
