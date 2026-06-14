@@ -236,7 +236,7 @@ def create_mcp_tools(config: Config) -> list[ToolSpec]:
                     hint_set: set[str] = set()
                     if ann.readOnlyHint:
                         hint_set.add("read-only")
-                    if ann.destructiveHint is not False:
+                    if ann.destructiveHint is not False and not ann.readOnlyHint:
                         hint_set.add("destructive")
                     if ann.idempotentHint:
                         hint_set.add("idempotent")

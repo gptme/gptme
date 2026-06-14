@@ -125,9 +125,10 @@ def test_create_mcp_tools_extracts_hints_from_annotations(mock_config, mock_mcp_
     with patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client):
         tools = create_mcp_tools(mock_config)
 
-    assert tools[0].hints == frozenset(
-        {"read-only", "destructive", "idempotent", "closed-world"}
-    )
+    # readOnlyHint=True suppresses "destructive" even when destructiveHint is
+    # absent (None would default to True per MCP spec, but a read-only tool
+    # cannot be destructive by definition)
+    assert tools[0].hints == frozenset({"read-only", "idempotent", "closed-world"})
 
 
 def test_create_mcp_tools_connection_error(mock_config):
