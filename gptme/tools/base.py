@@ -211,8 +211,11 @@ class ToolFunction:
         doc = inspect.getdoc(fn) or ""
         description = doc.split("\n\n")[0] if doc else ""
 
+        _SKIP_KINDS = {inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD}
         params: list[Parameter] = []
         for param_name, param in sig.parameters.items():
+            if param.kind in _SKIP_KINDS:
+                continue
             annotation = param.annotation
             type_str = (
                 "any"
@@ -503,9 +506,20 @@ class ToolSpec:
         Auto-generates name, description, and parameters from the function
         signature and docstring. The returned ToolSpec has an execute handler
         that calls fn(**kwargs) directly — no IPython required.
+
+        Note: All values received via the ``kwargs`` channel are strings
+        (``dict[str, str]``). Functions whose parameters require non-string
+        types (``int``, ``float``, ``bool``, etc.) must perform their own
+        coercion inside the function body.
         """
         tf = ToolFunction.from_callable(fn)
         captured_params = tf.parameters
+        sig = inspect.signature(fn)
+        pos_only_names = [
+            name
+            for name, p in sig.parameters.items()
+            if p.kind == inspect.Parameter.POSITIONAL_ONLY
+        ]
 
         def execute(
             code: str | None,
@@ -519,7 +533,15 @@ class ToolSpec:
                 for i, param in enumerate(captured_params):
                     if i < len(args):
                         call_kwargs[param.name] = args[i]
-            result = fn(**call_kwargs)
+            if pos_only_names:
+                pos_vals = [
+                    call_kwargs.pop(name)
+                    for name in pos_only_names
+                    if name in call_kwargs
+                ]
+                result = fn(*pos_vals, **call_kwargs)
+            else:
+                result = fn(**call_kwargs)
             if result is not None:
                 yield Message("system", str(result))
 

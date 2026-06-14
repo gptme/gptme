@@ -338,6 +338,24 @@ class TestToolFunction:
         tf = ToolFunction.from_callable(fn)
         assert tf.parameters == []
 
+    def test_from_callable_skips_variadic(self):
+        def fn(*args: str, **kwargs: str) -> None:
+            pass
+
+        tf = ToolFunction.from_callable(fn)
+        assert tf.parameters == []
+
+    def test_from_callable_skips_variadic_mixed(self):
+        def fn(name: str, *args: str, flag: bool = False, **kwargs: str) -> None:
+            pass
+
+        tf = ToolFunction.from_callable(fn)
+        names = [p.name for p in tf.parameters]
+        assert "name" in names
+        assert "flag" in names
+        assert "args" not in names
+        assert "kwargs" not in names
+
 
 # ── ToolSpec ───────────────────────────────────────────────────────
 
@@ -567,6 +585,28 @@ class TestToolSpecFromFunction:
 
         spec = ToolSpec.from_function(fn)
         assert spec.is_runnable
+
+    def test_execute_positional_only_via_kwargs(self):
+        """Positional-only params must not cause TypeError when called via kwargs."""
+
+        def fn(x: str, /) -> str:
+            return f"got:{x}"
+
+        spec = ToolSpec.from_function(fn)
+        assert spec.execute is not None
+        msgs = list(spec.execute(None, None, {"x": "hello"}))  # type: ignore[arg-type]
+        assert any("got:hello" in m.content for m in msgs)
+
+    def test_execute_positional_only_via_args(self):
+        """Positional-only params work via the positional-args path too."""
+
+        def fn(x: str, /) -> str:
+            return f"got:{x}"
+
+        spec = ToolSpec.from_function(fn)
+        assert spec.execute is not None
+        msgs = list(spec.execute(None, ["world"], None))  # type: ignore[arg-type]
+        assert any("got:world" in m.content for m in msgs)
 
 
 # ── Hint-based allowlist ───────────────────────────────────────────
