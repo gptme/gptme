@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -501,60 +502,188 @@ def _run_planner(
         name = f"subagent-{executor_id}"
         logdir = get_logdir(name + "-" + random_string(4))
 
-        # Resolve role-based profile per subtask if role is set.
+        # Resolve role-based defaults per subtask if role is set.
         # Per-subtask role is more specific than the planner-level profile, so it
         # always wins — even when the planner itself carries a profile.
-        # NOTE(phase2): use_subprocess/isolated from role are not yet forwarded
-        # to individual executors (planner always uses thread mode). Only profile
-        # is applied here. See SubtaskDef.role docstring for the Phase 2 plan.
+        # Role also controls execution mode: role="verify" enables subprocess+isolated
+        # for sandboxed validation; role="explore"/"implement" use thread mode (default).
         subtask_role = subtask.get("role")
         resolved_profile = profile_name
+        resolved_use_subprocess = False
+        resolved_isolated = False
         if subtask_role:
-            _, _, role_profile = resolve_role_defaults(subtask_role, None, None)
+            role_use_sub, role_isolated, role_profile = resolve_role_defaults(
+                subtask_role, None, None
+            )
             if role_profile is not None:
                 resolved_profile = role_profile
-                logger.info(
-                    f"Subtask '{subtask['id']}' resolved profile '{role_profile}' from role='{subtask_role}'"
-                )
+            resolved_use_subprocess = role_use_sub
+            resolved_isolated = role_isolated
+            logger.info(
+                f"Subtask '{subtask['id']}' resolved from role='{subtask_role}': "
+                f"profile={resolved_profile!r}, "
+                f"use_subprocess={resolved_use_subprocess}, "
+                f"isolated={resolved_isolated}"
+            )
 
-        # Capture workspace before spawning thread to avoid FileNotFoundError
+        # Capture workspace before spawning to avoid FileNotFoundError
         # if cwd is deleted (e.g., tmpdir cleanup in tests)
         try:
             workspace = Path.cwd()
         except FileNotFoundError:
             workspace = logdir.parent
 
-        def run_executor(
-            prompt=executor_prompt,
-            log_dir=logdir,
-            ws=workspace,
-            subtask_profile=resolved_profile,
-        ):
-            _create_subagent_thread(
-                prompt=prompt,
-                logdir=log_dir,
-                model=model,
-                context_mode=context_mode,
-                context_include=context_include,
-                workspace=ws,
-                target="planner",
-                profile_name=subtask_profile,
+        # Set up worktree isolation if the resolved role requires it
+        worktree_path: Path | None = None
+        repo_path: Path | None = None
+        if resolved_isolated:
+            from ...util.git_worktree import create_worktree, get_git_root
+
+            git_root = get_git_root(workspace)
+            if git_root:
+                try:
+                    branch_name = f"subagent-{executor_id}-{uuid.uuid4().hex[:8]}"
+                    worktree_path = create_worktree(git_root, branch_name=branch_name)
+                    workspace = worktree_path
+                    repo_path = git_root
+                    logger.info(
+                        f"Executor {executor_id} isolated in worktree: {worktree_path}"
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to create worktree for {executor_id}, "
+                        f"falling back to temp dir: {e}"
+                    )
+                    worktree_path = Path(
+                        tempfile.mkdtemp(prefix=f"subagent-{executor_id}-")
+                    )
+                    workspace = worktree_path
+            else:
+                worktree_path = Path(
+                    tempfile.mkdtemp(prefix=f"subagent-{executor_id}-")
+                )
+                workspace = worktree_path
+                logger.info(
+                    f"Not in a git repo, using temp dir for {executor_id}: {worktree_path}"
+                )
+
+        if resolved_use_subprocess:
+            # Subprocess mode: better output isolation for verify/sensitive roles
+            cleanup_sa = Subagent(
+                executor_id,
+                executor_prompt,
+                None,
+                logdir,
+                model,
+                execution_mode="subprocess",
+                isolated=resolved_isolated,
+                worktree_path=worktree_path,
+                repo_path=repo_path,
             )
 
-        t = threading.Thread(target=run_executor, daemon=True)
-        # Register subagent BEFORE starting thread to avoid race condition
-        # (matches pattern in api.py — thread closure may look up _subagents)
-        with _subagents_lock:
-            _subagents.append(Subagent(executor_id, executor_prompt, t, logdir, model))
-        t.start()
+            try:
+                process = _run_subagent_subprocess(
+                    prompt=executor_prompt,
+                    logdir=logdir,
+                    model=model,
+                    workspace=workspace,
+                    context_mode=context_mode,
+                    context_include=context_include,
+                    profile=resolved_profile,
+                )
+            except Exception:
+                _cleanup_isolation(cleanup_sa)
+                raise
 
-        # Sequential mode: wait for each task to complete before starting next
-        if execution_mode == "sequential":
-            logger.info(f"Waiting for {executor_id} to complete (sequential mode)")
-            t.join()
-            logger.info(f"Executor {executor_id} completed")
+            sa = Subagent(
+                executor_id,
+                executor_prompt,
+                None,
+                logdir,
+                model,
+                process=process,
+                execution_mode="subprocess",
+                isolated=resolved_isolated,
+                worktree_path=worktree_path,
+                repo_path=repo_path,
+            )
 
-    # Parallel mode: all threads already started
+            with _subagents_lock:
+                _subagents.append(sa)
+
+            # Monitor thread handles completion notification and cleanup
+            monitor_t = threading.Thread(
+                target=_monitor_subprocess,
+                args=(sa,),
+                daemon=True,
+            )
+            monitor_t.start()
+
+            # Sequential mode: wait for this executor before starting the next
+            if execution_mode == "sequential":
+                logger.info(
+                    f"Waiting for {executor_id} subprocess to complete (sequential mode)"
+                )
+                monitor_t.join()
+                logger.info(f"Executor {executor_id} subprocess completed")
+        else:
+            # Thread mode: original behavior for explore/implement roles
+            cleanup_sa = Subagent(
+                executor_id,
+                executor_prompt,
+                None,
+                logdir,
+                model,
+                isolated=resolved_isolated,
+                worktree_path=worktree_path,
+                repo_path=repo_path,
+            )
+
+            def run_executor(
+                prompt=executor_prompt,
+                log_dir=logdir,
+                ws=workspace,
+                subtask_profile=resolved_profile,
+                cleanup_subagent=cleanup_sa,
+            ):
+                try:
+                    _create_subagent_thread(
+                        prompt=prompt,
+                        logdir=log_dir,
+                        model=model,
+                        context_mode=context_mode,
+                        context_include=context_include,
+                        workspace=ws,
+                        target="planner",
+                        profile_name=subtask_profile,
+                    )
+                finally:
+                    _cleanup_isolation(cleanup_subagent)
+
+            t = threading.Thread(target=run_executor, daemon=True)
+            sa = Subagent(
+                executor_id,
+                executor_prompt,
+                t,
+                logdir,
+                model,
+                isolated=resolved_isolated,
+                worktree_path=worktree_path,
+                repo_path=repo_path,
+            )
+            # Register subagent BEFORE starting thread to avoid race condition
+            # (matches pattern in api.py — thread closure may look up _subagents)
+            with _subagents_lock:
+                _subagents.append(sa)
+            t.start()
+
+            # Sequential mode: wait for each task to complete before starting next
+            if execution_mode == "sequential":
+                logger.info(f"Waiting for {executor_id} to complete (sequential mode)")
+                t.join()
+                logger.info(f"Executor {executor_id} completed")
+
+    # Parallel mode: all executors (threads/subprocesses) already started
     if execution_mode == "parallel":
         logger.info(f"Planner {agent_id} spawned {len(subtasks)} executor subagents")
     else:
