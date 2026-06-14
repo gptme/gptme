@@ -708,9 +708,13 @@ def llm_generate(
             response, metadata = _chat_complete(
                 messages, model, None, max_tokens=max_tokens, temperature=temperature
             )
-            result: dict = {"content": response, "model": model}
-            if metadata and "usage" in metadata:
-                result["usage"] = dict(metadata["usage"])
+            result: dict = {
+                "content": response,
+                "model": (metadata.get("model") if metadata else None) or model,
+                "usage": dict(metadata["usage"])
+                if metadata and "usage" in metadata
+                else None,
+            }
             print(json.dumps(result))
         else:
             # Get complete response and print it (plain text)

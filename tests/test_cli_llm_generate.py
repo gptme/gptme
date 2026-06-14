@@ -15,6 +15,10 @@ def _fake_chat_complete(messages, model, tools, **kwargs):
     return "hello world", meta
 
 
+def _fake_chat_complete_no_usage(messages, model, tools, **kwargs):
+    return "hello world", {"model": model}
+
+
 @pytest.fixture()
 def mock_llm_env():
     """Patch LLM initialisation so tests run without real credentials or API calls."""
@@ -59,6 +63,29 @@ def test_llm_generate_json_incompatible_with_stream():
     )
     assert result.exit_code != 0
     assert "incompatible" in result.output.lower()
+
+
+def test_llm_generate_json_no_usage_returns_null():
+    """When the provider returns no usage data, 'usage' key is present but null."""
+    with (
+        patch("gptme.init.init"),
+        patch("gptme.llm.get_provider_from_model", return_value="anthropic"),
+        patch("gptme.llm.init_llm"),
+        patch(
+            "gptme.llm.models.get_default_model",
+            return_value=MagicMock(full="anthropic/claude-test"),
+        ),
+        patch("gptme.llm._chat_complete", side_effect=_fake_chat_complete_no_usage),
+    ):
+        runner = CliRunner()
+        result = runner.invoke(
+            llm_generate,
+            ["--output-format", "json", "--model", "anthropic/claude-test", "say hi"],
+        )
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert "usage" in data, "usage key must always be present in JSON output"
+    assert data["usage"] is None
 
 
 def test_llm_generate_text_output_unchanged(mock_llm_env):
