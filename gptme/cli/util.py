@@ -604,7 +604,7 @@ def llm():
     "--temperature",
     type=float,
     default=None,
-    help="Sampling temperature (0.0=deterministic, higher=more creative).",
+    help="Sampling temperature (0.0=deterministic, higher=more creative). Range: 0.0–2.0.",
 )
 def llm_generate(
     prompt: str | None,

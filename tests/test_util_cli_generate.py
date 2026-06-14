@@ -8,34 +8,6 @@ from click.testing import CliRunner
 from gptme.cli.util import main
 
 
-def _mock_init_generate(mock_init, mock_provider, mock_init_llm, mock_default_model):
-    """Return a context-manager stack mocking the llm generate setup path."""
-    from contextlib import ExitStack
-
-    stack = ExitStack()
-    stack.enter_context(patch("gptme.cli.util.main"))  # dummy; replaced below
-    return stack
-
-
-def _generate_patches(response="test response"):
-    """Return a list of patch() objects covering the llm generate init path."""
-    from unittest.mock import MagicMock, patch
-
-    mock_model = MagicMock()
-    mock_model.full = "anthropic/claude-haiku-4-5"
-
-    return [
-        patch("gptme.init.init"),
-        patch("gptme.llm.get_provider_from_model", return_value="anthropic"),
-        patch("gptme.llm.init_llm"),
-        patch("gptme.llm.models.get_default_model", return_value=mock_model),
-        patch(
-            "gptme.llm._chat_complete",
-            return_value=(response, None),
-        ),
-    ]
-
-
 class TestLlmGenerateHelp:
     def test_help_shows_new_flags(self):
         runner = CliRunner()
@@ -86,7 +58,7 @@ class TestLlmGenerateValidation:
 class TestLlmGenerateParams:
     def test_max_tokens_passed_to_chat_complete(self):
         """--max-tokens is forwarded to _chat_complete."""
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import MagicMock
 
         mock_model = MagicMock()
         mock_model.full = "anthropic/claude-haiku-4-5"
@@ -111,7 +83,7 @@ class TestLlmGenerateParams:
 
     def test_temperature_passed_to_chat_complete(self):
         """--temperature is forwarded to _chat_complete."""
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import MagicMock
 
         mock_model = MagicMock()
         mock_model.full = "anthropic/claude-haiku-4-5"
@@ -136,7 +108,7 @@ class TestLlmGenerateParams:
 
     def test_both_params_passed_together(self):
         """Both --max-tokens and --temperature can be combined."""
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import MagicMock
 
         mock_model = MagicMock()
         mock_model.full = "anthropic/claude-haiku-4-5"
@@ -170,7 +142,7 @@ class TestLlmGenerateParams:
 
     def test_no_params_defaults_to_none(self):
         """Without flags, max_tokens and temperature default to None."""
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import MagicMock
 
         mock_model = MagicMock()
         mock_model.full = "anthropic/claude-haiku-4-5"
@@ -193,7 +165,7 @@ class TestLlmGenerateParams:
 
     def test_max_tokens_passed_to_stream(self):
         """--max-tokens is forwarded to _stream when --stream is set."""
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import MagicMock
 
         mock_model = MagicMock()
         mock_model.full = "anthropic/claude-haiku-4-5"
@@ -218,7 +190,7 @@ class TestLlmGenerateParams:
 
     def test_temperature_boundary_values_accepted(self):
         """0.0 and 2.0 are valid temperature boundaries."""
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import MagicMock
 
         mock_model = MagicMock()
         mock_model.full = "anthropic/claude-haiku-4-5"

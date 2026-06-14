@@ -891,7 +891,7 @@ def test_llm_generate_prepends_system_message(monkeypatch):
 
     captured: list = []
 
-    def fake_chat_complete(messages, model, tools):
+    def fake_chat_complete(messages, model, tools, **kwargs):
         captured.extend(messages)
         return ("ok", None)
 
@@ -922,7 +922,7 @@ def test_llm_generate_prepends_system_message_stream(monkeypatch):
 
     captured: list = []
 
-    def fake_stream(messages, model, tools):
+    def fake_stream(messages, model, tools, **kwargs):
         captured.extend(messages)
         yield "ok"
 
