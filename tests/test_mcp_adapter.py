@@ -1,5 +1,6 @@
 """Tests for MCP adapter functionality."""
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -73,6 +74,7 @@ def mock_mcp_client():
         },
         "required": ["param1"],
     }
+    mock_tool.annotations = None
 
     # Mock tools object
     mock_tools = MagicMock()
@@ -98,6 +100,34 @@ def test_create_mcp_tools_enabled(mock_config, mock_mcp_client):
 
         assert len(tools) > 0
         assert any("test-server.test_tool" in tool.name for tool in tools)
+
+
+def test_create_mcp_tools_annotations_default_to_empty_hints(
+    mock_config, mock_mcp_client
+):
+    """Test create_mcp_tools leaves hints empty when annotations are absent."""
+    with patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client):
+        tools = create_mcp_tools(mock_config)
+
+    assert tools[0].hints == frozenset()
+
+
+def test_create_mcp_tools_extracts_hints_from_annotations(mock_config, mock_mcp_client):
+    """Test create_mcp_tools maps MCP tool annotations into hint tags."""
+    mock_tool = mock_mcp_client.connect.return_value[0].tools[0]
+    mock_tool.annotations = SimpleNamespace(
+        readOnlyHint=True,
+        destructiveHint=None,
+        idempotentHint=True,
+        openWorldHint=False,
+    )
+
+    with patch("gptme.mcp.client.MCPClient", return_value=mock_mcp_client):
+        tools = create_mcp_tools(mock_config)
+
+    assert tools[0].hints == frozenset(
+        {"read-only", "destructive", "idempotent", "closed-world"}
+    )
 
 
 def test_create_mcp_tools_connection_error(mock_config):
