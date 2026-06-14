@@ -505,7 +505,7 @@ class ToolSpec:
 
         Auto-generates name, description, and parameters from the function
         signature and docstring. The returned ToolSpec has an execute handler
-        that calls fn(**kwargs) directly — no IPython required.
+        that calls ``fn(**kwargs)`` directly — no IPython required.
 
         Note: All values received via the ``kwargs`` channel are strings
         (``dict[str, str]``). Functions whose parameters require non-string
