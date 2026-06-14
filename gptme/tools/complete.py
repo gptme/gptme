@@ -274,13 +274,45 @@ def _turn_fingerprint(msg: "Message") -> tuple | None:
     )
 
 
+# Module-level regex constants for _classify_stuck_reason.
+_PERM_RE = re.compile(
+    r"[Pp]ermission denied"
+    r"|[Aa]ccess denied"
+    r"|[Oo]peration not permitted"
+    r"|EACCES"
+    r"|[Nn]ot (?:allowed|authorized|permitted)"
+    r"|[Uu]nauthorized",
+)
+_ERR_RE = re.compile(
+    r"Traceback \(most recent call"
+    r"|(?:Error|Exception):"
+    r"|exit (?:code|status)[:\s]+[1-9]"
+    r"|returncode[=\s]+[1-9]"
+    r"|Error executing tool"
+    r"|[Cc]ommand not found"
+    r"|[Nn]o such file or directory"
+    r"|[Nn]o module named"
+    r"|SyntaxError"
+    r"|TypeError"
+    r"|ValueError"
+    r"|AttributeError"
+    r"|KeyError"
+    r"|ImportError",
+)
+_EMPTY_RE = re.compile(
+    r"[Nn]o (?:output|results?|matches?|files?) found"
+    r"|0 (?:results?|matches?|files?)"
+    r"|[Nn]othing (?:found|returned)",
+)
+
+
 def _classify_stuck_reason(
     messages: list["Message"],
 ) -> tuple[str, str]:
     """Classify why the agent is stuck by inspecting tool result messages.
 
-    Collects system messages (tool results) between the most recent repeated
-    assistant turns and looks for recognizable failure signals.
+    Collects system messages (tool results) after the last assistant turn
+    and looks for recognizable failure signals.
 
     Returns ``(classification, evidence)`` where classification is one of:
     - ``"tool-error"``       — non-zero exit, traceback, or error message
@@ -303,36 +335,12 @@ def _classify_stuck_reason(
     combined = "\n".join(result_texts)
 
     # Permission-denied (check first — more specific than generic errors).
-    _PERM_RE = re.compile(
-        r"[Pp]ermission denied"
-        r"|[Aa]ccess denied"
-        r"|[Oo]peration not permitted"
-        r"|EACCES"
-        r"|[Nn]ot (?:allowed|authorized|permitted)"
-        r"|[Uu]nauthorized",
-    )
     m = _PERM_RE.search(combined)
     if m:
         snippet = combined[max(0, m.start() - 20) : m.end() + 60].strip()
         return "permission-denied", snippet[:120]
 
     # Tool error — exit codes, tracebacks, error/exception text.
-    _ERR_RE = re.compile(
-        r"Traceback \(most recent call"
-        r"|(?:Error|Exception):"
-        r"|exit (?:code|status)[:\s]+[1-9]"
-        r"|returncode[=\s]+[1-9]"
-        r"|Error executing tool"
-        r"|[Cc]ommand not found"
-        r"|[Nn]o such file or directory"
-        r"|[Nn]o module named"
-        r"|SyntaxError"
-        r"|TypeError"
-        r"|ValueError"
-        r"|AttributeError"
-        r"|KeyError"
-        r"|ImportError",
-    )
     m = _ERR_RE.search(combined)
     if m:
         snippet = combined[max(0, m.start() - 10) : m.end() + 80].strip()
@@ -342,12 +350,6 @@ def _classify_stuck_reason(
     if not combined.strip() or len(combined.strip()) < 5:
         return "empty-result", "(no output)"
 
-    _EMPTY_RE = re.compile(
-        r"[Nn]o (?:output|results?|matches?|files?) found"
-        r"|0 (?:results?|matches?|files?)"
-        r"|[Nn]othing (?:found|returned)"
-        r"|(?:^|\n)\s*$",
-    )
     m = _EMPTY_RE.search(combined)
     if m:
         evidence = m.group(0).strip() or "(empty output)"
@@ -441,12 +443,8 @@ def stuck_detect_hook(
             f"Stuck loop not broken after {escalate_max} escalations"
         )
 
-    # Classify the root cause when enabled (default on).
-    rca_enabled = _env_flag("GPTME_STUCK_RCA", "1")
-    if rca_enabled:
-        classification, evidence = _classify_stuck_reason(manager.log.messages)
-    else:
-        classification, evidence = "unknown", ""
+    # Classify the root cause (always on; disable everything with GPTME_STUCK_DETECT=0).
+    classification, evidence = _classify_stuck_reason(manager.log.messages)
 
     logger.warning(
         "Stuck detected: `%s` repeated %d times without progress (rca=%s). Nudging.",
@@ -460,7 +458,7 @@ def stuck_detect_hook(
         },
     )
 
-    if rca_enabled and classification != "unknown":
+    if classification != "unknown":
         rca_hint = f" Likely cause: {classification}"
         if evidence:
             rca_hint += f" — {evidence}"

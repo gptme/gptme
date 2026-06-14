@@ -858,17 +858,3 @@ class TestStuckDetectRCAIntegration:
         assert len(results) == 1
         assert isinstance(results[0], Message)
         assert "Likely cause" not in results[0].content
-
-    def test_rca_disabled_via_env(self, monkeypatch):
-        """GPTME_STUCK_RCA=0 suppresses classification even for clear errors."""
-        monkeypatch.setenv("GPTME_STUCK_RCA", "0")
-        manager = _mock_manager(
-            self._msgs_with_result(
-                "Traceback (most recent call last):\nValueError: bad"
-            )
-        )
-        results = list(stuck_detect_hook(manager, interactive=False, prompt_queue=None))
-        assert len(results) == 1
-        assert isinstance(results[0], Message)
-        assert "Likely cause" not in results[0].content
-        assert "tool-error" not in results[0].content
