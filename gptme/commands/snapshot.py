@@ -36,12 +36,19 @@ def _print_usage() -> None:
     print("  diff <sha>           Show diff between current workspace and a snapshot.")
 
 
-def _workspace_shadow(ctx: CommandContext) -> Shadow | None:
+def _workspace_path(ctx: CommandContext) -> Path | None:
     workspace = getattr(ctx.manager, "workspace", None)
     if workspace is None:
         print("snapshot: no workspace configured for this session")
         return None
-    shadow = Shadow.for_workspace(Path(workspace))
+    return Path(workspace)
+
+
+def _workspace_shadow(ctx: CommandContext) -> Shadow | None:
+    workspace = _workspace_path(ctx)
+    if workspace is None:
+        return None
+    shadow = Shadow.for_workspace(workspace)
     if not shadow.initialized():
         print(
             "snapshot: no snapshot history for this workspace "
@@ -74,14 +81,12 @@ def cmd_snapshot(ctx: CommandContext) -> None:
 
     if subcommand == "create":
         label = args[0] if args else "manual"
-        shadow = _workspace_shadow(ctx)
-        if shadow is None:
-            # Workspace has no shadow yet — initialize it on first explicit create.
-            workspace = getattr(ctx.manager, "workspace", None)
-            if workspace is None:
-                print("snapshot: no workspace configured for this session")
-                return
-            shadow = init_shadow(Path(workspace))
+        workspace = _workspace_path(ctx)
+        if workspace is None:
+            return
+        shadow = Shadow.for_workspace(workspace)
+        if not shadow.initialized():
+            shadow = init_shadow(workspace)
         sha = snapshot(shadow, label=label)
         if sha is not None:
             print(f"Snapshot recorded: {sha}  ({label})")
@@ -110,11 +115,11 @@ def cmd_snapshot(ctx: CommandContext) -> None:
                 return
             idx += 1
 
-        shadow = _workspace_shadow(ctx)
-        if shadow is None:
+        workspace_shadow = _workspace_shadow(ctx)
+        if workspace_shadow is None:
             return
 
-        entries = list_snapshots(shadow, limit=limit)
+        entries = list_snapshots(workspace_shadow, limit=limit)
         if not entries:
             print("No snapshots yet.")
             return
@@ -130,12 +135,12 @@ def cmd_snapshot(ctx: CommandContext) -> None:
             _print_usage()
             return
 
-        shadow = _workspace_shadow(ctx)
-        if shadow is None:
+        workspace_shadow = _workspace_shadow(ctx)
+        if workspace_shadow is None:
             return
 
         sha = args[0]
-        ok = restore(shadow, sha)
+        ok = restore(workspace_shadow, sha)
         if ok:
             print(f"Restored workspace to snapshot {sha}.")
         else:
@@ -151,12 +156,12 @@ def cmd_snapshot(ctx: CommandContext) -> None:
             _print_usage()
             return
 
-        shadow = _workspace_shadow(ctx)
-        if shadow is None:
+        workspace_shadow = _workspace_shadow(ctx)
+        if workspace_shadow is None:
             return
 
         sha = args[0]
-        result = shadow.run("diff", sha, check=False)
+        result = workspace_shadow.run("diff", sha, check=False)
         if result.returncode != 0:
             print(f"snapshot: diff failed: {result.stderr.strip() or 'unknown error'}")
             return

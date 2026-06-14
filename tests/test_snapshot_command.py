@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
@@ -233,6 +234,24 @@ class TestSnapshotCommand:
         assert "snapshot recorded" in out.lower()
         assert "manual" in out
 
+    def test_create_no_workspace_prints_single_error(self, capsys):
+        """Create without a workspace reports the error once."""
+        manager = MagicMock()
+        manager.workspace = None
+        _run_cmd(manager, "create before-attempt")
+        out = capsys.readouterr().out
+        assert out.lower().count("no workspace configured") == 1
+
+    def test_create_initializes_uninitialized_workspace(
+        self, workspace, isolated_state_dir, capsys
+    ):
+        """First explicit create initializes the shadow without spurious warnings."""
+        manager = _make_manager(workspace)
+        _run_cmd(manager, "create before-attempt")
+        out = capsys.readouterr().out
+        assert "snapshot recorded" in out.lower()
+        assert "no snapshot history" not in out.lower()
+
     def test_create_then_restore_roundtrip(self, workspace, isolated_state_dir, capsys):
         """Full tree-search round-trip: create snapshot, mutate, restore."""
         shadow = init_shadow(workspace)
@@ -243,7 +262,8 @@ class TestSnapshotCommand:
             _run_cmd(manager, "create before-attempt")
         out = capsys.readouterr().out
         # Extract SHA from output like "Snapshot recorded: abc1234  (before-attempt)"
-        sha = out.split(":")[1].strip().split()[0] if ":" in out else None
+        match = re.search(r"Snapshot recorded:\s+(\S+)", out)
+        sha = match.group(1) if match else None
         assert sha is not None, f"Could not extract SHA from: {out!r}"
 
         # Step 2: mutate workspace (simulate a failed attempt)
