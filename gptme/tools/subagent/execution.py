@@ -406,8 +406,7 @@ def _monitor_subprocess(
     from .hooks import notify_completion
     from .types import (
         ReturnType,
-        _subagent_results,
-        _subagent_results_lock,
+        set_subagent_result_if_absent,
     )
 
     if not subagent.process:
@@ -445,10 +444,10 @@ def _monitor_subprocess(
         result = f"Process exited with code {subagent.process.returncode}"
 
     # Cache the result in module-level dict (Subagent is frozen)
-    # Use lock for thread-safe access when multiple subagents run in parallel
     final_result = ReturnType(status, result)
-    with _subagent_results_lock:
-        _subagent_results[subagent.agent_id] = final_result
+    if not set_subagent_result_if_absent(subagent.agent_id, final_result):
+        _cleanup_isolation(subagent)
+        return
 
     # Notify via hook system (fire-and-forget-then-get-alerted pattern)
     try:

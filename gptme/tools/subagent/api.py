@@ -26,6 +26,7 @@ from .types import (
     _subagents,
     _subagents_lock,
     resolve_role_defaults,
+    set_subagent_result_if_absent,
 )
 
 logger = logging.getLogger(__name__)
@@ -320,17 +321,20 @@ def subagent(
             try:
                 status, summary = asyncio.run(_acp_run())
 
-                with _subagent_results_lock:
-                    _subagent_results[agent_id] = ReturnType(status, summary)
+                result = ReturnType(status, summary)
+                if not set_subagent_result_if_absent(agent_id, result):
+                    return
                 notify_completion(
                     agent_id,
                     status,
-                    _exec._summarize_result(ReturnType(status, summary), max_chars=200),
+                    _exec._summarize_result(result, max_chars=200),
                 )
             except Exception as e:
                 logger.error(f"ACP subagent {agent_id} failed: {e}", exc_info=True)
-                with _subagent_results_lock:
-                    _subagent_results[agent_id] = ReturnType("failure", str(e))
+                if not set_subagent_result_if_absent(
+                    agent_id, ReturnType("failure", str(e))
+                ):
+                    return
                 notify_completion(agent_id, "failure", f"ACP error: {e}")
             finally:
                 with _subagents_lock:
@@ -451,9 +455,12 @@ def subagent(
                 sa = next((s for s in _subagents if s.agent_id == agent_id), None)
             if sa:
                 result = sa.status()
+                with _subagent_results_lock:
+                    result_was_already_recorded = agent_id in _subagent_results
                 try:
-                    summary = _exec._summarize_result(result, max_chars=200)
-                    notify_completion(agent_id, result.status, summary)
+                    if not result_was_already_recorded:
+                        summary = _exec._summarize_result(result, max_chars=200)
+                        notify_completion(agent_id, result.status, summary)
                 except Exception as e:
                     logger.warning(f"Failed to notify subagent completion: {e}")
                 # Clean up worktree isolation
@@ -510,16 +517,16 @@ def subagent_cancel(agent_id: str) -> str:
         return f"Subagent '{agent_id}' is not running (already finished)."
 
     if sa.execution_mode == "subprocess" and sa.process:
+        with _subagent_results_lock:
+            _subagent_results[agent_id] = ReturnType(
+                "failure", "Cancelled by orchestrator"
+            )
         sa.process.terminate()
         try:
             sa.process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             sa.process.kill()
             sa.process.wait()
-        with _subagent_results_lock:
-            _subagent_results[agent_id] = ReturnType(
-                "failure", "Cancelled by orchestrator"
-            )
         logger.info(f"Subagent '{agent_id}' subprocess terminated.")
         return f"Subagent '{agent_id}' cancelled."
     # Thread/ACP mode: threads cannot be forcefully stopped in Python.

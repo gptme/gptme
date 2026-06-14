@@ -114,6 +114,15 @@ _subagent_results_lock = threading.Lock()
 _completion_queue: queue.Queue[tuple[str, Status, str]] = queue.Queue()
 
 
+def set_subagent_result_if_absent(agent_id: str, result: "ReturnType") -> bool:
+    """Cache a subagent result unless another terminal result already exists."""
+    with _subagent_results_lock:
+        if agent_id in _subagent_results:
+            return False
+        _subagent_results[agent_id] = result
+        return True
+
+
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------

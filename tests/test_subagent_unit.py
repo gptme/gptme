@@ -13,6 +13,7 @@ import pytest
 
 from gptme.tools.subagent.api import subagent_cancel
 from gptme.tools.subagent.batch import BatchJob
+from gptme.tools.subagent.execution import _monitor_subprocess
 from gptme.tools.subagent.hooks import (
     _get_complete_instruction,
     _subagent_completion_hook,
@@ -350,6 +351,11 @@ class TestSubagentCancel:
             _subagents.clear()
         with _subagent_results_lock:
             _subagent_results.clear()
+        while not _completion_queue.empty():
+            try:
+                _completion_queue.get_nowait()
+            except queue.Empty:
+                break
 
     def _register(self, agent_id: str, **kwargs) -> Subagent:
         sa = Subagent(
@@ -400,6 +406,27 @@ class TestSubagentCancel:
         self._register("slow-proc", process=mock_proc, execution_mode="subprocess")
         subagent_cancel("slow-proc")
         mock_proc.kill.assert_called_once()
+
+    def test_subprocess_monitor_preserves_cancelled_result(self):
+        mock_proc = MagicMock()
+        mock_proc.wait.return_value = 0
+        mock_proc.returncode = -15
+        sa = self._register(
+            "proc-agent",
+            process=mock_proc,
+            execution_mode="subprocess",
+        )
+        with _subagent_results_lock:
+            _subagent_results["proc-agent"] = ReturnType(
+                "failure", "Cancelled by orchestrator"
+            )
+
+        _monitor_subprocess(sa)
+
+        with _subagent_results_lock:
+            assert _subagent_results["proc-agent"].status == "failure"
+            assert _subagent_results["proc-agent"].result == "Cancelled by orchestrator"
+        assert _completion_queue.empty()
 
     def test_cancel_thread_marks_result(self):
         mock_thread = MagicMock(spec=threading.Thread)
