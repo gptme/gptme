@@ -21,6 +21,7 @@ from gptme.tools import clear_tools
 from gptme.tools import shell as shell_module
 from gptme.tools.rag import _has_gptme_rag
 from gptme.tools.subagent import _subagents
+from gptme.tools.subagent.concurrency import _reset_slot_sem
 
 logger = logging.getLogger(__name__)
 
@@ -263,6 +264,11 @@ def cleanup_subagents_after():
                 subagent.process.kill()
     # Clear the subagents list
     _subagents.clear()
+    # Reset the concurrency semaphore so monitor threads from this test
+    # don't starve the next test when running under xdist.  Monitor threads
+    # capture the old semaphore object in their closure, so they release the
+    # old sem (harmless) while the next test gets a fresh one.
+    _reset_slot_sem()
 
 
 @pytest.fixture
