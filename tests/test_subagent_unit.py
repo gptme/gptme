@@ -4,6 +4,7 @@ Tests the refactored subagent package (hooks, types, batch) without
 requiring API keys or running actual LLM calls.
 """
 
+import importlib
 import queue
 import threading
 from pathlib import Path
@@ -11,7 +12,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from gptme.tools.subagent.api import subagent_cancel
+import gptme.tools.subagent.api as subagent_api
+from gptme.tools.subagent.api import subagent, subagent_cancel
 from gptme.tools.subagent.batch import BatchJob
 from gptme.tools.subagent.execution import _monitor_subprocess
 from gptme.tools.subagent.hooks import (
@@ -407,6 +409,20 @@ class TestSubagentCancel:
         subagent_cancel("slow-proc")
         mock_proc.kill.assert_called_once()
 
+    def test_cancel_subprocess_preserves_completed_result(self):
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        self._register("proc-agent", process=mock_proc, execution_mode="subprocess")
+        with _subagent_results_lock:
+            _subagent_results["proc-agent"] = ReturnType("success", "done")
+
+        result = subagent_cancel("proc-agent")
+
+        assert "already finished" in result.lower()
+        mock_proc.terminate.assert_not_called()
+        with _subagent_results_lock:
+            assert _subagent_results["proc-agent"] == ReturnType("success", "done")
+
     def test_subprocess_monitor_preserves_cancelled_result(self):
         mock_proc = MagicMock()
         mock_proc.wait.return_value = 0
@@ -436,3 +452,51 @@ class TestSubagentCancel:
         assert "cancelled" in result.lower()
         with _subagent_results_lock:
             assert _subagent_results["thread-agent"].status == "failure"
+
+    def test_thread_completion_skips_notify_when_cancel_wins_race(
+        self, monkeypatch, tmp_path
+    ):
+        cli_main = importlib.import_module("gptme.cli.main")
+        llm_models = importlib.import_module("gptme.llm.models")
+        profiles = importlib.import_module("gptme.profiles")
+        monkeypatch.setattr(cli_main, "get_logdir", lambda name: tmp_path / name)
+        monkeypatch.setattr(llm_models, "get_default_model", lambda: None)
+        monkeypatch.setattr(profiles, "get_profile", lambda _: None)
+        monkeypatch.setattr(
+            subagent_api._exec, "_create_subagent_thread", lambda **kwargs: None
+        )
+        monkeypatch.setattr(subagent_api._exec, "_cleanup_isolation", lambda sa: None)
+
+        notify_calls: list[tuple[str, str, str]] = []
+
+        def fake_notify_completion(agent_id: str, status: str, summary: str) -> None:
+            notify_calls.append((agent_id, status, summary))
+
+        def fake_set_subagent_result_if_absent(
+            agent_id: str, result: ReturnType
+        ) -> bool:
+            with _subagent_results_lock:
+                _subagent_results[agent_id] = ReturnType(
+                    "failure", "Cancelled by orchestrator"
+                )
+            return False
+
+        monkeypatch.setattr(subagent_api, "notify_completion", fake_notify_completion)
+        monkeypatch.setattr(
+            subagent_api,
+            "set_subagent_result_if_absent",
+            fake_set_subagent_result_if_absent,
+        )
+
+        subagent("thread-agent", "do the thing")
+
+        with _subagents_lock:
+            sa = next(s for s in _subagents if s.agent_id == "thread-agent")
+        assert sa.thread is not None
+        sa.thread.join(timeout=1)
+        assert not sa.thread.is_alive()
+        assert notify_calls == []
+        with _subagent_results_lock:
+            assert _subagent_results["thread-agent"] == ReturnType(
+                "failure", "Cancelled by orchestrator"
+            )

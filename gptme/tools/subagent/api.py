@@ -21,8 +21,6 @@ from .types import (
     Role,
     Subagent,
     SubtaskDef,
-    _subagent_results,
-    _subagent_results_lock,
     _subagents,
     _subagents_lock,
     resolve_role_defaults,
@@ -437,8 +435,10 @@ def subagent(
             except Exception as e:
                 # If subagent creation fails, notify with error status
                 logger.error(f"Subagent {agent_id} failed during execution: {e}")
-                with _subagent_results_lock:
-                    _subagent_results[agent_id] = ReturnType("failure", str(e))
+                if not set_subagent_result_if_absent(
+                    agent_id, ReturnType("failure", str(e))
+                ):
+                    return
                 try:
                     notify_completion(agent_id, "failure", f"Execution failed: {e}")
                 except Exception as notify_err:
@@ -455,12 +455,12 @@ def subagent(
                 sa = next((s for s in _subagents if s.agent_id == agent_id), None)
             if sa:
                 result = sa.status()
-                with _subagent_results_lock:
-                    result_was_already_recorded = agent_id in _subagent_results
+                if not set_subagent_result_if_absent(agent_id, result):
+                    _exec._cleanup_isolation(sa)
+                    return
                 try:
-                    if not result_was_already_recorded:
-                        summary = _exec._summarize_result(result, max_chars=200)
-                        notify_completion(agent_id, result.status, summary)
+                    summary = _exec._summarize_result(result, max_chars=200)
+                    notify_completion(agent_id, result.status, summary)
                 except Exception as e:
                     logger.warning(f"Failed to notify subagent completion: {e}")
                 # Clean up worktree isolation
@@ -516,11 +516,11 @@ def subagent_cancel(agent_id: str) -> str:
     if not sa.is_running():
         return f"Subagent '{agent_id}' is not running (already finished)."
 
+    cancelled_result = ReturnType("failure", "Cancelled by orchestrator")
+
     if sa.execution_mode == "subprocess" and sa.process:
-        with _subagent_results_lock:
-            _subagent_results[agent_id] = ReturnType(
-                "failure", "Cancelled by orchestrator"
-            )
+        if not set_subagent_result_if_absent(agent_id, cancelled_result):
+            return f"Subagent '{agent_id}' already finished before cancellation."
         sa.process.terminate()
         try:
             sa.process.wait(timeout=5)
@@ -531,8 +531,8 @@ def subagent_cancel(agent_id: str) -> str:
         return f"Subagent '{agent_id}' cancelled."
     # Thread/ACP mode: threads cannot be forcefully stopped in Python.
     # Mark the result so the orchestrator sees it as cancelled immediately.
-    with _subagent_results_lock:
-        _subagent_results[agent_id] = ReturnType("failure", "Cancelled by orchestrator")
+    if not set_subagent_result_if_absent(agent_id, cancelled_result):
+        return f"Subagent '{agent_id}' already finished before cancellation."
     logger.info(
         f"Subagent '{agent_id}' marked cancelled (thread will stop at next checkpoint)."
     )
