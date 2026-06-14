@@ -1910,7 +1910,11 @@ def test_planner_with_role_uses_role_for_self_profile(mock_create_thread: MagicM
 
 @patch("gptme.tools.subagent.execution._monitor_subprocess")
 @patch("gptme.tools.subagent.execution._run_subagent_subprocess")
+@patch("gptme.tools.subagent.execution.tempfile.mkdtemp")
+@patch("gptme.util.git_worktree.get_git_root", return_value=None)
 def test_planner_subtask_role_overrides_planner_profile(
+    _mock_get_git_root: MagicMock,
+    mock_mkdtemp: MagicMock,
     mock_run_subprocess: MagicMock,
     mock_monitor: MagicMock,
 ):
@@ -1927,6 +1931,7 @@ def test_planner_subtask_role_overrides_planner_profile(
     `profile_name is None` meant subtask roles were silently dropped as soon
     as the planner had any profile of its own.
     """
+    mock_mkdtemp.return_value = "/tmp/test-impl-plan-verify"
     mock_run_subprocess.return_value = MagicMock()  # fake Popen
 
     subtasks: list[SubtaskDef] = [
@@ -1965,11 +1970,16 @@ def test_planner_subtask_role_overrides_planner_profile(
 
 @patch("gptme.tools.subagent.execution._monitor_subprocess")
 @patch("gptme.tools.subagent.execution._run_subagent_subprocess")
+@patch("gptme.tools.subagent.execution.tempfile.mkdtemp")
+@patch("gptme.util.git_worktree.get_git_root", return_value=None)
 def test_planner_subtask_role_verify_uses_subprocess(
+    _mock_get_git_root: MagicMock,
+    mock_mkdtemp: MagicMock,
     mock_run_subprocess: MagicMock,
     mock_monitor: MagicMock,
 ):
     """role='verify' on a subtask must launch that executor in subprocess mode."""
+    mock_mkdtemp.return_value = "/tmp/test-verify-sub"
     mock_run_subprocess.return_value = MagicMock()  # fake Popen
 
     initial_count = len(_subagents)
@@ -2002,11 +2012,16 @@ def test_planner_subtask_role_verify_uses_subprocess(
 
 @patch("gptme.tools.subagent.execution._monitor_subprocess")
 @patch("gptme.tools.subagent.execution._run_subagent_subprocess")
+@patch("gptme.tools.subagent.execution.tempfile.mkdtemp")
+@patch("gptme.util.git_worktree.get_git_root", return_value=None)
 def test_planner_subtask_role_verify_sets_isolated(
+    _mock_get_git_root: MagicMock,
+    mock_mkdtemp: MagicMock,
     mock_run_subprocess: MagicMock,
     mock_monitor: MagicMock,
 ):
     """role='verify' on a subtask should request isolated execution."""
+    mock_mkdtemp.return_value = "/tmp/test-verify-isolated"
     mock_run_subprocess.return_value = MagicMock()
 
     initial_count = len(_subagents)
@@ -2155,13 +2170,18 @@ def test_planner_subtask_role_implement_uses_thread_mode(mock_create_thread: Mag
 
 @patch("gptme.tools.subagent.execution._monitor_subprocess")
 @patch("gptme.tools.subagent.execution._run_subagent_subprocess")
+@patch("gptme.tools.subagent.execution.tempfile.mkdtemp")
+@patch("gptme.util.git_worktree.get_git_root", return_value=None)
 @patch("gptme.tools.subagent.execution._create_subagent_thread")
 def test_planner_mixed_roles_use_correct_backends(
+    _mock_get_git_root: MagicMock,
+    mock_mkdtemp: MagicMock,
     mock_create_thread: MagicMock,
     mock_run_subprocess: MagicMock,
     mock_monitor: MagicMock,
 ):
     """Mixed-role subtasks: impl→thread, verify→subprocess."""
+    mock_mkdtemp.return_value = "/tmp/test-mixed-verify"
     mock_run_subprocess.return_value = MagicMock()
 
     initial_count = len(_subagents)
