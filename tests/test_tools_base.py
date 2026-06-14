@@ -13,6 +13,12 @@ import pytest
 
 from gptme.hooks import HookType
 from gptme.message import Message
+from gptme.tools._allowlist import (
+    allowlist_contains_glob,
+    is_hint_pattern,
+    matching_allowlist_tools,
+    tool_matches_allowlist,
+)
 from gptme.tools.base import (
     Parameter,
     ToolFunction,
@@ -430,6 +436,108 @@ class TestToolSpec:
     def test_get_doc_no_existing(self, basic_tool):
         doc = basic_tool.get_doc()
         assert "Instructions" in doc
+
+    def test_hints_default_empty(self):
+        tool = ToolSpec(name="t", desc="")
+        assert tool.hints == frozenset()
+
+    def test_hints_explicit(self):
+        tool = ToolSpec(name="t", desc="", hints=frozenset({"read-only", "idempotent"}))
+        assert "read-only" in tool.hints
+        assert "idempotent" in tool.hints
+
+
+# ── Hint-based allowlist ───────────────────────────────────────────
+
+
+def _make_tool(name: str, hints: frozenset[str] = frozenset()) -> ToolSpec:
+    return ToolSpec(name=name, desc="", hints=hints)
+
+
+class TestIsHintPattern:
+    def test_hint_prefix_recognized(self):
+        assert is_hint_pattern("hint:read-only")
+
+    def test_bare_name_not_hint(self):
+        assert not is_hint_pattern("shell")
+
+    def test_glob_not_hint(self):
+        assert not is_hint_pattern("discord.*")
+
+
+class TestAllowlistContainsGlob:
+    def test_plain_names_no_glob(self):
+        assert not allowlist_contains_glob(["shell", "save"])
+
+    def test_star_glob(self):
+        assert allowlist_contains_glob(["discord.*"])
+
+    def test_hint_pattern_treated_as_glob(self):
+        # hint patterns implicitly match multiple tools, so suppress MCP warnings
+        assert allowlist_contains_glob(["hint:read-only", "shell"])
+
+    def test_question_mark_glob(self):
+        assert allowlist_contains_glob(["tool?"])
+
+
+class TestMatchingAllowlistToolsHints:
+    def test_hint_pattern_matches_tool_with_hint(self):
+        t = _make_tool("discord.list", frozenset({"read-only"}))
+        result = matching_allowlist_tools("hint:read-only", [t])
+        assert t in result
+
+    def test_hint_pattern_misses_tool_without_hint(self):
+        t = _make_tool("discord.send", frozenset())
+        result = matching_allowlist_tools("hint:read-only", [t])
+        assert result == []
+
+    def test_name_pattern_still_works(self):
+        t = _make_tool("shell")
+        result = matching_allowlist_tools("shell", [t])
+        assert t in result
+
+    def test_glob_pattern_still_works(self):
+        tools = [
+            _make_tool("discord.send"),
+            _make_tool("discord.list"),
+            _make_tool("shell"),
+        ]
+        result = matching_allowlist_tools("discord.*", tools)
+        assert len(result) == 2
+        assert all(t.name.startswith("discord.") for t in result)
+
+
+class TestToolMatchesAllowlistHints:
+    def test_name_match(self):
+        assert tool_matches_allowlist("shell", ["shell"])
+
+    def test_glob_match(self):
+        assert tool_matches_allowlist("discord.send", ["discord.*"])
+
+    def test_hint_match(self):
+        assert tool_matches_allowlist(
+            "discord.list", ["hint:read-only"], frozenset({"read-only"})
+        )
+
+    def test_hint_no_match_wrong_hint(self):
+        assert not tool_matches_allowlist(
+            "discord.send", ["hint:read-only"], frozenset({"destructive"})
+        )
+
+    def test_hint_no_match_no_hints(self):
+        assert not tool_matches_allowlist(
+            "discord.send", ["hint:read-only"], frozenset()
+        )
+
+    def test_hint_match_in_mixed_allowlist(self):
+        # 'hint:read-only' should match even when other entries don't
+        assert tool_matches_allowlist(
+            "some_tool", ["shell", "hint:read-only"], frozenset({"read-only"})
+        )
+
+    def test_name_match_beats_hint_miss(self):
+        # name matches even if hint doesn't
+        assert tool_matches_allowlist("shell", ["shell", "hint:read-only"], frozenset())
 
 
 # ── ToolUse formatting ─────────────────────────────────────────────

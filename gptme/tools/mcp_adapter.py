@@ -229,6 +229,21 @@ def create_mcp_tools(config: Config) -> list[ToolSpec]:
                         tool_name, [], example_content
                     ).to_output(cast(ToolFormat, tool_format))
 
+                # Extract MCP ToolAnnotations into hint tags
+                hints: frozenset[str] = frozenset()
+                if mcp_tool.annotations:
+                    ann = mcp_tool.annotations
+                    hint_set: set[str] = set()
+                    if ann.readOnlyHint:
+                        hint_set.add("read-only")
+                    if ann.destructiveHint:
+                        hint_set.add("destructive")
+                    if ann.idempotentHint:
+                        hint_set.add("idempotent")
+                    if ann.openWorldHint is False:
+                        hint_set.add("closed-world")
+                    hints = frozenset(hint_set)
+
                 tool_spec = ToolSpec(
                     name=name,
                     desc=f"[{server_config.name}] {mcp_tool.description}",
@@ -240,6 +255,7 @@ def create_mcp_tools(config: Config) -> list[ToolSpec]:
                     examples=make_examples(name, example_str),
                     block_types=[name],
                     is_mcp=True,
+                    hints=hints,
                 )
 
                 tool_specs.append(tool_spec)

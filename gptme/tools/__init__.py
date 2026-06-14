@@ -17,6 +17,7 @@ from ..util.interrupt import clear_interruptible
 from ..util.terminal import terminal_state_title
 from ._allowlist import (
     allowlist_contains_glob,
+    is_hint_pattern,
     matching_allowlist_tools,
     tool_matches_allowlist,
 )
@@ -211,6 +212,8 @@ def init_tools(
 
         available_tools = get_available_tools()
         for tool_name in tool_names:
+            if is_hint_pattern(tool_name):
+                continue  # hint patterns match 0+ tools by hint, no name validation
             if matching_allowlist_tools(tool_name, loaded_tools):
                 continue
             matched_available = matching_allowlist_tools(tool_name, available_tools)
@@ -257,6 +260,8 @@ def get_toolchain(
         available_tool_names = [tool.name for tool in available_tools]
 
         for tool_name in allowlist:
+            if is_hint_pattern(tool_name):
+                continue  # hint patterns match by tool hints, not by name
             matched_tools = matching_allowlist_tools(tool_name, available_tools)
             if not matched_tools:
                 if strict:
@@ -280,7 +285,7 @@ def get_toolchain(
     skipped_mcp_tools = []
     for tool in get_available_tools():
         explicitly_allowed = allowlist is not None and tool_matches_allowlist(
-            tool.name, allowlist
+            tool.name, allowlist, tool.hints
         )
         if allowlist is not None and not explicitly_allowed:
             if warn_on_skipped_mcp and tool.is_mcp and tool.is_available:

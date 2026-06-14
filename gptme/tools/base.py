@@ -311,6 +311,7 @@ class ToolSpec:
     load_priority: int = 0
     disabled_by_default: bool = False
     is_mcp: bool = False
+    hints: frozenset[str] = field(default_factory=frozenset)
     hooks: dict[str, tuple[str, HookFunc, int]] = field(default_factory=dict)
     commands: dict[str, Callable] = field(default_factory=dict)
 
