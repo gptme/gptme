@@ -118,3 +118,40 @@ class TestConcurrencyEnforcement:
             t.join(timeout=5)
 
         assert peak[0] <= CAP, f"peak concurrency {peak[0]} exceeded cap {CAP}"
+
+    def test_planner_path_respects_semaphore(self, monkeypatch):
+        """Planner-spawned executors must go through the same semaphore as direct calls.
+
+        Simulate what _run_planner does: spawn N threads each calling get_slot_sem()
+        and confirm peak concurrency never exceeds the cap.
+        """
+        CAP = 2
+        N = 6
+        _reset_slot_sem(max_concurrent=CAP)
+
+        peak = [0]
+        current = [0]
+        lock = threading.Lock()
+
+        def executor_thread():
+            # Mimics what run_executor() in _run_planner does
+            _sem = get_slot_sem()
+            _sem.acquire()
+            try:
+                with lock:
+                    current[0] += 1
+                    if current[0] > peak[0]:
+                        peak[0] = current[0]
+                time.sleep(0.02)  # simulate LLM work
+                with lock:
+                    current[0] -= 1
+            finally:
+                _sem.release()
+
+        threads = [threading.Thread(target=executor_thread) for _ in range(N)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+
+        assert peak[0] <= CAP, f"planner executor peak {peak[0]} exceeded cap {CAP}"

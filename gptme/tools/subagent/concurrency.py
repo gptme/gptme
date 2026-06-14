@@ -31,16 +31,21 @@ def _max_concurrent() -> int:
             logger.warning(
                 f"Ignoring invalid GPTME_SUBAGENT_MAX_CONCURRENT={env_val!r}: {e}"
             )
+    config_mc: int | None = None
     try:
         from gptme.config import get_config
 
         project = get_config().project
         if project is not None:
-            mc = project.subagent.max_concurrent
-            if mc is not None:
-                return mc
+            config_mc = project.subagent.max_concurrent
     except Exception:
         pass
+    if config_mc is not None:
+        if config_mc < 1:
+            raise ValueError(
+                f"[subagent] max_concurrent in gptme.toml must be >= 1, got {config_mc}"
+            )
+        return config_mc
     return min(8, os.cpu_count() or 2)
 
 

@@ -25,6 +25,7 @@ from .._allowlist import (
     matching_allowlist_tools,
     tool_matches_allowlist,
 )
+from .concurrency import get_slot_sem
 
 if TYPE_CHECKING:
     from .types import ReturnType, Status, Subagent, SubtaskDef
@@ -573,55 +574,67 @@ def _run_planner(
                 )
 
         if resolved_use_subprocess:
-            # Subprocess mode: better output isolation for verify/sensitive roles
-            cleanup_sa = Subagent(
-                executor_id,
-                executor_prompt,
-                None,
-                logdir,
-                model,
-                execution_mode="subprocess",
-                isolated=resolved_isolated,
-                worktree_path=worktree_path,
-                repo_path=repo_path,
-            )
+            # Subprocess mode: a combined thread acquires the concurrency slot before
+            # Popen, monitors to completion, and releases in finally — same pattern as
+            # api.py _launch_subprocess. Captures all loop vars via default args.
+            def _run_executor_subprocess(
+                _prompt=executor_prompt,
+                _logdir=logdir,
+                _model=model,
+                _workspace=workspace,
+                _profile=resolved_profile,
+                _executor_id=executor_id,
+                _isolated=resolved_isolated,
+                _worktree_path=worktree_path,
+                _repo_path=repo_path,
+            ):
+                _sem = get_slot_sem()
+                _sem.acquire()
+                try:
+                    try:
+                        process = _run_subagent_subprocess(
+                            prompt=_prompt,
+                            logdir=_logdir,
+                            model=_model,
+                            workspace=_workspace,
+                            context_mode=context_mode,
+                            context_include=context_include,
+                            profile=_profile,
+                        )
+                    except Exception:
+                        _cleanup_isolation(
+                            Subagent(
+                                _executor_id,
+                                _prompt,
+                                None,
+                                _logdir,
+                                _model,
+                                execution_mode="subprocess",
+                                isolated=_isolated,
+                                worktree_path=_worktree_path,
+                                repo_path=_repo_path,
+                            )
+                        )
+                        raise
+                    sa = Subagent(
+                        _executor_id,
+                        _prompt,
+                        None,
+                        _logdir,
+                        _model,
+                        process=process,
+                        execution_mode="subprocess",
+                        isolated=_isolated,
+                        worktree_path=_worktree_path,
+                        repo_path=_repo_path,
+                    )
+                    with _subagents_lock:
+                        _subagents.append(sa)
+                    _monitor_subprocess(sa)
+                finally:
+                    _sem.release()
 
-            try:
-                process = _run_subagent_subprocess(
-                    prompt=executor_prompt,
-                    logdir=logdir,
-                    model=model,
-                    workspace=workspace,
-                    context_mode=context_mode,
-                    context_include=context_include,
-                    profile=resolved_profile,
-                )
-            except Exception:
-                _cleanup_isolation(cleanup_sa)
-                raise
-
-            sa = Subagent(
-                executor_id,
-                executor_prompt,
-                None,
-                logdir,
-                model,
-                process=process,
-                execution_mode="subprocess",
-                isolated=resolved_isolated,
-                worktree_path=worktree_path,
-                repo_path=repo_path,
-            )
-
-            with _subagents_lock:
-                _subagents.append(sa)
-
-            # Monitor thread handles completion notification and cleanup
-            monitor_t = threading.Thread(
-                target=_monitor_subprocess,
-                args=(sa,),
-                daemon=True,
-            )
+            monitor_t = threading.Thread(target=_run_executor_subprocess, daemon=True)
             monitor_t.start()
 
             # Sequential mode: wait for this executor before starting the next
@@ -651,6 +664,8 @@ def _run_planner(
                 subtask_profile=resolved_profile,
                 cleanup_subagent=cleanup_sa,
             ):
+                _sem = get_slot_sem()
+                _sem.acquire()
                 try:
                     _create_subagent_thread(
                         prompt=prompt,
@@ -664,6 +679,7 @@ def _run_planner(
                     )
                 finally:
                     _cleanup_isolation(cleanup_subagent)
+                    _sem.release()
 
             t = threading.Thread(target=run_executor, daemon=True)
             sa = Subagent(
