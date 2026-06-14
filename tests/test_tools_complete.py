@@ -27,6 +27,7 @@ import pytest
 from gptme.message import Message
 from gptme.tools.complete import (
     SessionCompleteException,
+    _classify_stuck_reason,
     auto_reply_hook,
     complete_hook,
     execute_complete,
@@ -701,3 +702,173 @@ class TestStuckDetectHook:
     def test_stuck_detect_hook_registered(self):
         """Stuck-detect hook is registered on the complete tool spec."""
         assert "stuck_detect" in tool.hooks
+
+
+# ── TestClassifyStuckReason ────────────────────────────────────────────────
+
+
+class TestClassifyStuckReason:
+    """Tests for _classify_stuck_reason — root-cause classification helper.
+
+    Covers all four classification paths (tool-error, empty-result,
+    permission-denied, unknown) plus the disabled-env-flag path.
+    """
+
+    def test_tool_error_traceback(self):
+        """Classifies Python tracebacks as tool-error."""
+        msgs = [
+            _assistant("```shell\npython3 foo.py\n```"),
+            _system(
+                "Traceback (most recent call last):\n  File 'foo.py', line 1\nValueError: bad input"
+            ),
+        ]
+        cls, evidence = _classify_stuck_reason(msgs)
+        assert cls == "tool-error"
+        assert evidence  # should contain snippet
+
+    def test_tool_error_exit_code(self):
+        """Classifies non-zero exit codes as tool-error."""
+        msgs = [
+            _assistant("```shell\nmake build\n```"),
+            _system("exit code: 2\ncc: error: foo.c: No such file"),
+        ]
+        cls, evidence = _classify_stuck_reason(msgs)
+        assert cls == "tool-error"
+
+    def test_tool_error_error_message(self):
+        """Classifies 'Error:' prefix in output as tool-error."""
+        msgs = [
+            _assistant("```shell\ngit push\n```"),
+            _system("Error: remote rejected (pre-receive hook declined)"),
+        ]
+        cls, evidence = _classify_stuck_reason(msgs)
+        assert cls == "tool-error"
+
+    def test_tool_error_command_not_found(self):
+        """Classifies 'command not found' as tool-error."""
+        msgs = [
+            _assistant("```shell\nmytool --help\n```"),
+            _system("bash: mytool: command not found"),
+        ]
+        cls, evidence = _classify_stuck_reason(msgs)
+        assert cls == "tool-error"
+
+    def test_permission_denied(self):
+        """Classifies permission-denied patterns correctly."""
+        msgs = [
+            _assistant("```shell\nrm /etc/hosts\n```"),
+            _system("rm: cannot remove '/etc/hosts': Permission denied"),
+        ]
+        cls, evidence = _classify_stuck_reason(msgs)
+        assert cls == "permission-denied"
+        assert evidence
+
+    def test_permission_denied_takes_priority_over_error(self):
+        """Permission-denied classification wins over generic error when both present."""
+        msgs = [
+            _assistant("```shell\ncat /root/secret\n```"),
+            _system("Error: cat: /root/secret: Permission denied\nexit code: 1"),
+        ]
+        cls, _evidence = _classify_stuck_reason(msgs)
+        assert cls == "permission-denied"
+
+    def test_empty_result_no_output(self):
+        """Classifies completely empty tool output as empty-result."""
+        msgs = [
+            _assistant("```shell\ngrep pattern file.txt\n```"),
+            _system(""),
+        ]
+        cls, evidence = _classify_stuck_reason(msgs)
+        assert cls == "empty-result"
+        assert "(no output)" in evidence
+
+    def test_empty_result_no_matches(self):
+        """Classifies 'no results found' messages as empty-result."""
+        msgs = [
+            _assistant("```shell\nfind . -name '*.xyz'\n```"),
+            _system("No files found matching the pattern"),
+        ]
+        cls, _evidence = _classify_stuck_reason(msgs)
+        assert cls == "empty-result"
+
+    def test_unknown_when_no_signal(self):
+        """Returns unknown when output has no recognizable failure pattern."""
+        msgs = [
+            _assistant("```shell\necho hello\n```"),
+            _system("hello"),
+        ]
+        cls, evidence = _classify_stuck_reason(msgs)
+        assert cls == "unknown"
+        assert evidence == ""
+
+    def test_no_system_messages_returns_unknown(self):
+        """Returns unknown when there are no system messages to inspect."""
+        msgs = [_assistant("```shell\necho hi\n```")]
+        cls, evidence = _classify_stuck_reason(msgs)
+        assert cls == "unknown"
+
+    def test_only_inspects_messages_after_last_assistant(self):
+        """Only looks at system messages after the most recent assistant turn."""
+        msgs = [
+            _system("Error: old error from a prior turn"),
+            _assistant("```shell\necho hello\n```"),
+            _system("hello"),  # clean result after the last assistant turn
+        ]
+        cls, _evidence = _classify_stuck_reason(msgs)
+        # Should classify based on "hello" (clean), not the old error
+        assert cls == "unknown"
+
+
+class TestStuckDetectRCAIntegration:
+    """Integration tests: classification wired into stuck_detect_hook nudge."""
+
+    _SAVE_A = "```save a.txt\nhello\n```"
+
+    def _msgs_with_result(self, tool_result: str) -> list[Message]:
+        """Build a 3-repeat stuck sequence with a tool result after each turn."""
+        return [
+            _assistant(self._SAVE_A),
+            _system(tool_result),
+            _assistant(self._SAVE_A),
+            _system(tool_result),
+            _assistant(self._SAVE_A),
+            _system(tool_result),
+        ]
+
+    def test_rca_included_in_nudge_for_tool_error(self):
+        """Nudge includes 'tool-error' classification when output has an error."""
+        manager = _mock_manager(self._msgs_with_result("Error: file system read-only"))
+        results = list(stuck_detect_hook(manager, interactive=False, prompt_queue=None))
+        assert len(results) == 1
+        assert isinstance(results[0], Message)
+        assert "tool-error" in results[0].content
+
+    def test_rca_included_in_nudge_for_permission_denied(self):
+        """Nudge includes 'permission-denied' classification on access errors."""
+        manager = _mock_manager(self._msgs_with_result("Operation not permitted"))
+        results = list(stuck_detect_hook(manager, interactive=False, prompt_queue=None))
+        assert len(results) == 1
+        assert isinstance(results[0], Message)
+        assert "permission-denied" in results[0].content
+
+    def test_rca_omitted_for_unknown(self):
+        """Nudge does NOT include a 'Likely cause:' hint for unknown classification."""
+        manager = _mock_manager(self._msgs_with_result("output: success"))
+        results = list(stuck_detect_hook(manager, interactive=False, prompt_queue=None))
+        assert len(results) == 1
+        assert isinstance(results[0], Message)
+        assert "Likely cause" not in results[0].content
+
+    def test_rca_disabled_via_env(self, monkeypatch):
+        """GPTME_STUCK_RCA=0 suppresses classification even for clear errors."""
+        monkeypatch.setenv("GPTME_STUCK_RCA", "0")
+        manager = _mock_manager(
+            self._msgs_with_result(
+                "Traceback (most recent call last):\nValueError: bad"
+            )
+        )
+        results = list(stuck_detect_hook(manager, interactive=False, prompt_queue=None))
+        assert len(results) == 1
+        assert isinstance(results[0], Message)
+        assert "Likely cause" not in results[0].content
+        assert "tool-error" not in results[0].content
