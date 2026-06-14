@@ -658,18 +658,26 @@ def test_reinit_invalidates_gptme_gateway_client():
     """
     from gptme.llm import llm_anthropic
 
+    orig_anthropic = llm_anthropic._anthropic
+    orig_gptme = llm_anthropic._anthropic_gptme
+    orig_gptme_key = llm_anthropic._anthropic_gptme_key
     sentinel = MagicMock(name="stale-gptme-client")
-    llm_anthropic._anthropic_gptme = sentinel
-    llm_anthropic._anthropic_gptme_key = "old-device-token"
+    try:
+        llm_anthropic._anthropic_gptme = sentinel
+        llm_anthropic._anthropic_gptme_key = "old-device-token"
 
-    # get_config and Anthropic are imported lazily *inside* _init_anthropic,
-    # so patch them at their source modules.
-    with (
-        patch("gptme.config.get_config", return_value=_mock_config()),
-        patch("anthropic.Anthropic", MagicMock()),
-    ):
-        llm_anthropic.reinit(api_key="new-real-key")
+        # get_config and Anthropic are imported lazily *inside* _init_anthropic,
+        # so patch them at their source modules.
+        with (
+            patch("gptme.config.get_config", return_value=_mock_config()),
+            patch("anthropic.Anthropic", MagicMock()),
+        ):
+            llm_anthropic.reinit(api_key="new-real-key")
 
-    # The stale gateway client is discarded; next _get_gptme_client() rebuilds it.
-    assert llm_anthropic._anthropic_gptme is None
-    assert llm_anthropic._anthropic_gptme_key is None
+        # The stale gateway client is discarded; next _get_gptme_client() rebuilds it.
+        assert llm_anthropic._anthropic_gptme is None
+        assert llm_anthropic._anthropic_gptme_key is None
+    finally:
+        llm_anthropic._anthropic = orig_anthropic
+        llm_anthropic._anthropic_gptme = orig_gptme
+        llm_anthropic._anthropic_gptme_key = orig_gptme_key
