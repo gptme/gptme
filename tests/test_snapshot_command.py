@@ -601,10 +601,10 @@ class TestSnapshotPruneCommand:
         after = list_snapshots(shadow, limit=50)
         assert len(after) == len(before)
 
-    def test_prune_dry_run_short_flag_skips_deletion_by_age(
+    def test_prune_dry_run_default_age_applied(
         self, workspace, isolated_state_dir, capsys
     ):
-        """Short flag -n is equivalent to --dry-run; no snapshots removed."""
+        """--dry-run alone previews the default 30-day prune, not a no-op."""
         import time
 
         shadow = init_shadow(workspace)
@@ -619,7 +619,7 @@ class TestSnapshotPruneCommand:
             patch("gptme.commands.snapshot.Shadow.for_workspace", return_value=shadow),
             patch("gptme.workspace_snapshot.time.time", return_value=future),
         ):
-            _run_cmd(manager, "prune --days 30 -n")
+            _run_cmd(manager, "prune --dry-run")
         out = capsys.readouterr().out
         assert "would prune" in out.lower()
         after = list_snapshots(shadow, limit=50)

@@ -67,7 +67,9 @@ def _print_prunable(
             total_res = shadow.run("rev-list", "--count", SNAPSHOT_REF, check=False)
             total = int(total_res.stdout.strip()) if total_res.returncode == 0 else 0
             if total > 0 and len(lines) == total:
-                lines = lines[:-1]  # keep the oldest one (last in log order)
+                lines = lines[
+                    1:
+                ]  # keep the newest one (first in log order, matching prune_by_age)
             for ln in lines:
                 parts = ln.split("\t", 2)
                 if len(parts) == 3:
@@ -124,7 +126,7 @@ def _print_usage() -> None:
         "  diff <sha>                  Show diff between current workspace and a snapshot."
     )
     print(
-        "  prune [--days N] [--max-entries K] [--dry-run|-n]  Remove old snapshots "
+        "  prune [--days N] [--max-entries K] [--dry-run]  Remove old snapshots "
         f"(defaults to {DEFAULT_PRUNE_DAYS} days)."
     )
 
@@ -326,7 +328,7 @@ def cmd_snapshot(ctx: CommandContext) -> None:
                         f"snapshot: --max-entries must be an integer, got {args[idx]!r}"
                     )
                     return
-            elif arg in ("--dry-run", "-n"):
+            elif arg == "--dry-run":
                 dry_run = True
             else:
                 print(f"snapshot: unknown argument {arg!r}")
@@ -334,7 +336,7 @@ def cmd_snapshot(ctx: CommandContext) -> None:
                 return
             idx += 1
 
-        if not args:
+        if days is None and max_entries is None:
             days = DEFAULT_PRUNE_DAYS
 
         workspace_shadow = _workspace_shadow(ctx)
