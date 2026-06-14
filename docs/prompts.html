@@ -766,7 +766,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fe88ddf7880&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f911ea7b880&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1670,6 +1670,54 @@ if <span class="gs">__name__</span> == &quot;<span class="gs">__main__</span>&qu
 <span class="sb">&gt;&gt;&gt;&gt;&gt;&gt;&gt; UPDATED</span>
 <span class="sb">```</span>
 
+<span class="gu">## patch_anchored</span>
+
+<span class="gs">**Description:**</span> Apply hash-anchored edits to a file using anchor tokens from view_anchored
+
+<span class="gs">**Instructions:**</span> Apply anchored edits to a file using anchor tokens produced by ``view_anchored``.
+
+The code block body must be a JSON array of operation objects::
+
+    [
+      {&quot;anchor&quot;: &quot;&lt;token&gt;&quot;, &quot;op&quot;: &quot;replace&quot;,       &quot;text&quot;: &quot;&lt;new text&gt;&quot;},
+      {&quot;anchor&quot;: &quot;&lt;token&gt;&quot;, &quot;op&quot;: &quot;delete&quot;},
+      {&quot;anchor&quot;: &quot;&lt;token&gt;&quot;, &quot;op&quot;: &quot;insert_before&quot;, &quot;text&quot;: &quot;&lt;new text&gt;&quot;},
+      {&quot;anchor&quot;: &quot;&lt;token&gt;&quot;, &quot;op&quot;: &quot;insert_after&quot;,  &quot;text&quot;: &quot;&lt;new text&gt;&quot;,
+       &quot;expected&quot;: &quot;&lt;guard text&gt;&quot;}
+    ]
+
+Fields:
+
+<span class="k">-</span><span class="w"> </span>``anchor``   (string, required) — token from ``view_anchored``
+<span class="k">-</span><span class="w"> </span>``op``       (string, required) — one of ``replace`` / ``delete`` /
+  ``insert_before`` / ``insert_after``
+<span class="k">-</span><span class="w"> </span>``text``     (string, optional) — new content for replace/insert ops
+<span class="k">-</span><span class="w"> </span>``expected`` (string, optional) — guard: if the anchored line no longer
+  matches this exact text the whole batch is rejected before any mutation
+
+All anchors are resolved against the <span class="ge">*current*</span> file before any write.
+On any failure the batch is rejected atomically and the file is re-rendered
+so the model can retry with fresh anchors.
+
+<span class="gu">### Two-call cycle</span>
+
+<span class="k">1.</span> Call ``view_anchored`` to get fresh anchors.
+<span class="k">2.</span> Call ``patch_anchored`` with those anchors.
+
+Never reuse anchors from a previous ``view_anchored`` call.
+
+<span class="gu">### Examples</span>
+
+<span class="k">&gt; </span><span class="ge">User: update the greeting in hello.py</span>
+<span class="k">&gt; </span><span class="ge">Assistant: First, I&#39;ll view the file to get anchor tokens:</span>
+<span class="sb">```view_anchored</span><span class="w"> </span>hello.py
+
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">Assistant: Now I&#39;ll apply the anchored patch:</span>
+<span class="sb">```patch_anchored</span><span class="w"> </span>hello.py
+<span class="s">[{&quot;anchor&quot;: &quot;9c2eb1d4f7a36e52:1&quot;, &quot;op&quot;: &quot;replace&quot;, &quot;text&quot;: &quot;    print(\&quot;Hello, world!\&quot;)&quot;, &quot;expected&quot;: &quot;    print(\&quot;Hello world\&quot;)&quot;}]</span>
+<span class="sb">```</span>
+
 <span class="gu">## patch_many</span>
 
 <span class="gs">**Description:**</span> Apply multiple patches to multiple files atomically
@@ -2476,6 +2524,29 @@ future performance on similar tasks.
 <span class="s">&gt; Owner: self</span>
 <span class="sb">```</span>
 
+<span class="gu">## view_anchored</span>
+
+<span class="gs">**Description:**</span> Render a file with content-addressed anchor tokens for use with patch_anchored
+
+<span class="gs">**Instructions:**</span> Render a file with content-addressed anchor tokens so that specific lines can
+be referenced in a subsequent ``patch_anchored`` call.
+
+Each output line is formatted as::
+
+    &lt;anchor&gt;│ &lt;line content&gt;
+
+where ``&lt;anchor&gt;`` is a stable context-triple hash.  Adjacent-line edits
+invalidate the surrounding anchors by design, so always call ``view_anchored``
+immediately before ``patch_anchored`` — never reuse stale anchors.
+
+<span class="gu">### Examples</span>
+
+<span class="k">&gt; </span><span class="ge">User: show me hello.py with anchors so I can edit it</span>
+<span class="k">&gt; </span><span class="ge">Assistant:</span>
+<span class="sb">```view_anchored</span><span class="w"> </span>hello.py
+
+<span class="sb">```</span>
+
 <span class="gu">## vision</span>
 
 <span class="gs">**Description:**</span> Viewing images
@@ -2535,7 +2606,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 14346</p>
+<p>Tokens: 14992</p>
 </dd></dl>
 
 <dl class="py function">
