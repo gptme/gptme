@@ -252,6 +252,24 @@ class ArchitectConfig:
 
 
 @dataclass
+class SubagentConfig:
+    """Configuration for subagent execution."""
+
+    max_concurrent: int | None = None
+    """Maximum number of concurrently running subagents.
+
+    Controls how many subagents can run simultaneously. Excess subagents queue
+    and start as slots free up. Resolution order: ``GPTME_SUBAGENT_MAX_CONCURRENT``
+    env var > this field > ``min(8, cpu_count)`` default.
+
+    Example ``gptme.toml``::
+
+        [subagent]
+        max_concurrent = 4
+    """
+
+
+@dataclass
 class ProjectConfig:
     """Project-level configuration, such as which files to include in the context by default.
 
@@ -275,6 +293,8 @@ class ProjectConfig:
     plugins: PluginsConfig = field(default_factory=PluginsConfig)
 
     architect: ArchitectConfig = field(default_factory=ArchitectConfig)
+
+    subagent: SubagentConfig = field(default_factory=SubagentConfig)
 
     # Plugin-specific configuration namespace
     # Allows plugins to have their own config sections like [plugin.retrieval]
@@ -371,6 +391,10 @@ class ProjectConfig:
                 **{k: v for k, v in architect_data.items() if k in known_keys}
             )
 
+        subagent = _build_section(
+            "subagent", SubagentConfig, _pop_object_section(config_data, "subagent")
+        )
+
         # Warn about unknown keys and drop them instead of passing them through
         # as kwargs (which would crash with "unexpected keyword argument").
         if config_data:
@@ -394,6 +418,7 @@ class ProjectConfig:
             plugin=plugin_config,
             env=env,
             mcp=mcp,
+            subagent=subagent,
         )
 
     def merge(self, other: Self) -> Self:

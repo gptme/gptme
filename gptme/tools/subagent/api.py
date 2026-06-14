@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Literal
 
 from . import execution as _exec
+from .concurrency import get_slot_sem
 from .hooks import notify_completion
 from .types import (
     ReturnType,
@@ -365,7 +366,9 @@ def subagent(
         t.start()
 
     elif use_subprocess:
-        # Subprocess mode: better output isolation
+        # Subprocess mode: better output isolation, gated by the concurrency semaphore.
+        # A launcher thread acquires the slot before starting the OS process so that
+        # excess agents queue (rather than all starting at once).
         logger.info(f"Starting subagent {agent_id} in subprocess mode")
         if profile:
             logger.info(f"  with profile: {profile}")
@@ -381,63 +384,85 @@ def subagent(
                 # TypedDict or dataclass - create simple schema
                 output_schema_str = json.dumps({"type": "object"})
 
-        process = _exec._run_subagent_subprocess(
-            prompt=prompt,
-            logdir=logdir,
-            model=model_name,
-            workspace=workspace,
-            context_mode=context_mode,
-            context_include=context_include,
-            output_schema=output_schema_str,
-            profile=profile,
-        )
-
-        # Create Subagent with subprocess reference
-        sa = Subagent(
-            agent_id=agent_id,
-            prompt=prompt,
-            thread=None,
-            logdir=logdir,
-            model=model_name,
-            output_schema=output_schema,
-            process=process,
-            execution_mode="subprocess",
-            isolated=isolated,
-            worktree_path=worktree_path,
-            repo_path=repo_path,
-            timeout=timeout,
-        )
-        with _subagents_lock:
-            _subagents.append(sa)
-
-        # Start monitor thread for hook-based completion notification
-        monitor_thread = threading.Thread(
-            target=_exec._monitor_subprocess,
-            args=(sa,),
-            daemon=True,
-        )
-        monitor_thread.start()
-    else:
-        # Thread mode: original behavior
-        def run_subagent():
+        def _launch_subprocess():
+            _sem = get_slot_sem()
+            _sem.acquire()
             try:
-                _exec._create_subagent_thread(
+                process = _exec._run_subagent_subprocess(
                     prompt=prompt,
                     logdir=logdir,
                     model=model_name,
+                    workspace=workspace,
                     context_mode=context_mode,
                     context_include=context_include,
-                    workspace=workspace,
-                    target="parent",
-                    output_schema=output_schema,
-                    profile_name=profile,
+                    output_schema=output_schema_str,
+                    profile=profile,
                 )
+                sa = Subagent(
+                    agent_id=agent_id,
+                    prompt=prompt,
+                    thread=None,
+                    logdir=logdir,
+                    model=model_name,
+                    output_schema=output_schema,
+                    process=process,
+                    execution_mode="subprocess",
+                    isolated=isolated,
+                    worktree_path=worktree_path,
+                    repo_path=repo_path,
+                    timeout=timeout,
+                )
+                with _subagents_lock:
+                    _subagents.append(sa)
+                # Monitor blocks until the process finishes (slot stays acquired)
+                _exec._monitor_subprocess(sa)
             except Exception as e:
-                # If subagent creation fails, notify with error status
-                logger.error(f"Subagent {agent_id} failed during execution: {e}")
-                if not set_subagent_result_if_absent(
-                    agent_id, ReturnType("failure", str(e))
-                ):
+                logger.error(
+                    f"Subagent {agent_id} subprocess failed: {e}", exc_info=True
+                )
+            finally:
+                _sem.release()
+
+        launcher = threading.Thread(target=_launch_subprocess, daemon=True)
+        launcher.start()
+    else:
+        # Thread mode: original behavior, gated by the concurrency semaphore.
+        # The semaphore is acquired before starting LLM work and released in
+        # finally so excess agents queue until a slot opens.
+        def run_subagent():
+            _sem = get_slot_sem()
+            _sem.acquire()
+            try:
+                try:
+                    _exec._create_subagent_thread(
+                        prompt=prompt,
+                        logdir=logdir,
+                        model=model_name,
+                        context_mode=context_mode,
+                        context_include=context_include,
+                        workspace=workspace,
+                        target="parent",
+                        output_schema=output_schema,
+                        profile_name=profile,
+                    )
+                except Exception as e:
+                    # If subagent creation fails, notify with error status
+                    logger.error(f"Subagent {agent_id} failed during execution: {e}")
+                    if not set_subagent_result_if_absent(
+                        agent_id, ReturnType("failure", str(e))
+                    ):
+                        with _subagents_lock:
+                            sa = next(
+                                (s for s in _subagents if s.agent_id == agent_id), None
+                            )
+                        if sa:
+                            _exec._cleanup_isolation(sa)
+                        return
+                    try:
+                        notify_completion(agent_id, "failure", f"Execution failed: {e}")
+                    except Exception as notify_err:
+                        logger.warning(f"Failed to notify subagent error: {notify_err}")
+                    # Clean up worktree isolation even on failure
                     with _subagents_lock:
                         sa = next(
                             (s for s in _subagents if s.agent_id == agent_id), None
@@ -445,34 +470,26 @@ def subagent(
                     if sa:
                         _exec._cleanup_isolation(sa)
                     return
-                try:
-                    notify_completion(agent_id, "failure", f"Execution failed: {e}")
-                except Exception as notify_err:
-                    logger.warning(f"Failed to notify subagent error: {notify_err}")
-                # Clean up worktree isolation even on failure
+
+                # Notify via hook system when complete (only if successful)
                 with _subagents_lock:
                     sa = next((s for s in _subagents if s.agent_id == agent_id), None)
                 if sa:
+                    # Use _read_log() instead of status(): the thread is still alive here,
+                    # so status() would return "running" and poison the result cache.
+                    result = sa._read_log()
+                    if not set_subagent_result_if_absent(agent_id, result):
+                        _exec._cleanup_isolation(sa)
+                        return
+                    try:
+                        summary = _exec._summarize_result(result, max_chars=200)
+                        notify_completion(agent_id, result.status, summary)
+                    except Exception as e:
+                        logger.warning(f"Failed to notify subagent completion: {e}")
+                    # Clean up worktree isolation
                     _exec._cleanup_isolation(sa)
-                return
-
-            # Notify via hook system when complete (only if successful)
-            with _subagents_lock:
-                sa = next((s for s in _subagents if s.agent_id == agent_id), None)
-            if sa:
-                # Use _read_log() instead of status(): the thread is still alive here,
-                # so status() would return "running" and poison the result cache.
-                result = sa._read_log()
-                if not set_subagent_result_if_absent(agent_id, result):
-                    _exec._cleanup_isolation(sa)
-                    return
-                try:
-                    summary = _exec._summarize_result(result, max_chars=200)
-                    notify_completion(agent_id, result.status, summary)
-                except Exception as e:
-                    logger.warning(f"Failed to notify subagent completion: {e}")
-                # Clean up worktree isolation
-                _exec._cleanup_isolation(sa)
+            finally:
+                _sem.release()
 
         # Create thread (don't start yet)
         t = threading.Thread(
