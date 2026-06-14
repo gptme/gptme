@@ -82,6 +82,11 @@ class ComputerTransport(abc.ABC):
         ...
 
     @abc.abstractmethod
+    def scroll(self, x: int, y: int, direction: str, amount: int = 3) -> None:
+        """Scroll at (x, y) in the given direction ('up'/'down'/'left'/'right')."""
+        ...
+
+    @abc.abstractmethod
     def screenshot(self, width: int = 0, height: int = 0) -> Path:
         """Capture and save a screenshot. Returns path to the image file."""
         ...
@@ -258,6 +263,26 @@ class NativeComputerTransport(ComputerTransport):
 
             display = os.getenv("DISPLAY", ":1")
             _run_xdotool(f"mousedown 1 mousemove --sync {x} {y} mouseup 1", display)
+
+    def scroll(self, x: int, y: int, direction: str, amount: int = 3) -> None:
+        from .computer import (
+            IS_MACOS,
+            _get_api_resolution,
+            _linux_scroll,
+            _macos_scroll,
+            _scale_coordinates,
+            _ScalingSource,
+        )
+
+        api_w, api_h = _get_api_resolution()
+        sx, sy = _scale_coordinates(_ScalingSource.API, x, y, api_w, api_h)
+        if IS_MACOS:
+            _macos_scroll(sx, sy, direction, amount)
+        else:
+            import os
+
+            display = os.getenv("DISPLAY", ":1")
+            _linux_scroll(sx, sy, direction, display, amount)
 
     def screenshot(self, width: int = 0, height: int = 0) -> Path:
         from .screenshot import screenshot as take_screenshot
@@ -545,6 +570,11 @@ class CuaComputerTransport(ComputerTransport):
         start_x, start_y = self._require_cursor_position()
         self._run_async(self._sandbox.mouse.drag(start_x, start_y, x, y))  # type: ignore[attr-defined, union-attr]
         self._cursor_position = (x, y)
+
+    def scroll(self, x: int, y: int, direction: str, amount: int = 3) -> None:
+        self._ensure_sandbox()
+        assert self._sandbox is not None
+        self._run_async(self._sandbox.mouse.scroll(x, y, direction, amount))  # type: ignore[attr-defined, union-attr]
 
     def screenshot(self, width: int = 0, height: int = 0) -> Path:
         self._ensure_sandbox()
