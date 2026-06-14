@@ -202,12 +202,32 @@ class ToolFunction:
 
     @classmethod
     def from_callable(cls, fn: Any, group: str | None = None) -> ToolFunction:
-        """Construct a ToolFunction from a plain callable, inferring metadata."""
+        """Construct a ToolFunction from a plain callable, inferring metadata.
+
+        Populates name, description (first docstring paragraph), and parameters
+        (from type annotations + inspect.signature). No IPython import required.
+        """
+        sig = inspect.signature(fn)
+        doc = inspect.getdoc(fn) or ""
+        description = doc.split("\n\n")[0] if doc else ""
+
+        params: list[Parameter] = []
+        for param_name, param in sig.parameters.items():
+            annotation = param.annotation
+            type_str = (
+                "any"
+                if annotation is inspect.Parameter.empty
+                else derive_type(annotation)
+            )
+            required = param.default is inspect.Parameter.empty
+            params.append(Parameter(name=param_name, type=type_str, required=required))
+
         return cls(
             name=fn.__name__,
             fn=fn,
-            description=fn.__doc__ or "",
+            description=description,
             group=group,
+            parameters=params,
         )
 
 
@@ -475,6 +495,40 @@ class ToolSpec:
                 lines.append(f"{sig}: {doc}")
             return description + "\n".join(lines) + "\n```"
         return "None"
+
+    @classmethod
+    def from_function(cls, fn: Callable) -> ToolSpec:
+        """Create a ToolSpec from a plain Python function.
+
+        Auto-generates name, description, and parameters from the function
+        signature and docstring. The returned ToolSpec has an execute handler
+        that calls fn(**kwargs) directly — no IPython required.
+        """
+        tf = ToolFunction.from_callable(fn)
+        captured_params = tf.parameters
+
+        def execute(
+            code: str | None,
+            args: list[str] | None,
+            kwargs: dict[str, str] | None,
+        ) -> Generator[Message, None, None]:
+            call_kwargs: dict[str, Any] = {}
+            if kwargs:
+                call_kwargs = dict(kwargs)
+            elif args:
+                for i, param in enumerate(captured_params):
+                    if i < len(args):
+                        call_kwargs[param.name] = args[i]
+            result = fn(**call_kwargs)
+            if result is not None:
+                yield Message("system", str(result))
+
+        return cls(
+            name=tf.name,
+            desc=tf.description,
+            parameters=list(captured_params),
+            execute=execute,
+        )
 
 
 @dataclass(frozen=True)
