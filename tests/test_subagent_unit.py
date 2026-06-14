@@ -500,3 +500,52 @@ class TestSubagentCancel:
             assert _subagent_results["thread-agent"] == ReturnType(
                 "failure", "Cancelled by orchestrator"
             )
+
+    def test_thread_exception_cleans_isolation_when_cancel_wins_race(
+        self, monkeypatch, tmp_path
+    ):
+        cli_main = importlib.import_module("gptme.cli.main")
+        llm_models = importlib.import_module("gptme.llm.models")
+        profiles = importlib.import_module("gptme.profiles")
+        monkeypatch.setattr(cli_main, "get_logdir", lambda name: tmp_path / name)
+        monkeypatch.setattr(llm_models, "get_default_model", lambda: None)
+        monkeypatch.setattr(profiles, "get_profile", lambda _: None)
+
+        def boom(**kwargs):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(subagent_api._exec, "_create_subagent_thread", boom)
+
+        cleanup_calls: list[str] = []
+
+        def fake_cleanup(sa: Subagent) -> None:
+            cleanup_calls.append(sa.agent_id)
+
+        def fake_set_subagent_result_if_absent(
+            agent_id: str, result: ReturnType
+        ) -> bool:
+            with _subagent_results_lock:
+                _subagent_results[agent_id] = ReturnType(
+                    "failure", "Cancelled by orchestrator"
+                )
+            return False
+
+        monkeypatch.setattr(subagent_api._exec, "_cleanup_isolation", fake_cleanup)
+        monkeypatch.setattr(
+            subagent_api,
+            "set_subagent_result_if_absent",
+            fake_set_subagent_result_if_absent,
+        )
+
+        subagent("thread-agent", "do the thing", isolated=True)
+
+        with _subagents_lock:
+            sa = next(s for s in _subagents if s.agent_id == "thread-agent")
+        assert sa.thread is not None
+        sa.thread.join(timeout=1)
+        assert not sa.thread.is_alive()
+        assert cleanup_calls == ["thread-agent"]
+        with _subagent_results_lock:
+            assert _subagent_results["thread-agent"] == ReturnType(
+                "failure", "Cancelled by orchestrator"
+            )

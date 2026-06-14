@@ -438,6 +438,12 @@ def subagent(
                 if not set_subagent_result_if_absent(
                     agent_id, ReturnType("failure", str(e))
                 ):
+                    with _subagents_lock:
+                        sa = next(
+                            (s for s in _subagents if s.agent_id == agent_id), None
+                        )
+                    if sa:
+                        _exec._cleanup_isolation(sa)
                     return
                 try:
                     notify_completion(agent_id, "failure", f"Execution failed: {e}")
