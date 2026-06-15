@@ -613,6 +613,17 @@ def _run_planner(
                             f"Executor {_sa.agent_id} subprocess failed: {e}",
                             exc_info=True,
                         )
+                        from .hooks import notify_completion
+                        from .types import ReturnType, set_subagent_result_if_absent
+
+                        if set_subagent_result_if_absent(
+                            _sa.agent_id, ReturnType("failure", str(e))
+                        ):
+                            notify_completion(
+                                _sa.agent_id,
+                                "failure",
+                                f"Executor subprocess failed: {e}",
+                            )
                         _cleanup_isolation(_sa)
                         return
                     object.__setattr__(_sa, "process", process)
