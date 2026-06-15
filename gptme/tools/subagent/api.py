@@ -673,6 +673,16 @@ def subagent_reply(agent_id: str, reply: str) -> None:
             "Only subagents that ended with a `clarify` block can be resumed."
         )
 
+    # Guard against unbounded clarification loops
+    _MAX_CLARIFICATIONS = 5
+    clarification_count = sa.prompt.count("[Clarification from previous attempt]")
+    if clarification_count >= _MAX_CLARIFICATIONS:
+        raise ValueError(
+            f"Subagent '{agent_id}' has requested clarification {clarification_count} times "
+            f"(limit is {_MAX_CLARIFICATIONS}). "
+            "Resolve the ambiguity in the task prompt instead of relying on further clarification."
+        )
+
     question = result.result or "(no question)"
     augmented_prompt = (
         f"{sa.prompt}\n\n"
@@ -681,31 +691,39 @@ def subagent_reply(agent_id: str, reply: str) -> None:
         f"A: {reply}"
     )
 
-    # Clear the old clarification_needed result so the new run starts fresh
+    # Atomically clear old state: save first so we can restore on failure.
     with _subagent_results_lock:
-        _subagent_results.pop(agent_id, None)
+        old_result = _subagent_results.pop(agent_id, None)
 
-    # Replace the completed entry so future lookups target the re-spawned agent.
     with _subagents_lock:
         _subagents[:] = [
             existing for existing in _subagents if existing.agent_id != agent_id
         ]
 
-    # Re-spawn with the same parameters, augmented prompt
-    subagent(
-        agent_id=agent_id,
-        prompt=augmented_prompt,
-        model=sa.model,
-        context_mode=sa.context_mode,
-        context_include=list(sa.context_include) if sa.context_include else None,
-        output_schema=sa.output_schema,
-        use_subprocess=sa.execution_mode == "subprocess",
-        use_acp=sa.use_acp,
-        acp_command=sa.acp_command or "gptme-acp",
-        profile=sa.profile,
-        isolated=sa.isolated,
-        timeout=sa.timeout,
-    )
+    # Re-spawn with the same parameters, augmented prompt.
+    # On failure, restore the old state so the caller can retry.
+    try:
+        subagent(
+            agent_id=agent_id,
+            prompt=augmented_prompt,
+            model=sa.model,
+            context_mode=sa.context_mode,
+            context_include=list(sa.context_include) if sa.context_include else None,
+            output_schema=sa.output_schema,
+            use_subprocess=sa.execution_mode == "subprocess",
+            use_acp=sa.use_acp,
+            acp_command=sa.acp_command or "gptme-acp",
+            profile=sa.profile,
+            isolated=sa.isolated,
+            timeout=sa.timeout,
+        )
+    except Exception:
+        with _subagents_lock:
+            _subagents.append(sa)
+        if old_result is not None:
+            with _subagent_results_lock:
+                _subagent_results[agent_id] = old_result
+        raise
 
 
 def subagent_status(agent_id: str) -> dict:

@@ -1161,3 +1161,74 @@ class TestClarifyBlock:
         assert matching[0].context_include == ["workspace", "tools"]
         assert matching[0].profile == "custom-reviewer"
         assert matching[0].execution_mode == "acp"
+
+    def test_subagent_reply_rejects_excessive_clarifications(self, tmp_path):
+        """subagent_reply() must reject after too many clarification rounds."""
+        from gptme.tools.subagent.api import subagent_reply
+
+        # Construct a prompt that already has 5 clarification rounds in it
+        prompt_with_many_rounds = "original task\n\n" + "\n\n".join(
+            f"[Clarification from previous attempt]\nQ: Q{i}\nA: A{i}" for i in range(5)
+        )
+        sa = Subagent(
+            agent_id="loop-agent",
+            prompt=prompt_with_many_rounds,
+            thread=None,
+            logdir=tmp_path / "loop-log",
+            model=None,
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+        with _subagent_results_lock:
+            _subagent_results["loop-agent"] = ReturnType(
+                "clarification_needed", "Another question?"
+            )
+        try:
+            with pytest.raises(ValueError, match="limit"):
+                subagent_reply("loop-agent", "answer")
+        finally:
+            with _subagents_lock:
+                _subagents[:] = [s for s in _subagents if s.agent_id != "loop-agent"]
+            with _subagent_results_lock:
+                _subagent_results.pop("loop-agent", None)
+
+    def test_subagent_reply_restores_state_on_spawn_failure(
+        self, tmp_path, monkeypatch
+    ):
+        """If subagent() raises during re-spawn, the original state is restored."""
+        from gptme.tools.subagent.api import subagent_reply
+
+        sa = Subagent(
+            agent_id="atomic-agent",
+            prompt="original task",
+            thread=None,
+            logdir=tmp_path / "log",
+            model=None,
+        )
+        original_result = ReturnType("clarification_needed", "What format?")
+        with _subagents_lock:
+            _subagents.append(sa)
+        with _subagent_results_lock:
+            _subagent_results["atomic-agent"] = original_result
+
+        def failing_subagent(**kwargs):
+            raise RuntimeError("spawn failed")
+
+        monkeypatch.setattr(subagent_api, "subagent", failing_subagent)
+
+        with pytest.raises(RuntimeError, match="spawn failed"):
+            subagent_reply("atomic-agent", "JSON")
+
+        # Both the registry entry and the result must be restored
+        with _subagents_lock:
+            matching = [s for s in _subagents if s.agent_id == "atomic-agent"]
+        assert len(matching) == 1, (
+            "Subagent entry should be restored after spawn failure"
+        )
+        with _subagent_results_lock:
+            assert _subagent_results.get("atomic-agent") == original_result
+        # cleanup
+        with _subagents_lock:
+            _subagents[:] = [s for s in _subagents if s.agent_id != "atomic-agent"]
+        with _subagent_results_lock:
+            _subagent_results.pop("atomic-agent", None)
