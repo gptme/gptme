@@ -266,17 +266,32 @@ def tree_search(
 
         # Build messages and run one agent turn.
         messages = _build_messages(iteration)
-        messages = _agent_step(messages, workspace, model, stream)
+        try:
+            messages = _agent_step(messages, workspace, model, stream)
 
-        # Run eval.
-        print(f"\n[tree-search] Running eval: {eval_cmd!r}")
-        new_passed, new_score, eval_out = run_eval(eval_cmd, workspace)
-        print(
-            f"[tree-search] Result: {'PASS' if new_passed else 'FAIL'} "
-            f"(score {current_score:.3f} → {new_score:.3f})"
-        )
-        if verbose or not new_passed:
-            print(textwrap.indent(eval_out[-2000:], "  "))
+            # Run eval.
+            print(f"\n[tree-search] Running eval: {eval_cmd!r}")
+            new_passed, new_score, eval_out = run_eval(eval_cmd, workspace)
+            print(
+                f"[tree-search] Result: {'PASS' if new_passed else 'FAIL'} "
+                f"(score {current_score:.3f} → {new_score:.3f})"
+            )
+            if verbose or not new_passed:
+                print(textwrap.indent(eval_out[-2000:], "  "))
+        except Exception:
+            # Unexpected error (API timeout, tool crash, eval subprocess failure) —
+            # restore the pre-turn snapshot so the workspace isn't left dirty.
+            if pre_sha is not None:
+                ok = restore(shadow, pre_sha)
+                if not ok:
+                    print(
+                        "[tree-search] WARNING: exception restore failed; workspace may be dirty"
+                    )
+            else:
+                print(
+                    "[tree-search] WARNING: no pre-turn snapshot; workspace NOT restored on exception"
+                )
+            raise
 
         files_after = set(_changed_files(workspace))
         # XOR finds files that newly became dirty or were cleaned up, but misses
