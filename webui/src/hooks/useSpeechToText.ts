@@ -127,6 +127,7 @@ export function useSpeechToText(): UseSpeechToTextReturn {
   const fallbackSetupGenRef = useRef(0);
   const finalHandlerRef = useRef<((text: string) => void) | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const sttAuthTokenRef = useRef(clientSettings.sttAuthToken);
   const SpeechRecognitionClass = getSpeechRecognitionClass();
   const browserSupported = SpeechRecognitionClass !== null;
   // Cloud hosts set sttAuthToken so the same-origin /api/v2/audio/transcriptions
@@ -140,6 +141,10 @@ export function useSpeechToText(): UseSpeechToTextReturn {
   // When user explicitly chooses server mode, use server STT even if browser supports it
   const serverEnabled = serverConfigured && (prefersServerStt || serverFallbackSupported);
   const isSupported = browserSupported || serverConfigured;
+
+  useEffect(() => {
+    sttAuthTokenRef.current = clientSettings.sttAuthToken;
+  }, [clientSettings.sttAuthToken]);
 
   const releaseRecordingSession = useCallback((session: RecordingSession | null) => {
     session?.stream.getTracks().forEach((track) => track.stop());
@@ -272,7 +277,7 @@ export function useSpeechToText(): UseSpeechToTextReturn {
           abortControllerRef.current = controller;
 
           setState('transcribing');
-          const sttAuthToken = clientSettings.sttAuthToken;
+          const sttAuthToken = sttAuthTokenRef.current;
           const transcribePromise: Promise<string> = sttAuthToken
             ? transcribeViaCloudEndpoint(audio, sttAuthToken, {
                 language: getLanguageCode() ?? undefined,

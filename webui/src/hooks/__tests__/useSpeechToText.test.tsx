@@ -4,6 +4,7 @@ import { useSpeechToText } from '../useSpeechToText';
 const transcribeAudio = jest.fn();
 const useUserSettingsMock = jest.fn();
 const useSettingsMock = jest.fn();
+const fetchMock = jest.fn();
 
 jest.mock('@/contexts/ApiContext', () => ({
   useApi: () => ({
@@ -80,6 +81,16 @@ beforeEach(() => {
   transcribeAudio.mockResolvedValue({
     text: 'server transcript',
     model: 'openai/whisper-1',
+  });
+  fetchMock.mockReset();
+  fetchMock.mockResolvedValue({
+    ok: true,
+    json: jest.fn().mockResolvedValue({ text: 'cloud transcript' }),
+  });
+  Object.defineProperty(globalThis, 'fetch', {
+    configurable: true,
+    writable: true,
+    value: fetchMock,
   });
 
   Object.defineProperty(window, 'MediaRecorder', {
@@ -264,5 +275,55 @@ describe('useSpeechToText', () => {
 
     expect(transcribeAudio.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ language: 'en' }));
     expect(handler).toHaveBeenCalledWith('server transcript');
+  });
+
+  it('uses the refreshed sttAuthToken for cloud transcription without recreating the callback', async () => {
+    const handler = jest.fn();
+    useUserSettingsMock.mockReturnValue({
+      settings: { providers_configured: [] },
+      isLoading: false,
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    let settings = { sttProvider: 'server', sttAuthToken: 'token-1' };
+    useSettingsMock.mockImplementation(() => ({
+      settings,
+      updateSettings: jest.fn(),
+      resetSettings: jest.fn(),
+    }));
+
+    const { result, rerender } = renderHook(() => useSpeechToText());
+
+    settings = { ...settings, sttAuthToken: 'token-2' };
+    rerender();
+
+    act(() => {
+      result.current.onFinalResult(handler);
+      result.current.startListening();
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() => {
+      result.current.stopListening();
+    });
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(result.current.state).toBe('idle');
+    });
+
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer token-2' }),
+      })
+    );
+    expect(handler).toHaveBeenCalledWith('cloud transcript');
+    expect(transcribeAudio).not.toHaveBeenCalled();
   });
 });
