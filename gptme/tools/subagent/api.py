@@ -375,7 +375,11 @@ def subagent(
             thread=t,
             logdir=logdir,
             model=model_name,
+            context_mode=context_mode,
+            context_include=context_include,
+            profile=profile,
             output_schema=output_schema,
+            use_acp=True,
             process=None,
             execution_mode="acp",
             acp_command=acp_command,
@@ -457,6 +461,9 @@ def subagent(
             thread=launcher,
             logdir=logdir,
             model=model_name,
+            context_mode=context_mode,
+            context_include=context_include,
+            profile=profile,
             output_schema=output_schema,
             process=None,
             execution_mode="subprocess",
@@ -561,6 +568,9 @@ def subagent(
             thread=t,
             logdir=logdir,
             model=model_name,
+            context_mode=context_mode,
+            context_include=context_include,
+            profile=profile,
             output_schema=output_schema,
             process=None,
             execution_mode="thread",
@@ -663,12 +673,24 @@ def subagent_reply(agent_id: str, reply: str) -> None:
     with _subagent_results_lock:
         _subagent_results.pop(agent_id, None)
 
+    # Replace the completed entry so future lookups target the re-spawned agent.
+    with _subagents_lock:
+        _subagents[:] = [
+            existing for existing in _subagents if existing.agent_id != agent_id
+        ]
+
     # Re-spawn with the same parameters, augmented prompt
     subagent(
         agent_id=agent_id,
         prompt=augmented_prompt,
         model=sa.model,
+        context_mode=sa.context_mode,
+        context_include=list(sa.context_include) if sa.context_include else None,
+        output_schema=sa.output_schema,
         use_subprocess=sa.execution_mode == "subprocess",
+        use_acp=sa.use_acp,
+        acp_command=sa.acp_command or "gptme-acp",
+        profile=sa.profile,
         isolated=sa.isolated,
         timeout=sa.timeout,
     )

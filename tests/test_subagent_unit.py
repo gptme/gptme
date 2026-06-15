@@ -900,6 +900,12 @@ class TestClarifyBlock:
     subagent_reply() re-spawns with the original prompt + Q&A appended.
     """
 
+    def setup_method(self):
+        with _subagents_lock:
+            _subagents.clear()
+        with _subagent_results_lock:
+            _subagent_results.clear()
+
     def _make_subagent(self, tmp_path: Path, content: str) -> Subagent:
         logdir = tmp_path / "subagent-log"
         logdir.mkdir()
@@ -1037,3 +1043,87 @@ class TestClarifyBlock:
         finally:
             with _subagents_lock:
                 _subagents.remove(sa)
+
+    def test_subagent_reply_replaces_registry_entry_and_preserves_spawn_params(
+        self, tmp_path, monkeypatch
+    ):
+        from gptme.tools.subagent.api import subagent_reply
+
+        class DummySchema:
+            pass
+
+        sa = Subagent(
+            agent_id="clarify-agent",
+            prompt="original task",
+            thread=None,
+            logdir=tmp_path / "old-log",
+            model="openai/gpt-4o-mini",
+            context_mode="selective",
+            context_include=["workspace", "tools"],
+            profile="custom-reviewer",
+            output_schema=DummySchema,
+            use_acp=True,
+            execution_mode="acp",
+            acp_command="claude-code-acp",
+            isolated=True,
+            timeout=42,
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+        with _subagent_results_lock:
+            _subagent_results["clarify-agent"] = ReturnType(
+                "clarification_needed", "Which format should I use?"
+            )
+
+        captured: dict = {}
+
+        def fake_subagent(**kwargs):
+            captured.update(kwargs)
+            with _subagents_lock:
+                assert not any(s.agent_id == "clarify-agent" for s in _subagents)
+                _subagents.append(
+                    Subagent(
+                        agent_id=kwargs["agent_id"],
+                        prompt=kwargs["prompt"],
+                        thread=None,
+                        logdir=tmp_path / "new-log",
+                        model=kwargs["model"],
+                        context_mode=kwargs["context_mode"],
+                        context_include=kwargs["context_include"],
+                        profile=kwargs["profile"],
+                        output_schema=kwargs["output_schema"],
+                        use_acp=kwargs["use_acp"],
+                        execution_mode="acp" if kwargs["use_acp"] else "thread",
+                        acp_command=kwargs["acp_command"],
+                        isolated=kwargs["isolated"],
+                        timeout=kwargs["timeout"],
+                    )
+                )
+
+        monkeypatch.setattr(subagent_api, "subagent", fake_subagent)
+
+        subagent_reply("clarify-agent", "Use JSON.")
+
+        assert captured == {
+            "agent_id": "clarify-agent",
+            "prompt": "original task\n\n[Clarification from previous attempt]\nQ: Which format should I use?\nA: Use JSON.",
+            "model": "openai/gpt-4o-mini",
+            "context_mode": "selective",
+            "context_include": ["workspace", "tools"],
+            "output_schema": DummySchema,
+            "use_subprocess": False,
+            "use_acp": True,
+            "acp_command": "claude-code-acp",
+            "profile": "custom-reviewer",
+            "isolated": True,
+            "timeout": 42,
+        }
+        with _subagent_results_lock:
+            assert "clarify-agent" not in _subagent_results
+        with _subagents_lock:
+            matching = [s for s in _subagents if s.agent_id == "clarify-agent"]
+        assert len(matching) == 1
+        assert matching[0].prompt == captured["prompt"]
+        assert matching[0].context_include == ["workspace", "tools"]
+        assert matching[0].profile == "custom-reviewer"
+        assert matching[0].execution_mode == "acp"
