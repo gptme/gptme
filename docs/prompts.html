@@ -766,7 +766,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f1cadc9d120&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7fa0828fc900&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -806,7 +806,7 @@ Use browser to fetch live web content, search the web, interact with pages, or
 take screenshots. Prefer browser over memory for current information. For
 services with APIs, prefer shell or Python over scraping.
 
-The following Python functions are available using the <span class="sb">`ipython`</span> tool:
+The following Python functions are available:
 
 <span class="sb">```txt</span>
 <span class="s">read_url(url: str, max_pages: Union[int, None]) -&gt; str: Read a webpage or PDF in a text format.</span>
@@ -984,7 +984,7 @@ Do <span class="gs">**not**</span> use chats for:
 <span class="k">-</span><span class="w"> </span>Searching files or code — use the shell or read tool instead.
 <span class="k">-</span><span class="w"> </span>Web or documentation search — use the browser tool.
 
-The following Python functions are available using the <span class="sb">`ipython`</span> tool:
+The following Python functions are available:
 
 <span class="sb">```txt</span>
 <span class="s">list_chats(max_results: int, include_summary: bool): List recent chat conversations and optionally summarize them using an LLM.</span>
@@ -1096,7 +1096,7 @@ Note: Key names are automatically mapped between platforms.
 Common modifiers (ctrl, alt, cmd/super, shift) work consistently across platforms.
 
 
-The following Python functions are available using the <span class="sb">`ipython`</span> tool:
+The following Python functions are available:
 
 <span class="sb">```txt</span>
 <span class="s">computer(action: Action, text: str | None, coordinate: tuple[int, int] | None) -&gt; Message | None: Perform computer interactions in X11 or macOS environments.</span>
@@ -1673,7 +1673,7 @@ string or pattern matching. Use <span class="sb">`read`</span> when you already 
 Index first with <span class="sb">`rag_index`</span>, then search with <span class="sb">`rag_search`</span>.
 
 
-The following Python functions are available using the <span class="sb">`ipython`</span> tool:
+The following Python functions are available:
 
 <span class="sb">```txt</span>
 <span class="s">rag_index(paths: str, glob: Union[str, None]) -&gt; str: Index documents in specified paths.</span>
@@ -1822,7 +1822,7 @@ Do <span class="gs">**not**</span> use screenshot for:
 <span class="k">-</span><span class="w"> </span>Viewing an already-saved image file — use the <span class="sb">`vision`</span> tool instead
 <span class="k">-</span><span class="w"> </span>Capturing a specific webpage — use <span class="sb">`browser`</span> with a screenshot action instead
 
-The following Python functions are available using the <span class="sb">`ipython`</span> tool:
+The following Python functions are available:
 
 <span class="sb">```txt</span>
 <span class="s">screenshot(path: Union[Path, None]) -&gt; Path: Take a screenshot and save it to a file.</span>
@@ -2006,7 +2006,7 @@ MUST NOT DO: Store plaintext passwords, skip input validation
 CONTEXT: This is for the gptme server API, see existing endpoints in server.py
 &#39;&#39;&#39;
 
-The following Python functions are available using the <span class="sb">`ipython`</span> tool:
+The following Python functions are available:
 
 <span class="sb">```txt</span>
 <span class="s">subagent(agent_id: str, prompt: str, mode: Literal[&quot;executor&quot;, &quot;planner&quot;], subtasks: Union[list[SubtaskDef], None], execution_mode: Literal[&quot;parallel&quot;, &quot;sequential&quot;], context_mode: Literal[&quot;full&quot;, &quot;selective&quot;], context_include: Union[list[str], None], output_schema: Union[type, None], use_subprocess: Union[bool, None], use_acp: bool, acp_command: str, profile: Union[str, None], model: Union[str, None], isolated: Union[bool, None], timeout: int, role: Union[Literal[&quot;general&quot;, &quot;explore&quot;, &quot;implement&quot;, &quot;verify&quot;], None]): Starts an asynchronous subagent. Returns None immediately.</span>
@@ -2344,7 +2344,7 @@ Do <span class="gs">**not**</span> use vision for:
 
 Use the <span class="sb">`view_image`</span> Python function with <span class="sb">`ipython`</span> tool to view an image file.
 
-The following Python functions are available using the <span class="sb">`ipython`</span> tool:
+The following Python functions are available:
 
 <span class="sb">```txt</span>
 <span class="s">view_image(image_path: Path | str | Image.Image) -&gt; Message: View an image. Large images (&gt;1MB) will be automatically scaled down.</span>
@@ -2387,7 +2387,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 12979</p>
+<p>Tokens: 12930</p>
 </dd></dl>
 
 <dl class="py function">

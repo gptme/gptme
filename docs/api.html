@@ -673,6 +673,7 @@ document.write(`
 </li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolSpec"><code class="docutils literal notranslate"><span class="pre">ToolSpec</span></code></a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolSpec.__init__"><code class="docutils literal notranslate"><span class="pre">ToolSpec.__init__()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolSpec.as_function_subtoolspecs"><code class="docutils literal notranslate"><span class="pre">ToolSpec.as_function_subtoolspecs()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolSpec.from_function"><code class="docutils literal notranslate"><span class="pre">ToolSpec.from_function()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolSpec.get_doc"><code class="docutils literal notranslate"><span class="pre">ToolSpec.get_doc()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolSpec.is_available"><code class="docutils literal notranslate"><span class="pre">ToolSpec.is_available</span></code></a></li>
@@ -1752,6 +1753,24 @@ requested but currently unavailable (e.g. “start the TTS server”).</p></li>
 <dd></dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="gptme.tools.ToolSpec.as_function_subtoolspecs">
+<span class="sig-name descname"><span class="pre">as_function_subtoolspecs</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#gptme.tools.ToolSpec" title="gptme.tools.base.ToolSpec"><span class="pre">ToolSpec</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#gptme.tools.ToolSpec.as_function_subtoolspecs" title="Link to this definition">#</a></dt>
+<dd><p>Expand each ToolFunction into its own independently invocable ToolSpec.</p>
+<p>Returns one ToolSpec per ToolFunction, each with a direct <code class="docutils literal notranslate"><span class="pre">execute</span></code>
+handler that calls <code class="docutils literal notranslate"><span class="pre">fn(**kwargs)</span></code> without requiring IPython.
+Sub-spec names follow the <code class="docutils literal notranslate"><span class="pre">&lt;parent&gt;.&lt;function_name&gt;</span></code> pattern, which
+mirrors the MCP tool naming convention (e.g. <code class="docutils literal notranslate"><span class="pre">discord.send_message</span></code>).</p>
+<p>This allows agents to invoke helper functions even when the IPython
+tool is not loaded.</p>
+<p>Example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="k">for</span> <span class="n">sub</span> <span class="ow">in</span> <span class="n">browser_tool</span><span class="o">.</span><span class="n">as_function_subtoolspecs</span><span class="p">():</span>
+    <span class="k">if</span> <span class="n">sub</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">&quot;browser.view_image&quot;</span><span class="p">:</span>
+        <span class="nb">list</span><span class="p">(</span><span class="n">sub</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;path&quot;</span><span class="p">:</span> <span class="s2">&quot;screenshot.png&quot;</span><span class="p">}))</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="gptme.tools.ToolSpec.from_function">
 <em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_function</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fn</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Callable" title="(in Python v3.14)"><span class="pre">Callable</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#gptme.tools.ToolSpec" title="gptme.tools.base.ToolSpec"><span class="pre">ToolSpec</span></a></span></span><a class="headerlink" href="#gptme.tools.ToolSpec.from_function" title="Link to this definition">#</a></dt>
 <dd><p>Create a ToolSpec from a plain Python function.</p>
@@ -2089,6 +2108,7 @@ variable, then to the embedded legacy static bundle.</p></li>
 </li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolSpec"><code class="docutils literal notranslate"><span class="pre">ToolSpec</span></code></a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolSpec.__init__"><code class="docutils literal notranslate"><span class="pre">ToolSpec.__init__()</span></code></a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolSpec.as_function_subtoolspecs"><code class="docutils literal notranslate"><span class="pre">ToolSpec.as_function_subtoolspecs()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolSpec.from_function"><code class="docutils literal notranslate"><span class="pre">ToolSpec.from_function()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolSpec.get_doc"><code class="docutils literal notranslate"><span class="pre">ToolSpec.get_doc()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme.tools.ToolSpec.is_available"><code class="docutils literal notranslate"><span class="pre">ToolSpec.is_available</span></code></a></li>
