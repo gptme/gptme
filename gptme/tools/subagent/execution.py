@@ -701,8 +701,15 @@ def _run_planner(
                         profile_name=subtask_profile,
                     )
                 finally:
-                    _cleanup_isolation(cleanup_subagent)
-                    _sem.release()
+                    try:
+                        _cleanup_isolation(cleanup_subagent)
+                    except Exception:
+                        logger.exception(
+                            "Failed to clean up isolated planner thread executor "
+                            f"{executor_agent_id}"
+                        )
+                    finally:
+                        _sem.release()
 
             t = threading.Thread(target=run_executor, daemon=True)
             sa = Subagent(
