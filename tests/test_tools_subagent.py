@@ -1577,6 +1577,71 @@ def test_acp_mode_handles_failure():
             assert result.status == "failure"
 
 
+def test_cancelled_queued_acp_does_not_launch_after_slot_frees():
+    """ACP subagents cancelled while queued must not start once a slot opens."""
+    import threading
+    from unittest.mock import AsyncMock, patch
+
+    from gptme.tools.subagent import (
+        _subagent_results,
+        _subagent_results_lock,
+        _subagents,
+        subagent,
+        subagent_cancel,
+    )
+
+    _subagents.clear()
+    with _subagent_results_lock:
+        _subagent_results.clear()
+
+    sem = threading.BoundedSemaphore(1)
+    assert sem.acquire(timeout=0)
+
+    mock_client = AsyncMock()
+    mock_client.run = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    cleanup_calls: list[str] = []
+
+    with (
+        patch("gptme.acp.client.GptmeAcpClient", return_value=mock_client),
+        patch("gptme.tools.subagent.notify_completion") as mock_notify,
+        patch("gptme.tools.subagent.api.get_slot_sem", return_value=sem),
+        patch(
+            "gptme.tools.subagent.api._exec._cleanup_isolation",
+            side_effect=lambda sa: cleanup_calls.append(sa.agent_id),
+        ),
+    ):
+        subagent(
+            agent_id="test-acp-cancelled",
+            prompt="Do not run",
+            use_acp=True,
+            acp_command="fake-acp",
+        )
+
+        sa = next(s for s in _subagents if s.agent_id == "test-acp-cancelled")
+        assert sa.thread is not None
+
+        result = subagent_cancel("test-acp-cancelled")
+        assert "marked as cancelled" in result.lower()
+
+        sem.release()
+        sa.thread.join(timeout=10)
+        assert not sa.thread.is_alive()
+
+        mock_client.__aenter__.assert_not_awaited()
+        mock_client.run.assert_not_awaited()
+        mock_notify.assert_not_called()
+        assert cleanup_calls == ["test-acp-cancelled"]
+
+    with _subagent_results_lock:
+        assert _subagent_results["test-acp-cancelled"].status == "failure"
+        assert (
+            _subagent_results["test-acp-cancelled"].result
+            == "Cancelled by orchestrator"
+        )
+
+
 def test_acp_mode_subagent_batch():
     """Test that subagent_batch forwards use_acp and acp_command to subagent()."""
     from unittest.mock import AsyncMock, MagicMock, patch

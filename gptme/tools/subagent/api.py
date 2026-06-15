@@ -284,6 +284,19 @@ def subagent(
             _sem = get_slot_sem()
             _sem.acquire()
             try:
+                with _subagent_results_lock:
+                    if agent_id in _subagent_results:
+                        logger.info(
+                            f"Skipping cancelled queued ACP subagent {agent_id}"
+                        )
+                        with _subagents_lock:
+                            sa = next(
+                                (s for s in _subagents if s.agent_id == agent_id), None
+                            )
+                        if sa:
+                            _exec._cleanup_isolation(sa)
+                        return
+
                 import asyncio
 
                 async def _acp_run():
