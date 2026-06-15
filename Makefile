@@ -1,4 +1,4 @@
-.PHONY: test test-api docs build build-docker check-rst install-completions help tauri-dev tauri-build tauri-lint tauri-build-sidecar bundle-webui
+.PHONY: test test-api docs build build-docker build-docker-computer run-docker-computer check-rst install-completions help tauri-dev tauri-build tauri-lint tauri-build-sidecar bundle-webui
 
 # set default shell
 SHELL := $(shell which bash)
@@ -25,6 +25,15 @@ build-docker: ## Build Docker images
 
 build-docker-computer: ## Build Docker image for gptme-computer
 	docker build . -t gptme-computer:latest -f scripts/Dockerfile.computer
+
+run-docker-computer: ## Run gptme-computer container (noVNC on :6080, gptme server on :8080)
+	docker run --rm -it \
+		-p 6080:6080 \
+		-p 8080:8080 \
+		-e ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}" \
+		-e OPENAI_API_KEY="${OPENAI_API_KEY}" \
+		-e OPENROUTER_API_KEY="${OPENROUTER_API_KEY}" \
+		gptme-computer:latest
 
 build-docker-dev: ## Build Docker image for development
 	docker build . -t gptme-dev:latest -f scripts/Dockerfile.dev

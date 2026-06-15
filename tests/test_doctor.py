@@ -11,6 +11,7 @@ from gptme.cli.doctor import (
     CheckStatus,
     _check_api_keys,
     _check_browser,
+    _check_computer,
     _check_config,
     _check_mcp,
     _check_permissions,
@@ -855,3 +856,75 @@ class TestCheckMCP:
         assert server_result.details is not None
         assert "npx" in server_result.details
         assert "-y" in server_result.details
+
+
+class TestCheckComputer:
+    """Test _check_computer function."""
+
+    @patch("sys.platform", "linux")
+    @patch("shutil.which")
+    @patch.dict("os.environ", {"DISPLAY": ":1"})
+    def test_linux_all_tools_present(self, mock_which):
+        """Linux with xdotool + scrot + DISPLAY should be all OK."""
+        mock_which.side_effect = lambda t: (
+            f"/usr/bin/{t}" if t in ("xdotool", "scrot") else None
+        )
+
+        results = _check_computer()
+
+        names = {r.name: r for r in results}
+        assert names["Computer: xdotool"].status == CheckStatus.OK
+        assert names["Computer: scrot"].status == CheckStatus.OK
+        assert names["Computer: DISPLAY"].status == CheckStatus.OK
+
+    @patch("sys.platform", "linux")
+    @patch("shutil.which", return_value=None)
+    @patch.dict("os.environ", {}, clear=True)
+    def test_linux_nothing_installed(self, mock_which):
+        """Linux without xdotool/scrot/DISPLAY should warn on all three."""
+        results = _check_computer()
+
+        names = {r.name: r for r in results}
+        assert names["Computer: xdotool"].status == CheckStatus.WARNING
+        assert names["Computer: scrot"].status == CheckStatus.WARNING
+        assert names["Computer: DISPLAY"].status == CheckStatus.WARNING
+        assert "xdotool" in (names["Computer: xdotool"].fix_hint or "")
+
+    @patch("sys.platform", "darwin")
+    @patch("shutil.which")
+    def test_macos_cliclick_present(self, mock_which):
+        """macOS with cliclick should report OK for cliclick and screencapture."""
+        mock_which.side_effect = lambda t: (
+            "/usr/local/bin/cliclick" if t == "cliclick" else None
+        )
+
+        results = _check_computer()
+
+        names = {r.name: r for r in results}
+        assert names["Computer: screencapture"].status == CheckStatus.OK
+        assert names["Computer: cliclick"].status == CheckStatus.OK
+
+    @patch("sys.platform", "darwin")
+    @patch("shutil.which", return_value=None)
+    def test_macos_cliclick_missing(self, mock_which):
+        """macOS without cliclick should warn with brew install hint."""
+        results = _check_computer()
+
+        names = {r.name: r for r in results}
+        assert names["Computer: screencapture"].status == CheckStatus.OK
+        assert names["Computer: cliclick"].status == CheckStatus.WARNING
+        assert "brew install cliclick" in (names["Computer: cliclick"].fix_hint or "")
+
+    @patch("sys.platform", "linux")
+    @patch("shutil.which")
+    @patch.dict("os.environ", {"DISPLAY": ":1"})
+    def test_verbose_shows_path(self, mock_which):
+        """Verbose mode should include tool path in details."""
+        mock_which.side_effect = lambda t: (
+            f"/usr/bin/{t}" if t in ("xdotool", "scrot") else None
+        )
+
+        results = _check_computer(verbose=True)
+
+        xdotool = next(r for r in results if r.name == "Computer: xdotool")
+        assert xdotool.details == "/usr/bin/xdotool"
