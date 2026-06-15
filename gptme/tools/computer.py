@@ -597,41 +597,60 @@ def _linux_window_focus(pattern: str, display: str, timeout: float = 10.0) -> No
         ) from e
 
 
-def _macos_window_focus(pattern: str) -> None:
+def _macos_window_focus(pattern: str, timeout: float = 10.0) -> None:
     """Focus the frontmost application whose name contains pattern on macOS.
 
-    Uses AppleScript via ``osascript``.  The pattern is matched case-sensitively
-    against the process name (not the window title).
+    Uses AppleScript via ``osascript`` with a Python-level retry loop so the
+    call blocks until a matching window appears or the timeout expires — matching
+    the blocking semantics of the Linux xdotool path.
 
     Args:
         pattern: Substring matched against application/process name.
+        timeout: Seconds to wait for the window to appear (default 10).
     """
     # Escape for embedding inside an AppleScript string literal
     safe = pattern.replace("\\", "\\\\").replace('"', '\\"')
     script = (
         'tell application "System Events"\n'
+        "  set found to false\n"
         "  repeat with p in (every process whose background only is false)\n"
         f'    if name of p contains "{safe}" then\n'
         "      set frontmost of p to true\n"
-        "      return\n"
+        "      set found to true\n"
+        "      exit repeat\n"
         "    end if\n"
         "  end repeat\n"
+        "  if found then\n"
+        '    return "found"\n'
+        "  else\n"
+        '    return "not_found"\n'
+        "  end if\n"
         "end tell"
     )
-    try:
-        subprocess.run(
-            ["osascript", "-e", script],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    except subprocess.TimeoutExpired as e:
-        raise RuntimeError(f"window_focus timed out for pattern {pattern!r}") from e
-    except subprocess.CalledProcessError as e:
-        raise RuntimeError(
-            f"Failed to focus window matching {pattern!r}: {e.stderr}"
-        ) from e
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError(f"window_focus timed out for pattern {pattern!r}") from e
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(
+                f"Failed to focus window matching {pattern!r}: {e.stderr}"
+            ) from e
+
+        if result.stdout.strip() == "found":
+            return
+        if time.monotonic() >= deadline:
+            raise RuntimeError(
+                f"No window matching {pattern!r} appeared within {timeout:.0f}s"
+            )
+        time.sleep(0.5)
 
 
 def _macos_click(button: int) -> None:

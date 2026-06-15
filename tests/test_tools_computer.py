@@ -15,6 +15,7 @@ from gptme.tools.computer import (
     _get_display_resolution,
     _linux_scroll,
     _linux_window_focus,
+    _macos_window_focus,
     _parse_key_sequence,
     _run_xdotool,
     _scale_coordinates,
@@ -1251,3 +1252,69 @@ def test_linux_window_focus_unit():
     assert "windowfocus" in cmd
     # timeout + 2 headroom
     assert call_args[1]["timeout"] == pytest.approx(7.0)
+
+
+# macOS window_focus tests
+# ============================================================
+
+
+def test_macos_window_focus_success():
+    """_macos_window_focus returns when osascript reports 'found'."""
+    with mock.patch("gptme.tools.computer.subprocess.run") as mock_run:
+        mock_run.return_value = mock.MagicMock(
+            returncode=0, stdout="found\n", stderr=""
+        )
+        _macos_window_focus("Terminal", timeout=5.0)
+
+    assert mock_run.called
+    call_args = mock_run.call_args
+    cmd = call_args[0][0]
+    assert cmd[0] == "osascript"
+
+
+def test_macos_window_focus_no_match_raises():
+    """_macos_window_focus raises RuntimeError when no matching process is found within timeout.
+
+    This is the P1 bug: previously the function returned None (false success) when the
+    AppleScript found no matching process, causing subsequent keystrokes to go to the
+    wrong window. Now it raises RuntimeError after the timeout expires.
+    """
+    with (
+        mock.patch("gptme.tools.computer.subprocess.run") as mock_run,
+        mock.patch("gptme.tools.computer.time.monotonic") as mock_time,
+        mock.patch("gptme.tools.computer.time.sleep"),
+        pytest.raises(RuntimeError, match="No window matching.*'MissingApp'"),
+    ):
+        # First call returns not_found, second call has monotonic past deadline
+        mock_run.return_value = mock.MagicMock(
+            returncode=0, stdout="not_found\n", stderr=""
+        )
+        mock_time.side_effect = [0.0, 0.0, 10.1]  # start, after first run, after sleep
+        _macos_window_focus("MissingApp", timeout=10.0)
+
+
+def test_macos_window_focus_retry_then_found():
+    """_macos_window_focus retries until the window appears."""
+    results = [
+        mock.MagicMock(returncode=0, stdout="not_found\n", stderr=""),
+        mock.MagicMock(returncode=0, stdout="not_found\n", stderr=""),
+        mock.MagicMock(returncode=0, stdout="found\n", stderr=""),
+    ]
+    with (
+        mock.patch("gptme.tools.computer.subprocess.run", side_effect=results),
+        mock.patch(
+            "gptme.tools.computer.time.monotonic", side_effect=[0.0, 0.5, 1.0, 1.5]
+        ),
+        mock.patch("gptme.tools.computer.time.sleep"),
+    ):
+        _macos_window_focus("SlowApp", timeout=10.0)
+
+
+def test_macos_window_focus_osascript_failure_raises():
+    """_macos_window_focus raises RuntimeError when osascript exits non-zero."""
+    err = subprocess.CalledProcessError(1, ["osascript"], stderr="permission denied")
+    with (
+        mock.patch("gptme.tools.computer.subprocess.run", side_effect=err),
+        pytest.raises(RuntimeError, match="Failed to focus window matching.*'MyApp'"),
+    ):
+        _macos_window_focus("MyApp", timeout=5.0)

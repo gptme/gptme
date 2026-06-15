@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import os
 import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -359,8 +360,6 @@ class NativeComputerTransport(ComputerTransport):
         if IS_MACOS:
             _macos_window_focus(pattern)
         else:
-            import os
-
             display = os.getenv("DISPLAY", ":1")
             _linux_window_focus(pattern, display)
 
