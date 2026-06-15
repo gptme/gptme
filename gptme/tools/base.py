@@ -516,8 +516,8 @@ class ToolSpec:
         Example::
 
             for sub in browser_tool.as_function_subtoolspecs():
-                # sub.name == "browser.view_image" etc.
-                init_tools([sub])
+                if sub.name == "browser.view_image":
+                    list(sub.execute(None, None, {"path": "screenshot.png"}))
         """
         if not self.functions:
             return []
