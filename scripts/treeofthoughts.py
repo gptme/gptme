@@ -116,14 +116,22 @@ def _fmt_history(attempts: list[dict]) -> str:
 
 
 def _changed_files(cwd: Path) -> list[str]:
-    result = subprocess.run(
+    tracked = subprocess.run(
         ["git", "diff", "--name-only", "HEAD"],
         check=False,
         cwd=str(cwd),
         capture_output=True,
         text=True,
     )
-    return [f for f in result.stdout.splitlines() if f.strip()]
+    untracked = subprocess.run(
+        ["git", "ls-files", "--others", "--exclude-standard"],
+        check=False,
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+    )
+    lines = tracked.stdout.splitlines() + untracked.stdout.splitlines()
+    return [f for f in lines if f.strip()]
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +267,7 @@ def tree_search(
             print(textwrap.indent(eval_out[-2000:], "  "))
 
         files_after = set(_changed_files(workspace))
-        changed = sorted(files_after | (files_before ^ files_after))
+        changed = sorted(files_after ^ files_before)
 
         # Build diagnosis: ask the agent for a short post-mortem if it regressed.
         diagnosis = ""
@@ -275,25 +283,38 @@ def tree_search(
             else:
                 diagnosis = f"Eval output: {eval_out[:400].strip()!r}"
 
+        keep = new_score > current_score or (new_score == current_score and new_passed)
         attempt_record = {
             "iteration": iteration,
             "score_before": current_score,
             "score_after": new_score,
             "passed": new_passed,
-            "kept": new_score >= current_score,
+            "kept": keep,
             "files_changed": changed,
             "diagnosis": diagnosis,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         attempts.append(attempt_record)
 
-        if new_score >= current_score:
-            # Improvement or neutral: keep the change.
+        if keep:
+            status = (
+                "improvement" if new_score > current_score else "neutral (eval passed)"
+            )
             current_score = new_score
-            print(f"[tree-search] ✓ Keeping change (score {current_score:.3f}).")
+            print(
+                f"[tree-search] ✓ Keeping change ({status}, score {current_score:.3f})."
+            )
             if new_passed:
                 print("[tree-search] 🎉 Eval passed — task complete!")
                 return True
+        elif new_score == current_score:
+            # Neutral: score unchanged but eval not yet passing — revert to avoid drift.
+            print(
+                f"[tree-search] ~ Neutral (score {current_score:.3f} unchanged, eval not passing)"
+                " — reverting to avoid workspace drift."
+            )
+            if pre_sha is not None:
+                restore(shadow, pre_sha)
         else:
             # Regression: restore workspace to pre-turn snapshot.
             print(

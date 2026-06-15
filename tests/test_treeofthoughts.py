@@ -13,6 +13,11 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Shell commands in tests (exit, echo, printf, test) are POSIX-only",
+)
+
 # ---------------------------------------------------------------------------
 # Load the treeofthoughts module without executing main()
 # ---------------------------------------------------------------------------
