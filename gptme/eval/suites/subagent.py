@@ -177,4 +177,46 @@ tests: list["EvalSpec"] = [
             "waited before stating result": check_subagent_complete_waited_before_result,
         },
     },
+    {
+        "name": "subagent-clarification-roundtrip",
+        "files": {
+            "task.txt": "Write a greeting in the requested language.\n",
+        },
+        "run": "cat answer.txt",
+        "prompt": (
+            "Spawn a subagent with agent_id 'greeter' to write a greeting. "
+            "The subagent's prompt must instruct it to use a `clarify` block "
+            "asking which language to use (not `complete` — it genuinely does not know). "
+            "After spawning, do a brief parent-side step (read task.txt) so the hook "
+            "can deliver the clarification notification. "
+            "When you receive the ❓ system message, call "
+            "subagent_reply('greeter', 'English') to resume the subagent with the answer. "
+            "Wait for the resumed subagent to finish. "
+            "Write answer.txt containing the greeting the subagent produced, "
+            "and include the word GREETING= followed by the greeting in your final message."
+        ),
+        "tools": ["read", "save", "shell", "ipython", "subagent"],
+        "expect": {
+            "writes GREETING marker": lambda ctx: "GREETING=" in ctx.stdout,
+            "clean exit": lambda ctx: ctx.exit_code == 0,
+        },
+        "check_log": {
+            "spawned greeter subagent": lambda msgs: (
+                _any_message_contains(msgs, "assistant", 'subagent("greeter"')
+                or _any_message_contains(msgs, "assistant", "subagent('greeter'")
+            ),
+            "received clarification hook notification": lambda msgs: (
+                _any_message_contains(msgs, "system", "❓")
+                and _any_message_contains(msgs, "system", "greeter")
+            ),
+            "called subagent_reply": lambda msgs: _any_message_contains(
+                msgs, "assistant", "subagent_reply("
+            ),
+            "replied with English": lambda msgs: any(
+                "subagent_reply(" in m.content and "English" in m.content
+                for m in msgs
+                if m.role == "assistant"
+            ),
+        },
+    },
 ]

@@ -30,6 +30,10 @@ def _get_complete_instruction(target: str = "orchestrator") -> str:
         f"Include everything the {target} needs - they shouldn't need to read the full log.\n"
         "```complete\n"
         "Your complete answer here.\n"
+        "```\n"
+        f"If you cannot proceed without more information from the {target}, use the `clarify` block instead:\n"
+        "```clarify\n"
+        "Your specific question here.\n"
         "```"
     )
 
@@ -77,6 +81,11 @@ def _subagent_completion_hook(
     for agent_id, status, summary in notifications:
         if status == "success":
             msg = f"✅ Subagent '{agent_id}' completed: {summary}"
+        elif status == "clarification_needed":
+            msg = (
+                f"❓ Subagent '{agent_id}' needs clarification: {summary}\n"
+                f"Call subagent_reply('{agent_id}', '<your answer>') to continue."
+            )
         else:
             msg = f"❌ Subagent '{agent_id}' failed: {summary}"
 

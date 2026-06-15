@@ -884,3 +884,156 @@ class TestSubagentCancel:
         assert cleanup_calls == ["planner-agent-implement"]
         assert sem.acquire(timeout=0.1)
         sem.release()
+
+
+# ---------------------------------------------------------------------------
+# Clarification mechanism tests
+# ---------------------------------------------------------------------------
+
+
+class TestClarifyBlock:
+    """Tests for the subagent clarification mechanism.
+
+    Subagents can use a ``clarify`` code block (analogous to ``complete``) to
+    signal that they need more information.  _read_log() detects the block and
+    returns status="clarification_needed"; the hook delivers a ❓ notification;
+    subagent_reply() re-spawns with the original prompt + Q&A appended.
+    """
+
+    def _make_subagent(self, tmp_path: Path, content: str) -> Subagent:
+        logdir = tmp_path / "subagent-log"
+        logdir.mkdir()
+        (logdir / "conversation.jsonl").write_text(
+            json.dumps(
+                {
+                    "role": "assistant",
+                    "content": content,
+                    "timestamp": "2025-01-01T00:00:00+00:00",
+                }
+            )
+            + "\n"
+        )
+        return Subagent(
+            agent_id="clarify-test",
+            prompt="original task",
+            thread=None,
+            logdir=logdir,
+            model=None,
+        )
+
+    def test_read_log_detects_clarify_block(self, tmp_path):
+        sa = self._make_subagent(
+            tmp_path, "```clarify\nWhich output format? JSON or CSV?\n```"
+        )
+        result = sa._read_log()
+        assert result.status == "clarification_needed"
+        assert "Which output format? JSON or CSV?" in (result.result or "")
+
+    def test_read_log_clarify_takes_priority_over_failure(self, tmp_path):
+        # A clarify block should be detected even if the session didn't also complete
+        sa = self._make_subagent(
+            tmp_path,
+            "I'm not sure how to proceed.\n```clarify\nWhat is the target directory?\n```",
+        )
+        result = sa._read_log()
+        assert result.status == "clarification_needed"
+        assert "target directory" in (result.result or "")
+
+    def test_read_log_empty_clarify_block_handled(self, tmp_path):
+        sa = self._make_subagent(tmp_path, "```clarify\n\n```")
+        result = sa._read_log()
+        assert result.status == "clarification_needed"
+        assert result.result is not None
+
+    def test_complete_block_still_returns_success(self, tmp_path):
+        # Clarify detection must not interfere with normal complete blocks
+        sa = self._make_subagent(tmp_path, "```complete\ntask done\n```")
+        result = sa._read_log()
+        assert result.status == "success"
+        assert "task done" in (result.result or "")
+
+    def test_hook_yields_clarification_message(self):
+        """The completion hook delivers a ❓ notification for clarification_needed."""
+        # Drain queue first
+        while not _completion_queue.empty():
+            try:
+                _completion_queue.get_nowait()
+            except queue.Empty:
+                break
+
+        notify_completion("agent-q", "clarification_needed", "What format?")
+        manager = MagicMock()
+        messages = list(
+            _subagent_completion_hook(manager, interactive=False, prompt_queue=None)
+        )
+        assert len(messages) == 1
+        msg = messages[0]
+        assert msg.role == "system"
+        assert "❓" in msg.content
+        assert "agent-q" in msg.content
+        assert "What format?" in msg.content
+        assert "subagent_reply" in msg.content
+
+    def test_complete_instruction_mentions_clarify_block(self):
+        """_get_complete_instruction() must tell subagents about the clarify option."""
+        instruction = _get_complete_instruction()
+        assert "```clarify" in instruction
+
+    def test_subagent_reply_rejects_missing_agent(self):
+        from gptme.tools.subagent.api import subagent_reply
+
+        with pytest.raises(ValueError, match="not found"):
+            subagent_reply("nonexistent-agent", "answer")
+
+    def test_subagent_reply_rejects_running_agent(self, tmp_path, monkeypatch):
+        from gptme.tools.subagent.api import subagent_reply
+
+        mock_thread = MagicMock(spec=threading.Thread)
+        mock_thread.is_alive.return_value = True
+        sa = Subagent(
+            agent_id="running-agent",
+            prompt="do stuff",
+            thread=mock_thread,
+            logdir=tmp_path / "log",
+            model=None,
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+        try:
+            with pytest.raises(ValueError, match="still running"):
+                subagent_reply("running-agent", "answer")
+        finally:
+            with _subagents_lock:
+                _subagents.remove(sa)
+
+    def test_subagent_reply_rejects_non_clarification_status(self, tmp_path):
+        """subagent_reply() must reject agents that did not ask for clarification."""
+        from gptme.tools.subagent.api import subagent_reply
+
+        logdir = tmp_path / "log-done"
+        logdir.mkdir()
+        (logdir / "conversation.jsonl").write_text(
+            json.dumps(
+                {
+                    "role": "assistant",
+                    "content": "```complete\ndone\n```",
+                    "timestamp": "2025-01-01T00:00:00+00:00",
+                }
+            )
+            + "\n"
+        )
+        sa = Subagent(
+            agent_id="done-agent",
+            prompt="task",
+            thread=None,
+            logdir=logdir,
+            model=None,
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+        try:
+            with pytest.raises(ValueError, match="clarification_needed"):
+                subagent_reply("done-agent", "answer")
+        finally:
+            with _subagents_lock:
+                _subagents.remove(sa)

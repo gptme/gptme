@@ -622,6 +622,58 @@ def subagent_cancel(agent_id: str) -> str:
     )
 
 
+def subagent_reply(agent_id: str, reply: str) -> None:
+    """Re-spawn a subagent that requested clarification.
+
+    When a subagent ends with a ``clarify`` block, it stops and asks the
+    parent a question. Call this function with your answer to re-start the
+    subagent. The new run receives the original prompt plus an appended
+    Q&A block so it has full context.
+
+    Args:
+        agent_id: The subagent that raised the clarification request.
+        reply: Your answer to the subagent's question.
+    """
+    with _subagents_lock:
+        sa = next((s for s in _subagents if s.agent_id == agent_id), None)
+
+    if sa is None:
+        raise ValueError(f"Subagent with ID {agent_id!r} not found.")
+
+    result = sa.status()
+    if result.status == "running":
+        raise ValueError(
+            f"Subagent '{agent_id}' is still running. Wait for it to finish first."
+        )
+    if result.status != "clarification_needed":
+        raise ValueError(
+            f"Subagent '{agent_id}' has status '{result.status}', not 'clarification_needed'. "
+            "Only subagents that ended with a `clarify` block can be resumed."
+        )
+
+    question = result.result or "(no question)"
+    augmented_prompt = (
+        f"{sa.prompt}\n\n"
+        f"[Clarification from previous attempt]\n"
+        f"Q: {question}\n"
+        f"A: {reply}"
+    )
+
+    # Clear the old clarification_needed result so the new run starts fresh
+    with _subagent_results_lock:
+        _subagent_results.pop(agent_id, None)
+
+    # Re-spawn with the same parameters, augmented prompt
+    subagent(
+        agent_id=agent_id,
+        prompt=augmented_prompt,
+        model=sa.model,
+        use_subprocess=sa.execution_mode == "subprocess",
+        isolated=sa.isolated,
+        timeout=sa.timeout,
+    )
+
+
 def subagent_status(agent_id: str) -> dict:
     """Returns the status of a subagent."""
     with _subagents_lock:

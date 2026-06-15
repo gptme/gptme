@@ -17,6 +17,7 @@ from .api import (
     subagent,
     subagent_cancel,
     subagent_read_log,
+    subagent_reply,
     subagent_status,
     subagent_wait,
 )
@@ -234,7 +235,8 @@ Key features:
 - isolated=True: Run subagent in a git worktree for filesystem isolation
 - subagent_batch(): Start multiple subagents in parallel
 - subagent_cancel(): Cancel a running subagent (SIGTERM for subprocess, marks result for threads)
-- Hook-based notifications: Completions delivered as system messages
+- subagent_reply(agent_id, reply): Answer a clarification request and re-spawn the subagent
+- Hook-based notifications: Completions (and clarification requests) delivered as system messages
 
 ## Agent Profiles for Subagents
 
@@ -277,6 +279,23 @@ MUST DO: Use bcrypt for password hashing, return proper HTTP status codes
 MUST NOT DO: Store plaintext passwords, skip input validation
 CONTEXT: This is for the gptme server API, see existing endpoints in server.py
 '''
+
+## Clarification Requests
+
+When a subagent ends with a ``clarify`` block, it signals that it needs more
+information from the parent before it can continue:
+
+```clarify
+Which output format should I use: JSON or CSV?
+```
+
+The parent receives a hook notification:
+  ❓ Subagent 'X' needs clarification: Which output format should I use: JSON or CSV?
+  Call subagent_reply('X', '<your answer>') to continue.
+
+Use ``subagent_reply(agent_id, reply)`` to answer and re-spawn the subagent.
+The re-spawned subagent receives the original prompt plus the Q&A so it can
+complete the task without losing context.
 """.strip()
 
 tool = ToolSpec(
@@ -289,6 +308,7 @@ tool = ToolSpec(
         for f in [
             subagent,
             subagent_cancel,
+            subagent_reply,
             subagent_status,
             subagent_wait,
             subagent_read_log,
@@ -310,6 +330,7 @@ __all__ = [
     # Public API
     "subagent",
     "subagent_cancel",
+    "subagent_reply",
     "subagent_status",
     "subagent_wait",
     "subagent_read_log",

@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-Status = Literal["running", "success", "failure"]
+Status = Literal["running", "success", "failure", "clarification_needed"]
 Role = Literal["general", "explore", "implement", "verify"]
 
 # Role → profile name mapping
@@ -141,15 +141,12 @@ class Subagent:
     Supports both thread-based (default) and subprocess-based execution modes.
     Subprocess mode provides better output isolation.
 
-    Communication Model (Phase 1):
-        - One-way: Parent sends prompt, child executes independently
-        - No runtime updates from child to parent
+    Communication Model:
+        - Parent sends prompt, child executes independently
         - Results retrieved after completion via status()/subagent_wait()
-
-    Future (Phase 2/3):
-        - Support for progress notifications from child → parent
-        - Clarification requests when child encounters ambiguity
-        - See module docstring for full design intent
+        - Subagents can use the ``clarify`` code block to signal ambiguity;
+          the parent receives a hook notification and can call subagent_reply()
+          to re-spawn with the question answered.
     """
 
     agent_id: str
@@ -215,6 +212,17 @@ class Subagent:
             return ReturnType("failure", "No messages in log")
 
         last_msg = log[-1]
+
+        # Check for clarify code block — subagent is asking the parent for more info.
+        # Must be checked before the complete block so a "clarify" isn't misread as failure.
+        if "```clarify" in last_msg.content:
+            match = re.search(r"```clarify\s*\n(.*?)\n```", last_msg.content, re.DOTALL)
+            if match:
+                question = match.group(1).strip()
+                return ReturnType(
+                    "clarification_needed",
+                    question or "Subagent needs clarification (no question provided)",
+                )
 
         # Check for complete tool call in last message
         # Try parsing as ToolUse first
