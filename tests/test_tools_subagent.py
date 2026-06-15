@@ -717,8 +717,8 @@ def test_subprocess_working_directory():
 @pytest.mark.slow
 def test_subprocess_full_flow_with_subagent_function():
     """Test the full subprocess flow using the subagent() function."""
-    import time
     import tempfile
+    import time
     from pathlib import Path
     from unittest.mock import patch
 

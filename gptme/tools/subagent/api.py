@@ -417,7 +417,9 @@ def subagent(
                 logger.error(
                     f"Subagent {agent_id} subprocess failed: {e}", exc_info=True
                 )
-                if set_subagent_result_if_absent(agent_id, ReturnType("failure", str(e))):
+                if set_subagent_result_if_absent(
+                    agent_id, ReturnType("failure", str(e))
+                ):
                     notify_completion(agent_id, "failure", f"Subprocess failed: {e}")
                 _exec._cleanup_isolation(sa)
             finally:

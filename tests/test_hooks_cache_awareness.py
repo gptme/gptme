@@ -578,7 +578,6 @@ class TestCacheColdHeuristic:
         assert is_cache_likely_cold() is False
 
     def test_get_elapsed_returns_none_before_first_call(self):
-
         assert get_elapsed_since_last_call() is None
 
     def test_recent_call_not_cold(self):

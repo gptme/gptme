@@ -586,6 +586,7 @@ def _run_planner(
                 worktree_path=worktree_path,
                 repo_path=repo_path,
             )
+
             # Subprocess mode: a combined thread acquires the concurrency slot before
             # Popen, monitors to completion, and releases in finally — same pattern as
             # api.py _launch_subprocess. Captures all loop vars via default args.

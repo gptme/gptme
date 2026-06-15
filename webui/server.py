@@ -18,7 +18,7 @@ class SPAHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     def list_directory(self, path):
         """Disable directory listing."""
         self.send_error(403, "Directory listing not allowed")
-        return None
+        return
 
     def do_GET(self):
         """Handle GET requests with SPA fallback."""
