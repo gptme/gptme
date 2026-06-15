@@ -531,6 +531,7 @@ class ToolSpec:
                     hints=tf.hints,
                     desc=tf.description or sub.desc,
                     parameters=list(tf.parameters) if tf.parameters else sub.parameters,
+                    available=self.available,
                 )
             )
         return specs

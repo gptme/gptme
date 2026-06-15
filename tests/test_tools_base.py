@@ -737,6 +737,23 @@ class TestAsFunctionSubtoolspecs:
         assert len(sub.parameters) == 1
         assert sub.parameters[0].description == "The input value"
 
+    def test_subtool_inherits_parent_availability_guard(self):
+        def read_channel() -> str:
+            """Read a channel."""
+            return ""
+
+        tool = ToolSpec(
+            name="discord",
+            desc="",
+            available=lambda: False,
+            functions=[ToolFunction.from_callable(read_channel)],
+        )
+
+        subs = tool.as_function_subtoolspecs()
+
+        assert subs[0].available is tool.available
+        assert subs[0].is_available is False
+
 
 # ── Hint-based allowlist ───────────────────────────────────────────
 
