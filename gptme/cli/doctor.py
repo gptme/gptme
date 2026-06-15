@@ -586,7 +586,7 @@ def _check_computer(verbose: bool = False) -> list[CheckResult]:
                     fix_hint="brew install cliclick",
                 )
             )
-    else:
+    elif sys.platform.startswith("linux"):
         # Linux: X11 tools
         xdotool_path = shutil.which("xdotool")
         if xdotool_path:
@@ -647,6 +647,15 @@ def _check_computer(verbose: bool = False) -> list[CheckResult]:
                     fix_hint="export DISPLAY=:1  or run inside Xvfb: xvfb-run gptme ...",
                 )
             )
+    else:
+        # Unsupported platform (Windows, FreeBSD, etc.) — no checks available
+        results.append(
+            CheckResult(
+                name="Computer: platform",
+                status=CheckStatus.WARNING,
+                message=f"Computer tool is only supported on Linux and macOS (current: {sys.platform})",
+            )
+        )
 
     return results
 

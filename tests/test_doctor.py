@@ -923,6 +923,16 @@ class TestCheckComputer:
         assert names["Computer: cliclick"].status == CheckStatus.WARNING
         assert "brew install cliclick" in (names["Computer: cliclick"].fix_hint or "")
 
+    @patch("sys.platform", "win32")
+    def test_unsupported_platform(self):
+        """Unsupported platforms (Windows, etc.) should get a single WARNING."""
+        results = _check_computer()
+
+        assert len(results) == 1
+        assert results[0].name == "Computer: platform"
+        assert results[0].status == CheckStatus.WARNING
+        assert "win32" in results[0].message
+
     @patch("sys.platform", "linux")
     @patch("shutil.which")
     @patch.dict("os.environ", {"DISPLAY": ":1"})
