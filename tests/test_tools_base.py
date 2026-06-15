@@ -1032,6 +1032,15 @@ class TestToolUseToolFormat:
         assert tool_calls[0].call_id == "call-1"
         assert tool_calls[0].kwargs == {"command": "echo hi"}
 
+    def test_tool_call_parsing_allows_dotted_tool_names(self):
+        content = '@browser.view(call-1): {"url": "https://example.com"}'
+        uses = list(ToolUse.iter_from_content(content, tool_format_override="tool"))
+        tool_calls = [u for u in uses if u._format == "tool"]
+        assert len(tool_calls) == 1
+        assert tool_calls[0].tool == "browser.view"
+        assert tool_calls[0].call_id == "call-1"
+        assert tool_calls[0].kwargs == {"url": "https://example.com"}
+
     def test_tool_call_inside_codeblock_skipped(self):
         content = '```example\n@shell(id-1): {"cmd": "test"}\n```'
         uses = list(ToolUse.iter_from_content(content, tool_format_override="tool"))
