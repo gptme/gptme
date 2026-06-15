@@ -3176,6 +3176,7 @@ Similar to Anthropic’s computer use demo, but integrated with gptme’s archit
 <dt>Screen:</dt><dd><ul class="simple">
 <li><p>screenshot: Take and view a screenshot</p></li>
 <li><p>cursor_position: Get current mouse position</p></li>
+<li><p>wait_for_change: Poll until screen changes, then return one screenshot</p></li>
 </ul>
 </dd>
 </dl>
@@ -3218,6 +3219,23 @@ Available actions:
 <span class="k">-</span><span class="w"> </span>scroll: Scroll the mouse wheel at coordinates (text=&quot;up&quot;/&quot;down&quot;/&quot;left&quot;/&quot;right&quot;)
 <span class="k">-</span><span class="w"> </span>screenshot: Take and view a screenshot
 <span class="k">-</span><span class="w"> </span>cursor_position: Get current mouse position
+<span class="k">-</span><span class="w"> </span>wait_for_change: Wait until the screen changes, then return a single screenshot.
+  Loops internally until ≥1% of pixels differ from the initial capture, or the
+  timeout (text=&quot;&lt;seconds&gt;&quot;, default 10) elapses. Returns one screenshot regardless
+  of how many internal polls were needed — avoids stacking redundant screenshots in
+  the conversation context. Use after triggering an action that produces a visual
+  response (page load, dialog open, animation finish).
+
+<span class="gu">### Efficient action-verify loops</span>
+
+Prefer wait_for_change over immediate screenshot after triggering UI changes:
+
+  computer(&quot;left_click&quot;, coordinate=(760, 540))  # trigger action
+  computer(&quot;wait_for_change&quot;, text=&quot;5&quot;)           # wait for response, see result once
+
+This prevents the conversation from accumulating multiple nearly-identical
+screenshots during transitions. Only call screenshot() directly when you need
+the current state without waiting.
 
 Note: Key names are automatically mapped between platforms.
 Common modifiers (ctrl, alt, cmd/super, shift) work consistently across platforms.
@@ -3362,6 +3380,37 @@ Common modifiers (ctrl, alt, cmd/super, shift) work consistently across platform
   <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
   <td>
     <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Scrolled down at 512,400</pre>
+  </td>
+</tr>
+</table><table style="width: 100%; margin-bottom: 1em">
+  
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Click the Submit button then wait for the result page to load</pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">I'll click Submit and wait for the screen to change before returning a screenshot.<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">ipython</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">computer("left_click", coordinate=(760, 540))
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Performed left_click<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">ipython</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">computer("wait_for_change", text="10")
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Screen changed (23.4% pixels differ)
+Viewing image...</pre>
   </td>
 </tr>
 </table><table style="width: 100%; margin-bottom: 1em">
