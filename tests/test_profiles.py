@@ -133,6 +133,9 @@ class TestBuiltinProfiles:
             "must mention wait_for_change for efficiency"
         )
         assert "window_focus" in prompt, "must mention window_focus for native desktop"
+        assert "screenshot()" not in prompt, (
+            "computer-use must name real screenshot backends"
+        )
 
     def test_browser_use_profile(self):
         browser_use = BUILTIN_PROFILES["browser-use"]

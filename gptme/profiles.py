@@ -187,7 +187,7 @@ BUILTIN_PROFILES: dict[str, Profile] = {
             "- Use `computer('scroll', coordinate=(x,y), text='down')` when the interface is only exposed through a native viewport\n"
             "\n"
             "## Efficiency rules\n"
-            "- Prefer `snapshot_url()` over `screenshot()` for web content (no vision tokens)\n"
+            "- Prefer `snapshot_url(url)` over `computer('screenshot')` for web content (no vision tokens)\n"
             "- Use `wait_for_change` after triggering UI actions — never poll with repeated screenshots\n"
             "- Keep screenshot loops focused: take one screenshot, act, take one to verify\n"
             "- When used as a subagent, summarize key findings to keep parent context lean\n"
