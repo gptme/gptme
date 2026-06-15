@@ -673,6 +673,7 @@ def _run_planner(
             )
 
             def run_executor(
+                executor_agent_id=executor_id,
                 prompt=executor_prompt,
                 log_dir=logdir,
                 ws=workspace,
@@ -682,6 +683,13 @@ def _run_planner(
                 _sem = get_slot_sem()
                 _sem.acquire()
                 try:
+                    with _subagent_results_lock:
+                        if executor_agent_id in _subagent_results:
+                            logger.info(
+                                "Skipping cancelled queued planner thread "
+                                f"executor {executor_agent_id}"
+                            )
+                            return
                     _create_subagent_thread(
                         prompt=prompt,
                         logdir=log_dir,

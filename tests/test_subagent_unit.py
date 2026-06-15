@@ -695,6 +695,50 @@ class TestSubagentCancel:
                 "failure", "Cancelled by orchestrator"
             )
 
+    def test_cancelled_queued_thread_does_not_launch_after_slot_frees(
+        self, monkeypatch, tmp_path
+    ):
+        cli_main = importlib.import_module("gptme.cli.main")
+        llm_models = importlib.import_module("gptme.llm.models")
+        profiles = importlib.import_module("gptme.profiles")
+        monkeypatch.setattr(cli_main, "get_logdir", lambda name: tmp_path / name)
+        monkeypatch.setattr(llm_models, "get_default_model", lambda: None)
+        monkeypatch.setattr(profiles, "get_profile", lambda _: None)
+
+        sem = threading.BoundedSemaphore(1)
+        assert sem.acquire(timeout=0)
+        monkeypatch.setattr(subagent_api, "get_slot_sem", lambda: sem)
+
+        launch_mock = MagicMock()
+        cleanup_calls: list[str] = []
+
+        monkeypatch.setattr(subagent_api._exec, "_create_subagent_thread", launch_mock)
+        monkeypatch.setattr(
+            subagent_api._exec,
+            "_cleanup_isolation",
+            lambda sa: cleanup_calls.append(sa.agent_id),
+        )
+
+        subagent("thread-agent", "do the thing", isolated=True)
+
+        with _subagents_lock:
+            sa = next(s for s in _subagents if s.agent_id == "thread-agent")
+        assert sa.thread is not None
+
+        result = subagent_cancel("thread-agent")
+        assert "marked as cancelled" in result.lower()
+
+        sem.release()
+        sa.thread.join(timeout=1)
+        assert not sa.thread.is_alive()
+
+        launch_mock.assert_not_called()
+        assert cleanup_calls == ["thread-agent"]
+        with _subagent_results_lock:
+            assert _subagent_results["thread-agent"] == ReturnType(
+                "failure", "Cancelled by orchestrator"
+            )
+
     def test_cancelled_queued_planner_subprocess_does_not_launch_after_slot_frees(
         self, monkeypatch, tmp_path
     ):
@@ -744,5 +788,56 @@ class TestSubagentCancel:
         assert cleanup_calls == ["planner-agent-verify"]
         with _subagent_results_lock:
             assert _subagent_results["planner-agent-verify"] == ReturnType(
+                "failure", "Cancelled by orchestrator"
+            )
+
+    def test_cancelled_queued_planner_thread_does_not_launch_after_slot_frees(
+        self, monkeypatch, tmp_path
+    ):
+        cli_main = importlib.import_module("gptme.cli.main")
+        llm_models = importlib.import_module("gptme.llm.models")
+        profiles = importlib.import_module("gptme.profiles")
+        monkeypatch.setattr(cli_main, "get_logdir", lambda name: tmp_path / name)
+        monkeypatch.setattr(llm_models, "get_default_model", lambda: None)
+        monkeypatch.setattr(profiles, "get_profile", lambda _: None)
+
+        sem = threading.BoundedSemaphore(1)
+        assert sem.acquire(timeout=0)
+        monkeypatch.setattr(subagent_execution, "get_slot_sem", lambda: sem)
+
+        launch_mock = MagicMock()
+        cleanup_calls: list[str] = []
+
+        monkeypatch.setattr(subagent_execution, "_create_subagent_thread", launch_mock)
+        monkeypatch.setattr(
+            subagent_execution,
+            "_cleanup_isolation",
+            lambda sa: cleanup_calls.append(sa.agent_id),
+        )
+
+        subagent(
+            "planner-agent",
+            "context",
+            mode="planner",
+            subtasks=[
+                {"id": "implement", "description": "Implement it", "role": "implement"}
+            ],
+        )
+
+        with _subagents_lock:
+            sa = next(s for s in _subagents if s.agent_id == "planner-agent-implement")
+        assert sa.thread is not None
+
+        result = subagent_cancel("planner-agent-implement")
+        assert "marked as cancelled" in result.lower()
+
+        sem.release()
+        sa.thread.join(timeout=1)
+        assert not sa.thread.is_alive()
+
+        launch_mock.assert_not_called()
+        assert cleanup_calls == ["planner-agent-implement"]
+        with _subagent_results_lock:
+            assert _subagent_results["planner-agent-implement"] == ReturnType(
                 "failure", "Cancelled by orchestrator"
             )
