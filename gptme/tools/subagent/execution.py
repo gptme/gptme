@@ -491,7 +491,14 @@ def _run_planner(
     """
     from gptme.cli.main import get_logdir
 
-    from .types import Subagent, _subagents, _subagents_lock, resolve_role_defaults
+    from .types import (
+        Subagent,
+        _subagent_results,
+        _subagent_results_lock,
+        _subagents,
+        _subagents_lock,
+        resolve_role_defaults,
+    )
 
     logger.info(
         f"Starting planner {agent_id} with {len(subtasks)} subtasks "
@@ -598,6 +605,14 @@ def _run_planner(
                 _sem = get_slot_sem()
                 _sem.acquire()
                 try:
+                    with _subagent_results_lock:
+                        if _sa.agent_id in _subagent_results:
+                            logger.info(
+                                "Skipping cancelled queued planner subprocess "
+                                f"executor {_sa.agent_id}"
+                            )
+                            _cleanup_isolation(_sa)
+                            return
                     try:
                         process = _run_subagent_subprocess(
                             prompt=_sa.prompt,

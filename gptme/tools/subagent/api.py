@@ -22,6 +22,8 @@ from .types import (
     Role,
     Subagent,
     SubtaskDef,
+    _subagent_results,
+    _subagent_results_lock,
     _subagents,
     _subagents_lock,
     resolve_role_defaults,
@@ -397,6 +399,13 @@ def subagent(
             _sem = get_slot_sem()
             _sem.acquire()
             try:
+                with _subagent_results_lock:
+                    if agent_id in _subagent_results:
+                        logger.info(
+                            f"Skipping cancelled queued subprocess subagent {agent_id}"
+                        )
+                        _exec._cleanup_isolation(sa)
+                        return
                 process = _exec._run_subagent_subprocess(
                     prompt=prompt,
                     logdir=logdir,
