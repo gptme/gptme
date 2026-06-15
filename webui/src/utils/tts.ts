@@ -57,7 +57,7 @@ function getSettings(): {
         ttsEnabled: s.ttsEnabled === true,
         ttsServerUrl: typeof s.ttsServerUrl === 'string' ? s.ttsServerUrl.trim() : '',
         ttsProvider: provider,
-        ttsAuthToken: typeof s.ttsAuthToken === 'string' ? s.ttsAuthToken : '',
+        ttsAuthToken: typeof s.ttsAuthToken === 'string' ? s.ttsAuthToken.trim() : '',
       };
     }
   } catch {
