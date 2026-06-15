@@ -608,30 +608,31 @@ def _macos_window_focus(pattern: str, timeout: float = 10.0) -> None:
         pattern: Substring matched against application/process name.
         timeout: Seconds to wait for the window to appear (default 10).
     """
-    # Escape for embedding inside an AppleScript string literal
-    safe = pattern.replace("\\", "\\\\").replace('"', '\\"')
     script = (
-        'tell application "System Events"\n'
-        "  set found to false\n"
-        "  repeat with p in (every process whose background only is false)\n"
-        f'    if name of p contains "{safe}" then\n'
-        "      set frontmost of p to true\n"
-        "      set found to true\n"
-        "      exit repeat\n"
+        "on run argv\n"
+        "  set needle to item 1 of argv\n"
+        '  tell application "System Events"\n'
+        "    set found to false\n"
+        "    repeat with p in (every process whose background only is false)\n"
+        "      if name of p contains needle then\n"
+        "        set frontmost of p to true\n"
+        "        set found to true\n"
+        "        exit repeat\n"
+        "      end if\n"
+        "    end repeat\n"
+        "    if found then\n"
+        '      return "found"\n'
+        "    else\n"
+        '      return "not_found"\n'
         "    end if\n"
-        "  end repeat\n"
-        "  if found then\n"
-        '    return "found"\n'
-        "  else\n"
-        '    return "not_found"\n'
-        "  end if\n"
-        "end tell"
+        "  end tell\n"
+        "end run"
     )
     deadline = time.monotonic() + timeout
     while True:
         try:
             result = subprocess.run(
-                ["osascript", "-e", script],
+                ["osascript", "-e", script, pattern],
                 check=True,
                 capture_output=True,
                 text=True,

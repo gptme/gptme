@@ -1270,6 +1270,7 @@ def test_macos_window_focus_success():
     call_args = mock_run.call_args
     cmd = call_args[0][0]
     assert cmd[0] == "osascript"
+    assert cmd[-1] == "Terminal"
 
 
 def test_macos_window_focus_no_match_raises():
@@ -1318,3 +1319,18 @@ def test_macos_window_focus_osascript_failure_raises():
         pytest.raises(RuntimeError, match="Failed to focus window matching.*'MyApp'"),
     ):
         _macos_window_focus("MyApp", timeout=5.0)
+
+
+def test_macos_window_focus_accepts_double_quotes_in_pattern():
+    """Quoted titles should be passed as argv, not interpolated into AppleScript."""
+    pattern = '"My App"'
+    with mock.patch("gptme.tools.computer.subprocess.run") as mock_run:
+        mock_run.return_value = mock.MagicMock(
+            returncode=0, stdout="found\n", stderr=""
+        )
+        _macos_window_focus(pattern, timeout=5.0)
+
+    cmd = mock_run.call_args[0][0]
+    assert cmd[0] == "osascript"
+    assert cmd[-1] == pattern
+    assert pattern not in cmd[2]
