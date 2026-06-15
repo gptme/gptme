@@ -766,7 +766,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7ffa93450860&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f682ff78860&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1097,6 +1097,9 @@ Available actions:
   of how many internal polls were needed — avoids stacking redundant screenshots in
   the conversation context. Use after triggering an action that produces a visual
   response (page load, dialog open, animation finish).
+<span class="k">-</span><span class="w"> </span>window_focus: Wait for a window whose title contains text=&lt;pattern&gt; to appear,
+  then focus it. On Linux/X11 this uses xdotool --sync so no screenshot polling
+  is needed. Use after opening a new application to avoid guessing where to click.
 
 <span class="gu">### Efficient action-verify loops</span>
 
@@ -1108,6 +1111,17 @@ Prefer wait_for_change over immediate screenshot after triggering UI changes:
 This prevents the conversation from accumulating multiple nearly-identical
 screenshots during transitions. Only call screenshot() directly when you need
 the current state without waiting.
+
+<span class="gu">### Opening new windows without guessing their position</span>
+
+Prefer window_focus over clicking at a guessed coordinate after launching a window:
+
+  computer(&quot;key&quot;, text=&quot;ctrl+alt+t&quot;)         # open terminal
+  computer(&quot;window_focus&quot;, text=&quot;Terminal&quot;)   # wait for it, then focus it
+  computer(&quot;type&quot;, text=&quot;echo hello&quot;)         # type into the now-focused window
+
+This avoids the delay/click-at-random pattern that fails when window position
+varies across sessions or virtual displays.
 
 Note: Key names are automatically mapped between platforms.
 Common modifiers (ctrl, alt, cmd/super, shift) work consistently across platforms.
@@ -1155,6 +1169,11 @@ The following Python functions are available:
 <span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll click Submit and wait for the screen to change before returning a screenshot.</span>
 <span class="sb">```ipython</span>
 <span class="n">computer</span><span class="p">(</span><span class="s2">&quot;left_click&quot;</span><span class="p">,</span> <span class="n">coordinate</span><span class="o">=</span><span class="p">(</span><span class="mi">760</span><span class="p">,</span> <span class="mi">540</span><span class="p">))</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">User: Open a terminal and run a command</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll open a terminal with a keyboard shortcut, wait for it to appear and focus it, then type the command.</span>
+<span class="sb">```ipython</span>
+<span class="n">computer</span><span class="p">(</span><span class="s2">&quot;key&quot;</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s2">&quot;ctrl+alt+t&quot;</span><span class="p">)</span>
 <span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">User: Open a new browser tab</span>
 <span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll open a new browser tab.</span>
@@ -2409,7 +2428,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 13179</p>
+<p>Tokens: 13400</p>
 </dd></dl>
 
 <dl class="py function">

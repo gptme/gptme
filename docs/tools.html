@@ -3179,6 +3179,10 @@ Similar to Anthropic’s computer use demo, but integrated with gptme’s archit
 <li><p>wait_for_change: Poll until screen changes, then return one screenshot</p></li>
 </ul>
 </dd>
+<dt>Window management:</dt><dd><ul class="simple">
+<li><p>window_focus: Wait for a window matching a name pattern to appear and focus it</p></li>
+</ul>
+</dd>
 </dl>
 <p>The tool automatically handles screen resolution scaling to ensure optimal performance
 with LLM vision capabilities.</p>
@@ -3225,6 +3229,9 @@ Available actions:
   of how many internal polls were needed — avoids stacking redundant screenshots in
   the conversation context. Use after triggering an action that produces a visual
   response (page load, dialog open, animation finish).
+<span class="k">-</span><span class="w"> </span>window_focus: Wait for a window whose title contains text=&lt;pattern&gt; to appear,
+  then focus it. On Linux/X11 this uses xdotool --sync so no screenshot polling
+  is needed. Use after opening a new application to avoid guessing where to click.
 
 <span class="gu">### Efficient action-verify loops</span>
 
@@ -3236,6 +3243,17 @@ Prefer wait_for_change over immediate screenshot after triggering UI changes:
 This prevents the conversation from accumulating multiple nearly-identical
 screenshots during transitions. Only call screenshot() directly when you need
 the current state without waiting.
+
+<span class="gu">### Opening new windows without guessing their position</span>
+
+Prefer window_focus over clicking at a guessed coordinate after launching a window:
+
+  computer(&quot;key&quot;, text=&quot;ctrl+alt+t&quot;)         # open terminal
+  computer(&quot;window_focus&quot;, text=&quot;Terminal&quot;)   # wait for it, then focus it
+  computer(&quot;type&quot;, text=&quot;echo hello&quot;)         # type into the now-focused window
+
+This avoids the delay/click-at-random pattern that fails when window position
+varies across sessions or virtual displays.
 
 Note: Key names are automatically mapped between platforms.
 Common modifiers (ctrl, alt, cmd/super, shift) work consistently across platforms.
@@ -3411,6 +3429,52 @@ Common modifiers (ctrl, alt, cmd/super, shift) work consistently across platform
   <td>
     <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Screen changed (23.4% pixels differ)
 Viewing image...</pre>
+  </td>
+</tr>
+</table><table style="width: 100%; margin-bottom: 1em">
+  
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Open a terminal and run a command</pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">I'll open a terminal with a keyboard shortcut, wait for it to appear and focus it, then type the command.<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">ipython</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">computer("key", text="ctrl+alt+t")
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Sent key sequence: ctrl+alt+t<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">ipython</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">computer("window_focus", text="Terminal")
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Focused window matching: 'Terminal'<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">ipython</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">computer("type", text="ls -la")
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Typed text: ls -la<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">ipython</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">computer("key", text="return")
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Sent key sequence: return</pre>
   </td>
 </tr>
 </table><table style="width: 100%; margin-bottom: 1em">
