@@ -335,7 +335,15 @@ def tree_search(
                 " — reverting to avoid workspace drift."
             )
             if pre_sha is not None:
-                restore(shadow, pre_sha)
+                ok = restore(shadow, pre_sha)
+                if not ok:
+                    print(
+                        "[tree-search] WARNING: neutral restore failed; workspace may be dirty"
+                    )
+            else:
+                print(
+                    "[tree-search] WARNING: no pre-turn snapshot; workspace NOT restored"
+                )
         else:
             # Regression: restore workspace to pre-turn snapshot.
             print(
