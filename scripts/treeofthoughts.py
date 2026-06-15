@@ -8,6 +8,10 @@ to the last-good snapshot so the agent can try a different approach.
 Cross-attempt history is injected into each iteration so the agent learns from
 prior failures rather than repeating the same mistake.
 
+This script reintroduces an older experimental `treeofthoughts.py` that was
+removed during the March 2026 unused-scripts cleanup. The current version is
+rebuilt around `workspace_snapshot` and eval-gated keep/revert decisions.
+
 Usage examples
 --------------
   python scripts/treeofthoughts.py "fix the failing tests" --eval "pytest -q"
