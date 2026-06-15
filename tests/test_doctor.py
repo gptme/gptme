@@ -895,7 +895,11 @@ class TestCheckComputer:
     def test_macos_cliclick_present(self, mock_which):
         """macOS with cliclick should report OK for cliclick and screencapture."""
         mock_which.side_effect = lambda t: (
-            "/usr/local/bin/cliclick" if t == "cliclick" else None
+            "/usr/bin/screencapture"
+            if t == "screencapture"
+            else "/usr/local/bin/cliclick"
+            if t == "cliclick"
+            else None
         )
 
         results = _check_computer()
@@ -905,9 +909,13 @@ class TestCheckComputer:
         assert names["Computer: cliclick"].status == CheckStatus.OK
 
     @patch("sys.platform", "darwin")
-    @patch("shutil.which", return_value=None)
+    @patch("shutil.which")
     def test_macos_cliclick_missing(self, mock_which):
-        """macOS without cliclick should warn with brew install hint."""
+        """macOS without cliclick should warn with brew install hint, screencapture OK."""
+        mock_which.side_effect = lambda t: (
+            "/usr/bin/screencapture" if t == "screencapture" else None
+        )
+
         results = _check_computer()
 
         names = {r.name: r for r in results}

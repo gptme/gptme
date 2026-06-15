@@ -30,9 +30,9 @@ run-docker-computer: ## Run gptme-computer container (noVNC on :6080, gptme serv
 	docker run --rm -it \
 		-p 6080:6080 \
 		-p 8080:8080 \
-		-e ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}" \
-		-e OPENAI_API_KEY="${OPENAI_API_KEY}" \
-		-e OPENROUTER_API_KEY="${OPENROUTER_API_KEY}" \
+		-e ANTHROPIC_API_KEY \
+		-e OPENAI_API_KEY \
+		-e OPENROUTER_API_KEY \
 		gptme-computer:latest
 
 build-docker-dev: ## Build Docker image for development

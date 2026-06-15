@@ -547,22 +547,34 @@ def _check_computer(verbose: bool = False) -> list[CheckResult]:
     results: list[CheckResult] = []
 
     if sys.platform == "darwin":
-        # screencapture is always present on macOS — just confirm
-        results.append(
-            CheckResult(
-                name="Computer: screencapture",
-                status=CheckStatus.OK,
-                message="macOS screenshot tool (built-in)",
+        # screencapture should always be present on macOS — verify for consistency
+        screencapture_path = shutil.which("screencapture")
+        if screencapture_path:
+            results.append(
+                CheckResult(
+                    name="Computer: screencapture",
+                    status=CheckStatus.OK,
+                    message="macOS screenshot tool (built-in)",
+                    details=screencapture_path if verbose else None,
+                )
             )
-        )
+        else:
+            results.append(
+                CheckResult(
+                    name="Computer: screencapture",
+                    status=CheckStatus.WARNING,
+                    message="Not found — screencapture should be built-in on macOS",
+                )
+            )
         # cliclick is required for mouse/keyboard control on macOS
-        if shutil.which("cliclick"):
+        cliclick_path = shutil.which("cliclick")
+        if cliclick_path:
             results.append(
                 CheckResult(
                     name="Computer: cliclick",
                     status=CheckStatus.OK,
                     message="macOS mouse/keyboard control",
-                    details=shutil.which("cliclick") if verbose else None,
+                    details=cliclick_path if verbose else None,
                 )
             )
         else:
@@ -576,13 +588,14 @@ def _check_computer(verbose: bool = False) -> list[CheckResult]:
             )
     else:
         # Linux: X11 tools
-        if shutil.which("xdotool"):
+        xdotool_path = shutil.which("xdotool")
+        if xdotool_path:
             results.append(
                 CheckResult(
                     name="Computer: xdotool",
                     status=CheckStatus.OK,
                     message="X11 mouse/keyboard automation",
-                    details=shutil.which("xdotool") if verbose else None,
+                    details=xdotool_path if verbose else None,
                 )
             )
         else:
@@ -595,13 +608,14 @@ def _check_computer(verbose: bool = False) -> list[CheckResult]:
                 )
             )
 
-        if shutil.which("scrot"):
+        scrot_path = shutil.which("scrot")
+        if scrot_path:
             results.append(
                 CheckResult(
                     name="Computer: scrot",
                     status=CheckStatus.OK,
                     message="X11 screenshot tool",
-                    details=shutil.which("scrot") if verbose else None,
+                    details=scrot_path if verbose else None,
                 )
             )
         else:
