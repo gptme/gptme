@@ -123,7 +123,11 @@ class TestBuiltinProfiles:
         computer_use = BUILTIN_PROFILES["computer-use"]
         prompt = computer_use.system_prompt
 
-        # Policy must cover all three interaction backends
+        # Policy must exist as a named section and cover all three backends.
+        assert "## Backend selection policy" in prompt
+        assert "**Web targets with Playwright available**" in prompt
+        assert "**Visual verification or non-DOM surfaces**" in prompt
+        assert "**Native desktop / X11 / non-browser apps**" in prompt
         assert "snapshot_url" in prompt, "must mention structured ARIA snapshot for web"
         assert "wait_for_change" in prompt, (
             "must mention wait_for_change for efficiency"
