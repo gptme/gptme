@@ -574,67 +574,55 @@ def _run_planner(
                 )
 
         if resolved_use_subprocess:
+            sa = Subagent(
+                executor_id,
+                executor_prompt,
+                None,
+                logdir,
+                model,
+                process=None,
+                execution_mode="subprocess",
+                isolated=resolved_isolated,
+                worktree_path=worktree_path,
+                repo_path=repo_path,
+            )
             # Subprocess mode: a combined thread acquires the concurrency slot before
             # Popen, monitors to completion, and releases in finally — same pattern as
             # api.py _launch_subprocess. Captures all loop vars via default args.
             def _run_executor_subprocess(
-                _prompt=executor_prompt,
-                _logdir=logdir,
-                _model=model,
+                _sa: "Subagent" = sa,
                 _workspace=workspace,
                 _profile=resolved_profile,
-                _executor_id=executor_id,
-                _isolated=resolved_isolated,
-                _worktree_path=worktree_path,
-                _repo_path=repo_path,
             ):
                 _sem = get_slot_sem()
                 _sem.acquire()
                 try:
                     try:
                         process = _run_subagent_subprocess(
-                            prompt=_prompt,
-                            logdir=_logdir,
-                            model=_model,
+                            prompt=_sa.prompt,
+                            logdir=_sa.logdir,
+                            model=_sa.model,
                             workspace=_workspace,
                             context_mode=context_mode,
                             context_include=context_include,
                             profile=_profile,
                         )
-                    except Exception:
-                        _cleanup_isolation(
-                            Subagent(
-                                _executor_id,
-                                _prompt,
-                                None,
-                                _logdir,
-                                _model,
-                                execution_mode="subprocess",
-                                isolated=_isolated,
-                                worktree_path=_worktree_path,
-                                repo_path=_repo_path,
-                            )
+                    except Exception as e:
+                        logger.error(
+                            f"Executor {_sa.agent_id} subprocess failed: {e}",
+                            exc_info=True,
                         )
-                        raise
-                    sa = Subagent(
-                        _executor_id,
-                        _prompt,
-                        None,
-                        _logdir,
-                        _model,
-                        process=process,
-                        execution_mode="subprocess",
-                        isolated=_isolated,
-                        worktree_path=_worktree_path,
-                        repo_path=_repo_path,
-                    )
-                    with _subagents_lock:
-                        _subagents.append(sa)
-                    _monitor_subprocess(sa)
+                        _cleanup_isolation(_sa)
+                        return
+                    object.__setattr__(_sa, "process", process)
+                    _monitor_subprocess(_sa)
                 finally:
                     _sem.release()
 
             monitor_t = threading.Thread(target=_run_executor_subprocess, daemon=True)
+            object.__setattr__(sa, "thread", monitor_t)
+            with _subagents_lock:
+                _subagents.append(sa)
             monitor_t.start()
 
             # Sequential mode: wait for this executor before starting the next

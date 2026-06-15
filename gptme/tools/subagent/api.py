@@ -407,31 +407,19 @@ def subagent(
                     output_schema=output_schema_str,
                     profile=profile,
                 )
-                # Create a local Subagent view with the real process for monitoring.
-                # The registered sa (in _subagents) has process=None / thread=launcher;
-                # we don't re-register to avoid a duplicate agent_id entry.
-                _sa_proc = Subagent(
-                    agent_id=agent_id,
-                    prompt=prompt,
-                    thread=None,
-                    logdir=logdir,
-                    model=model_name,
-                    output_schema=output_schema,
-                    process=process,
-                    execution_mode="subprocess",
-                    isolated=isolated,
-                    worktree_path=worktree_path,
-                    repo_path=repo_path,
-                    timeout=timeout,
-                )
+                # Subagent is a frozen dataclass; install the live process on the
+                # pre-registered object so queued agents become inspectable once
+                # they leave the semaphore.
+                object.__setattr__(sa, "process", process)
                 # Monitor blocks until the process finishes (slot stays acquired)
-                _exec._monitor_subprocess(_sa_proc)
+                _exec._monitor_subprocess(sa)
             except Exception as e:
                 logger.error(
                     f"Subagent {agent_id} subprocess failed: {e}", exc_info=True
                 )
-                set_subagent_result_if_absent(agent_id, ReturnType("failure", str(e)))
-                notify_completion(agent_id, "failure", f"Subprocess failed: {e}")
+                if set_subagent_result_if_absent(agent_id, ReturnType("failure", str(e))):
+                    notify_completion(agent_id, "failure", f"Subprocess failed: {e}")
+                _exec._cleanup_isolation(sa)
             finally:
                 _sem.release()
 

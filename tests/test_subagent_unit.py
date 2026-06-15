@@ -589,3 +589,60 @@ class TestSubagentCancel:
             assert _subagent_results["thread-agent"] == ReturnType(
                 "failure", "Cancelled by orchestrator"
             )
+
+    def test_subprocess_launch_failure_cleans_isolation_when_cancel_wins_race(
+        self, monkeypatch, tmp_path
+    ):
+        cli_main = importlib.import_module("gptme.cli.main")
+        llm_models = importlib.import_module("gptme.llm.models")
+        profiles = importlib.import_module("gptme.profiles")
+        git_worktree = importlib.import_module("gptme.util.git_worktree")
+        monkeypatch.setattr(cli_main, "get_logdir", lambda name: tmp_path / name)
+        monkeypatch.setattr(llm_models, "get_default_model", lambda: None)
+        monkeypatch.setattr(profiles, "get_profile", lambda _: None)
+        monkeypatch.setattr(git_worktree, "get_git_root", lambda _: None)
+
+        def boom(**kwargs):
+            raise OSError("boom")
+
+        monkeypatch.setattr(subagent_api._exec, "_run_subagent_subprocess", boom)
+
+        cleanup_calls: list[str] = []
+        notify_calls: list[tuple[str, str, str]] = []
+
+        def fake_cleanup(sa: Subagent) -> None:
+            cleanup_calls.append(sa.agent_id)
+
+        def fake_notify_completion(agent_id: str, status: str, summary: str) -> None:
+            notify_calls.append((agent_id, status, summary))
+
+        def fake_set_subagent_result_if_absent(
+            agent_id: str, result: ReturnType
+        ) -> bool:
+            with _subagent_results_lock:
+                _subagent_results[agent_id] = ReturnType(
+                    "failure", "Cancelled by orchestrator"
+                )
+            return False
+
+        monkeypatch.setattr(subagent_api._exec, "_cleanup_isolation", fake_cleanup)
+        monkeypatch.setattr(subagent_api, "notify_completion", fake_notify_completion)
+        monkeypatch.setattr(
+            subagent_api,
+            "set_subagent_result_if_absent",
+            fake_set_subagent_result_if_absent,
+        )
+
+        subagent("proc-agent", "do the thing", use_subprocess=True, isolated=True)
+
+        with _subagents_lock:
+            sa = next(s for s in _subagents if s.agent_id == "proc-agent")
+        assert sa.thread is not None
+        sa.thread.join(timeout=1)
+        assert not sa.thread.is_alive()
+        assert cleanup_calls == ["proc-agent"]
+        assert notify_calls == []
+        with _subagent_results_lock:
+            assert _subagent_results["proc-agent"] == ReturnType(
+                "failure", "Cancelled by orchestrator"
+            )
