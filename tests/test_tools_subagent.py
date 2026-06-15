@@ -8,7 +8,7 @@ from gptme.tools.subagent import SubtaskDef, _subagents, subagent
 
 
 def _wait_for_new_subagent_threads(initial_count: int, timeout: float = 1.0) -> None:
-    """Join threads started by this test before asserting on mock call metadata."""
+    """Join spawned threads before a thread-mocking patch context can unwind."""
     for sa in _subagents[initial_count:]:
         if sa.thread is not None:
             sa.thread.join(timeout=timeout)
@@ -37,6 +37,7 @@ def test_planner_mode_spawns_executors(mock_create_thread: MagicMock):
         mode="planner",
         subtasks=subtasks,
     )
+    _wait_for_new_subagent_threads(initial_count)
 
     # Should have spawned 2 executor subagents
     assert len(_subagents) == initial_count + 2
@@ -50,6 +51,7 @@ def test_planner_mode_spawns_executors(mock_create_thread: MagicMock):
 @patch("gptme.tools.subagent.execution._create_subagent_thread")
 def test_planner_mode_executor_prompts(mock_create_thread: MagicMock):
     """Test that executor prompts include context and subtask description."""
+    initial_count = len(_subagents)
     subtasks: list[SubtaskDef] = [
         {"id": "task1", "description": "Do something specific"}
     ]
@@ -60,6 +62,7 @@ def test_planner_mode_executor_prompts(mock_create_thread: MagicMock):
         mode="planner",
         subtasks=subtasks,
     )
+    _wait_for_new_subagent_threads(initial_count)
 
     # Check the spawned executor has correct prompt
     executor = _subagents[-1]
@@ -73,6 +76,7 @@ def test_executor_mode_still_works(mock_create_thread: MagicMock):
     initial_count = len(_subagents)
 
     subagent(agent_id="test-executor", prompt="Simple task")
+    _wait_for_new_subagent_threads(initial_count)
 
     # Should spawn 1 executor
     assert len(_subagents) == initial_count + 1
@@ -101,6 +105,7 @@ def test_planner_parallel_mode(mock_create_thread: MagicMock):
         subtasks=subtasks,
         execution_mode="parallel",
     )
+    _wait_for_new_subagent_threads(initial_count)
 
     # All 3 executors should be spawned
     assert len(_subagents) == initial_count + 3
@@ -129,6 +134,7 @@ def test_planner_sequential_mode():
             subtasks=subtasks,
             execution_mode="sequential",
         )
+        _wait_for_new_subagent_threads(initial_count)
 
     # Should spawn 2 executors
     assert len(_subagents) == initial_count + 2
@@ -155,6 +161,7 @@ def test_planner_default_is_parallel(mock_create_thread: MagicMock):
         mode="planner",
         subtasks=subtasks,
     )
+    _wait_for_new_subagent_threads(initial_count)
 
     # Should spawn 1 executor (parallel is default)
     assert len(_subagents) == initial_count + 1
@@ -166,6 +173,7 @@ def test_context_mode_default_is_full(mock_create_thread: MagicMock):
     initial_count = len(_subagents)
 
     subagent(agent_id="test-full", prompt="Test with full context")
+    _wait_for_new_subagent_threads(initial_count)
 
     # Should spawn 1 executor with full context
     assert len(_subagents) == initial_count + 1
@@ -192,6 +200,7 @@ def test_context_mode_selective_with_tools(mock_create_thread: MagicMock):
         context_mode="selective",
         context_include=["tools"],
     )
+    _wait_for_new_subagent_threads(initial_count)
 
     # Should spawn 1 executor
     assert len(_subagents) == initial_count + 1
@@ -211,6 +220,7 @@ def test_context_mode_selective_with_agent(mock_create_thread: MagicMock):
         context_mode="selective",
         context_include=["agent"],
     )
+    _wait_for_new_subagent_threads(initial_count)
 
     # Should spawn 1 executor
     assert len(_subagents) == initial_count + 1
@@ -227,6 +237,7 @@ def test_context_mode_selective_with_workspace(mock_create_thread: MagicMock):
         context_mode="selective",
         context_include=["workspace"],
     )
+    _wait_for_new_subagent_threads(initial_count)
 
     # Should spawn 1 executor
     assert len(_subagents) == initial_count + 1
@@ -243,6 +254,7 @@ def test_context_mode_selective_multiple_components(mock_create_thread: MagicMoc
         context_mode="selective",
         context_include=["agent", "tools", "workspace"],
     )
+    _wait_for_new_subagent_threads(initial_count)
 
     # Should spawn 1 executor
     assert len(_subagents) == initial_count + 1
@@ -265,6 +277,7 @@ def test_planner_mode_with_context_modes(mock_create_thread: MagicMock):
         mode="planner",
         subtasks=subtasks,
     )
+    _wait_for_new_subagent_threads(initial_count)
 
     # Should spawn 2 executors
     assert len(_subagents) == initial_count + 2
