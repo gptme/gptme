@@ -26,6 +26,7 @@ from .types import (
     _subagent_results_lock,
     _subagents,
     _subagents_lock,
+    clarification_result_from_content,
     resolve_role_defaults,
     set_subagent_result_if_absent,
 )
@@ -331,12 +332,23 @@ def subagent(
                             "".join(collected_text) if collected_text else None
                         )
 
-                        status = "success" if stop_reason == "end_turn" else "failure"
-                        summary = (
-                            result_text[:500]
+                        clarification_result = (
+                            clarification_result_from_content(result_text)
                             if result_text
-                            else f"ACP stop_reason={stop_reason}"
+                            else None
                         )
+                        if clarification_result:
+                            status = clarification_result.status
+                            summary = clarification_result.result
+                        else:
+                            status = (
+                                "success" if stop_reason == "end_turn" else "failure"
+                            )
+                            summary = (
+                                result_text[:500]
+                                if result_text
+                                else f"ACP stop_reason={stop_reason}"
+                            )
                         return status, summary
 
                 try:

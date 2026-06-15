@@ -134,6 +134,22 @@ class ReturnType:
     result: str | None = None
 
 
+def clarification_result_from_content(content: str) -> ReturnType | None:
+    """Return a clarification result if content contains a clarify block."""
+    if "```clarify" not in content:
+        return None
+
+    match = re.search(r"```clarify\s*\n(.*?)\n```", content, re.DOTALL)
+    if not match:
+        return None
+
+    question = match.group(1).strip()
+    return ReturnType(
+        "clarification_needed",
+        question or "Subagent needs clarification (no question provided)",
+    )
+
+
 @dataclass(frozen=True)
 class Subagent:
     """Represents a running or completed subagent.
@@ -219,14 +235,9 @@ class Subagent:
 
         # Check for clarify code block — subagent is asking the parent for more info.
         # Must be checked before the complete block so a "clarify" isn't misread as failure.
-        if "```clarify" in last_msg.content:
-            match = re.search(r"```clarify\s*\n(.*?)\n```", last_msg.content, re.DOTALL)
-            if match:
-                question = match.group(1).strip()
-                return ReturnType(
-                    "clarification_needed",
-                    question or "Subagent needs clarification (no question provided)",
-                )
+        clarification_result = clarification_result_from_content(last_msg.content)
+        if clarification_result:
+            return clarification_result
 
         # Check for complete tool call in last message
         # Try parsing as ToolUse first

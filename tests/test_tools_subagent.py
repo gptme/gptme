@@ -1535,6 +1535,59 @@ def test_acp_mode_stores_result():
             assert result.status == "success"
 
 
+def test_acp_mode_preserves_clarification_status():
+    """ACP mode should report clarify blocks as clarification_needed."""
+    from unittest.mock import MagicMock, patch
+
+    from gptme.tools.subagent import (
+        _subagent_results,
+        _subagent_results_lock,
+        _subagents,
+        subagent,
+    )
+
+    _subagents.clear()
+    with _subagent_results_lock:
+        _subagent_results.clear()
+
+    class FakeAcpClient:
+        def __init__(self, *args, on_update=None, **kwargs):
+            self.on_update = on_update
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def run(self, prompt, cwd=None):
+            chunk = MagicMock()
+            chunk.text = "```clarify\nWhich format should I use?\n```"
+            update = MagicMock()
+            update.type = "agent_message_chunk"
+            update.chunk = chunk
+            self.on_update("session-1", update)
+            result = MagicMock()
+            result.stop_reason = "end_turn"
+            return result
+
+    with patch("gptme.acp.client.GptmeAcpClient", FakeAcpClient):
+        subagent(
+            agent_id="test-acp-clarify",
+            prompt="Compute something",
+            use_acp=True,
+        )
+
+        sa = next(s for s in _subagents if s.agent_id == "test-acp-clarify")
+        assert sa.thread is not None
+        sa.thread.join(timeout=10)
+
+        with _subagent_results_lock:
+            result = _subagent_results["test-acp-clarify"]
+        assert result.status == "clarification_needed"
+        assert result.result == "Which format should I use?"
+
+
 def test_acp_mode_handles_failure():
     """Test that ACP mode handles connection failures gracefully."""
     from unittest.mock import AsyncMock, patch

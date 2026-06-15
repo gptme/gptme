@@ -405,7 +405,7 @@ class TestSubagentCancel:
             agent_id=agent_id,
             prompt="test",
             thread=kwargs.get("thread"),
-            logdir=self._logdir,
+            logdir=kwargs.get("logdir", self._logdir),
             model=None,
             process=kwargs.get("process"),
             execution_mode=kwargs.get("execution_mode", "thread"),
@@ -484,6 +484,40 @@ class TestSubagentCancel:
             assert _subagent_results["proc-agent"].status == "failure"
             assert _subagent_results["proc-agent"].result == "Cancelled by orchestrator"
         assert _completion_queue.empty()
+
+    def test_subprocess_monitor_preserves_clarification_status(self, tmp_path):
+        logdir = tmp_path / "proc-log"
+        logdir.mkdir()
+        (logdir / "conversation.jsonl").write_text(
+            json.dumps(
+                {
+                    "role": "assistant",
+                    "content": "```clarify\nWhich format should I use?\n```",
+                    "timestamp": "2025-01-01T00:00:00+00:00",
+                }
+            )
+            + "\n"
+        )
+        mock_proc = MagicMock()
+        mock_proc.wait.return_value = 0
+        mock_proc.returncode = 0
+        sa = self._register(
+            "proc-clarify",
+            process=mock_proc,
+            execution_mode="subprocess",
+            logdir=logdir,
+        )
+
+        _monitor_subprocess(sa)
+
+        with _subagent_results_lock:
+            result = _subagent_results["proc-clarify"]
+        assert result.status == "clarification_needed"
+        assert result.result == "Which format should I use?"
+        agent_id, status, summary = _completion_queue.get_nowait()
+        assert agent_id == "proc-clarify"
+        assert status == "clarification_needed"
+        assert "Which format" in summary
 
     def test_cancel_thread_marks_result(self):
         mock_thread = MagicMock(spec=threading.Thread)

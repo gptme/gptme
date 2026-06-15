@@ -439,6 +439,8 @@ def _monitor_subprocess(
         # Get result from conversation log (primary source for subprocess mode)
         try:
             log_status = subagent.status()
+            if log_status.status == "clarification_needed":
+                status = "clarification_needed"
             result = log_status.result
         except Exception:
             result = "Task completed (check log for details)"
