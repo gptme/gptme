@@ -941,7 +941,9 @@ def test_subprocess_mode_execution_basic():
     sa = next((s for s in _subagents if s.agent_id == "test-subprocess-exec"), None)
     assert sa is not None
     assert sa.execution_mode == "subprocess"
-    assert sa.process is not None
+    # Launch now happens asynchronously behind the semaphore, so queued
+    # subprocess agents are visible before the child process exists.
+    assert sa.thread is not None
 
     # Wait for completion with a reasonable timeout
     result = subagent_wait("test-subprocess-exec", timeout=60)

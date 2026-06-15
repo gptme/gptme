@@ -20,7 +20,7 @@ from gptme.init import init
 from gptme.tools import clear_tools
 from gptme.tools import shell as shell_module
 from gptme.tools.rag import _has_gptme_rag
-from gptme.tools.subagent import _subagents
+from gptme.tools.subagent import _subagent_results, _subagent_results_lock, _subagents
 from gptme.tools.subagent.concurrency import _reset_slot_sem
 
 logger = logging.getLogger(__name__)
@@ -264,6 +264,11 @@ def cleanup_subagents_after():
                 subagent.process.kill()
     # Clear the subagents list
     _subagents.clear()
+    # Clear cached terminal results too; many tests intentionally reuse agent IDs
+    # like "explorer"/"checker", and the queued-cancel guards now treat a stale
+    # cached result as "already completed" and skip the new launch.
+    with _subagent_results_lock:
+        _subagent_results.clear()
     # Reset the concurrency semaphore so monitor threads from this test
     # don't starve the next test when running under xdist.  Monitor threads
     # capture the old semaphore object in their closure, so they release the
