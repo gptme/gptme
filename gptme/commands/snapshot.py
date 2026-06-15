@@ -126,7 +126,7 @@ def _print_usage() -> None:
         "  diff <sha>                  Show diff between current workspace and a snapshot."
     )
     print(
-        "  prune [--days N] [--max-entries K] [--dry-run]  Remove old snapshots "
+        "  prune [--days N] [--max-entries K] [--dry-run|-n]  Remove old snapshots "
         f"(defaults to {DEFAULT_PRUNE_DAYS} days)."
     )
 
@@ -166,7 +166,7 @@ def cmd_snapshot(ctx: CommandContext) -> None:
       /snapshot list [--limit N]            Show recent snapshots
       /snapshot restore <sha>               Roll back to a snapshot
       /snapshot diff <sha>                  Show diff from current to snapshot
-      /snapshot prune [--days N] [--max-entries K]  Remove old snapshots
+      /snapshot prune [--days N] [--max-entries K] [--dry-run|-n]  Remove old snapshots
     """
     if not ctx.args or ctx.args[0] in {"help", "-h", "--help"}:
         _print_usage()
@@ -328,7 +328,7 @@ def cmd_snapshot(ctx: CommandContext) -> None:
                         f"snapshot: --max-entries must be an integer, got {args[idx]!r}"
                     )
                     return
-            elif arg == "--dry-run":
+            elif arg in ("--dry-run", "-n"):
                 dry_run = True
             else:
                 print(f"snapshot: unknown argument {arg!r}")

@@ -624,3 +624,27 @@ class TestSnapshotPruneCommand:
         assert "would prune" in out.lower()
         after = list_snapshots(shadow, limit=50)
         assert len(after) == len(before)
+
+    def test_prune_dry_run_short_flag_skips_deletion_by_age(
+        self, workspace, isolated_state_dir, capsys
+    ):
+        """-n mirrors --dry-run for age-based prune previews."""
+        import time
+
+        shadow = init_shadow(workspace)
+        for i in range(3):
+            (workspace / f"f{i}.txt").write_text(str(i))
+            snapshot(shadow, label=f"snap-{i}")
+
+        future = time.time() + 31 * 86400
+        before = list_snapshots(shadow, limit=50)
+        manager = _make_manager(workspace)
+        with (
+            patch("gptme.commands.snapshot.Shadow.for_workspace", return_value=shadow),
+            patch("gptme.workspace_snapshot.time.time", return_value=future),
+        ):
+            _run_cmd(manager, "prune -n --days 30")
+        out = capsys.readouterr().out
+        assert "would prune" in out.lower()
+        after = list_snapshots(shadow, limit=50)
+        assert len(after) == len(before)
