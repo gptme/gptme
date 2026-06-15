@@ -38,13 +38,13 @@ export function useUserSettings() {
   const [refetchKey, setRefetchKey] = useState(0);
 
   useEffect(() => {
-    const controller = new AbortController();
     if (isDemoMode()) {
       setSettings(DEMO_USER_SETTINGS);
       setError(null);
       setIsLoading(false);
-      return () => controller.abort();
+      return;
     }
+    const controller = new AbortController();
 
     const fetchSettings = async () => {
       setIsLoading(true);

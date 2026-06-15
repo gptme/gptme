@@ -19,13 +19,14 @@ export function useProviderHealth(poll = false) {
 
   const fetchHealth = useCallback(
     async (force = false) => {
-      providerHealth$.isLoading.set(true);
-      providerHealth$.error.set(null);
       if (demoMode) {
         providerHealth$.data.set({ providers: {} });
         providerHealth$.isLoading.set(false);
+        providerHealth$.error.set(null);
         return;
       }
+      providerHealth$.isLoading.set(true);
+      providerHealth$.error.set(null);
       try {
         const headers: Record<string, string> = {};
         if (api.authHeader) headers.Authorization = api.authHeader;
