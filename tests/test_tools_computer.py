@@ -14,6 +14,7 @@ from gptme.tools.computer import (
     _chunks,
     _get_display_resolution,
     _linux_scroll,
+    _linux_window_focus,
     _parse_key_sequence,
     _run_xdotool,
     _scale_coordinates,
@@ -1154,3 +1155,99 @@ def test_wait_for_change_timeout_returns_screenshot(mock_transport, mock_res, tm
         result = computer("wait_for_change", text="1")
 
     assert result is mock.sentinel.timeout_msg
+
+
+# ============================================================
+# window_focus action tests
+# ============================================================
+
+_MOCK_LINUX_RES_WF = (1920, 1080)
+
+
+@pytest.mark.skipif(IS_MACOS, reason="Linux-only: xdotool window focus")
+@mock.patch("gptme.tools.computer.IS_MACOS", False)
+@mock.patch(
+    "gptme.tools.computer._get_display_resolution", return_value=_MOCK_LINUX_RES_WF
+)
+@mock.patch("gptme.tools.computer.get_transport", return_value=None)
+def test_window_focus_linux_success(mock_transport, mock_res, capsys):
+    """window_focus on Linux calls xdotool search --sync with the given pattern."""
+    with mock.patch("gptme.tools.computer.subprocess.run") as mock_run:
+        mock_run.return_value = mock.MagicMock(
+            returncode=0, stdout="12345\n", stderr=""
+        )
+        result = computer("window_focus", text="Terminal")
+
+    assert result is None
+    out = capsys.readouterr().out
+    assert "Terminal" in out
+    # Verify xdotool was called with --sync and the pattern
+    call_args = mock_run.call_args
+    cmd = call_args[0][0]
+    assert cmd[0] == "xdotool"
+    assert "search" in cmd
+    assert "--sync" in cmd
+    assert "Terminal" in cmd
+    assert "windowfocus" in cmd
+
+
+@pytest.mark.skipif(IS_MACOS, reason="Linux-only: xdotool window focus")
+@mock.patch("gptme.tools.computer.IS_MACOS", False)
+@mock.patch(
+    "gptme.tools.computer._get_display_resolution", return_value=_MOCK_LINUX_RES_WF
+)
+@mock.patch("gptme.tools.computer.get_transport", return_value=None)
+def test_window_focus_timeout_raises(mock_transport, mock_res):
+    """window_focus raises RuntimeError when the window doesn't appear within timeout."""
+    with (
+        mock.patch(
+            "gptme.tools.computer.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(["xdotool"], 10.0),
+        ),
+        pytest.raises(RuntimeError, match="No window matching.*'nonexistent'"),
+    ):
+        computer("window_focus", text="nonexistent")
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", False)
+@mock.patch(
+    "gptme.tools.computer._get_display_resolution", return_value=_MOCK_LINUX_RES_WF
+)
+@mock.patch("gptme.tools.computer.get_transport", return_value=None)
+def test_window_focus_requires_text(mock_transport, mock_res):
+    """window_focus raises ValueError when text is not provided."""
+    with pytest.raises(ValueError, match="text.*required for window_focus"):
+        computer("window_focus", text=None)
+
+
+@pytest.mark.skipif(IS_MACOS, reason="Linux-only: xdotool window focus")
+@mock.patch("gptme.tools.computer.IS_MACOS", False)
+@mock.patch(
+    "gptme.tools.computer._get_display_resolution", return_value=_MOCK_LINUX_RES_WF
+)
+@mock.patch("gptme.tools.computer.get_transport", return_value=None)
+def test_window_focus_xdotool_failure_raises(mock_transport, mock_res):
+    """window_focus raises RuntimeError when xdotool returns non-zero."""
+    err = subprocess.CalledProcessError(1, ["xdotool"], stderr="no window found")
+    with (
+        mock.patch("gptme.tools.computer.subprocess.run", side_effect=err),
+        pytest.raises(RuntimeError, match="xdotool search/focus failed"),
+    ):
+        computer("window_focus", text="NoSuchWindow")
+
+
+def test_linux_window_focus_unit():
+    """_linux_window_focus passes --sync, --limit, pattern, and windowfocus to xdotool."""
+    with mock.patch("gptme.tools.computer.subprocess.run") as mock_run:
+        mock_run.return_value = mock.MagicMock(returncode=0, stdout="999\n", stderr="")
+        _linux_window_focus("MyApp", display=":1", timeout=5.0)
+
+    call_args = mock_run.call_args
+    cmd = call_args[0][0]
+    assert cmd[0] == "xdotool"
+    assert "--sync" in cmd
+    assert "--limit" in cmd
+    assert "MyApp" in cmd
+    assert "windowfocus" in cmd
+    # timeout + 2 headroom
+    assert call_args[1]["timeout"] == pytest.approx(7.0)
