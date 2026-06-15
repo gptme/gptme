@@ -42,6 +42,17 @@ export interface Settings {
    */
   ttsAuthToken: string;
   /**
+   * Bearer token sent with /api/v2/audio/transcriptions requests.
+   * Set by cloud hosts (e.g. gptme.ai) so STT can be billed to the user's account.
+   * When set, STT uses the same-origin /api/v2/audio/transcriptions endpoint
+   * (e.g. a Cloudflare Pages Function proxy) instead of the connected gptme server.
+   * Leave empty for self-hosted / unauthenticated endpoints.
+   *
+   * Token lifecycle: cloud hosts MUST call `updateSettings({ sttAuthToken: '' })` on
+   * logout to clear this from localStorage.
+   */
+  sttAuthToken: string;
+  /**
    * WebSocket URL for the gptme-voice-server /voice endpoint, e.g. ws://localhost:5700/voice.
    * Leave empty to hide the VoiceButton.
    */
@@ -71,6 +82,7 @@ const defaultSettings: Settings = {
   welcomeBackground: '',
   ttsServerUrl: '',
   ttsAuthToken: '',
+  sttAuthToken: '',
   voiceServerUrl: '',
   noConfirmMode: false,
 };

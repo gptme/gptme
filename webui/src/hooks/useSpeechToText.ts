@@ -81,6 +81,40 @@ function getLanguageCode(): string | undefined {
   return locale.split('-', 1)[0]?.toLowerCase() || undefined;
 }
 
+/**
+ * Transcribe audio via a same-origin cloud endpoint (e.g. a Cloudflare Pages
+ * Function proxy to the billing-aware llm-proxy). Used when `sttAuthToken` is
+ * set by a cloud host (e.g. gptme.ai) so STT is billed to the user's account.
+ */
+async function transcribeViaCloudEndpoint(
+  audio: Blob,
+  authToken: string,
+  options?: { language?: string; signal?: AbortSignal }
+): Promise<string> {
+  const format = audio.type.split(';', 1)[0].split('/')[1] || 'webm';
+  const formData = new FormData();
+  formData.append('file', audio, `speech.${format}`);
+  formData.append('format', format);
+  if (options?.language) {
+    formData.append('language', options.language);
+  }
+  const response = await fetch('/api/v2/audio/transcriptions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${authToken}` },
+    body: formData,
+    signal: options?.signal,
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(
+      (err as { error?: { message?: string } }).error?.message ??
+        `Transcription failed: ${response.status}`
+    );
+  }
+  const data = (await response.json()) as { text: string };
+  return data.text;
+}
+
 export function useSpeechToText(): UseSpeechToTextReturn {
   const { api } = useApi();
   const { settings: userSettings } = useUserSettings();
@@ -95,8 +129,12 @@ export function useSpeechToText(): UseSpeechToTextReturn {
   const abortControllerRef = useRef<AbortController | null>(null);
   const SpeechRecognitionClass = getSpeechRecognitionClass();
   const browserSupported = SpeechRecognitionClass !== null;
+  // Cloud hosts set sttAuthToken so the same-origin /api/v2/audio/transcriptions
+  // proxy (e.g. Cloudflare Pages Function) handles billing — no OpenRouter key needed.
+  const cloudSttConfigured = !!clientSettings.sttAuthToken && canUseRecordedFallback();
   const serverConfigured =
-    userSettings?.providers_configured.includes('openrouter') === true && canUseRecordedFallback();
+    (userSettings?.providers_configured.includes('openrouter') === true || cloudSttConfigured) &&
+    canUseRecordedFallback();
   const prefersServerStt = clientSettings.sttProvider === 'server';
   const serverFallbackSupported = !browserSupported && serverConfigured;
   // When user explicitly chooses server mode, use server STT even if browser supports it
@@ -234,12 +272,23 @@ export function useSpeechToText(): UseSpeechToTextReturn {
           abortControllerRef.current = controller;
 
           setState('transcribing');
-          void api
-            .transcribeAudio(audio, { language: getLanguageCode(), signal: controller.signal })
-            .then((result) => {
-              const text = result.text.trim();
-              if (text && finalHandlerRef.current) {
-                finalHandlerRef.current(text);
+          const sttAuthToken = clientSettings.sttAuthToken;
+          const transcribePromise: Promise<string> = sttAuthToken
+            ? transcribeViaCloudEndpoint(audio, sttAuthToken, {
+                language: getLanguageCode() ?? undefined,
+                signal: controller.signal,
+              })
+            : api
+                .transcribeAudio(audio, {
+                  language: getLanguageCode(),
+                  signal: controller.signal,
+                })
+                .then((r) => r.text);
+          void transcribePromise
+            .then((text) => {
+              const trimmed = text.trim();
+              if (trimmed && finalHandlerRef.current) {
+                finalHandlerRef.current(trimmed);
               }
               setState('idle');
             })
