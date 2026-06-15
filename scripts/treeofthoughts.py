@@ -40,6 +40,7 @@ See also
 from __future__ import annotations
 
 import argparse
+import hashlib
 import subprocess
 import sys
 import textwrap
@@ -132,6 +133,14 @@ def _changed_files(cwd: Path) -> list[str]:
     )
     lines = tracked.stdout.splitlines() + untracked.stdout.splitlines()
     return [f for f in lines if f.strip()]
+
+
+def _file_hash(path: Path) -> str:
+    """Return MD5 hex digest of *path*, or '' if the file is unreadable."""
+    try:
+        return hashlib.md5(path.read_bytes()).hexdigest()
+    except OSError:
+        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -251,6 +260,9 @@ def tree_search(
             )
 
         files_before = set(_changed_files(workspace))
+        # Hash files already dirty so re-modifications within this iteration are
+        # detected even when the file stays dirty vs HEAD across kept iterations.
+        before_hashes = {f: _file_hash(workspace / f) for f in files_before}
 
         # Build messages and run one agent turn.
         messages = _build_messages(iteration)
@@ -267,7 +279,16 @@ def tree_search(
             print(textwrap.indent(eval_out[-2000:], "  "))
 
         files_after = set(_changed_files(workspace))
-        changed = sorted(files_after ^ files_before)
+        # XOR finds files that newly became dirty or were cleaned up, but misses
+        # files already dirty from a prior kept iteration that the agent touched
+        # again.  Hash comparison catches those re-modifications.
+        set_delta = files_before ^ files_after
+        re_modified = {
+            f
+            for f in files_before & files_after
+            if _file_hash(workspace / f) != before_hashes.get(f, "")
+        }
+        changed = sorted(set_delta | re_modified)
 
         # Build diagnosis: ask the agent for a short post-mortem if it regressed.
         diagnosis = ""
@@ -277,11 +298,11 @@ def tree_search(
             if assistant_msgs:
                 last_action = assistant_msgs[-1].content or ""
                 diagnosis = (
-                    f"Agent attempted: {last_action[:400].strip()!r} "
-                    f"(truncated). Eval output: {eval_out[:400].strip()!r}"
+                    f"Agent attempted: {last_action[-400:].strip()!r} "
+                    f"(truncated). Eval output: {eval_out[-400:].strip()!r}"
                 )
             else:
-                diagnosis = f"Eval output: {eval_out[:400].strip()!r}"
+                diagnosis = f"Eval output: {eval_out[-400:].strip()!r}"
 
         keep = new_score > current_score or (new_score == current_score and new_passed)
         attempt_record = {

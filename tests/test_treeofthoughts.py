@@ -149,3 +149,33 @@ class TestFmtHistory:
         assert "Attempt 1" in out
         assert "Attempt 2" in out
         assert "wrong approach" in out
+
+
+# ---------------------------------------------------------------------------
+# _file_hash
+# ---------------------------------------------------------------------------
+
+
+class TestFileHash:
+    def test_returns_hex_string(self, tot, tmp_path):
+        f = tmp_path / "a.txt"
+        f.write_text("hello")
+        h = tot._file_hash(f)
+        assert len(h) == 32  # MD5 hex digest
+
+    def test_different_content_different_hash(self, tot, tmp_path):
+        f = tmp_path / "a.txt"
+        f.write_text("hello")
+        h1 = tot._file_hash(f)
+        f.write_text("world")
+        h2 = tot._file_hash(f)
+        assert h1 != h2
+
+    def test_same_content_same_hash(self, tot, tmp_path):
+        f = tmp_path / "a.txt"
+        f.write_text("stable")
+        assert tot._file_hash(f) == tot._file_hash(f)
+
+    def test_missing_file_returns_empty_string(self, tot, tmp_path):
+        h = tot._file_hash(tmp_path / "nonexistent.py")
+        assert h == ""
