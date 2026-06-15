@@ -527,6 +527,8 @@ class ToolSpec:
                     sub,
                     name=f"{self.name}.{tf.name}",
                     hints=tf.hints,
+                    desc=tf.description or sub.desc,
+                    parameters=list(tf.parameters) if tf.parameters else sub.parameters,
                 )
             )
         return specs

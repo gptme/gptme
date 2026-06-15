@@ -716,6 +716,27 @@ class TestAsFunctionSubtoolspecs:
         subs = tool.as_function_subtoolspecs()
         assert tool_matches_allowlist(subs[0].name, ["discord.*"])
 
+    def test_subtool_honours_custom_description_and_parameters(self):
+        """Custom description/parameters on ToolFunction must not be discarded."""
+
+        def fn(x: str) -> str:
+            """Auto-derived description (should be overridden)."""
+            return x
+
+        custom_param = Parameter(name="x", type="string", description="The input value")
+        tf = ToolFunction(
+            name="fn",
+            fn=fn,
+            description="Richer prose description",
+            parameters=[custom_param],
+        )
+        tool = ToolSpec(name="mytool", desc="", functions=[tf])
+        subs = tool.as_function_subtoolspecs()
+        sub = subs[0]
+        assert sub.desc == "Richer prose description"
+        assert len(sub.parameters) == 1
+        assert sub.parameters[0].description == "The input value"
+
 
 # ── Hint-based allowlist ───────────────────────────────────────────
 
