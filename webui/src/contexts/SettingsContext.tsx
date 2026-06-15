@@ -34,6 +34,11 @@ export interface Settings {
    * Bearer token sent with /api/v2/audio/speech requests.
    * Set by cloud hosts (e.g. gptme.ai) so TTS can be billed to the user's account.
    * Leave empty for self-hosted / unauthenticated endpoints.
+   *
+   * Token lifecycle: cloud hosts MUST call `updateSettings({ ttsAuthToken: '' })` on
+   * logout to clear this from localStorage. The token persists across page reloads
+   * intentionally (to avoid re-authentication overhead), so explicit logout cleanup is
+   * required.
    */
   ttsAuthToken: string;
   /**
