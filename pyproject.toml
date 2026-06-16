@@ -47,28 +47,28 @@ include = ["gptme/server/static/**/*", "gptme/server/webui-dist/**/*", "gptme/ev
 
 [tool.poetry.dependencies]
 python = "^3.10"
-click = "^8.0"
+click = "^8.4"
 click-default-group = "^1.2.4"
-python-dotenv = "^1.0.0"
+python-dotenv = "^1.2.2"
 rich = "^13.5.2"
 tabulate = "*"
-pick = {version = "^2.2.0", markers = "sys_platform != 'win32'"}
-tiktoken = ">=0.7"
+pick = {version = "^2.6.0", markers = "sys_platform != 'win32'"}
+tiktoken = ">=0.13.0"
 tomlkit = "*"
 typing-extensions = "*"
-platformdirs = "^4.3"
+platformdirs = "^4.10"
 lxml = "*"
-pypdf = ">=6.7.3"  # For PDF text extraction in browser tool (CVE fix: RAM exhaustion + infinite loop)
+pypdf = ">=6.13.2"  # For PDF text extraction in browser tool (CVE fix: RAM exhaustion + infinite loop)
 requests = "^2.34"  # For HTTP requests in browser tool (PDF detection)
-json-repair = "^0.32.0"
-mcp = "^1.13.0"
+json-repair = "^0.61.0"
+mcp = "^1.27.2"
 questionary = "^2.1.1"
 python-dateutil = "^2.9.0.post0"
 pyyaml = "^6.0.3"
 
 # providers
 openai = "^1.0"
-anthropic = "^0.105"
+anthropic = "^0.109"
 
 # tools
 ipython = "^8.17.2"
@@ -78,7 +78,7 @@ python-xlib = {version = "^0.33", optional=true}  # for X11 interaction
 
 # evals
 multiprocessing-logging = "^0.3.4"
-dspy = {version = "^3.0.2", python = "<=3.13", optional=true}
+dspy = {version = "^3.2.1", python = "<=3.13", optional=true}
 datasets = {version = ">=5.0.0", optional=true}  # for SWE-bench eval
 swebench = {version = ">=1.0", optional=true}  # for SWE-bench eval harness
 terminal-bench = {version = ">=0.1", optional=true, python = ">=3.12"}  # for Terminal-Bench eval harness
@@ -96,7 +96,7 @@ scipy = {version = "*", optional=true}
 flask = {version = "^3.0", optional=true}
 flask-cors = {version = ">=6.0.5,<7", optional=true}
 flask-compress = {version = ">=1.14", optional=true}
-pydantic = "^2.11.7"
+pydantic = "^2.13.4"
 prometheus-client = {version = ">=0.17", optional=true}
 
 # telemetry
@@ -106,13 +106,13 @@ opentelemetry-instrumentation-flask = {version = "^0.55b1", optional=true}
 opentelemetry-instrumentation-requests = {version = "^0.55b1", optional=true}
 opentelemetry-exporter-otlp = {version = "^1.34.1", optional=true}
 opentelemetry-exporter-prometheus = {version = "^0.55b1", optional=true}
-opentelemetry-instrumentation-anthropic = {version="^0.47.3", optional=true}
-opentelemetry-instrumentation-openai = {version="^0.47.3", optional=true}
+opentelemetry-instrumentation-anthropic = {version="^0.48.1", optional=true}
+opentelemetry-instrumentation-openai = {version="^0.48.1", optional=true}
 opentelemetry-instrumentation-threading = {version="^0.55b1", optional=true}
-sentence-transformers = {version = "^5.1.2", optional=true}
+sentence-transformers = {version = "^5.6.0", optional=true}
 
 # build
-pyinstaller = {version="^6.20", python=">=3.10,<3.15", optional=true}  # not yet compatible with Python 3.15+
+pyinstaller = {version="^6.21", python=">=3.10,<3.15", optional=true}  # not yet compatible with Python 3.15+
 
 # acp (Agent Client Protocol)
 agent-client-protocol = {version = ">=0.10.1", optional=true, python=">=3.10,<3.15"}
@@ -124,26 +124,26 @@ ruff = "*"
 pylint = "*"
 pre-commit = "*"
 radon = "*"
-openapi-spec-validator = "^0.7.2"
+openapi-spec-validator = "^0.9.0"
 
 # test
-pytest = "^9.0"
+pytest = "^9.1"
 pytest-asyncio = "*"
 pytest-cov = "*"
-pytest-xdist = "^3.5.0"
+pytest-xdist = "^3.8.0"
 pytest-profiling = "^1.7.0"
 pytest-dotenv = "^0.5.2"
-pytest-timeout = "^2.2.0"
-pytest-retry = "^1.6.3"
+pytest-timeout = "^2.4.0"
+pytest-retry = "^1.7.0"
 pytest-mock = "*"
 greenlet = "*"  # dependency of playwright, but needed for coverage
 
 # build
-pyinstaller = {version="^6.20", python=">=3.10,<3.15"}  # not yet compatible with Python 3.15+
+pyinstaller = {version="^6.21", python=">=3.10,<3.15"}  # not yet compatible with Python 3.15+
 
 # docs
 sphinx = "^8.0"
-sphinx-click = "^6.0"
+sphinx-click = "^6.2"
 sphinx-book-theme = "^1.1.4"
 sphinx-sitemap = "^2.9.0"
 sphinx-autobuild = "^2024.10.3"
@@ -158,7 +158,7 @@ types-tabulate = "*"
 types-lxml = "*"
 
 # needed for typechecking scripts
-tomli = "^2.2.1"
+tomli = "^2.4.1"
 
 [tool.poetry.extras]
 server = ["flask", "flask-cors", "flask-compress", "pydantic", "prometheus-client"]
