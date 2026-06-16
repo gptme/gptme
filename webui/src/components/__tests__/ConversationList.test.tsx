@@ -5,6 +5,7 @@ import { observable } from '@legendapp/state';
 import type { ConversationSummary } from '@/types/conversation';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { MemoryRouter } from 'react-router-dom';
+import { conversations$ } from '@/stores/conversations';
 
 // Mock the ApiContext
 const mockDeleteConversation = jest.fn().mockResolvedValue(undefined);
@@ -95,6 +96,7 @@ describe('ConversationList', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    conversations$.set(new Map());
   });
 
   it('renders conversation items', () => {
@@ -149,6 +151,48 @@ describe('ConversationList', () => {
     renderWithProviders(<ConversationList {...defaultProps} conversations={convs} />);
     const titles = screen.getAllByTestId('conversation-title');
     expect(titles).toHaveLength(2);
+  });
+
+  it('uses list summary counts instead of scanning loaded conversation logs', () => {
+    const conv = createConversation({ id: 'loaded-conv', name: 'Summary Name', messages: 5 });
+    conversations$.set('loaded-conv', {
+      data: {
+        id: 'loaded-conv',
+        name: 'Loaded Name',
+        log: Array.from({ length: 100 }, (_, index) => ({
+          role: 'user',
+          content: `message ${index}`,
+        })),
+        logfile: 'loaded-conv',
+        branches: {},
+        workspace: '/tmp',
+      },
+      isGenerating: false,
+      isConnected: false,
+      connectionStatus: 'disconnected',
+      reconnectAttempt: null,
+      reconnectMaxAttempts: null,
+      reconnectRetryInMs: null,
+      reconnectRetryStartedAt: null,
+      connectionError: null,
+      loadError: null,
+      pendingTool: null,
+      executingTool: null,
+      lastCompletedTool: null,
+      showInitialSystem: false,
+      chatConfig: null,
+      needsInitialStep: false,
+      currentBranch: 'main',
+      logOffset: 0,
+      hasMoreBefore: false,
+      isWindowHydrated: true,
+    });
+
+    renderWithProviders(<ConversationList {...defaultProps} conversations={[conv]} />);
+
+    expect(screen.getByTestId('conversation-title')).toHaveTextContent('Loaded Name');
+    expect(screen.getByText('5')).toBeInTheDocument();
+    expect(screen.queryByText('100')).not.toBeInTheDocument();
   });
 
   it('filters conversations by name', () => {

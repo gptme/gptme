@@ -30,9 +30,9 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import { getRelativeTimeString, groupByDate } from '@/utils/time';
-import { computeConversationCost, formatCost, formatTokens } from '@/utils/conversationCost';
+import { formatTokens } from '@/utils/conversationCost';
 import { useApi } from '@/contexts/ApiContext';
-import { demoConversations, getDemoMessages } from '@/democonversations';
+import { demoConversations } from '@/democonversations';
 import {
   exportConversationAsMarkdown,
   exportConversationAsJSON,
@@ -41,7 +41,7 @@ import {
 import { DeleteConversationConfirmationDialog } from './DeleteConversationConfirmationDialog';
 
 import { useConversationMetadata } from '@/hooks/useConversationMetadata';
-import type { MessageRole, ConversationSummary } from '@/types/conversation';
+import type { ConversationSummary } from '@/types/conversation';
 import { type FC, useRef, useEffect, useState, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
@@ -49,8 +49,6 @@ import { Computed, use$ } from '@legendapp/state/react';
 import { type Observable } from '@legendapp/state';
 import { conversations$ } from '@/stores/conversations';
 import { toast } from 'sonner';
-
-type MessageBreakdown = Partial<Record<MessageRole, number>>;
 
 type SortBy = 'recent' | 'longest' | 'alpha';
 const SORT_STORAGE_KEY = 'gptme:conv-sort';
@@ -147,7 +145,7 @@ export const ConversationList: FC<Props> = ({
   const prevUrlSearchRef = useRef(urlSearch);
 
   const handleExportMarkdown = useCallback((conv: ConversationSummary) => {
-    const storeConv = conversations$.get(conv.id)?.get();
+    const storeConv = conversations$.get(conv.id)?.peek();
     const messages = storeConv?.data?.log ?? [];
     const name = storeConv?.data?.name || conv.name || conv.id;
     if (messages.length === 0) {
@@ -159,7 +157,7 @@ export const ConversationList: FC<Props> = ({
   }, []);
 
   const handleExportJSON = useCallback((conv: ConversationSummary) => {
-    const storeConv = conversations$.get(conv.id)?.get();
+    const storeConv = conversations$.get(conv.id)?.peek();
     const messages = storeConv?.data?.log ?? [];
     const name = storeConv?.data?.name || conv.name || conv.id;
     if (messages.length === 0) {
@@ -171,7 +169,7 @@ export const ConversationList: FC<Props> = ({
   }, []);
 
   const handleStartRename = useCallback((conv: ConversationSummary) => {
-    const storeConv = conversations$.get(conv.id)?.get();
+    const storeConv = conversations$.get(conv.id)?.peek();
     const currentName = storeConv?.data?.name || conv.name || conv.id;
     renameCommittedRef.current = false;
     setRenamingId(conv.id);
@@ -352,7 +350,7 @@ export const ConversationList: FC<Props> = ({
   }
 
   function getConversationName(conv: ConversationSummary) {
-    const storeConv = conversations$.get(conv.id)?.get();
+    const storeConv = conversations$.get(conv.id)?.peek();
     return storeConv?.data?.name || conv.name || stripDate(conv.id);
   }
 
@@ -384,49 +382,10 @@ export const ConversationList: FC<Props> = ({
     const isDemo = !!demoConv;
     const isRenaming = renamingId === conv.id;
 
-    // For API conversations, fetch messages
-    const getMessageBreakdown = (): MessageBreakdown => {
-      if (demoConv) {
-        const messages = getDemoMessages(demoConv.id);
-        return messages.reduce((acc: MessageBreakdown, msg) => {
-          acc[msg.role] = (acc[msg.role] || 0) + 1;
-          return acc;
-        }, {});
-      }
-
-      // Get messages from store
-      const storeConv = conversations$.get(conv.id)?.get();
-      // Return empty breakdown if conversation or data is not loaded yet
-      if (!storeConv?.data?.log) return {};
-
-      return storeConv.data.log.reduce((acc: MessageBreakdown, msg$) => {
-        const role = msg$.role;
-        if (role && typeof role === 'string') {
-          acc[role as MessageRole] = (acc[role as MessageRole] || 0) + 1;
-        }
-        return acc;
-      }, {} as MessageBreakdown);
-    };
-
-    const formatBreakdown = (breakdown: MessageBreakdown) => {
-      const order: MessageRole[] = ['user', 'assistant', 'system', 'tool'];
-      return Object.entries(breakdown)
-        .sort(([a], [b]) => {
-          const aIndex = order.indexOf(a as MessageRole);
-          const bIndex = order.indexOf(b as MessageRole);
-          if (aIndex === -1 && bIndex === -1) return 0;
-          if (aIndex === -1) return 1;
-          if (bIndex === -1) return -1;
-          return aIndex - bIndex;
-        })
-        .map(([role, count]) => `${role}: ${count}`)
-        .join('\n');
-    };
-
     const conversationContent = (
       <Computed>
         {() => {
-          const convState = conversations$.get(conv.id)?.get();
+          const convState = conversations$.get(conv.id)?.peek();
           const isSelected = selectedId$?.get() === conv.id;
 
           return (
@@ -516,39 +475,12 @@ export const ConversationList: FC<Props> = ({
                         normalizedFilter
                       )}
                     </div>
-                    <Computed>
-                      {() => {
-                        const storeConv = conversations$.get(conv.id)?.get();
-                        const isLoaded = storeConv?.data?.log?.length > 0;
-
-                        const breakdown = isLoaded ? getMessageBreakdown() : {};
-                        const count = isLoaded
-                          ? Object.values(breakdown).reduce((a, b) => a + b, 0)
-                          : conv.messages;
-
-                        if (!count) {
-                          return null;
-                        }
-
-                        const badge = (
-                          <span className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                            <MessageSquare className="mr-1 h-3 w-3" />
-                            {count}
-                          </span>
-                        );
-
-                        return isLoaded ? (
-                          <Tooltip>
-                            <TooltipTrigger asChild>{badge}</TooltipTrigger>
-                            <TooltipContent>
-                              <div className="whitespace-pre">{formatBreakdown(breakdown)}</div>
-                            </TooltipContent>
-                          </Tooltip>
-                        ) : (
-                          badge
-                        );
-                      }}
-                    </Computed>
+                    {!!conv.messages && (
+                      <span className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                        <MessageSquare className="mr-1 h-3 w-3" />
+                        {conv.messages}
+                      </span>
+                    )}
                   </div>
                 )}
                 {conv.last_message_preview && (
@@ -576,101 +508,48 @@ export const ConversationList: FC<Props> = ({
                     </TooltipContent>
                   </Tooltip>
 
-                  {/* Token estimate from list summary (available when detail=True) */}
-                  <Computed>
-                    {() => {
-                      const storeConv = conversations$.get(conv.id)?.get();
-                      const isLoaded = storeConv?.data?.log?.length > 0;
-                      // Hide only when cost badge will show (isLoaded AND has cost data).
-                      // Without the hasData check, loaded convs without per-message usage
-                      // metadata would silently show nothing.
-                      if (isLoaded) {
-                        const cost = computeConversationCost(storeConv!.data!.log);
-                        if (cost.hasData) return null;
-                      }
-                      const summaryTokens =
-                        (conv.total_input_tokens ?? 0) +
-                        (conv.total_output_tokens ?? 0) +
-                        (conv.total_cache_read_tokens ?? 0) +
-                        (conv.total_cache_creation_tokens ?? 0);
-                      if (summaryTokens === 0) return null;
-                      return (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span className="flex items-center text-muted-foreground">
-                              <span className="text-[10px] text-muted-foreground/60">
-                                {formatTokens(summaryTokens)} tok
-                              </span>
+                  {(() => {
+                    const summaryTokens =
+                      (conv.total_input_tokens ?? 0) +
+                      (conv.total_output_tokens ?? 0) +
+                      (conv.total_cache_read_tokens ?? 0) +
+                      (conv.total_cache_creation_tokens ?? 0);
+                    if (summaryTokens === 0) return null;
+                    return (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="flex items-center text-muted-foreground">
+                            <span className="text-[10px] text-muted-foreground/60">
+                              {formatTokens(summaryTokens)} tok
                             </span>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <div className="space-y-1 text-xs">
-                              <div className="font-medium">Token estimate</div>
-                              {(conv.total_input_tokens ?? 0) > 0 && (
-                                <div>Input: {formatTokens(conv.total_input_tokens!)} tokens</div>
-                              )}
-                              {(conv.total_output_tokens ?? 0) > 0 && (
-                                <div>Output: {formatTokens(conv.total_output_tokens!)} tokens</div>
-                              )}
-                              {(conv.total_cache_read_tokens ?? 0) > 0 && (
-                                <div>
-                                  Cache read: {formatTokens(conv.total_cache_read_tokens!)} tokens
-                                </div>
-                              )}
-                              {(conv.total_cache_creation_tokens ?? 0) > 0 && (
-                                <div>
-                                  Cache create: {formatTokens(conv.total_cache_creation_tokens!)}{' '}
-                                  tokens
-                                </div>
-                              )}
-                              <div>Total: {formatTokens(summaryTokens)} tokens</div>
-                            </div>
-                          </TooltipContent>
-                        </Tooltip>
-                      );
-                    }}
-                  </Computed>
-
-                  {/* Cost badge: show per-conversation total cost from loaded data */}
-                  <Computed>
-                    {() => {
-                      const storeConv = conversations$.get(conv.id)?.get();
-                      const isLoaded = storeConv?.data?.log?.length > 0;
-                      if (!isLoaded) return null;
-
-                      const cost = computeConversationCost(storeConv!.data!.log);
-                      if (!cost.hasData) return null;
-
-                      return (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span className="flex items-center text-muted-foreground">
-                              <span>{formatCost(cost.totalCost)}</span>
-                              <span className="ml-0.5 text-[10px] text-muted-foreground/60">
-                                · {formatTokens(cost.totalTokens)}
-                              </span>
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <div className="space-y-1 text-xs">
-                              <div className="font-medium">Session cost</div>
-                              <div>Input: {formatTokens(cost.inputTokens)} tokens</div>
-                              <div>Output: {formatTokens(cost.outputTokens)} tokens</div>
-                              {cost.cacheReadTokens > 0 && (
-                                <div>Cache read: {formatTokens(cost.cacheReadTokens)} tokens</div>
-                              )}
-                              {cost.cacheCreationTokens > 0 && (
-                                <div>
-                                  Cache create: {formatTokens(cost.cacheCreationTokens)} tokens
-                                </div>
-                              )}
-                              <div>Total: {formatTokens(cost.totalTokens)} tokens</div>
-                            </div>
-                          </TooltipContent>
-                        </Tooltip>
-                      );
-                    }}
-                  </Computed>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <div className="space-y-1 text-xs">
+                            <div className="font-medium">Token estimate</div>
+                            {(conv.total_input_tokens ?? 0) > 0 && (
+                              <div>Input: {formatTokens(conv.total_input_tokens!)} tokens</div>
+                            )}
+                            {(conv.total_output_tokens ?? 0) > 0 && (
+                              <div>Output: {formatTokens(conv.total_output_tokens!)} tokens</div>
+                            )}
+                            {(conv.total_cache_read_tokens ?? 0) > 0 && (
+                              <div>
+                                Cache read: {formatTokens(conv.total_cache_read_tokens!)} tokens
+                              </div>
+                            )}
+                            {(conv.total_cache_creation_tokens ?? 0) > 0 && (
+                              <div>
+                                Cache create: {formatTokens(conv.total_cache_creation_tokens!)}{' '}
+                                tokens
+                              </div>
+                            )}
+                            <div>Total: {formatTokens(summaryTokens)} tokens</div>
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                    );
+                  })()}
 
                   {/* Show conversation state indicators */}
                   <div className="flex items-center space-x-2">
@@ -809,7 +688,7 @@ export const ConversationList: FC<Props> = ({
             className="text-destructive focus:text-destructive"
             onClick={(e) => {
               e.stopPropagation();
-              const storeConv = conversations$.get(conv.id)?.get();
+              const storeConv = conversations$.get(conv.id)?.peek();
               const name = storeConv?.data?.name || conv.name || conv.id;
               setDeleteTarget({ id: conv.id, name });
             }}
