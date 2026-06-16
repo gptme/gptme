@@ -726,7 +726,7 @@ def test_subprocess_profile_preserves_profile_tools_and_adds_clarify():
     assert captured_cmd[captured_cmd.index("--agent-profile") + 1] == "explorer"
     assert "--tools" in captured_cmd
     assert captured_cmd[captured_cmd.index("--tools") + 1] == (
-        "read,chats,complete,clarify,progress"
+        "read,chats,complete,clarify"
     )
 
 

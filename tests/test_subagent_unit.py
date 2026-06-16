@@ -216,6 +216,12 @@ class TestProgressNotifications:
         assert "progress" in instruction
         assert "```progress" in instruction
 
+    def test_progress_omitted_when_not_supported(self):
+        """Subprocess-mode instructions should not advertise progress."""
+        instruction = _get_complete_instruction(supports_progress=False)
+        assert "progress" not in instruction
+        assert "```progress" not in instruction
+
 
 class TestProgressTool:
     """Tests for the progress tool execution path."""
@@ -257,7 +263,7 @@ class TestProgressTool:
 
         assert _progress_queue.empty()  # Nothing queued
         assert len(messages) == 1
-        assert "unavailable" in messages[0].content
+        assert "NOT delivered" in messages[0].content
 
     def test_progress_tool_empty_message(self):
         """Empty progress block yields a warning message."""

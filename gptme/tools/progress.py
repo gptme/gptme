@@ -9,8 +9,8 @@ Unlike ``complete`` (ends session) and ``clarify`` (pauses session), ``progress`
 continues execution after delivering the update.
 
 Only works in thread-mode subagents (same process). Subprocess-mode subagents
-cannot share the in-process progress queue — updates will be silently dropped
-with a warning if the agent_id cannot be resolved.
+cannot share the in-process progress queue, so updates are not delivered when
+the agent_id cannot be resolved.
 
 Only enabled in autonomous/subagent sessions (disabled_by_default=True).
 """
@@ -59,7 +59,7 @@ def execute_progress(
         )
         yield Message(
             "system",
-            "Progress update recorded (parent notification unavailable in subprocess mode).",
+            "Progress update NOT delivered to parent (subprocess mode does not support in-process queue).",
             quiet=True,
         )
         return

@@ -334,7 +334,7 @@ def _run_subagent_subprocess(
         profile_obj = get_profile(profile)
         if profile_obj and profile_obj.tools is not None:
             tool_allowlist = list(profile_obj.tools)
-            for tool_name in _SUBAGENT_SIGNAL_TOOLS:
+            for tool_name in ("complete", "clarify"):
                 if tool_name not in tool_allowlist:
                     tool_allowlist.append(tool_name)
             cmd.extend(["--tools", ",".join(tool_allowlist)])
@@ -384,7 +384,8 @@ def _run_subagent_subprocess(
     # Add completion instruction to the prompt for subprocess mode
     # (In thread mode, this is added as a system message)
     complete_section = (
-        f"\n\n[Completion Instructions]\n{_get_complete_instruction('orchestrator')}\n"
+        "\n\n[Completion Instructions]\n"
+        f"{_get_complete_instruction('orchestrator', supports_progress=False)}\n"
     )
     prompt = prompt + complete_section
 

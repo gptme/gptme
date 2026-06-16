@@ -19,14 +19,18 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _get_complete_instruction(target: str = "orchestrator") -> str:
+def _get_complete_instruction(
+    target: str = "orchestrator",
+    *,
+    supports_progress: bool = True,
+) -> str:
     """Get the standard instruction for using the complete tool.
 
     Used by both thread and subprocess modes to ensure consistent behavior.
     The instruction is intentionally minimal - profile system prompts and
     task context should guide what the complete answer should contain.
     """
-    return (
+    instruction = (
         "When finished, use the `complete` tool with your full answer/result.\n"
         f"Include everything the {target} needs - they shouldn't need to read the full log.\n"
         "```complete\n"
@@ -35,12 +39,17 @@ def _get_complete_instruction(target: str = "orchestrator") -> str:
         f"If you cannot proceed without more information from the {target}, use the `clarify` block instead:\n"
         "```clarify\n"
         "Your specific question here.\n"
-        "```\n"
-        f"To send an intermediate progress update to the {target} (without stopping), use the `progress` block:\n"
-        "```progress\n"
-        "Brief status update: what you have done so far and what remains.\n"
         "```"
     )
+    if supports_progress:
+        instruction += (
+            "\n"
+            f"To send an intermediate progress update to the {target} (without stopping), use the `progress` block:\n"
+            "```progress\n"
+            "Brief status update: what you have done so far and what remains.\n"
+            "```"
+        )
+    return instruction
 
 
 def notify_completion(agent_id: str, status: Status, summary: str) -> None:
