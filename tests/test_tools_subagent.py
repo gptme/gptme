@@ -726,7 +726,7 @@ def test_subprocess_profile_preserves_profile_tools_and_adds_clarify():
     assert captured_cmd[captured_cmd.index("--agent-profile") + 1] == "explorer"
     assert "--tools" in captured_cmd
     assert captured_cmd[captured_cmd.index("--tools") + 1] == (
-        "read,chats,complete,clarify"
+        "read,chats,complete,clarify,progress"
     )
 
 
@@ -1385,8 +1385,14 @@ def test_create_subagent_thread_loads_signal_tools_for_default_profile(tmp_path)
     assert [call.args[0] for call in mock_load_tool.call_args_list] == [
         "complete",
         "clarify",
+        "progress",
     ]
-    assert {tool.name for tool in loaded_tools} == {"shell", "complete", "clarify"}
+    assert {tool.name for tool in loaded_tools} == {
+        "shell",
+        "complete",
+        "clarify",
+        "progress",
+    }
 
 
 def test_subprocess_mode_with_profile():
