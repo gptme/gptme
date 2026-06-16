@@ -86,10 +86,6 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     needs: build
-    strategy:
-      fail-fast: false
-      matrix:
-        gptme-version: [stable, dev]
     steps:
     - uses: actions/checkout@v6
 
@@ -105,37 +101,87 @@ jobs:
       with:
         python-version: '3.11'
 
-    - name: Install dependencies
+    - name: Install frontend dependencies
       run: npm ci
-
-    - name: Install gptme server (stable release)
-      if: matrix.gptme-version == 'stable'
-      run: pip install 'gptme[server]'
-
-    - name: Install gptme server (dev)
-      if: matrix.gptme-version == 'dev'
-      run: pip install 'gptme[server] @ git+https://github.com/gptme/gptme.git'
-
-    - name: Start gptme-server in background
-      env:
-        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      run: |
-        gptme-server --cors-origin="http://localhost:5701" &
-        sleep 3
 
     - name: Install Playwright browsers
       run: npx playwright install --with-deps chromium
 
-    - name: Check that server is up
+    # ── stable pass (latest PyPI release) ────────────────────────────────────
+    - name: Install stable gptme (PyPI)
+      working-directory: .
+      run: pip install 'gptme[server]'
+
+    - name: Start server (stable)
+      env:
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      run: |
+        gptme-server --cors-origin="http://localhost:5701" &
+        echo $! > /tmp/gptme-server.pid
+        sleep 3
+
+    - name: Health-check server (stable)
       run: curl --retry 2 --retry-delay 5 --retry-connrefused -sSfL http://localhost:5700/api/v2
 
-    - name: Run e2e tests
+    - name: Run e2e tests (stable)
+      id: e2e-stable
+      continue-on-error: true
       run: npm run test:e2e
 
-    - name: Upload test results
+    - name: Upload stable test results
       if: always()
       uses: actions/upload-artifact@v7
       with:
-        name: playwright-report-${{ matrix.gptme-version }}
+        name: playwright-report-stable
         path: webui/playwright-report/
         retention-days: 30
+
+    - name: Stop server (stable)
+      if: always()
+      working-directory: .
+      run: |
+        kill "$(cat /tmp/gptme-server.pid)" 2>/dev/null || true
+        sleep 2
+
+    # ── dev pass (git master) ─────────────────────────────────────────────────
+    - name: Install dev gptme (git master)
+      working-directory: .
+      run: pip install --force-reinstall 'gptme[server] @ git+https://github.com/gptme/gptme.git'
+
+    - name: Start server (dev)
+      env:
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      run: |
+        gptme-server --cors-origin="http://localhost:5701" &
+        echo $! > /tmp/gptme-server.pid
+        sleep 3
+
+    - name: Health-check server (dev)
+      run: curl --retry 2 --retry-delay 5 --retry-connrefused -sSfL http://localhost:5700/api/v2
+
+    - name: Run e2e tests (dev)
+      id: e2e-dev
+      continue-on-error: true
+      run: npm run test:e2e
+
+    - name: Upload dev test results
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: playwright-report-dev
+        path: webui/playwright-report/
+        retention-days: 30
+
+    - name: Stop server (dev)
+      if: always()
+      working-directory: .
+      run: kill "$(cat /tmp/gptme-server.pid)" 2>/dev/null || true
+
+    - name: Require both passes to succeed
+      if: always()
+      working-directory: .
+      run: |
+        stable="${{ steps.e2e-stable.outcome }}"
+        dev="${{ steps.e2e-dev.outcome }}"
+        echo "stable: $stable  dev: $dev"
+        [ "$stable" = "success" ] && [ "$dev" = "success" ]
