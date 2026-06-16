@@ -9,7 +9,24 @@ updates:
     directory: "/" # Location of package manifests
     schedule:
       interval: "weekly"
+    # Collapse routine minor/patch bumps into a single PR per run to keep the
+    # review queue small. Major bumps still open individual PRs so breaking
+    # changes get scrutiny.
+    groups:
+      python-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
