@@ -49,8 +49,8 @@ def _generate(messages: list[Message], model: str) -> str:
 def chat(
     messages: list[Message],
     model: str,
-    tools=None,
-    output_schema=None,
+    tools: list | None = None,
+    output_schema: type | None = None,
     max_tokens: int | None = None,
     temperature: float | None = None,
     top_p: float | None = None,
@@ -62,8 +62,8 @@ def chat(
 def stream(
     messages: list[Message],
     model: str,
-    tools=None,
-    output_schema=None,
+    tools: list | None = None,
+    output_schema: type | None = None,
     max_tokens: int | None = None,
     temperature: float | None = None,
     top_p: float | None = None,
