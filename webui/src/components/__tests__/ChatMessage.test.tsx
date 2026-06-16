@@ -105,6 +105,27 @@ describe('ChatMessage', () => {
     expect(copyButton).toBeInTheDocument();
   });
 
+  it('renders fork button and calls handler with the message index', () => {
+    const onFork = jest.fn();
+    const message$ = observable<Message>({
+      role: 'assistant',
+      content: 'Some response text',
+      timestamp: new Date().toISOString(),
+    });
+
+    renderWithProviders(
+      <ChatMessage
+        message$={message$}
+        conversationId={testConversationId}
+        messageIndex={3}
+        onFork={onFork}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fork from here' }));
+    expect(onFork).toHaveBeenCalledWith(3);
+  });
+
   it('copies message content to clipboard on copy button click', async () => {
     const writeText = jest.fn().mockResolvedValue(undefined);
     Object.assign(navigator, {

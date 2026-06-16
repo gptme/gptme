@@ -2319,6 +2319,48 @@ def test_v2_message_file_uris_reject_file_scheme(client: FlaskClient, endpoint_b
     assert conversation["log"][user_index].get("files") is None
 
 
+def test_v2_fork_conversation_from_message(client: FlaskClient):
+    """Forking should create a new conversation with messages up to the selected index."""
+    conversation_id = create_conversation(client)["conversation_id"]
+    client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "First question"},
+    )
+    client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "assistant", "content": "First answer"},
+    )
+    client.post(
+        f"/api/v2/conversations/{conversation_id}",
+        json={"role": "user", "content": "Second question"},
+    )
+
+    source = client.get(f"/api/v2/conversations/{conversation_id}").get_json()
+    assert source is not None
+    fork_index = len(source["log"]) - 2
+
+    response = client.post(
+        f"/api/v2/conversations/{conversation_id}/fork?after_message={fork_index}"
+    )
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data is not None
+    assert data["status"] == "ok"
+    assert data["conversation_id"] != conversation_id
+    assert data["session_id"]
+
+    forked = client.get(f"/api/v2/conversations/{data['conversation_id']}").get_json()
+    assert forked is not None
+    assert forked["name"] == f"Fork of {conversation_id} @ msg {fork_index + 1}"
+    assert [msg["content"] for msg in forked["log"]] == [
+        msg["content"] for msg in source["log"][: fork_index + 1]
+    ]
+    assert [msg["role"] for msg in forked["log"]] == [
+        msg["role"] for msg in source["log"][: fork_index + 1]
+    ]
+
+
 def test_v2_edit_message_rejects_non_string_content(client: FlaskClient):
     """Test that edit rejects non-string content with a 400."""
     conversation_id = create_conversation(client)["conversation_id"]

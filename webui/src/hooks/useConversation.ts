@@ -784,6 +784,18 @@ export function useConversation(conversationId: string, serverId?: string) {
     }
   };
 
+  const forkConversation = async (index: number) => {
+    try {
+      const branch = conversation$?.currentBranch.get() ?? 'main';
+      return await api.forkConversation(conversationId, index, branch);
+    } catch (error) {
+      console.error('Error forking conversation:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Failed to fork conversation';
+      toast({ variant: 'destructive', title: 'Fork failed', description: errorMsg });
+      return null;
+    }
+  };
+
   const switchBranch = (branchName: string) => {
     setCurrentBranch(conversationId, branchName);
   };
@@ -806,6 +818,7 @@ export function useConversation(conversationId: string, serverId?: string) {
     deleteMessage,
     rerunFromMessage,
     regenerateMessage,
+    forkConversation,
     switchBranch,
     confirmTool,
     interruptGeneration,

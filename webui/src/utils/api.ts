@@ -1041,6 +1041,38 @@ export class ApiClient {
     }
   }
 
+  async forkConversation(
+    logfile: string,
+    afterMessage: number,
+    branch: string = 'main'
+  ): Promise<string> {
+    if (!this.isConnected) {
+      throw new ApiClientError('Not connected to API');
+    }
+    try {
+      const params = new URLSearchParams({
+        after_message: String(afterMessage),
+      });
+      if (branch && branch !== 'main') {
+        params.set('branch', branch);
+      }
+      const response = await this.fetchJson<{
+        status: string;
+        session_id: string;
+        conversation_id: string;
+      }>(`${this.baseUrl}/api/v2/conversations/${logfile}/fork?${params.toString()}`, {
+        method: 'POST',
+      });
+      this.sessions$.set(response.conversation_id, response.session_id);
+      return response.conversation_id;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw new ApiClientError('Request aborted', 499);
+      }
+      throw error;
+    }
+  }
+
   async createConversation(
     logfile: string,
     messages: Message[],

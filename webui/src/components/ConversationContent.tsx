@@ -1,5 +1,7 @@
 import type { FC } from 'react';
 import { useRef, useEffect, useCallback, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput, type ChatOptions } from './ChatInput';
 import { CollapsedStepGroup } from './CollapsedStepGroup';
@@ -18,6 +20,7 @@ import { getObservableIndex } from '@legendapp/state';
 import { useApi } from '@/contexts/ApiContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useModels } from '@/hooks/useModels';
+import { chatRoute } from '@/utils/routes';
 import { AlertTriangle, ArrowDown, RefreshCw, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -37,10 +40,13 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     deleteMessage,
     rerunFromMessage,
     regenerateMessage,
+    forkConversation,
     switchBranch,
     confirmTool,
     interruptGeneration,
   } = useConversation(conversationId, serverId);
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const loadError = use$(() => conversation$?.loadError.get() ?? null);
   const messageCount = use$(() => conversation$?.data.log.get()?.length ?? 0);
   const connectionStatus = use$(() => conversation$?.connectionStatus.get() ?? 'disconnected');
@@ -489,6 +495,30 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
     isScrolledUp$.set(false);
   };
 
+  const handleForkMessage = useCallback(
+    async (index: number) => {
+      const forkedConversationId = await forkConversation(index);
+      if (!forkedConversationId) return;
+
+      await queryClient.invalidateQueries({
+        predicate: (query) => {
+          const key = query.queryKey[0];
+          return typeof key === 'string' && key.startsWith('conversation');
+        },
+      });
+
+      const params = new URLSearchParams(window.location.search);
+      params.delete('split');
+      if (serverId) {
+        params.set('server', serverId);
+      } else {
+        params.delete('server');
+      }
+      navigate(chatRoute(forkedConversationId, params.toString()));
+    },
+    [forkConversation, navigate, queryClient, serverId]
+  );
+
   const showConnectionBanner =
     !isReadOnly && (connectionStatus === 'reconnecting' || connectionStatus === 'disconnected');
 
@@ -697,6 +727,7 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
                   onDelete={isReadOnly ? undefined : deleteMessage}
                   onRerun={isReadOnly ? undefined : rerunFromMessage}
                   onRegenerate={isReadOnly ? undefined : regenerateMessage}
+                  onFork={isReadOnly ? undefined : handleForkMessage}
                   messageIndex={absoluteIndex}
                 />
                 {/* Branch indicator at fork points */}

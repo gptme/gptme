@@ -281,6 +281,29 @@ export function createDemoApiClient(baseUrl: string = DEMO_BASE_URL): IApiClient
       if (local) return clone(local);
       throw new DemoModeError(`getConversation(${logfile})`);
     },
+    forkConversation: async (logfile, afterMessage, branch = 'main') => {
+      const source =
+        logfile === DEMO_CONV_ID
+          ? clone(DEMO_CONV_RESPONSE)
+          : clone(localConversations.get(logfile));
+      if (!source) {
+        throw new DemoModeError(`forkConversation(${logfile})`);
+      }
+      const branchLog = clone(source.branches[branch] ?? source.log);
+      const forkLog = branchLog.slice(0, afterMessage + 1);
+      const forkId = `demo/conv-${Date.now()}-fork`;
+      const forked: ConversationResponse = {
+        id: forkId,
+        name: `Fork of ${source.name || source.id} @ msg ${afterMessage + 1}`,
+        log: forkLog,
+        logfile: forkId,
+        branches: { main: clone(forkLog) },
+        workspace: source.workspace,
+      };
+      localConversations.set(forkId, forked);
+      sessions$.set(forkId, `demo-session-${forkId}`);
+      return forkId;
+    },
 
     // Config — return a minimal demo config.
     getChatConfig: async () => DEMO_CHAT_CONFIG,

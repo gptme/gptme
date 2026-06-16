@@ -304,6 +304,66 @@ def _append_conversation_system_prompt(
         messages.append(Message("system", system_prompt))
 
 
+def _generate_fork_conversation_id() -> str:
+    """Generate a reasonably unique conversation id for forked copies."""
+    timestamp = datetime.now(tz=timezone.utc).isoformat().replace(":", "-")
+    return f"chat-{timestamp}-{time.time_ns() % 1_000_000_000:09d}"
+
+
+def _fork_message_file_reference(
+    file_ref: FilePath, source_attachments: Path, dest_attachments: Path
+) -> tuple[FilePath, bool]:
+    """Re-root attachment file paths into the forked conversation when needed."""
+    if isinstance(file_ref, URI):
+        return file_ref, False
+
+    path = Path(file_ref)
+    try:
+        rel = path.relative_to(source_attachments)
+        return dest_attachments / rel, True
+    except ValueError:
+        pass
+
+    if path.parts[:1] == ("attachments",):
+        return dest_attachments / Path(*path.parts[1:]), True
+
+    return path, False
+
+
+def _copy_messages_for_fork(
+    messages: list[Message], source_logdir: Path, dest_logdir: Path
+) -> list[Message]:
+    """Copy a message slice into a new conversation, preserving attachments."""
+    source_attachments = source_logdir / "attachments"
+    dest_attachments = dest_logdir / "attachments"
+    needs_attachment_copy = False
+    copied_messages: list[Message] = []
+
+    for msg in messages:
+        new_files: list[FilePath] = []
+        path_map: dict[str, str] = {}
+        for file_ref in msg.files:
+            new_ref, copied = _fork_message_file_reference(
+                file_ref, source_attachments, dest_attachments
+            )
+            new_files.append(new_ref)
+            if copied:
+                needs_attachment_copy = True
+                path_map[str(file_ref)] = str(new_ref)
+
+        new_file_hashes = {
+            path_map.get(path, path): digest for path, digest in msg.file_hashes.items()
+        }
+        copied_messages.append(
+            replace(msg, files=new_files, file_hashes=new_file_hashes)
+        )
+
+    if needs_attachment_copy and source_attachments.exists():
+        shutil.copytree(source_attachments, dest_attachments, dirs_exist_ok=True)
+
+    return copied_messages
+
+
 def _get_optional_string_list_field(
     req_json: dict, field: str
 ) -> list[str] | None | tuple[flask.Response, int]:
@@ -1827,6 +1887,95 @@ def api_conversation_delete_message(conversation_id: str, index: int):
 
     _invalidate_conversations_cache()
     return flask.jsonify(log_dict)
+
+
+@v2_api.route("/api/v2/conversations/<string:conversation_id>/fork", methods=["POST"])
+@require_auth
+@api_doc_simple(
+    responses={
+        200: SessionResponse,
+        400: ErrorResponse,
+        404: ErrorResponse,
+        409: ErrorResponse,
+    },
+    tags=["conversations-v2"],
+)
+def api_conversation_fork(conversation_id: str):
+    """Create a forked copy of a conversation from a specific message index."""
+    if error := _validate_conversation_id(conversation_id):
+        return error
+
+    after_message_raw = request.args.get("after_message")
+    if after_message_raw is None:
+        return flask.jsonify(
+            {"error": "after_message query parameter is required"}
+        ), 400
+    try:
+        after_message = int(after_message_raw)
+    except ValueError:
+        return flask.jsonify({"error": "after_message must be an integer"}), 400
+
+    branch = request.args.get("branch", "main")
+    if error := _validate_branch(branch):
+        return error
+
+    sessions = SessionManager.get_sessions_for_conversation(conversation_id)
+    for sess in sessions:
+        if sess.generating:
+            return (
+                flask.jsonify({"error": "Cannot fork while generation is in progress"}),
+                409,
+            )
+
+    try:
+        manager = LogManager.load(conversation_id, branch=branch, lock=False)
+    except FileNotFoundError:
+        if branch == "main":
+            return (
+                flask.jsonify({"error": f"Conversation not found: {conversation_id}"}),
+                404,
+            )
+        return (
+            flask.jsonify({"error": f"Branch not found: {branch}"}),
+            404,
+        )
+
+    source_messages = list(manager.log.messages)
+    if after_message < 0 or after_message >= len(source_messages):
+        return (
+            flask.jsonify(
+                {
+                    "error": f"Message index {after_message} out of range (0-{len(source_messages) - 1})"
+                }
+            ),
+            404,
+        )
+
+    new_conversation_id = _generate_fork_conversation_id()
+    new_logdir = get_logs_dir() / new_conversation_id
+
+    forked_messages = _copy_messages_for_fork(
+        source_messages[: after_message + 1], manager.logdir, new_logdir
+    )
+    fork_manager = LogManager.load(
+        logdir=new_logdir, initial_msgs=forked_messages, create=True, lock=False
+    )
+    fork_manager.log = Log(forked_messages)
+    fork_manager.write()
+
+    source_config = ChatConfig.from_logdir(manager.logdir)
+    fork_name = f"Fork of {manager.name} @ msg {after_message + 1}"
+    replace(source_config, _logdir=new_logdir, name=fork_name).save()
+
+    session = SessionManager.create_session(new_conversation_id)
+    _invalidate_conversations_cache()
+    return flask.jsonify(
+        {
+            "status": "ok",
+            "conversation_id": new_conversation_id,
+            "session_id": session.id,
+        }
+    )
 
 
 @v2_api.route("/api/v2/conversations/<string:conversation_id>", methods=["DELETE"])
