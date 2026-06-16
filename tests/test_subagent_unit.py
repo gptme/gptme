@@ -22,11 +22,13 @@ from gptme.tools.subagent.hooks import (
     _get_complete_instruction,
     _subagent_completion_hook,
     notify_completion,
+    notify_progress,
 )
 from gptme.tools.subagent.types import (
     ReturnType,
     Subagent,
     _completion_queue,
+    _progress_queue,
     _subagent_results,
     _subagent_results_lock,
     _subagents,
@@ -141,6 +143,129 @@ class TestCompletionNotifications:
             _subagent_completion_hook(manager, interactive=False, prompt_queue=None)
         )
         assert len(messages) == 0
+
+
+# ---------------------------------------------------------------------------
+# Progress notification tests
+# ---------------------------------------------------------------------------
+
+
+class TestProgressNotifications:
+    def setup_method(self):
+        """Drain the global queues before each test."""
+        for q in (_completion_queue, _progress_queue):
+            while not q.empty():
+                try:
+                    q.get_nowait()
+                except queue.Empty:
+                    break
+
+    def test_notify_progress_adds_to_queue(self):
+        notify_progress("worker-1", "Halfway done")
+        assert not _progress_queue.empty()
+        agent_id, message = _progress_queue.get_nowait()
+        assert agent_id == "worker-1"
+        assert message == "Halfway done"
+
+    def test_hook_yields_progress_before_completion(self):
+        """Progress messages are delivered before completion messages."""
+        notify_progress("agent-p", "50% done")
+        notify_completion("agent-p", "success", "all done")
+        manager = MagicMock()
+        messages = list(
+            _subagent_completion_hook(manager, interactive=False, prompt_queue=None)
+        )
+        assert len(messages) == 2
+        # Progress comes first
+        assert "⏳" in messages[0].content
+        assert "agent-p" in messages[0].content
+        assert "50% done" in messages[0].content
+        # Completion second
+        assert "✅" in messages[1].content
+        assert "agent-p" in messages[1].content
+
+    def test_hook_yields_progress_message_format(self):
+        notify_progress("my-agent", "Scanning files: 10/50 done")
+        manager = MagicMock()
+        messages = list(
+            _subagent_completion_hook(manager, interactive=False, prompt_queue=None)
+        )
+        assert len(messages) == 1
+        assert messages[0].role == "system"
+        assert "⏳" in messages[0].content
+        assert "my-agent" in messages[0].content
+        assert "Scanning files: 10/50 done" in messages[0].content
+
+    def test_hook_drains_multiple_progress_updates(self):
+        notify_progress("agent-x", "Step 1 done")
+        notify_progress("agent-x", "Step 2 done")
+        notify_progress("agent-y", "Starting")
+        manager = MagicMock()
+        messages = list(
+            _subagent_completion_hook(manager, interactive=False, prompt_queue=None)
+        )
+        assert len(messages) == 3
+        contents = [m.content for m in messages]
+        assert any("Step 1 done" in c for c in contents)
+        assert any("Step 2 done" in c for c in contents)
+        assert any("Starting" in c for c in contents)
+
+    def test_progress_mention_in_complete_instruction(self):
+        """_get_complete_instruction should mention the progress block."""
+        instruction = _get_complete_instruction()
+        assert "progress" in instruction
+        assert "```progress" in instruction
+
+
+class TestProgressTool:
+    """Tests for the progress tool execution path."""
+
+    def setup_method(self):
+        while not _progress_queue.empty():
+            try:
+                _progress_queue.get_nowait()
+            except queue.Empty:
+                break
+
+    def test_progress_tool_with_agent_id(self):
+        """When agent_id is set in thread-local, progress tool queues the update."""
+        import gptme.tools.subagent.execution as exec_mod
+        from gptme.tools.progress import execute_progress
+
+        exec_mod._thread_local.agent_id = "thread-agent"
+        try:
+            messages = list(execute_progress("Phase 1 complete.", None, None))
+        finally:
+            del exec_mod._thread_local.agent_id
+
+        assert not _progress_queue.empty()
+        agent_id, message = _progress_queue.get_nowait()
+        assert agent_id == "thread-agent"
+        assert message == "Phase 1 complete."
+        assert any("sent" in m.content for m in messages)
+
+    def test_progress_tool_without_agent_id(self):
+        """Without a thread-local agent_id (subprocess mode), tool warns but doesn't crash."""
+        import gptme.tools.subagent.execution as exec_mod
+        from gptme.tools.progress import execute_progress
+
+        # Ensure no agent_id is set
+        if hasattr(exec_mod._thread_local, "agent_id"):
+            del exec_mod._thread_local.agent_id
+
+        messages = list(execute_progress("Some update", None, None))
+
+        assert _progress_queue.empty()  # Nothing queued
+        assert len(messages) == 1
+        assert "unavailable" in messages[0].content
+
+    def test_progress_tool_empty_message(self):
+        """Empty progress block yields a warning message."""
+        from gptme.tools.progress import execute_progress
+
+        messages = list(execute_progress("", None, None))
+        assert len(messages) == 1
+        assert "empty" in messages[0].content.lower()
 
 
 # ---------------------------------------------------------------------------

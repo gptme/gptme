@@ -1,7 +1,8 @@
-"""Subagent hook system — completion notifications and instructions.
+"""Subagent hook system — completion and progress notifications.
 
 Handles the "fire-and-forget-then-get-alerted" pattern where subagent
-completions are delivered via the LOOP_CONTINUE hook as system messages.
+completions and intermediate progress updates are delivered via the
+LOOP_CONTINUE hook as system messages.
 """
 
 import logging
@@ -10,7 +11,7 @@ from collections.abc import Generator
 from typing import TYPE_CHECKING
 
 from ...message import Message
-from .types import Status, _completion_queue
+from .types import Status, _completion_queue, _progress_queue
 
 if TYPE_CHECKING:
     from ...logmanager import LogManager  # fmt: skip
@@ -34,6 +35,10 @@ def _get_complete_instruction(target: str = "orchestrator") -> str:
         f"If you cannot proceed without more information from the {target}, use the `clarify` block instead:\n"
         "```clarify\n"
         "Your specific question here.\n"
+        "```\n"
+        f"To send an intermediate progress update to the {target} (without stopping), use the `progress` block:\n"
+        "```progress\n"
+        "Brief status update: what you have done so far and what remains.\n"
         "```"
     )
 
@@ -54,6 +59,24 @@ def notify_completion(agent_id: str, status: Status, summary: str) -> None:
     logger.debug(f"Queued completion notification for subagent '{agent_id}': {status}")
 
 
+def notify_progress(agent_id: str, message: str) -> None:
+    """Add a subagent progress update to the notification queue.
+
+    Called by the progress tool when a subagent sends an intermediate update.
+    The parent's LOOP_CONTINUE hook delivers it as a system message so the
+    orchestrator can react without blocking on subagent_wait().
+
+    Note: Only works for thread-mode subagents (same process). Subprocess-mode
+    subagents cannot share the in-process queue.
+
+    Args:
+        agent_id: The subagent's identifier
+        message: Progress update message
+    """
+    _progress_queue.put((agent_id, message))
+    logger.debug(f"Queued progress notification for subagent '{agent_id}'")
+
+
 def _subagent_completion_hook(
     manager: "LogManager",
     interactive: bool,
@@ -65,11 +88,27 @@ def _subagent_completion_hook(
     This hook is triggered during each chat loop iteration via LOOP_CONTINUE.
     It checks the completion queue and yields system messages for any
     finished subagents, allowing the orchestrator to react naturally.
+
+    Also drains the progress queue and delivers intermediate updates as
+    ⏳ system messages.
     """
 
-    notifications = []
+    # Drain progress notifications first (in-flight updates before completions)
+    progress_updates: list[tuple[str, str]] = []
+    while True:
+        try:
+            agent_id, message = _progress_queue.get_nowait()
+            progress_updates.append((agent_id, message))
+        except queue.Empty:
+            break
 
-    # Drain all available notifications
+    for agent_id, message in progress_updates:
+        msg = f"⏳ Subagent '{agent_id}' progress: {message}"
+        logger.debug(f"Delivering subagent progress notification: {msg}")
+        yield Message("system", msg)
+
+    # Drain completion notifications
+    notifications: list[tuple[str, Status, str]] = []
     while True:
         try:
             agent_id, status, summary = _completion_queue.get_nowait()

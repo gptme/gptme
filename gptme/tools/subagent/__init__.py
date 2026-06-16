@@ -26,6 +26,7 @@ from .hooks import (
     _get_complete_instruction,
     _subagent_completion_hook,
     notify_completion,
+    notify_progress,
 )
 from .types import (
     ReturnType,
@@ -33,6 +34,7 @@ from .types import (
     Subagent,
     SubtaskDef,
     _completion_queue,
+    _progress_queue,
     _subagent_results,
     _subagent_results_lock,
     _subagents,
@@ -343,6 +345,7 @@ __all__ = [
     "Status",
     # Hooks
     "notify_completion",
+    "notify_progress",
     "_subagent_completion_hook",
     "_get_complete_instruction",
     # Module-level state (re-exported for backward compatibility)
@@ -351,6 +354,7 @@ __all__ = [
     "_subagent_results",
     "_subagent_results_lock",
     "_completion_queue",
+    "_progress_queue",
     # Tool registration
     "tool",
 ]

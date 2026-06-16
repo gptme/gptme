@@ -32,7 +32,21 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_SUBAGENT_SIGNAL_TOOLS = ("complete", "clarify")
+_SUBAGENT_SIGNAL_TOOLS = ("complete", "clarify", "progress")
+
+# Thread-local storage for subagent context
+# Used by the progress tool to know which agent_id it's running as
+_thread_local = threading.local()
+
+
+def get_current_agent_id() -> str | None:
+    """Return the agent_id of the currently running subagent thread, or None.
+
+    Set by _create_subagent_thread before calling chat(). Used by the progress
+    tool to identify which subagent is sending a progress update.
+    Only populated in thread-mode subagents.
+    """
+    return getattr(_thread_local, "agent_id", None)
 
 
 def _ensure_subagent_signal_tools_loaded() -> None:
@@ -122,6 +136,7 @@ def _create_subagent_thread(
     target: str = "parent",
     output_schema: type | None = None,
     profile_name: str | None = None,
+    agent_id: str | None = None,
 ) -> None:
     """Shared function for running subagent threads.
 
@@ -134,7 +149,12 @@ def _create_subagent_thread(
         workspace: Workspace directory
         target: Who will review the results ("parent" or "planner")
         profile_name: Optional agent profile to apply (system prompt + hard tool enforcement)
+        agent_id: Identifier stored in thread-local so the progress tool can self-identify
     """
+    # Store agent_id in thread-local so the progress tool can identify this subagent
+    if agent_id is not None:
+        _thread_local.agent_id = agent_id
+
     # noreorder
     from gptme.chat import chat  # fmt: skip
     from gptme.executor import prepare_execution_environment  # fmt: skip
@@ -734,6 +754,7 @@ def _run_planner(
                         workspace=ws,
                         target="planner",
                         profile_name=subtask_profile,
+                        agent_id=executor_agent_id,
                     )
                 finally:
                     try:

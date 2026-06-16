@@ -520,6 +520,7 @@ def subagent(
                         target="parent",
                         output_schema=output_schema,
                         profile_name=profile,
+                        agent_id=agent_id,
                     )
                 except Exception as e:
                     # If subagent creation fails, notify with error status
