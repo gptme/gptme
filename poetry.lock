@@ -2245,19 +2245,21 @@ flask = "*"
 
 [[package]]
 name = "flask-cors"
-version = "5.0.0"
-description = "A Flask extension adding a decorator for CORS support"
+version = "6.0.5"
+description = "A Flask extension simplifying CORS support"
 optional = true
-python-versions = "*"
+python-versions = "<4.0,>=3.9"
 groups = ["main"]
 markers = "extra == \"all\" or extra == \"server\""
 files = [
-    {file = "Flask_Cors-5.0.0-py2.py3-none-any.whl", hash = "sha256:b9e307d082a9261c100d8fb0ba909eec6a228ed1b60a8315fd85f783d61910bc"},
-    {file = "flask_cors-5.0.0.tar.gz", hash = "sha256:5aadb4b950c4e93745034594d9f3ea6591f734bb3662e16e255ffbf5e89c88ef"},
+    {file = "flask_cors-6.0.5-py3-none-any.whl", hash = "sha256:68fcf75693e961f3af26683b23c4b9a8fb6b64de17d20d0c37b95e8de7ab2ed8"},
+    {file = "flask_cors-6.0.5.tar.gz", hash = "sha256:30c5031552cd59f620ac0c8211dac45b345d3b2df310e7721879e4f46ef9c601"},
 ]
 
 [package.dependencies]
-Flask = ">=0.9"
+flask = ">=0.9"
+typing_extensions = {version = ">=4.6.0", markers = "python_version < \"3.11\""}
+Werkzeug = ">=0.7"
 
 [[package]]
 name = "fonttools"
@@ -10654,4 +10656,4 @@ telemetry = ["opentelemetry-api", "opentelemetry-exporter-otlp", "opentelemetry-
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "2389f221658325ccfbc293436bfc13f773cd59d3e959e59ad9ad7c6615d22c14"
+content-hash = "342ed27e464b6bc7fb2c2231fdc74f939197e9f08d20ea18d0882519ea0d1ef5"
