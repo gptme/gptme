@@ -115,7 +115,8 @@ jobs:
 
     - name: Start server (stable)
       env:
-        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'dummy-ci-key' }}
+        MODEL: anthropic/claude-3-5-haiku-latest
       run: |
         gptme-server --cors-origin="http://localhost:5701" &
         echo $! > /tmp/gptme-server.pid
@@ -151,7 +152,8 @@ jobs:
 
     - name: Start server (dev)
       env:
-        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'dummy-ci-key' }}
+        MODEL: anthropic/claude-3-5-haiku-latest
       run: |
         gptme-server --cors-origin="http://localhost:5701" &
         echo $! > /tmp/gptme-server.pid

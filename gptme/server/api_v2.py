@@ -336,7 +336,7 @@ def _copy_messages_for_fork(
     """Copy a message slice into a new conversation, preserving attachments."""
     source_attachments = source_logdir / "attachments"
     dest_attachments = dest_logdir / "attachments"
-    needs_attachment_copy = False
+    attachment_copies: set[tuple[Path, Path]] = set()
     copied_messages: list[Message] = []
 
     for msg in messages:
@@ -348,8 +348,10 @@ def _copy_messages_for_fork(
             )
             new_files.append(new_ref)
             if copied:
-                needs_attachment_copy = True
+                assert isinstance(new_ref, Path)
                 path_map[str(file_ref)] = str(new_ref)
+                source_path = source_attachments / new_ref.relative_to(dest_attachments)
+                attachment_copies.add((source_path, new_ref))
 
         new_file_hashes = {
             path_map.get(path, path): digest for path, digest in msg.file_hashes.items()
@@ -358,8 +360,14 @@ def _copy_messages_for_fork(
             replace(msg, files=new_files, file_hashes=new_file_hashes)
         )
 
-    if needs_attachment_copy and source_attachments.exists():
-        shutil.copytree(source_attachments, dest_attachments, dirs_exist_ok=True)
+    for source_path, dest_path in attachment_copies:
+        if not source_path.exists():
+            continue
+        if source_path.is_dir():
+            shutil.copytree(source_path, dest_path, dirs_exist_ok=True)
+        else:
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path, dest_path)
 
     return copied_messages
 
@@ -1948,7 +1956,7 @@ def api_conversation_fork(conversation_id: str):
                     "error": f"Message index {after_message} out of range (0-{len(source_messages) - 1})"
                 }
             ),
-            404,
+            400,
         )
 
     new_conversation_id = _generate_fork_conversation_id()
@@ -1960,7 +1968,6 @@ def api_conversation_fork(conversation_id: str):
     fork_manager = LogManager.load(
         logdir=new_logdir, initial_msgs=forked_messages, create=True, lock=False
     )
-    fork_manager.log = Log(forked_messages)
     fork_manager.write()
 
     source_config = ChatConfig.from_logdir(manager.logdir)
