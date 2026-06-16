@@ -1027,6 +1027,12 @@ def list_available_providers() -> list[tuple[Provider, str]]:
             available.append((CustomProvider(plugin_name), env_var))
             seen.add(plugin_name)
 
+    # Note: "mock" is intentionally absent here. It requires no credentials and
+    # is always usable when explicitly requested (e.g. "mock/echo"). Surfacing it
+    # in credential discovery would make it a candidate for auto-selection in
+    # environments with no real API keys, which is not the intended use-case.
+    # Users who want mock must specify it explicitly.
+
     return available
 
 
