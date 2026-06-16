@@ -232,6 +232,22 @@ describe('WelcomeView', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  it('does not probe loopback for first-time visitors on a hosted origin (regression guard)', () => {
+    // First-time user (no seedReturningUser) on a hosted origin where the probe
+    // would normally fire — only the `isFirstVisit` guard prevents it.
+    setLocation('https://chat.gptme.org/');
+    isConnected$.set(false);
+
+    render(
+      <SettingsProvider>
+        <WelcomeView />
+      </SettingsProvider>
+    );
+
+    // The probe must not fire — the isFirstVisit guard prevents it.
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it('detects a reachable hosted loopback server and shows CORS setup guidance before retry', async () => {
     seedReturningUser();
     setLocation('https://chat.gptme.org/');
