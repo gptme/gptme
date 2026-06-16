@@ -385,7 +385,13 @@ export const ConversationList: FC<Props> = ({
     const conversationContent = (
       <Computed>
         {() => {
-          const convState = conversations$.get(conv.id)?.peek();
+          const convObs = conversations$.get(conv.id);
+          // Subscribe to lightweight reactive fields so live-state indicators update
+          // without subscribing to data.log (the hot path this PR targets).
+          const convIsConnected = convObs?.isConnected?.get?.();
+          const convIsGenerating = convObs?.isGenerating?.get?.();
+          const convPendingTool = convObs?.pendingTool?.get?.();
+          const convName = convObs?.data?.name?.get?.();
           const isSelected = selectedId$?.get() === conv.id;
 
           return (
@@ -470,10 +476,7 @@ export const ConversationList: FC<Props> = ({
                           'linear-gradient(to right, black 0%, black calc(100% - 2rem), transparent 100%)',
                       }}
                     >
-                      {highlightText(
-                        convState?.data?.name || conv.name || stripDate(conv.id),
-                        normalizedFilter
-                      )}
+                      {highlightText(convName || conv.name || stripDate(conv.id), normalizedFilter)}
                     </div>
                     {!!conv.messages && (
                       <span className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
@@ -553,7 +556,7 @@ export const ConversationList: FC<Props> = ({
 
                   {/* Show conversation state indicators */}
                   <div className="flex items-center space-x-2">
-                    {convState?.isConnected && (
+                    {convIsConnected && (
                       <Tooltip>
                         <TooltipTrigger>
                           <span className="flex items-center">
@@ -563,7 +566,7 @@ export const ConversationList: FC<Props> = ({
                         <TooltipContent>Connected</TooltipContent>
                       </Tooltip>
                     )}
-                    {convState?.isGenerating && (
+                    {convIsGenerating && (
                       <Tooltip>
                         <TooltipTrigger>
                           <span className="flex items-center">
@@ -573,7 +576,7 @@ export const ConversationList: FC<Props> = ({
                         <TooltipContent>Generating...</TooltipContent>
                       </Tooltip>
                     )}
-                    {convState?.pendingTool && (
+                    {convPendingTool && (
                       <Tooltip>
                         <TooltipTrigger>
                           <span className="flex items-center">
@@ -581,7 +584,7 @@ export const ConversationList: FC<Props> = ({
                           </span>
                         </TooltipTrigger>
                         <TooltipContent>
-                          Pending tool: {convState.pendingTool.tooluse.tool}
+                          Pending tool: {convPendingTool.tooluse.tool}
                         </TooltipContent>
                       </Tooltip>
                     )}
