@@ -194,6 +194,7 @@ export const WelcomeView = () => {
     if (
       demoMode ||
       isConnected ||
+      isFirstVisit ||
       !isDefaultLocalServer ||
       !isHostedOrigin ||
       errorBucket !== 'unknown'
@@ -250,6 +251,7 @@ export const WelcomeView = () => {
     errorBucket,
     isConnected,
     isDefaultLocalServer,
+    isFirstVisit,
     isHostedOrigin,
   ]);
 

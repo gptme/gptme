@@ -226,6 +226,10 @@ describe('WelcomeView', () => {
     expect(screen.queryByRole('button', { name: /use gptme\.ai/i })).not.toBeInTheDocument();
     // Retry connection stays available regardless of onboarding state
     expect(screen.getByRole('button', { name: /retry connection/i })).toBeInTheDocument();
+    expect(
+      screen.queryByText(/appears to be running, but it is not allowing requests from/i)
+    ).not.toBeInTheDocument();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it('detects a reachable hosted loopback server and shows CORS setup guidance before retry', async () => {
