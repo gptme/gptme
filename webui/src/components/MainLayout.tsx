@@ -178,7 +178,7 @@ const MainLayout: FC<Props> = ({ conversationId, taskId }) => {
     const all =
       data?.pages.flatMap(
         (page: { conversations: ConversationSummary[]; nextCursor: string | undefined }) =>
-          page.conversations.map((conv) => ({
+          (page.conversations ?? []).map((conv) => ({
             ...conv,
             serverId: registry.activeServerId,
             serverName: primaryServer?.name,

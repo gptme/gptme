@@ -264,6 +264,42 @@ describe('ApiClient conversation list detail flag', () => {
       expect.any(Object)
     );
   });
+
+  it('tolerates a legacy bare-list response from servers older than #2860', async () => {
+    const legacyList = [
+      { id: 'conv-a', name: 'conv-a' },
+      { id: 'conv-b', name: 'conv-b' },
+    ];
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => legacyList,
+    } as Response);
+
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+
+    const result = await client.getConversationsPaginated(undefined, 50);
+
+    expect(result.conversations).toEqual(legacyList);
+    expect(result.nextCursor).toBeUndefined();
+  });
+
+  it('returns an empty list when the paginated response is missing the conversations field', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ next_cursor: null }),
+    } as Response);
+
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+
+    const result = await client.getConversationsPaginated(undefined, 50);
+
+    expect(result.conversations).toEqual([]);
+    expect(result.nextCursor).toBeUndefined();
+  });
 });
 
 describe('ApiClient event stream reconnection', () => {

@@ -994,14 +994,24 @@ export class ApiClient {
       if (cursor !== undefined) {
         url += `&cursor=${encodeURIComponent(cursor)}`;
       }
-      const response = await this.fetchJson<{
-        conversations: ConversationSummary[];
-        next_cursor: string | null;
-      }>(url);
+      // Tolerate both the paginated shape ({ conversations, next_cursor })
+      // and a legacy bare-list shape ([...]) returned by servers older than #2860.
+      const response = await this.fetchJson<
+        | {
+            conversations: ConversationSummary[];
+            next_cursor: string | null;
+          }
+        | ConversationSummary[]
+      >(url);
 
-      const nextCursor = response.next_cursor ?? undefined;
+      const conversations = Array.isArray(response)
+        ? response
+        : Array.isArray(response?.conversations)
+          ? response.conversations
+          : [];
+      const nextCursor = Array.isArray(response) ? undefined : (response.next_cursor ?? undefined);
 
-      return { conversations: response.conversations, nextCursor };
+      return { conversations, nextCursor };
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
         throw new ApiClientError('Request aborted', 499);
