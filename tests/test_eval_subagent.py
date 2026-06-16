@@ -152,3 +152,85 @@ def test_waited_before_result_rejects_fabricate_then_repeat():
     ]
 
     assert not check_subagent_complete_waited_before_result(messages)
+
+
+def test_clarification_checks_pass_for_full_roundtrip():
+    """Clarification eval: spawn → hook notification → subagent_reply → completion."""
+    messages = [
+        Message(
+            "assistant",
+            '```ipython\nsubagent("greeter", "Write a greeting. Ask for language via clarify.")\n```',
+        ),
+        Message("assistant", "I will read task.txt while waiting."),
+        Message(
+            "system",
+            "❓ Subagent 'greeter' needs clarification: Which language should I use?\n"
+            "Call subagent_reply('greeter', '<your answer>') to continue.",
+        ),
+        Message(
+            "assistant",
+            "```ipython\nsubagent_reply('greeter', 'English')\n```",
+        ),
+        Message(
+            "system",
+            "✅ Subagent 'greeter' completed: Hello, world!",
+        ),
+        Message("assistant", "GREETING=Hello, world!"),
+    ]
+
+    from gptme.message import Message as _Msg  # noqa: F401
+
+    def check_spawned(msgs):
+        return any(
+            m.role == "assistant"
+            and ('subagent("greeter"' in m.content or "subagent('greeter'" in m.content)
+            for m in msgs
+        )
+
+    def check_clarification_hook(msgs):
+        return any(
+            m.role == "system" and "❓" in m.content and "greeter" in m.content
+            for m in msgs
+        )
+
+    def check_reply_called(msgs):
+        return any(
+            m.role == "assistant" and "subagent_reply(" in m.content for m in msgs
+        )
+
+    def check_reply_with_english(msgs):
+        return any(
+            m.role == "assistant"
+            and "subagent_reply(" in m.content
+            and "English" in m.content
+            for m in msgs
+        )
+
+    assert check_spawned(messages)
+    assert check_clarification_hook(messages)
+    assert check_reply_called(messages)
+    assert check_reply_with_english(messages)
+
+
+def test_clarification_checks_fail_without_reply():
+    """Missing subagent_reply should fail the reply check."""
+    messages = [
+        Message(
+            "assistant",
+            '```ipython\nsubagent("greeter", "Write a greeting.")\n```',
+        ),
+        Message(
+            "system",
+            "❓ Subagent 'greeter' needs clarification: Which language?\n"
+            "Call subagent_reply('greeter', '<your answer>') to continue.",
+        ),
+        # Parent ignores the clarification and just writes the answer itself
+        Message("assistant", "GREETING=Hello!"),
+    ]
+
+    def check_reply_called(msgs):
+        return any(
+            m.role == "assistant" and "subagent_reply(" in m.content for m in msgs
+        )
+
+    assert not check_reply_called(messages)

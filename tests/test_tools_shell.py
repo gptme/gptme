@@ -1802,3 +1802,58 @@ def test_shell_cwd_parameter(tmp_path):
         assert out.strip() == str(target_dir)
     finally:
         shell.close()
+
+
+# ---------------------------------------------------------------------------
+# Tests for workspace-aware subagent suggestion (issue #554)
+# ---------------------------------------------------------------------------
+
+
+def test_check_workspace_config_no_gptme_toml(tmp_path):
+    """Returns None when there is no gptme.toml in the directory."""
+    from gptme.tools.shell import _check_workspace_config
+
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(tmp_path)
+        result = _check_workspace_config()
+        assert result is None
+    finally:
+        os.chdir(original_cwd)
+
+
+def test_check_workspace_config_with_gptme_toml(tmp_path):
+    """Returns a hint Message when gptme.toml exists in the current directory."""
+    from gptme.tools.shell import _check_workspace_config
+
+    (tmp_path / "gptme.toml").write_text("[gptme]\n")
+
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(tmp_path)
+        result = _check_workspace_config()
+        assert result is not None
+        assert result.role == "system"
+        assert "gptme.toml" in result.content
+        assert "subagent(" in result.content
+        assert str(tmp_path) in result.content
+    finally:
+        os.chdir(original_cwd)
+
+
+def test_check_workspace_config_hint_includes_workspace_name(tmp_path):
+    """The suggestion uses the workspace directory name as the agent_id."""
+    from gptme.tools.shell import _check_workspace_config
+
+    workspace = tmp_path / "my-project"
+    workspace.mkdir()
+    (workspace / "gptme.toml").write_text("[gptme]\n")
+
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(workspace)
+        result = _check_workspace_config()
+        assert result is not None
+        assert "my-project" in result.content
+    finally:
+        os.chdir(original_cwd)

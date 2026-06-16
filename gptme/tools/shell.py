@@ -1414,6 +1414,43 @@ def execute_shell_impl(
     if interrupted:
         raise KeyboardInterrupt from None
 
+    # Workspace-awareness: notify when cd enters a directory with gptme.toml
+    if not interrupted and returncode == 0:
+        cmd_stripped = cmd.strip()
+        if cmd_stripped.startswith("cd ") or cmd_stripped == "cd":
+            workspace_hint = _check_workspace_config()
+            if workspace_hint:
+                yield workspace_hint
+
+
+def _check_workspace_config() -> Message | None:
+    """Return a hint message if the current directory has a gptme.toml config.
+
+    Called after a successful ``cd`` to let the agent know it can spawn a
+    workspace-aware subagent instead of running in a generic context.
+    Returns None if no gptme.toml is found (or CWD lookup fails).
+    """
+    try:
+        cwd = Path.cwd()
+    except (FileNotFoundError, OSError):
+        return None
+
+    config_file = cwd / "gptme.toml"
+    if not config_file.exists():
+        return None
+
+    workspace_name = cwd.name
+    return Message(
+        "system",
+        f"📂 Workspace detected: `{cwd}` has a `gptme.toml` config.\n"
+        f"To work within this workspace context (custom tools, files, prompt), "
+        f"spawn a subagent here:\n"
+        f"```ipython\n"
+        f'subagent("{workspace_name}", "Your task here", use_subprocess=True)\n'
+        f"```\n"
+        f"The subagent will inherit the workspace config from `{config_file}`.",
+    )
+
 
 def _terminate_interrupted_shell(
     shell: ShellSession, log_context: str = "Shell command"
