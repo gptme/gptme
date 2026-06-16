@@ -1,4 +1,8 @@
 from gptme.eval.suites.subagent import (
+    check_clarification_hook_notification,
+    check_clarification_reply_called,
+    check_clarification_reply_with_language,
+    check_clarification_spawned,
     check_subagent_complete_hook_notification,
     check_subagent_complete_parent_result,
     check_subagent_complete_roundtrip_marker,
@@ -178,36 +182,10 @@ def test_clarification_checks_pass_for_full_roundtrip():
         Message("assistant", "GREETING=Hello, world!"),
     ]
 
-    def check_spawned(msgs):
-        return any(
-            m.role == "assistant"
-            and ('subagent("greeter"' in m.content or "subagent('greeter'" in m.content)
-            for m in msgs
-        )
-
-    def check_clarification_hook(msgs):
-        return any(
-            m.role == "system" and "❓" in m.content and "greeter" in m.content
-            for m in msgs
-        )
-
-    def check_reply_called(msgs):
-        return any(
-            m.role == "assistant" and "subagent_reply(" in m.content for m in msgs
-        )
-
-    def check_reply_with_english(msgs):
-        return any(
-            m.role == "assistant"
-            and "subagent_reply(" in m.content
-            and "English" in m.content
-            for m in msgs
-        )
-
-    assert check_spawned(messages)
-    assert check_clarification_hook(messages)
-    assert check_reply_called(messages)
-    assert check_reply_with_english(messages)
+    assert check_clarification_spawned(messages)
+    assert check_clarification_hook_notification(messages)
+    assert check_clarification_reply_called(messages)
+    assert check_clarification_reply_with_language(messages)
 
 
 def test_clarification_checks_fail_without_reply():
@@ -226,9 +204,4 @@ def test_clarification_checks_fail_without_reply():
         Message("assistant", "GREETING=Hello!"),
     ]
 
-    def check_reply_called(msgs):
-        return any(
-            m.role == "assistant" and "subagent_reply(" in m.content for m in msgs
-        )
-
-    assert not check_reply_called(messages)
+    assert not check_clarification_reply_called(messages)

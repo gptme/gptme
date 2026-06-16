@@ -108,6 +108,35 @@ def check_subagent_complete_waited_before_result(messages: list[Message]) -> boo
     return completion_idx <= result_idx
 
 
+def check_clarification_spawned(messages: list[Message]) -> bool:
+    """Parent log should show the clarification subagent being started."""
+    return _any_message_contains(
+        messages, "assistant", 'subagent("greeter"'
+    ) or _any_message_contains(messages, "assistant", "subagent('greeter'")
+
+
+def check_clarification_hook_notification(messages: list[Message]) -> bool:
+    """Parent should receive the clarification hook notification."""
+    return _any_message_contains(messages, "system", "❓") and _any_message_contains(
+        messages, "system", "greeter"
+    )
+
+
+def check_clarification_reply_called(messages: list[Message]) -> bool:
+    """Parent must call subagent_reply to resume the clarifying subagent."""
+    return _any_message_contains(messages, "assistant", "subagent_reply(")
+
+
+def check_clarification_reply_with_language(messages: list[Message]) -> bool:
+    """The subagent_reply call must supply a language answer."""
+    return any(
+        m.role == "assistant"
+        and "subagent_reply(" in m.content
+        and "English" in m.content
+        for m in messages
+    )
+
+
 _PARALLEL_A = "alpha beta gamma delta epsilon zeta\n"
 _PARALLEL_B = "one\ntwo\nthree\nfour\n"
 _NOTES = "Keep this brief. The parent can read this between spawn and wait.\n"
@@ -201,22 +230,10 @@ tests: list["EvalSpec"] = [
             "clean exit": lambda ctx: ctx.exit_code == 0,
         },
         "check_log": {
-            "spawned greeter subagent": lambda msgs: (
-                _any_message_contains(msgs, "assistant", 'subagent("greeter"')
-                or _any_message_contains(msgs, "assistant", "subagent('greeter'")
-            ),
-            "received clarification hook notification": lambda msgs: (
-                _any_message_contains(msgs, "system", "❓")
-                and _any_message_contains(msgs, "system", "greeter")
-            ),
-            "called subagent_reply": lambda msgs: _any_message_contains(
-                msgs, "assistant", "subagent_reply("
-            ),
-            "replied with English": lambda msgs: any(
-                "subagent_reply(" in m.content and "English" in m.content
-                for m in msgs
-                if m.role == "assistant"
-            ),
+            "spawned greeter subagent": check_clarification_spawned,
+            "received clarification hook notification": check_clarification_hook_notification,
+            "called subagent_reply": check_clarification_reply_called,
+            "replied with English": check_clarification_reply_with_language,
         },
     },
 ]
