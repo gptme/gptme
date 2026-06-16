@@ -844,7 +844,9 @@ class ShellSession:
                             if rc_matches:
                                 return_code = int(rc_matches[-1])
                             # if command is cd, update working directory
-                            if command.startswith("cd ") and return_code == 0:
+                            if (
+                                command == "cd" or command.startswith("cd ")
+                            ) and return_code == 0:
                                 ex, pwd, _ = self._run("pwd", output=False)
                                 if ex != 0:
                                     logger.warning(
