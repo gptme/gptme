@@ -1857,3 +1857,26 @@ def test_check_workspace_config_hint_includes_workspace_name(tmp_path):
         assert "my-project" in result.content
     finally:
         os.chdir(original_cwd)
+
+
+def test_shell_bare_cd_updates_working_directory(tmp_path):
+    """A bare ``cd`` should update cwd to HOME, not leave stale state behind."""
+    original_cwd = os.getcwd()
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
+    shell = ShellSession()
+
+    try:
+        shell.run(f'export HOME="{home_dir}"')
+        ret, out, err = shell.run("cd")
+        assert ret == 0
+        assert out == ""
+        assert err == ""
+
+        ret, out, err = shell.run("pwd")
+        assert ret == 0
+        assert out.strip() == str(home_dir)
+        assert os.getcwd() == str(home_dir)
+    finally:
+        os.chdir(original_cwd)
+        shell.close()

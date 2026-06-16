@@ -178,8 +178,6 @@ def test_clarification_checks_pass_for_full_roundtrip():
         Message("assistant", "GREETING=Hello, world!"),
     ]
 
-    from gptme.message import Message as _Msg  # noqa: F401
-
     def check_spawned(msgs):
         return any(
             m.role == "assistant"

@@ -663,7 +663,9 @@ class ShellSession:
                             rc_matches = re_returncode.findall(line)
                             if rc_matches:
                                 return_code = int(rc_matches[-1])
-                            if command.startswith("cd ") and return_code == 0:
+                            if (command == "cd" or command.startswith("cd ")) and (
+                                return_code == 0
+                            ):
                                 ex, pwd, _ = self._run("pwd", output=False)
                                 if ex == 0:
                                     os.chdir(pwd.strip())
@@ -1415,7 +1417,7 @@ def execute_shell_impl(
         raise KeyboardInterrupt from None
 
     # Workspace-awareness: notify when cd enters a directory with gptme.toml
-    if not interrupted and returncode == 0:
+    if returncode == 0:
         cmd_stripped = cmd.strip()
         if cmd_stripped.startswith("cd ") or cmd_stripped == "cd":
             workspace_hint = _check_workspace_config()
