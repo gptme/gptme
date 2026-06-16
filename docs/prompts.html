@@ -766,7 +766,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f2386e40860&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f803059c860&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1037,6 +1037,22 @@ Use a code block with the language tag: <span class="sb">`choice`</span> followe
 <span class="s">1. Option one</span>
 <span class="s">2. Option two</span>
 <span class="sb">```</span>
+
+<span class="gu">## clarify</span>
+
+<span class="gs">**Description:**</span> Signal that the subagent needs clarification from the parent before continuing
+
+<span class="gs">**Instructions:**</span> Use this block when you cannot proceed without more information from the parent.
+Write a specific, concise, answerable question inside the block.
+
+<span class="sb">```clarify</span>
+<span class="s">Your specific question here.</span>
+<span class="sb">```</span>
+
+The parent will receive your question via a hook notification and can answer
+it with ``subagent_reply(agent_id, reply)``. Do not use ``complete`` — using
+``clarify`` pauses the session so the parent can answer and re-spawn you with
+full context.
 
 <span class="gu">## complete</span>
 
@@ -2003,7 +2019,8 @@ Key features:
 <span class="k">-</span><span class="w"> </span>isolated=True: Run subagent in a git worktree for filesystem isolation
 <span class="k">-</span><span class="w"> </span>subagent_batch(): Start multiple subagents in parallel
 <span class="k">-</span><span class="w"> </span>subagent_cancel(): Cancel a running subagent (SIGTERM for subprocess, marks result for threads)
-<span class="k">-</span><span class="w"> </span>Hook-based notifications: Completions delivered as system messages
+<span class="k">-</span><span class="w"> </span>subagent_reply(agent_id, reply): Answer a clarification request and re-spawn the subagent
+<span class="k">-</span><span class="w"> </span>Hook-based notifications: Completions (and clarification requests) delivered as system messages
 
 <span class="gu">## Agent Profiles for Subagents</span>
 
@@ -2047,11 +2064,29 @@ MUST NOT DO: Store plaintext passwords, skip input validation
 CONTEXT: This is for the gptme server API, see existing endpoints in server.py
 &#39;&#39;&#39;
 
+<span class="gu">## Clarification Requests</span>
+
+When a subagent ends with a ``clarify`` block, it signals that it needs more
+information from the parent before it can continue:
+
+<span class="sb">```clarify</span>
+<span class="s">Which output format should I use: JSON or CSV?</span>
+<span class="sb">```</span>
+
+The parent receives a hook notification:
+  ❓ Subagent &#39;X&#39; needs clarification: Which output format should I use: JSON or CSV?
+  Call subagent_reply(&#39;X&#39;, &#39;&lt;your answer&gt;&#39;) to continue.
+
+Use ``subagent_reply(agent_id, reply)`` to answer and re-spawn the subagent.
+The re-spawned subagent receives the original prompt plus the Q&amp;A so it can
+complete the task without losing context.
+
 The following Python functions are available:
 
 <span class="sb">```txt</span>
 <span class="s">subagent(agent_id: str, prompt: str, mode: Literal[&quot;executor&quot;, &quot;planner&quot;], subtasks: Union[list[SubtaskDef], None], execution_mode: Literal[&quot;parallel&quot;, &quot;sequential&quot;], context_mode: Literal[&quot;full&quot;, &quot;selective&quot;], context_include: Union[list[str], None], output_schema: Union[type, None], use_subprocess: Union[bool, None], use_acp: bool, acp_command: str, profile: Union[str, None], model: Union[str, None], isolated: Union[bool, None], timeout: int, role: Union[Literal[&quot;general&quot;, &quot;explore&quot;, &quot;implement&quot;, &quot;verify&quot;], None]): Starts an asynchronous subagent. Returns None immediately.</span>
 <span class="s">subagent_cancel(agent_id: str) -&gt; str: Cancel a running subagent.</span>
+<span class="s">subagent_reply(agent_id: str, reply: str): Re-spawn a subagent that requested clarification.</span>
 <span class="s">subagent_status(agent_id: str) -&gt; dict: Returns the status of a subagent.</span>
 <span class="s">subagent_wait(agent_id: str, timeout: int) -&gt; dict: Waits for a subagent to finish.</span>
 <span class="s">subagent_read_log(agent_id: str, max_messages: int, include_system: bool, message_filter: Union[str, None]) -&gt; str: Read the conversation log of a subagent.</span>
@@ -2428,7 +2463,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 13400</p>
+<p>Tokens: 13731</p>
 </dd></dl>
 
 <dl class="py function">
