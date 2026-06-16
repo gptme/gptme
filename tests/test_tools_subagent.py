@@ -679,6 +679,8 @@ def test_subprocess_command_includes_required_flags():
             assert any("--name=" in str(arg) for arg in cmd)
             assert "--model" in cmd
             assert "test-model" in cmd
+            assert "--tools" in cmd
+            assert cmd[cmd.index("--tools") + 1] == "+clarify"
             assert "Test task" not in cmd  # Prompt passed via stdin, not argv
 
         finally:
@@ -688,6 +690,44 @@ def test_subprocess_command_includes_required_flags():
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait()
+
+
+def test_subprocess_profile_preserves_profile_tools_and_adds_clarify():
+    """Restricted subprocess profiles must keep their allowlist and add clarify."""
+    import tempfile
+    from pathlib import Path
+
+    from gptme.tools.subagent.execution import _run_subagent_subprocess
+
+    captured_cmd: list[str] = []
+
+    def fake_popen(cmd, **kwargs):
+        captured_cmd.clear()
+        captured_cmd.extend(cmd)
+        mock = MagicMock()
+        mock.poll.return_value = None
+        mock.args = cmd
+        return mock
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logdir = Path(tmpdir) / "logs"
+        logdir.mkdir()
+
+        with patch("gptme.tools.subagent.execution.subprocess.Popen", fake_popen):
+            _run_subagent_subprocess(
+                prompt="Explore task",
+                logdir=logdir,
+                model=None,
+                workspace=Path(tmpdir),
+                profile="explorer",
+            )
+
+    assert "--agent-profile" in captured_cmd
+    assert captured_cmd[captured_cmd.index("--agent-profile") + 1] == "explorer"
+    assert "--tools" in captured_cmd
+    assert captured_cmd[captured_cmd.index("--tools") + 1] == (
+        "read,chats,complete,clarify"
+    )
 
 
 @pytest.mark.slow
@@ -1195,6 +1235,7 @@ def test_profile_hard_tool_enforcement():
         ToolSpec(name="save", desc="Save files", instructions=""),
         ToolSpec(name="chats", desc="Chat management", instructions=""),
         ToolSpec(name="complete", desc="Signal completion", instructions=""),
+        ToolSpec(name="clarify", desc="Ask parent for clarification", instructions=""),
     ]
 
     # Track calls to set_tools
@@ -1233,10 +1274,11 @@ def test_profile_hard_tool_enforcement():
     assert len(set_tools_calls) == 1, f"set_tools called {len(set_tools_calls)} times"
     enforced_tools = set_tools_calls[0]
 
-    # Explorer profile allows: read, chats (+ complete always included)
+    # Explorer profile allows: read, chats (+ completion/clarification tools)
     assert "read" in enforced_tools
     assert "chats" in enforced_tools
     assert "complete" in enforced_tools
+    assert "clarify" in enforced_tools
     assert "shell" not in enforced_tools, "shell should be blocked by explorer profile"
     assert "save" not in enforced_tools, "save should be blocked by explorer profile"
 
@@ -1293,6 +1335,60 @@ def test_profile_no_restriction_skips_set_tools():
     )
 
 
+def test_create_subagent_thread_loads_signal_tools_for_default_profile(tmp_path):
+    """Default thread-mode subagents must load complete and clarify explicitly."""
+    import gptme.chat
+    import gptme.executor
+    import gptme.llm.models
+    import gptme.tools.subagent.execution
+    from gptme.tools.base import ToolSpec
+
+    loaded_tools = [ToolSpec(name="shell", desc="Run shell")]
+
+    def fake_load_tool(tool_name: str):
+        tool = ToolSpec(name=tool_name, desc=f"{tool_name} signal")
+        loaded_tools.append(tool)
+        return tool
+
+    with (
+        patch.object(
+            gptme.tools.subagent.execution,
+            "get_tools",
+            side_effect=lambda: loaded_tools,
+        ),
+        patch.object(
+            gptme.tools.subagent.execution,
+            "load_tool",
+            side_effect=fake_load_tool,
+        ) as mock_load_tool,
+        patch.object(sys.modules["gptme.chat"], "chat"),
+        patch.object(
+            gptme.executor,
+            "prepare_execution_environment",
+            return_value=(MagicMock(), loaded_tools),
+        ),
+        patch.object(gptme.llm.models, "set_default_model"),
+        patch("gptme.prompts.get_prompt", return_value=[]),
+    ):
+        from gptme.tools.subagent.execution import _create_subagent_thread
+
+        _create_subagent_thread(
+            prompt="Need context",
+            logdir=tmp_path,
+            model=None,
+            context_mode="full",
+            context_include=None,
+            workspace=tmp_path,
+            profile_name=None,
+        )
+
+    assert [call.args[0] for call in mock_load_tool.call_args_list] == [
+        "complete",
+        "clarify",
+    ]
+    assert {tool.name for tool in loaded_tools} == {"shell", "complete", "clarify"}
+
+
 def test_subprocess_mode_with_profile():
     """Test that subprocess mode passes profile via --agent-profile flag."""
     captured_cmd: list[str] = []
@@ -1342,6 +1438,7 @@ def test_create_subagent_thread_warns_on_unknown_profile_tools(tmp_path):
     tools = [
         ToolSpec(name="read", desc=""),
         ToolSpec(name="complete", desc=""),
+        ToolSpec(name="clarify", desc=""),
         ToolSpec(name="shell", desc=""),
     ]
 
@@ -1373,10 +1470,10 @@ def test_create_subagent_thread_warns_on_unknown_profile_tools(tmp_path):
     assert "unknown tools" in mock_warn.call_args.args[0]
     assert "reead" in mock_warn.call_args.args[2]
 
-    # Ensure tools passed to prompt are filtered to allowed + complete fallback
+    # Ensure tools passed to prompt are filtered to allowed + signal fallbacks
     filtered_tools = mock_prompt.call_args.args[0]
     filtered_names = {t.name for t in filtered_tools}
-    assert filtered_names == {"read", "complete"}
+    assert filtered_names == {"read", "complete", "clarify"}
 
     # Ensure chat got the user prompt message
     prompt_msgs = mock_chat.call_args.args[0]
@@ -1402,6 +1499,7 @@ def test_create_subagent_thread_profile_glob_filters_tools(tmp_path):
         ToolSpec(name="discord.send_message", desc="", is_mcp=True),
         ToolSpec(name="shell", desc=""),
         ToolSpec(name="complete", desc=""),
+        ToolSpec(name="clarify", desc=""),
     ]
 
     mock_prompt = MagicMock(return_value=[])
@@ -1433,7 +1531,7 @@ def test_create_subagent_thread_profile_glob_filters_tools(tmp_path):
 
     mock_warn.assert_not_called()
     assert set_tools_calls == [
-        ["discord.read_channel", "discord.send_message", "complete"]
+        ["discord.read_channel", "discord.send_message", "complete", "clarify"]
     ]
 
     filtered_tools = mock_prompt.call_args.args[0]
@@ -1442,6 +1540,7 @@ def test_create_subagent_thread_profile_glob_filters_tools(tmp_path):
         "discord.read_channel",
         "discord.send_message",
         "complete",
+        "clarify",
     }
 
     prompt_msgs = mock_chat.call_args.args[0]
@@ -2407,8 +2506,9 @@ def test_hint_allowlist_filters_subagent_tools(
     )
     tool_rw = ToolSpec(name="shell", desc="run shell")
     tool_complete = ToolSpec(name="complete", desc="signal done")
+    tool_clarify = ToolSpec(name="clarify", desc="ask parent")
 
-    mock_get_tools.return_value = [tool_ro, tool_rw, tool_complete]
+    mock_get_tools.return_value = [tool_ro, tool_rw, tool_complete, tool_clarify]
 
     with (
         patch.object(sys.modules["gptme.chat"], "chat"),
@@ -2437,9 +2537,10 @@ def test_hint_allowlist_filters_subagent_tools(
     assert mock_set_tools.called
     available = mock_set_tools.call_args[0][0]
 
-    # browser (has read-only hint) and complete (always included) should be present
+    # browser (has read-only hint) and signal tools (always included) should be present
     assert tool_ro in available
     assert tool_complete in available
+    assert tool_clarify in available
     # shell (no hint) must be excluded
     assert tool_rw not in available
 

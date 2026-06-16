@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from ...message import Message
-from .. import get_tools, set_tools
+from .. import get_tools, load_tool, set_tools
 from .._allowlist import (
     is_hint_pattern,
     matching_allowlist_tools,
@@ -31,6 +31,17 @@ if TYPE_CHECKING:
     from .types import ReturnType, Status, Subagent, SubtaskDef
 
 logger = logging.getLogger(__name__)
+
+_SUBAGENT_SIGNAL_TOOLS = ("complete", "clarify")
+
+
+def _ensure_subagent_signal_tools_loaded() -> None:
+    """Load disabled-by-default signal tools needed by every subagent."""
+    loaded_names = {tool.name for tool in get_tools()}
+    for tool_name in _SUBAGENT_SIGNAL_TOOLS:
+        if tool_name not in loaded_names:
+            load_tool(tool_name)
+            loaded_names.add(tool_name)
 
 
 def _load_agent_memory(profile_name: str | None) -> tuple[str | None, Path | None]:
@@ -148,6 +159,7 @@ def _create_subagent_thread(
         tool_allowlist = profile.tools
 
     prepare_execution_environment(workspace=workspace, tools=None)
+    _ensure_subagent_signal_tools_loaded()
 
     # Get tools, filtered by profile if applicable
     if tool_allowlist is not None:
@@ -173,11 +185,14 @@ def _create_subagent_thread(
             for tool in loaded_tools
             if tool_matches_allowlist(tool.name, tool_allowlist, tool.hints)
         ]
-        # Always include the complete tool so subagent can signal completion
-        complete_tools = [t for t in loaded_tools if t.name == "complete"]
-        for ct in complete_tools:
-            if ct not in available_tools:
-                available_tools.append(ct)
+        # Always include completion/clarification signal tools so restricted
+        # subagents can still end cleanly or ask the parent for more context.
+        required_tools = [
+            tool for tool in loaded_tools if tool.name in _SUBAGENT_SIGNAL_TOOLS
+        ]
+        for tool in required_tools:
+            if tool not in available_tools:
+                available_tools.append(tool)
         # Hard enforcement: replace loaded tools so execute_msg() only sees allowed tools
         set_tools(available_tools)
     else:
@@ -294,6 +309,19 @@ def _run_subagent_subprocess(
 
     if profile:
         cmd.extend(["--agent-profile", profile])
+        from ...profiles import get_profile
+
+        profile_obj = get_profile(profile)
+        if profile_obj and profile_obj.tools is not None:
+            tool_allowlist = list(profile_obj.tools)
+            for tool_name in _SUBAGENT_SIGNAL_TOOLS:
+                if tool_name not in tool_allowlist:
+                    tool_allowlist.append(tool_name)
+            cmd.extend(["--tools", ",".join(tool_allowlist)])
+        else:
+            cmd.extend(["--tools", "+clarify"])
+    else:
+        cmd.extend(["--tools", "+clarify"])
 
     # Map context_mode/context_include to the --context CLI flag
     if context_mode == "selective" and context_include:
