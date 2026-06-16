@@ -1960,7 +1960,6 @@ def api_conversation_fork(conversation_id: str):
     fork_manager = LogManager.load(
         logdir=new_logdir, initial_msgs=forked_messages, create=True, lock=False
     )
-    fork_manager.log = Log(forked_messages)
     fork_manager.write()
 
     source_config = ChatConfig.from_logdir(manager.logdir)
