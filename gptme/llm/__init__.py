@@ -161,6 +161,9 @@ def init_llm(provider: Provider):
     global _subscription_initialized
     config = get_config()
 
+    # Mock provider needs no client/auth — responses are computed in-process.
+    if provider == "mock":
+        return
     # Check if it's a built-in OpenAI-compatible provider
     if provider in PROVIDERS_OPENAI and not has_openai_client(provider):
         init_openai(provider, config)
@@ -456,6 +459,18 @@ def _chat_complete(
             messages, _get_base_model(model), tools, max_tokens=max_tokens
         )
         return content, {"model": model}
+    if provider == "mock":
+        from .llm_mock import chat as chat_mock
+
+        return chat_mock(
+            messages,
+            model,
+            tools,
+            output_schema=output_schema,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+        )
 
     # Unsupported provider - OpenAI and Anthropic are handled above
     raise ValueError(f"Unsupported provider: {provider}")
@@ -584,6 +599,19 @@ def _stream(
 
         gen = stream_subscription(
             messages, _get_base_model(model), tools, max_tokens=max_tokens
+        )
+        return _StreamWithMetadata(gen, model)
+    if provider == "mock":
+        from .llm_mock import stream as stream_mock
+
+        gen = stream_mock(
+            messages,
+            model,
+            tools,
+            output_schema=output_schema,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
         )
         return _StreamWithMetadata(gen, model)
     # Note: Validation-only fallback for streaming is complex

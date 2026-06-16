@@ -516,6 +516,24 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
     # Empty dict = models fetched dynamically or specified by user
     "gptme": {},
     "local": {},
+    # Built-in offline mock provider — no auth, deterministic canned responses.
+    # For tests, demos, and offline development. See gptme/llm/llm_mock.py.
+    "mock": {
+        # Echoes the last user message back (round-trip / plumbing tests).
+        "echo": {
+            "context": 128_000,
+            "max_output": 4096,
+            "price_input": 0,
+            "price_output": 0,
+        },
+        # Returns a fixed canned string (deterministic output tests).
+        "static": {
+            "context": 128_000,
+            "max_output": 4096,
+            "price_input": 0,
+            "price_output": 0,
+        },
+    },
 }
 
 # check that all providers have a MODELS entry

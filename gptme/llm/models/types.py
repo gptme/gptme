@@ -52,6 +52,7 @@ BuiltinProvider = Literal[
     "moonshot",
     "nvidia",
     "local",
+    "mock",
 ]
 PROVIDERS: list[BuiltinProvider] = cast(
     list[BuiltinProvider], get_args(BuiltinProvider)
