@@ -597,6 +597,7 @@ def _run_planner(
                 isolated=resolved_isolated,
                 worktree_path=worktree_path,
                 repo_path=repo_path,
+                role=subtask_role,
             )
 
             # Subprocess mode: a combined thread acquires the concurrency slot before
@@ -675,6 +676,7 @@ def _run_planner(
                 isolated=resolved_isolated,
                 worktree_path=worktree_path,
                 repo_path=repo_path,
+                role=subtask_role,
             )
 
             def run_executor(
@@ -729,6 +731,7 @@ def _run_planner(
                 isolated=resolved_isolated,
                 worktree_path=worktree_path,
                 repo_path=repo_path,
+                role=subtask_role,
             )
             # Register subagent BEFORE starting thread to avoid race condition
             # (matches pattern in api.py — thread closure may look up _subagents)

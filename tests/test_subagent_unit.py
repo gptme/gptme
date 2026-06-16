@@ -1101,6 +1101,7 @@ class TestClarifyBlock:
             acp_command="claude-code-acp",
             isolated=True,
             timeout=42,
+            role="verify",
         )
         with _subagents_lock:
             _subagents.append(sa)
@@ -1131,6 +1132,7 @@ class TestClarifyBlock:
                         acp_command=kwargs["acp_command"],
                         isolated=kwargs["isolated"],
                         timeout=kwargs["timeout"],
+                        role=kwargs["role"],
                     )
                 )
 
@@ -1151,6 +1153,7 @@ class TestClarifyBlock:
             "profile": "custom-reviewer",
             "isolated": True,
             "timeout": 42,
+            "role": "verify",
         }
         with _subagent_results_lock:
             assert "clarify-agent" not in _subagent_results
@@ -1158,6 +1161,7 @@ class TestClarifyBlock:
             matching = [s for s in _subagents if s.agent_id == "clarify-agent"]
         assert len(matching) == 1
         assert matching[0].prompt == captured["prompt"]
+        assert matching[0].role == "verify"
         assert matching[0].context_include == ["workspace", "tools"]
         assert matching[0].profile == "custom-reviewer"
         assert matching[0].execution_mode == "acp"

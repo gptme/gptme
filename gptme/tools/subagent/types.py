@@ -186,6 +186,7 @@ class Subagent:
     repo_path: Path | None = None
     # Maximum time (seconds) the subprocess monitor will wait before killing
     timeout: int = 1800  # 30 minutes
+    role: Role | None = None
 
     def get_log(self) -> "LogManager":
         # noreorder

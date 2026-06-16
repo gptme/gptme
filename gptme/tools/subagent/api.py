@@ -398,6 +398,7 @@ def subagent(
             isolated=isolated,
             worktree_path=worktree_path,
             repo_path=repo_path,
+            role=role,
         )
         # Append sa before starting the thread so the finally block can find it
         # (avoids race condition where fast completion can't locate sa in _subagents)
@@ -483,6 +484,7 @@ def subagent(
             worktree_path=worktree_path,
             repo_path=repo_path,
             timeout=timeout,
+            role=role,
         )
         with _subagents_lock:
             _subagents.append(sa)
@@ -589,6 +591,7 @@ def subagent(
             isolated=isolated,
             worktree_path=worktree_path,
             repo_path=repo_path,
+            role=role,
         )
         with _subagents_lock:
             _subagents.append(sa)
@@ -716,6 +719,7 @@ def subagent_reply(agent_id: str, reply: str) -> None:
             profile=sa.profile,
             isolated=sa.isolated,
             timeout=sa.timeout,
+            role=sa.role,
         )
     except Exception:
         with _subagents_lock:
