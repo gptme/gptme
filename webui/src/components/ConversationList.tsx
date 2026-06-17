@@ -1,36 +1,6 @@
-import {
-  Clock,
-  MessageSquare,
-  Lock,
-  Loader2,
-  Search,
-  Signal,
-  Pencil,
-  Download,
-  FileText,
-  FileJson,
-  Trash2,
-  BookOpen,
-  Columns2,
-  X,
-  Star,
-  ArrowUpDown,
-} from 'lucide-react';
+import { Loader2, Search, BookOpen, Columns2, X, Star, ArrowUpDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
-  ContextMenuTrigger,
-} from '@/components/ui/context-menu';
-import { getRelativeTimeString, groupByDate } from '@/utils/time';
-import { formatTokens } from '@/utils/conversationCost';
 import { useApi } from '@/contexts/ApiContext';
 import { demoConversations } from '@/democonversations';
 import {
@@ -38,14 +8,16 @@ import {
   exportConversationAsJSON,
   getExportableMessages,
 } from '@/utils/exportConversation';
+
 import { DeleteConversationConfirmationDialog } from './DeleteConversationConfirmationDialog';
+import { ConversationItem, getConversationName } from './ConversationItem';
 
 import { useConversationMetadata } from '@/hooks/useConversationMetadata';
 import type { ConversationSummary } from '@/types/conversation';
 import { type FC, useRef, useEffect, useState, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { Computed, use$ } from '@legendapp/state/react';
+import { use$ } from '@legendapp/state/react';
 import { type Observable } from '@legendapp/state';
 import { conversations$ } from '@/stores/conversations';
 import { toast } from 'sonner';
@@ -343,366 +315,9 @@ export const ConversationList: FC<Props> = ({
   const realConversations = conversations.filter((c) => !demoIds.has(c.id));
   const demos = conversations.filter((c) => demoIds.has(c.id));
 
-  // strip leading YYYY-MM-DD from name if present
-  function stripDate(name: string) {
-    const match = name.match(/^\d{4}-\d{2}-\d{2}[- ](.*)/);
-    return match ? match[1] : name;
-  }
-
-  function getConversationName(conv: ConversationSummary) {
-    const storeConv = conversations$.get(conv.id)?.peek();
-    return storeConv?.data?.name || conv.name || stripDate(conv.id);
-  }
-
   const normalizedFilter = filterQuery.trim().toLowerCase();
   const matchesFilter = (conv: ConversationSummary) =>
     !normalizedFilter || getConversationName(conv).toLowerCase().includes(normalizedFilter);
-
-  function highlightText(text: string, query: string) {
-    if (!query) return text;
-    const idx = text.toLowerCase().indexOf(query);
-    if (idx === -1) return text;
-    return (
-      <>
-        {text.slice(0, idx)}
-        <mark className="rounded-sm bg-yellow-200 px-0 text-yellow-900 dark:bg-yellow-700 dark:text-yellow-100">
-          {text.slice(idx, idx + query.length)}
-        </mark>
-        {text.slice(idx + query.length)}
-      </>
-    );
-  }
-
-  const ConversationItem: FC<{ conv: ConversationSummary; showLabel?: boolean }> = ({
-    conv,
-    showLabel,
-  }) => {
-    // For demo conversations, get messages from demoConversations
-    const demoConv = demoConversations.find((dc) => dc.id === conv.id);
-    const isDemo = !!demoConv;
-    const isRenaming = renamingId === conv.id;
-
-    const conversationContent = (
-      <Computed>
-        {() => {
-          const convObs = conversations$.get(conv.id);
-          // Subscribe to lightweight reactive fields so live-state indicators update
-          // without subscribing to data.log (the hot path this PR targets).
-          const convIsConnected = convObs?.isConnected?.get?.();
-          const convIsGenerating = convObs?.isGenerating?.get?.();
-          const convPendingTool = convObs?.pendingTool?.get?.();
-          const convName = convObs?.data?.name?.get?.();
-          const isSelected = selectedId$?.get() === conv.id;
-
-          return (
-            <div
-              role="button"
-              tabIndex={0}
-              aria-pressed={isSelected}
-              className={`group cursor-pointer rounded-lg py-2 pl-2 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
-                isSelected ? 'bg-accent' : ''
-              }`}
-              onClick={() => onSelect(conv.id, conv.serverId)}
-              onKeyDown={(e) => {
-                // Only act when the row itself is focused, so Enter/Space inside
-                // the inline rename input doesn't also trigger selection.
-                if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
-                  e.preventDefault();
-                  onSelect(conv.id, conv.serverId);
-                }
-              }}
-            >
-              <div>
-                {isRenaming ? (
-                  <input
-                    data-testid="conversation-rename-input"
-                    className="mb-1 w-full rounded border border-input bg-background px-1 text-sm outline-none focus:ring-1 focus:ring-ring"
-                    value={renameValue}
-                    onChange={(e) => setRenameValue(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleRenameSubmit(conv.id);
-                      } else if (e.key === 'Escape') {
-                        handleRenameCancel();
-                      }
-                    }}
-                    onBlur={() => handleRenameSubmit(conv.id)}
-                    onClick={(e) => e.stopPropagation()}
-                    autoFocus
-                  />
-                ) : (
-                  <div className="mb-1 flex items-center gap-2">
-                    {!demoIds.has(conv.id) && (
-                      <button
-                        className={`shrink-0 rounded p-0.5 transition-colors hover:text-yellow-500 focus:outline-none focus-visible:text-yellow-500 focus-visible:opacity-100 ${
-                          getIsStarred(conv)
-                            ? 'text-yellow-500 opacity-100'
-                            : 'text-muted-foreground opacity-0 focus-visible:opacity-100 group-hover:opacity-100'
-                        }`}
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          const newVal = !getIsStarred(conv);
-                          // Optimistic update
-                          setOptimisticStars((prev) => ({ ...prev, [conv.id]: newVal }));
-                          await toggleStar(conv.id, getIsStarred(conv));
-                          // Invalidate cache so server state reflects the toggle before
-                          // the optimistic entry is cleared.
-                          await queryClient.invalidateQueries({ queryKey: ['conversations'] });
-                          setOptimisticStars((prev) => {
-                            const next = { ...prev };
-                            delete next[conv.id];
-                            return next;
-                          });
-                        }}
-                        title={getIsStarred(conv) ? 'Unstar conversation' : 'Star conversation'}
-                        aria-label={
-                          getIsStarred(conv) ? 'Unstar conversation' : 'Star conversation'
-                        }
-                      >
-                        <Star
-                          className="h-3 w-3"
-                          fill={getIsStarred(conv) ? 'currentColor' : 'none'}
-                        />
-                      </button>
-                    )}
-                    <div
-                      data-testid="conversation-title"
-                      className="font-small min-w-0 flex-1 whitespace-nowrap"
-                      style={{
-                        maskImage:
-                          'linear-gradient(to right, black 0%, black calc(100% - 2rem), transparent 100%)',
-                        WebkitMaskImage:
-                          'linear-gradient(to right, black 0%, black calc(100% - 2rem), transparent 100%)',
-                      }}
-                    >
-                      {highlightText(convName || conv.name || stripDate(conv.id), normalizedFilter)}
-                    </div>
-                    {!!conv.messages && (
-                      <span className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                        <MessageSquare className="mr-1 h-3 w-3" />
-                        {conv.messages}
-                      </span>
-                    )}
-                  </div>
-                )}
-                {conv.last_message_preview && (
-                  <div
-                    className="mb-1 truncate text-xs text-muted-foreground/70"
-                    title={conv.last_message_preview}
-                  >
-                    {conv.last_message_role === 'user' ? '→ ' : '← '}
-                    {conv.last_message_preview}
-                  </div>
-                )}
-                <div className="flex items-center space-x-3 text-xs text-muted-foreground">
-                  <Tooltip>
-                    <TooltipTrigger>
-                      <time
-                        className="flex items-center whitespace-nowrap"
-                        dateTime={new Date(conv.modified * 1000).toISOString()}
-                      >
-                        <Clock className="mr-1 h-3 w-3" />
-                        {getRelativeTimeString(new Date(conv.modified * 1000))}
-                      </time>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {new Date(conv.modified * 1000).toLocaleString()}
-                    </TooltipContent>
-                  </Tooltip>
-
-                  {(() => {
-                    const summaryTokens =
-                      (conv.total_input_tokens ?? 0) +
-                      (conv.total_output_tokens ?? 0) +
-                      (conv.total_cache_read_tokens ?? 0) +
-                      (conv.total_cache_creation_tokens ?? 0);
-                    if (summaryTokens === 0) return null;
-                    return (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="flex items-center text-muted-foreground">
-                            <span className="text-[10px] text-muted-foreground/60">
-                              {formatTokens(summaryTokens)} tok
-                            </span>
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <div className="space-y-1 text-xs">
-                            <div className="font-medium">Token estimate</div>
-                            {(conv.total_input_tokens ?? 0) > 0 && (
-                              <div>Input: {formatTokens(conv.total_input_tokens!)} tokens</div>
-                            )}
-                            {(conv.total_output_tokens ?? 0) > 0 && (
-                              <div>Output: {formatTokens(conv.total_output_tokens!)} tokens</div>
-                            )}
-                            {(conv.total_cache_read_tokens ?? 0) > 0 && (
-                              <div>
-                                Cache read: {formatTokens(conv.total_cache_read_tokens!)} tokens
-                              </div>
-                            )}
-                            {(conv.total_cache_creation_tokens ?? 0) > 0 && (
-                              <div>
-                                Cache create: {formatTokens(conv.total_cache_creation_tokens!)}{' '}
-                                tokens
-                              </div>
-                            )}
-                            <div>Total: {formatTokens(summaryTokens)} tokens</div>
-                          </div>
-                        </TooltipContent>
-                      </Tooltip>
-                    );
-                  })()}
-
-                  {/* Show conversation state indicators */}
-                  <div className="flex items-center space-x-2">
-                    {convIsConnected && (
-                      <Tooltip>
-                        <TooltipTrigger>
-                          <span className="flex items-center">
-                            <Signal className="h-3 w-3 text-primary" />
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent>Connected</TooltipContent>
-                      </Tooltip>
-                    )}
-                    {convIsGenerating && (
-                      <Tooltip>
-                        <TooltipTrigger>
-                          <span className="flex items-center">
-                            <Loader2 className="h-3 w-3 animate-spin text-primary" />
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent>Generating...</TooltipContent>
-                      </Tooltip>
-                    )}
-                    {convPendingTool && (
-                      <Tooltip>
-                        <TooltipTrigger>
-                          <span className="flex items-center">
-                            <span className="text-lg">⚙️</span>
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          Pending tool: {convPendingTool.tooluse.tool}
-                        </TooltipContent>
-                      </Tooltip>
-                    )}
-                    {conv.readonly && (
-                      <Tooltip>
-                        <TooltipTrigger>
-                          <span className="flex items-center">
-                            <Lock className="h-3 w-3" />
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent>This conversation is read-only</TooltipContent>
-                      </Tooltip>
-                    )}
-                  </div>
-                  {showLabel && conv.serverName && (
-                    <span className="ml-auto rounded bg-muted px-1 py-0.5 text-[10px]">
-                      {conv.serverName}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-          );
-        }}
-      </Computed>
-    );
-
-    // Demo conversations don't support context menu actions
-    if (isDemo) {
-      return conversationContent;
-    }
-
-    return (
-      <ContextMenu>
-        <ContextMenuTrigger>{conversationContent}</ContextMenuTrigger>
-        <ContextMenuContent>
-          <ContextMenuItem
-            onClick={(e) => {
-              e.stopPropagation();
-              handleStartRename(conv);
-            }}
-          >
-            <Pencil className="mr-2 h-4 w-4" />
-            Rename
-          </ContextMenuItem>
-          <ContextMenuSub>
-            <ContextMenuSubTrigger>
-              <Download className="mr-2 h-4 w-4" />
-              Export
-            </ContextMenuSubTrigger>
-            <ContextMenuSubContent>
-              <ContextMenuItem onClick={() => handleExportMarkdown(conv)}>
-                <FileText className="mr-2 h-4 w-4" />
-                Markdown
-              </ContextMenuItem>
-              <ContextMenuItem onClick={() => handleExportJSON(conv)}>
-                <FileJson className="mr-2 h-4 w-4" />
-                JSON
-              </ContextMenuItem>
-            </ContextMenuSubContent>
-          </ContextMenuSub>
-          {onOpenInSplitView && (
-            <ContextMenuItem
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpenInSplitView(conv.id);
-              }}
-            >
-              <Columns2 className="mr-2 h-4 w-4" />
-              Open in split view
-            </ContextMenuItem>
-          )}
-          {!demoIds.has(conv.id) && (
-            <ContextMenuItem
-              onClick={(e) => {
-                e.stopPropagation();
-                const newVal = !getIsStarred(conv);
-                setOptimisticStars((prev) => ({ ...prev, [conv.id]: newVal }));
-                toggleStar(conv.id, getIsStarred(conv))
-                  .then(async () => {
-                    await queryClient.invalidateQueries({ queryKey: ['conversations'] });
-                    setOptimisticStars((prev) => {
-                      const next = { ...prev };
-                      delete next[conv.id];
-                      return next;
-                    });
-                  })
-                  .catch((err) => {
-                    console.error('Failed to toggle star from context menu:', err);
-                    setOptimisticStars((prev) => {
-                      const next = { ...prev };
-                      delete next[conv.id];
-                      return next;
-                    });
-                  });
-              }}
-            >
-              <Star className="mr-2 h-4 w-4" fill={getIsStarred(conv) ? 'currentColor' : 'none'} />
-              {getIsStarred(conv) ? 'Unstar' : 'Star'}
-            </ContextMenuItem>
-          )}
-          <ContextMenuSeparator />
-          <ContextMenuItem
-            className="text-destructive focus:text-destructive"
-            onClick={(e) => {
-              e.stopPropagation();
-              const storeConv = conversations$.get(conv.id)?.peek();
-              const name = storeConv?.data?.name || conv.name || conv.id;
-              setDeleteTarget({ id: conv.id, name });
-            }}
-          >
-            <Trash2 className="mr-2 h-4 w-4" />
-            Delete
-          </ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
-    );
-  };
 
   // Filter by search query AND star state (when showStarredOnly is active)
   const filteredRealConversations = realConversations.filter(
@@ -849,6 +464,23 @@ export const ConversationList: FC<Props> = ({
                   key={conv.serverId ? `${conv.serverId}:${conv.id}` : conv.id}
                   conv={conv}
                   showLabel={showServerLabels}
+                  selectedId$={selectedId$}
+                  onSelect={onSelect}
+                  renamingId={renamingId}
+                  renameValue={renameValue}
+                  setRenameValue={setRenameValue}
+                  onRenameSubmit={handleRenameSubmit}
+                  onRenameCancel={handleRenameCancel}
+                  setDeleteTarget={setDeleteTarget}
+                  getIsStarred={getIsStarred}
+                  toggleStar={toggleStar}
+                  onExportMarkdown={handleExportMarkdown}
+                  onExportJSON={handleExportJSON}
+                  onStartRename={handleStartRename}
+                  demoIds={demoIds}
+                  normalizedFilter={normalizedFilter}
+                  onOpenInSplitView={onOpenInSplitView}
+                  setOptimisticStars={setOptimisticStars}
                 />
               ))}
             </div>
@@ -861,6 +493,23 @@ export const ConversationList: FC<Props> = ({
               key={conv.serverId ? `${conv.serverId}:${conv.id}` : conv.id}
               conv={conv}
               showLabel={showServerLabels}
+              selectedId$={selectedId$}
+              onSelect={onSelect}
+              renamingId={renamingId}
+              renameValue={renameValue}
+              setRenameValue={setRenameValue}
+              onRenameSubmit={handleRenameSubmit}
+              onRenameCancel={handleRenameCancel}
+              setDeleteTarget={setDeleteTarget}
+              getIsStarred={getIsStarred}
+              toggleStar={toggleStar}
+              onExportMarkdown={handleExportMarkdown}
+              onExportJSON={handleExportJSON}
+              onStartRename={handleStartRename}
+              demoIds={demoIds}
+              normalizedFilter={normalizedFilter}
+              onOpenInSplitView={onOpenInSplitView}
+              setOptimisticStars={setOptimisticStars}
             />
           ))}
         </div>
@@ -915,7 +564,27 @@ export const ConversationList: FC<Props> = ({
           </div>
           <div className="space-y-2 px-2">
             {filteredDemos.map((conv) => (
-              <ConversationItem key={conv.id} conv={conv} />
+              <ConversationItem
+                key={conv.id}
+                conv={conv}
+                selectedId$={selectedId$}
+                onSelect={onSelect}
+                renamingId={renamingId}
+                renameValue={renameValue}
+                setRenameValue={setRenameValue}
+                onRenameSubmit={handleRenameSubmit}
+                onRenameCancel={handleRenameCancel}
+                setDeleteTarget={setDeleteTarget}
+                getIsStarred={getIsStarred}
+                toggleStar={toggleStar}
+                onExportMarkdown={handleExportMarkdown}
+                onExportJSON={handleExportJSON}
+                onStartRename={handleStartRename}
+                demoIds={demoIds}
+                normalizedFilter={normalizedFilter}
+                onOpenInSplitView={onOpenInSplitView}
+                setOptimisticStars={setOptimisticStars}
+              />
             ))}
           </div>
         </div>
