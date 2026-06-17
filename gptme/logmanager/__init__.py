@@ -9,6 +9,7 @@ from .conversations import (
     ConversationMeta,
     delete_conversation,
     get_conversation_by_id,
+    get_conversation_meta_direct,
     get_conversations,
     get_user_conversations,
     list_conversations,
@@ -49,6 +50,7 @@ __all__ = [
     "get_user_conversations",
     "list_conversations",
     "get_conversation_by_id",
+    "get_conversation_meta_direct",
     "rename_conversation",
     "delete_conversation",
 ]

@@ -421,6 +421,129 @@ def test_api_conversation_list_cache_tracks_patched_logs_dir(
     assert data[0]["id"] == "cache-target"
 
 
+def test_update_conversation_in_cache_partial_update(tmp_path):
+    """_update_conversation_in_cache must refresh one entry without touching others.
+
+    During LLM streaming (many rapid message additions to one conversation),
+    each POST must not wipe the full cache.  The partial-update helper must:
+    1. Keep _conversations_cache not None.
+    2. Update the modified conversation's message count and preview.
+    3. Leave other conversation entries unchanged.
+    """
+    import time
+
+    import gptme.server.api_v2 as api_v2_module
+    from gptme.logmanager import ConversationMeta
+
+    # Set up two minimal conversation files
+    active_dir = tmp_path / "active-conv"
+    other_dir = tmp_path / "other-conv"
+    active_dir.mkdir()
+    other_dir.mkdir()
+    active_file = active_dir / "conversation.jsonl"
+    other_file = other_dir / "conversation.jsonl"
+    active_file.write_text(
+        '{"role": "system", "content": "sys", "timestamp": "2026-01-01T00:00:00"}\n'
+    )
+    other_file.write_text(
+        '{"role": "system", "content": "other", "timestamp": "2026-01-01T00:00:00"}\n'
+    )
+
+    def _make_meta(conv_id: str, conv_file, n_msgs: int) -> ConversationMeta:
+        return ConversationMeta(
+            id=conv_id,
+            name=conv_id,
+            path=str(conv_file),
+            created=0.0,
+            modified=0.0,
+            messages=n_msgs,
+            branches=1,
+            workspace="",
+            agent_name=None,
+            agent_path=None,
+            agent_avatar=None,
+            agent_urls=None,
+            model=None,
+        )
+
+    # Seed the cache as if a GET just happened
+    api_v2_module._conversations_cache = [
+        _make_meta("active-conv", active_file, 1),
+        _make_meta("other-conv", other_file, 1),
+    ]
+    api_v2_module._conversations_cache_logs_dir = tmp_path
+    api_v2_module._conversations_cache_time = time.monotonic()
+
+    # Append a message to the active conversation on disk
+    with active_file.open("a") as f:
+        f.write(
+            '{"role": "user", "content": "streaming msg", "timestamp": "2026-01-01T00:00:01"}\n'
+        )
+
+    # Partial update
+    api_v2_module._update_conversation_in_cache("active-conv")
+
+    # Cache must remain warm
+    assert api_v2_module._conversations_cache is not None
+
+    # Active conv entry must be updated
+    updated_active = next(
+        c for c in api_v2_module._conversations_cache if c.id == "active-conv"
+    )
+    assert updated_active.messages == 2
+    assert updated_active.last_message_role == "user"
+    assert updated_active.last_message_preview is not None
+    assert "streaming msg" in (updated_active.last_message_preview or "")
+
+    # Other conv entry must be untouched
+    other = next(c for c in api_v2_module._conversations_cache if c.id == "other-conv")
+    assert other.messages == 1
+
+
+def test_update_conversation_in_cache_missing_conv_invalidates(tmp_path):
+    """If the conversation is deleted, partial update must fall back to full invalidation."""
+    import time
+
+    import gptme.server.api_v2 as api_v2_module
+    from gptme.logmanager import ConversationMeta
+
+    gone_dir = tmp_path / "gone-conv"
+    gone_dir.mkdir()
+    gone_file = gone_dir / "conversation.jsonl"
+    gone_file.write_text(
+        '{"role": "system", "content": "sys", "timestamp": "2026-01-01T00:00:00"}\n'
+    )
+
+    api_v2_module._conversations_cache = [
+        ConversationMeta(
+            id="gone-conv",
+            name="gone-conv",
+            path=str(gone_file),
+            created=0.0,
+            modified=0.0,
+            messages=1,
+            branches=1,
+            workspace="",
+            agent_name=None,
+            agent_path=None,
+            agent_avatar=None,
+            agent_urls=None,
+            model=None,
+        )
+    ]
+    api_v2_module._conversations_cache_logs_dir = tmp_path
+    api_v2_module._conversations_cache_time = time.monotonic()
+
+    # Delete the conversation file before partial update
+    gone_file.unlink()
+    gone_dir.rmdir()
+
+    api_v2_module._update_conversation_in_cache("gone-conv")
+
+    # Cache must be invalidated so next GET rebuilds without the deleted conv
+    assert api_v2_module._conversations_cache is None
+
+
 def test_api_conversation_get(conv, client: FlaskClient):
     response = client.get(f"/api/v2/conversations/{conv}")
     assert response.status_code == 200

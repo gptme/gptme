@@ -63,7 +63,13 @@ from ..config.user import (
     get_user_config_runtime_info,
 )
 from ..dirs import get_logs_dir
-from ..logmanager import ConversationMeta, Log, LogManager, get_user_conversations
+from ..logmanager import (
+    ConversationMeta,
+    Log,
+    LogManager,
+    get_conversation_meta_direct,
+    get_user_conversations,
+)
 from ..logmanager import conversations as conversations_module
 from ..message import Message
 from ..tools import get_toolchain, get_tools, init_tools
@@ -1650,7 +1656,9 @@ def api_conversation_post(conversation_id: str):
         },
     )
 
-    _invalidate_conversations_cache()
+    # Partial cache update: only refresh this conversation's entry so the
+    # conversations-list endpoint can keep serving from cache during streaming.
+    _update_conversation_in_cache(conversation_id)
     return flask.jsonify({"status": "ok"})
 
 
@@ -3122,3 +3130,32 @@ def _invalidate_conversations_cache() -> None:
     _conversations_cache = None
     _conversations_cache_logs_dir = None
     _conversations_cache_time = 0.0
+
+
+def _update_conversation_in_cache(conv_id: str) -> None:
+    """Refresh one conversation in the list cache without a full rescan.
+
+    When a message is appended to an existing conversation, we only need to
+    update that conversation's entry (last_message_preview, messages count,
+    modified time). This avoids the O(N_conversations) filesystem scan that a
+    full cache invalidation would trigger on the next conversations-list GET.
+
+    Falls back to full invalidation if:
+    - The cache is already stale (TTL expired) — next GET will rebuild anyway.
+    - The conversation no longer exists on disk (e.g., concurrent deletion).
+    """
+    global _conversations_cache
+    if _conversations_cache is None:
+        return
+    if (time.monotonic() - _conversations_cache_time) >= _CONVERSATIONS_CACHE_TTL:
+        return  # already stale; next GET will trigger a full rebuild
+    logs_dir = _conversations_cache_logs_dir
+    updated = get_conversation_meta_direct(conv_id, detail=False, logs_dir=logs_dir)
+    if updated is None:
+        # Conversation not found — fall back to full invalidation so the
+        # stale entry is removed on the next list request.
+        _invalidate_conversations_cache()
+        return
+    _conversations_cache = [
+        updated if c.id == conv_id else c for c in _conversations_cache
+    ]

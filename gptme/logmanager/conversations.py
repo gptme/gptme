@@ -292,6 +292,117 @@ def _full_scan(
     )
 
 
+def _meta_from_file(conv_fn: Path, *, detail: bool = True) -> ConversationMeta:
+    """Build ConversationMeta from a single conversation file path.
+
+    Reads only that one file — no glob scan over other conversations.
+    Used by get_conversations() and get_conversation_meta_direct().
+    """
+    conv_id = conv_fn.parent.name
+    log = Log.read_jsonl(conv_fn, limit=1)
+
+    conv_stat = conv_fn.stat()
+    file_size = conv_stat.st_size
+
+    if detail or file_size <= _TAIL_BYTES:
+        # Full scan: exact counts + cost/token aggregation
+        (
+            len_msgs,
+            conv_model,
+            conv_cost,
+            conv_input_tokens,
+            conv_output_tokens,
+            conv_cache_read_tokens,
+            last_msg_line,
+        ) = _full_scan(conv_fn)
+    else:
+        # Fast scan: tail-only for preview + model, fast line count
+        len_msgs, conv_model, last_msg_line = _fast_scan_tail(conv_fn, file_size)
+        conv_cost = 0.0
+        conv_input_tokens = 0
+        conv_output_tokens = 0
+        conv_cache_read_tokens = 0
+
+    last_msg_role, last_msg_preview = (
+        _parse_preview(last_msg_line) if last_msg_line else (None, None)
+    )
+
+    assert len(log) <= 1
+    modified = conv_stat.st_mtime
+    first_timestamp = log[0].timestamp.timestamp() if log else modified
+    # Try to get display name from ChatConfig, fallback to folder name
+    chat_config = ChatConfig.from_logdir(conv_fn.parent)
+    display_name = chat_config.name or conv_id
+
+    agent_path = chat_config.agent
+    agent_project_config = (
+        get_project_config(agent_path, quiet=True) if agent_path else None
+    )
+    agent_name = (
+        agent_project_config.agent.name
+        if agent_project_config and agent_project_config.agent
+        else None
+    )
+    agent_avatar = (
+        agent_project_config.agent.avatar
+        if agent_project_config and agent_project_config.agent
+        else None
+    )
+    agent_urls = (
+        agent_project_config.agent.urls
+        if agent_project_config and agent_project_config.agent
+        else None
+    )
+
+    # Count branches only when doing a full detail scan — the fast-scan
+    # path (used by the list/search endpoint) skips this per-directory
+    # glob since the webui list view doesn't display branch counts.
+    n_branches = 1 + len(list(conv_fn.parent.glob("branches/*.jsonl"))) if detail else 1
+    return ConversationMeta(
+        id=conv_id,
+        name=display_name,
+        path=str(conv_fn),
+        created=first_timestamp,
+        modified=modified,
+        messages=len_msgs,
+        branches=n_branches,
+        workspace=str(chat_config.workspace),
+        agent_name=agent_name,
+        agent_path=str(agent_path) if agent_path else None,
+        agent_avatar=agent_avatar,
+        agent_urls=agent_urls,
+        model=conv_model,
+        total_cost=conv_cost,
+        total_input_tokens=conv_input_tokens,
+        total_output_tokens=conv_output_tokens,
+        total_cache_read_tokens=conv_cache_read_tokens,
+        last_message_role=last_msg_role,
+        last_message_preview=last_msg_preview,
+    )
+
+
+def get_conversation_meta_direct(
+    conv_id: str,
+    *,
+    detail: bool = True,
+    logs_dir: Path | None = None,
+) -> ConversationMeta | None:
+    """Get a single conversation's metadata by direct path lookup.
+
+    Bypasses the full glob+stat scan used by get_conversations().  O(1) file
+    access instead of O(N_conversations) — suitable for partial cache updates
+    where only one conversation changed.
+
+    Returns None when the conversation directory or JSONL file does not exist.
+    """
+    if logs_dir is None:
+        logs_dir = get_logs_dir()
+    conv_fn = logs_dir / conv_id / "conversation.jsonl"
+    if not conv_fn.exists():
+        return None
+    return _meta_from_file(conv_fn, detail=detail)
+
+
 def get_conversations(
     *, detail: bool = True, include_test: bool = True
 ) -> Generator[ConversationMeta, None, None]:
@@ -310,89 +421,7 @@ def get_conversations(
         conv_id = conv_fn.parent.name
         if not include_test and _is_test_conversation_id(conv_id):
             continue
-
-        log = Log.read_jsonl(conv_fn, limit=1)
-
-        conv_stat = conv_fn.stat()
-        file_size = conv_stat.st_size
-
-        if detail or file_size <= _TAIL_BYTES:
-            # Full scan: exact counts + cost/token aggregation
-            (
-                len_msgs,
-                conv_model,
-                conv_cost,
-                conv_input_tokens,
-                conv_output_tokens,
-                conv_cache_read_tokens,
-                last_msg_line,
-            ) = _full_scan(conv_fn)
-        else:
-            # Fast scan: tail-only for preview + model, fast line count
-            len_msgs, conv_model, last_msg_line = _fast_scan_tail(conv_fn, file_size)
-            conv_cost = 0.0
-            conv_input_tokens = 0
-            conv_output_tokens = 0
-            conv_cache_read_tokens = 0
-
-        last_msg_role, last_msg_preview = (
-            _parse_preview(last_msg_line) if last_msg_line else (None, None)
-        )
-
-        assert len(log) <= 1
-        modified = conv_stat.st_mtime
-        first_timestamp = log[0].timestamp.timestamp() if log else modified
-        # Try to get display name from ChatConfig, fallback to folder name
-        chat_config = ChatConfig.from_logdir(conv_fn.parent)
-        display_name = chat_config.name or conv_id
-
-        agent_path = chat_config.agent
-        agent_project_config = (
-            get_project_config(agent_path, quiet=True) if agent_path else None
-        )
-        agent_name = (
-            agent_project_config.agent.name
-            if agent_project_config and agent_project_config.agent
-            else None
-        )
-        agent_avatar = (
-            agent_project_config.agent.avatar
-            if agent_project_config and agent_project_config.agent
-            else None
-        )
-        agent_urls = (
-            agent_project_config.agent.urls
-            if agent_project_config and agent_project_config.agent
-            else None
-        )
-
-        # Count branches only when doing a full detail scan — the fast-scan
-        # path (used by the list/search endpoint) skips this per-directory
-        # glob since the webui list view doesn't display branch counts.
-        n_branches = (
-            1 + len(list(conv_fn.parent.glob("branches/*.jsonl"))) if detail else 1
-        )
-        yield ConversationMeta(
-            id=conv_id,
-            name=display_name,
-            path=str(conv_fn),
-            created=first_timestamp,
-            modified=modified,
-            messages=len_msgs,
-            branches=n_branches,
-            workspace=str(chat_config.workspace),
-            agent_name=agent_name,
-            agent_path=str(agent_path) if agent_path else None,
-            agent_avatar=agent_avatar,
-            agent_urls=agent_urls,
-            model=conv_model,
-            total_cost=conv_cost,
-            total_input_tokens=conv_input_tokens,
-            total_output_tokens=conv_output_tokens,
-            total_cache_read_tokens=conv_cache_read_tokens,
-            last_message_role=last_msg_role,
-            last_message_preview=last_msg_preview,
-        )
+        yield _meta_from_file(conv_fn, detail=detail)
 
 
 def get_user_conversations(
@@ -430,8 +459,10 @@ def list_conversations(
 def get_conversation_by_id(
     conv_id: str, *, detail: bool = True
 ) -> ConversationMeta | None:
-    """
-    Get a conversation by its ID.
+    """Get a conversation by its ID.
+
+    Uses direct path lookup (O(1) file access) rather than scanning all
+    conversations.
 
     Args:
         conv_id: The conversation ID to find
@@ -439,10 +470,7 @@ def get_conversation_by_id(
     Returns:
         ConversationMeta if found, None otherwise
     """
-    for conv in get_conversations(detail=detail):
-        if conv.id == conv_id:
-            return conv
-    return None
+    return get_conversation_meta_direct(conv_id, detail=detail)
 
 
 def rename_conversation(conv_id: str, new_name: str) -> bool:
