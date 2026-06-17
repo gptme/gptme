@@ -1,7 +1,8 @@
-import { Loader2, Search, BookOpen, Columns2, X, Star, ArrowUpDown } from 'lucide-react';
+import { Loader2, Search, BookOpen, X, Star, ArrowUpDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useApi } from '@/contexts/ApiContext';
+import { groupByDate } from '@/utils/time';
 import { demoConversations } from '@/democonversations';
 import {
   exportConversationAsMarkdown,
@@ -76,7 +77,7 @@ export const ConversationList: FC<Props> = ({
   const isConnected = use$(isConnected$);
 
   const { toggleStar } = useConversationMetadata();
-  const queryClient = useQueryClient();
+
   const [showStarredOnly, setShowStarredOnly] = useState(false);
 
   const [sortBy, setSortBy] = useState<SortBy>(readSortPreference);

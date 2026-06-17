@@ -37,7 +37,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Computed } from '@legendapp/state/react';
 import { type Observable } from '@legendapp/state';
 import { conversations$ } from '@/stores/conversations';
-import { toast } from 'sonner';
 
 type MessageBreakdown = Partial<Record<MessageRole, number>>;
 
