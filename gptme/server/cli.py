@@ -163,7 +163,11 @@ def main():
     envvar="GPTME_SERVER_PORT",
     help="Port to run the server on.",
 )
-@click.option("--tools", default=None, help="Tools to enable, comma separated.")
+@click.option(
+    "--tools",
+    default=None,
+    help="Tools to enable (comma separated). Use 'none' to disable all tools.",
+)
 @click.option(
     "--cors-origin",
     default=None,
