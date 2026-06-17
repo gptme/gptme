@@ -1,3 +1,4 @@
+import json
 from typing import cast
 
 import json_repair
@@ -232,7 +233,20 @@ def test_parse_tool_use_ipython_kimi_k2():
     tooluses = list(ToolUse.iter_from_content(call))
     assert tooluses
 
-    call = """@ipython(functions.ipython:0): {"code": "import numpy as np\nimport pandas as pd\n\n# Create a simple dataset\ndata = {\n    'name': ['Alice', 'Bob', 'Charlie', 'Diana'],\n    'age': [25, 30, 35, 28],\n    'salary': [50000, 60000, 75000, 55000]\n}\ndf = pd.DataFrame(data)\n\n# Display the dataframe\nprint(\\\"Employee Data:\\\")\nprint(df)\n\n# Calculate some statistics\nprint(\\\"\\nStatistics:\\\")\nprint(f\\\"Average age: {df['age'].mean()}\\\")\nprint(f\\\"Average salary: ${df['salary'].mean():,.2f}\\\")\nprint(f\\\"Salary range: ${df['salary'].min():,.0f} - ${df['salary'].max():,.0f}\\\")"}"""
+    # Use json.dumps to produce valid JSON escaping (real newlines → \n, quotes → \")
+    # so json-repair doesn't misparse literal newlines in string values.
+    _code = (
+        "import numpy as np\nimport pandas as pd\n\n# Create a simple dataset\n"
+        "data = {\n    'name': ['Alice', 'Bob', 'Charlie', 'Diana'],\n"
+        "    'age': [25, 30, 35, 28],\n    'salary': [50000, 60000, 75000, 55000]\n}\n"
+        "df = pd.DataFrame(data)\n\n# Display the dataframe\n"
+        'print("Employee Data:")\nprint(df)\n\n# Calculate some statistics\n'
+        'print("\\nStatistics:")\n'
+        "print(f\"Average age: {df['age'].mean()}\")\n"
+        "print(f\"Average salary: ${df['salary'].mean():,.2f}\")\n"
+        "print(f\"Salary range: ${df['salary'].min():,.0f} - ${df['salary'].max():,.0f}\")"
+    )
+    call = f"@ipython(functions.ipython:0): {json.dumps({'code': _code})}"
     tooluses = list(ToolUse.iter_from_content(call))
     assert tooluses
 
