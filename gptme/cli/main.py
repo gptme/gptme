@@ -314,6 +314,7 @@ Utilities (gptme-util):
   gptme-util chats send ID MSG Queue a prompt for a running chat from another terminal
   gptme-util chats rename     Rename a conversation
   gptme-util models list      List available models
+  gptme-util snapshot list    List workspace snapshots outside a session
   gptme-util context index    Index project files for RAG
   gptme-util llm generate     Direct LLM generation without chat
 

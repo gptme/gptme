@@ -8,6 +8,7 @@ Command groups are split into separate modules for maintainability:
 - cmd_mcp.py: MCP server management (list, test, info, search)
 - cmd_batch.py: Batch runner for stdin prompts as fresh non-interactive sessions
 - cmd_skills.py: Skills and lessons (list, show, search, install, validate, etc.)
+- cmd_snapshot.py: Workspace snapshot management (list snapshots outside a session)
 
 Inline command groups (smaller, live in this file):
 - context: RAG index/retrieve plus workspace/git/journal context generation
@@ -49,6 +50,7 @@ _LAZY_COMMANDS: dict[str, tuple[str, str]] = {
     "hooks": (".cmd_hooks", "hooks"),
     "mcp": (".cmd_mcp", "mcp"),
     "skills": (".cmd_skills", "skills"),
+    "snapshot": (".cmd_snapshot", "snapshot"),
     "status": (".cmd_status", "status"),
 }
 

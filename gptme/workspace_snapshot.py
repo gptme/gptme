@@ -225,6 +225,54 @@ def list_snapshots(shadow: Shadow, limit: int = 20) -> list[tuple[str, str]]:
     return out
 
 
+def list_snapshots_rich(shadow: Shadow, limit: int = 20) -> list[dict]:
+    """Return rich snapshot metadata for CLI display.
+
+    Each entry has: ``sha``, ``label``, ``timestamp`` (unix int), ``n_msgs`` (int|None).
+    Entries are ordered newest first.
+    """
+    if not shadow.initialized():
+        return []
+    # Use ASCII unit-separator (0x1f) to delimit fields and record-separator
+    # (0x1e) to delimit entries, so labels with tabs/newlines are safe.
+    # Use %B (full raw body) rather than %s so the first line is the clean
+    # label, unaffected by git joining lines when there's no blank-line separator.
+    result = shadow.run(
+        "log",
+        "--pretty=format:%h\x1f%ct\x1f%B\x1e",
+        "--no-decorate",
+        f"-{limit}",
+        check=False,
+    )
+    if result.returncode != 0 or not result.stdout:
+        return []
+    out: list[dict] = []
+    for record in result.stdout.split("\x1e"):
+        record = record.strip()
+        if not record:
+            continue
+        parts = record.split("\x1f", 2)
+        if len(parts) < 3:
+            continue
+        sha = parts[0].strip()
+        try:
+            ts = int(parts[1].strip())
+        except ValueError:
+            ts = 0
+        lines = parts[2].splitlines()
+        label = lines[0].strip() if lines else ""
+        n_msgs: int | None = None
+        for line in lines[1:]:
+            if line.startswith("n_msgs="):
+                try:
+                    n_msgs = int(line.split("=", 1)[1].strip())
+                except ValueError:
+                    pass
+                break
+        out.append({"sha": sha, "label": label, "timestamp": ts, "n_msgs": n_msgs})
+    return out
+
+
 def _git_date_env(timestamp: int) -> dict[str, str]:
     git_date = f"{timestamp} +0000"
     return {
