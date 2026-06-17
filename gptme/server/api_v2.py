@@ -3145,7 +3145,11 @@ def _update_conversation_in_cache(conv_id: str) -> None:
     - The conversation no longer exists on disk (e.g., concurrent deletion).
     """
     global _conversations_cache
-    if _conversations_cache is None:
+    # Snapshot once to avoid TOCTOU: a concurrent _invalidate_conversations_cache()
+    # can set the global to None between our is-None guard and the any()/comprehension
+    # reads, which would raise TypeError on iteration.
+    cache = _conversations_cache
+    if cache is None:
         return
     if (time.monotonic() - _conversations_cache_time) >= _CONVERSATIONS_CACHE_TTL:
         return  # already stale; next GET will trigger a full rebuild
@@ -3156,11 +3160,9 @@ def _update_conversation_in_cache(conv_id: str) -> None:
         # stale entry is removed on the next list request.
         _invalidate_conversations_cache()
         return
-    if not any(c.id == conv_id for c in _conversations_cache):
+    if not any(c.id == conv_id for c in cache):
         # Entry not in cached list (e.g., concurrent external filesystem write).
         # Fall back to full invalidation so the list gets rebuilt correctly.
         _invalidate_conversations_cache()
         return
-    _conversations_cache = [
-        updated if c.id == conv_id else c for c in _conversations_cache
-    ]
+    _conversations_cache = [updated if c.id == conv_id else c for c in cache]
