@@ -38,6 +38,7 @@ gptme-init = "gptme.cli.cmd_init:main"
 gptme-dspy = "gptme.eval.dspy:main"
 gptme-eval-trends = "gptme.eval.trends:main"
 gptme-status = "gptme.cli.cmd_status:status"
+gptme-resume = "gptme.cli.cmd_resume:resume"
 
 [tool.poetry]
 packages = [
