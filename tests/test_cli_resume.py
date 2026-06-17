@@ -240,3 +240,39 @@ def test_resume_invoked_via_util_subcommand(
     result = runner.invoke(util_main, ["resume"])
     assert result.exit_code == 0
     assert "<<RESUMED SESSION>>" in result.output
+
+
+def test_resume_last_negative(populated_logs: tuple[Path, list[Path]], monkeypatch):
+    """Negative --last values should raise ClickException, not silently index from end."""
+    logs_dir, _ = populated_logs
+    monkeypatch.setattr("gptme.cli.cmd_resume._get_logs_dir", lambda: logs_dir)
+    runner = CliRunner()
+    result = runner.invoke(resume, ["--last", "-1"])
+    assert result.exit_code != 0
+    assert "available" in result.output.lower() or "available" in (
+        result.exception and str(result.exception) or ""
+    )
+
+
+def test_user_message_empty_content_returns_none(logs_dir: Path):
+    """Empty user message after stripping should return None, not \"\"."""
+    logs_dir.mkdir()
+    session = logs_dir / "empty-user-msg"
+    session.mkdir()
+    conv = session / "conversation.jsonl"
+    conv.write_text(json.dumps({"role": "user", "content": ""}) + "\n")
+    assert _user_message(session) is None
+
+
+def test_resume_has_task_false_for_no_user_msg(
+    populated_logs: tuple[Path, list[Path]], monkeypatch
+):
+    """--output json should report has_task: false for sessions with no user message."""
+    logs_dir, sessions = populated_logs
+    monkeypatch.setattr("gptme.cli.cmd_resume._get_logs_dir", lambda: logs_dir)
+    # sessions[2] (session-gamma) has no user task
+    runner = CliRunner()
+    result = runner.invoke(resume, ["--session", str(sessions[2]), "--output", "json"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data["has_task"] is False

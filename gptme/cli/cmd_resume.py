@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import re
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -88,13 +87,7 @@ def _user_message(session_dir: Path) -> str | None:
 
     for msg in messages:
         if msg.get("role") == "user":
-            content = str(msg.get("content", ""))
-            content = re.sub(
-                r"<!-- BOB_SESSION_SENTINEL=.*?-->",
-                "",
-                content,
-                flags=re.DOTALL,
-            ).strip()
+            content = str(msg.get("content", "")).strip()
             content = re.sub(r"\n{3,}", "\n\n", content)
             m = re.search(
                 r"(?:## Mission|## Task|## Objective|## Your Mission)(.*?)(?=\n##|\n---|\n>|---|\Z)",
@@ -105,7 +98,7 @@ def _user_message(session_dir: Path) -> str | None:
                 task = m.group(1).strip()
                 if len(task) > 30:
                     return task[:2000]
-            return content[:2000]
+            return content[:2000] or None
     return None
 
 
@@ -245,7 +238,7 @@ def resume(
     if do_list:
         if not sessions:
             click.echo("No sessions found.", err=True)
-            sys.exit(0)
+            return
         click.echo(f"Recent sessions in {logs_dir}:")
         for i, s in enumerate(sessions):
             name = _session_name(s)
@@ -267,7 +260,7 @@ def resume(
             raise click.ClickException(
                 f"No sessions found in {logs_dir}. Run a gptme session first."
             )
-        if last >= len(sessions):
+        if last < 0 or last >= len(sessions):
             raise click.ClickException(
                 f"Only {len(sessions)} session(s) available; requested index {last}."
             )
