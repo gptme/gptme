@@ -206,6 +206,19 @@ def test_resume_bad_session_path(populated_logs: tuple[Path, list[Path]], monkey
     assert result.exit_code != 0
 
 
+def test_resume_session_dir_missing_conversation_jsonl(tmp_path: Path, monkeypatch):
+    """--session DIR that exists but has no conversation.jsonl should give a clean error."""
+    logs_dir = tmp_path / "logs"
+    logs_dir.mkdir()
+    not_a_session = tmp_path / "not-a-session"
+    not_a_session.mkdir()
+    monkeypatch.setattr("gptme.cli.cmd_resume._get_logs_dir", lambda: logs_dir)
+    runner = CliRunner()
+    result = runner.invoke(resume, ["--session", str(not_a_session)])
+    assert result.exit_code != 0
+    assert "conversation.jsonl" in result.output or "valid" in result.output.lower()
+
+
 def test_resume_last_out_of_range(populated_logs: tuple[Path, list[Path]], monkeypatch):
     logs_dir, _ = populated_logs
     monkeypatch.setattr("gptme.cli.cmd_resume._get_logs_dir", lambda: logs_dir)

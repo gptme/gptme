@@ -255,6 +255,10 @@ def resume(
         session_dir = Path(session_path)
         if not session_dir.exists():
             raise click.ClickException(f"Session directory not found: {session_path}")
+        if not (session_dir / "conversation.jsonl").exists():
+            raise click.ClickException(
+                f"Not a valid gptme session (missing conversation.jsonl): {session_path}"
+            )
     else:
         if not sessions:
             raise click.ClickException(
