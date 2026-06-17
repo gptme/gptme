@@ -239,7 +239,7 @@ def list_snapshots_rich(shadow: Shadow, limit: int = 20) -> list[dict]:
     # label, unaffected by git joining lines when there's no blank-line separator.
     result = shadow.run(
         "log",
-        "--pretty=format:%h\x1f%ct\x1f%B\x1e",
+        "--pretty=format:%h%x1f%ct%x1f%B%x1e",
         "--no-decorate",
         f"-{limit}",
         check=False,
@@ -256,9 +256,9 @@ def list_snapshots_rich(shadow: Shadow, limit: int = 20) -> list[dict]:
             continue
         sha = parts[0].strip()
         try:
-            ts = int(parts[1].strip())
+            ts: int | None = int(parts[1].strip())
         except ValueError:
-            ts = 0
+            ts = None
         lines = parts[2].splitlines()
         label = lines[0].strip() if lines else ""
         n_msgs: int | None = None

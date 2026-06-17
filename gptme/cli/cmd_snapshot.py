@@ -60,7 +60,7 @@ def list_cmd(limit: int, output_json: bool, workspace: str | None) -> None:
         ts = e["timestamp"]
         dt = (
             datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
-            if ts
+            if ts is not None
             else "—" * 16
         )
         msgs = str(e["n_msgs"]) if e["n_msgs"] is not None else "—"
