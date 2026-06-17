@@ -16,7 +16,6 @@ import { ConversationItem, getConversationName } from './ConversationItem';
 import { useConversationMetadata } from '@/hooks/useConversationMetadata';
 import type { ConversationSummary } from '@/types/conversation';
 import { type FC, useRef, useEffect, useState, useCallback } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { use$ } from '@legendapp/state/react';
 import { type Observable } from '@legendapp/state';
