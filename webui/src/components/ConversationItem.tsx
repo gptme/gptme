@@ -33,8 +33,6 @@ import { Computed } from '@legendapp/state/react';
 import { type Observable } from '@legendapp/state';
 import { conversations$ } from '@/stores/conversations';
 
-type MessageBreakdown = Partial<Record<MessageRole, number>>;
-
 /** strip leading YYYY-MM-DD from name if present */
 export function stripDate(name: string): string {
   const match = name.match(/^\d{4}-\d{2}-\d{2}[- ](.*)/);
@@ -110,44 +108,16 @@ const ConversationItemInner: FC<ConversationItemProps> = ({
   const isDemo = !!demoConv;
   const isRenaming = renamingId === conv.id;
 
-  const getMessageBreakdown = (): MessageBreakdown => {
-    if (demoConv) {
-      const messages = getDemoMessages(demoConv.id);
-      return messages.reduce((acc, msg) => {
-        acc[msg.role] = (acc[msg.role] || 0) + 1;
-        return acc;
-      }, {} as MessageBreakdown);
-    }
-    const storeConv = conversations$.get(conv.id)?.get();
-    if (!storeConv?.data?.log) return {};
-    return storeConv.data.log.reduce((acc, msg$) => {
-      const role = msg$.role;
-      if (role && typeof role === 'string') {
-        acc[role as MessageRole] = (acc[role as MessageRole] || 0) + 1;
-      }
-      return acc;
-    }, {} as MessageBreakdown);
-  };
-
-  const formatBreakdown = (breakdown: MessageBreakdown) => {
-    const order: MessageRole[] = ['user', 'assistant', 'system', 'tool'];
-    return Object.entries(breakdown)
-      .sort(([a], [b]) => {
-        const aIndex = order.indexOf(a as MessageRole);
-        const bIndex = order.indexOf(b as MessageRole);
-        if (aIndex === -1 && bIndex === -1) return 0;
-        if (aIndex === -1) return 1;
-        if (bIndex === -1) return -1;
-        return aIndex - bIndex;
-      })
-      .map(([role, count]) => `${role}: ${count}`)
-      .join('\n');
-  };
-
   const conversationContent = (
     <Computed>
       {() => {
-        const convState = conversations$.get(conv.id)?.get();
+        const convObs = conversations$.get(conv.id);
+        // Subscribe to lightweight reactive fields so live-state indicators update
+        // without subscribing to data.log (the hot path during AI generation).
+        const convIsConnected = convObs?.isConnected?.get?.();
+        const convIsGenerating = convObs?.isGenerating?.get?.();
+        const convPendingTool = convObs?.pendingTool?.get?.();
+        const convName = convObs?.data?.name?.get?.();
         const isSelected = selectedId$?.get() === conv.id;
         return (
           <div
