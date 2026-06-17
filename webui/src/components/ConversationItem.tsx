@@ -234,9 +234,7 @@ const ConversationItemInner: FC<ConversationItemProps> = ({
                       const storeConv = conversations$.get(conv.id)?.get();
                       const isLoaded = storeConv?.data?.log?.length > 0;
                       const breakdown = isLoaded ? getMessageBreakdown() : {};
-                      const count = isLoaded
-                        ? Object.values(breakdown).reduce((a, b) => a + b, 0)
-                        : conv.messages;
+                      const count = conv.messages;
                       if (!count) return null;
                       const badge = (
                         <span className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
