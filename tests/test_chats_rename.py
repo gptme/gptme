@@ -56,7 +56,7 @@ def _make_conv(
 def test_rename_conversation_not_found():
     """rename_conversation returns False when conversation doesn't exist."""
     with patch(
-        "gptme.logmanager.conversations.get_conversations", return_value=iter([])
+        "gptme.logmanager.conversations.get_conversation_by_id", return_value=None
     ):
         assert rename_conversation("nonexistent", "new name") is False
 
@@ -67,7 +67,7 @@ def test_rename_conversation_updates_config(tmp_path: Path):
     conv = _make_conv("test-conv", path=str(conv_dir / "conversation.jsonl"))
 
     with patch(
-        "gptme.logmanager.conversations.get_conversations", return_value=iter([conv])
+        "gptme.logmanager.conversations.get_conversation_by_id", return_value=conv
     ):
         result = rename_conversation("test-conv", "My Renamed Chat")
 
@@ -93,7 +93,7 @@ def test_rename_conversation_preserves_existing_config(tmp_path: Path):
     conv = _make_conv("test-conv", path=str(conv_dir / "conversation.jsonl"))
 
     with patch(
-        "gptme.logmanager.conversations.get_conversations", return_value=iter([conv])
+        "gptme.logmanager.conversations.get_conversation_by_id", return_value=conv
     ):
         result = rename_conversation("test-conv", "New Name")
 
@@ -113,13 +113,12 @@ def test_rename_conversation_idempotent(tmp_path: Path):
     conv = _make_conv("test-conv", path=str(conv_dir / "conversation.jsonl"))
 
     with patch(
-        "gptme.logmanager.conversations.get_conversations", return_value=iter([conv])
+        "gptme.logmanager.conversations.get_conversation_by_id", return_value=conv
     ):
         assert rename_conversation("test-conv", "Name A") is True
 
-    # Need a fresh iterator each time
     with patch(
-        "gptme.logmanager.conversations.get_conversations", return_value=iter([conv])
+        "gptme.logmanager.conversations.get_conversation_by_id", return_value=conv
     ):
         assert rename_conversation("test-conv", "Name A") is True
 
@@ -131,7 +130,7 @@ def test_rename_conversation_no_workspace_symlink(tmp_path: Path):
     conv = _make_conv("test-conv", path=str(conv_dir / "conversation.jsonl"))
 
     with patch(
-        "gptme.logmanager.conversations.get_conversations", return_value=iter([conv])
+        "gptme.logmanager.conversations.get_conversation_by_id", return_value=conv
     ):
         rename_conversation("test-conv", "NicerName")
 
@@ -150,7 +149,7 @@ def test_cli_rename_success(tmp_path: Path):
 
     runner = CliRunner()
     with patch(
-        "gptme.logmanager.conversations.get_conversations", return_value=iter([conv])
+        "gptme.logmanager.conversations.get_conversation_by_id", return_value=conv
     ):
         result = runner.invoke(chats_rename, ["my-chat", "Better Name"])
 
@@ -163,7 +162,7 @@ def test_cli_rename_not_found():
     """CLI rename command exits with error when chat not found."""
     runner = CliRunner()
     with patch(
-        "gptme.logmanager.conversations.get_conversations", return_value=iter([])
+        "gptme.logmanager.conversations.get_conversation_by_id", return_value=None
     ):
         result = runner.invoke(chats_rename, ["nonexistent", "New Name"])
 
