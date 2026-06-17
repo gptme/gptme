@@ -25,8 +25,8 @@ import {
 } from '@/components/ui/context-menu';
 import { getRelativeTimeString } from '@/utils/time';
 import { computeConversationCost, formatCost, formatTokens } from '@/utils/conversationCost';
-import { demoConversations, getDemoMessages } from '@/democonversations';
-import type { MessageRole, ConversationSummary } from '@/types/conversation';
+import { demoConversations } from '@/democonversations';
+import type { ConversationSummary } from '@/types/conversation';
 import { type FC, memo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Computed } from '@legendapp/state/react';
@@ -194,36 +194,18 @@ const ConversationItemInner: FC<ConversationItemProps> = ({
                         'linear-gradient(to right, black 0%, black calc(100% - 2rem), transparent 100%)',
                     }}
                   >
-                    {highlightText(
-                      convState?.data?.name || conv.name || stripDate(conv.id),
-                      normalizedFilter
-                    )}
+                    {highlightText(convName || conv.name || stripDate(conv.id), normalizedFilter)}
                   </div>
-                  <Computed>
-                    {() => {
-                      const storeConv = conversations$.get(conv.id)?.get();
-                      const isLoaded = storeConv?.data?.log?.length > 0;
-                      const breakdown = isLoaded ? getMessageBreakdown() : {};
-                      const count = conv.messages;
-                      if (!count) return null;
-                      const badge = (
-                        <span className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                          <MessageSquare className="mr-1 h-3 w-3" />
-                          {count}
-                        </span>
-                      );
-                      return isLoaded ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>{badge}</TooltipTrigger>
-                          <TooltipContent>
-                            <div className="whitespace-pre">{formatBreakdown(breakdown)}</div>
-                          </TooltipContent>
-                        </Tooltip>
-                      ) : (
-                        badge
-                      );
-                    }}
-                  </Computed>
+                  {(() => {
+                    const count = conv.messages;
+                    if (!count) return null;
+                    return (
+                      <span className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                        <MessageSquare className="mr-1 h-3 w-3" />
+                        {count}
+                      </span>
+                    );
+                  })()}
                 </div>
               )}
               {conv.last_message_preview && (
@@ -336,7 +318,7 @@ const ConversationItemInner: FC<ConversationItemProps> = ({
                   }}
                 </Computed>
                 <div className="flex items-center space-x-2">
-                  {convState?.isConnected && (
+                  {convIsConnected && (
                     <Tooltip>
                       <TooltipTrigger>
                         <span className="flex items-center">
@@ -346,7 +328,7 @@ const ConversationItemInner: FC<ConversationItemProps> = ({
                       <TooltipContent>Connected</TooltipContent>
                     </Tooltip>
                   )}
-                  {convState?.isGenerating && (
+                  {convIsGenerating && (
                     <Tooltip>
                       <TooltipTrigger>
                         <span className="flex items-center">
@@ -356,16 +338,14 @@ const ConversationItemInner: FC<ConversationItemProps> = ({
                       <TooltipContent>Generating...</TooltipContent>
                     </Tooltip>
                   )}
-                  {convState?.pendingTool && (
+                  {convPendingTool && (
                     <Tooltip>
                       <TooltipTrigger>
                         <span className="flex items-center">
                           <span className="text-lg">⚙️</span>
                         </span>
                       </TooltipTrigger>
-                      <TooltipContent>
-                        Pending tool: {convState.pendingTool.tooluse.tool}
-                      </TooltipContent>
+                      <TooltipContent>Pending tool: {convPendingTool.tooluse.tool}</TooltipContent>
                     </Tooltip>
                   )}
                   {conv.readonly && (
