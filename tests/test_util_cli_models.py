@@ -177,14 +177,15 @@ class TestModelsInfo:
     def _run_models_info(*args: str):
         """Invoke 'gptme-util models info' via CliRunner for separate stdout/stderr capture.
 
-        Uses mix_stderr=False so stdout and stderr are independently accessible without
-        spawning a subprocess (which is slow on CI and can hit pytest timeouts).
+        Uses r.stdout and r.stderr (available since click 8.2) so stdout and stderr are
+        independently accessible without spawning a subprocess (which is slow on CI and
+        can hit pytest timeouts).
         """
-        runner = CliRunner(mix_stderr=False)  # type: ignore[call-arg]
+        runner = CliRunner()
         r = runner.invoke(main, ["models", "info", *args])
         result = types.SimpleNamespace(
             returncode=r.exit_code,
-            stdout=r.output,
+            stdout=r.stdout,
             stderr=r.stderr or "",
         )
         return result
