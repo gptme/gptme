@@ -3156,6 +3156,11 @@ def _update_conversation_in_cache(conv_id: str) -> None:
         # stale entry is removed on the next list request.
         _invalidate_conversations_cache()
         return
+    if not any(c.id == conv_id for c in _conversations_cache):
+        # Entry not in cached list (e.g., concurrent external filesystem write).
+        # Fall back to full invalidation so the list gets rebuilt correctly.
+        _invalidate_conversations_cache()
+        return
     _conversations_cache = [
         updated if c.id == conv_id else c for c in _conversations_cache
     ]
