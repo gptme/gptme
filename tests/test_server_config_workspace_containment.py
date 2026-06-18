@@ -7,6 +7,8 @@ Covers the security fix for path traversal via client-supplied workspace in:
 Any workspace that escapes the conversation's logdir must be rejected with 400.
 """
 
+import shutil
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -158,3 +160,57 @@ class TestPatchWorkspaceContainment:
         # Config must be unchanged
         after = client.get(f"/api/v2/conversations/{cid}/config").get_json()
         assert after.get("chat", {}).get("workspace") == orig_workspace
+
+
+class TestPatchWithoutWorkspaceKey:
+    """Regression: PATCH without 'workspace' key on conversation with
+    externally-set workspace should succeed (not block config updates).
+
+    When workspace is absent from the PATCH body, from_dict infers it from the
+    existing logdir/workspace path (which may legitimately point outside logdir
+    for CLI-created conversations). The containment check must only fire when
+    workspace was explicitly in the request body.
+    """
+
+    def _create_conv(self, client: FlaskClient) -> str:
+        cid = _conv_id()
+        resp = client.put(
+            f"/api/v2/conversations/{cid}",
+            json={"prompt": "none"},
+        )
+        assert resp.status_code == 200
+        return cid
+
+    def test_patch_without_workspace_succeeds_on_external_workspace(
+        self, client: FlaskClient
+    ):
+        """PATCH without workspace must succeed even when logdir/workspace
+        points outside logdir (simulating a CLI-created conversation)."""
+        cid = self._create_conv(client)
+
+        # Get the logdir path from the API response
+        conv = client.get(f"/api/v2/conversations/{cid}").get_json()
+        assert conv is not None
+        logdir = conv["logdir"]
+
+        # Create an external workspace directory
+        external_ws = Path("/tmp/test-external-ws-regression")
+        external_ws.mkdir(parents=True, exist_ok=True)
+
+        # Replace logdir/workspace with symlink pointing outside logdir
+        ws_path = Path(logdir) / "workspace"
+        if ws_path.is_dir():
+            shutil.rmtree(ws_path)
+        ws_path.symlink_to(str(external_ws))
+
+        # PATCH without workspace key → must succeed (200), not 400
+        resp = client.patch(
+            f"/api/v2/conversations/{cid}/config",
+            json={"chat": {"model": "gpt-4"}},
+        )
+        assert resp.status_code == 200, (
+            f"PATCH without workspace returned {resp.status_code}: {resp.get_json()}"
+        )
+
+        # Cleanup
+        shutil.rmtree(external_ws, ignore_errors=True)

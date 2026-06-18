@@ -1435,7 +1435,8 @@ def api_conversation_put(conversation_id: str):
 
     # Enforce workspace containment: server clients must not direct the agent
     # outside the conversation's logdir (path traversal / SSRF via workspace).
-    if not request_config.workspace.is_relative_to(logdir):
+    # Resolve logdir to handle symlinks (e.g. macOS /tmp -> /private/tmp).
+    if not request_config.workspace.is_relative_to(logdir.resolve()):
         return flask.jsonify({"error": "workspace escapes conversation logdir"}), 400
 
     # Create the log directory atomically to avoid TOCTOU race
@@ -2424,6 +2425,13 @@ def api_conversation_config_patch(conversation_id: str):
         except Exception as exc:
             return flask.jsonify({"error": f"Failed to load tool: {exc}"}), 400
 
+    # Determine if workspace was explicitly provided in the request body.
+    # This check must happen BEFORE ChatConfig.from_dict, which mutates the
+    # chat_patch dict by inferring workspace from the existing logdir/workspace
+    # path when workspace is absent (adding it as a side effect via the
+    # `elif _logdir and (_logdir / "workspace").exists()` branch).
+    workspace_in_patch = isinstance(chat_patch, dict) and "workspace" in chat_patch
+
     # Create and set config
     req_json["_logdir"] = logdir  # Pass logdir for "@log" workspace resolution
     try:
@@ -2433,8 +2441,14 @@ def api_conversation_config_patch(conversation_id: str):
 
     # Enforce workspace containment: server clients must not direct the agent
     # outside the conversation's logdir (path traversal / SSRF via workspace).
-    if not request_config.workspace.is_relative_to(logdir):
-        return flask.jsonify({"error": "workspace escapes conversation logdir"}), 400
+    # Only enforce when workspace was explicitly provided — when absent, from_dict
+    # infers it from the existing logdir/workspace symlink (which may legitimately
+    # point outside logdir for CLI-created conversations).
+    if workspace_in_patch:
+        if not request_config.workspace.is_relative_to(logdir.resolve()):
+            return flask.jsonify(
+                {"error": "workspace escapes conversation logdir"}
+            ), 400
 
     try:
         chat_config = ChatConfig.load_or_create(logdir, request_config).save()
