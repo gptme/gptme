@@ -173,6 +173,25 @@
   @apply hidden;
 }
 
+/* Minimal open/close animation. Uses ::details-content (Chromium 131+) so both
+   expanding and collapsing animate; browsers without support just toggle
+   instantly. Skipped when the user prefers reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .chat-message details {
+    interpolate-size: allow-keywords;
+  }
+  .chat-message details::details-content {
+    height: 0;
+    overflow: hidden;
+    transition:
+      height 0.18s ease,
+      content-visibility 0.18s allow-discrete;
+  }
+  .chat-message details[open]::details-content {
+    height: auto;
+  }
+}
+
 .chat-message details:not([open]) summary {
   @apply hover:ring hover:ring-inset hover:ring-ring;
 }
