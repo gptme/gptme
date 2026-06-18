@@ -6,6 +6,7 @@ warm reads are O(1) (cache hit). Both are bounded here.
 """
 
 import json
+import math
 import time
 
 import pytest
@@ -33,6 +34,7 @@ def _seed_conversations(tmp_path, n: int) -> None:
         (conv_dir / "conversation.jsonl").write_text(msg + "\n")
 
 
+@pytest.mark.slow
 def test_conversations_list_cold_scan_under_500ms(
     client: FlaskClient, tmp_path, monkeypatch
 ):
@@ -62,6 +64,7 @@ def test_conversations_list_cold_scan_under_500ms(
     )
 
 
+@pytest.mark.slow
 def test_conversations_list_warm_cache_p95_under_20ms(
     client: FlaskClient, tmp_path, monkeypatch
 ):
@@ -93,7 +96,7 @@ def test_conversations_list_warm_cache_p95_under_20ms(
         latencies.append(elapsed_ms)
 
     latencies.sort()
-    p95_index = int(N_SAMPLES * 0.95) - 1
+    p95_index = math.ceil(N_SAMPLES * 0.95) - 1
     p95 = latencies[p95_index]
 
     assert p95 < WARM_P95_LIMIT_MS, (
