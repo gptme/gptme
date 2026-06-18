@@ -53,6 +53,40 @@ function iconForLangtag(langtag: string): LucideIcon {
   }
 }
 
+/**
+ * Langtags whose blocks are collapsed by default: actual tool-use (executing
+ * tools, file writes, etc.) and tool output. Deliberately excludes highlight-only
+ * langs like `python`/`sh` — those are agent code examples shown to the user, so
+ * they stay open. (Note: this differs from toolCallParser's GPTME_TOOL_ALLOWLIST,
+ * which includes `python` for tool-call detection.)
+ */
+const COLLAPSE_BY_DEFAULT = new Set([
+  // tool-use
+  'shell',
+  'tmux',
+  'ipython',
+  'save',
+  'append',
+  'patch',
+  'morph',
+  'read',
+  'browser',
+  'vision',
+  'screenshot',
+  'gh',
+  'mcp',
+  'subagent',
+  // tool output
+  'stdout',
+  'stderr',
+  'result',
+  'output',
+]);
+
+function collapsesByDefault(langtag: string): boolean {
+  return COLLAPSE_BY_DEFAULT.has((langtag || '').split(' ')[0].toLowerCase());
+}
+
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
@@ -136,9 +170,10 @@ export function customRenderer(
         case smd.CODE_BLOCK:
         case smd.CODE_FENCE: {
           parent = parent.appendChild(document.createElement('details'));
-          if (blocksDefaultOpen) {
-            parent.setAttribute('open', 'true');
-          }
+          // Default to open (agent code shown to the user). Tool-use/output
+          // blocks are collapsed once their langtag is known (see smd.LANG),
+          // unless the blocksDefaultOpen override forces everything open.
+          parent.setAttribute('open', 'true');
           data.summary = parent.appendChild(document.createElement('summary'));
           data.summary.innerHTML = codeBlockLabelHtml('');
 
@@ -255,6 +290,17 @@ export function customRenderer(
           // label below). The NON-CHAT path (marked) in markdownUtils.ts still uses
           // getCodeBlockEmoji; keep the two in sync when changing labels.
           data.summary.innerHTML = codeBlockLabelHtml(value);
+
+          // Smart collapse: tool-use and tool-output blocks are for
+          // inspection/review, so collapse them by default. Agent code examples
+          // (```python, ```sh, file content, …) stay open. blocksDefaultOpen is
+          // an override that force-expands everything.
+          if (!blocksDefaultOpen && collapsesByDefault(value)) {
+            const details = data.summary.parentElement;
+            if (details?.tagName === 'DETAILS') {
+              details.removeAttribute('open');
+            }
+          }
         }
         if (data.code) {
           const langFromInfo = value ? value.split('.').pop() : undefined;
