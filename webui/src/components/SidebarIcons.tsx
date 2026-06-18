@@ -128,6 +128,7 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
         {navItems.map(({ id, icon: Icon, label, section }) => {
           const isActive = currentSection === section;
           const badge = id === 'tasks' && activeTasks.length > 0 ? activeTasks.length : null;
+          const actionLabel = id === 'chat' && isActive ? 'Toggle conversations sidebar' : label;
 
           return (
             <TooltipProvider key={id}>
@@ -137,8 +138,9 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
                     variant={isActive ? 'secondary' : 'ghost'}
                     className="relative h-8 w-full min-w-0 justify-start gap-2 px-2"
                     onClick={() => handleNavigateToSection(section)}
-                    aria-label={label}
+                    aria-label={actionLabel}
                     aria-current={isActive ? 'page' : undefined}
+                    data-testid={id === 'chat' ? 'toggle-conversations-sidebar' : undefined}
                   >
                     <Icon className="h-4 w-4 flex-shrink-0" />
                     <span
@@ -161,7 +163,7 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
                     )}
                   </Button>
                 </TooltipTrigger>
-                {!isExpanded && <TooltipContent side="right">{label}</TooltipContent>}
+                {!isExpanded && <TooltipContent side="right">{actionLabel}</TooltipContent>}
               </Tooltip>
             </TooltipProvider>
           );
