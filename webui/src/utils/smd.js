@@ -1114,7 +1114,7 @@ export function parser_write(p, chunk) {
         if (p.thinking_state === 0) {
           p.thinking_state = 1;
           add_token(p, THINKING_SUMMARY);
-          p.text = '💭 Thinking';
+          p.text = 'Thinking';
           add_text(p);
           end_token(p); // End THINKING_SUMMARY
           add_token(p, THINKING_CONTENT);
@@ -1399,7 +1399,7 @@ export function parser_write(p, chunk) {
           p.renderer.set_attr(p.renderer.data, TYPE, 'thinking');
           p.thinking_tag_type = 'thinking';
           add_token(p, THINKING_SUMMARY);
-          p.text = '💭 Thinking';
+          p.text = 'Thinking';
           add_text(p);
           end_token(p); // End THINKING_SUMMARY
           add_token(p, THINKING_CONTENT);
@@ -1415,7 +1415,7 @@ export function parser_write(p, chunk) {
           p.renderer.set_attr(p.renderer.data, TYPE, 'thinking');
           p.thinking_tag_type = 'think';
           add_token(p, THINKING_SUMMARY);
-          p.text = '💭 Thinking';
+          p.text = 'Thinking';
           add_text(p);
           end_token(p); // End THINKING_SUMMARY
           add_token(p, THINKING_CONTENT);

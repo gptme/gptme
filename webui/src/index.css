@@ -146,7 +146,7 @@
 }
 
 .chat-message .inline-codeblock .inline-codeblock-label {
-  @apply flex min-w-[5rem] flex-shrink-0 items-start gap-1.5 self-stretch whitespace-nowrap bg-muted px-3 py-1.5 text-xs text-muted-foreground;
+  @apply flex min-w-[5rem] flex-shrink-0 items-start gap-1.5 self-stretch whitespace-nowrap bg-muted px-3 py-1.5 text-xs font-medium text-foreground/80;
   /* min-width (~stdout width) so short labels align; items-start keeps the label
      aligned with the first code line; self-stretch fills full height */
 }
@@ -165,8 +165,8 @@
 }
 
 .chat-message details summary {
-  @apply flex cursor-pointer select-none list-none items-center gap-1.5 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground transition-colors;
-  /* muted so the tool name / "Thinking" reads as an indicator */
+  @apply flex cursor-pointer select-none list-none items-center gap-1.5 rounded-md bg-muted px-3 py-2 text-xs font-medium text-foreground/80 transition-colors;
+  /* higher-contrast label so the tool name / "Thinking" reads as an indicator */
 }
 
 .chat-message details summary::-webkit-details-marker {

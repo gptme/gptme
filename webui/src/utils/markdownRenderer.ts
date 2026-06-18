@@ -3,7 +3,17 @@ import { highlightCode } from '@/utils/highlightUtils';
 import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { Terminal, Code, FileText, FileCode, Globe, Eye, Flag, SquareTerminal } from 'lucide-react';
+import {
+  Terminal,
+  Code,
+  FileText,
+  FileCode,
+  Globe,
+  Eye,
+  Flag,
+  SquareTerminal,
+  Brain,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { TabbedCodeBlock } from '@/components/TabbedCodeBlock';
 
@@ -192,6 +202,16 @@ export function customRenderer(
           slot.setAttribute('class', 'hljs');
           data.nodes[++data.index] = parent.appendChild(slot);
           // }
+          break;
+        }
+        case smd.THINKING_SUMMARY: {
+          // Render the thinking summary with a lucide icon (smd.js sets the text
+          // "Thinking" right after via add_text), matching the code-block labels.
+          const summary = document.createElement('summary');
+          summary.innerHTML = `<span class="codeblock-icon">${renderToStaticMarkup(
+            createElement(Brain, { size: 14 })
+          )}</span>`;
+          data.nodes[++data.index] = parent.appendChild(summary);
           break;
         }
         default:
