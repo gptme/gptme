@@ -427,6 +427,65 @@ def _validate_message_file_references(
     return file_paths
 
 
+# Store the initial working directory at module import time (same pattern as api_v2_agents).
+# Used to restrict workspace paths supplied by API clients so they cannot point at
+# arbitrary server-side locations (path traversal via config PATCH / PUT).
+_SERVER_WORKSPACE_ROOT = Path.cwd().resolve()
+
+
+def _validate_workspace_path(
+    workspace: str | None,
+) -> tuple[flask.Response, int] | None:
+    """Validate a workspace path supplied by an API client.
+
+    Allows:
+    - None / omitted (caller uses a default)
+    - The magic "@log" sentinel (resolved relative to the conversation logdir)
+    - Any absolute or relative path that resolves **within** the server's
+      initial working directory (``_SERVER_WORKSPACE_ROOT``)
+
+    Rejects:
+    - Paths that resolve outside the server working directory, e.g. ``/etc``,
+      ``~/.ssh``, or ``../../sensitive`` — prevents workspace path traversal
+      (CWE-22) via the config PATCH and PUT endpoints.
+
+    Returns None when the path is acceptable, or a (Response, status) tuple
+    with a 400 error when it must be rejected.
+    """
+    if workspace is None or workspace == "@log":
+        return None
+
+    # Non-string values are a type error, not a traversal; let downstream
+    # validation in ChatConfig.from_dict produce the appropriate message.
+    if not isinstance(workspace, str):
+        return None
+
+    resolved = Path(workspace).expanduser().resolve()
+    try:
+        resolved.relative_to(_SERVER_WORKSPACE_ROOT)
+    except ValueError:
+        logger.warning(
+            "Rejected workspace path outside server root",
+            extra={
+                "requested": workspace,
+                "resolved": str(resolved),
+                "server_root": str(_SERVER_WORKSPACE_ROOT),
+            },
+        )
+        return (
+            flask.jsonify(
+                {
+                    "error": (
+                        "workspace path must be within the server working directory; "
+                        "use '@log' for an isolated per-conversation workspace"
+                    )
+                }
+            ),
+            400,
+        )
+    return None
+
+
 def _persist_default_model(model: str) -> bool:
     """Persist the default model to [models].default and try to apply in-process.
 
@@ -1418,6 +1477,12 @@ def api_conversation_put(conversation_id: str):
     if not isinstance(prompt, str):
         return flask.jsonify({"error": "'prompt' must be a string"}), 400
 
+    # Validate workspace path before any side effects (CWE-22: path traversal).
+    chat_raw = config_raw.get("chat", {})
+    if isinstance(chat_raw, dict) and "workspace" in chat_raw:
+        if err := _validate_workspace_path(chat_raw.get("workspace")):
+            return err
+
     # Load or create the chat config, overriding values from request config if provided
     config_dict = dict(config_raw)
     config_dict["_logdir"] = logdir  # Pass logdir for "@log" workspace resolution
@@ -2374,6 +2439,10 @@ def api_conversation_config_patch(conversation_id: str):
                     "error": "model must be a string (e.g. 'gpt-4', 'claude-sonnet-4-5-20250929')"
                 }
             ), 400
+        # Validate workspace path before any side effects (CWE-22: path traversal).
+        if "workspace" in chat_patch:
+            if err := _validate_workspace_path(chat_patch.get("workspace")):
+                return err
 
     logdir = get_logs_dir() / conversation_id
 

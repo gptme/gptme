@@ -1405,6 +1405,11 @@ def test_v2_create_conversation_default_system_prompt(
         "gptme.prompts.workspace.config_path",
         str(tmp_path / "config.toml"),
     )
+    # Expand the server workspace root to include tmp_path so the path
+    # validation guard allows the workspace used in this test.
+    import gptme.server.api_v2 as _api_v2
+
+    monkeypatch.setattr(_api_v2, "_SERVER_WORKSPACE_ROOT", tmp_path.parent.resolve())
 
     convname = f"test-server-v2-{random.randint(0, 1000000)}"
     response = client.put(

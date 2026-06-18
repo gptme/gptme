@@ -5,8 +5,12 @@ reject path traversal attempts (CWE-22) before any file system operations occur.
 """
 
 import base64
+from typing import TYPE_CHECKING
 
 import pytest
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # Minimal valid 1×1 white-pixel PNG, pre-computed so tests don't need PIL.
 # Verified: `PIL.Image.open(io.BytesIO(_VALID_PNG)).format == "PNG"`
@@ -781,3 +785,159 @@ class TestValidateBranchUnit:
                 assert result is not None, f"Should reject non-string: {value!r}"
                 _response, status_code = result
                 assert status_code == 400
+
+
+# Workspace paths that must be rejected by config PATCH and PUT because they
+# point outside the server's working directory (CWE-22 path traversal).
+WORKSPACE_TRAVERSAL_PAYLOADS = [
+    "/etc",
+    "/etc/passwd",
+    "/tmp/evil",
+    "~/.ssh",
+    "../../etc/passwd",
+    "../../../root",
+    "/home/user/.bashrc",
+]
+
+
+def _make_conv_for_workspace_test(
+    client: "FlaskClient",
+    tmp_path: "Path",
+    monkeypatch,
+):
+    """Create a minimal conversation and wire up get_logs_dir."""
+    from gptme.logmanager import LogManager
+    from gptme.message import Message
+
+    logs_dir = tmp_path / "logs"
+    conv_logdir = logs_dir / "test-ws-conv"
+    LogManager.load(
+        logdir=conv_logdir,
+        initial_msgs=[Message("user", "hi")],
+        create=True,
+    ).write()
+
+    monkeypatch.setattr(
+        "gptme.server.api_v2.get_logs_dir",
+        lambda: logs_dir,
+    )
+    return "test-ws-conv"
+
+
+class TestWorkspacePathValidation:
+    """Config PATCH and conversation PUT must reject workspace paths outside server root.
+
+    CWE-22: Improper Limitation of a Pathname to a Restricted Directory.
+    Without this check a client could set workspace=/etc and cause the server
+    to read project configs, system prompts, and tool outputs from arbitrary
+    filesystem locations.
+    """
+
+    @pytest.mark.parametrize("workspace", WORKSPACE_TRAVERSAL_PAYLOADS)
+    def test_config_patch_rejects_traversal_workspace(
+        self,
+        client: "FlaskClient",
+        tmp_path,
+        monkeypatch,
+        workspace: str,
+    ):
+        """PATCH /conversations/:id/config must reject workspace paths outside server root."""
+        conv_id = _make_conv_for_workspace_test(client, tmp_path, monkeypatch)
+
+        response = client.patch(
+            f"/api/v2/conversations/{conv_id}/config",
+            json={"chat": {"workspace": workspace}},
+        )
+
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert "workspace" in data["error"].lower()
+
+    @pytest.mark.parametrize("workspace", WORKSPACE_TRAVERSAL_PAYLOADS)
+    def test_conversation_put_rejects_traversal_workspace(
+        self,
+        client: "FlaskClient",
+        tmp_path,
+        monkeypatch,
+        workspace: str,
+    ):
+        """PUT /conversations/:id must reject workspace paths outside server root."""
+        import random
+
+        logs_dir = tmp_path / "logs"
+        monkeypatch.setattr(
+            "gptme.server.api_v2.get_logs_dir",
+            lambda: logs_dir,
+        )
+
+        conv_id = f"test-put-workspace-{random.randint(0, 1_000_000)}"
+        response = client.put(
+            f"/api/v2/conversations/{conv_id}",
+            json={"config": {"chat": {"workspace": workspace}}},
+        )
+
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data is not None
+        assert "workspace" in data["error"].lower()
+
+    def test_config_patch_accepts_at_log_workspace(
+        self,
+        client: "FlaskClient",
+        tmp_path,
+        monkeypatch,
+    ):
+        """PATCH must accept the '@log' magic sentinel (resolved relative to logdir)."""
+        conv_id = _make_conv_for_workspace_test(client, tmp_path, monkeypatch)
+
+        response = client.patch(
+            f"/api/v2/conversations/{conv_id}/config",
+            json={"chat": {"workspace": "@log"}},
+        )
+
+        # Should not be rejected for traversal (400 with "workspace" error)
+        if response.status_code == 400:
+            data = response.get_json()
+            assert data is None or "workspace" not in data.get("error", "").lower()
+
+    def test_config_patch_accepts_subdir_of_server_root(
+        self,
+        client: "FlaskClient",
+        tmp_path,
+        monkeypatch,
+    ):
+        """PATCH must accept a workspace path that is inside the server's working dir."""
+        from gptme.server.api_v2 import _SERVER_WORKSPACE_ROOT
+
+        # Create a subdirectory of the server root (always valid)
+        safe_workspace = _SERVER_WORKSPACE_ROOT / "safe-subdir"
+        safe_workspace.mkdir(parents=True, exist_ok=True)
+
+        conv_id = _make_conv_for_workspace_test(client, tmp_path, monkeypatch)
+
+        response = client.patch(
+            f"/api/v2/conversations/{conv_id}/config",
+            json={"chat": {"workspace": str(safe_workspace)}},
+        )
+
+        # Should not be rejected for traversal (400 with "workspace" error)
+        if response.status_code == 400:
+            data = response.get_json()
+            assert data is None or "workspace" not in data.get("error", "").lower()
+
+    def test_validate_workspace_path_unit(self):
+        """Unit test: _validate_workspace_path rejects paths outside server root."""
+        from gptme.server.api_v2 import _validate_workspace_path  # fmt: skip
+        from gptme.server.app import create_app
+
+        app = create_app()
+        with app.app_context():
+            # @log sentinel is always allowed
+            assert _validate_workspace_path(None) is None
+            assert _validate_workspace_path("@log") is None
+
+            # Paths outside server root must be rejected
+            assert _validate_workspace_path("/etc") is not None
+            assert _validate_workspace_path("/etc/passwd") is not None
+            assert _validate_workspace_path("../../etc/passwd") is not None
