@@ -3,65 +3,9 @@ import { highlightCode } from '@/utils/highlightUtils';
 import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import {
-  Terminal,
-  Code,
-  FileText,
-  FileCode,
-  Globe,
-  Eye,
-  Flag,
-  SquareTerminal,
-  Brain,
-} from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+import { Brain } from 'lucide-react';
+import { codeBlockLabelHtml } from '@/utils/codeBlockIcons';
 import { TabbedCodeBlock } from '@/components/TabbedCodeBlock';
-
-/**
- * Pick a lucide icon for a code-block langtag. Mirrors the icon set used by
- * CollapsedStepGroup so tool indicators look consistent across the UI.
- */
-function iconForLangtag(langtag: string): LucideIcon {
-  const tag = (langtag || '').split(' ')[0].toLowerCase();
-  // file path (e.g. /path/to/file.py)
-  if ((tag.includes('/') || tag.includes('\\') || tag.includes('.')) && tag === langtag) {
-    return FileCode;
-  }
-  switch (tag) {
-    case 'shell':
-    case 'tmux':
-    case 'sh':
-    case 'bash':
-    case 'zsh':
-    case 'console':
-      return Terminal;
-    case 'ipython':
-    case 'python':
-      return Code;
-    case 'save':
-    case 'append':
-    case 'patch':
-    case 'morph':
-    case 'read':
-      return FileText;
-    case 'browser':
-    case 'search':
-    case 'web':
-      return Globe;
-    case 'vision':
-    case 'screenshot':
-      return Eye;
-    case 'stdout':
-    case 'stderr':
-    case 'result':
-    case 'output':
-      return SquareTerminal;
-    case 'complete':
-      return Flag;
-    default:
-      return Code;
-  }
-}
 
 /**
  * Langtags whose blocks are collapsed by default: actual tool-use (executing
@@ -95,21 +39,6 @@ const COLLAPSE_BY_DEFAULT = new Set([
 
 function collapsesByDefault(langtag: string): boolean {
   return COLLAPSE_BY_DEFAULT.has((langtag || '').split(' ')[0].toLowerCase());
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-/**
- * Build the inner HTML for a code-block label: a lucide icon followed by the
- * langtag text. Used for both the <details> summary and the inline label.
- */
-function codeBlockLabelHtml(langtag: string, fallbackText = 'Code'): string {
-  const Icon = iconForLangtag(langtag);
-  const svg = renderToStaticMarkup(createElement(Icon, { size: 14 }));
-  const text = langtag ? escapeHtml(langtag) : fallbackText;
-  return `<span class="codeblock-icon">${svg}</span><span class="codeblock-label-text">${text}</span>`;
 }
 
 /**

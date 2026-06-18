@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { getCodeBlockEmoji } from '@/utils/markdownUtils';
+import { iconForLangtag } from '@/utils/codeBlockIcons';
 import * as smd from '@/utils/smd';
 import { customRenderer } from '@/utils/markdownRenderer';
 import { CodeDisplay } from '@/components/CodeDisplay';
@@ -14,7 +14,7 @@ export function MarkdownPreviewTabs({ content, language = 'markdown' }: Markdown
   const previewRef = useRef<HTMLDivElement>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
 
-  const emoji = getCodeBlockEmoji(language);
+  const LangIcon = iconForLangtag(language);
 
   // Handle markdown rendering when the preview tab is selected
   useEffect(() => {
@@ -65,7 +65,9 @@ export function MarkdownPreviewTabs({ content, language = 'markdown' }: Markdown
           }`}
           onClick={() => setActiveTab('code')}
         >
-          {emoji} Code
+          <span className="inline-flex items-center gap-1">
+            <LangIcon className="h-3.5 w-3.5" /> Code
+          </span>
         </button>
       </div>
 
