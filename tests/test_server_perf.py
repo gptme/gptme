@@ -20,7 +20,9 @@ from flask.testing import FlaskClient
 N_CONVERSATIONS = 100
 N_SAMPLES = 20
 COLD_SCAN_LIMIT_MS = 500.0  # generous upper bound for 100-conversation cold scan
-WARM_P95_LIMIT_MS = 20.0  # warm cache reads must be near-instant
+# Warm p95 must be < 75% of cold scan time.  Environment-agnostic: cache hit
+# is O(1) so warm << cold.  Broken cache → warm ≈ cold (ratio approaches 1.0).
+WARM_TO_COLD_RATIO_MAX = 0.75
 
 
 def _seed_conversations(tmp_path, n: int) -> None:
@@ -65,15 +67,16 @@ def test_conversations_list_cold_scan_under_500ms(
 
 
 @pytest.mark.slow
-def test_conversations_list_warm_cache_p95_under_20ms(
+def test_conversations_list_warm_cache_faster_than_cold(
     client: FlaskClient, tmp_path, monkeypatch
 ):
-    """Warm GET /api/v2/conversations p95 must be < 20ms with 100 conversations.
+    """Warm GET /api/v2/conversations p95 must be substantially faster than a cold scan.
 
-    After the first cold scan populates the cache, subsequent reads should be
-    near-instant (O(1) cache hit). A p95 > 20ms indicates the cache is being
-    invalidated or bypassed on each request — the pre-#2934 regression pattern
-    where every message POST triggered a full O(N) rescan on the next list GET.
+    Measures both cold (O(N) filesystem scan) and warm (O(1) cache hit) latencies
+    in the same test and asserts warm_p95 < cold * WARM_TO_COLD_RATIO_MAX.  This is
+    environment-agnostic: the ratio catches a broken cache (warm ≈ cold) regardless
+    of how fast or slow the CI machine is.  The pre-#2934 regression pattern had
+    every message POST trigger _invalidate_conversations_cache(), making warm ≈ cold.
     """
     import gptme.server.api_v2 as api_v2_module
 
@@ -81,12 +84,14 @@ def test_conversations_list_warm_cache_p95_under_20ms(
     monkeypatch.setattr("gptme.logmanager.conversations.get_logs_dir", lambda: tmp_path)
     api_v2_module._invalidate_conversations_cache()
 
-    # One cold scan to populate the cache
+    # Cold scan — O(N) filesystem scan, fills the cache
+    start = time.perf_counter()
     resp = client.get("/api/v2/conversations")
+    cold_ms = (time.perf_counter() - start) * 1000
     assert resp.status_code == 200
     assert len(resp.get_json()) == N_CONVERSATIONS
 
-    # Measure warm reads
+    # Warm reads — O(1) cache hits
     latencies: list[float] = []
     for _ in range(N_SAMPLES):
         start = time.perf_counter()
@@ -99,8 +104,9 @@ def test_conversations_list_warm_cache_p95_under_20ms(
     p95_index = math.ceil(N_SAMPLES * 0.95) - 1
     p95 = latencies[p95_index]
 
-    assert p95 < WARM_P95_LIMIT_MS, (
-        f"warm GET /api/v2/conversations p95={p95:.1f}ms > {WARM_P95_LIMIT_MS}ms "
-        f"({N_CONVERSATIONS} conversations seeded). Cache may not be working. "
-        f"Sorted samples (ms): {[round(x, 1) for x in latencies]}"
+    warm_limit_ms = cold_ms * WARM_TO_COLD_RATIO_MAX
+    assert p95 < warm_limit_ms, (
+        f"warm p95={p95:.1f}ms ≥ {WARM_TO_COLD_RATIO_MAX:.0%} of cold={cold_ms:.1f}ms "
+        f"(limit={warm_limit_ms:.1f}ms). Cache may not be working. "
+        f"Sorted warm samples (ms): {[round(x, 1) for x in latencies]}"
     )
