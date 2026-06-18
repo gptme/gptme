@@ -327,6 +327,9 @@ class ToolSpec:
     instructions: str = ""
     instructions_format: dict[str, str] = field(default_factory=dict)
     examples: str | Callable[[str], str] = ""
+    # Stored as ToolFunction, but bare callables are also accepted at runtime and
+    # normalized in __post_init__ — the documented plugin API (docs/plugins.rst)
+    # passes plain functions here.
     functions: list[ToolFunction] | None = None
     init: InitFunc | None = None
     execute: ExecuteFunc | None = None
@@ -340,6 +343,19 @@ class ToolSpec:
     hints: frozenset[str] = field(default_factory=frozenset)
     hooks: dict[str, tuple[str, HookFunc, int]] = field(default_factory=dict)
     commands: dict[str, Callable] = field(default_factory=dict)
+
+    def __post_init__(self):
+        # Normalize bare callables in `functions` to ToolFunction. The public
+        # plugin API (docs/plugins.rst) lets tools pass plain functions, while
+        # consumers (python.init, get_functions_description, as_function_subtoolspecs)
+        # expect ToolFunction. Without this, any plugin using the documented API
+        # crashes gptme at startup with "'function' object has no attribute 'fn'".
+        if self.functions:
+            normalized = [
+                fn if isinstance(fn, ToolFunction) else ToolFunction.from_callable(fn)
+                for fn in self.functions
+            ]
+            object.__setattr__(self, "functions", normalized)
 
     def __repr__(self):
         return f"ToolSpec({self.name})"

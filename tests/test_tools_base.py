@@ -467,6 +467,47 @@ class TestToolSpec:
         tool = ToolSpec(name="t", desc="")
         assert tool.get_functions_description() == "None"
 
+    def test_bare_callable_functions_normalized(self):
+        # The documented plugin API (docs/plugins.rst) passes bare callables in
+        # `functions`. ToolSpec must normalize them to ToolFunction so consumers
+        # (python.init, get_functions_description, as_function_subtoolspecs) work.
+        def my_func(x: int) -> str:
+            """Does something."""
+            return ""
+
+        tool = ToolSpec(name="t", desc="", functions=[my_func])  # type: ignore[list-item]
+        assert tool.functions is not None
+        assert isinstance(tool.functions[0], ToolFunction)
+        assert tool.functions[0].fn is my_func
+        assert tool.functions[0].name == "my_func"
+
+    def test_mixed_callable_and_toolfunction_normalized(self):
+        def bare(x: int) -> str:
+            return ""
+
+        def wrapped(y: int) -> str:
+            return ""
+
+        tool = ToolSpec(
+            name="t",
+            desc="",
+            functions=[bare, ToolFunction.from_callable(wrapped)],  # type: ignore[list-item]
+        )
+        assert tool.functions is not None
+        assert all(isinstance(f, ToolFunction) for f in tool.functions)
+        assert {f.name for f in tool.functions} == {"bare", "wrapped"}
+
+    def test_bare_callable_functions_work_in_description(self):
+        def helper(name: str) -> bool:
+            """Checks a name."""
+            return True
+
+        # Pass the bare callable, as a plugin would
+        tool = ToolSpec(name="t", desc="", functions=[helper])  # type: ignore[list-item]
+        desc = tool.get_functions_description()
+        assert "helper" in desc
+        assert "Checks a name" in desc
+
     def test_get_examples_string(self):
         tool = ToolSpec(name="t", desc="", examples="example usage")
         assert "example usage" in tool.get_examples()
