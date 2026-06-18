@@ -58,6 +58,12 @@ const demoMessages: Record<string, Message[]> = {
       timestamp: new Date().toISOString(),
     },
     {
+      role: 'assistant',
+      content:
+        'The mean of `[1, 2, 3]` is `2.0`, as expected. NumPy is available out of the box, so we can do quick numerical work inline without writing a whole script.',
+      timestamp: new Date().toISOString(),
+    },
+    {
       role: 'user',
       content: 'What tools do you have available?',
       timestamp: new Date().toISOString(),
