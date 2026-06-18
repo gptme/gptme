@@ -146,12 +146,14 @@
 }
 
 .chat-message .inline-codeblock .inline-codeblock-label {
-  @apply flex-shrink-0 self-stretch whitespace-nowrap bg-muted px-3 py-1.5 text-xs;
-  /* Label fills full height and keeps left rounding from parent */
+  @apply flex min-w-[5rem] flex-shrink-0 items-start self-stretch whitespace-nowrap bg-muted px-3 py-1.5 text-xs font-semibold text-muted-foreground;
+  /* min-width (~stdout width) so short labels align; items-start keeps the tool
+     name aligned with the first code line; self-stretch fills full height;
+     bold + muted so the tool name reads as an indicator/tag, not code output */
 }
 
 .chat-message .inline-codeblock > code {
-  @apply min-w-0 flex-1 whitespace-pre-wrap break-words border-0 !bg-transparent px-3 py-1.5 text-xs text-white;
+  @apply min-w-0 flex-1 overflow-x-auto whitespace-pre border-0 !bg-transparent px-3 py-1.5 text-xs text-white;
 }
 
 .chat-message details {
@@ -159,7 +161,9 @@
 }
 
 .chat-message details summary {
-  @apply cursor-pointer select-none list-none rounded-md bg-muted px-3 py-2 text-xs transition-colors;
+  @apply cursor-pointer select-none list-none rounded-md bg-muted px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors;
+  /* bold + muted so the tool name / "Thinking" reads as an indicator, matching
+     the inline-codeblock labels */
 }
 
 .chat-message details summary::-webkit-details-marker {
