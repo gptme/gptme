@@ -51,6 +51,7 @@ def subagent(
     isolated: bool | None = None,
     timeout: int = 1800,
     role: Role | None = None,
+    redact_secrets: bool = False,
 ):
     """Starts an asynchronous subagent. Returns None immediately.
 
@@ -113,6 +114,20 @@ def subagent(
             Falls back to a temporary directory if not in a git repo.
         timeout: Maximum seconds before the subprocess monitor kills the
             subagent (default 1800 = 30 min). Only applies to subprocess mode.
+        redact_secrets: If True, scrub common secret patterns from workspace
+            context messages before they are passed to the subagent.
+            Redacts values from lines where the variable name matches patterns
+            like API_KEY, TOKEN, PASSWORD, PRIVATE_KEY, etc.
+
+            Note: subagents do NOT inherit the parent's conversation history —
+            they always start with a fresh context containing only the task
+            prompt and workspace context (files from gptme.toml [prompt] files,
+            and context_cmd output when context_mode="full"). This option
+            sanitizes that inherited workspace context.
+
+            Only applies to thread-mode subagents (subprocess and ACP modes
+            run as a separate gptme process and handle their own context).
+            Default: False (no redaction).
 
     Returns:
         None: Starts asynchronous execution.
@@ -521,6 +536,7 @@ def subagent(
                         output_schema=output_schema,
                         profile_name=profile,
                         agent_id=agent_id,
+                        redact_secrets=redact_secrets,
                     )
                 except Exception as e:
                     # If subagent creation fails, notify with error status
@@ -593,6 +609,7 @@ def subagent(
             worktree_path=worktree_path,
             repo_path=repo_path,
             role=role,
+            redact_secrets=redact_secrets,
         )
         with _subagents_lock:
             _subagents.append(sa)
@@ -721,6 +738,7 @@ def subagent_reply(agent_id: str, reply: str) -> None:
             isolated=sa.isolated,
             timeout=sa.timeout,
             role=sa.role,
+            redact_secrets=sa.redact_secrets,
         )
     except Exception:
         with _subagents_lock:

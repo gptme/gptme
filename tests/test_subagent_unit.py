@@ -1285,6 +1285,7 @@ class TestClarifyBlock:
             "isolated": True,
             "timeout": 42,
             "role": "verify",
+            "redact_secrets": False,
         }
         with _subagent_results_lock:
             assert "clarify-agent" not in _subagent_results
@@ -1367,3 +1368,135 @@ class TestClarifyBlock:
             _subagents[:] = [s for s in _subagents if s.agent_id != "atomic-agent"]
         with _subagent_results_lock:
             _subagent_results.pop("atomic-agent", None)
+
+
+# ---------------------------------------------------------------------------
+# Secret redaction tests (gptme/tools/subagent/context.py)
+# ---------------------------------------------------------------------------
+
+
+class TestRedactSecretsFromText:
+    """Tests for the redact_secrets_from_text utility."""
+
+    def test_redacts_api_key_equals(self):
+        from gptme.tools.subagent.context import redact_secrets_from_text
+
+        result = redact_secrets_from_text("OPENAI_API_KEY=sk-proj-abc123\n")
+        assert "sk-proj-abc123" not in result
+        assert "[REDACTED]" in result
+        assert "OPENAI_API_KEY" in result
+
+    def test_redacts_github_token(self):
+        from gptme.tools.subagent.context import redact_secrets_from_text
+
+        result = redact_secrets_from_text("GITHUB_TOKEN=ghp_xyzXYZ987654\n")
+        assert "ghp_xyzXYZ987654" not in result
+        assert "[REDACTED]" in result
+
+    def test_redacts_password(self):
+        from gptme.tools.subagent.context import redact_secrets_from_text
+
+        result = redact_secrets_from_text("PASSWORD=hunter2\n")
+        assert "hunter2" not in result
+        assert "[REDACTED]" in result
+
+    def test_redacts_export_statement(self):
+        from gptme.tools.subagent.context import redact_secrets_from_text
+
+        result = redact_secrets_from_text("export API_KEY=my-secret-key\n")
+        assert "my-secret-key" not in result
+        assert "[REDACTED]" in result
+        assert "export" in result
+        assert "API_KEY" in result
+
+    def test_preserves_non_secret_lines(self):
+        from gptme.tools.subagent.context import redact_secrets_from_text
+
+        content = "PROJECT_NAME=myproject\nDEBUG=true\nLOG_LEVEL=info\n"
+        result = redact_secrets_from_text(content)
+        assert result == content
+
+    def test_redacts_only_secret_lines_in_multiline(self):
+        from gptme.tools.subagent.context import redact_secrets_from_text
+
+        content = "HOST=localhost\nAPI_KEY=supersecret\nPORT=8080\n"
+        result = redact_secrets_from_text(content)
+        assert "supersecret" not in result
+        assert "HOST=localhost" in result
+        assert "PORT=8080" in result
+        assert "API_KEY" in result
+
+    def test_redacts_access_key(self):
+        from gptme.tools.subagent.context import redact_secrets_from_text
+
+        result = redact_secrets_from_text("ACCESS_KEY=AKIAIOSFODNN7EXAMPLE\n")
+        assert "AKIAIOSFODNN7EXAMPLE" not in result
+        assert "[REDACTED]" in result
+
+    def test_redacts_private_key(self):
+        from gptme.tools.subagent.context import redact_secrets_from_text
+
+        result = redact_secrets_from_text("PRIVATE_KEY=abc123privatekey\n")
+        assert "abc123privatekey" not in result
+        assert "[REDACTED]" in result
+
+    def test_handles_empty_string(self):
+        from gptme.tools.subagent.context import redact_secrets_from_text
+
+        assert redact_secrets_from_text("") == ""
+
+    def test_handles_no_secrets(self):
+        from gptme.tools.subagent.context import redact_secrets_from_text
+
+        content = "# This is just a comment\nSome text here\n"
+        assert redact_secrets_from_text(content) == content
+
+
+class TestRedactSecretsFromMessages:
+    """Tests for the redact_secrets_from_messages utility."""
+
+    def test_redacts_system_message_content(self):
+        from gptme.message import Message
+        from gptme.tools.subagent.context import redact_secrets_from_messages
+
+        msgs = [Message("system", "Config:\nAPI_KEY=supersecret\nHOST=localhost\n")]
+        result = redact_secrets_from_messages(msgs)
+        assert len(result) == 1
+        assert "supersecret" not in result[0].content
+        assert "[REDACTED]" in result[0].content
+        assert "HOST=localhost" in result[0].content
+
+    def test_preserves_message_role(self):
+        from gptme.message import Message
+        from gptme.tools.subagent.context import redact_secrets_from_messages
+
+        msgs = [
+            Message("system", "API_KEY=secret\n"),
+            Message("user", "do a thing"),
+        ]
+        result = redact_secrets_from_messages(msgs)
+        assert result[0].role == "system"
+        assert result[1].role == "user"
+
+    def test_returns_new_message_objects(self):
+        from gptme.message import Message
+        from gptme.tools.subagent.context import redact_secrets_from_messages
+
+        original = Message("system", "API_KEY=secret\n")
+        result = redact_secrets_from_messages([original])
+        assert result[0] is not original
+        # Original is unchanged
+        assert "secret" in original.content
+
+    def test_handles_empty_list(self):
+        from gptme.tools.subagent.context import redact_secrets_from_messages
+
+        assert redact_secrets_from_messages([]) == []
+
+    def test_handles_messages_with_no_secrets(self):
+        from gptme.message import Message
+        from gptme.tools.subagent.context import redact_secrets_from_messages
+
+        msgs = [Message("system", "# Agent instructions\nDo good work.\n")]
+        result = redact_secrets_from_messages(msgs)
+        assert result[0].content == msgs[0].content

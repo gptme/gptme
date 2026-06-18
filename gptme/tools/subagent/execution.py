@@ -137,6 +137,7 @@ def _create_subagent_thread(
     output_schema: type | None = None,
     profile_name: str | None = None,
     agent_id: str | None = None,
+    redact_secrets: bool = False,
 ) -> None:
     """Shared function for running subagent threads.
 
@@ -242,6 +243,15 @@ def _create_subagent_thread(
         initial_msgs = get_prompt(
             available_tools, interactive=False, workspace=workspace
         )
+
+    # Apply secret redaction to workspace context messages if requested.
+    # This redacts values from lines where the variable name matches common
+    # secret patterns (API_KEY, TOKEN, PASSWORD, etc.) in system messages.
+    # Only redacts the context messages, not the task prompt itself.
+    if redact_secrets:
+        from .context import redact_secrets_from_messages
+
+        initial_msgs = redact_secrets_from_messages(initial_msgs)
 
     # Append profile system prompt if specified
     if profile and profile.system_prompt:

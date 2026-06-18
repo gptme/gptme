@@ -192,6 +192,9 @@ class Subagent:
     # Maximum time (seconds) the subprocess monitor will wait before killing
     timeout: int = 1800  # 30 minutes
     role: Role | None = None
+    # Secret redaction: when True, common secret patterns (API keys, tokens, passwords)
+    # are redacted from workspace context messages before they are seen by the subagent.
+    redact_secrets: bool = False
 
     def get_log(self) -> "LogManager":
         # noreorder
