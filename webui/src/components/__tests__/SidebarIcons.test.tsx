@@ -74,7 +74,10 @@ describe('SidebarIcons', () => {
 
   it('renders navigation items', () => {
     renderSidebar();
-    expect(screen.getByRole('button', { name: /chat/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /toggle conversations sidebar/i })
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('toggle-conversations-sidebar')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /agents/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /tasks/i })).toBeInTheDocument();
   });
@@ -153,7 +156,9 @@ describe('SidebarIcons', () => {
 
   it('shows labels (non-zero opacity) when expanded', () => {
     renderSidebar();
-    const chatLabel = screen.getByRole('button', { name: /^chat$/i }).querySelector('span.flex-1');
+    const chatLabel = screen
+      .getByTestId('toggle-conversations-sidebar')
+      .querySelector('span.flex-1');
     expect(chatLabel).toHaveClass('opacity-100');
   });
 
@@ -178,7 +183,9 @@ describe('SidebarIcons', () => {
   it('hides labels (zero opacity) when collapsed', () => {
     mockLocalStorage.setItem('nav-sidebar-expanded', 'false');
     renderSidebar();
-    const chatLabel = screen.getByRole('button', { name: /^chat$/i }).querySelector('span.flex-1');
+    const chatLabel = screen
+      .getByTestId('toggle-conversations-sidebar')
+      .querySelector('span.flex-1');
     expect(chatLabel).toHaveClass('opacity-0');
   });
 });
