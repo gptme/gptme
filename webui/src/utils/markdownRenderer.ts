@@ -1,9 +1,72 @@
-import { getCodeBlockEmoji } from '@/utils/markdownUtils';
 import * as smd from '@/utils/smd';
 import { highlightCode } from '@/utils/highlightUtils';
 import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { Terminal, Code, FileText, FileCode, Globe, Eye, Flag, SquareTerminal } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { TabbedCodeBlock } from '@/components/TabbedCodeBlock';
+
+/**
+ * Pick a lucide icon for a code-block langtag. Mirrors the icon set used by
+ * CollapsedStepGroup so tool indicators look consistent across the UI.
+ */
+function iconForLangtag(langtag: string): LucideIcon {
+  const tag = (langtag || '').split(' ')[0].toLowerCase();
+  // file path (e.g. /path/to/file.py)
+  if ((tag.includes('/') || tag.includes('\\') || tag.includes('.')) && tag === langtag) {
+    return FileCode;
+  }
+  switch (tag) {
+    case 'shell':
+    case 'tmux':
+    case 'sh':
+    case 'bash':
+    case 'zsh':
+    case 'console':
+      return Terminal;
+    case 'ipython':
+    case 'python':
+      return Code;
+    case 'save':
+    case 'append':
+    case 'patch':
+    case 'morph':
+    case 'read':
+      return FileText;
+    case 'browser':
+    case 'search':
+    case 'web':
+      return Globe;
+    case 'vision':
+    case 'screenshot':
+      return Eye;
+    case 'stdout':
+    case 'stderr':
+    case 'result':
+    case 'output':
+      return SquareTerminal;
+    case 'complete':
+      return Flag;
+    default:
+      return Code;
+  }
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/**
+ * Build the inner HTML for a code-block label: a lucide icon followed by the
+ * langtag text. Used for both the <details> summary and the inline label.
+ */
+function codeBlockLabelHtml(langtag: string, fallbackText = 'Code'): string {
+  const Icon = iconForLangtag(langtag);
+  const svg = renderToStaticMarkup(createElement(Icon, { size: 14 }));
+  const text = langtag ? escapeHtml(langtag) : fallbackText;
+  return `<span class="codeblock-icon">${svg}</span><span class="codeblock-label-text">${text}</span>`;
+}
 
 /**
  * Checks if the language is markdown or html
@@ -77,7 +140,7 @@ export function customRenderer(
             parent.setAttribute('open', 'true');
           }
           data.summary = parent.appendChild(document.createElement('summary'));
-          data.summary.textContent = '💻 Code';
+          data.summary.innerHTML = codeBlockLabelHtml('');
 
           if (useReactTabbed) {
             // Create placeholder element to be replaced with React component later
@@ -186,14 +249,12 @@ export function customRenderer(
       if (type === smd.LANG) {
         data.lang = value;
         if (data.summary) {
-          // Code-block emoji — CHAT renderer (smd custom renderer, real DOM nodes).
-          // This is the path the chat view (/chat/...) actually uses. Output goes
-          // through .textContent, so the summary is PLAIN TEXT and cannot carry HTML
-          // markup (styled spans won't work here without createElement/appendChild).
-          // The NON-CHAT path (marked) in markdownUtils.ts builds an HTML string and
-          // can. Keep emoji/summary changes in sync across both renderers.
-          const emoji = getCodeBlockEmoji(value);
-          data.summary.textContent = `${emoji} ${value}`;
+          // Code-block label — CHAT renderer (smd custom renderer, real DOM nodes).
+          // This is the path the chat view (/chat/...) actually uses. We build a
+          // lucide icon + langtag label as innerHTML (carried over to the inline
+          // label below). The NON-CHAT path (marked) in markdownUtils.ts still uses
+          // getCodeBlockEmoji; keep the two in sync when changing labels.
+          data.summary.innerHTML = codeBlockLabelHtml(value);
         }
         if (data.code) {
           const langFromInfo = value ? value.split('.').pop() : undefined;
