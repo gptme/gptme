@@ -2,6 +2,17 @@ import type { Message, ConversationSummary } from '@/types/conversation';
 
 // Demo conversation message data
 const demoMessages: Record<string, Message[]> = {
+  // Concise, accurate first-impression shown to new / not-yet-connected users.
+  // Kept short on purpose — the "introduction" conversation is the deeper
+  // feature/rendering showcase.
+  'getting-started': [
+    {
+      role: 'assistant',
+      content:
+        "👋 Welcome to **gptme** — your AI assistant for the terminal and beyond.\n\nThis is the web UI for [gptme](https://github.com/gptme/gptme), an open-source agent that can write code, run shell commands, browse the web, and work with your files. The web UI ships with `gptme-server`, so once you have gptme installed there's nothing extra to set up.\n\n**To connect your own server:**\n\n1. Start it: `gptme-server --cors-origin='<this site's URL>'`\n2. Click **Connect** (top-right) and enter the server URL (default `http://127.0.0.1:5700`).\n\nNot ready to connect? Open the read-only **Introduction to gptme** conversation in the sidebar to see how gptme renders code, tools, thinking, and more.",
+      timestamp: new Date().toISOString(),
+    },
+  ],
   introduction: [
     {
       role: 'assistant',
@@ -218,6 +229,14 @@ const demoMessages: Record<string, Message[]> = {
 
 // Demo conversations (as ConversationSummary objects)
 export const demoConversations: ConversationSummary[] = [
+  {
+    id: 'getting-started',
+    name: 'Getting started',
+    modified: Math.floor(Date.now() / 1000),
+    messages: demoMessages['getting-started'].length,
+    readonly: true,
+    workspace: '/demo/workspace',
+  },
   {
     id: 'introduction',
     name: 'Introduction to gptme',
