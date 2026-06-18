@@ -173,22 +173,23 @@
   @apply hidden;
 }
 
-/* Minimal open/close animation. Uses ::details-content (Chromium 131+) so both
-   expanding and collapsing animate; browsers without support just toggle
-   instantly. Skipped when the user prefers reduced motion. */
+/* Minimal reveal animation when a code/tool block is expanded. Pure keyframe so
+   it works in all browsers (native <details> can't animate collapsing without
+   ::details-content, which isn't widely supported yet). Respects reduced motion. */
 @media (prefers-reduced-motion: no-preference) {
-  .chat-message details {
-    interpolate-size: allow-keywords;
+  .chat-message details[open] > *:not(summary) {
+    animation: codeblock-reveal 0.18s ease-out;
   }
-  .chat-message details::details-content {
-    height: 0;
-    overflow: hidden;
-    transition:
-      height 0.18s ease,
-      content-visibility 0.18s allow-discrete;
+}
+
+@keyframes codeblock-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-0.25rem);
   }
-  .chat-message details[open]::details-content {
-    height: auto;
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
