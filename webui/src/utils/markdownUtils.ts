@@ -209,5 +209,5 @@ function isBrowser(langtag: string): boolean {
 }
 
 function isComplete(langtag: string): boolean {
-  return ['complete'].includes(langtag.toLowerCase());
+  return langtag.toLowerCase() === 'complete';
 }
