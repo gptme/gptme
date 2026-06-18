@@ -475,7 +475,7 @@ class TestToolSpec:
             """Does something."""
             return ""
 
-        tool = ToolSpec(name="t", desc="", functions=[my_func])  # type: ignore[list-item]
+        tool = ToolSpec(name="t", desc="", functions=[my_func])
         assert tool.functions is not None
         assert isinstance(tool.functions[0], ToolFunction)
         assert tool.functions[0].fn is my_func
@@ -491,7 +491,7 @@ class TestToolSpec:
         tool = ToolSpec(
             name="t",
             desc="",
-            functions=[bare, ToolFunction.from_callable(wrapped)],  # type: ignore[list-item]
+            functions=[bare, ToolFunction.from_callable(wrapped)],
         )
         assert tool.functions is not None
         assert all(isinstance(f, ToolFunction) for f in tool.functions)
@@ -503,7 +503,7 @@ class TestToolSpec:
             return True
 
         # Pass the bare callable, as a plugin would
-        tool = ToolSpec(name="t", desc="", functions=[helper])  # type: ignore[list-item]
+        tool = ToolSpec(name="t", desc="", functions=[helper])
         desc = tool.get_functions_description()
         assert "helper" in desc
         assert "Checks a name" in desc
