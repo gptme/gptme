@@ -1005,6 +1005,16 @@ def main(
         )
         sys.exit(1)
 
+    # Validate model early to fail fast before the expensive get_prompt() call.
+    # Only check models with a provider/ prefix; bare provider names (e.g. "anthropic")
+    # and model aliases (e.g. "gpt-4o") are left for init_model() to resolve.
+    if config.chat.model and "/" in config.chat.model:
+        try:
+            get_provider_from_model(config.chat.model)
+        except ValueError as e:
+            _cleanup_aborted_new_logdir(logdir, preexisting=logdir_preexisting)
+            raise click.UsageError(f"--model: {e}") from e
+
     if is_existing_conversation:
         logger.debug("Existing conversation found, skipping initial prompt generation")
         initial_msgs = []

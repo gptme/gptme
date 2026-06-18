@@ -397,6 +397,30 @@ def test_model_allows_provider_owned_nested_model_path(runner: CliRunner):
     assert "gptme v" in result.output
 
 
+def test_model_rejects_unknown_provider_before_context_cmd(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """--model with an unknown provider prefix should fail fast before running context_cmd."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setattr(
+        cli,
+        "get_prompt",
+        lambda **kwargs: pytest.fail("get_prompt was called before model validation"),
+    )
+    monkeypatch.setattr(cli, "chat", lambda *args, **kwargs: pytest.fail("chat ran"))
+    monkeypatch.setattr(cli, "init_telemetry", lambda **kwargs: None)
+
+    result = runner.invoke(
+        cli.main,
+        ["--model", "badprovider/some-model", "--non-interactive", "hello"],
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "Unknown provider: badprovider" in result.output
+    assert "Traceback" not in result.output
+
+
 @pytest.mark.parametrize(
     ("bad_name", "expected_message"),
     [
