@@ -318,6 +318,58 @@ def test_create_with_bad_messages():
     print("  PASS: missing content rejected")
 
 
+def test_put_conversation_preserves_files_field():
+    """PUT /conversations/:id must preserve the 'files' field in messages.
+
+    Regression for the bug where files were silently dropped: the validated_msgs
+    tuple only captured (role, content, timestamp) without files.
+    """
+    cid = f"test-files-{uuid.uuid4().hex[:12]}"
+    status, data = _req(
+        "PUT",
+        f"/api/v2/conversations/{cid}",
+        {
+            "messages": [
+                {"role": "user", "content": "analyze this", "files": ["data.txt"]},
+                {"role": "assistant", "content": "ok", "files": []},
+            ],
+            "config": {},
+            "prompt": "none",
+        },
+    )
+    assert status == 200, f"create conversation failed: {data}"
+
+    status2, conv = _req("GET", f"/api/v2/conversations/{cid}")
+    assert status2 == 200, f"get conversation failed: {conv}"
+    assert isinstance(conv, dict), f"expected dict, got {type(conv)}"
+
+    user_msgs = [m for m in conv.get("log", []) if m.get("role") == "user"]
+    assert user_msgs, "no user messages in conversation"
+    user_msg = user_msgs[-1]
+    files = user_msg.get("files", [])
+    assert len(files) == 1, f"expected 1 file, got {files}"
+    assert any("data.txt" in str(f) for f in files), f"data.txt not in files: {files}"
+    print(f"  PASS: files preserved in PUT conversation (cid={cid})")
+
+
+def test_put_conversation_files_must_be_list():
+    """PUT /conversations/:id must reject messages where 'files' is not a list."""
+    cid = f"test-{uuid.uuid4().hex[:12]}"
+    status, data = _req(
+        "PUT",
+        f"/api/v2/conversations/{cid}",
+        {
+            "messages": [
+                {"role": "user", "content": "hi", "files": "not-a-list"},
+            ],
+            "config": {},
+            "prompt": "none",
+        },
+    )
+    assert status == 400, f"expected 400 for non-list files, got {status}: {data}"
+    print("  PASS: non-list 'files' rejected")
+
+
 # ---------------------------------------------------------------------------
 # SSE / streaming tests
 # ---------------------------------------------------------------------------

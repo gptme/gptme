@@ -1381,7 +1381,7 @@ def api_conversation_put(conversation_id: str):
         return flask.jsonify({"error": "'messages' must be a list"}), 400
     _RoleType = Literal["system", "user", "assistant"]
     valid_roles = ("system", "user", "assistant")
-    validated_msgs: list[tuple[_RoleType, str, datetime]] = []
+    validated_msgs: list[tuple[_RoleType, str, datetime, list]] = []
     for msg in messages_raw:
         if not isinstance(msg, dict):
             return flask.jsonify({"error": "Each message must be an object"}), 400
@@ -1409,7 +1409,19 @@ def api_conversation_put(conversation_id: str):
                 ), 400
         else:
             ts = datetime.now(tz=timezone.utc)
-        validated_msgs.append((cast(_RoleType, msg["role"]), msg["content"], ts))
+        files_raw = msg.get("files", [])
+        if not isinstance(files_raw, list):
+            return flask.jsonify({"error": "Message 'files' must be a list"}), 400
+        if files_raw:
+            files_result = _validate_message_file_references(files_raw, logdir)
+            if isinstance(files_result, tuple):
+                return files_result
+            file_paths: list = files_result
+        else:
+            file_paths = []
+        validated_msgs.append(
+            (cast(_RoleType, msg["role"]), msg["content"], ts, file_paths)
+        )
 
     config_raw = req_json.get("config", {})
     if not isinstance(config_raw, dict):
@@ -1476,8 +1488,8 @@ def api_conversation_put(conversation_id: str):
 
     _append_conversation_system_prompt(msgs, chat_config.system_prompt)
 
-    for role, content, timestamp in validated_msgs:
-        msgs.append(Message(role, content, timestamp=timestamp))
+    for role, content, timestamp, files in validated_msgs:
+        msgs.append(Message(role, content, timestamp=timestamp, files=files))
 
     log = LogManager.load(logdir=logdir, initial_msgs=msgs, create=True)
     log.write()
