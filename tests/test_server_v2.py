@@ -3,6 +3,7 @@ import json
 import random
 import time
 import unittest.mock
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, cast
@@ -2812,8 +2813,6 @@ def test_v2_create_conversation_message_not_object(client: FlaskClient):
 
 def test_v2_create_conversation_preserves_message_files(client: FlaskClient):
     """PUT /conversations/<id> must preserve the 'files' field in initial messages."""
-    import uuid
-
     conv_id = f"test-msg-files-{uuid.uuid4().hex[:8]}"
     uri = "https://example.com/image.png"
     response = client.put(
@@ -2840,8 +2839,6 @@ def test_v2_create_conversation_rejects_invalid_message_files(
     client: FlaskClient, files_payload: object
 ):
     """PUT /conversations/<id> must reject non-list or non-string-list 'files' with 400."""
-    import uuid
-
     conv_id = f"test-msg-bad-files-{uuid.uuid4().hex[:8]}"
     response = client.put(
         f"/api/v2/conversations/{conv_id}",

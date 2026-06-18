@@ -1492,9 +1492,10 @@ def api_conversation_put(conversation_id: str):
                 files_raw, chat_config.workspace
             )
             if isinstance(validated_files, tuple):
+                shutil.rmtree(logdir, ignore_errors=True)
                 return validated_files
             file_paths = validated_files
-        msgs.append(Message(role, content, timestamp=timestamp, files=file_paths))  # type: ignore[arg-type]
+        msgs.append(Message(role, content, timestamp=timestamp, files=file_paths))  # type: ignore[arg-type]  # list[Path] is valid for list[FilePath]
 
     log = LogManager.load(logdir=logdir, initial_msgs=msgs, create=True)
     log.write()
