@@ -350,6 +350,65 @@ describe('ApiClient forkConversation', () => {
   });
 });
 
+describe('ApiClient rerunTools', () => {
+  const originalFetch = global.fetch;
+  const originalCrypto = global.crypto;
+
+  beforeEach(() => {
+    Object.defineProperty(global, 'crypto', {
+      value: {
+        ...originalCrypto,
+        randomUUID: jest.fn(() => 'test-client-id'),
+      },
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    Object.defineProperty(global, 'crypto', {
+      value: originalCrypto,
+      configurable: true,
+    });
+    jest.restoreAllMocks();
+  });
+
+  it('sends the concrete session id in the rerun request body', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: 'ok', tool_ids: ['tool-1'] }),
+    } as Response);
+
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+    client.sessions$.set('conv-1', 'session-1');
+
+    const result = await client.rerunTools('conv-1');
+
+    expect(result).toEqual({ status: 'ok', tool_ids: ['tool-1'] });
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://127.0.0.1:5700/api/v2/conversations/conv-1/rerun',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ session_id: 'session-1' }),
+      })
+    );
+  });
+
+  it('fails before sending when no session id is available', async () => {
+    global.fetch = jest.fn();
+
+    const client = new ApiClient('http://127.0.0.1:5700');
+    client.setConnected(true);
+
+    await expect(client.rerunTools('conv-1')).rejects.toMatchObject({
+      message: 'No active session for this conversation',
+    });
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+});
+
 describe('ApiClient event stream reconnection', () => {
   const originalEventSource = global.EventSource;
   const originalCrypto = global.crypto;

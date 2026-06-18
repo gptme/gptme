@@ -1263,7 +1263,7 @@ export class ApiClient {
     if (!this.isConnected) {
       throw new ApiClientError('Not connected to API');
     }
-    const sessionId = this.sessions$.get(logfile);
+    const sessionId: string | undefined = this.sessions$.get(logfile).get();
     if (!sessionId) {
       throw new ApiClientError('No active session for this conversation');
     }
