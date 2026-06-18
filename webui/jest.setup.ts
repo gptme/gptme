@@ -1,4 +1,14 @@
 import '@testing-library/jest-dom';
+import { TextDecoder, TextEncoder } from 'util';
+
+// react-dom/server.browser expects browser text encoding globals. jsdom does not
+// expose them in Jest, while real browsers and Node do.
+if (typeof globalThis.TextEncoder === 'undefined') {
+  globalThis.TextEncoder = TextEncoder;
+}
+if (typeof globalThis.TextDecoder === 'undefined') {
+  globalThis.TextDecoder = TextDecoder as typeof globalThis.TextDecoder;
+}
 
 // Polyfill structuredClone for jsdom — Node 17+ has it but jsdom doesn't expose it.
 // Limitation: JSON.parse/JSON.stringify drops undefined properties, coerces Date to

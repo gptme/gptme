@@ -19,6 +19,17 @@ function parse(markdown: string, streaming: boolean = false, log: boolean = fals
   return div;
 }
 
+function expectInlineCodeBlock(div: HTMLElement, language: string, codeHtml: string) {
+  const label = div.querySelector('.inline-codeblock-label');
+  expect(label).not.toBeNull();
+  expect(label?.querySelector('.codeblock-icon svg')).not.toBeNull();
+  expect(label?.querySelector('.codeblock-label-text')).toHaveTextContent(language);
+
+  const code = div.querySelector(`.inline-codeblock code.language-${language}`);
+  expect(code).not.toBeNull();
+  expect(code?.innerHTML).toBe(codeHtml);
+}
+
 describe('simple text rendering', () => {
   const markdown = 'This is a test';
   it('all at once, should render standard text', () => {
@@ -125,45 +136,42 @@ describe('renderThinkingBlocks', () => {
 describe('renderCodeBlocks', () => {
   it('should handle one python code block at start of text', () => {
     const markdown = `\`\`\`python\nThis is a code block\n\`\`\` some other text`;
-
-    // Short single-line blocks render inline instead of collapsible
-    const expected =
-      '<div class="inline-codeblock"><span class="inline-codeblock-label">💻 python</span><code class="hljs language-python">This <span class="hljs-keyword">is</span> a code block</code></div><p>some other text</p>';
+    const codeHtml = 'This <span class="hljs-keyword">is</span> a code block';
 
     let div = parse(markdown);
-    expect(div.innerHTML).toBe(expected);
+    expectInlineCodeBlock(div, 'python', codeHtml);
+    expect(div.lastElementChild?.outerHTML).toBe('<p>some other text</p>');
 
     div = parse(markdown, true);
-    expect(div.innerHTML).toBe(expected);
+    expectInlineCodeBlock(div, 'python', codeHtml);
+    expect(div.lastElementChild?.outerHTML).toBe('<p>some other text</p>');
   });
 
   it('should handle one python code block at end of text', () => {
     const markdown = `some other text\n\`\`\`python\nThis is a code block\n\`\`\``;
-
-    // Short single-line blocks render inline instead of collapsible
-    const expected =
-      '<p>some other text<div class="inline-codeblock"><span class="inline-codeblock-label">💻 python</span><code class="hljs language-python">This <span class="hljs-keyword">is</span> a code block</code></div></p>';
+    const codeHtml = 'This <span class="hljs-keyword">is</span> a code block';
 
     let div = parse(markdown);
-    expect(div.innerHTML).toBe(expected);
+    expectInlineCodeBlock(div, 'python', codeHtml);
+    expect(div.firstElementChild?.textContent).toContain('some other text');
 
     div = parse(markdown, true);
-    expect(div.innerHTML).toBe(expected);
+    expectInlineCodeBlock(div, 'python', codeHtml);
+    expect(div.firstElementChild?.textContent).toContain('some other text');
   });
 });
 
 describe('renderMarkdownBlocks', () => {
   it('should handle one markdown block at start of text', () => {
     const markdown = `\`\`\`markdown\nThis is a markdown block\n\`\`\`\nsome other text`;
-
-    // Short single-line blocks render inline instead of collapsible
-    const expected =
-      '<div class="inline-codeblock"><span class="inline-codeblock-label">💻 markdown</span><code class="hljs language-markdown">This is a markdown block</code></div><p>some other text</p>';
+    const codeHtml = 'This is a markdown block';
 
     let div = parse(markdown, false, false);
-    expect(div.innerHTML).toBe(expected);
+    expectInlineCodeBlock(div, 'markdown', codeHtml);
+    expect(div.lastElementChild?.outerHTML).toBe('<p>some other text</p>');
 
     div = parse(markdown, true, false);
-    expect(div.innerHTML).toBe(expected);
+    expectInlineCodeBlock(div, 'markdown', codeHtml);
+    expect(div.lastElementChild?.outerHTML).toBe('<p>some other text</p>');
   });
 });
