@@ -2810,6 +2810,52 @@ def test_v2_create_conversation_message_not_object(client: FlaskClient):
     assert "object" in data["error"].lower()
 
 
+def test_v2_create_conversation_preserves_message_files(client: FlaskClient):
+    """PUT /conversations/<id> must preserve the 'files' field in initial messages."""
+    import uuid
+
+    conv_id = f"test-msg-files-{uuid.uuid4().hex[:8]}"
+    uri = "https://example.com/image.png"
+    response = client.put(
+        f"/api/v2/conversations/{conv_id}",
+        json={
+            "prompt": "none",
+            "messages": [{"role": "user", "content": "hello", "files": [uri]}],
+        },
+    )
+    assert response.status_code == 200
+
+    conversation = client.get(f"/api/v2/conversations/{conv_id}").get_json()
+    assert conversation is not None
+    user_msgs = [m for m in conversation["log"] if m["role"] == "user"]
+    assert len(user_msgs) == 1
+    assert user_msgs[0]["files"] == [uri]
+
+
+@pytest.mark.parametrize(
+    "files_payload",
+    ["not-a-list", 42, {"key": "val"}, [1, 2, 3], [None]],
+)
+def test_v2_create_conversation_rejects_invalid_message_files(
+    client: FlaskClient, files_payload: object
+):
+    """PUT /conversations/<id> must reject non-list or non-string-list 'files' with 400."""
+    import uuid
+
+    conv_id = f"test-msg-bad-files-{uuid.uuid4().hex[:8]}"
+    response = client.put(
+        f"/api/v2/conversations/{conv_id}",
+        json={
+            "prompt": "none",
+            "messages": [{"role": "user", "content": "hello", "files": files_payload}],
+        },
+    )
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data is not None
+    assert "files" in data["error"].lower()
+
+
 @pytest.mark.parametrize("body", [[], [1, 2, 3], "string", 42])
 def test_v2_tasks_put_rejects_non_object_json(client: FlaskClient, body: object):
     """Task PUT should reject non-object JSON bodies with 400."""

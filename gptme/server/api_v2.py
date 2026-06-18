@@ -1381,7 +1381,7 @@ def api_conversation_put(conversation_id: str):
         return flask.jsonify({"error": "'messages' must be a list"}), 400
     _RoleType = Literal["system", "user", "assistant"]
     valid_roles = ("system", "user", "assistant")
-    validated_msgs: list[tuple[_RoleType, str, datetime]] = []
+    validated_msgs: list[tuple[_RoleType, str, datetime, list[str]]] = []
     for msg in messages_raw:
         if not isinstance(msg, dict):
             return flask.jsonify({"error": "Each message must be an object"}), 400
@@ -1409,7 +1409,16 @@ def api_conversation_put(conversation_id: str):
                 ), 400
         else:
             ts = datetime.now(tz=timezone.utc)
-        validated_msgs.append((cast(_RoleType, msg["role"]), msg["content"], ts))
+        files_raw = msg.get("files", [])
+        if not isinstance(files_raw, list) or not all(
+            isinstance(f, str) for f in files_raw
+        ):
+            return flask.jsonify(
+                {"error": "Message 'files' must be a list of strings"}
+            ), 400
+        validated_msgs.append(
+            (cast(_RoleType, msg["role"]), msg["content"], ts, files_raw)
+        )
 
     config_raw = req_json.get("config", {})
     if not isinstance(config_raw, dict):
@@ -1476,8 +1485,16 @@ def api_conversation_put(conversation_id: str):
 
     _append_conversation_system_prompt(msgs, chat_config.system_prompt)
 
-    for role, content, timestamp in validated_msgs:
-        msgs.append(Message(role, content, timestamp=timestamp))
+    for role, content, timestamp, files_raw in validated_msgs:
+        file_paths: list[FilePath] = []
+        if files_raw:
+            validated_files = _validate_message_file_references(
+                files_raw, chat_config.workspace
+            )
+            if isinstance(validated_files, tuple):
+                return validated_files
+            file_paths = validated_files
+        msgs.append(Message(role, content, timestamp=timestamp, files=file_paths))  # type: ignore[arg-type]
 
     log = LogManager.load(logdir=logdir, initial_msgs=msgs, create=True)
     log.write()
