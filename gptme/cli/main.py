@@ -1014,6 +1014,9 @@ def main(
         except ValueError as e:
             _cleanup_aborted_new_logdir(logdir, preexisting=logdir_preexisting)
             raise click.UsageError(f"--model: {e}") from e
+        except Exception as e:
+            # If any other exception occurs, don't abort - let init_model() handle it
+            logger.debug(f"Model validation encountered unexpected error: {e}")
 
     if is_existing_conversation:
         logger.debug("Existing conversation found, skipping initial prompt generation")
