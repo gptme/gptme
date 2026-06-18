@@ -1500,3 +1500,63 @@ class TestRedactSecretsFromMessages:
         msgs = [Message("system", "# Agent instructions\nDo good work.\n")]
         result = redact_secrets_from_messages(msgs)
         assert result[0].content == msgs[0].content
+
+
+class TestRedactSecretsColonStyle:
+    """Tests for YAML/TOML colon-style secret redaction."""
+
+    def test_redacts_yaml_api_key(self):
+        from gptme.tools.subagent.context import redact_secrets_from_text
+
+        result = redact_secrets_from_text("openai_api_key: sk-proj-abc\n")
+        assert "sk-proj-abc" not in result
+        assert "[REDACTED]" in result
+        assert "openai_api_key" in result
+
+    def test_redacts_yaml_github_token(self):
+        from gptme.tools.subagent.context import redact_secrets_from_text
+
+        result = redact_secrets_from_text("github_token: ghp_xyzXYZ987\n")
+        assert "ghp_xyzXYZ987" not in result
+        assert "[REDACTED]" in result
+        assert "github_token" in result
+
+    def test_redacts_yaml_password(self):
+        from gptme.tools.subagent.context import redact_secrets_from_text
+
+        result = redact_secrets_from_text("password: hunter2\n")
+        assert "hunter2" not in result
+        assert "[REDACTED]" in result
+
+    def test_redacts_indented_yaml_token(self):
+        from gptme.tools.subagent.context import redact_secrets_from_text
+
+        result = redact_secrets_from_text("  api_key: my-secret-value\n")
+        assert "my-secret-value" not in result
+        assert "[REDACTED]" in result
+        assert "api_key" in result
+
+    def test_preserves_non_secret_yaml_keys(self):
+        from gptme.tools.subagent.context import redact_secrets_from_text
+
+        content = "host: localhost\nport: 8080\nlog_level: info\n"
+        result = redact_secrets_from_text(content)
+        assert result == content
+
+    def test_preserves_trailing_newline_for_last_line_without_newline(self):
+        from gptme.tools.subagent.context import redact_secrets_from_text
+
+        # Last line without trailing newline: no newline should be added
+        result = redact_secrets_from_text("API_KEY=secret")
+        assert not result.endswith("\n")
+        assert "[REDACTED]" in result
+
+    def test_colon_style_in_multiline(self):
+        from gptme.tools.subagent.context import redact_secrets_from_text
+
+        content = "host: localhost\ngithub_token: ghp_abc123\nport: 5432\n"
+        result = redact_secrets_from_text(content)
+        assert "ghp_abc123" not in result
+        assert "[REDACTED]" in result
+        assert "host: localhost" in result
+        assert "port: 5432" in result

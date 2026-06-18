@@ -52,6 +52,33 @@ _SECRET_LINE_RE = re.compile(
     re.MULTILINE,
 )
 
+# Pattern for YAML/TOML colon-style assignments (key: value)
+_COLON_ASSIGN_RE = re.compile(
+    r"""(?ix)
+    ^(\s*)                                    # group 1: optional leading whitespace
+    (                                         # group 2: variable name with secret keyword
+        [\w\-]*?
+        (?:
+            api[-_]?key|apikey
+            |token
+            |secret
+            |password|passwd
+            |private[-_]key|privkey
+            |auth[-_]?(?:key|token)
+            |access[-_]key
+            |credential
+        )
+        [\w\-]*
+    )
+    (\s*:\s*)                                 # group 3: colon separator
+    (["']?)                                   # group 4: optional opening quote
+    (.+?)                                     # group 5: the value
+    (["']?)                                   # group 6: optional closing quote
+    (\s*)$                                    # group 7: trailing whitespace
+    """,
+    re.MULTILINE,
+)
+
 # Simpler pattern for export statements and env-var assignment lines
 _ENV_ASSIGN_RE = re.compile(
     r"""(?ix)
@@ -110,15 +137,27 @@ def redact_secrets_from_text(content: str) -> str:
 
 def _redact_line(line: str) -> str:
     """Redact a single line if it contains a secret assignment."""
-    # Try the env-var assignment pattern first (more specific)
+    # Preserve original line ending (last line of a file may have no trailing newline)
+    ending = "\n" if line.endswith("\n") else ""
+
+    # Try the env-var assignment pattern first (export VAR=value or VAR=value)
     match = _ENV_ASSIGN_RE.search(line)
     if match:
         export_prefix = match.group(1) or ""
         name = match.group(2)
         sep = match.group(3)
         trailing = match.group(7)
-        # Reconstruct with redacted value (no quotes around [REDACTED])
-        return f"{export_prefix}{name}{sep}{_REDACTED}{trailing}\n"
+        return f"{export_prefix}{name}{sep}{_REDACTED}{trailing}{ending}"
+
+    # Try YAML/TOML colon-style (key: value, e.g. github_token: ghp_xyz)
+    match = _COLON_ASSIGN_RE.search(line)
+    if match:
+        indent = match.group(1)
+        name = match.group(2)
+        sep = match.group(3)
+        trailing = match.group(7)
+        return f"{indent}{name}{sep}{_REDACTED}{trailing}{ending}"
+
     return line
 
 

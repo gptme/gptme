@@ -268,6 +268,13 @@ def subagent(
                 f"Not in a git repo, using temp dir for {agent_id}: {worktree_path}"
             )
 
+    if redact_secrets and (use_acp or use_subprocess):
+        exec_mode = "ACP" if use_acp else "subprocess"
+        logger.warning(
+            f"Subagent {agent_id}: 'redact_secrets=True' has no effect in {exec_mode} mode "
+            "(only thread-mode subagents inherit workspace context from the parent process)"
+        )
+
     if use_acp:
         # ACP mode: multi-harness support via Agent Client Protocol
         if use_subprocess:
