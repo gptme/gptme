@@ -75,7 +75,7 @@ from ..message import Message
 from ..tools import get_toolchain, get_tools, init_tools
 from ..util.content import is_message_command
 from ..util.uri import URI, FilePath, is_uri, parse_file_reference
-from .api_v2_agents import agents_api
+from .api_v2_agents import INITIAL_WORKING_DIRECTORY, agents_api
 from .api_v2_common import (
     _abs_to_rel_workspace,
     _validate_branch,
@@ -427,14 +427,13 @@ def _validate_message_file_references(
     return file_paths
 
 
-# Store the initial working directory at module import time (same pattern as api_v2_agents).
-# Used to restrict workspace paths supplied by API clients so they cannot point at
-# arbitrary server-side locations (path traversal via config PATCH / PUT).
-_SERVER_WORKSPACE_ROOT = Path.cwd().resolve()
+# Reuse the constant from api_v2_agents (same capture point, eliminates drift risk).
+# Used to restrict workspace paths supplied by API clients (path traversal via config PATCH / PUT).
+_SERVER_WORKSPACE_ROOT = INITIAL_WORKING_DIRECTORY
 
 
 def _validate_workspace_path(
-    workspace: str | None,
+    workspace: object,
 ) -> tuple[flask.Response, int] | None:
     """Validate a workspace path supplied by an API client.
 

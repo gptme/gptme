@@ -908,10 +908,14 @@ class TestWorkspacePathValidation:
         monkeypatch,
     ):
         """PATCH must accept a workspace path that is inside the server's working dir."""
-        from gptme.server.api_v2 import _SERVER_WORKSPACE_ROOT
+        import gptme.server.api_v2 as api_v2
 
-        # Create a subdirectory of the server root (always valid)
-        safe_workspace = _SERVER_WORKSPACE_ROOT / "safe-subdir"
+        # Monkeypatch the server root to tmp_path so the safe subdir is created
+        # there, not inside the real project root (which would leave a stray directory).
+        monkeypatch.setattr(api_v2, "_SERVER_WORKSPACE_ROOT", tmp_path.resolve())
+
+        # Create a subdirectory of the (patched) server root — always valid
+        safe_workspace = tmp_path / "safe-subdir"
         safe_workspace.mkdir(parents=True, exist_ok=True)
 
         conv_id = _make_conv_for_workspace_test(client, tmp_path, monkeypatch)
