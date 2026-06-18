@@ -1433,6 +1433,11 @@ def api_conversation_put(conversation_id: str):
     except ValueError as exc:
         return flask.jsonify({"error": str(exc)}), 400
 
+    # Enforce workspace containment: server clients must not direct the agent
+    # outside the conversation's logdir (path traversal / SSRF via workspace).
+    if not request_config.workspace.is_relative_to(logdir):
+        return flask.jsonify({"error": "workspace escapes conversation logdir"}), 400
+
     # Create the log directory atomically to avoid TOCTOU race
     try:
         logdir.mkdir(parents=True)
@@ -2423,6 +2428,15 @@ def api_conversation_config_patch(conversation_id: str):
     req_json["_logdir"] = logdir  # Pass logdir for "@log" workspace resolution
     try:
         request_config = ChatConfig.from_dict(req_json)
+    except ValueError as exc:
+        return flask.jsonify({"error": str(exc)}), 400
+
+    # Enforce workspace containment: server clients must not direct the agent
+    # outside the conversation's logdir (path traversal / SSRF via workspace).
+    if not request_config.workspace.is_relative_to(logdir):
+        return flask.jsonify({"error": "workspace escapes conversation logdir"}), 400
+
+    try:
         chat_config = ChatConfig.load_or_create(logdir, request_config).save()
     except ValueError as exc:
         return flask.jsonify({"error": str(exc)}), 400
