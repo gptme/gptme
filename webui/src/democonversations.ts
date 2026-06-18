@@ -142,6 +142,78 @@ const demoMessages: Record<string, Message[]> = {
       timestamp: new Date().toISOString(),
     },
   ],
+  // Edge/"bad" cases: a visual regression bed for the chat UI — interrupted
+  // chains, missing wrap-ups, long lines, trailing tool calls. Used to catch
+  // rendering/step-grouping issues that "normal" conversations don't surface.
+  'edge-cases': [
+    {
+      role: 'assistant',
+      content:
+        "This conversation collects tricky message-ordering and rendering cases — a visual regression bed for the chat UI. It deliberately includes things that can happen in real conversations (interruptions, missing wrap-ups, long lines) so we can verify they don't break the layout.",
+      timestamp: new Date().toISOString(),
+    },
+    // Case A — a tool chain interrupted before its final result / wrap-up.
+    {
+      role: 'user',
+      content: 'Run a few shell commands for me.',
+      timestamp: new Date().toISOString(),
+    },
+    {
+      role: 'assistant',
+      content: "Sure, let's start:\n\n```shell\nls -la\n```",
+      timestamp: new Date().toISOString(),
+    },
+    {
+      role: 'system',
+      content: '```stdout\ntotal 0\ndrwxr-xr-x  2 user user 4096 .\n```',
+      timestamp: new Date().toISOString(),
+    },
+    {
+      role: 'assistant',
+      content: 'Now the next one:\n\n```shell\ndu -sh *\n```',
+      timestamp: new Date().toISOString(),
+    },
+    {
+      role: 'system',
+      content: '```stdout\n4.0K\tsrc\n```',
+      timestamp: new Date().toISOString(),
+    },
+    {
+      role: 'assistant',
+      content: 'And a long-running one:\n\n```shell\nsleep 100\n```',
+      timestamp: new Date().toISOString(),
+    },
+    // (interrupted here — no system result, no assistant wrap-up)
+    // Case B — a very long single-line command (must scroll, not wrap).
+    {
+      role: 'user',
+      content: 'Show a very long command line.',
+      timestamp: new Date().toISOString(),
+    },
+    {
+      role: 'assistant',
+      content:
+        "Here:\n\n```shell\ngptme-server --cors-origin='https://chat.gptme.org' --tools shell,python,browser,patch --model anthropic/claude-sonnet-4-6  # long line that should scroll horizontally, not wrap or stretch the label\n```",
+      timestamp: new Date().toISOString(),
+    },
+    {
+      role: 'system',
+      content: '```stdout\nServer started on http://127.0.0.1:5700\n```',
+      timestamp: new Date().toISOString(),
+    },
+    // Case C — a tool call as the very last message (streaming cut off mid-turn).
+    {
+      role: 'user',
+      content: 'Build the project.',
+      timestamp: new Date().toISOString(),
+    },
+    {
+      role: 'assistant',
+      content: 'Building now:\n\n```shell\nmake build\n```',
+      timestamp: new Date().toISOString(),
+    },
+    // (last message — no result, no wrap-up)
+  ],
 };
 
 // Demo conversations (as ConversationSummary objects)
@@ -151,6 +223,14 @@ export const demoConversations: ConversationSummary[] = [
     name: 'Introduction to gptme',
     modified: Math.floor(Date.now() / 1000), // Unix timestamp
     messages: demoMessages.introduction.length,
+    readonly: true,
+    workspace: '/demo/workspace',
+  },
+  {
+    id: 'edge-cases',
+    name: 'Edge cases (rendering regression bed)',
+    modified: Math.floor(Date.now() / 1000),
+    messages: demoMessages['edge-cases'].length,
     readonly: true,
     workspace: '/demo/workspace',
   },
