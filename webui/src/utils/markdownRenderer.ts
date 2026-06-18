@@ -186,6 +186,12 @@ export function customRenderer(
       if (type === smd.LANG) {
         data.lang = value;
         if (data.summary) {
+          // Code-block emoji — CHAT renderer (smd custom renderer, real DOM nodes).
+          // This is the path the chat view (/chat/...) actually uses. Output goes
+          // through .textContent, so the summary is PLAIN TEXT and cannot carry HTML
+          // markup (styled spans won't work here without createElement/appendChild).
+          // The NON-CHAT path (marked) in markdownUtils.ts builds an HTML string and
+          // can. Keep emoji/summary changes in sync across both renderers.
           const emoji = getCodeBlockEmoji(value);
           data.summary.textContent = `${emoji} ${value}`;
         }

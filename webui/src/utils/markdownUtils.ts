@@ -155,6 +155,12 @@ export function parseMarkdownContent(content: string) {
     (_, classes = '', code) => {
       const langtag_fallback = ((classes || '').split(' ')[1] || 'Code').replace('language-', '');
       const langtag = langtags?.shift() || langtag_fallback;
+      // Code-block emoji — NON-CHAT renderer (marked, HTML string output).
+      // This builds an HTML string, so the <summary> can carry inline markup
+      // (styled spans, etc.). The CHAT view does NOT come through here — it uses
+      // the smd custom renderer in markdownRenderer.ts, which builds DOM nodes
+      // via .textContent and can't carry HTML. Any visual tweak to the summary
+      // (e.g. styling the emoji) must be applied in BOTH places to be consistent.
       const emoji = getCodeBlockEmoji(langtag);
       return `
             <details>
@@ -169,10 +175,13 @@ export function parseMarkdownContent(content: string) {
 }
 
 export function getCodeBlockEmoji(langtag: string): string {
+  // TODO: replace these with proper icons
   if (isPath(langtag)) return '📄';
   if (isTool(langtag)) return '🛠️';
   if (isOutput(langtag)) return '📤';
   if (isWrite(langtag)) return '📝';
+  if (isBrowser(langtag)) return '🌐';
+  if (isComplete(langtag)) return '🏁';
   return '💻';
 }
 
@@ -193,4 +202,12 @@ function isOutput(langtag: string): boolean {
 
 function isWrite(langtag: string): boolean {
   return ['save', 'patch', 'append'].includes(langtag.split(' ')[0].toLowerCase());
+}
+
+function isBrowser(langtag: string): boolean {
+  return ['browser', 'search', 'web'].includes(langtag.toLowerCase());
+}
+
+function isComplete(langtag: string): boolean {
+  return ['complete'].includes(langtag.toLowerCase());
 }
