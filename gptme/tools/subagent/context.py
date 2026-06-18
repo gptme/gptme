@@ -11,47 +11,6 @@ import re
 
 from ...message import Message
 
-# Regex that matches lines where a key name suggests a secret.
-# Captures: (prefix_with_key_and_separator)(value)(optional_suffix)
-# Matches patterns like:
-#   API_KEY=sk-abc123
-#   github_token: ghp_xyz
-#   OPENAI_API_KEY="sk-..."
-#   private_key=-----BEGIN RSA...
-#   Bearer ghp_abc123
-_SECRET_LINE_RE = re.compile(
-    r"""(?ix)                                # case-insensitive, verbose
-    (                                        # group 1: prefix (preserved)
-        (?:
-            (?:                              # name=value style
-                [\w\-\.]+                    # variable name
-                \s*[=:]\s*                   # separator
-            )
-            |
-            (?:bearer\s+)                    # Bearer token header
-        )
-        (?:.*?                               # anything before the sensitive name
-            (?:
-                api[-_]?key|apikey           # API keys
-                |token                       # tokens
-                |secret                      # secrets
-                |password|passwd             # passwords
-                |private[-_]key|privkey      # private keys
-                |auth[-_]?(?:key|token)      # auth credentials
-                |access[-_]key               # access keys
-                |credential                  # generic credential
-            )
-            .*?                              # anything after, before separator
-            (?:\s*[=:]\s*)?                  # optional repeated separator
-        )?
-    )
-    (["']?)                                  # group 2: optional opening quote
-    (\S+)                                    # group 3: the secret value
-    (["']?)                                  # group 4: optional closing quote
-    """,
-    re.MULTILINE,
-)
-
 # Pattern for YAML/TOML colon-style assignments (key: value)
 _COLON_ASSIGN_RE = re.compile(
     r"""(?ix)
