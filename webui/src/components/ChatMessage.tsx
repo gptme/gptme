@@ -118,7 +118,7 @@ function MessageMetaLabel({
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
-          <div className="h-0 select-none overflow-visible px-3 text-right text-[10px] leading-4 text-muted-foreground/50 opacity-0 transition-opacity group-hover/message:opacity-100">
+          <div className="flex select-none items-center whitespace-nowrap px-1.5 text-[10px] leading-4 text-muted-foreground/60">
             {shortLabel}
           </div>
         </TooltipTrigger>
@@ -583,9 +583,22 @@ const ChatMessageComponent: FC<Props> = ({
                   userName={api.userInfo$.name?.get()}
                 />
                 <div className={contentOffsetClasses$.get()}>
-                  <div className={`group/message relative ${messageClasses$.get()}`}>
-                    {/* Action buttons (top-right) */}
-                    <div className="absolute right-1 top-1 z-10 flex gap-0.5 opacity-0 transition-opacity hover:!opacity-100 group-hover/message:opacity-50">
+                  <div className={`group/message relative flex flex-col ${messageClasses$.get()}`}>
+                    {/* Per-message actions — rendered under the message (order-last),
+                        aligned left for assistant/system and right for user. */}
+                    <div
+                      className={`order-last flex max-h-0 items-center gap-0.5 overflow-hidden px-1 opacity-0 transition-all duration-150 group-hover/message:max-h-9 group-hover/message:opacity-100 ${
+                        message$.role.get() === 'user' ? 'flex-row-reverse self-end' : 'self-start'
+                      }`}
+                    >
+                      <Memo>
+                        {() => {
+                          const msg = message$.get() as Message;
+                          return (
+                            <MessageMetaLabel timestamp={msg?.timestamp} metadata={msg?.metadata} />
+                          );
+                        }}
+                      </Memo>
                       {onEdit &&
                         messageIndex !== undefined &&
                         message$.role.get() === 'user' &&
@@ -755,14 +768,6 @@ const ChatMessageComponent: FC<Props> = ({
                               </Button>
                             )}
                           </div>
-                        );
-                      }}
-                    </Memo>
-                    <Memo>
-                      {() => {
-                        const msg = message$.get() as Message;
-                        return (
-                          <MessageMetaLabel timestamp={msg?.timestamp} metadata={msg?.metadata} />
                         );
                       }}
                     </Memo>
