@@ -397,6 +397,43 @@ def test_model_allows_provider_owned_nested_model_path(runner: CliRunner):
     assert "gptme v" in result.output
 
 
+def test_model_allows_nested_path_through_validation_block(
+    monkeypatch, tmp_path: Path, runner: CliRunner
+):
+    """A valid nested-path model should pass the early validation block.
+
+    Unlike test_model_allows_provider_owned_nested_model_path which uses
+    --version and exits before the validation block runs, this test
+    actually exercises the early validation code path.
+    """
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+
+    # Track that get_prompt was called (means validation passed)
+    called: dict[str, bool] = {"get_prompt": False}
+
+    def _fake_get_prompt(**kwargs):
+        called["get_prompt"] = True
+        return []
+
+    monkeypatch.setattr(cli, "get_prompt", _fake_get_prompt)
+    monkeypatch.setattr(cli, "chat", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "init_telemetry", lambda **kwargs: None)
+
+    result = runner.invoke(
+        cli.main,
+        [
+            "--model",
+            "openrouter/anthropic/claude-sonnet-4-6",
+            "--non-interactive",
+            "hello",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert called["get_prompt"], "execution should reach get_prompt (validation passed)"
+
+
 def test_model_rejects_unknown_provider_before_context_cmd(
     monkeypatch, tmp_path: Path, runner: CliRunner
 ):
