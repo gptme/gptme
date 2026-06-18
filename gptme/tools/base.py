@@ -300,6 +300,8 @@ def callable_signature(func: Callable) -> str:
 ToolFunctionInput: TypeAlias = ToolFunction | Callable[..., Any]
 
 
+# init=False is intentional: ToolSpec needs a wide constructor input type while
+# storing normalized fields. Dataclasses will not call __post_init__ here.
 @dataclass(frozen=True, eq=False, init=False)
 class ToolSpec:
     """
