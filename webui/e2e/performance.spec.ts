@@ -30,6 +30,15 @@ test.describe('Performance: sidebar hot-loop prevention', () => {
     // Use CDP Performance.getMetrics instead of the removed page.metrics() API
     const cdp = await page.context().newCDPSession(page);
     await cdp.send('Performance.enable');
+    await cdp.send('HeapProfiler.enable');
+    const collectGarbage = async () => {
+      // JSHeapUsedSize includes garbage that V8 has not collected yet. Force a
+      // collection around both measurements so this test gates retained heap,
+      // not normal GC scheduling jitter on busy CI runners.
+      await cdp.send('HeapProfiler.collectGarbage');
+      await page.waitForTimeout(100);
+    };
+    await collectGarbage();
     const baseResult = await cdp.send('Performance.getMetrics');
     const getHeapUsed = (metrics: { name: string; value: number }[]) =>
       metrics.find((m) => m.name === 'JSHeapUsedSize')?.value ?? 0;
@@ -46,6 +55,7 @@ test.describe('Performance: sidebar hot-loop prevention', () => {
       await expect(page.getByText(/Hello! I'm gptme/)).toBeVisible({ timeout: 10000 });
     }
 
+    await collectGarbage();
     const afterResult = await cdp.send('Performance.getMetrics');
     const afterHeap = getHeapUsed(afterResult.metrics);
     const growthMB = (afterHeap - baseHeap) / (1024 * 1024);
