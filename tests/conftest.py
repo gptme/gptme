@@ -303,6 +303,9 @@ def init_():
     # environment's MODEL. Server tests now use fully-qualified model names
     # (e.g. "openai/gpt-4o-mini") to prevent provider validation errors.
     model = os.environ.get("MODEL")
+    # Ensure OPENAI_BASE_URL is set when using local/test model
+    if model and model.startswith("local/") and not os.environ.get("OPENAI_BASE_URL"):
+        os.environ["OPENAI_BASE_URL"] = "http://localhost:666"
     init(model, interactive=False, tool_allowlist=None, tool_format="markdown")
 
 
