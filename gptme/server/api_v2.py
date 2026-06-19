@@ -91,6 +91,7 @@ from .openapi_docs import (
     CONTRACT_REVISION,
     CONVERSATION_ID_PARAM,
     ApiRootResponse,
+    ApiVersionResponse,
     AudioTranscriptionResponse,
     ConversationCreateRequest,
     ConversationListResponse,
@@ -691,6 +692,21 @@ def api_root():
         "provider_configured": provider_configured,
     }
     response = flask.jsonify(body)
+    response.headers["X-API-Version"] = str(API_VERSION)
+    return response
+
+
+@v2_api.route("/api/v2/version")
+@api_doc_simple(responses={200: ApiVersionResponse}, tags=["meta"])
+def api_version():
+    """Get the current API version.
+
+    Lightweight alternative to the full /api/v2 root for clients that only
+    need to check version compatibility.
+    """
+    response = flask.jsonify(
+        {"api_version": API_VERSION, "contract_revision": CONTRACT_REVISION}
+    )
     response.headers["X-API-Version"] = str(API_VERSION)
     return response
 

@@ -39,6 +39,16 @@ def test_api_root(client: FlaskClient):
     assert response.headers.get("X-API-Version") == str(API_VERSION)
 
 
+def test_api_version(client: FlaskClient):
+    response = client.get("/api/v2/version")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["api_version"] == API_VERSION
+    assert data["contract_revision"] == CONTRACT_REVISION
+    assert response.headers.get("X-API-Version") == str(API_VERSION)
+    assert "message" not in data
+
+
 def test_api_config_no_project(client: FlaskClient, monkeypatch):
     """GET /api/v2/config returns empty agent dict when no gptme.toml is present."""
     import gptme.server.api_v2 as api_v2_module
