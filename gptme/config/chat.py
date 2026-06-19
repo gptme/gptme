@@ -197,9 +197,10 @@ class ChatConfig:
             try:
                 ensure_workspace_dir(workspace)
             except PermissionError:
-                # Log dirs owned by another user (e.g. bind-mounted from CI)
-                # should still be listable; skip workspace creation silently.
-                pass
+                logger.warning(
+                    f"Could not create workspace dir {workspace} (permission denied); "
+                    "log dir may be owned by another user"
+                )
             return cls(_logdir=path, workspace=workspace.resolve())
         try:
             if tomllib is not None:
