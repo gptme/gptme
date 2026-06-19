@@ -32,6 +32,9 @@ def test_api_root(client: FlaskClient):
     assert response.status_code == 200
     data = response.get_json()
     assert "message" in data
+    assert data["api_version"] == 2
+    assert data["contract_revision"] == 1
+    assert response.headers.get("X-API-Version") == "2"
 
 
 def test_api_config_no_project(client: FlaskClient, monkeypatch):

@@ -21,6 +21,12 @@ from pydantic import BaseModel, Field
 
 from gptme.__version__ import __version__
 
+# API versioning: the URL-prefix is the major version (/api/v2).
+# Increment CONTRACT_REVISION for additive (backward-compatible) changes;
+# increment API_VERSION and update the URL prefix for breaking changes.
+API_VERSION = 2
+CONTRACT_REVISION = 1
+
 logger = logging.getLogger(__name__)
 
 # Pydantic Models (auto-generate OpenAPI schemas)
@@ -185,6 +191,13 @@ class ApiRootResponse(BaseModel):
     message: str = Field(..., description="API description")
     documentation: str = Field(..., description="Documentation URL")
     version: str = Field(..., description="gptme server version")
+    api_version: int = Field(
+        ..., description="API contract major version (URL-prefix axis)"
+    )
+    contract_revision: int = Field(
+        ...,
+        description="Additive contract revision; increments for backward-compatible changes",
+    )
     capabilities: ApiCapabilities = Field(
         ..., description="Advertised optional server capabilities"
     )
