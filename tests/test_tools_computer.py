@@ -1142,12 +1142,19 @@ def test_wait_for_change_timeout_returns_screenshot(mock_transport, mock_res, tm
     static = tmp_path / "static.png"
     Image.new("RGB", (100, 100), (42, 42, 42)).save(static)
 
+    call_count = {"count": 0}
+
+    def monotonic_side_effect():
+        call_count["count"] += 1
+        if call_count["count"] <= 2:
+            return 0.0
+        return 100.0
+
     with (
         mock.patch("gptme.tools.computer.screenshot", return_value=static),
         mock.patch("gptme.tools.computer.time.sleep"),
         mock.patch(
-            "gptme.tools.computer.time.monotonic",
-            side_effect=iter([0.0, 0.0, 100.0] + [100.0] * 20),
+            "gptme.tools.computer.time.monotonic", side_effect=monotonic_side_effect
         ),
         mock.patch(
             "gptme.tools.computer._make_screenshot_msg",
