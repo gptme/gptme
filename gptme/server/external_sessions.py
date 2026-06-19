@@ -255,6 +255,17 @@ class CLIExternalSessionProvider:
             logger.warning("Failed to parse transcript JSON for %s", path)
             return None
 
+    @staticmethod
+    def _cli_mtime(s: dict) -> float:
+        """Get mtime from a session dict, returning 0 on any filesystem error."""
+        path = s.get("path")
+        if not path:
+            return 0
+        try:
+            return os.path.getmtime(str(path))
+        except OSError:
+            return 0
+
     def list_sessions(
         self, limit: int = 100, days: int = 30
     ) -> list[ExternalSessionCatalogItem]:
@@ -262,19 +273,9 @@ class CLIExternalSessionProvider:
         sessions = self._discover_paths(days)
 
         # Sort by mtime descending (most recent first) so the most relevant
-        # sessions are processed early under the cap. Fall back to path order
-        # when mtime is unavailable.
-        try:
-            sessions.sort(
-                key=lambda s: (
-                    os.path.getmtime(str(s.get("path", "")))
-                    if s.get("path") and os.path.exists(str(s["path"]))
-                    else 0
-                ),
-                reverse=True,
-            )
-        except OSError:
-            pass
+        # sessions are processed early under the cap. _cli_mtime handles
+        # missing files internally so the sort always completes.
+        sessions.sort(key=self._cli_mtime, reverse=True)
 
         # Cap the number of sessions we process to avoid hanging on 30k+ sessions.
         # Process at most limit * 3 paths to allow for unreadable transcripts
@@ -309,17 +310,7 @@ class CLIExternalSessionProvider:
         # visible in catalog results are also reachable by ID lookup. Without
         # this sort, a recently-active session at deep path order would appear
         # in list_sessions() results but 404 from get_session().
-        try:
-            sessions.sort(
-                key=lambda s: (
-                    os.path.getmtime(str(s.get("path", "")))
-                    if s.get("path") and os.path.exists(str(s["path"]))
-                    else 0
-                ),
-                reverse=True,
-            )
-        except OSError:
-            pass
+        sessions.sort(key=self._cli_mtime, reverse=True)
 
         # Cap the scan to avoid 30k+ subprocess calls for a single ID
         # lookup when the session doesn't exist (worst case: 30s timeout × N).
