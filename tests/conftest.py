@@ -304,16 +304,18 @@ def temp_file():
 
 
 @pytest.fixture(autouse=True)
-def init_():
+def init_(monkeypatch):
     # Pass MODEL from env explicitly to avoid picking up stale config.chat.model
     # values left by server tests. When _init_done is reset per-test, init_model()
     # re-runs and would otherwise read the contaminated config instead of the test
     # environment's MODEL. Server tests now use fully-qualified model names
     # (e.g. "openai/gpt-4o-mini") to prevent provider validation errors.
     model = os.environ.get("MODEL")
-    # Ensure OPENAI_BASE_URL is set when using local/test model
+    # Ensure OPENAI_BASE_URL is set when using local/test model.
+    # Use monkeypatch so the env var is reverted after each test and doesn't
+    # leak into subsequent tests that use a non-local provider.
     if model and model.startswith("local/") and not os.environ.get("OPENAI_BASE_URL"):
-        os.environ["OPENAI_BASE_URL"] = "http://localhost:666"
+        monkeypatch.setenv("OPENAI_BASE_URL", "http://localhost:666")
     init(model, interactive=False, tool_allowlist=None, tool_format="markdown")
 
 
