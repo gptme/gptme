@@ -1146,7 +1146,8 @@ def test_wait_for_change_timeout_returns_screenshot(mock_transport, mock_res, tm
         mock.patch("gptme.tools.computer.screenshot", return_value=static),
         mock.patch("gptme.tools.computer.time.sleep"),
         mock.patch(
-            "gptme.tools.computer.time.monotonic", side_effect=[0.0, 0.0, 100.0]
+            "gptme.tools.computer.time.monotonic",
+            side_effect=iter([0.0, 0.0, 100.0] + [100.0] * 20),
         ),
         mock.patch(
             "gptme.tools.computer._make_screenshot_msg",
