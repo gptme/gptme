@@ -15,6 +15,29 @@ def test_chat_config_from_logdir(tmp_path: Path):
     assert loaded.model == "test-model"
 
 
+def test_chat_config_from_logdir_permission_error(tmp_path: Path, monkeypatch):
+    """from_logdir must not crash when workspace dir can't be created (PermissionError).
+
+    Reproduces the gptme/gptme#2958 scenario: log dirs seeded by one user and
+    then mounted read-only into a container running as a different user.
+    """
+    logdir = tmp_path / "conv"
+    logdir.mkdir()
+    # No config.toml → hits the ensure_workspace_dir branch
+
+    def _raise(_path):
+        raise PermissionError(13, "Permission denied", str(_path))
+
+    monkeypatch.setattr(
+        "gptme.config.chat.ensure_workspace_dir",
+        _raise,
+    )
+
+    loaded = ChatConfig.from_logdir(logdir)
+    # Conversation is still listed; workspace points to the intended path
+    assert loaded.workspace == (logdir / "workspace").resolve()
+
+
 def test_chat_config_from_logdir_workspace_symlink(tmp_path: Path):
     """from_logdir must not crash when 'workspace' is a pre-existing symlink.
 
