@@ -125,7 +125,7 @@ class ExternalSessionProvider:
         # need `limit` results. Sort recently-active paths first so the most
         # relevant sessions appear even under the cap.
         paths = self._discover_paths(days)
-        paths.sort(key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True)
+        paths.sort(key=self._mtime, reverse=True)
 
         # Process at most limit * 3 paths to allow for unreadable/failed
         # transcripts while still hitting the target count. This prevents
@@ -148,8 +148,22 @@ class ExternalSessionProvider:
         )
         return items[:limit]
 
+    @staticmethod
+    def _mtime(path: Path) -> float:
+        """Get mtime of a Path, returning 0 on any filesystem error."""
+        try:
+            return path.stat().st_mtime
+        except OSError:
+            return 0
+
     def get_session(self, external_id: str, days: int = 30) -> dict | None:
         paths = self._discover_paths(days)
+        # Sort paths by mtime (most recent first) before capping, so that
+        # sessions found by list_sessions() (which also sorts by mtime) are
+        # reachable by ID lookup. Without this sort, a recently-active session
+        # that lives deep in unsorted path order would 404 from get_session()
+        # while appearing in list_sessions() results.
+        paths.sort(key=self._mtime, reverse=True)
         # Cap the scan to avoid 30k+ transcript reads for a single ID
         # lookup when the session doesn't exist.
         max_scan = 2000
@@ -259,7 +273,7 @@ class CLIExternalSessionProvider:
                 ),
                 reverse=True,
             )
-        except Exception:
+        except OSError:
             pass
 
         # Cap the number of sessions we process to avoid hanging on 30k+ sessions.
@@ -290,6 +304,23 @@ class CLIExternalSessionProvider:
 
     def get_session(self, external_id: str, days: int = 30) -> dict | None:
         sessions = self._discover_paths(days)
+
+        # Sort by mtime descending (same as list_sessions()) so that sessions
+        # visible in catalog results are also reachable by ID lookup. Without
+        # this sort, a recently-active session at deep path order would appear
+        # in list_sessions() results but 404 from get_session().
+        try:
+            sessions.sort(
+                key=lambda s: (
+                    os.path.getmtime(str(s.get("path", "")))
+                    if s.get("path") and os.path.exists(str(s["path"]))
+                    else 0
+                ),
+                reverse=True,
+            )
+        except OSError:
+            pass
+
         # Cap the scan to avoid 30k+ subprocess calls for a single ID
         # lookup when the session doesn't exist (worst case: 30s timeout × N).
         max_scan = 2000
