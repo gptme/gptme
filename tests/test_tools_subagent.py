@@ -387,11 +387,12 @@ def test_subagent_execution_mode_field():
     assert sa2.execution_mode == "subprocess"
 
 
-def test_subagent_status_returns_dict():
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
+def test_subagent_status_returns_dict(mock_create_thread: MagicMock):
     """Test that subagent_status returns a dictionary."""
     from gptme.tools.subagent import subagent, subagent_status
 
-    # First create a subagent
+    # First create a subagent (thread mocked to avoid real API calls in no-extras CI)
     subagent(agent_id="test-status-agent", prompt="Simple test")
 
     # Get status
