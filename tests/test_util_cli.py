@@ -58,6 +58,25 @@ def test_tokens_count(tmp_path):
     assert result.exception is None or isinstance(result.exception, SystemExit)
     assert "is a directory" in result.output.lower()
 
+    # Test `--file -` reads from stdin (Unix convention: '-' as file = stdin).
+    # Regression: prior to allow_dash=True on --file, this failed with
+    # click.Path validation ("File '-' does not exist") even though the
+    # error message advertised '-' for stdin.
+    result = runner.invoke(
+        main, ["tokens", "count", "-f", "-"], input="stdin via file flag"
+    )
+    assert result.exit_code == 0
+    assert "Token count" in result.output
+    count = int(result.output.split(": ", 1)[1].strip())
+    assert count > 1
+
+    # Test `--file -` with empty stdin: should still error with the same
+    # "No text provided" path, not crash with click validation or
+    # FileNotFoundError.
+    result = runner.invoke(main, ["tokens", "count", "-f", "-"], input="")
+    assert result.exit_code == 1
+    assert "No text provided" in result.output
+
 
 def test_chats_list(tmp_path, mocker):
     """Test the chats list command."""

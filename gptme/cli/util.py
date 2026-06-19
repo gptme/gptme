@@ -265,17 +265,20 @@ def tokens():
 @click.option(
     "-f",
     "--file",
-    type=click.Path(exists=True, dir_okay=False),
-    help="File to count tokens in.",
+    type=click.Path(exists=True, dir_okay=False, allow_dash=True),
+    help="File to count tokens in. Use '-' to read from stdin.",
 )
 def tokens_count(text: str | None, model: str, file: str | None):
     """Count tokens in text or file."""
     import tiktoken  # fmt: skip
 
-    # Get text from file if specified
+    # Get text from file if specified (or stdin via "-")
     if file:
-        with open(file) as f:
-            text = f.read()
+        if file == "-":
+            text = sys.stdin.read()
+        else:
+            with open(file) as f:
+                text = f.read()
     elif text == "-":
         text = sys.stdin.read()
 
