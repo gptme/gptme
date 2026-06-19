@@ -1012,24 +1012,31 @@ def models_list(
 
     if as_json:
         # Keep JSON output machine-readable even if provider discovery logs warnings.
-        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            from ..llm import list_available_providers  # fmt: skip
+        # redirect_stdout/redirect_stderr suppresses print() noise; logging.disable
+        # suppresses Rich-formatted log output (httpx retry messages etc.) that escapes
+        # through Rich's pre-captured file handle and is not affected by sys.stderr redirect.
+        logging.disable(logging.INFO)
+        try:
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                from ..llm import list_available_providers  # fmt: skip
 
-            configured = (
-                {
-                    configured_provider
-                    for configured_provider, _ in list_available_providers()
-                }
-                if available
-                else None
-            )
-            models = get_model_list(
-                provider_filter=provider,
-                vision_only=vision,
-                reasoning_only=reasoning,
-                include_deprecated=include_deprecated,
-                dynamic_fetch=True,
-            )
+                configured = (
+                    {
+                        configured_provider
+                        for configured_provider, _ in list_available_providers()
+                    }
+                    if available
+                    else None
+                )
+                models = get_model_list(
+                    provider_filter=provider,
+                    vision_only=vision,
+                    reasoning_only=reasoning,
+                    include_deprecated=include_deprecated,
+                    dynamic_fetch=True,
+                )
+        finally:
+            logging.disable(logging.NOTSET)
         if configured is not None:
             models = [model for model in models if model.provider_key in configured]
         click.echo(json.dumps([model_to_dict(model) for model in models], indent=2))
