@@ -3070,6 +3070,91 @@ The ``prompt`` section contains options included in both interactive and non-int
 
 The ``env`` section contains environment variables that gptme will fall back to if they are not set in the shell environment. This is useful for setting the default model and API keys for :doc:`providers`. It can also be used to set default tool configuration options, see :doc:`custom_tool` for more information.
 
+.. _how-model-selection-works:
+
+How model selection works
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When you start gptme, the model is resolved in this priority order:
+
+1. ``--model`` / ``-m`` CLI flag (highest priority, per-session)
+2. Per-chat model saved with ``/model`` — persists across session resumes
+3. ``[models].default`` in your global config
+4. ``MODEL`` env var (in shell or ``[env]`` section of config)
+5. Auto-detection based on which API keys are configured
+
+**Setting a permanent default model:**
+
+The recommended approach is to use ``[models].default`` in your config:
+
+.. code-block:: toml
+
+    [models]
+    default = "anthropic/claude-sonnet-4-6"
+
+Alternatively, set ``MODEL`` once in the ``[env]`` section — but do **not** add it twice, since TOML does not allow duplicate keys within the same table.
+
+**Auto-detection when no model is set:**
+
+If no model is configured, gptme will scan your API keys and pick the first available provider in this order:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Provider prefix
+     - API key env var
+   * - ``openai``
+     - ``OPENAI_API_KEY``
+   * - ``anthropic``
+     - ``ANTHROPIC_API_KEY``
+   * - ``openrouter``
+     - ``OPENROUTER_API_KEY``
+   * - ``gemini``
+     - ``GEMINI_API_KEY``
+   * - ``groq``
+     - ``GROQ_API_KEY``
+   * - ``xai``
+     - ``XAI_API_KEY``
+   * - ``deepseek``
+     - ``DEEPSEEK_API_KEY``
+   * - ``moonshot``
+     - ``MOONSHOT_API_KEY``
+   * - ``azure``
+     - ``AZURE_OPENAI_API_KEY``
+
+So if you have both ``ANTHROPIC_API_KEY`` and ``GROQ_API_KEY`` set, gptme will
+use Anthropic (earlier in the list) unless you override with ``MODEL`` or ``--model``.
+See :doc:`providers` for the full list and the :doc:`evals` page for model recommendations.
+
+**Using multiple providers:**
+
+You can set API keys for as many providers as you like. Use ``--model`` on the
+command line to select a specific model for a session, or set ``[models].default``
+in your config to change the permanent default:
+
+.. code-block:: bash
+
+    # Use Groq for a specific session, regardless of default
+    gptme "explain this" -m groq/llama-3.3-70b-versatile
+
+    # Use OpenRouter's model picker syntax
+    gptme "hello" -m openrouter/google/gemini-2.5-flash
+
+The ``<provider>/<model-name>`` prefix determines which API key is used —
+``anthropic/...`` uses ``ANTHROPIC_API_KEY``, ``groq/...`` uses ``GROQ_API_KEY``, etc.
+
+**Using local models (Ollama, llama-cpp-python, etc.):**
+
+Set ``MODEL`` to ``local/<model-name>`` and point ``OPENAI_BASE_URL`` at your
+local server. The ``OPENAI_BASE_URL`` setting **only applies** to models with
+the ``local/`` prefix — it does not affect OpenAI, Anthropic, or other providers:
+
+.. code-block:: toml
+
+    [env]
+    MODEL = "local/llama3.2:3b"
+    OPENAI_BASE_URL = "http://localhost:11434/v1"
+
 The ``models`` section configures model selection preferences:
 
 - ``default``: The default chat model, as a fully-qualified model ID (e.g. ``"anthropic/claude-sonnet-4-6"``). A formal alternative to the ``MODEL`` env var; ``models.default`` takes precedence over the ``MODEL`` env var (and ``[env].MODEL`` in the config file), but is itself overridden by an explicit per-chat model or the ``--model`` CLI flag.
