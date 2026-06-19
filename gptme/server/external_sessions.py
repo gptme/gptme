@@ -6,6 +6,7 @@ import functools
 import hashlib
 import json
 import logging
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -120,17 +121,26 @@ class ExternalSessionProvider:
         self, limit: int = 100, days: int = 30
     ) -> list[ExternalSessionCatalogItem]:
         items: list[ExternalSessionCatalogItem] = []
-        for path in self._discover_paths(days):
+        # Cap discovery to avoid scanning thousands of sessions when we only
+        # need `limit` results. Sort recently-active paths first so the most
+        # relevant sessions appear even under the cap.
+        paths = self._discover_paths(days)
+        paths.sort(key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True)
+
+        # Process at most limit * 3 paths to allow for unreadable/failed
+        # transcripts while still hitting the target count. This prevents
+        # the endpoint from hanging when there are 30k+ sessions on disk.
+        max_paths = max(limit * 3, 500)
+        for path in paths[:max_paths]:
             try:
                 transcript = self._read_transcript(path).to_dict()
                 items.append(
                     ExternalSessionCatalogItem.from_transcript_dict(transcript)
                 )
             except Exception:
-                logger.warning(
+                logger.debug(
                     "Skipping unreadable external session transcript during catalog listing: %s",
                     path,
-                    exc_info=True,
                 )
 
         items.sort(
@@ -139,7 +149,11 @@ class ExternalSessionProvider:
         return items[:limit]
 
     def get_session(self, external_id: str, days: int = 30) -> dict | None:
-        for path in self._discover_paths(days):
+        paths = self._discover_paths(days)
+        # Cap the scan to avoid 30k+ transcript reads for a single ID
+        # lookup when the session doesn't exist.
+        max_scan = 2000
+        for path in paths[:max_scan]:
             path_str = str(path)
             if _make_external_session_id(path_str) != external_id:
                 continue
@@ -218,7 +232,7 @@ class CLIExternalSessionProvider:
 
     def _read_transcript_cli(self, path: str) -> dict | None:
         """Read a transcript via CLI, returning the full JSON dict."""
-        output = self._run_cli(["transcript", str(path), "--json"], timeout=30)
+        output = self._run_cli(["transcript", str(path), "--json"], timeout=10)
         if not output:
             return None
         try:
@@ -231,7 +245,28 @@ class CLIExternalSessionProvider:
         self, limit: int = 100, days: int = 30
     ) -> list[ExternalSessionCatalogItem]:
         items: list[ExternalSessionCatalogItem] = []
-        for session in self._discover_paths(days):
+        sessions = self._discover_paths(days)
+
+        # Sort by mtime descending (most recent first) so the most relevant
+        # sessions are processed early under the cap. Fall back to path order
+        # when mtime is unavailable.
+        try:
+            sessions.sort(
+                key=lambda s: (
+                    os.path.getmtime(str(s.get("path", "")))
+                    if s.get("path") and os.path.exists(str(s["path"]))
+                    else 0
+                ),
+                reverse=True,
+            )
+        except Exception:
+            pass
+
+        # Cap the number of sessions we process to avoid hanging on 30k+ sessions.
+        # Process at most limit * 3 paths to allow for unreadable transcripts
+        # while still hitting the target count.
+        max_paths = max(limit * 3, 500)
+        for session in sessions[:max_paths]:
             path = session.get("path")
             if not path:
                 continue
@@ -243,10 +278,9 @@ class CLIExternalSessionProvider:
                     ExternalSessionCatalogItem.from_transcript_dict(transcript)
                 )
             except Exception:
-                logger.warning(
+                logger.debug(
                     "Skipping unreadable external session transcript (CLI) during catalog listing: %s",
                     path,
-                    exc_info=True,
                 )
 
         items.sort(
@@ -255,7 +289,11 @@ class CLIExternalSessionProvider:
         return items[:limit]
 
     def get_session(self, external_id: str, days: int = 30) -> dict | None:
-        for session in self._discover_paths(days):
+        sessions = self._discover_paths(days)
+        # Cap the scan to avoid 30k+ subprocess calls for a single ID
+        # lookup when the session doesn't exist (worst case: 30s timeout × N).
+        max_scan = 2000
+        for session in sessions[:max_scan]:
             path = session.get("path")
             if not path:
                 continue

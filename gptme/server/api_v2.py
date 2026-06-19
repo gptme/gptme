@@ -886,7 +886,7 @@ def api_dev_deploy_staging_trigger():
         {
             "name": "days",
             "in": "query",
-            "schema": {"type": "integer", "default": 30},
+            "schema": {"type": "integer", "default": 7},
             "description": "How many recent days of session history to scan",
         },
     ],
@@ -899,7 +899,7 @@ def api_external_sessions():
 
     try:
         limit = int(request.args.get("limit", 100))
-        days = int(request.args.get("days", 30))
+        days = int(request.args.get("days", 7))
     except (ValueError, TypeError):
         return flask.jsonify({"error": "limit and days must be integers"}), 400
 
@@ -908,7 +908,7 @@ def api_external_sessions():
     limit = min(limit, 1000)
     if days <= 0:
         return flask.jsonify({"error": "days must be a positive integer"}), 400
-    days = min(days, 3650)
+    days = min(days, 365)
 
     sessions = [
         item.to_dict() for item in provider.list_sessions(limit=limit, days=days)
@@ -932,7 +932,7 @@ def api_external_sessions():
         {
             "name": "days",
             "in": "query",
-            "schema": {"type": "integer", "default": 30},
+            "schema": {"type": "integer", "default": 7},
             "description": "How many recent days of session history to scan",
         },
     ],
@@ -940,12 +940,12 @@ def api_external_sessions():
 def api_external_session(external_session_id: str):
     """Get a normalized read-only external session transcript."""
     try:
-        days = int(request.args.get("days", 30))
+        days = int(request.args.get("days", 7))
     except (ValueError, TypeError):
         return flask.jsonify({"error": "days must be an integer"}), 400
     if days <= 0:
         return flask.jsonify({"error": "days must be a positive integer"}), 400
-    days = min(days, 3650)
+    days = min(days, 365)
 
     provider = get_external_session_provider()
     if provider is None:
