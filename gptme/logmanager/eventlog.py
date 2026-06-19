@@ -229,15 +229,3 @@ def build_message_edit_event(
 def build_undo_event(seq: int, n: int = 1) -> dict[str, Any]:
     """Build an ``undo`` event storing the count of messages removed."""
     return _make_event(seq, EVENT_UNDO, {"n": n})
-
-
-def build_checkpoint_event(
-    seq: int,
-    messages: list[Message],
-) -> dict[str, Any]:
-    """Build a checkpoint event from a list of Message objects."""
-    return _make_event(
-        seq,
-        EVENT_CHECKPOINT,
-        {"messages": [m.to_dict() for m in messages]},
-    )
