@@ -81,10 +81,22 @@ def read_events(logdir: Path) -> list[dict[str, Any]]:
 
 def sequence_number(logdir: Path) -> int:
     """Return the next sequence number for a new event."""
-    events = read_events(logdir)
-    if not events:
-        return 1  # start at 1 (0 is reserved for initial state)
-    return events[-1]["seq"] + 1
+    path = _event_log_path(logdir)
+    if not path.exists():
+        return 1
+    # Read only the last non-empty line to avoid O(n) full-file parse
+    last_line = ""
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                last_line = line
+    if not last_line:
+        return 1
+    try:
+        return json.loads(last_line)["seq"] + 1
+    except (json.JSONDecodeError, KeyError):
+        return len(read_events(logdir)) + 1
 
 
 def write_checkpoint(
@@ -101,7 +113,7 @@ def write_checkpoint(
     return event
 
 
-def should_checkpoint(logdir: Path, current_seq: int) -> bool:
+def should_checkpoint(current_seq: int) -> bool:
     """Return True when a checkpoint should be written.
 
     A checkpoint is due every :py:data:`CHECKPOINT_INTERVAL` events.
@@ -120,17 +132,6 @@ def find_latest_checkpoint(
         if event.get("type") == EVENT_CHECKPOINT:
             checkpoint = event
     return checkpoint
-
-
-def _message_from_dict(data: dict[str, Any]) -> dict[str, Any]:
-    """Convert a stored message dict to the format expected by Message.
-
-    The stored format uses ``"timestamp"`` as an ISO string.  ``Message.__init__``
-    expects a ``datetime``, so we keep the raw dict and let the caller handle it.
-    """
-    # The caller (LogManager integration) will parse this through _gen_read_jsonl
-    # or Message.__init__ directly.
-    return data
 
 
 def recover_messages(
@@ -185,11 +186,12 @@ def recover_messages(
                 messages.pop()
                 replay_count += 1
         elif event_type == EVENT_MESSAGE_EDIT:
-            index = event["payload"].get("index")
-            new_msg = _migrate_metadata(dict(event["payload"]["message"]))
-            if index is not None and 0 <= index < len(messages):
-                messages[index] = new_msg  # type: ignore[assignment]
-                replay_count += 1
+            # Edit events store the full message list at time of edit
+            messages[:] = [
+                _migrate_metadata(dict(m))  # type: ignore[misc]
+                for m in event["payload"]["messages"]
+            ]
+            replay_count += 1
 
     if replay_count:
         logger.info("Recovery: replayed %d event(s) post-checkpoint", replay_count)
@@ -197,7 +199,7 @@ def recover_messages(
     return messages or None
 
 
-# ── convenience: event builder ───────────────────────────────────────
+# ── convenience: event builders ──────────────────────────────────────
 
 
 def build_message_append_event(
@@ -206,6 +208,18 @@ def build_message_append_event(
 ) -> dict[str, Any]:
     """Build a ``message_append`` event from a Message object."""
     return _make_event(seq, EVENT_MESSAGE_APPEND, {"message": message.to_dict()})
+
+
+def build_message_edit_event(
+    seq: int,
+    messages: list[Message],
+) -> dict[str, Any]:
+    """Build a ``message_edit`` event from the current full message list."""
+    return _make_event(
+        seq,
+        EVENT_MESSAGE_EDIT,
+        {"messages": [m.to_dict() for m in messages]},
+    )
 
 
 def build_undo_event(seq: int) -> dict[str, Any]:

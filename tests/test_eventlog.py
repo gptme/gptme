@@ -85,12 +85,12 @@ def test_sequence_number_increments(logdir: Path):
 
 def test_should_checkpoint(logdir: Path):
     """Checkpoint is due every CHECKPOINT_INTERVAL events."""
-    assert should_checkpoint(logdir, 0) is False
-    assert should_checkpoint(logdir, 1) is False
-    assert should_checkpoint(logdir, CHECKPOINT_INTERVAL - 1) is False
-    assert should_checkpoint(logdir, CHECKPOINT_INTERVAL) is True
-    assert should_checkpoint(logdir, CHECKPOINT_INTERVAL * 2) is True
-    assert should_checkpoint(logdir, CHECKPOINT_INTERVAL * 2 + 1) is False
+    assert should_checkpoint(0) is False
+    assert should_checkpoint(1) is False
+    assert should_checkpoint(CHECKPOINT_INTERVAL - 1) is False
+    assert should_checkpoint(CHECKPOINT_INTERVAL) is True
+    assert should_checkpoint(CHECKPOINT_INTERVAL * 2) is True
+    assert should_checkpoint(CHECKPOINT_INTERVAL * 2 + 1) is False
 
 
 def test_write_and_find_checkpoint(logdir: Path):
@@ -189,6 +189,44 @@ def test_recover_messages_with_checkpoint_and_replay(logdir: Path):
     assert result[0]["content"] == "msg1"
     assert result[1]["content"] == "msg2"
     assert result[2]["content"] == "msg3"
+
+
+def test_recover_messages_with_edit_events(logdir: Path):
+    """Recovery handles message_edit events by replacing the full message list."""
+    # Append two messages
+    append_event(
+        logdir,
+        {
+            "seq": 1,
+            "ts": "2026-01-01T00:00:00Z",
+            "type": EVENT_MESSAGE_APPEND,
+            "payload": {"message": {"role": "user", "content": "hello"}},
+        },
+    )
+    append_event(
+        logdir,
+        {
+            "seq": 2,
+            "ts": "2026-01-01T00:00:01Z",
+            "type": EVENT_MESSAGE_APPEND,
+            "payload": {"message": {"role": "assistant", "content": "world"}},
+        },
+    )
+    # Edit replaces the full message list (as written by _write_event_log)
+    append_event(
+        logdir,
+        {
+            "seq": 3,
+            "ts": "2026-01-01T00:00:02Z",
+            "type": EVENT_MESSAGE_EDIT,
+            "payload": {"messages": [{"role": "user", "content": "edited hello"}]},
+        },
+    )
+
+    result = recover_messages(logdir)
+    assert result is not None
+    assert len(result) == 1
+    assert result[0]["content"] == "edited hello"
 
 
 def test_recover_messages_with_undo_events(logdir: Path):

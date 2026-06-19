@@ -371,33 +371,21 @@ class LogManager:
         event_dir.mkdir(parents=True, exist_ok=True)
         seq = eventlog.sequence_number(event_dir)
         if event_type == eventlog.EVENT_MESSAGE_APPEND:
-            # Build from the last message in the current log
             if self.log.messages:
-                last = self.log.messages[-1]
-                event = eventlog._make_event(
-                    seq, event_type, {"message": last.to_dict()}
-                )
+                event = eventlog.build_message_append_event(seq, self.log.messages[-1])
             else:
                 return
         elif event_type == eventlog.EVENT_MESSAGE_EDIT:
-            # Build from the full current log state
-            event = eventlog._make_event(
-                seq,
-                event_type,
-                {
-                    "messages": [m.to_dict() for m in self.log.messages],
-                    **extra,
-                },
-            )
+            event = eventlog.build_message_edit_event(seq, list(self.log.messages))
         elif event_type == eventlog.EVENT_UNDO:
-            event = eventlog._make_event(seq, event_type, {})
+            event = eventlog.build_undo_event(seq)
         else:
             return  # unknown type, skip
 
         eventlog.append_event(event_dir, event)
 
         # Checkpoint if due
-        if eventlog.should_checkpoint(event_dir, seq):
+        if eventlog.should_checkpoint(seq):
             eventlog.write_checkpoint(
                 event_dir,
                 seq + 1,  # next seq for the checkpoint
