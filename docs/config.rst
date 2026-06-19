@@ -91,9 +91,10 @@ How model selection works
 When you start gptme, the model is resolved in this priority order:
 
 1. ``--model`` / ``-m`` CLI flag (highest priority, per-session)
-2. ``[models].default`` in your global config
-3. ``MODEL`` env var (in shell or ``[env]`` section of config)
-4. Auto-detection based on which API keys are configured
+2. Per-chat model saved with ``/model`` — persists across session resumes
+3. ``[models].default`` in your global config
+4. ``MODEL`` env var (in shell or ``[env]`` section of config)
+5. Auto-detection based on which API keys are configured
 
 **Setting a permanent default model:**
 
@@ -129,6 +130,10 @@ If no model is configured, gptme will scan your API keys and pick the first avai
      - ``XAI_API_KEY``
    * - ``deepseek``
      - ``DEEPSEEK_API_KEY``
+   * - ``moonshot``
+     - ``MOONSHOT_API_KEY``
+   * - ``azure``
+     - ``AZURE_OPENAI_API_KEY``
 
 So if you have both ``ANTHROPIC_API_KEY`` and ``GROQ_API_KEY`` set, gptme will
 use Anthropic (earlier in the list) unless you override with ``MODEL`` or ``--model``.

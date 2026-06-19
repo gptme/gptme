@@ -103,7 +103,7 @@ def init_model(
     config = get_config()
 
     # get from config
-    # Precedence: explicit per-chat model > [models].default > MODEL env var.
+    # Precedence: explicit CLI --model > per-chat saved model > [models].default > MODEL env var.
     if not model:
         model = (
             (config.chat.model if config.chat else None)
