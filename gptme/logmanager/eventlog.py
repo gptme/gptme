@@ -143,8 +143,10 @@ def recover_messages(
     1. Finding the latest checkpoint (if any) and loading its message list.
     2. Replaying events after the checkpoint to reconstruct current state.
 
-    Returns *None* if no event log exists, otherwise a list of message dicts
-    (in the same format as JSONL lines, with ``"timestamp"`` as ISO strings).
+    Returns *None* if no event log exists.  Returns an empty list if the event
+    log exists but all messages have been undone (distinguishable from missing
+    log).  Otherwise returns a list of message dicts (in the same format as
+    JSONL lines, with ``"timestamp"`` as ISO strings).
     """
     from ..message import _migrate_metadata
 
@@ -182,9 +184,11 @@ def recover_messages(
             messages.append(msg_dict)  # type: ignore[arg-type]
             replay_count += 1
         elif event_type == EVENT_UNDO:
-            if messages:
-                messages.pop()
-                replay_count += 1
+            n = int(event.get("payload", {}).get("n", 1))
+            for _ in range(n):
+                if messages:
+                    messages.pop()
+            replay_count += 1
         elif event_type == EVENT_MESSAGE_EDIT:
             # Edit events store the full message list at time of edit
             messages[:] = [
@@ -196,7 +200,7 @@ def recover_messages(
     if replay_count:
         logger.info("Recovery: replayed %d event(s) post-checkpoint", replay_count)
 
-    return messages or None
+    return messages
 
 
 # ── convenience: event builders ──────────────────────────────────────
@@ -222,9 +226,9 @@ def build_message_edit_event(
     )
 
 
-def build_undo_event(seq: int) -> dict[str, Any]:
-    """Build an ``undo`` event."""
-    return _make_event(seq, EVENT_UNDO, {})
+def build_undo_event(seq: int, n: int = 1) -> dict[str, Any]:
+    """Build an ``undo`` event storing the count of messages removed."""
+    return _make_event(seq, EVENT_UNDO, {"n": n})
 
 
 def build_checkpoint_event(

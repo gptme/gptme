@@ -249,6 +249,7 @@ def test_recover_messages_with_undo_events(logdir: Path):
             "payload": {"message": {"role": "assistant", "content": "world"}},
         },
     )
+    # Legacy payload without "n" (backward compat: should pop 1 message)
     append_event(
         logdir,
         {
@@ -263,6 +264,63 @@ def test_recover_messages_with_undo_events(logdir: Path):
     assert result is not None
     assert len(result) == 1
     assert result[0]["content"] == "hello"
+
+
+def test_recover_messages_multi_undo(logdir: Path):
+    """Recovery handles undo(n>1) by popping the correct number of messages."""
+    for i, (role, content) in enumerate(
+        [("user", "a"), ("assistant", "b"), ("user", "c"), ("assistant", "d")], start=1
+    ):
+        append_event(
+            logdir,
+            {
+                "seq": i,
+                "ts": "2026-01-01T00:00:00Z",
+                "type": EVENT_MESSAGE_APPEND,
+                "payload": {"message": {"role": role, "content": content}},
+            },
+        )
+    # undo(n=3): removes last 3 messages, leaving only "a"
+    append_event(
+        logdir,
+        {
+            "seq": 5,
+            "ts": "2026-01-01T00:00:01Z",
+            "type": EVENT_UNDO,
+            "payload": {"n": 3},
+        },
+    )
+
+    result = recover_messages(logdir)
+    assert result is not None
+    assert len(result) == 1
+    assert result[0]["content"] == "a"
+
+
+def test_recover_messages_fully_undone(logdir: Path):
+    """fully-undone session returns [] not None (distinguishable from missing log)."""
+    append_event(
+        logdir,
+        {
+            "seq": 1,
+            "ts": "2026-01-01T00:00:00Z",
+            "type": EVENT_MESSAGE_APPEND,
+            "payload": {"message": {"role": "user", "content": "hello"}},
+        },
+    )
+    append_event(
+        logdir,
+        {
+            "seq": 2,
+            "ts": "2026-01-01T00:00:01Z",
+            "type": EVENT_UNDO,
+            "payload": {"n": 1},
+        },
+    )
+
+    result = recover_messages(logdir)
+    # Must be [] (event log exists, no messages), not None (missing log)
+    assert result == []
 
 
 # ── Integration with LogManager ──────────────────────────────────────

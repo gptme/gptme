@@ -378,7 +378,9 @@ class LogManager:
         elif event_type == eventlog.EVENT_MESSAGE_EDIT:
             event = eventlog.build_message_edit_event(seq, list(self.log.messages))
         elif event_type == eventlog.EVENT_UNDO:
-            event = eventlog.build_undo_event(seq)
+            n_raw = extra.get("n", 1)
+            n = n_raw if isinstance(n_raw, int) else 1
+            event = eventlog.build_undo_event(seq, n=n)
         else:
             return  # unknown type, skip
 
@@ -533,7 +535,7 @@ class LogManager:
                 )
             peek = self.log[-1] if self.log else None
         self.write()
-        self._write_event_log(eventlog.EVENT_UNDO)
+        self._write_event_log(eventlog.EVENT_UNDO, n=n)
 
     @classmethod
     def load(
