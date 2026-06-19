@@ -922,39 +922,33 @@ def test_subprocess_monitor_timeout():
 
 def test_subprocess_timeout_passed_to_subagent():
     """Test that the timeout parameter is passed through to the Subagent dataclass."""
-    import tempfile
-    from pathlib import Path
-    from unittest.mock import patch
+    from unittest.mock import MagicMock, patch
 
     from gptme.tools.subagent import _subagents, subagent
 
     _subagents.clear()
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        temp_logdir = Path(tmpdir) / "logs"
-        temp_logdir.mkdir()
+    # Mock the subprocess so we don't start a real gptme process.
+    # _monitor_subprocess calls process.wait() which would block for `timeout`
+    # seconds on a real process, causing the test to time out in teardown.
+    mock_process = MagicMock()
+    mock_process.returncode = 0
 
-        with patch("gptme.cli.main.get_logdir", return_value=temp_logdir):
-            subagent(
-                agent_id="timeout-param-test",
-                prompt="Test",
-                use_subprocess=True,
-                timeout=600,
-            )
+    with patch(
+        "gptme.tools.subagent.execution._run_subagent_subprocess",
+        return_value=mock_process,
+    ):
+        subagent(
+            agent_id="timeout-param-test",
+            prompt="Test",
+            use_subprocess=True,
+            timeout=600,
+        )
+        _wait_for_new_subagent_threads(0)
 
-            sa = next(
-                (s for s in _subagents if s.agent_id == "timeout-param-test"), None
-            )
-            assert sa is not None
-            assert sa.timeout == 600
-
-            # Clean up
-            if sa.process:
-                sa.process.terminate()
-                try:
-                    sa.process.wait(timeout=5)
-                except Exception:
-                    sa.process.kill()
+    sa = next((s for s in _subagents if s.agent_id == "timeout-param-test"), None)
+    assert sa is not None
+    assert sa.timeout == 600
 
 
 @pytest.mark.slow
@@ -1062,6 +1056,8 @@ def test_subagent_with_model_override(mock_create_thread: MagicMock):
     # Verify model override is used
     executor = _subagents[-1]
     assert executor.model == "openai/gpt-4o-mini"
+
+    _wait_for_new_subagent_threads(initial_count)
 
 
 @patch("gptme.tools.subagent.execution._create_subagent_thread")

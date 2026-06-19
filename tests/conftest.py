@@ -249,31 +249,39 @@ def cleanup_subagents_after():
     Subprocesses in subprocess mode need explicit termination.
     """
     yield
-    # Wait briefly for any running subagent threads to complete
-    for subagent in _subagents:
-        # Clean up threads
-        if subagent.thread is not None and subagent.thread.is_alive():
-            subagent.thread.join(timeout=5.0)
-        # Clean up subprocesses (subprocess mode)
-        if subagent.process is not None and subagent.process.poll() is None:
-            subagent.process.terminate()
-            try:
-                subagent.process.wait(timeout=5.0)
-            except Exception:
-                # Force kill if graceful termination fails
-                subagent.process.kill()
-    # Clear the subagents list
-    _subagents.clear()
-    # Clear cached terminal results too; many tests intentionally reuse agent IDs
-    # like "explorer"/"checker", and the queued-cancel guards now treat a stale
-    # cached result as "already completed" and skip the new launch.
-    with _subagent_results_lock:
-        _subagent_results.clear()
-    # Reset the concurrency semaphore so monitor threads from this test
-    # don't starve the next test when running under xdist.  Monitor threads
-    # capture the old semaphore object in their closure, so they release the
-    # old sem (harmless) while the next test gets a fresh one.
-    _reset_slot_sem()
+    # Use try/finally so _subagents.clear() and _reset_slot_sem() always run
+    # even if pytest-timeout interrupts the join/terminate phase.  The 5s
+    # timeouts used here (thread join + process wait) together with pytest's
+    # 10s teardown limit left no room — if the thread was still alive the full
+    # sequence could take exactly 10s, triggering the timeout and leaving shared
+    # globals dirty for the next test.  Shorter timeouts give headroom.
+    try:
+        for subagent in _subagents:
+            # Clean up threads (2s cap — well under the 10s teardown limit)
+            if subagent.thread is not None and subagent.thread.is_alive():
+                subagent.thread.join(timeout=2.0)
+            # Clean up subprocesses (subprocess mode)
+            if subagent.process is not None and subagent.process.poll() is None:
+                subagent.process.terminate()
+                try:
+                    subagent.process.wait(timeout=2.0)
+                except Exception:
+                    # Force kill if graceful termination fails
+                    subagent.process.kill()
+    finally:
+        # Always reset shared state so subsequent tests start clean,
+        # even if the join/terminate phase above was interrupted.
+        _subagents.clear()
+        # Clear cached terminal results too; many tests intentionally reuse agent IDs
+        # like "explorer"/"checker", and the queued-cancel guards now treat a stale
+        # cached result as "already completed" and skip the new launch.
+        with _subagent_results_lock:
+            _subagent_results.clear()
+        # Reset the concurrency semaphore so monitor threads from this test
+        # don't starve the next test when running under xdist.  Monitor threads
+        # capture the old semaphore object in their closure, so they release the
+        # old sem (harmless) while the next test gets a fresh one.
+        _reset_slot_sem()
 
 
 @pytest.fixture
