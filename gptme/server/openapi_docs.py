@@ -207,6 +207,18 @@ class ApiRootResponse(BaseModel):
     )
 
 
+class ApiVersionResponse(BaseModel):
+    """Response from the /api/v2/version endpoint."""
+
+    api_version: int = Field(
+        ..., description="API contract major version (URL-prefix axis)"
+    )
+    contract_revision: int = Field(
+        ...,
+        description="Additive contract revision; increments for backward-compatible changes",
+    )
+
+
 class UserApiKeySaveRequest(BaseModel):
     """Request to save a provider API key into user config."""
 
