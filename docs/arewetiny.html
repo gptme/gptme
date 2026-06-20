@@ -533,20 +533,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking import time for gptme
 time poetry run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep &quot;import time&quot; | cut -d&#39;|&#39; -f 2- | sort -n | tail -n 10
-     339542 |               mcp.server.fastmcp
-     339921 |             mcp.server
-     339961 |           mcp.server.session
-     545978 |           mcp.client.session
-     913413 |         mcp
-     913443 |       mcp.types
-     918965 |     gptme.mcp.client
-     922383 |   gptme.mcp
-     922413 | gptme.mcp.client
-     953889 | gptme.cli.main
+     336629 |           mcp.server.session
+     342353 |     gptme.commands
+     379291 |   gptme.chat
+     512472 |           mcp.client.session
+     875558 |         mcp
+     875586 |       mcp.types
+     880865 |     gptme.mcp.client
+     884127 |   gptme.mcp
+     884158 | gptme.mcp.client
+    1019798 | gptme.cli.main
 
-real	0m2.626s
-user	0m2.262s
-sys	0m0.266s
+real	0m2.731s
+user	0m2.393s
+sys	0m0.286s
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -555,10 +555,10 @@ make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking startup time for gptme
 hyperfine &quot;poetry run gptme &#39;/exit&#39;&quot; -M 5 || poetry run gptme &#39;/exit&#39; || exit 1
 Benchmark 1: poetry run gptme &#39;/exit&#39;
-  Time (mean ± σ):      3.122 s ±  0.456 s    [User: 2.619 s, System: 0.789 s]
-  Range (min … max):    2.879 s …  3.935 s    5 runs
+  Time (mean ± σ):      3.222 s ±  0.439 s    [User: 2.770 s, System: 0.723 s]
+  Range (min … max):    2.989 s …  4.006 s    5 runs
  
-  Warning: The first benchmarking run for this command was significantly slower than the rest (3.935 s). This could be caused by (filesystem) caches that were not filled until after the first run. You should consider using the &#39;--warmup&#39; option to fill those caches before the actual benchmark. Alternatively, use the &#39;--prepare&#39; option to clear the caches before each timing run.
+  Warning: The first benchmarking run for this command was significantly slower than the rest (4.006 s). This could be caused by (filesystem) caches that were not filled until after the first run. You should consider using the &#39;--warmup&#39; option to fill those caches before the actual benchmark. Alternatively, use the &#39;--prepare&#39; option to clear the caches before each timing run.
  
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -784,10 +784,10 @@ cloc gptme/server --by-file --hide-rate --quiet | tail -n +2
 --------------------------------------------------------------------------------------
 File                                               blank        comment           code
 --------------------------------------------------------------------------------------
-gptme/server/api_v2.py                               419            321           2479
+gptme/server/api_v2.py                               422            325           2488
 gptme/server/api_v2_sessions.py                      121            152            798
 gptme/server/session_step.py                         164            222            775
-gptme/server/openapi_docs.py                         250            167            739
+gptme/server/openapi_docs.py                         253            168            747
 gptme/server/tasks_api.py                            186            121            643
 gptme/server/a2a_api.py                              103             42            543
 gptme/server/artifacts_api.py                        107            109            531
@@ -813,7 +813,7 @@ gptme/server/constants.py                              7             11         
 gptme/server/__init__.py                               2              3              3
 gptme/server/__main__.py                               1              0              3
 --------------------------------------------------------------------------------------
-SUM:                                                2126           1957          10014
+SUM:                                                2132           1962          10031
 --------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -837,7 +837,7 @@ tests/test_cli.py                                                  297          
 tests/test_tools_shell.py                                          357            411           1114
 tests/test_acp_agent.py                                            321            184           1075
 tests/test_util_gh.py                                              231            125           1059
-tests/test_server.py                                               283            189           1029
+tests/test_server.py                                               285            189           1037
 tests/test_server_v2_sessions.py                                   159            121            997
 tests/test_tools_base.py                                           289            103            889
 tests/test_eval_leaderboard.py                                     126            104            883
@@ -1106,7 +1106,7 @@ tests/test_tools_shell_multiline.py                                  7          
 tests/test_browser_format.py                                         8              6             18
 tests/test_screenshot.py                                             9              6             15
 ----------------------------------------------------------------------------------------------------
-SUM:                                                             23801          16429          81744
+SUM:                                                             23803          16429          81752
 ----------------------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -1147,7 +1147,7 @@ cloc gptme/codeblock.py gptme/commands/checkpoint.py gptme/commands/__init__.py 
 File                                                                                        blank        comment           code
 -------------------------------------------------------------------------------------------------------------------------------
 tests/test_server_v2.py                                                                       624            235           2688
-gptme/server/api_v2.py                                                                        419            321           2479
+gptme/server/api_v2.py                                                                        422            325           2488
 tests/test_llm_openai.py                                                                      490            264           1960
 tests/test_tools_subagent.py                                                                  537            276           1742
 tests/test_init.py                                                                            249            141           1533
@@ -1162,7 +1162,7 @@ tests/test_tools_shell.py                                                       
 tests/test_acp_agent.py                                                                       321            184           1075
 tests/test_util_gh.py                                                                         231            125           1059
 gptme/cli/main.py                                                                             156            175           1048
-tests/test_server.py                                                                          283            189           1029
+tests/test_server.py                                                                          285            189           1037
 gptme/cli/util.py                                                                             219            159           1001
 tests/test_server_v2_sessions.py                                                              159            121            997
 gptme/acp/agent.py                                                                            181            294            983
@@ -1183,7 +1183,7 @@ tests/test_util_cli.py                                                          
 tests/test_util_gh_mocked.py                                                                  149            119            777
 gptme/server/session_step.py                                                                  164            222            775
 gptme/tools/base.py                                                                           164            234            749
-gptme/server/openapi_docs.py                                                                  250            167            739
+gptme/server/openapi_docs.py                                                                  253            168            747
 tests/test_tools_browser.py                                                                   248             57            738
 tests/test_tasks_api.py                                                                       170             63            736
 tests/test_server_workspace.py                                                                142            141            722
@@ -1830,7 +1830,7 @@ gptme/server/__main__.py                                                        
 gptme/tools/_browser_format.py                                                                  3              5              3
 gptme/oauth/__init__.py                                                                         1              4              0
 -------------------------------------------------------------------------------------------------------------------------------
-SUM:                                                                                        46504          43748         167767
+SUM:                                                                                        46512          43753         167792
 -------------------------------------------------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -1845,8 +1845,8 @@ make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 
 Project Overview:
   Files: 687
-  Total blocks: 13062
-  Average complexity: 3.678533149594243
+  Total blocks: 13065
+  Average complexity: 3.678300803673938
 
 Most Complex Functions (D+):
   gptme/codeblock.py
@@ -1875,17 +1875,17 @@ Most Complex Functions (D+):
       M 97:4 LessonIndex._default_dirs - E
       M 415:4 LessonIndex._load_manifest_skill_stubs - D
   gptme/server/openapi_docs.py
-      F 905:0 _convert_to_openapi_nullable - D
+      F 917:0 _convert_to_openapi_nullable - D
   gptme/server/api_v2_sessions.py
       F 301:0 api_conversation_step - E
       F 568:0 api_conversation_tool_confirm - D
       F 935:0 api_conversation_transcript - D
   gptme/server/api_v2.py
-      F 1350:0 api_conversation_put - E
-      F 1727:0 api_conversation_edit_message - E
-      F 1218:0 api_conversation - D
-      F 2375:0 api_conversation_config_patch - D
-      F 1552:0 api_conversation_post - D
+      F 1366:0 api_conversation_put - E
+      F 1743:0 api_conversation_edit_message - E
+      F 1234:0 api_conversation - D
+      F 2391:0 api_conversation_config_patch - D
+      F 1568:0 api_conversation_post - D
   gptme/server/api_v2_agents.py
       F 55:0 api_agents_put - D
   gptme/server/session_step.py
@@ -2027,7 +2027,7 @@ Most Complex Functions (D+):
       F 528:0 test_models_list - D
       F 17:0 test_tokens_count - D
   tests/test_server.py
-      F 299:0 test_api_conversation_list_detail_flag - D
+      F 309:0 test_api_conversation_list_detail_flag - D
   scripts/demo_capture.py
       F 485:0 main - D
   scripts/auto_rename_logs.py
@@ -2041,7 +2041,7 @@ Most Complex Functions (D+):
 
 Largest Files (&gt;300 SLOC):
   2688 tests/test_server_v2.py
-  2479 gptme/server/api_v2.py
+  2488 gptme/server/api_v2.py
   2249 tests/test_eval_behavioral.py
   1963 tests/test_llm_openai.py
   1742 tests/test_tools_subagent.py
@@ -2059,7 +2059,7 @@ Largest Files (&gt;300 SLOC):
   1086 gptme/cli/main.py
   1075 tests/test_acp_agent.py
   1059 tests/test_util_gh.py
-  1035 tests/test_server.py
+  1043 tests/test_server.py
   1005 gptme/cli/util.py
    999 tests/test_server_v2_sessions.py
    983 gptme/acp/agent.py
@@ -2079,7 +2079,7 @@ Largest Files (&gt;300 SLOC):
    784 tests/test_util_gh_mocked.py
    782 tests/test_util_cli.py
    775 gptme/server/session_step.py
-   763 gptme/server/openapi_docs.py
+   771 gptme/server/openapi_docs.py
    755 gptme/tools/base.py
    738 tests/test_tools_browser.py
    736 tests/test_tasks_api.py
@@ -2473,32 +2473,32 @@ Clone found (python)
  - __init__.py [337:21 - 348:5] (12 lines, 80 tokens)
    __init__.py [445:15 - 456:5]
 Clone found (python)
- - api_v2.py [1554:5 - 1561:76] (8 lines, 61 tokens)
-   api_v2.py [2378:5 - 2385:76]
+ - api_v2.py [1570:5 - 1577:76] (8 lines, 61 tokens)
+   api_v2.py [2394:5 - 2401:76]
 Clone found (python)
- - api_v2.py [1701:118 - 1716:11] (16 lines, 54 tokens)
-   api_v2.py [1840:97 - 1855:11]
+ - api_v2.py [1717:118 - 1732:11] (16 lines, 54 tokens)
+   api_v2.py [1856:97 - 1871:11]
 Clone found (python)
- - api_v2.py [1766:86 - 1785:10] (20 lines, 80 tokens)
-   api_v2.py [1875:78 - 1895:10]
+ - api_v2.py [1782:86 - 1801:10] (20 lines, 80 tokens)
+   api_v2.py [1891:78 - 1911:10]
 Clone found (python)
- - api_v2.py [2584:58 - 2597:38] (14 lines, 94 tokens)
-   api_v2.py [2620:51 - 2633:38]
+ - api_v2.py [2600:58 - 2613:38] (14 lines, 94 tokens)
+   api_v2.py [2636:51 - 2649:38]
 Clone found (python)
- - api_v2.py [2588:5 - 2600:40] (13 lines, 78 tokens)
-   api_v2.py [2907:5 - 2919:15]
+ - api_v2.py [2604:5 - 2616:40] (13 lines, 78 tokens)
+   api_v2.py [2923:5 - 2935:15]
 Clone found (python)
- - api_v2.py [2730:53 - 2735:76] (6 lines, 51 tokens)
-   api_v2.py [2801:52 - 2806:76]
+ - api_v2.py [2746:53 - 2751:76] (6 lines, 51 tokens)
+   api_v2.py [2817:52 - 2822:76]
 Clone found (python)
- - api_v2.py [2730:53 - 2735:76] (6 lines, 51 tokens)
-   api_v2.py [2842:50 - 2847:76]
+ - api_v2.py [2746:53 - 2751:76] (6 lines, 51 tokens)
+   api_v2.py [2858:50 - 2863:76]
 Clone found (python)
- - api_v2.py [2730:53 - 2735:76] (6 lines, 51 tokens)
-   api_v2.py [2946:54 - 2951:76]
+ - api_v2.py [2746:53 - 2751:76] (6 lines, 51 tokens)
+   api_v2.py [2962:54 - 2967:76]
 Clone found (python)
- - api_v2.py [2730:53 - 2735:76] (6 lines, 51 tokens)
-   api_v2.py [2988:54 - 2993:76]
+ - api_v2.py [2746:53 - 2751:76] (6 lines, 51 tokens)
+   api_v2.py [3004:54 - 3009:76]
 Clone found (python)
  - api_v2_agents.py [57:5 - 63:15] (7 lines, 52 tokens)
    tasks_api.py [717:5 - 723:7]
@@ -2623,7 +2623,7 @@ Clone found (python)
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ markup     │ 2              │ 322         │ 2113         │ 0            │ 0 (0.00%)        │ 0 (0.00%)         │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ python     │ 402            │ 137572      │ 636614       │ 129          │ 1533 (1.11%)     │ 8909 (1.40%)      │
+│ python     │ 402            │ 137600      │ 636736       │ 129          │ 1533 (1.11%)     │ 8909 (1.40%)      │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ text       │ 2              │ 527         │ 267          │ 0            │ 0 (0.00%)        │ 0 (0.00%)         │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
@@ -2633,10 +2633,10 @@ Clone found (python)
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ yaml       │ 1              │ 82          │ 151          │ 0            │ 0 (0.00%)        │ 0 (0.00%)         │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ Total:     │ 430            │ 142322      │ 648779       │ 129          │ 1533 (1.08%)     │ 8909 (1.37%)      │
+│ Total:     │ 430            │ 142350      │ 648901       │ 129          │ 1533 (1.08%)     │ 8909 (1.37%)      │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
 Found 129 clones.
-time: 309.626ms
+time: 308.413ms
 make[3]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
