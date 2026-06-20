@@ -782,11 +782,8 @@ def subagent_list() -> list[dict]:
     for sa in agents:
         status = sa.status().status
 
-        # Estimate elapsed time from logdir creation time
-        try:
-            elapsed_s = int(now - sa.logdir.stat().st_mtime)
-        except OSError:
-            elapsed_s = 0
+        # Estimate elapsed time from start time
+        elapsed_s = int(now - sa.started_at)
 
         # Truncate prompt for preview
         prompt = sa.prompt[:97] + "..." if len(sa.prompt) > 100 else sa.prompt
@@ -802,8 +799,8 @@ def subagent_list() -> list[dict]:
             }
         )
 
-    # Sort newest first (by elapsed_s descending == most recent first)
-    result.sort(key=lambda x: x["elapsed_s"], reverse=True)  # type: ignore[arg-type,return-value]
+    # Sort newest first (smallest elapsed_s = most recently started)
+    result.sort(key=lambda x: x["elapsed_s"])  # type: ignore[arg-type,return-value]
     return result
 
 
