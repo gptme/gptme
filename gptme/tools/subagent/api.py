@@ -756,6 +756,57 @@ def subagent_reply(agent_id: str, reply: str) -> None:
         raise
 
 
+def subagent_list() -> list[dict]:
+    """Returns a list of all subagents with their current status.
+
+    Each entry contains:
+    - agent_id: The subagent identifier
+    - status: running/success/failure/clarification_needed
+    - model: The model used (or None)
+    - execution_mode: thread/subprocess/acp
+    - elapsed_s: Seconds since the subagent started (from logdir mtime)
+    - prompt_preview: First 100 characters of the prompt
+
+    Useful for:
+    - Interactive sessions: "what's running right now?"
+    - Orchestrators deciding whether to spawn more agents
+    - Debugging runaway subagent fans
+    """
+    import time
+
+    now = time.time()
+    with _subagents_lock:
+        agents = list(_subagents)  # copy under lock, then iterate outside
+
+    result = []
+    for sa in agents:
+        status = sa.status().status
+
+        # Estimate elapsed time from logdir creation time
+        try:
+            elapsed_s = int(now - sa.logdir.stat().st_mtime)
+        except OSError:
+            elapsed_s = 0
+
+        # Truncate prompt for preview
+        prompt = sa.prompt[:97] + "..." if len(sa.prompt) > 100 else sa.prompt
+
+        result.append(
+            {
+                "agent_id": sa.agent_id,
+                "status": status,
+                "model": sa.model,
+                "execution_mode": sa.execution_mode,
+                "elapsed_s": max(elapsed_s, 0),
+                "prompt_preview": prompt,
+            }
+        )
+
+    # Sort newest first (by elapsed_s descending == most recent first)
+    result.sort(key=lambda x: x["elapsed_s"], reverse=True)  # type: ignore[arg-type,return-value]
+    return result
+
+
 def subagent_status(agent_id: str) -> dict:
     """Returns the status of a subagent."""
     with _subagents_lock:

@@ -16,6 +16,7 @@ from ..base import ToolFunction, ToolSpec, ToolUse
 from .api import (
     subagent,
     subagent_cancel,
+    subagent_list,
     subagent_read_log,
     subagent_reply,
     subagent_status,
@@ -129,6 +130,20 @@ Assistant: I'll use ACP mode to run this via a different agent harness.
         ).to_output(tool_format)
     }
 System: Started subagent "claude-task" in ACP mode.
+
+### List Subagents (observability)
+User: what subagents are currently running?
+Assistant: I'll use subagent_list to check running agents.
+{
+        ToolUse(
+            "ipython",
+            [],
+            "subagent_list()",
+        ).to_output(tool_format)
+    }
+System: Listing 2 subagents::
+  - analyze (running, 42s) -- "Analyze the codebase architecture..."
+  - fib-13 (success, 120s) -- "compute the 13th Fibonacci number"
 
 ### Batch Execution (parallel tasks)
 User: implement, test, and document a feature in parallel
@@ -327,6 +342,7 @@ tool = ToolSpec(
         for f in [
             subagent,
             subagent_cancel,
+            subagent_list,
             subagent_reply,
             subagent_status,
             subagent_wait,
@@ -349,6 +365,7 @@ __all__ = [
     # Public API
     "subagent",
     "subagent_cancel",
+    "subagent_list",
     "subagent_reply",
     "subagent_status",
     "subagent_wait",

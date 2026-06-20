@@ -2553,3 +2553,85 @@ def test_hint_allowlist_filters_subagent_tools(
         assert "hint:read-only" not in str(call), (
             "hint: pattern incorrectly flagged as unknown tool"
         )
+
+
+def test_subagent_list_empty():
+    """Test that subagent_list returns an empty list when no subagents exist."""
+    from gptme.tools.subagent import _subagents, _subagents_lock, subagent_list
+
+    with _subagents_lock:
+        _subagents.clear()
+    result = subagent_list()
+    assert isinstance(result, list)
+    assert result == []
+
+
+def test_subagent_list_structure(mock_create_thread: MagicMock):
+    """Test that subagent_list returns the correct structure."""
+    from gptme.tools.subagent import (
+        _subagents,
+        _subagents_lock,
+        subagent,
+        subagent_list,
+    )
+
+    with _subagents_lock:
+        _subagents.clear()
+
+    subagent(agent_id="test-list-1", prompt="Test agent one")
+    result = subagent_list()
+
+    assert isinstance(result, list)
+    assert len(result) >= 1
+
+    entry = result[0]
+    assert isinstance(entry, dict)
+    assert "agent_id" in entry
+    assert "status" in entry
+    assert "model" in entry
+    assert "execution_mode" in entry
+    assert "elapsed_s" in entry
+    assert "prompt_preview" in entry
+
+    # Verify types
+    assert isinstance(entry["agent_id"], str)
+    assert isinstance(entry["status"], str)
+    assert isinstance(entry["elapsed_s"], int)
+    assert isinstance(entry["prompt_preview"], str)
+
+    # Verify our agent is in the list
+    ids = [e["agent_id"] for e in result]
+    assert "test-list-1" in ids
+
+
+def test_subagent_list_prompt_truncation():
+    """Test that long prompts are truncated in the preview."""
+    import threading
+    from pathlib import Path
+
+    from gptme.tools.subagent import (
+        Subagent,
+        _subagents,
+        _subagents_lock,
+        subagent_list,
+    )
+
+    long_prompt = "x" * 200
+    sa = Subagent(
+        agent_id="test-truncate",
+        prompt=long_prompt,
+        thread=threading.Thread(),
+        logdir=Path("/tmp"),
+        model=None,
+    )
+    with _subagents_lock:
+        _subagents.append(sa)
+
+    try:
+        result = subagent_list()
+        entry = next(e for e in result if e["agent_id"] == "test-truncate")
+        assert len(entry["prompt_preview"]) <= 103  # 100 chars + "..."
+        assert entry["prompt_preview"].endswith("...")
+    finally:
+        with _subagents_lock:
+            _subagents[:] = [s for s in _subagents if s.agent_id != "test-truncate"]
