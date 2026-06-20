@@ -1687,9 +1687,11 @@ class TestPlannerRedactSecrets:
         monkeypatch.setattr(cli_main, "get_logdir", lambda name: tmp_path / name)
 
         captured_kwargs: list[dict] = []
+        called_event = threading.Event()
 
         def fake_create_subagent_thread(**kwargs):
             captured_kwargs.append(kwargs)
+            called_event.set()
 
         monkeypatch.setattr(
             exec_mod, "_create_subagent_thread", fake_create_subagent_thread
@@ -1703,11 +1705,9 @@ class TestPlannerRedactSecrets:
             redact_secrets=True,
         )
 
-        import time
-
-        time.sleep(0.05)
-
-        assert captured_kwargs, "_create_subagent_thread was never called"
+        assert called_event.wait(timeout=2.0), (
+            "_create_subagent_thread was never called"
+        )
         assert captured_kwargs[0].get("redact_secrets") is True, (
             "redact_secrets not forwarded to _create_subagent_thread"
         )
@@ -1733,11 +1733,13 @@ class TestPlannerRedactSecrets:
 
         monkeypatch.setattr(cli_main, "get_logdir", lambda name: tmp_path / name)
         monkeypatch.setattr(git_worktree, "get_git_root", lambda _: None)
-        monkeypatch.setattr(
-            exec_mod,
-            "_run_subagent_subprocess",
-            MagicMock(return_value=MagicMock()),
-        )
+        subprocess_called = threading.Event()
+
+        def subprocess_with_event(*args, **kwargs):
+            subprocess_called.set()
+            return MagicMock()
+
+        monkeypatch.setattr(exec_mod, "_run_subagent_subprocess", subprocess_with_event)
         monkeypatch.setattr(exec_mod, "_monitor_subprocess", lambda sa: None)
 
         with caplog.at_level(logging.WARNING, logger="gptme.tools.subagent.execution"):
@@ -1751,9 +1753,9 @@ class TestPlannerRedactSecrets:
                 redact_secrets=True,
             )
 
-        import time
-
-        time.sleep(0.05)
+        assert subprocess_called.wait(timeout=2.0), (
+            "_run_subagent_subprocess was never called"
+        )
 
         assert any(
             "redact_secrets=True" in record.message and "subprocess" in record.message

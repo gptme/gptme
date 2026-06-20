@@ -12,7 +12,7 @@ import threading
 import uuid
 from dataclasses import asdict
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from . import execution as _exec
 from .concurrency import get_slot_sem
@@ -764,7 +764,7 @@ def subagent_list() -> list[dict]:
     - status: running/success/failure/clarification_needed
     - model: The model used (or None)
     - execution_mode: thread/subprocess/acp
-    - elapsed_s: Seconds since the subagent started (from logdir mtime)
+    - elapsed_s: Seconds since the subagent started (from started_at timestamp)
     - prompt_preview: First 100 characters of the prompt
 
     Useful for:
@@ -778,7 +778,7 @@ def subagent_list() -> list[dict]:
     with _subagents_lock:
         agents = list(_subagents)  # copy under lock, then iterate outside
 
-    result = []
+    result: list[dict[str, Any]] = []
     for sa in agents:
         status = sa.status().status
 
@@ -800,7 +800,7 @@ def subagent_list() -> list[dict]:
         )
 
     # Sort newest first (smallest elapsed_s = most recently started)
-    result.sort(key=lambda x: x["elapsed_s"])  # type: ignore[arg-type,return-value]
+    result.sort(key=lambda x: x["elapsed_s"])
     return result
 
 
