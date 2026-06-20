@@ -38,33 +38,6 @@ _COLON_ASSIGN_RE = re.compile(
     re.MULTILINE,
 )
 
-# Pattern for YAML/TOML colon-style assignments (key: value)
-_COLON_ASSIGN_RE = re.compile(
-    r"""(?ix)
-    ^(\s*)                                    # group 1: optional leading whitespace
-    (                                         # group 2: variable name with secret keyword
-        [\w\-]*?
-        (?:
-            api[-_]?key|apikey
-            |token
-            |secret
-            |password|passwd
-            |private[-_]key|privkey
-            |auth[-_]?(?:key|token)
-            |access[-_]key
-            |credential
-        )
-        [\w\-]*
-    )
-    (\s*:\s*)                                 # group 3: colon separator
-    (["']?)                                   # group 4: optional opening quote
-    (.+?)                                     # group 5: the value
-    (["']?)                                   # group 6: optional closing quote
-    (\s*)$                                    # group 7: trailing whitespace
-    """,
-    re.MULTILINE,
-)
-
 # Simpler pattern for export statements and env-var assignment lines
 _ENV_ASSIGN_RE = re.compile(
     r"""(?ix)

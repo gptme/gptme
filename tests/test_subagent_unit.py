@@ -1560,3 +1560,112 @@ class TestRedactSecretsColonStyle:
         assert "[REDACTED]" in result
         assert "host: localhost" in result
         assert "port: 5432" in result
+
+
+class TestRedactSecretsNonThreadWarning:
+    """Tests for redact_secrets=True warning when used in non-thread modes."""
+
+    def test_warns_when_redact_secrets_in_subprocess_mode(
+        self, monkeypatch, tmp_path, caplog
+    ):
+        """redact_secrets=True with use_subprocess=True logs a warning."""
+        import importlib
+        import logging
+
+        cli_main = importlib.import_module("gptme.cli.main")
+        llm_models = importlib.import_module("gptme.llm.models")
+        profiles = importlib.import_module("gptme.profiles")
+        git_worktree = importlib.import_module("gptme.util.git_worktree")
+
+        monkeypatch.setattr(cli_main, "get_logdir", lambda name: tmp_path / name)
+        monkeypatch.setattr(llm_models, "get_default_model", lambda: None)
+        monkeypatch.setattr(profiles, "get_profile", lambda _: None)
+        monkeypatch.setattr(git_worktree, "get_git_root", lambda _: None)
+        monkeypatch.setattr(
+            subagent_api._exec,
+            "_run_subagent_subprocess",
+            MagicMock(return_value=MagicMock()),
+        )
+        monkeypatch.setattr(subagent_api._exec, "_monitor_subprocess", lambda sa: None)
+
+        with caplog.at_level(logging.WARNING, logger="gptme.tools.subagent.api"):
+            subagent(
+                "warn-proc-agent",
+                "do the thing",
+                use_subprocess=True,
+                redact_secrets=True,
+            )
+
+        with _subagents_lock:
+            sa = next((s for s in _subagents if s.agent_id == "warn-proc-agent"), None)
+        if sa and sa.thread:
+            sa.thread.join(timeout=2)
+
+        assert any(
+            "redact_secrets=True" in record.message and "subprocess" in record.message
+            for record in caplog.records
+        ), f"Expected warning not found in: {[r.message for r in caplog.records]}"
+
+
+class TestRedactSecretsThreadExecution:
+    """Tests that redact_secrets_from_messages is called in thread-mode execution."""
+
+    def test_redact_secrets_calls_redaction_on_initial_msgs(
+        self, monkeypatch, tmp_path
+    ):
+        """_create_subagent_thread with redact_secrets=True calls redact_secrets_from_messages."""
+        import importlib
+
+        from gptme.message import Message
+
+        gptme_chat = importlib.import_module("gptme.chat")
+        gptme_executor = importlib.import_module("gptme.executor")
+        gptme_llm_models = importlib.import_module("gptme.llm.models")
+        gptme_profiles = importlib.import_module("gptme.profiles")
+        gptme_prompts = importlib.import_module("gptme.prompts")
+        hooks_mod = importlib.import_module("gptme.tools.subagent.hooks")
+        context_mod = importlib.import_module("gptme.tools.subagent.context")
+        exec_mod = importlib.import_module("gptme.tools.subagent.execution")
+
+        test_msgs = [Message("system", "API_KEY=supersecret\nHOST=localhost\n")]
+        redacted_msgs = [Message("system", "API_KEY=[REDACTED]\nHOST=localhost\n")]
+        redact_called_with: list = []
+
+        def mock_redact(msgs):
+            redact_called_with.extend(msgs)
+            return redacted_msgs
+
+        monkeypatch.setattr(gptme_chat, "chat", lambda *args, **kwargs: None)
+        monkeypatch.setattr(
+            gptme_executor,
+            "prepare_execution_environment",
+            lambda **kwargs: None,
+        )
+        monkeypatch.setattr(gptme_llm_models, "set_default_model", lambda *args: None)
+        monkeypatch.setattr(gptme_profiles, "get_profile", lambda _: None)
+        monkeypatch.setattr(
+            gptme_prompts, "get_prompt", lambda *args, **kwargs: list(test_msgs)
+        )
+        monkeypatch.setattr(
+            hooks_mod,
+            "_get_complete_instruction",
+            lambda *args, **kwargs: "done",
+        )
+        monkeypatch.setattr(context_mod, "redact_secrets_from_messages", mock_redact)
+        monkeypatch.setattr(
+            exec_mod, "_ensure_subagent_signal_tools_loaded", lambda: None
+        )
+        monkeypatch.setattr(exec_mod, "get_tools", lambda: [])
+
+        exec_mod._create_subagent_thread(
+            prompt="do the thing",
+            logdir=tmp_path / "logdir",
+            model=None,
+            context_mode="full",
+            context_include=None,
+            workspace=tmp_path,
+            redact_secrets=True,
+        )
+
+        assert redact_called_with, "redact_secrets_from_messages was not called"
+        assert any("supersecret" in msg.content for msg in redact_called_with)
