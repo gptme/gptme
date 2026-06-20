@@ -1669,3 +1669,100 @@ class TestRedactSecretsThreadExecution:
 
         assert redact_called_with, "redact_secrets_from_messages was not called"
         assert any("supersecret" in msg.content for msg in redact_called_with)
+
+
+class TestPlannerRedactSecrets:
+    """Tests that _run_planner forwards redact_secrets to thread-mode executors."""
+
+    def test_planner_forwards_redact_secrets_to_thread_executors(
+        self, monkeypatch, tmp_path
+    ):
+        """_run_planner with redact_secrets=True passes it to _create_subagent_thread."""
+        import importlib
+
+        cli_main = importlib.import_module("gptme.cli.main")
+        exec_mod = importlib.import_module("gptme.tools.subagent.execution")
+        types_mod = importlib.import_module("gptme.tools.subagent.types")
+
+        monkeypatch.setattr(cli_main, "get_logdir", lambda name: tmp_path / name)
+
+        captured_kwargs: list[dict] = []
+
+        def fake_create_subagent_thread(**kwargs):
+            captured_kwargs.append(kwargs)
+
+        monkeypatch.setattr(
+            exec_mod, "_create_subagent_thread", fake_create_subagent_thread
+        )
+
+        exec_mod._run_planner(
+            agent_id="planner-test",
+            prompt="orchestrate this",
+            subtasks=[{"id": "task1", "description": "do part 1"}],
+            execution_mode="sequential",
+            redact_secrets=True,
+        )
+
+        import time
+
+        time.sleep(0.05)
+
+        assert captured_kwargs, "_create_subagent_thread was never called"
+        assert captured_kwargs[0].get("redact_secrets") is True, (
+            "redact_secrets not forwarded to _create_subagent_thread"
+        )
+
+        with types_mod._subagents_lock:
+            types_mod._subagents[:] = [
+                s
+                for s in types_mod._subagents
+                if not s.agent_id.startswith("planner-test")
+            ]
+
+    def test_planner_warns_redact_secrets_in_subprocess_executor(
+        self, monkeypatch, tmp_path, caplog
+    ):
+        """_run_planner with redact_secrets=True warns when executor uses subprocess."""
+        import importlib
+        import logging
+
+        cli_main = importlib.import_module("gptme.cli.main")
+        exec_mod = importlib.import_module("gptme.tools.subagent.execution")
+        types_mod = importlib.import_module("gptme.tools.subagent.types")
+        git_worktree = importlib.import_module("gptme.util.git_worktree")
+
+        monkeypatch.setattr(cli_main, "get_logdir", lambda name: tmp_path / name)
+        monkeypatch.setattr(git_worktree, "get_git_root", lambda _: None)
+        monkeypatch.setattr(
+            exec_mod,
+            "_run_subagent_subprocess",
+            MagicMock(return_value=MagicMock()),
+        )
+        monkeypatch.setattr(exec_mod, "_monitor_subprocess", lambda sa: None)
+
+        with caplog.at_level(logging.WARNING, logger="gptme.tools.subagent.execution"):
+            exec_mod._run_planner(
+                agent_id="planner-warn",
+                prompt="orchestrate",
+                subtasks=[
+                    {"id": "verify1", "description": "verify it", "role": "verify"}
+                ],
+                execution_mode="sequential",
+                redact_secrets=True,
+            )
+
+        import time
+
+        time.sleep(0.05)
+
+        assert any(
+            "redact_secrets=True" in record.message and "subprocess" in record.message
+            for record in caplog.records
+        ), f"Expected warning not found in: {[r.message for r in caplog.records]}"
+
+        with types_mod._subagents_lock:
+            types_mod._subagents[:] = [
+                s
+                for s in types_mod._subagents
+                if not s.agent_id.startswith("planner-warn")
+            ]

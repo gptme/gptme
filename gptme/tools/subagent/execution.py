@@ -537,6 +537,7 @@ def _run_planner(
     context_include: list[str] | None = None,
     model: str | None = None,
     profile_name: str | None = None,
+    redact_secrets: bool = False,
 ) -> None:
     """Run a planner that delegates work to multiple executor subagents.
 
@@ -549,6 +550,9 @@ def _run_planner(
         context_include: For selective mode, list of context components to include
         profile_name: Agent profile to apply to executor subagents (per-subtask role
             always overrides this when set — subtask role is more specific)
+        redact_secrets: If True, scrub secret patterns from workspace context before
+            thread-mode executors see it. Has no effect on subprocess-mode executors
+            (which manage their own context); a warning is logged in that case.
     """
     from gptme.cli.main import get_logdir
 
@@ -642,6 +646,11 @@ def _run_planner(
                 )
 
         if resolved_use_subprocess:
+            if redact_secrets:
+                logger.warning(
+                    f"Planner executor {executor_id}: 'redact_secrets=True' has no effect "
+                    "in subprocess mode (only thread-mode subagents inherit workspace context)"
+                )
             sa = Subagent(
                 executor_id,
                 executor_prompt,
@@ -766,6 +775,7 @@ def _run_planner(
                         target="planner",
                         profile_name=subtask_profile,
                         agent_id=executor_agent_id,
+                        redact_secrets=redact_secrets,
                     )
                 finally:
                     try:
