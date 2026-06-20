@@ -2566,6 +2566,7 @@ def test_subagent_list_empty():
     assert result == []
 
 
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
 def test_subagent_list_structure(mock_create_thread: MagicMock):
     """Test that subagent_list returns the correct structure."""
     from gptme.tools.subagent import (
