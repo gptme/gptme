@@ -2580,29 +2580,34 @@ def test_subagent_list_structure(mock_create_thread: MagicMock):
         _subagents.clear()
 
     subagent(agent_id="test-list-1", prompt="Test agent one")
+    _wait_for_new_subagent_threads(0)
     result = subagent_list()
 
-    assert isinstance(result, list)
-    assert len(result) >= 1
+    try:
+        assert isinstance(result, list)
+        assert len(result) >= 1
 
-    entry = result[0]
-    assert isinstance(entry, dict)
-    assert "agent_id" in entry
-    assert "status" in entry
-    assert "model" in entry
-    assert "execution_mode" in entry
-    assert "elapsed_s" in entry
-    assert "prompt_preview" in entry
+        entry = result[0]
+        assert isinstance(entry, dict)
+        assert "agent_id" in entry
+        assert "status" in entry
+        assert "model" in entry
+        assert "execution_mode" in entry
+        assert "elapsed_s" in entry
+        assert "prompt_preview" in entry
 
-    # Verify types
-    assert isinstance(entry["agent_id"], str)
-    assert isinstance(entry["status"], str)
-    assert isinstance(entry["elapsed_s"], int)
-    assert isinstance(entry["prompt_preview"], str)
+        # Verify types
+        assert isinstance(entry["agent_id"], str)
+        assert isinstance(entry["status"], str)
+        assert isinstance(entry["elapsed_s"], int)
+        assert isinstance(entry["prompt_preview"], str)
 
-    # Verify our agent is in the list
-    ids = [e["agent_id"] for e in result]
-    assert "test-list-1" in ids
+        # Verify our agent is in the list
+        ids = [e["agent_id"] for e in result]
+        assert "test-list-1" in ids
+    finally:
+        with _subagents_lock:
+            _subagents[:] = [s for s in _subagents if s.agent_id != "test-list-1"]
 
 
 def test_subagent_list_prompt_truncation():
