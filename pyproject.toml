@@ -68,7 +68,7 @@ python-dateutil = "^2.9.0.post0"
 pyyaml = "^6.0.3"
 
 # providers
-openai = "^1.0"
+openai = "^2.43"
 anthropic = "^0.109"
 
 # tools
