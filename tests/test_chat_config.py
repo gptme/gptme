@@ -216,3 +216,17 @@ def test_chat_config_system_prompt_from_dict_validation(tmp_path: Path):
     data["chat"]["system_prompt"] = {"nested": "dict"}
     with pytest.raises(ValueError, match="chat.system_prompt must be a string"):
         ChatConfig.from_dict(data)
+
+
+def test_chat_config_unknown_chat_key_raises_value_error(tmp_path: Path):
+    """An unknown key under [chat] raises ValueError, not TypeError.
+
+    Untrusted callers (the v2 conversation endpoints) only catch ValueError, so
+    an unknown key must surface as a clean 400 rather than a 500 from the
+    ChatConfig(**chat_data) constructor.
+    """
+    config = ChatConfig(_logdir=tmp_path)
+    data = config.to_dict()
+    data["chat"]["foobar"] = 1
+    with pytest.raises(ValueError, match="Unknown keys in chat config"):
+        ChatConfig.from_dict(data)
