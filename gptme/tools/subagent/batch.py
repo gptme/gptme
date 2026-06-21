@@ -74,6 +74,7 @@ def subagent_batch(
     use_subprocess: bool = False,
     use_acp: bool = False,
     acp_command: str = "gptme-acp",
+    redact_secrets: bool = True,
 ) -> BatchJob:
     """Start multiple subagents in parallel and return a BatchJob to manage them.
 
@@ -89,6 +90,9 @@ def subagent_batch(
         use_subprocess: If True, run subagents in subprocesses for output isolation
         use_acp: If True, run subagents via ACP protocol
         acp_command: ACP agent command (default: "gptme-acp")
+        redact_secrets: If True (default), redact secrets from workspace context
+            passed to subagents. Pass False only if you need subagents to see
+            config values that are incorrectly flagged as secrets.
 
     Returns:
         A BatchJob instance for managing the parallel subagents.
@@ -120,6 +124,7 @@ def subagent_batch(
             use_subprocess=use_subprocess,
             use_acp=use_acp,
             acp_command=acp_command,
+            redact_secrets=redact_secrets,
         )
 
     logger.info(f"Started batch of {len(tasks)} subagents: {job.agent_ids}")
