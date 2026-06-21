@@ -21,7 +21,7 @@ jobs:
         node-version: [20.x]
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
 
     - name: Use Node.js ${{ matrix.node-version }}
       uses: actions/setup-node@v6
@@ -61,7 +61,7 @@ jobs:
       name: chat-gptme-org
       url: https://chat.gptme.org
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
 
     - name: Download dist artifact
       uses: actions/download-artifact@v6
@@ -87,7 +87,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
 
     - name: Use Node.js 20
       uses: actions/setup-node@v6
