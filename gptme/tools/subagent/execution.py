@@ -552,7 +552,7 @@ def _run_planner(
             always overrides this when set — subtask role is more specific)
         redact_secrets: If True, scrub secret patterns from workspace context before
             thread-mode executors see it. Has no effect on subprocess-mode executors
-            (which manage their own context); a warning is logged in that case.
+            (which manage their own context); a debug message is logged in that case.
     """
     from gptme.cli.main import get_logdir
 
