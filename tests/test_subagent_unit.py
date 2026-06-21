@@ -1285,7 +1285,7 @@ class TestClarifyBlock:
             "isolated": True,
             "timeout": 42,
             "role": "verify",
-            "redact_secrets": False,
+            "redact_secrets": True,
         }
         with _subagent_results_lock:
             assert "clarify-agent" not in _subagent_results
@@ -1563,12 +1563,13 @@ class TestRedactSecretsColonStyle:
 
 
 class TestRedactSecretsNonThreadWarning:
-    """Tests for redact_secrets=True warning when used in non-thread modes."""
+    """Tests for redact_secrets=True debug log when used in non-thread modes."""
 
-    def test_warns_when_redact_secrets_in_subprocess_mode(
+    def test_logs_when_redact_secrets_in_subprocess_mode(
         self, monkeypatch, tmp_path, caplog
     ):
-        """redact_secrets=True with use_subprocess=True logs a warning."""
+        """redact_secrets=True with use_subprocess=True logs a debug message (not a warning,
+        since redact_secrets=True is now the default and should not be noisy)."""
         import importlib
         import logging
 
@@ -1588,7 +1589,7 @@ class TestRedactSecretsNonThreadWarning:
         )
         monkeypatch.setattr(subagent_api._exec, "_monitor_subprocess", lambda sa: None)
 
-        with caplog.at_level(logging.WARNING, logger="gptme.tools.subagent.api"):
+        with caplog.at_level(logging.DEBUG, logger="gptme.tools.subagent.api"):
             subagent(
                 "warn-proc-agent",
                 "do the thing",
@@ -1604,7 +1605,13 @@ class TestRedactSecretsNonThreadWarning:
         assert any(
             "redact_secrets=True" in record.message and "subprocess" in record.message
             for record in caplog.records
-        ), f"Expected warning not found in: {[r.message for r in caplog.records]}"
+        ), f"Expected debug log not found in: {[r.message for r in caplog.records]}"
+        # Must NOT be a warning — the default True should not pollute users' logs
+        assert not any(
+            "redact_secrets=True" in record.message
+            and record.levelno >= logging.WARNING
+            for record in caplog.records
+        ), "redact_secrets no-op message should be DEBUG, not WARNING"
 
 
 class TestRedactSecretsThreadExecution:
@@ -1719,10 +1726,11 @@ class TestPlannerRedactSecrets:
                 if not s.agent_id.startswith("planner-test")
             ]
 
-    def test_planner_warns_redact_secrets_in_subprocess_executor(
+    def test_planner_logs_redact_secrets_in_subprocess_executor(
         self, monkeypatch, tmp_path, caplog
     ):
-        """_run_planner with redact_secrets=True warns when executor uses subprocess."""
+        """_run_planner with redact_secrets=True emits a debug log (not warning)
+        when an executor uses subprocess, since redact_secrets=True is now the default."""
         import importlib
         import logging
 
@@ -1742,7 +1750,7 @@ class TestPlannerRedactSecrets:
         monkeypatch.setattr(exec_mod, "_run_subagent_subprocess", subprocess_with_event)
         monkeypatch.setattr(exec_mod, "_monitor_subprocess", lambda sa: None)
 
-        with caplog.at_level(logging.WARNING, logger="gptme.tools.subagent.execution"):
+        with caplog.at_level(logging.DEBUG, logger="gptme.tools.subagent.execution"):
             exec_mod._run_planner(
                 agent_id="planner-warn",
                 prompt="orchestrate",
@@ -1760,7 +1768,13 @@ class TestPlannerRedactSecrets:
         assert any(
             "redact_secrets=True" in record.message and "subprocess" in record.message
             for record in caplog.records
-        ), f"Expected warning not found in: {[r.message for r in caplog.records]}"
+        ), f"Expected debug log not found in: {[r.message for r in caplog.records]}"
+        # Must NOT be a warning — default True should not pollute users' logs
+        assert not any(
+            "redact_secrets=True" in record.message
+            and record.levelno >= logging.WARNING
+            for record in caplog.records
+        ), "redact_secrets no-op message should be DEBUG, not WARNING"
 
         with types_mod._subagents_lock:
             types_mod._subagents[:] = [

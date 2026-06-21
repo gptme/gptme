@@ -250,7 +250,7 @@ Key features:
 - use_acp=True: Run subagent via ACP protocol (supports any ACP-compatible agent)
 - acp_command="claude-code-acp": Use a different ACP agent (default: gptme-acp)
 - isolated=True: Run subagent in a git worktree for filesystem isolation
-- redact_secrets=True: Redact API keys, tokens, and passwords from workspace context
+- redact_secrets=True (default): Redact API keys, tokens, and passwords from workspace context
 - subagent_batch(): Start multiple subagents in parallel
 - subagent_cancel(): Cancel a running subagent (SIGTERM for subprocess, marks result for threads)
 - subagent_reply(agent_id, reply): Answer a clarification request and re-spawn the subagent
@@ -266,8 +266,9 @@ with a fresh context. What subagents DO inherit (in context_mode="full"):
 - User-level config files from ~/.config/gptme
 
 This means secrets stored in workspace config files or produced by context_cmd
-can reach the subagent. Use redact_secrets=True to scrub common secret patterns
-(API_KEY, TOKEN, PASSWORD, etc.) from these inherited context messages.
+can reach the subagent. Secret patterns (API_KEY, TOKEN, PASSWORD, etc.) are
+redacted by default (redact_secrets=True). Pass redact_secrets=False to disable
+if legitimate config values are incorrectly redacted.
 
 For stronger isolation, use context_mode="selective" with context_include=["agent"]
 to share only the agent identity (no workspace files or dynamic context).

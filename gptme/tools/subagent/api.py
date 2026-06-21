@@ -51,7 +51,7 @@ def subagent(
     isolated: bool | None = None,
     timeout: int = 1800,
     role: Role | None = None,
-    redact_secrets: bool = False,
+    redact_secrets: bool = True,
 ):
     """Starts an asynchronous subagent. Returns None immediately.
 
@@ -114,8 +114,8 @@ def subagent(
             Falls back to a temporary directory if not in a git repo.
         timeout: Maximum seconds before the subprocess monitor kills the
             subagent (default 1800 = 30 min). Only applies to subprocess mode.
-        redact_secrets: If True, scrub common secret patterns from workspace
-            context messages before they are passed to the subagent.
+        redact_secrets: If True (default), scrub common secret patterns from
+            workspace context messages before they are passed to the subagent.
             Redacts values from lines where the variable name matches patterns
             like API_KEY, TOKEN, PASSWORD, PRIVATE_KEY, etc.
 
@@ -127,7 +127,8 @@ def subagent(
 
             Only applies to thread-mode subagents (subprocess and ACP modes
             run as a separate gptme process and handle their own context).
-            Default: False (no redaction).
+            Set to False to disable redaction if legitimate config values are
+            being incorrectly redacted.
 
     Returns:
         None: Starts asynchronous execution.
@@ -270,7 +271,7 @@ def subagent(
 
     if redact_secrets and (use_acp or use_subprocess):
         exec_mode = "ACP" if use_acp else "subprocess"
-        logger.warning(
+        logger.debug(
             f"Subagent {agent_id}: 'redact_secrets=True' has no effect in {exec_mode} mode "
             "(only thread-mode subagents inherit workspace context from the parent process)"
         )
