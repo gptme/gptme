@@ -1915,7 +1915,11 @@ class TestContextWindow:
         )
 
     def test_context_window_positive_truncates_messages(self, monkeypatch, tmp_path):
-        """context_window=N truncates initial_msgs to at most N messages."""
+        """context_window=N limits workspace context to at most N messages.
+
+        Agent-identity and tools messages do NOT count against the window —
+        only the workspace context messages after them do.
+        """
         import importlib
 
         gptme_chat = importlib.import_module("gptme.chat")
@@ -1928,7 +1932,12 @@ class TestContextWindow:
 
         from gptme.message import Message
 
-        many_msgs = [Message("system", f"file {i} content") for i in range(10)]
+        identity_msg = Message("system", "# Agent\nI am gptme.")
+        tools_msg = Message("system", "# Tools\nHere are the tools.")
+        # Realistic get_prompt output: 2 fixed base messages + 10 workspace files
+        base_msgs = [identity_msg, tools_msg]
+        workspace_msgs = [Message("system", f"file {i} content") for i in range(10)]
+        full_prompt_msgs = base_msgs + workspace_msgs
         chat_initial_msgs: list = []
 
         monkeypatch.setattr(
@@ -1940,7 +1949,15 @@ class TestContextWindow:
         monkeypatch.setattr(gptme_llm_models, "set_default_model", lambda *args: None)
         monkeypatch.setattr(gptme_profiles, "get_profile", lambda _: None)
         monkeypatch.setattr(
-            gptme_prompts, "get_prompt", lambda *args, **kwargs: list(many_msgs)
+            gptme_prompts,
+            "get_prompt",
+            lambda *args, **kwargs: list(full_prompt_msgs),
+        )
+        monkeypatch.setattr(
+            gptme_prompts, "prompt_gptme", lambda *args, **kwargs: iter([identity_msg])
+        )
+        monkeypatch.setattr(
+            gptme_prompts, "prompt_tools", lambda *args, **kwargs: iter([tools_msg])
         )
         monkeypatch.setattr(
             hooks_mod, "_get_complete_instruction", lambda *args, **kwargs: "done"
@@ -1961,10 +1978,15 @@ class TestContextWindow:
             context_window=3,
         )
 
-        # Only messages before profile/memory/completion-instruction additions
-        context_msgs = [m for m in chat_initial_msgs if "file" in m.content]
-        assert len(context_msgs) <= 3, (
-            f"context_window=3 should yield at most 3 workspace messages, got {len(context_msgs)}"
+        # Base messages (identity + tools) are always present
+        assert identity_msg in chat_initial_msgs, "identity message must be present"
+        assert tools_msg in chat_initial_msgs, "tools message must be present"
+
+        # Only workspace messages count against the window
+        ws_msgs_in_result = [m for m in chat_initial_msgs if "file" in m.content]
+        assert len(ws_msgs_in_result) <= 3, (
+            f"context_window=3 should yield at most 3 workspace messages, "
+            f"got {len(ws_msgs_in_result)}"
         )
 
 

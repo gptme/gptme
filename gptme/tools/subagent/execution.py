@@ -229,13 +229,31 @@ def _create_subagent_thread(
     if context_window == 0:
         # Minimal context: just agent identity and tools, no workspace files.
         # This is the context isolation mode requested by the --isolate flag.
+        # Note: if context_mode="selective" is also set, context_window=0 takes
+        # precedence and the context_include list is ignored — agent+tools only.
         from ...prompts import prompt_gptme, prompt_tools
 
+        if (
+            context_mode == "selective"
+            and context_include
+            and set(context_include)
+            - {
+                "agent",
+                "tools",
+            }
+        ):
+            logger.warning(
+                "context_window=0 overrides context_include=%r; "
+                "only agent identity and tools will be included",
+                context_include,
+            )
         initial_msgs = list(prompt_gptme(False, None, agent_name=None)) + list(
             prompt_tools(tools=available_tools, tool_format="markdown")
         )
     elif context_mode == "selective":
-        # Selective context - build from specified components
+        # Selective context — build from specified components.
+        # context_window > 0 is not applied in selective mode; the caller
+        # controls the context set explicitly via context_include instead.
         from ...prompts import prompt_gptme, prompt_tools
 
         initial_msgs = []
@@ -252,14 +270,19 @@ def _create_subagent_thread(
             )
     else:  # "full" mode (default)
         # Full context (using profile-filtered tools)
+        from ...prompts import prompt_gptme, prompt_tools
+
         initial_msgs = get_prompt(
             available_tools, interactive=False, workspace=workspace
         )
         # Truncate workspace context if a positive window is specified.
-        # Keeps the first two messages (agent identity + tools) and limits
-        # additional workspace context messages to context_window total messages.
+        # The base messages (agent identity + tools) do NOT count against the
+        # window — only the workspace context messages after them do.
         if context_window is not None and context_window > 0:
-            initial_msgs = initial_msgs[:context_window]
+            n_base = len(list(prompt_gptme(False, None, agent_name=None))) + len(
+                list(prompt_tools(tools=available_tools, tool_format="markdown"))
+            )
+            initial_msgs = initial_msgs[: n_base + context_window]
 
     # Apply secret redaction to workspace context messages if requested.
     # This redacts values from lines where the variable name matches common
