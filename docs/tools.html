@@ -1360,6 +1360,8 @@ Key features:
 <span class="k">-</span><span class="w"> </span>acp_command=&quot;claude-code-acp&quot;: Use a different ACP agent (default: gptme-acp)
 <span class="k">-</span><span class="w"> </span>isolated=True: Run subagent in a git worktree for filesystem isolation
 <span class="k">-</span><span class="w"> </span>redact_secrets=True (default): Redact API keys, tokens, and passwords from workspace context
+<span class="k">-</span><span class="w"> </span>context_window=0: Minimal context — only agent identity + tools, no workspace files (strongest isolation)
+<span class="k">-</span><span class="w"> </span>context_window=N: Limit workspace context to at most N messages
 <span class="k">-</span><span class="w"> </span>subagent_batch(): Start multiple subagents in parallel
 <span class="k">-</span><span class="w"> </span>subagent_cancel(): Cancel a running subagent (SIGTERM for subprocess, marks result for threads)
 <span class="k">-</span><span class="w"> </span>subagent_reply(agent_id, reply): Answer a clarification request and re-spawn the subagent
@@ -1379,8 +1381,24 @@ can reach the subagent. Secret patterns (API_KEY, TOKEN, PASSWORD, etc.) are
 redacted by default (redact_secrets=True). Pass redact_secrets=False to disable
 if legitimate config values are incorrectly redacted.
 
-For stronger isolation, use context_mode=&quot;selective&quot; with context_include=[&quot;agent&quot;]
-to share only the agent identity (no workspace files or dynamic context).
+<span class="gu">### Controlling context depth with context_window</span>
+
+Limit how much workspace context flows to the subagent. Reach for these when
+you need tighter control over what the subagent sees:
+
+<span class="k">-</span><span class="w"> </span><span class="sb">`context_window=None`</span> (default): The subagent sees your full workspace (files,
+  tools, recent conversation). Best for tasks that benefit from maximum awareness.
+<span class="k">-</span><span class="w"> </span><span class="sb">`context_window=0`</span>: <span class="gs">**Strongest isolation**</span> — the subagent gets only agent
+  identity and tool descriptions, no workspace files or context_cmd output. Use
+  this when the subagent handles sensitive data (secrets, prompts) that should
+  not leak into verification or analysis tasks. The subagent knows only what
+  you explicitly tell it in the task prompt.
+<span class="k">-</span><span class="w"> </span><span class="sb">`context_window=N`</span>: Limits workspace to at most N context messages. Useful when
+  the default is too bloated but you still want the subagent to see some workspace
+  history — trim without fully isolating.
+
+<span class="sb">`context_window=0`</span> is equivalent to <span class="sb">`context_mode=&quot;selective&quot;, context_include=[&quot;agent&quot;, &quot;tools&quot;]`</span>
+but is a simpler one-parameter alternative. Only applies to thread-mode subagents.
 
 <span class="gu">## Agent Profiles for Subagents</span>
 
@@ -1790,6 +1808,29 @@ docs: success</pre>
   <td>
     <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">I'll run the subagent in an isolated git worktree so it won't modify your files.<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">ipython</div>
 <pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">subagent("feature-impl", "Implement the new caching layer in cache.py", isolated=True)
+</pre></div></pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #AAAAAA">System</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">Subagent started successfully.</pre>
+  </td>
+</tr>
+</table><p>Context-Isolated Subagent (no workspace context)</p>
+<table style="width: 100%; margin-bottom: 1em">
+  
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #5555cc;">User</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">verify this output without exposing our workspace secrets to the subagent</pre>
+  </td>
+</tr>
+<tr>
+  <td style="text-align: right; padding: 0 1em 0 1em; width: 0.1%; font-weight: bold; color: #44cc44">Assistant</td>
+  <td>
+    <pre style="margin-right: 1em; padding: 5px; margin-bottom: 0.5em; white-space: pre-wrap;">I'll use context_window=0 so the subagent only sees what I explicitly give it in the prompt, with no workspace files or secrets inherited.<div style="opacity: 0.8;"><div style="display: inline-block; margin-bottom: -.5px; margin-top: 1em; border: 0 #888 solid; border-width: 1px 1px 0 1px; border-radius: 3px 3px 0 0; padding: 0.3em 0.6em; font-size: 0.7em; background-color: #000; color: #FFF">ipython</div>
+<pre style="background-color: #000; color: #ccc; margin-right: 1em; margin-top: 0; padding: 5px; margin-bottom: 0.5em; overflow: scroll;">subagent("verifier", "Check that the output file has no syntax errors", context_window=0)
 </pre></div></pre>
   </td>
 </tr>

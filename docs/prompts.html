@@ -766,7 +766,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f176d0859e0&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f24ce0999e0&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -2047,6 +2047,8 @@ Key features:
 <span class="k">-</span><span class="w"> </span>acp_command=&quot;claude-code-acp&quot;: Use a different ACP agent (default: gptme-acp)
 <span class="k">-</span><span class="w"> </span>isolated=True: Run subagent in a git worktree for filesystem isolation
 <span class="k">-</span><span class="w"> </span>redact_secrets=True (default): Redact API keys, tokens, and passwords from workspace context
+<span class="k">-</span><span class="w"> </span>context_window=0: Minimal context — only agent identity + tools, no workspace files (strongest isolation)
+<span class="k">-</span><span class="w"> </span>context_window=N: Limit workspace context to at most N messages
 <span class="k">-</span><span class="w"> </span>subagent_batch(): Start multiple subagents in parallel
 <span class="k">-</span><span class="w"> </span>subagent_cancel(): Cancel a running subagent (SIGTERM for subprocess, marks result for threads)
 <span class="k">-</span><span class="w"> </span>subagent_reply(agent_id, reply): Answer a clarification request and re-spawn the subagent
@@ -2066,8 +2068,24 @@ can reach the subagent. Secret patterns (API_KEY, TOKEN, PASSWORD, etc.) are
 redacted by default (redact_secrets=True). Pass redact_secrets=False to disable
 if legitimate config values are incorrectly redacted.
 
-For stronger isolation, use context_mode=&quot;selective&quot; with context_include=[&quot;agent&quot;]
-to share only the agent identity (no workspace files or dynamic context).
+<span class="gu">### Controlling context depth with context_window</span>
+
+Limit how much workspace context flows to the subagent. Reach for these when
+you need tighter control over what the subagent sees:
+
+<span class="k">-</span><span class="w"> </span><span class="sb">`context_window=None`</span> (default): The subagent sees your full workspace (files,
+  tools, recent conversation). Best for tasks that benefit from maximum awareness.
+<span class="k">-</span><span class="w"> </span><span class="sb">`context_window=0`</span>: <span class="gs">**Strongest isolation**</span> — the subagent gets only agent
+  identity and tool descriptions, no workspace files or context_cmd output. Use
+  this when the subagent handles sensitive data (secrets, prompts) that should
+  not leak into verification or analysis tasks. The subagent knows only what
+  you explicitly tell it in the task prompt.
+<span class="k">-</span><span class="w"> </span><span class="sb">`context_window=N`</span>: Limits workspace to at most N context messages. Useful when
+  the default is too bloated but you still want the subagent to see some workspace
+  history — trim without fully isolating.
+
+<span class="sb">`context_window=0`</span> is equivalent to <span class="sb">`context_mode=&quot;selective&quot;, context_include=[&quot;agent&quot;, &quot;tools&quot;]`</span>
+but is a simpler one-parameter alternative. Only applies to thread-mode subagents.
 
 <span class="gu">## Agent Profiles for Subagents</span>
 
@@ -2268,6 +2286,13 @@ The following Python functions are available:
 <span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll run the subagent in an isolated git worktree so it won&#39;t modify your files.</span>
 <span class="sb">```ipython</span>
 <span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;feature-impl&quot;</span><span class="p">,</span> <span class="s2">&quot;Implement the new caching layer in cache.py&quot;</span><span class="p">,</span> <span class="n">isolated</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="sb">```</span>
+<span class="gu">### Context-Isolated Subagent (no workspace context)</span>
+
+<span class="k">&gt; </span><span class="ge">User: verify this output without exposing our workspace secrets to the subagent</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll use context_window=0 so the subagent only sees what I explicitly give it in the prompt, with no workspace files or secrets inherited.</span>
+<span class="sb">```ipython</span>
+<span class="n">subagent</span><span class="p">(</span><span class="s2">&quot;verifier&quot;</span><span class="p">,</span> <span class="s2">&quot;Check that the output file has no syntax errors&quot;</span><span class="p">,</span> <span class="n">context_window</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
 <span class="sb">```</span>
 
 <span class="gu">## tmux</span>
@@ -2518,7 +2543,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 14278</p>
+<p>Tokens: 14623</p>
 </dd></dl>
 
 <dl class="py function">
