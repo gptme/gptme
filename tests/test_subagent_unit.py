@@ -1919,6 +1919,12 @@ class TestContextWindow:
 
         Agent-identity and tools messages do NOT count against the window —
         only the workspace context messages after them do.
+
+        This test reflects the real get_prompt() structure: core messages
+        (agent identity + tools) are COMBINED into a single message by
+        _join_messages(), so n_base == 1, not 2. The mock uses workspace=None
+        to distinguish the "count base messages" call from the "get full
+        context" call, just as the real implementation does.
         """
         import importlib
 
@@ -1932,13 +1938,24 @@ class TestContextWindow:
 
         from gptme.message import Message
 
-        identity_msg = Message("system", "# Agent\nI am gptme.")
-        tools_msg = Message("system", "# Tools\nHere are the tools.")
-        # Realistic get_prompt output: 2 fixed base messages + 10 workspace files
-        base_msgs = [identity_msg, tools_msg]
+        # Reflect real get_prompt() structure:
+        # - Core (gptme identity + tools) are COMBINED into a single message.
+        # - Workspace files appear as separate messages after the combined core.
+        core_combined_msg = Message(
+            "system", "# Agent\nI am gptme.\n\n# Tools\nHere are the tools."
+        )
         workspace_msgs = [Message("system", f"file {i} content") for i in range(10)]
-        full_prompt_msgs = base_msgs + workspace_msgs
+        # Full workspace prompt: 1 combined core + 10 workspace files
+        full_prompt_msgs = [core_combined_msg] + workspace_msgs
+        # No-workspace prompt: just the combined core (used to compute n_base)
+        base_only_msgs = [core_combined_msg]
         chat_initial_msgs: list = []
+
+        def mock_get_prompt(*args, workspace=None, **kwargs):
+            # Mimic real behavior: no workspace → only core; with workspace → core + files
+            if workspace is None:
+                return list(base_only_msgs)
+            return list(full_prompt_msgs)
 
         monkeypatch.setattr(
             gptme_chat, "chat", lambda pm, im, **kw: chat_initial_msgs.extend(im)
@@ -1948,17 +1965,7 @@ class TestContextWindow:
         )
         monkeypatch.setattr(gptme_llm_models, "set_default_model", lambda *args: None)
         monkeypatch.setattr(gptme_profiles, "get_profile", lambda _: None)
-        monkeypatch.setattr(
-            gptme_prompts,
-            "get_prompt",
-            lambda *args, **kwargs: list(full_prompt_msgs),
-        )
-        monkeypatch.setattr(
-            gptme_prompts, "prompt_gptme", lambda *args, **kwargs: iter([identity_msg])
-        )
-        monkeypatch.setattr(
-            gptme_prompts, "prompt_tools", lambda *args, **kwargs: iter([tools_msg])
-        )
+        monkeypatch.setattr(gptme_prompts, "get_prompt", mock_get_prompt)
         monkeypatch.setattr(
             hooks_mod, "_get_complete_instruction", lambda *args, **kwargs: "done"
         )
@@ -1978,14 +1985,13 @@ class TestContextWindow:
             context_window=3,
         )
 
-        # Base messages (identity + tools) are always present
-        assert identity_msg in chat_initial_msgs, "identity message must be present"
-        assert tools_msg in chat_initial_msgs, "tools message must be present"
+        # The combined core message is always present
+        assert core_combined_msg in chat_initial_msgs, "core message must be present"
 
-        # Only workspace messages count against the window
+        # context_window=3 → at most 3 workspace messages (those with "file" in content)
         ws_msgs_in_result = [m for m in chat_initial_msgs if "file" in m.content]
-        assert len(ws_msgs_in_result) <= 3, (
-            f"context_window=3 should yield at most 3 workspace messages, "
+        assert len(ws_msgs_in_result) == 3, (
+            f"context_window=3 should yield exactly 3 workspace messages, "
             f"got {len(ws_msgs_in_result)}"
         )
 

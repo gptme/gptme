@@ -270,18 +270,20 @@ def _create_subagent_thread(
             )
     else:  # "full" mode (default)
         # Full context (using profile-filtered tools)
-        from ...prompts import prompt_gptme, prompt_tools
-
         initial_msgs = get_prompt(
             available_tools, interactive=False, workspace=workspace
         )
         # Truncate workspace context if a positive window is specified.
         # The base messages (agent identity + tools) do NOT count against the
         # window — only the workspace context messages after them do.
+        #
+        # get_prompt() merges all core sections (agent identity, tool
+        # descriptions, etc.) into a SINGLE combined system message via
+        # _join_messages(). Workspace files are appended as separate messages
+        # after that. So there is always exactly 1 "base" message; the rest are
+        # workspace context messages that count against context_window.
         if context_window is not None and context_window > 0:
-            n_base = len(list(prompt_gptme(False, None, agent_name=None))) + len(
-                list(prompt_tools(tools=available_tools, tool_format="markdown"))
-            )
+            n_base = len(get_prompt(available_tools, interactive=False, workspace=None))
             initial_msgs = initial_msgs[: n_base + context_window]
 
     # Apply secret redaction to workspace context messages if requested.
