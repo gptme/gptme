@@ -1824,7 +1824,10 @@ def test_check_workspace_config_no_gptme_toml(tmp_path):
 
 def test_check_workspace_config_with_gptme_toml(tmp_path):
     """Returns a hint Message when gptme.toml exists in the current directory."""
-    from gptme.tools.shell import _check_workspace_config
+    from gptme.tools.shell import _check_workspace_config, _hinted_workspaces
+
+    # Ensure clean state for isolation
+    _hinted_workspaces.discard(str(tmp_path.resolve()))
 
     (tmp_path / "gptme.toml").write_text("[gptme]\n")
 
