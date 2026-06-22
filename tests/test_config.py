@@ -1552,3 +1552,123 @@ def test_set_config_value_creates_nested_tables(monkeypatch, tmp_path):
     content = temp_config.read_text()
     assert "[models.new_nested]" in content
     assert 'key = "hello"' in content
+
+
+# ---------------------------------------------------------------------------
+# Tests for unknown-key cleanup (issue #2969)
+# ---------------------------------------------------------------------------
+
+
+def test_load_user_config_strips_unknown_top_level_keys(tmp_path):
+    """Unknown top-level keys are stripped from disk on load so warnings don't repeat.
+
+    Regression for gptme#2969: contaminated config accumulated foreign keys
+    (from fuzzing artifacts, server PUT, or external tooling) and produced
+    'Unknown keys in config' warnings on every invocation.
+    After load_user_config(), the file on disk must no longer contain those keys.
+    """
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        '[user]\nname = "Erik"\n\n'
+        "[env]\n\n"
+        # Contaminated keys — should be stripped on load
+        '[unknown_section]\nfoo = "bar"\n\n'
+        'another_foreign_key = "value"\n'
+    )
+
+    user = load_user_config(str(config_file))
+
+    # The known keys should still be loaded correctly
+    assert user.user.name == "Erik"
+
+    # The config file on disk must no longer contain the unknown keys
+    content_after = config_file.read_text()
+    assert "unknown_section" not in content_after
+    assert "another_foreign_key" not in content_after
+
+    # Loading again must produce no warnings about unknown keys
+    import io
+    import logging
+
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setLevel(logging.WARNING)
+    logging.getLogger("gptme.config.user").addHandler(handler)
+    try:
+        load_user_config(str(config_file))
+    finally:
+        logging.getLogger("gptme.config.user").removeHandler(handler)
+    assert "Unknown keys in config" not in stream.getvalue()
+
+
+def test_load_user_config_preserves_known_keys_when_stripping(tmp_path):
+    """Known top-level keys are never stripped even when unknown keys are present."""
+    config_file = tmp_path / "config.toml"
+    # Note: in TOML, a bare key after a [section] header belongs to that section.
+    # Stray top-level keys must appear before any section header.
+    config_file.write_text(
+        'stray_key = "should be removed"\n\n'
+        '[user]\nname = "Alice"\n\n'
+        '[env]\nMY_VAR = "hello"\n\n'
+        '[models]\ndefault = "openai/gpt-4o"\n\n'
+        "[plugins]\npaths = []\n\n"
+        "[mcp]\nenabled = false\n\n"
+        "[lessons]\ndirs = []\n\n"
+        "[stray_section]\nfoo = 1\n"
+    )
+
+    user = load_user_config(str(config_file))
+
+    assert user.user.name == "Alice"
+    assert user.env["MY_VAR"] == "hello"
+    assert user.models.default == "openai/gpt-4o"
+    assert user.mcp is not None and user.mcp.enabled is False
+
+    content_after = config_file.read_text()
+    # Known sections must survive
+    assert "[user]" in content_after
+    assert "[env]" in content_after
+    assert "[models]" in content_after
+    assert "[plugins]" in content_after
+    assert "[mcp]" in content_after
+    assert "[lessons]" in content_after
+    # Unknown keys must be gone
+    assert "stray_key" not in content_after
+    assert "stray_section" not in content_after
+
+
+def test_load_user_config_strips_unknown_keys_from_local_config(tmp_path):
+    """Unknown keys in config.local.toml are also stripped on load."""
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[user]\nname = "Bob"\n\n[env]\n')
+
+    local_config = tmp_path / "config.local.toml"
+    # foreign_local_key must be at the top level (before any section header)
+    local_config.write_text(
+        'foreign_local_key = "should vanish"\n\n[env]\nSECRET = "abc"\n'
+    )
+
+    user = load_user_config(str(config_file))
+
+    assert user.env["SECRET"] == "abc"
+
+    local_after = local_config.read_text()
+    assert "foreign_local_key" not in local_after
+    assert 'SECRET = "abc"' in local_after
+
+
+def test_load_user_config_plugin_sections_preserved(tmp_path):
+    """[plugin.*] sections (known key) are never mistakenly stripped."""
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        '[user]\nname = "Test"\n\n'
+        "[env]\n\n"
+        "[plugin.headroom_compressor]\nbudget_tokens = 8000\n"
+    )
+
+    user = load_user_config(str(config_file))
+
+    assert user.plugin == {"headroom_compressor": {"budget_tokens": 8000}}
+
+    content_after = config_file.read_text()
+    assert "headroom_compressor" in content_after

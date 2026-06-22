@@ -54,6 +54,41 @@ def _filter_known_fields(
     return {k: v for k, v in data.items() if k in known}
 
 
+# Top-level keys recognised by load_user_config(). Anything else is foreign.
+_KNOWN_CONFIG_KEYS: frozenset[str] = frozenset(
+    {
+        "prompt",
+        "user",
+        "env",
+        "mcp",
+        "providers",
+        "models",
+        "lessons",
+        "plugins",
+        "plugin",
+    }
+)
+
+
+def _strip_unknown_config_keys(path: str, keys: set[str]) -> None:
+    """Remove the given top-level keys from a config file on disk.
+
+    Called after detecting unknown keys in load_user_config() so that the
+    warning fires only once instead of on every future invocation.
+    """
+    if not os.path.exists(path):
+        return
+    doc = _load_config_doc(path)
+    changed = False
+    for key in keys:
+        if key in doc:
+            del doc[key]  # type: ignore[attr-defined]
+            changed = True
+    if changed:
+        with open(path, "w") as f:
+            tomlkit.dump(doc, f)
+
+
 ABOUT_ACTIVITYWATCH = """ActivityWatch is a free and open-source automated time-tracker that helps you track how you spend your time on your devices."""
 ABOUT_GPTME = "gptme is a CLI to interact with large language models in a Chat-style interface, enabling the assistant to execute commands and code on the local machine, letting them assist in all kinds of development and terminal-based work."
 
@@ -269,7 +304,14 @@ def load_user_config(path: str | None = None) -> UserConfig:
             plugin_config = plugin_data
 
     if config:
-        logger.warning(f"Unknown keys in config: {config.keys()}")
+        unknown = set(config.keys())
+        logger.warning(
+            f"Unknown keys in config: {sorted(unknown)} — stripping from"
+            f" {path_with_tilde(config_file)}"
+        )
+        _strip_unknown_config_keys(str(config_file), unknown)
+        if has_local:
+            _strip_unknown_config_keys(str(local_path), unknown)
 
     return UserConfig(
         prompt=prompt,
