@@ -155,6 +155,11 @@ def subagent(
             Executors use the `complete` tool to signal completion with a summary.
             The full conversation log is available at the logdir path.
     """
+    if context_window is not None and context_window < 0:
+        raise ValueError(
+            f"context_window must be None, 0, or a positive integer, got {context_window!r}"
+        )
+
     # noreorder
     from gptme.cli.main import get_logdir  # fmt: skip
     from gptme.llm.models import get_default_model  # fmt: skip

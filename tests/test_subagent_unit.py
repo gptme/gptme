@@ -2080,3 +2080,49 @@ class TestPlannerForwardsContextWindow:
         assert captured.get("context_window") == 0, (
             "context_window=0 should be forwarded to _run_planner"
         )
+
+
+class TestContextWindowValidation:
+    """Tests that invalid context_window values are rejected at the API boundary."""
+
+    def test_negative_context_window_raises(self, monkeypatch, tmp_path):
+        """context_window=-1 (or any negative value) should raise ValueError immediately."""
+        import importlib
+
+        llm_models = importlib.import_module("gptme.llm.models")
+        monkeypatch.setattr(llm_models, "get_default_model", lambda: None)
+
+        from gptme.tools.subagent.api import subagent
+
+        with pytest.raises(ValueError, match="context_window"):
+            subagent("agent", "do something", context_window=-1)
+
+    def test_context_window_zero_is_valid(self, monkeypatch, tmp_path):
+        """context_window=0 must not raise — it is the minimal-context mode."""
+        import importlib
+
+        cli_main = importlib.import_module("gptme.cli.main")
+        exec_mod = importlib.import_module("gptme.tools.subagent.execution")
+        llm_models = importlib.import_module("gptme.llm.models")
+
+        monkeypatch.setattr(cli_main, "get_logdir", lambda name: tmp_path / name)
+        monkeypatch.setattr(llm_models, "get_default_model", lambda: None)
+        monkeypatch.setattr(
+            exec_mod, "get_slot_sem", lambda: __import__("threading").Semaphore(10)
+        )
+
+        started: list[str] = []
+
+        def fake_create(**kwargs):
+            started.append(kwargs.get("agent_id", "?"))
+
+        monkeypatch.setattr(exec_mod, "_create_subagent_thread", fake_create)
+
+        from gptme.tools.subagent.api import subagent
+        from gptme.tools.subagent.types import _subagents, _subagents_lock
+
+        subagent("isolation-test", "do something", context_window=0)
+
+        # Clean up registered subagent
+        with _subagents_lock:
+            _subagents[:] = [s for s in _subagents if s.agent_id != "isolation-test"]

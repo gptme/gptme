@@ -231,6 +231,18 @@ Assistant: I'll run the subagent in an isolated git worktree so it won't modify 
         ).to_output(tool_format)
     }
 System: Subagent started successfully.
+
+### Context-Isolated Subagent (no workspace context)
+User: verify this output without exposing our workspace secrets to the subagent
+Assistant: I'll use context_window=0 so the subagent only sees what I explicitly give it in the prompt, with no workspace files or secrets inherited.
+{
+        ToolUse(
+            "ipython",
+            [],
+            'subagent("verifier", "Check that the output file has no syntax errors", context_window=0)',
+        ).to_output(tool_format)
+    }
+System: Subagent started successfully.
 """.strip()
 
 
@@ -251,6 +263,8 @@ Key features:
 - acp_command="claude-code-acp": Use a different ACP agent (default: gptme-acp)
 - isolated=True: Run subagent in a git worktree for filesystem isolation
 - redact_secrets=True (default): Redact API keys, tokens, and passwords from workspace context
+- context_window=0: Minimal context — only agent identity + tools, no workspace files (strongest isolation)
+- context_window=N: Limit workspace context to at most N messages
 - subagent_batch(): Start multiple subagents in parallel
 - subagent_cancel(): Cancel a running subagent (SIGTERM for subprocess, marks result for threads)
 - subagent_reply(agent_id, reply): Answer a clarification request and re-spawn the subagent
@@ -270,8 +284,19 @@ can reach the subagent. Secret patterns (API_KEY, TOKEN, PASSWORD, etc.) are
 redacted by default (redact_secrets=True). Pass redact_secrets=False to disable
 if legitimate config values are incorrectly redacted.
 
-For stronger isolation, use context_mode="selective" with context_include=["agent"]
-to share only the agent identity (no workspace files or dynamic context).
+### Controlling context depth with context_window
+
+Use `context_window` to limit how much workspace context flows to the subagent:
+
+- `context_window=None` (default): full workspace context (all files and context_cmd output)
+- `context_window=0`: **minimal context** — only agent identity and tool descriptions;
+  no workspace files, no context_cmd output. Use this when the subagent should
+  receive only what you explicitly tell it in the task prompt (strongest isolation).
+- `context_window=N`: at most N workspace context messages; useful to trim a
+  large context without eliminating it entirely.
+
+`context_window=0` is equivalent to `context_mode="selective", context_include=["agent", "tools"]`
+but is a simpler one-parameter alternative. Only applies to thread-mode subagents.
 
 ## Agent Profiles for Subagents
 
