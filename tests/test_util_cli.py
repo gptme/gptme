@@ -1148,8 +1148,12 @@ def test_context_search_conversations(tmp_path):
     from unittest.mock import patch
 
     runner = CliRunner()
-    with patch(
-        "gptme.tools.rag.rag_search", return_value="snippet from a past conversation"
+    with (
+        patch("gptme.tools.rag._has_gptme_rag", return_value=True),
+        patch(
+            "gptme.tools.rag.rag_search",
+            return_value="snippet from a past conversation",
+        ),
     ):
         result = runner.invoke(main, ["context", "search-conversations", "pytest"])
     assert result.exit_code == 0, result.output
@@ -1161,9 +1165,13 @@ def test_context_search_conversations_top_k(tmp_path):
     from unittest.mock import patch
 
     runner = CliRunner()
-    with patch(
-        "gptme.tools.rag.rag_search", return_value="snippet from a past conversation"
-    ) as mock_search:
+    with (
+        patch("gptme.tools.rag._has_gptme_rag", return_value=True),
+        patch(
+            "gptme.tools.rag.rag_search",
+            return_value="snippet from a past conversation",
+        ) as mock_search,
+    ):
         result = runner.invoke(
             main, ["context", "search-conversations", "--top-k", "5", "pytest"]
         )
