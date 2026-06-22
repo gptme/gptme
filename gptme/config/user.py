@@ -69,8 +69,11 @@ def _strip_unknown_config_keys(path: str, keys: set[str]) -> None:
             del doc[key]  # type: ignore[attr-defined]
             changed = True
     if changed:
-        with open(path, "w") as f:
-            tomlkit.dump(doc, f)
+        try:
+            with open(path, "w") as f:
+                tomlkit.dump(doc, f)
+        except OSError as e:
+            logger.warning(f"Could not strip unknown config keys from {path}: {e}")
 
 
 ABOUT_ACTIVITYWATCH = """ActivityWatch is a free and open-source automated time-tracker that helps you track how you spend your time on your devices."""
