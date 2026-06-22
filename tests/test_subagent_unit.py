@@ -2098,7 +2098,13 @@ class TestContextWindowValidation:
             subagent("agent", "do something", context_window=-1)
 
     def test_context_window_zero_is_valid(self, monkeypatch, tmp_path):
-        """context_window=0 must not raise — it is the minimal-context mode."""
+        """context_window=0 must not raise — it is the minimal-context mode.
+
+        This validates the synchronous guard in subagent() (line 159) accepts
+        context_window=0. Forwarding to _create_subagent_thread happens in a
+        daemon thread and requires thread synchronization to test — that is
+        covered at the integration level.
+        """
         import importlib
 
         cli_main = importlib.import_module("gptme.cli.main")
@@ -2110,13 +2116,6 @@ class TestContextWindowValidation:
         monkeypatch.setattr(
             exec_mod, "get_slot_sem", lambda: __import__("threading").Semaphore(10)
         )
-
-        started: list[str] = []
-
-        def fake_create(**kwargs):
-            started.append(kwargs.get("agent_id", "?"))
-
-        monkeypatch.setattr(exec_mod, "_create_subagent_thread", fake_create)
 
         from gptme.tools.subagent.api import subagent
         from gptme.tools.subagent.types import _subagents, _subagents_lock

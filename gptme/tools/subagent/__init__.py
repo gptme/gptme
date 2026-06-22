@@ -286,14 +286,19 @@ if legitimate config values are incorrectly redacted.
 
 ### Controlling context depth with context_window
 
-Use `context_window` to limit how much workspace context flows to the subagent:
+Limit how much workspace context flows to the subagent. Reach for these when
+you need tighter control over what the subagent sees:
 
-- `context_window=None` (default): full workspace context (all files and context_cmd output)
-- `context_window=0`: **minimal context** — only agent identity and tool descriptions;
-  no workspace files, no context_cmd output. Use this when the subagent should
-  receive only what you explicitly tell it in the task prompt (strongest isolation).
-- `context_window=N`: at most N workspace context messages; useful to trim a
-  large context without eliminating it entirely.
+- `context_window=None` (default): The subagent sees your full workspace (files,
+  tools, recent conversation). Best for tasks that benefit from maximum awareness.
+- `context_window=0`: **Strongest isolation** — the subagent gets only agent
+  identity and tool descriptions, no workspace files or context_cmd output. Use
+  this when the subagent handles sensitive data (secrets, prompts) that should
+  not leak into verification or analysis tasks. The subagent knows only what
+  you explicitly tell it in the task prompt.
+- `context_window=N`: Limits workspace to at most N context messages. Useful when
+  the default is too bloated but you still want the subagent to see some workspace
+  history — trim without fully isolating.
 
 `context_window=0` is equivalent to `context_mode="selective", context_include=["agent", "tools"]`
 but is a simpler one-parameter alternative. Only applies to thread-mode subagents.
