@@ -507,6 +507,7 @@ document.write(`
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context-index">index</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context-journal">journal</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context-retrieve">retrieve</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context-search-conversations">search-conversations</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context-tree">tree</a></li>
 </ul>
 </li>
@@ -1270,6 +1271,36 @@ project-monitoring) that manually concatenate gptme.toml prompt files.</p>
 </dd></dl>
 
 </section>
+<section id="gptme-util-context-search-conversations">
+<h4>search-conversations<a class="headerlink" href="#gptme-util-context-search-conversations" title="Link to this heading">#</a></h4>
+<p>Search indexed conversations for relevant context.</p>
+<p>Returns the most relevant past conversation snippets for the given query.
+Requires conversations to be indexed first with <cite>rag_index_conversations</cite>
+(use <cite>rag_index_conversations()</cite> via the ipython tool, or <cite>gptme context index</cite> on a directory).</p>
+<p class="rubric">Usage</p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span>gptme-util<span class="w"> </span>context<span class="w"> </span>search-conversations<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>QUERY
+</pre></div>
+</div>
+<p class="rubric">Options</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-context-search-conversations-top-k">
+<span class="sig-name descname"><span class="pre">--top-k</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;top_k&gt;</span></span><a class="headerlink" href="#cmdoption-gptme-util-context-search-conversations-top-k" title="Link to this definition">#</a></dt>
+<dd><p>Number of results to return</p>
+<dl class="field-list simple">
+<dt class="field-odd">Default<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="docutils literal notranslate"><span class="pre">3</span></code></p>
+</dd>
+</dl>
+</dd></dl>
+
+<p class="rubric">Arguments</p>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-gptme-util-context-search-conversations-arg-QUERY">
+<span class="sig-name descname"><span class="pre">QUERY</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-gptme-util-context-search-conversations-arg-QUERY" title="Link to this definition">#</a></dt>
+<dd><p>Required argument</p>
+</dd></dl>
+
+</section>
 <section id="gptme-util-context-tree">
 <h4>tree<a class="headerlink" href="#gptme-util-context-tree" title="Link to this heading">#</a></h4>
 <p>Print workspace directory tree (respects .gitignore).</p>
@@ -1808,6 +1839,7 @@ Use –all to include unavailable tools as well.</p>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context-index">index</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context-journal">journal</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context-retrieve">retrieve</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context-search-conversations">search-conversations</a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#gptme-util-context-tree">tree</a></li>
 </ul>
 </li>
