@@ -375,7 +375,7 @@ def context_search_conversations(query: str, top_k: int):
     init()
 
     # Search for the query
-    results = rag_search(query, return_full=True)
+    results = rag_search(query, return_full=True, top_k=top_k)
 
     if not results.strip():
         print(
