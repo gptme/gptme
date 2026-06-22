@@ -151,7 +151,7 @@ sphinx-autobuild = "^2024.10.3"
 sphinx-llms-txt = "^0.7.1"
 sphinxcontrib-programoutput = "*"
 sphinxcontrib-asciinema = "*"
-sphinxcontrib-mermaid = "^1.0.0"
+sphinxcontrib-mermaid = "^2.0.2"
 myst-parser = "*"
 
 # types
