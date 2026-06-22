@@ -688,17 +688,14 @@ class TestScanAgents:
         )
 
     def test_empty_when_no_agents(self) -> None:
-        with patch("gptme.hooks.workspace_agents._get_all_pids", return_value=[]):
+        with patch("gptme.hooks.workspace_agents._get_all_cmdlines", return_value={}):
             assert scan_agents() == []
 
     def test_skips_own_pid(self) -> None:
         my_pid = os.getpid()
-        with (
-            patch("gptme.hooks.workspace_agents._get_all_pids", return_value=[my_pid]),
-            patch(
-                "gptme.hooks.workspace_agents._get_process_cmdline",
-                return_value=["gptme"],
-            ),
+        with patch(
+            "gptme.hooks.workspace_agents._get_all_cmdlines",
+            return_value={my_pid: ["gptme"]},
         ):
             assert scan_agents() == []
 
@@ -708,11 +705,8 @@ class TestScanAgents:
 
         with (
             patch(
-                "gptme.hooks.workspace_agents._get_all_pids", return_value=[fake_pid]
-            ),
-            patch(
-                "gptme.hooks.workspace_agents._get_process_cmdline",
-                return_value=["gptme", "--model", "opus", "-n"],
+                "gptme.hooks.workspace_agents._get_all_cmdlines",
+                return_value={fake_pid: ["gptme", "--model", "opus", "-n"]},
             ),
             patch(
                 "gptme.hooks.workspace_agents._get_process_cwd", return_value=workspace
@@ -740,11 +734,8 @@ class TestScanAgents:
 
         with (
             patch(
-                "gptme.hooks.workspace_agents._get_all_pids", return_value=[fake_pid]
-            ),
-            patch(
-                "gptme.hooks.workspace_agents._get_process_cmdline",
-                return_value=["claude", "-p", "hello"],
+                "gptme.hooks.workspace_agents._get_all_cmdlines",
+                return_value={fake_pid: ["claude", "-p", "hello"]},
             ),
             patch(
                 "gptme.hooks.workspace_agents._get_process_cwd",
@@ -789,20 +780,19 @@ class TestScanAgents:
         mod._CLAUDE_SESSION_INDEX.clear()
         with (
             patch(
-                "gptme.hooks.workspace_agents._get_all_pids", return_value=[fake_pid]
-            ),
-            patch(
-                "gptme.hooks.workspace_agents._get_process_cmdline",
-                return_value=[
-                    "claude",
-                    "--dangerously-skip-permissions",
-                    "hello",
-                    "bob",
-                    "bootstrap",
-                    "investigate",
-                    "session",
-                    "mapping",
-                ],
+                "gptme.hooks.workspace_agents._get_all_cmdlines",
+                return_value={
+                    fake_pid: [
+                        "claude",
+                        "--dangerously-skip-permissions",
+                        "hello",
+                        "bob",
+                        "bootstrap",
+                        "investigate",
+                        "session",
+                        "mapping",
+                    ]
+                },
             ),
             patch(
                 "gptme.hooks.workspace_agents._get_process_cwd",
@@ -943,11 +933,8 @@ class TestScanAgents:
 
         with (
             patch(
-                "gptme.hooks.workspace_agents._get_all_pids", return_value=[fake_pid]
-            ),
-            patch(
-                "gptme.hooks.workspace_agents._get_process_cmdline",
-                return_value=["claude", "-p", "hello"],
+                "gptme.hooks.workspace_agents._get_all_cmdlines",
+                return_value={fake_pid: ["claude", "-p", "hello"]},
             ),
             patch(
                 "gptme.hooks.workspace_agents._get_process_cwd",
@@ -976,18 +963,15 @@ class TestScanAgents:
         mock_resolve.assert_not_called()
 
     def test_keeps_codex_interactive_and_autonomous_rows_separate(self) -> None:
-        pids = [99991, 99992]
-
         cmdlines = {
             99991: ["codex", "--model", "gpt-5", "Inspect status"],
             99992: ["codex", "exec", "--model", "gpt-5", "Run tests"],
         }
 
         with (
-            patch("gptme.hooks.workspace_agents._get_all_pids", return_value=pids),
             patch(
-                "gptme.hooks.workspace_agents._get_process_cmdline",
-                side_effect=lambda pid: cmdlines[pid],
+                "gptme.hooks.workspace_agents._get_all_cmdlines",
+                return_value=cmdlines,
             ),
             patch(
                 "gptme.hooks.workspace_agents._get_process_cwd",
