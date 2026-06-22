@@ -1670,6 +1670,10 @@ deleted. We surface a clear message instead of a bare FileNotFoundError
 Use for secrets (API keys) that should not be in the shared config.</p></li>
 </ul>
 </dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.14)"><strong>ValueError</strong></a> – If an intermediate keypath segment already exists
+    but is not a TOML table (e.g. traversing into a string value).</p>
+</dd>
 </dl>
 </dd></dl>
 
