@@ -1141,3 +1141,21 @@ def test_context_journal_rejects_file_path(tmp_path):
     result = runner.invoke(main, ["context", "journal", "--path", str(journal_file)])
     assert result.exit_code != 0
     assert "Directory" in result.output
+
+
+def test_context_search_conversations(tmp_path):
+    """context search-conversations is registered and runs without error."""
+    runner = CliRunner()
+    result = runner.invoke(main, ["context", "search-conversations", "pytest"])
+    assert result.exit_code == 0, result.output
+    assert "Top 3 relevant conversations" in result.output
+
+
+def test_context_search_conversations_top_k(tmp_path):
+    """context search-conversations --top-k option works."""
+    runner = CliRunner()
+    result = runner.invoke(
+        main, ["context", "search-conversations", "--top-k", "5", "pytest"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "Top 5 relevant conversations" in result.output

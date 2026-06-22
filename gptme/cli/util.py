@@ -347,6 +347,48 @@ def context_retrieve(query: str, full: bool):
     print(results)
 
 
+@context.command("search-conversations")
+@click.argument("query")
+@click.option(
+    "--top-k",
+    default=3,
+    show_default=True,
+    type=int,
+    help="Number of results to return",
+)
+def context_search_conversations(query: str, top_k: int):
+    """Search indexed conversations for relevant context.
+
+    Returns the most relevant past conversation snippets for the given query.
+    Requires conversations to be indexed first with `rag_index_conversations`
+    (use `rag_index_conversations()` via the ipython tool, or `gptme context index` on a directory).
+    """
+    from ..tools.rag import _has_gptme_rag, init, rag_search  # fmt: skip
+
+    if not _has_gptme_rag():
+        print(
+            "Error: gptme-rag is not installed. Please install it to use this feature."
+        )
+        sys.exit(1)
+
+    # Initialize RAG
+    init()
+
+    # Search for the query
+    results = rag_search(query, return_full=True)
+
+    if not results.strip():
+        print(
+            "No relevant conversations found. "
+            "Try indexing conversations first with `rag_index_conversations()` "
+            "via the ipython tool."
+        )
+        return
+
+    print(f"Top {top_k} relevant conversations:\n")
+    print(results)
+
+
 def _git_run(cmd: list[str], check: bool = True, timeout: int = 10) -> tuple[str, bool]:
     """Run a git command and return (stdout, success)."""
     try:
