@@ -52,6 +52,7 @@ def subagent(
     timeout: int = 1800,
     role: Role | None = None,
     redact_secrets: bool = True,
+    context_window: int | None = None,
 ):
     """Starts an asynchronous subagent. Returns None immediately.
 
@@ -129,6 +130,22 @@ def subagent(
             run as a separate gptme process and handle their own context).
             Set to False to disable redaction if legitimate config values are
             being incorrectly redacted.
+        context_window: Limit workspace context messages passed to the subagent.
+            Controls how much of the workspace context (files from gptme.toml
+            [prompt] files, context_cmd output) is shared with the subagent.
+
+            - ``None`` (default): no limit — full workspace context is shared.
+            - ``0``: minimal context — only agent identity and tools; no workspace
+              files or context_cmd output. Equivalent to
+              ``context_mode="selective", context_include=["agent", "tools"]``.
+            - ``N > 0``: at most N workspace context messages are passed.
+
+            Use ``context_window=0`` when the subagent does not need the parent
+            workspace configuration (e.g. a verification task that should only
+            see what the orchestrator explicitly tells it).
+
+            Only applies to thread-mode subagents; has no effect in subprocess
+            or ACP modes (which build their own context as a separate process).
 
     Returns:
         None: Starts asynchronous execution.
@@ -212,6 +229,8 @@ def subagent(
             context_include,
             model_name,
             profile_name=profile,
+            redact_secrets=redact_secrets,
+            context_window=context_window,
         )
 
     # Validate context_mode parameters
@@ -545,6 +564,7 @@ def subagent(
                         profile_name=profile,
                         agent_id=agent_id,
                         redact_secrets=redact_secrets,
+                        context_window=context_window,
                     )
                 except Exception as e:
                     # If subagent creation fails, notify with error status
@@ -618,6 +638,7 @@ def subagent(
             repo_path=repo_path,
             role=role,
             redact_secrets=redact_secrets,
+            context_window=context_window,
         )
         with _subagents_lock:
             _subagents.append(sa)
@@ -747,6 +768,7 @@ def subagent_reply(agent_id: str, reply: str) -> None:
             timeout=sa.timeout,
             role=sa.role,
             redact_secrets=sa.redact_secrets,
+            context_window=sa.context_window,
         )
     except Exception:
         with _subagents_lock:

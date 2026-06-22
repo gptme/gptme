@@ -196,6 +196,8 @@ class Subagent:
     # Secret redaction: when True, common secret patterns (API keys, tokens, passwords)
     # are redacted from workspace context messages before they are seen by the subagent.
     redact_secrets: bool = True
+    # Context window: None = no limit; 0 = minimal (no workspace files); N = at most N msgs
+    context_window: int | None = None
     # Timestamp (seconds since epoch) when this subagent was created
     started_at: float = field(default_factory=time.time)
 

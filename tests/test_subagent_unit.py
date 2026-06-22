@@ -1286,6 +1286,7 @@ class TestClarifyBlock:
             "timeout": 42,
             "role": "verify",
             "redact_secrets": True,
+            "context_window": None,
         }
         with _subagent_results_lock:
             assert "clarify-agent" not in _subagent_results
@@ -1782,3 +1783,278 @@ class TestPlannerRedactSecrets:
                 for s in types_mod._subagents
                 if not s.agent_id.startswith("planner-warn")
             ]
+
+
+class TestContextWindow:
+    """Tests for context_window parameter in _create_subagent_thread."""
+
+    def test_context_window_zero_uses_minimal_context(self, monkeypatch, tmp_path):
+        """context_window=0 skips workspace files and uses only agent identity + tools."""
+        import importlib
+
+        gptme_chat = importlib.import_module("gptme.chat")
+        gptme_executor = importlib.import_module("gptme.executor")
+        gptme_llm_models = importlib.import_module("gptme.llm.models")
+        gptme_profiles = importlib.import_module("gptme.profiles")
+        gptme_prompts = importlib.import_module("gptme.prompts")
+        hooks_mod = importlib.import_module("gptme.tools.subagent.hooks")
+        exec_mod = importlib.import_module("gptme.tools.subagent.execution")
+
+        from gptme.message import Message
+
+        workspace_msgs = [
+            Message("system", "# Agent\nI am gptme."),
+            Message("system", "# Tools\nHere are the tools."),
+            Message("system", "WORKSPACE_SECRET=super_secret_value\nfile content here"),
+        ]
+        minimal_msgs = [
+            Message("system", "# Agent\nI am gptme."),
+            Message("system", "# Tools\nHere are the tools."),
+        ]
+        chat_initial_msgs: list = []
+
+        def mock_chat(prompt_msgs, initial_msgs, **kwargs):
+            chat_initial_msgs.extend(initial_msgs)
+
+        def mock_get_prompt(*args, **kwargs):
+            return list(workspace_msgs)
+
+        def mock_prompt_gptme(*args, **kwargs):
+            return iter([minimal_msgs[0]])
+
+        def mock_prompt_tools(*args, **kwargs):
+            return iter([minimal_msgs[1]])
+
+        monkeypatch.setattr(gptme_chat, "chat", mock_chat)
+        monkeypatch.setattr(
+            gptme_executor, "prepare_execution_environment", lambda **kwargs: None
+        )
+        monkeypatch.setattr(gptme_llm_models, "set_default_model", lambda *args: None)
+        monkeypatch.setattr(gptme_profiles, "get_profile", lambda _: None)
+        monkeypatch.setattr(gptme_prompts, "get_prompt", mock_get_prompt)
+        monkeypatch.setattr(gptme_prompts, "prompt_gptme", mock_prompt_gptme)
+        monkeypatch.setattr(gptme_prompts, "prompt_tools", mock_prompt_tools)
+        monkeypatch.setattr(
+            hooks_mod, "_get_complete_instruction", lambda *args, **kwargs: "done"
+        )
+        monkeypatch.setattr(
+            exec_mod, "_ensure_subagent_signal_tools_loaded", lambda: None
+        )
+        monkeypatch.setattr(exec_mod, "get_tools", lambda: [])
+
+        exec_mod._create_subagent_thread(
+            prompt="do the thing",
+            logdir=tmp_path / "logdir",
+            model=None,
+            context_mode="full",
+            context_include=None,
+            workspace=tmp_path,
+            redact_secrets=False,
+            context_window=0,
+        )
+
+        # Should NOT include the workspace secret file
+        contents = [m.content for m in chat_initial_msgs]
+        assert not any("WORKSPACE_SECRET" in c for c in contents), (
+            "context_window=0 should exclude workspace files"
+        )
+
+    def test_context_window_none_uses_full_context(self, monkeypatch, tmp_path):
+        """context_window=None (default) uses full workspace context."""
+        import importlib
+
+        gptme_chat = importlib.import_module("gptme.chat")
+        gptme_executor = importlib.import_module("gptme.executor")
+        gptme_llm_models = importlib.import_module("gptme.llm.models")
+        gptme_profiles = importlib.import_module("gptme.profiles")
+        gptme_prompts = importlib.import_module("gptme.prompts")
+        hooks_mod = importlib.import_module("gptme.tools.subagent.hooks")
+        exec_mod = importlib.import_module("gptme.tools.subagent.execution")
+
+        from gptme.message import Message
+
+        workspace_msgs = [
+            Message("system", "# Agent\nI am gptme."),
+            Message("system", "WORKSPACE_SECRET=super_secret_value"),
+        ]
+        chat_initial_msgs: list = []
+
+        monkeypatch.setattr(
+            gptme_chat, "chat", lambda pm, im, **kw: chat_initial_msgs.extend(im)
+        )
+        monkeypatch.setattr(
+            gptme_executor, "prepare_execution_environment", lambda **kwargs: None
+        )
+        monkeypatch.setattr(gptme_llm_models, "set_default_model", lambda *args: None)
+        monkeypatch.setattr(gptme_profiles, "get_profile", lambda _: None)
+        monkeypatch.setattr(
+            gptme_prompts, "get_prompt", lambda *args, **kwargs: list(workspace_msgs)
+        )
+        monkeypatch.setattr(
+            hooks_mod, "_get_complete_instruction", lambda *args, **kwargs: "done"
+        )
+        monkeypatch.setattr(
+            exec_mod, "_ensure_subagent_signal_tools_loaded", lambda: None
+        )
+        monkeypatch.setattr(exec_mod, "get_tools", lambda: [])
+
+        exec_mod._create_subagent_thread(
+            prompt="do the thing",
+            logdir=tmp_path / "logdir",
+            model=None,
+            context_mode="full",
+            context_include=None,
+            workspace=tmp_path,
+            redact_secrets=False,
+            context_window=None,
+        )
+
+        contents = [m.content for m in chat_initial_msgs]
+        assert any("WORKSPACE_SECRET" in c for c in contents), (
+            "context_window=None should include all workspace context"
+        )
+
+    def test_context_window_positive_truncates_messages(self, monkeypatch, tmp_path):
+        """context_window=N truncates initial_msgs to at most N messages."""
+        import importlib
+
+        gptme_chat = importlib.import_module("gptme.chat")
+        gptme_executor = importlib.import_module("gptme.executor")
+        gptme_llm_models = importlib.import_module("gptme.llm.models")
+        gptme_profiles = importlib.import_module("gptme.profiles")
+        gptme_prompts = importlib.import_module("gptme.prompts")
+        hooks_mod = importlib.import_module("gptme.tools.subagent.hooks")
+        exec_mod = importlib.import_module("gptme.tools.subagent.execution")
+
+        from gptme.message import Message
+
+        many_msgs = [Message("system", f"file {i} content") for i in range(10)]
+        chat_initial_msgs: list = []
+
+        monkeypatch.setattr(
+            gptme_chat, "chat", lambda pm, im, **kw: chat_initial_msgs.extend(im)
+        )
+        monkeypatch.setattr(
+            gptme_executor, "prepare_execution_environment", lambda **kwargs: None
+        )
+        monkeypatch.setattr(gptme_llm_models, "set_default_model", lambda *args: None)
+        monkeypatch.setattr(gptme_profiles, "get_profile", lambda _: None)
+        monkeypatch.setattr(
+            gptme_prompts, "get_prompt", lambda *args, **kwargs: list(many_msgs)
+        )
+        monkeypatch.setattr(
+            hooks_mod, "_get_complete_instruction", lambda *args, **kwargs: "done"
+        )
+        monkeypatch.setattr(
+            exec_mod, "_ensure_subagent_signal_tools_loaded", lambda: None
+        )
+        monkeypatch.setattr(exec_mod, "get_tools", lambda: [])
+
+        exec_mod._create_subagent_thread(
+            prompt="do the thing",
+            logdir=tmp_path / "logdir",
+            model=None,
+            context_mode="full",
+            context_include=None,
+            workspace=tmp_path,
+            redact_secrets=False,
+            context_window=3,
+        )
+
+        # Only messages before profile/memory/completion-instruction additions
+        context_msgs = [m for m in chat_initial_msgs if "file" in m.content]
+        assert len(context_msgs) <= 3, (
+            f"context_window=3 should yield at most 3 workspace messages, got {len(context_msgs)}"
+        )
+
+
+class TestPlannerForwardsContextWindow:
+    """Tests that _run_planner forwards context_window to thread-mode executors."""
+
+    def test_planner_forwards_context_window_to_thread_executors(
+        self, monkeypatch, tmp_path
+    ):
+        """_run_planner with context_window=0 passes it to _create_subagent_thread."""
+        import importlib
+
+        cli_main = importlib.import_module("gptme.cli.main")
+        exec_mod = importlib.import_module("gptme.tools.subagent.execution")
+        types_mod = importlib.import_module("gptme.tools.subagent.types")
+
+        monkeypatch.setattr(cli_main, "get_logdir", lambda name: tmp_path / name)
+
+        captured_kwargs: list[dict] = []
+        called_event = threading.Event()
+
+        def fake_create_subagent_thread(**kwargs):
+            captured_kwargs.append(kwargs)
+            called_event.set()
+
+        monkeypatch.setattr(
+            exec_mod, "_create_subagent_thread", fake_create_subagent_thread
+        )
+        monkeypatch.setattr(
+            exec_mod, "get_slot_sem", lambda: __import__("threading").Semaphore(10)
+        )
+
+        subtasks = [{"id": "t1", "description": "do something"}]
+        exec_mod._run_planner(
+            agent_id="planner-cw",
+            prompt="context",
+            subtasks=subtasks,
+            execution_mode="sequential",
+            context_window=0,
+        )
+
+        called_event.wait(timeout=5)
+        assert captured_kwargs, "_create_subagent_thread was never called"
+        assert captured_kwargs[0].get("context_window") == 0, (
+            f"Expected context_window=0, got {captured_kwargs[0].get('context_window')}"
+        )
+
+        with types_mod._subagents_lock:
+            types_mod._subagents[:] = [
+                s
+                for s in types_mod._subagents
+                if not s.agent_id.startswith("planner-cw")
+            ]
+
+    def test_subagent_planner_mode_forwards_redact_secrets_false(
+        self, monkeypatch, tmp_path
+    ):
+        """subagent(mode='planner') forwards redact_secrets=False to _run_planner."""
+        import importlib
+
+        cli_main = importlib.import_module("gptme.cli.main")
+        exec_mod = importlib.import_module("gptme.tools.subagent.execution")
+        llm_models = importlib.import_module("gptme.llm.models")
+
+        monkeypatch.setattr(cli_main, "get_logdir", lambda name: tmp_path / name)
+        monkeypatch.setattr(llm_models, "get_default_model", lambda: None)
+
+        captured: dict = {}
+
+        def fake_run_planner(*args, **kwargs):
+            captured.update(kwargs)
+
+        monkeypatch.setattr(exec_mod, "_run_planner", fake_run_planner)
+
+        from gptme.tools.subagent.api import subagent
+        from gptme.tools.subagent.types import SubtaskDef
+
+        subtasks: list[SubtaskDef] = [{"id": "t1", "description": "check output"}]
+        subagent(
+            agent_id="planner-rs-test",
+            prompt="verify something",
+            mode="planner",
+            subtasks=subtasks,
+            redact_secrets=False,
+            context_window=0,
+        )
+
+        assert captured.get("redact_secrets") is False, (
+            "redact_secrets=False should be forwarded to _run_planner"
+        )
+        assert captured.get("context_window") == 0, (
+            "context_window=0 should be forwarded to _run_planner"
+        )
