@@ -1427,12 +1427,18 @@ def execute_shell_impl(
                 yield workspace_hint
 
 
+# Workspace paths already hinted this session, so we don't spam the
+# "Workspace detected" message on every cd into the same workspace.
+_hinted_workspaces: set[str] = set()
+
+
 def _check_workspace_config() -> Message | None:
     """Return a hint message if the current directory has a gptme.toml config.
 
     Called after a successful ``cd`` to let the agent know it can spawn a
     workspace-aware subagent instead of running in a generic context.
-    Returns None if no gptme.toml is found (or CWD lookup fails).
+    Returns None if no gptme.toml is found (or CWD lookup fails), or if this
+    workspace has already been hinted this session.
     """
     try:
         cwd = Path.cwd()
@@ -1442,6 +1448,12 @@ def _check_workspace_config() -> Message | None:
     config_file = cwd / "gptme.toml"
     if not config_file.exists():
         return None
+
+    # Only hint once per workspace per session.
+    workspace_key = str(cwd.resolve())
+    if workspace_key in _hinted_workspaces:
+        return None
+    _hinted_workspaces.add(workspace_key)
 
     workspace_name = cwd.name
     return Message(
