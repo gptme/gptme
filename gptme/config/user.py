@@ -54,22 +54,6 @@ def _filter_known_fields(
     return {k: v for k, v in data.items() if k in known}
 
 
-# Top-level keys recognised by load_user_config(). Anything else is foreign.
-_KNOWN_CONFIG_KEYS: frozenset[str] = frozenset(
-    {
-        "prompt",
-        "user",
-        "env",
-        "mcp",
-        "providers",
-        "models",
-        "lessons",
-        "plugins",
-        "plugin",
-    }
-)
-
-
 def _strip_unknown_config_keys(path: str, keys: set[str]) -> None:
     """Remove the given top-level keys from a config file on disk.
 
@@ -305,9 +289,12 @@ def load_user_config(path: str | None = None) -> UserConfig:
 
     if config:
         unknown = set(config.keys())
+        strip_targets = str(path_with_tilde(config_file))
+        if has_local:
+            strip_targets += f" and {path_with_tilde(local_path)}"
         logger.warning(
             f"Unknown keys in config: {sorted(unknown)} — stripping from"
-            f" {path_with_tilde(config_file)}"
+            f" {strip_targets}"
         )
         _strip_unknown_config_keys(str(config_file), unknown)
         if has_local:
