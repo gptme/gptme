@@ -3009,7 +3009,10 @@ def api_user_config_file_patch():
     except ValueError as exc:
         return flask.jsonify({"error": str(exc)}), 400
 
-    set_config_value(key, value, reload=reload_config)
+    try:
+        set_config_value(key, value, reload=reload_config)
+    except ValueError as exc:
+        return flask.jsonify({"error": str(exc)}), 400
     content = _read_user_config_file_text()
     response = _get_user_config_file_response(content)
     response["status"] = "ok"

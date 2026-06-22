@@ -1493,3 +1493,62 @@ def test_get_plugin_config_empty_enabled_is_none(tmp_path):
     config = replace(config, user=load_user_config(temp_user_config))
     _paths, enabled = config.get_plugin_config()
     assert enabled is None
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for set_config_value traversal safety
+# ---------------------------------------------------------------------------
+
+
+def test_set_config_value_rejects_traversal_into_string(monkeypatch, tmp_path):
+    """Regression: PATCHing a keypath that traverses through a non-table value
+    (e.g. prompt.about_user.foo where about_user is a string) must raise a
+    clean ValueError instead of crashing with TypeError -> 500.
+
+    Bug surfaced via dogfood probe of /api/v2/user/config-file PATCH endpoint
+    (session bd4d). Before the fix, set_config_value blindly assigned into
+    any intermediate node, raising TypeError: 'String' object does not
+    support item assignment when the node was a string-valued TOML key.
+    """
+    import gptme.config.user as user_mod
+
+    temp_config = tmp_path / "config.toml"
+    temp_config.write_text(default_user_config)
+
+    # Redirect set_config_value's writes to the temp config; skip the reload
+    # step (no need to refresh the in-memory config in a unit test).
+    monkeypatch.setattr(user_mod, "config_path", str(temp_config))
+
+    # Traversal through prompt.about_user (a string) must raise ValueError.
+    with pytest.raises(ValueError, match="not a table"):
+        user_mod.set_config_value("prompt.about_user.foo", "bar", reload=False)
+
+    # Two-level traversal through a string-valued leaf must also raise.
+    with pytest.raises(ValueError, match="not a table"):
+        user_mod.set_config_value("prompt.about_user.foo.bar", "baz", reload=False)
+
+    # Top-level traversal into a plain string-valued key must raise too.
+    with pytest.raises(ValueError, match="not a table"):
+        user_mod.set_config_value("prompt.response_preference.x", "y", reload=False)
+
+    # The config file must be untouched (no partial writes).
+    content = temp_config.read_text()
+    assert "foo" not in content
+    assert "bar" not in content
+
+
+def test_set_config_value_creates_nested_tables(monkeypatch, tmp_path):
+    """set_config_value still creates intermediate tables when the path is new,
+    so legitimate nested patches like models.new_nested.key are unaffected.
+    """
+    import gptme.config.user as user_mod
+
+    temp_config = tmp_path / "config.toml"
+    temp_config.write_text(default_user_config)
+    monkeypatch.setattr(user_mod, "config_path", str(temp_config))
+
+    # Brand-new path: must create intermediate tables and write the leaf.
+    user_mod.set_config_value("models.new_nested.key", "hello", reload=False)
+    content = temp_config.read_text()
+    assert "[models.new_nested]" in content
+    assert 'key = "hello"' in content

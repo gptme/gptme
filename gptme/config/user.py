@@ -7,6 +7,7 @@ from ~/.config/gptme/config.toml and config.local.toml.
 import copy
 import logging
 import os
+from collections.abc import MutableMapping
 from dataclasses import asdict, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -321,6 +322,10 @@ def set_config_value(
         reload: Whether to reload the in-memory config after writing.
         local: If True, write to config.local.toml instead of config.toml.
                Use for secrets (API keys) that should not be in the shared config.
+
+    Raises:
+        ValueError: If an intermediate keypath segment already exists
+            but is not a TOML table (e.g. traversing into a string value).
     """
     if local:
         _, local_path = get_user_config_paths()
@@ -339,6 +344,10 @@ def set_config_value(
     for k in keypath[:-1]:
         if k not in d:
             d[k] = tomlkit.table()
+        else:
+            existing = d[k]
+            if not isinstance(existing, MutableMapping):
+                raise ValueError(f"Cannot set '{key}': '{k}' exists but is not a table")
         d = d[k]  # type: ignore[assignment]
     d[keypath[-1]] = value
 
