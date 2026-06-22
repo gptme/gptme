@@ -12,6 +12,7 @@ from click.testing import CliRunner
 from gptme.cli.util import main
 from gptme.logmanager import ConversationMeta
 from gptme.profiles import Profile
+from gptme.tools.rag import _has_gptme_rag
 
 
 def test_tokens_count(tmp_path):
@@ -1143,6 +1144,7 @@ def test_context_journal_rejects_file_path(tmp_path):
     assert "Directory" in result.output
 
 
+@pytest.mark.skipif(not _has_gptme_rag(), reason="RAG is not available")
 def test_context_search_conversations(tmp_path):
     """context search-conversations is registered and runs without error."""
     runner = CliRunner()
@@ -1151,6 +1153,7 @@ def test_context_search_conversations(tmp_path):
     assert "Top 3 relevant conversations" in result.output
 
 
+@pytest.mark.skipif(not _has_gptme_rag(), reason="RAG is not available")
 def test_context_search_conversations_top_k(tmp_path):
     """context search-conversations --top-k option works."""
     runner = CliRunner()
