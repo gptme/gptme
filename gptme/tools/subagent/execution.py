@@ -274,14 +274,14 @@ def _create_subagent_thread(
             available_tools, interactive=False, workspace=workspace
         )
         # Truncate workspace context if a positive window is specified.
-        # The base messages (agent identity + tools) do NOT count against the
+        # Base messages (agent identity + tools) do NOT count against the
         # window — only the workspace context messages after them do.
         #
-        # get_prompt() merges all core sections (agent identity, tool
-        # descriptions, etc.) into a SINGLE combined system message via
-        # _join_messages(). Workspace files are appended as separate messages
-        # after that. So there is always exactly 1 "base" message; the rest are
-        # workspace context messages that count against context_window.
+        # get_prompt() merges core sections into a single combined message
+        # (via _join_messages()). In the typical subagent case (no active
+        # chat history, no context_cmd) n_base=1. Dynamic sections such as
+        # SYSTEM_PROMPT_CACHE_BOUNDARY, chat_history, or context_cmd output
+        # may add more — the measurement below handles all cases correctly.
         if context_window is not None and context_window > 0:
             n_base = len(get_prompt(available_tools, interactive=False, workspace=None))
             initial_msgs = initial_msgs[: n_base + context_window]
