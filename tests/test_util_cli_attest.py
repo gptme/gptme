@@ -222,6 +222,42 @@ def test_verify_attestation_rejects_content_path_and_text_together(
         )
 
 
+def test_attest_verify_rejects_explicit_content_path_outside_workspace(
+    tmp_path, monkeypatch
+):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+
+    output_file = repo / "output.txt"
+    output_file.write_text("signed content\n")
+    secret_file = tmp_path / "secret.txt"
+    secret_file.write_text("signed content\n")
+
+    monkeypatch.setenv("GPTME_AGENT_NAME", "bob")
+    runner = CliRunner()
+    sign = runner.invoke(
+        main, ["attest", "sign", str(output_file)], catch_exceptions=False
+    )
+    assert sign.exit_code == 0
+
+    verify = runner.invoke(
+        main,
+        [
+            "attest",
+            "verify",
+            str(Path(sign.output.strip())),
+            "--workspace",
+            str(repo),
+            "--content-file",
+            str(secret_file),
+        ],
+        catch_exceptions=False,
+    )
+    assert verify.exit_code != 0
+    assert "Content path escapes workspace" in verify.output
+
+
 def test_attestation_id_is_fixed_width_when_digest_has_leading_zeros(monkeypatch):
     monkeypatch.setattr(
         attestation_module,

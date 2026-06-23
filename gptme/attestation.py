@@ -279,8 +279,17 @@ def _resolve_content_path(
     attestation: dict[str, Any],
     content_path: Path | None,
 ) -> Path:
+    workspace_root = workspace_root.resolve()
+
     if content_path is not None:
-        return content_path.resolve()
+        resolved_path = content_path.resolve()
+        try:
+            resolved_path.relative_to(workspace_root)
+        except ValueError as exc:
+            raise AttestationError(
+                f"Content path escapes workspace: {content_path}"
+            ) from exc
+        return resolved_path
 
     output = attestation.get("output")
     if not isinstance(output, dict):
@@ -293,7 +302,6 @@ def _resolve_content_path(
         )
 
     resolved_path = (workspace_root / path_value).resolve()
-    workspace_root = workspace_root.resolve()
     try:
         resolved_path.relative_to(workspace_root)
     except ValueError as exc:
