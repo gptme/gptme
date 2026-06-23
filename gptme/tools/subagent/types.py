@@ -178,6 +178,7 @@ class Subagent:
     model: str | None
     context_mode: Literal["full", "selective"] = "full"
     context_include: list[str] | None = None
+    path_deny: list[str] | None = None
     profile: str | None = None
     output_schema: type | None = None
     use_acp: bool = False

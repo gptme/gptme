@@ -53,6 +53,7 @@ def subagent(
     role: Role | None = None,
     redact_secrets: bool = True,
     context_window: int | None = None,
+    path_deny: list[str] | None = None,
 ):
     """Starts an asynchronous subagent. Returns None immediately.
 
@@ -146,6 +147,18 @@ def subagent(
 
             Only applies to thread-mode subagents; has no effect in subprocess
             or ACP modes (which build their own context as a separate process).
+        path_deny: Glob patterns for files to exclude from the subagent's workspace
+            context. When provided, workspace files matching any glob are excluded
+            before the subagent sees them. Uses fnmatch for matching against file
+            paths relative to the workspace root.
+
+            Example: ``path_deny=["*.secret", "config/*.yml"]`` excludes files
+            matching ``.secret`` extension or under ``config/`` with ``.yml``
+            extension.
+
+            Works in both thread mode and subprocess mode. In subprocess mode,
+            the deny list is passed to the child process via environment variables
+            (``GPTME_PATH_DENY``) and applied before context assembly.
 
     Returns:
         None: Starts asynchronous execution.
@@ -436,6 +449,7 @@ def subagent(
             model=model_name,
             context_mode=context_mode,
             context_include=context_include,
+            path_deny=path_deny,
             profile=profile,
             output_schema=output_schema,
             use_acp=True,
@@ -492,6 +506,7 @@ def subagent(
                     context_include=context_include,
                     output_schema=output_schema_str,
                     profile=profile,
+                    path_deny=path_deny,
                 )
                 # Subagent is a frozen dataclass; install the live process on the
                 # pre-registered object so queued agents become inspectable once
@@ -570,6 +585,7 @@ def subagent(
                         agent_id=agent_id,
                         redact_secrets=redact_secrets,
                         context_window=context_window,
+                        path_deny=path_deny,
                     )
                 except Exception as e:
                     # If subagent creation fails, notify with error status
@@ -634,6 +650,7 @@ def subagent(
             model=model_name,
             context_mode=context_mode,
             context_include=context_include,
+            path_deny=path_deny,
             profile=profile,
             output_schema=output_schema,
             process=None,

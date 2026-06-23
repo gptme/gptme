@@ -8,6 +8,7 @@ inherited context.
 """
 
 import re
+from pathlib import Path
 
 from ...message import Message
 
@@ -135,3 +136,91 @@ def redact_secrets_from_messages(messages: list[Message]) -> list[Message]:
     return [
         msg.replace(content=redact_secrets_from_text(msg.content)) for msg in messages
     ]
+
+
+def apply_path_deny(
+    messages: list[Message], path_deny: list[str], workspace: Path | None = None
+) -> list[Message]:
+    """Exclude workspace files matching deny globs from context messages.
+
+    Scans system messages for markdown code blocks with file references and
+    removes blocks whose filenames match any of the deny glob patterns.
+    Uses fnmatch for glob matching.
+
+    Thread-mode subagents receive workspace context as system messages
+    containing markdown-fenced file content. This function strips matching
+    blocks before the subagent sees them.
+
+    Args:
+        messages: List of messages to filter.
+        path_deny: Glob patterns to match against file paths.
+        workspace: Workspace root for resolving absolute paths to relative.
+
+    Returns:
+        A new list of messages with denied files removed.
+    """
+    from fnmatch import fnmatch as _fnmatch
+
+    if not path_deny:
+        return messages
+
+    def _is_denied(filepath: str) -> bool:
+        """Check if a filepath matches any deny glob."""
+        check_paths = [filepath]
+        if workspace:
+            try:
+                rel = str(Path(filepath).resolve().relative_to(workspace.resolve()))
+                check_paths.append(rel)
+            except (ValueError, OSError):
+                pass
+
+        for deny_pattern in path_deny:
+            for cp in check_paths:
+                if _fnmatch(cp, deny_pattern):
+                    return True
+                fname = Path(cp).name
+                if _fnmatch(fname, deny_pattern):
+                    return True
+        return False
+
+    result: list[Message] = []
+    for msg in messages:
+        if msg.role != "system":
+            result.append(msg)
+            continue
+
+        content = msg.content
+        lines = content.split("\n")
+        filtered_lines: list[str] = []
+        i = 0
+        in_block = False
+        block_filename = ""
+        skip_block = False
+
+        while i < len(lines):
+            line = lines[i]
+            stripped = line.strip()
+
+            if not in_block and stripped.startswith("```"):
+                # Start of a code block - check if it names a file
+                in_block = True
+                block_filename = stripped[3:].strip()
+                skip_block = bool(block_filename) and _is_denied(block_filename)
+                filtered_lines.append(line)
+            elif in_block and stripped == "```":
+                # End of code block
+                if not skip_block:
+                    filtered_lines.append(line)
+                in_block = False
+                skip_block = False
+                block_filename = ""
+            elif in_block and skip_block:
+                # Inside a denied block - skip the content
+                pass
+            else:
+                filtered_lines.append(line)
+            i += 1
+
+        result.append(msg.replace(content="\n".join(filtered_lines)))
+
+    return result

@@ -8,6 +8,7 @@ subagent() function in api.py.
 """
 
 import logging
+import os
 import random
 import string
 import subprocess
@@ -139,6 +140,7 @@ def _create_subagent_thread(
     agent_id: str | None = None,
     redact_secrets: bool = True,
     context_window: int | None = None,
+    path_deny: list[str] | None = None,
 ) -> None:
     """Shared function for running subagent threads.
 
@@ -295,6 +297,12 @@ def _create_subagent_thread(
 
         initial_msgs = redact_secrets_from_messages(initial_msgs)
 
+    # Apply path deny filtering to exclude matching files from workspace context
+    if path_deny:
+        from .context import apply_path_deny
+
+        initial_msgs = apply_path_deny(initial_msgs, path_deny, workspace)
+
     # Append profile system prompt if specified
     if profile and profile.system_prompt:
         profile_msg = Message(
@@ -342,6 +350,7 @@ def _run_subagent_subprocess(
     context_include: list[str] | None = None,
     output_schema: str | None = None,
     profile: str | None = None,
+    path_deny: list[str] | None = None,
 ) -> subprocess.Popen:
     """Run a subagent in a subprocess for output isolation.
 
@@ -361,6 +370,8 @@ def _run_subagent_subprocess(
             includes them.
         output_schema: JSON schema for structured output
         profile: Agent profile name to apply via --agent-profile flag
+        path_deny: Glob patterns for files to exclude from workspace context.
+            Passed to the child process via GPTME_PATH_DENY env var.
 
     Returns:
         The subprocess.Popen object for monitoring
@@ -451,6 +462,10 @@ def _run_subagent_subprocess(
         tmpfile_path = Path(tmpf.name)
 
     try:
+        # Build environment with path_deny passed to child process
+        env = os.environ.copy()
+        if path_deny:
+            env["GPTME_PATH_DENY"] = ":".join(path_deny)
         with open(tmpfile_path) as stdin_file:
             process = subprocess.Popen(
                 cmd,
@@ -459,6 +474,7 @@ def _run_subagent_subprocess(
                 stderr=subprocess.DEVNULL,
                 cwd=workspace,
                 text=True,
+                env=env,
             )
     finally:
         tmpfile_path.unlink(missing_ok=True)
@@ -581,6 +597,7 @@ def _run_planner(
     profile_name: str | None = None,
     redact_secrets: bool = True,
     context_window: int | None = None,
+    path_deny: list[str] | None = None,
 ) -> None:
     """Run a planner that delegates work to multiple executor subagents.
 
@@ -598,6 +615,7 @@ def _run_planner(
             (which manage their own context); a debug message is logged in that case.
         context_window: Limit workspace context messages passed to executor subagents.
             None = no limit; 0 = minimal context (no workspace files); N > 0 = at most N.
+        path_deny: Glob patterns for files to exclude from executor workspace context.
     """
     from gptme.cli.main import get_logdir
 
@@ -704,6 +722,7 @@ def _run_planner(
                 model,
                 context_mode=context_mode,
                 context_include=context_include,
+                path_deny=path_deny,
                 profile=resolved_profile,
                 process=None,
                 execution_mode="subprocess",
@@ -741,6 +760,7 @@ def _run_planner(
                             context_mode=context_mode,
                             context_include=context_include,
                             profile=_profile,
+                            path_deny=path_deny,
                         )
                     except Exception as e:
                         logger.error(
@@ -843,6 +863,7 @@ def _run_planner(
                 model,
                 context_mode=context_mode,
                 context_include=context_include,
+                path_deny=path_deny,
                 profile=resolved_profile,
                 isolated=resolved_isolated,
                 worktree_path=worktree_path,
