@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 
-from gptme.attestation import _attestation_id
+from gptme.attestation import AttestationError, _attestation_id, verify_attestation
 from gptme.cli.util import main
 
 
@@ -150,3 +152,64 @@ def test_attest_sign_text_uses_unknown_session_without_env(tmp_path, monkeypatch
     payload = json.loads(Path(sign.output.strip()).read_text())
     assert payload["agent"]["session_id"] == "unknown"
     assert payload["output"]["type"] == "text"
+
+
+def test_attest_verify_rejects_embedded_path_outside_workspace(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+
+    output_file = repo / "output.txt"
+    output_file.write_text("signed content\n")
+    secret_file = tmp_path / "secret.txt"
+    secret_file.write_text("top secret\n")
+
+    monkeypatch.setenv("GPTME_AGENT_NAME", "bob")
+    runner = CliRunner()
+    sign = runner.invoke(
+        main, ["attest", "sign", str(output_file)], catch_exceptions=False
+    )
+    assert sign.exit_code == 0
+
+    attestation_path = Path(sign.output.strip())
+    payload = json.loads(attestation_path.read_text())
+    payload["output"]["path"] = "../secret.txt"
+    payload["output"]["sha256"] = (
+        f"sha256:{hashlib.sha256(secret_file.read_bytes()).hexdigest()}"
+    )
+    payload["id"] = _attestation_id({k: v for k, v in payload.items() if k != "id"})
+    attestation_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+    verify = runner.invoke(
+        main,
+        ["attest", "verify", str(attestation_path), "--workspace", str(repo)],
+        catch_exceptions=False,
+    )
+    assert verify.exit_code != 0
+    assert "escapes workspace" in verify.output
+
+
+def test_verify_attestation_rejects_content_path_and_text_together(
+    tmp_path, monkeypatch
+):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+
+    output_file = repo / "output.txt"
+    output_file.write_text("signed content\n")
+
+    monkeypatch.setenv("GPTME_AGENT_NAME", "bob")
+    runner = CliRunner()
+    sign = runner.invoke(
+        main, ["attest", "sign", str(output_file)], catch_exceptions=False
+    )
+    assert sign.exit_code == 0
+
+    with pytest.raises(AttestationError, match="either content_path or text"):
+        verify_attestation(
+            Path(sign.output.strip()),
+            workspace=repo,
+            content_path=output_file,
+            text="signed content\n",
+        )

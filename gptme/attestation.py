@@ -275,7 +275,16 @@ def _resolve_content_path(
         raise AttestationError(
             "Attestation does not embed an output path; pass --content-file to verify."
         )
-    return (workspace_root / path_value).resolve()
+
+    resolved_path = (workspace_root / path_value).resolve()
+    workspace_root = workspace_root.resolve()
+    try:
+        resolved_path.relative_to(workspace_root)
+    except ValueError as exc:
+        raise AttestationError(
+            f"Attested content path escapes workspace: {path_value}"
+        ) from exc
+    return resolved_path
 
 
 def verify_content_hash(
@@ -285,6 +294,9 @@ def verify_content_hash(
     content_path: Path | None = None,
     text: str | None = None,
 ) -> None:
+    if content_path is not None and text is not None:
+        raise AttestationError("Pass either content_path or text, not both.")
+
     output = attestation.get("output")
     if not isinstance(output, dict):
         raise AttestationError("Attestation missing output metadata.")
