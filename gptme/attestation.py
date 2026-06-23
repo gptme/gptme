@@ -60,14 +60,24 @@ def _base62_encode(data: bytes, *, min_length: int = 1) -> str:
 
 
 def _run_git(repo_root: Path, args: list[str]) -> str:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=repo_root,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=repo_root,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        raise AttestationError(
+            f"git command timed out: `git {' '.join(args)}`"
+        ) from None
+    except FileNotFoundError:
+        raise AttestationError("git not found on PATH") from None
+    except OSError as exc:
+        raise AttestationError(f"git command failed: {exc}") from None
+
     if result.returncode != 0:
         stderr = result.stderr.strip() or result.stdout.strip() or "git command failed"
         raise AttestationError(stderr)
