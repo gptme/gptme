@@ -731,6 +731,40 @@ def test_subprocess_profile_preserves_profile_tools_and_adds_clarify():
     )
 
 
+def test_subprocess_path_deny_env_is_json_encoded():
+    """Subprocess mode should pass path_deny through an unambiguous env payload."""
+    import json
+    import tempfile
+    from pathlib import Path
+
+    from gptme.tools.subagent.execution import _run_subagent_subprocess
+
+    captured_env: dict[str, str] = {}
+
+    def fake_popen(cmd, **kwargs):
+        captured_env.clear()
+        captured_env.update(kwargs["env"])
+        mock = MagicMock()
+        mock.poll.return_value = None
+        mock.args = cmd
+        return mock
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        logdir = Path(tmpdir) / "logs"
+        logdir.mkdir()
+
+        with patch("gptme.tools.subagent.execution.subprocess.Popen", fake_popen):
+            _run_subagent_subprocess(
+                prompt="Explore task",
+                logdir=logdir,
+                model=None,
+                workspace=Path(tmpdir),
+                path_deny=["a:b", "*.secret"],
+            )
+
+    assert json.loads(captured_env["GPTME_PATH_DENY"]) == ["a:b", "*.secret"]
+
+
 @pytest.mark.slow
 def test_subprocess_working_directory():
     """Test that subprocess runs in the specified working directory."""

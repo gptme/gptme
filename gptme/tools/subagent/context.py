@@ -7,6 +7,8 @@ user-level config) when context_mode="full". This module helps sanitize that
 inherited context.
 """
 
+import json
+import os
 import re
 from pathlib import Path
 
@@ -67,6 +69,7 @@ _ENV_ASSIGN_RE = re.compile(
 )
 
 _REDACTED = "[REDACTED]"
+_PATH_DENY_ENV = "GPTME_PATH_DENY"
 
 
 def redact_secrets_from_text(content: str) -> str:
@@ -138,6 +141,43 @@ def redact_secrets_from_messages(messages: list[Message]) -> list[Message]:
     ]
 
 
+def get_path_deny_from_env() -> list[str] | None:
+    """Return path-deny patterns from the subprocess environment, if any."""
+    raw = os.environ.get(_PATH_DENY_ENV)
+    if raw is None:
+        return None
+
+    raw = raw.strip()
+    if not raw:
+        return []
+
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        if "\n" in raw:
+            return [line for line in raw.splitlines() if line]
+        if ":" in raw:
+            return [part for part in raw.split(":") if part]
+        return [raw]
+
+    if not isinstance(parsed, list) or any(
+        not isinstance(item, str) for item in parsed
+    ):
+        return []
+
+    return [item for item in parsed if item]
+
+
+def apply_path_deny_from_env(
+    messages: list[Message], workspace: Path | None = None
+) -> list[Message]:
+    """Apply subprocess-provided path deny patterns, if configured."""
+    path_deny = get_path_deny_from_env()
+    if not path_deny:
+        return messages
+    return apply_path_deny(messages, path_deny, workspace)
+
+
 def apply_path_deny(
     messages: list[Message], path_deny: list[str], workspace: Path | None = None
 ) -> list[Message]:
@@ -164,12 +204,17 @@ def apply_path_deny(
     if not path_deny:
         return messages
 
+    workspace_resolved = workspace.resolve() if workspace else None
+
     def _is_denied(filepath: str) -> bool:
         """Check if a filepath matches any deny glob."""
         check_paths = [filepath]
-        if workspace:
+        if workspace_resolved:
             try:
-                rel = str(Path(filepath).resolve().relative_to(workspace.resolve()))
+                path_obj = Path(filepath)
+                if not path_obj.is_absolute():
+                    path_obj = workspace_resolved / path_obj
+                rel = str(path_obj.resolve().relative_to(workspace_resolved))
                 check_paths.append(rel)
             except (ValueError, OSError):
                 pass
@@ -206,7 +251,8 @@ def apply_path_deny(
                 in_block = True
                 block_filename = stripped[3:].strip()
                 skip_block = bool(block_filename) and _is_denied(block_filename)
-                filtered_lines.append(line)
+                if not skip_block:
+                    filtered_lines.append(line)
             elif in_block and stripped == "```":
                 # End of code block
                 if not skip_block:

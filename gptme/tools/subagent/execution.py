@@ -7,6 +7,7 @@ Functions here are internal implementation details called by the main
 subagent() function in api.py.
 """
 
+import json
 import logging
 import os
 import random
@@ -465,7 +466,7 @@ def _run_subagent_subprocess(
         # Build environment with path_deny passed to child process
         env = os.environ.copy()
         if path_deny:
-            env["GPTME_PATH_DENY"] = ":".join(path_deny)
+            env["GPTME_PATH_DENY"] = json.dumps(path_deny)
         with open(tmpfile_path) as stdin_file:
             process = subprocess.Popen(
                 cmd,

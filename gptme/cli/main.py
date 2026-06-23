@@ -1047,6 +1047,10 @@ def main(
             context_include=effective_context_include,
         )
 
+        from ..tools.subagent.context import apply_path_deny_from_env
+
+        initial_msgs = apply_path_deny_from_env(initial_msgs, workspace_path)
+
     # Append profile system prompt if using a profile
     if selected_profile and selected_profile.system_prompt:
         profile_msg = Message(
