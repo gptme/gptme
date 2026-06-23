@@ -207,7 +207,7 @@ def create_text_attestation(
     output_type: str = "text",
     url: str | None = None,
 ) -> tuple[dict[str, Any], Path]:
-    workspace_root = resolve_workspace_root(workspace)
+    workspace_root = resolve_workspace_root(workspace).resolve()
     payload = _build_payload(
         workspace_commit=get_workspace_commit(workspace_root),
         output_type=output_type,

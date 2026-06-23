@@ -17,6 +17,7 @@ from gptme.attestation import (
     AttestationError,
     _attestation_id,
     create_file_attestation,
+    create_text_attestation,
     verify_attestation,
 )
 from gptme.cli.util import main
@@ -292,6 +293,25 @@ def test_create_file_attestation_resolves_symlinked_workspace_root(
 
     assert workspace_root == repo.resolve()
     assert attestation["output"]["path"] == "output.txt"
+
+
+def test_create_text_attestation_resolves_symlinked_workspace_root(
+    tmp_path, monkeypatch
+):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    symlink_root = tmp_path / "repo-link"
+    symlink_root.symlink_to(repo, target_is_directory=True)
+
+    monkeypatch.setenv("GPTME_AGENT_NAME", "bob")
+
+    _, workspace_root = create_text_attestation(
+        "signed content\n",
+        workspace=symlink_root,
+    )
+
+    assert workspace_root == repo.resolve()
 
 
 def test_get_agent_id_falls_back_to_uid_when_username_lookup_fails(monkeypatch):
