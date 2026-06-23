@@ -397,7 +397,12 @@ def test_tools_list(mocker):
     assert "Available tools" in result.output
     assert result.exit_code == 0
     assert "Using browser tool with" not in result.output
-    assert "Failed to register hook" not in getattr(result, "stderr", "")
+    # Check stderr for hook registration warnings (modern Click)
+    if hasattr(result, "stderr"):
+        assert "Failed to register hook" not in result.stderr
+    else:
+        # Older Click mixes stderr into output — check there too
+        assert "Failed to register hook" not in result.output
 
     # Test langtags
     result = runner.invoke(main, ["tools", "list", "--langtags"])
