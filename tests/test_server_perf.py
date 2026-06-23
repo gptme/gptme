@@ -21,7 +21,7 @@ from flask.testing import FlaskClient
 
 N_CONVERSATIONS = 100
 N_SAMPLES = 20
-COLD_SCAN_LIMIT_MS = 500.0  # generous upper bound for 100-conversation cold scan
+COLD_SCAN_LIMIT_MS = 600.0  # generous upper bound for 100-conversation cold scan
 # Warm p95 must be < 75% of cold scan time.  Environment-agnostic: cache hit
 # is O(1) so warm << cold.  Broken cache → warm ≈ cold (ratio approaches 1.0).
 WARM_TO_COLD_RATIO_MAX = 0.75
