@@ -28,6 +28,7 @@ _MODEL_ENV_VARS = (
     "CC_MODEL",
 )
 _BASE62_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+_SHA256_BASE62_LENGTH = 43
 
 
 class AttestationError(ValueError):
@@ -46,16 +47,16 @@ def _sha256_prefixed_hex(data: bytes) -> str:
     return f"sha256:{hashlib.sha256(data).hexdigest()}"
 
 
-def _base62_encode(data: bytes) -> str:
+def _base62_encode(data: bytes, *, min_length: int = 1) -> str:
     number = int.from_bytes(data, "big")
     if number == 0:
-        return _BASE62_ALPHABET[0]
+        return _BASE62_ALPHABET[0] * max(min_length, 1)
 
     chars: list[str] = []
     while number:
         number, remainder = divmod(number, 62)
         chars.append(_BASE62_ALPHABET[remainder])
-    return "".join(reversed(chars))
+    return "".join(reversed(chars)).rjust(min_length, _BASE62_ALPHABET[0])
 
 
 def _run_git(repo_root: Path, args: list[str]) -> str:
@@ -89,7 +90,12 @@ def get_agent_id() -> str:
     hostname = socket.gethostname()
     if agent_name:
         return f"{agent_name}@{hostname}"
-    return f"{getpass.getuser()}@{hostname}"
+    try:
+        username = getpass.getuser()
+    except (KeyError, OSError):
+        getuid = getattr(os, "getuid", None)
+        username = f"uid{getuid()}" if callable(getuid) else "unknown"
+    return f"{username}@{hostname}"
 
 
 def get_session_id() -> str:
@@ -152,7 +158,7 @@ def _build_payload(
 
 def _attestation_id(payload: dict[str, Any]) -> str:
     digest = _sha256_bytes(_canonical_json(payload).encode("utf-8"))
-    return f"gai_{_base62_encode(digest)}"
+    return f"gai_{_base62_encode(digest, min_length=_SHA256_BASE62_LENGTH)}"
 
 
 def create_file_attestation(
@@ -162,7 +168,7 @@ def create_file_attestation(
     output_type: str = "file",
     url: str | None = None,
 ) -> tuple[dict[str, Any], Path]:
-    workspace_root = resolve_workspace_root(workspace or target.parent)
+    workspace_root = resolve_workspace_root(workspace or target.parent).resolve()
     target = target.resolve()
 
     try:

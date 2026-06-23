@@ -5,13 +5,20 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import socket
 import subprocess
 from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
 
-from gptme.attestation import AttestationError, _attestation_id, verify_attestation
+import gptme.attestation as attestation_module
+from gptme.attestation import (
+    AttestationError,
+    _attestation_id,
+    create_file_attestation,
+    verify_attestation,
+)
 from gptme.cli.util import main
 
 
@@ -213,3 +220,52 @@ def test_verify_attestation_rejects_content_path_and_text_together(
             content_path=output_file,
             text="signed content\n",
         )
+
+
+def test_attestation_id_is_fixed_width_when_digest_has_leading_zeros(monkeypatch):
+    monkeypatch.setattr(
+        attestation_module,
+        "_sha256_bytes",
+        lambda data: bytes.fromhex("00" + "11" * 31),
+    )
+
+    attestation_id = _attestation_id({"gptme_id": "v1"})
+
+    assert attestation_id.startswith("gai_")
+    assert len(attestation_id.removeprefix("gai_")) == 43
+
+
+def test_create_file_attestation_resolves_symlinked_workspace_root(
+    tmp_path, monkeypatch
+):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+
+    output_file = repo / "output.txt"
+    output_file.write_text("signed content\n")
+    symlink_root = tmp_path / "repo-link"
+    symlink_root.symlink_to(repo, target_is_directory=True)
+
+    monkeypatch.setenv("GPTME_AGENT_NAME", "bob")
+
+    attestation, workspace_root = create_file_attestation(
+        symlink_root / "output.txt",
+        workspace=symlink_root,
+    )
+
+    assert workspace_root == repo.resolve()
+    assert attestation["output"]["path"] == "output.txt"
+
+
+def test_get_agent_id_falls_back_to_uid_when_username_lookup_fails(monkeypatch):
+    monkeypatch.delenv("GPTME_AGENT_NAME", raising=False)
+    monkeypatch.setattr(
+        attestation_module.getpass,
+        "getuser",
+        lambda: (_ for _ in ()).throw(KeyError("USER")),
+    )
+
+    agent_id = attestation_module.get_agent_id()
+
+    assert agent_id == f"uid{os.getuid()}@{socket.gethostname()}"
