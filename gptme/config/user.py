@@ -7,6 +7,7 @@ from ~/.config/gptme/config.toml and config.local.toml.
 import copy
 import logging
 import os
+from collections.abc import MutableMapping
 from dataclasses import asdict, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -51,6 +52,28 @@ def _filter_known_fields(
             f"Unknown keys in [{section}] config: {sorted(unknown)} (ignored)"
         )
     return {k: v for k, v in data.items() if k in known}
+
+
+def _strip_unknown_config_keys(path: str, keys: set[str]) -> None:
+    """Remove the given top-level keys from a config file on disk.
+
+    Called after detecting unknown keys in load_user_config() so that the
+    warning fires only once instead of on every future invocation.
+    """
+    if not os.path.exists(path):
+        return
+    doc = _load_config_doc(path)
+    changed = False
+    for key in keys:
+        if key in doc:
+            del doc[key]  # type: ignore[attr-defined]
+            changed = True
+    if changed:
+        try:
+            with open(path, "w") as f:
+                tomlkit.dump(doc, f)
+        except OSError as e:
+            logger.warning(f"Could not strip unknown config keys from {path}: {e}")
 
 
 ABOUT_ACTIVITYWATCH = """ActivityWatch is a free and open-source automated time-tracker that helps you track how you spend your time on your devices."""
@@ -268,7 +291,17 @@ def load_user_config(path: str | None = None) -> UserConfig:
             plugin_config = plugin_data
 
     if config:
-        logger.warning(f"Unknown keys in config: {config.keys()}")
+        unknown = set(config.keys())
+        strip_targets = str(path_with_tilde(config_file))
+        if has_local:
+            strip_targets += f" and {path_with_tilde(local_path)}"
+        logger.warning(
+            f"Unknown keys in config: {sorted(unknown)} — stripping from"
+            f" {strip_targets}"
+        )
+        _strip_unknown_config_keys(str(config_file), unknown)
+        if has_local:
+            _strip_unknown_config_keys(str(local_path), unknown)
 
     return UserConfig(
         prompt=prompt,
@@ -321,6 +354,10 @@ def set_config_value(
         reload: Whether to reload the in-memory config after writing.
         local: If True, write to config.local.toml instead of config.toml.
                Use for secrets (API keys) that should not be in the shared config.
+
+    Raises:
+        ValueError: If an intermediate keypath segment already exists
+            but is not a TOML table (e.g. traversing into a string value).
     """
     if local:
         _, local_path = get_user_config_paths()
@@ -339,6 +376,10 @@ def set_config_value(
     for k in keypath[:-1]:
         if k not in d:
             d[k] = tomlkit.table()
+        else:
+            existing = d[k]
+            if not isinstance(existing, MutableMapping):
+                raise ValueError(f"Cannot set '{key}': '{k}' exists but is not a table")
         d = d[k]  # type: ignore[assignment]
     d[keypath[-1]] = value
 

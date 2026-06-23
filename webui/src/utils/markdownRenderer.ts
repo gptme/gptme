@@ -1,9 +1,45 @@
-import { getCodeBlockEmoji } from '@/utils/markdownUtils';
 import * as smd from '@/utils/smd';
 import { highlightCode } from '@/utils/highlightUtils';
 import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { Brain } from 'lucide-react';
+import { codeBlockLabelHtml } from '@/utils/codeBlockIcons';
 import { TabbedCodeBlock } from '@/components/TabbedCodeBlock';
+
+/**
+ * Langtags whose blocks are collapsed by default: actual tool-use (executing
+ * tools, file writes, etc.) and tool output. Deliberately excludes highlight-only
+ * langs like `python`/`sh` — those are agent code examples shown to the user, so
+ * they stay open. (Note: this differs from toolCallParser's GPTME_TOOL_ALLOWLIST,
+ * which includes `python` for tool-call detection.)
+ */
+const COLLAPSE_BY_DEFAULT = new Set([
+  // tool-use
+  'shell',
+  'tmux',
+  'ipython',
+  'save',
+  'append',
+  'patch',
+  'morph',
+  'read',
+  'browser',
+  'vision',
+  'screenshot',
+  'gh',
+  'mcp',
+  'subagent',
+  // tool output
+  'stdout',
+  'stderr',
+  'result',
+  'output',
+]);
+
+function collapsesByDefault(langtag: string): boolean {
+  return COLLAPSE_BY_DEFAULT.has((langtag || '').split(' ')[0].toLowerCase());
+}
 
 /**
  * Checks if the language is markdown or html
@@ -73,11 +109,12 @@ export function customRenderer(
         case smd.CODE_BLOCK:
         case smd.CODE_FENCE: {
           parent = parent.appendChild(document.createElement('details'));
-          if (blocksDefaultOpen) {
-            parent.setAttribute('open', 'true');
-          }
+          // Default to open (agent code shown to the user). Tool-use/output
+          // blocks are collapsed once their langtag is known (see smd.LANG),
+          // unless the blocksDefaultOpen override forces everything open.
+          parent.setAttribute('open', 'true');
           data.summary = parent.appendChild(document.createElement('summary'));
-          data.summary.textContent = '💻 Code';
+          data.summary.innerHTML = codeBlockLabelHtml('');
 
           if (useReactTabbed) {
             // Create placeholder element to be replaced with React component later
@@ -94,6 +131,16 @@ export function customRenderer(
           slot.setAttribute('class', 'hljs');
           data.nodes[++data.index] = parent.appendChild(slot);
           // }
+          break;
+        }
+        case smd.THINKING_SUMMARY: {
+          // Render the thinking summary with a lucide icon (smd.js sets the text
+          // "Thinking" right after via add_text), matching the code-block labels.
+          const summary = document.createElement('summary');
+          summary.innerHTML = `<span class="codeblock-icon">${renderToStaticMarkup(
+            createElement(Brain, { size: 14 })
+          )}</span>`;
+          data.nodes[++data.index] = parent.appendChild(summary);
           break;
         }
         default:
@@ -186,8 +233,23 @@ export function customRenderer(
       if (type === smd.LANG) {
         data.lang = value;
         if (data.summary) {
-          const emoji = getCodeBlockEmoji(value);
-          data.summary.textContent = `${emoji} ${value}`;
+          // Code-block label — CHAT renderer (smd custom renderer, real DOM nodes).
+          // This is the path the chat view (/chat/...) actually uses. We build a
+          // lucide icon + langtag label as innerHTML (carried over to the inline
+          // label below). The NON-CHAT path (marked) in markdownUtils.ts still uses
+          // getCodeBlockEmoji; keep the two in sync when changing labels.
+          data.summary.innerHTML = codeBlockLabelHtml(value);
+
+          // Smart collapse: tool-use and tool-output blocks are for
+          // inspection/review, so collapse them by default. Agent code examples
+          // (```python, ```sh, file content, …) stay open. blocksDefaultOpen is
+          // an override that force-expands everything.
+          if (!blocksDefaultOpen && collapsesByDefault(value)) {
+            const details = data.summary.parentElement;
+            if (details?.tagName === 'DETAILS') {
+              details.removeAttribute('open');
+            }
+          }
         }
         if (data.code) {
           const langFromInfo = value ? value.split('.').pop() : undefined;

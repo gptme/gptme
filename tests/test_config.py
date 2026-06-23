@@ -1493,3 +1493,182 @@ def test_get_plugin_config_empty_enabled_is_none(tmp_path):
     config = replace(config, user=load_user_config(temp_user_config))
     _paths, enabled = config.get_plugin_config()
     assert enabled is None
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for set_config_value traversal safety
+# ---------------------------------------------------------------------------
+
+
+def test_set_config_value_rejects_traversal_into_string(monkeypatch, tmp_path):
+    """Regression: PATCHing a keypath that traverses through a non-table value
+    (e.g. prompt.about_user.foo where about_user is a string) must raise a
+    clean ValueError instead of crashing with TypeError -> 500.
+
+    Bug surfaced via dogfood probe of /api/v2/user/config-file PATCH endpoint
+    (session bd4d). Before the fix, set_config_value blindly assigned into
+    any intermediate node, raising TypeError: 'String' object does not
+    support item assignment when the node was a string-valued TOML key.
+    """
+    import gptme.config.user as user_mod
+
+    temp_config = tmp_path / "config.toml"
+    temp_config.write_text(default_user_config)
+
+    # Redirect set_config_value's writes to the temp config; skip the reload
+    # step (no need to refresh the in-memory config in a unit test).
+    monkeypatch.setattr(user_mod, "config_path", str(temp_config))
+
+    # Traversal through prompt.about_user (a string) must raise ValueError.
+    with pytest.raises(ValueError, match="not a table"):
+        user_mod.set_config_value("prompt.about_user.foo", "bar", reload=False)
+
+    # Two-level traversal through a string-valued leaf must also raise.
+    with pytest.raises(ValueError, match="not a table"):
+        user_mod.set_config_value("prompt.about_user.foo.bar", "baz", reload=False)
+
+    # Top-level traversal into a plain string-valued key must raise too.
+    with pytest.raises(ValueError, match="not a table"):
+        user_mod.set_config_value("prompt.response_preference.x", "y", reload=False)
+
+    # The config file must be untouched (no partial writes).
+    content = temp_config.read_text()
+    assert "foo" not in content
+    assert "bar" not in content
+
+
+def test_set_config_value_creates_nested_tables(monkeypatch, tmp_path):
+    """set_config_value still creates intermediate tables when the path is new,
+    so legitimate nested patches like models.new_nested.key are unaffected.
+    """
+    import gptme.config.user as user_mod
+
+    temp_config = tmp_path / "config.toml"
+    temp_config.write_text(default_user_config)
+    monkeypatch.setattr(user_mod, "config_path", str(temp_config))
+
+    # Brand-new path: must create intermediate tables and write the leaf.
+    user_mod.set_config_value("models.new_nested.key", "hello", reload=False)
+    content = temp_config.read_text()
+    assert "[models.new_nested]" in content
+    assert 'key = "hello"' in content
+
+
+# ---------------------------------------------------------------------------
+# Tests for unknown-key cleanup (issue #2969)
+# ---------------------------------------------------------------------------
+
+
+def test_load_user_config_strips_unknown_top_level_keys(tmp_path):
+    """Unknown top-level keys are stripped from disk on load so warnings don't repeat.
+
+    Regression for gptme#2969: contaminated config accumulated foreign keys
+    (from fuzzing artifacts, server PUT, or external tooling) and produced
+    'Unknown keys in config' warnings on every invocation.
+    After load_user_config(), the file on disk must no longer contain those keys.
+    """
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        '[user]\nname = "Erik"\n\n'
+        "[env]\n\n"
+        # Contaminated keys — should be stripped on load
+        '[unknown_section]\nfoo = "bar"\n\n'
+        'another_foreign_key = "value"\n'
+    )
+
+    user = load_user_config(str(config_file))
+
+    # The known keys should still be loaded correctly
+    assert user.user.name == "Erik"
+
+    # The config file on disk must no longer contain the unknown keys
+    content_after = config_file.read_text()
+    assert "unknown_section" not in content_after
+    assert "another_foreign_key" not in content_after
+
+    # Loading again must produce no warnings about unknown keys
+    import io
+    import logging
+
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setLevel(logging.WARNING)
+    logging.getLogger("gptme.config.user").addHandler(handler)
+    try:
+        load_user_config(str(config_file))
+    finally:
+        logging.getLogger("gptme.config.user").removeHandler(handler)
+    assert "Unknown keys in config" not in stream.getvalue()
+
+
+def test_load_user_config_preserves_known_keys_when_stripping(tmp_path):
+    """Known top-level keys are never stripped even when unknown keys are present."""
+    config_file = tmp_path / "config.toml"
+    # Note: in TOML, a bare key after a [section] header belongs to that section.
+    # Stray top-level keys must appear before any section header.
+    config_file.write_text(
+        'stray_key = "should be removed"\n\n'
+        '[user]\nname = "Alice"\n\n'
+        '[env]\nMY_VAR = "hello"\n\n'
+        '[models]\ndefault = "openai/gpt-4o"\n\n'
+        "[plugins]\npaths = []\n\n"
+        "[mcp]\nenabled = false\n\n"
+        "[lessons]\ndirs = []\n\n"
+        "[stray_section]\nfoo = 1\n"
+    )
+
+    user = load_user_config(str(config_file))
+
+    assert user.user.name == "Alice"
+    assert user.env["MY_VAR"] == "hello"
+    assert user.models.default == "openai/gpt-4o"
+    assert user.mcp is not None and user.mcp.enabled is False
+
+    content_after = config_file.read_text()
+    # Known sections must survive
+    assert "[user]" in content_after
+    assert "[env]" in content_after
+    assert "[models]" in content_after
+    assert "[plugins]" in content_after
+    assert "[mcp]" in content_after
+    assert "[lessons]" in content_after
+    # Unknown keys must be gone
+    assert "stray_key" not in content_after
+    assert "stray_section" not in content_after
+
+
+def test_load_user_config_strips_unknown_keys_from_local_config(tmp_path):
+    """Unknown keys in config.local.toml are also stripped on load."""
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[user]\nname = "Bob"\n\n[env]\n')
+
+    local_config = tmp_path / "config.local.toml"
+    # foreign_local_key must be at the top level (before any section header)
+    local_config.write_text(
+        'foreign_local_key = "should vanish"\n\n[env]\nSECRET = "abc"\n'
+    )
+
+    user = load_user_config(str(config_file))
+
+    assert user.env["SECRET"] == "abc"
+
+    local_after = local_config.read_text()
+    assert "foreign_local_key" not in local_after
+    assert 'SECRET = "abc"' in local_after
+
+
+def test_load_user_config_plugin_sections_preserved(tmp_path):
+    """[plugin.*] sections (known key) are never mistakenly stripped."""
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        '[user]\nname = "Test"\n\n'
+        "[env]\n\n"
+        "[plugin.headroom_compressor]\nbudget_tokens = 8000\n"
+    )
+
+    user = load_user_config(str(config_file))
+
+    assert user.plugin == {"headroom_compressor": {"budget_tokens": 8000}}
+
+    content_after = config_file.read_text()
+    assert "headroom_compressor" in content_after

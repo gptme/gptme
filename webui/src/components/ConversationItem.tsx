@@ -156,6 +156,28 @@ const ConversationItemInner: FC<ConversationItemProps> = ({
                 />
               ) : (
                 <div className="mb-1 flex items-center gap-2">
+                  <div
+                    data-testid="conversation-title"
+                    className="font-small min-w-0 flex-1 whitespace-nowrap"
+                    style={{
+                      maskImage:
+                        'linear-gradient(to right, black 0%, black calc(100% - 2rem), transparent 100%)',
+                      WebkitMaskImage:
+                        'linear-gradient(to right, black 0%, black calc(100% - 2rem), transparent 100%)',
+                    }}
+                  >
+                    {highlightText(convName || conv.name || stripDate(conv.id), normalizedFilter)}
+                  </div>
+                  {(() => {
+                    const count = conv.messages;
+                    if (!count) return null;
+                    return (
+                      <span className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                        <MessageSquare className="mr-1 h-3 w-3" />
+                        {count}
+                      </span>
+                    );
+                  })()}
                   {!demoIds.has(conv.id) && (
                     <button
                       className={`shrink-0 rounded p-0.5 transition-colors hover:text-yellow-500 focus:outline-none focus-visible:text-yellow-500 focus-visible:opacity-100 ${
@@ -184,28 +206,6 @@ const ConversationItemInner: FC<ConversationItemProps> = ({
                       />
                     </button>
                   )}
-                  <div
-                    data-testid="conversation-title"
-                    className="font-small min-w-0 flex-1 whitespace-nowrap"
-                    style={{
-                      maskImage:
-                        'linear-gradient(to right, black 0%, black calc(100% - 2rem), transparent 100%)',
-                      WebkitMaskImage:
-                        'linear-gradient(to right, black 0%, black calc(100% - 2rem), transparent 100%)',
-                    }}
-                  >
-                    {highlightText(convName || conv.name || stripDate(conv.id), normalizedFilter)}
-                  </div>
-                  {(() => {
-                    const count = conv.messages;
-                    if (!count) return null;
-                    return (
-                      <span className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                        <MessageSquare className="mr-1 h-3 w-3" />
-                        {count}
-                      </span>
-                    );
-                  })()}
                 </div>
               )}
               {conv.last_message_preview && (

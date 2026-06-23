@@ -168,12 +168,14 @@ def rag_index(*paths: str, glob: str | None = None) -> str:
     return result.stdout.strip()
 
 
-def rag_search(query: str, return_full: bool = False) -> str:
+def rag_search(query: str, return_full: bool = False, top_k: int | None = None) -> str:
     """Search indexed documents."""
     cmd = ["gptme-rag", "search", query]
     if return_full:
         # shows full context of the search results
         cmd.extend(["--raw"])
+    if top_k is not None:
+        cmd.extend(["--top-k", str(top_k)])
 
     result = _run_rag_cmd(cmd)
     return result.stdout.strip()
@@ -387,7 +389,7 @@ tool = ToolSpec(
     available=_has_gptme_rag,
     init=init,
     hooks={
-        "rag_context": ("generation_pre", _rag_context_hook, 0),
+        "rag_context": ("generation.pre", _rag_context_hook, 0),
     },
 )
 

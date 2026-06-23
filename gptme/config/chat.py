@@ -8,7 +8,7 @@ import logging
 import os
 import sys
 import tempfile
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict, dataclass, field, fields, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -176,6 +176,23 @@ class ChatConfig:
         if config_data:
             logger.warning(f"Unknown keys in chat config: {config_data.keys()}")
 
+        # Reject unknown keys remaining in chat_data at this (API) boundary with a
+        # ValueError instead of letting **chat_data raise TypeError in the
+        # constructor. Untrusted callers (e.g. the v2 conversation endpoints) only
+        # catch ValueError, so an unknown key like {"chat": {"foobar": 1}} would
+        # otherwise surface as a 500 instead of a clean 400.
+        _known_chat_fields = {f.name for f in fields(cls)} - {
+            "_logdir",
+            "agent",
+            "env",
+            "mcp",
+        }
+        unknown_chat_keys = set(chat_data) - _known_chat_fields
+        if unknown_chat_keys:
+            raise ValueError(
+                f"Unknown keys in chat config: {sorted(unknown_chat_keys)}"
+            )
+
         return cls(
             _logdir=_logdir,
             **chat_data,
@@ -194,7 +211,13 @@ class ChatConfig:
             # This ensures server sessions get isolated workspaces
             # instead of sharing the server process's cwd.
             workspace = path / "workspace"
-            ensure_workspace_dir(workspace)
+            try:
+                ensure_workspace_dir(workspace)
+            except PermissionError:
+                logger.warning(
+                    f"Could not create workspace dir {workspace} (permission denied); "
+                    "log dir may be owned by another user"
+                )
             return cls(_logdir=path, workspace=workspace.resolve())
         try:
             if tomllib is not None:

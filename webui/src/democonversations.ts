@@ -2,6 +2,17 @@ import type { Message, ConversationSummary } from '@/types/conversation';
 
 // Demo conversation message data
 const demoMessages: Record<string, Message[]> = {
+  // Concise, accurate first-impression shown to new / not-yet-connected users.
+  // Kept short on purpose — the "introduction" conversation is the deeper
+  // feature/rendering showcase.
+  'getting-started': [
+    {
+      role: 'assistant',
+      content:
+        "👋 Welcome to **gptme** — your AI assistant for the terminal and beyond.\n\nThis is the web UI for [gptme](https://github.com/gptme/gptme), an open-source agent that can write code, run shell commands, browse the web, and work with your files. The web UI ships with `gptme-server`, so once you have gptme installed there's nothing extra to set up.\n\n**To connect your own server:**\n\n1. Start it: `gptme-server --cors-origin='<this site's URL>'`\n2. Click **Connect** (top-right) and enter the server URL (default `http://127.0.0.1:5700`).\n\nNot ready to connect? Open the read-only **Introduction to gptme** conversation in the sidebar to see how gptme renders code, tools, thinking, and more.",
+      timestamp: new Date().toISOString(),
+    },
+  ],
   introduction: [
     {
       role: 'assistant',
@@ -55,6 +66,12 @@ const demoMessages: Record<string, Message[]> = {
     {
       role: 'system',
       content: '```stdout\nMean: 2.0\n```',
+      timestamp: new Date().toISOString(),
+    },
+    {
+      role: 'assistant',
+      content:
+        'The mean of `[1, 2, 3]` is `2.0`, as expected. NumPy is available out of the box, so we can do quick numerical work inline without writing a whole script.',
       timestamp: new Date().toISOString(),
     },
     {
@@ -121,7 +138,7 @@ const demoMessages: Record<string, Message[]> = {
     {
       role: 'assistant',
       content:
-        "The gptme web UI offers several advantages over the CLI interface:\n\n1. **Rich Message Display**:\n   - Syntax highlighted code blocks\n   - Collapsible sections for code and thinking\n   - Different styles for user/assistant/system messages\n   - Emoji indicators for different types of content:\n     - 📄 File paths\n     - 🛠️ Tool usage\n     - 📤 Command output\n     - 💻 Code blocks\n\n2. **Interactive Features**:\n   - Real-time streaming of responses\n   - Easy navigation between conversations\n   - Ability to view and restore conversation history\n\n3. **Integration with gptme-server**:\n   - Connects to your local gptme instance\n   - Access to all local tools and capabilities\n   - Secure local execution of commands\n\nHere's an example showing different types of content:\n\n```/path/to/file.py\n# This shows as a file path\n```\n\n```shell\n# This shows as a tool\nls -la\n```\n\n```stdout\n# This shows as command output\ntotal 0\n```\n\n<thinking>\nThinking blocks are collapsible and help show my reasoning process\n</thinking>\n\nThis web UI is a work in progress and will be improved over time (see the [remaining issues](https://github.com/gptme/gptme-webui/issues)).",
+        "The gptme web UI offers several advantages over the CLI interface:\n\n1. **Rich Message Display**:\n   - Syntax highlighted code blocks\n   - Collapsible sections for code and thinking\n   - Different styles for user/assistant/system messages\n\n2. **Interactive Features**:\n   - Real-time streaming of responses\n   - Easy navigation between conversations\n   - Ability to view and restore conversation history\n\n3. **Integration with gptme-server**:\n   - Connects to your local gptme instance\n   - Access to all local tools and capabilities\n   - Secure local execution of commands\n\nHere's an example showing different types of content:\n\n```/path/to/file.py\n# This shows as a file path\n```\n\n```shell\n# This shows as a tool\nls -la\n```\n\n```stdout\n# This shows as command output\ntotal 0\n```\n\nAnd images render inline:\n\n![gptme logo](/logo.png)\n\n<thinking>\nThinking blocks are collapsible and help show my reasoning process\n</thinking>\n\nThis web UI is a work in progress and will be improved over time (see the [remaining issues](https://github.com/gptme/gptme-webui/issues)).",
       timestamp: new Date().toISOString(),
     },
     {
@@ -132,19 +149,107 @@ const demoMessages: Record<string, Message[]> = {
     {
       role: 'assistant',
       content:
-        "To use the gptme web UI, you'll need to run `gptme-server` locally first:\n\n```shell\ngptme-server --cors-origin='<origin>'  # Replace <origin> with the web UI URL\n```\n\nThen you have two options for accessing the web UI:\n\n1. **Use the hosted version** at [chat.gptme.org](https://chat.gptme.org):\n   - Use `--cors-origin='https://chat.gptme.org'` when starting the server\n   - Click the 'Connect' button in the top-right corner\n   - Enter the server URL (default: http://127.0.0.1:5700)\n\n2. **Run the web UI locally**:\n   ```shell\n   git clone https://github.com/gptme/gptme-webui\n   cd gptme-webui\n   npm install\n   npm run dev\n   ```\n   Then:\n   - Use `--cors-origin='http://localhost:5701'` when starting the server\n   - Open http://localhost:5701 in your browser\n   - Click 'Connect' and enter the server URL\n\nBoth options provide the same features, just choose what works best for you!",
+        "To use the gptme web UI, you'll need to run `gptme-server` locally first:\n\n```sh\ngptme-server --cors-origin='<origin>'  # Replace <origin> with the web UI URL\n```\n\nThen you have two options for accessing the web UI:\n\n1. **Use the hosted version** at [chat.gptme.org](https://chat.gptme.org):\n   - Use `--cors-origin='https://chat.gptme.org'` when starting the server\n   - Click the 'Connect' button in the top-right corner\n   - Enter the server URL (default: http://127.0.0.1:5700)\n\n2. **Run the web UI locally**:\n\n```sh\ngit clone https://github.com/gptme/gptme-webui\ncd gptme-webui\nnpm install\nnpm run dev\n```\n\nThen:\n\n- Use `--cors-origin='http://localhost:5701'` when starting the server\n- Open http://localhost:5701 in your browser\n- Click 'Connect' and enter the server URL\n\nBoth options provide the same features, just choose what works best for you!",
       timestamp: new Date().toISOString(),
     },
+  ],
+  // Edge/"bad" cases: a visual regression bed for the chat UI — interrupted
+  // chains, missing wrap-ups, long lines, trailing tool calls. Used to catch
+  // rendering/step-grouping issues that "normal" conversations don't surface.
+  'edge-cases': [
+    {
+      role: 'assistant',
+      content:
+        "This conversation collects tricky message-ordering and rendering cases — a visual regression bed for the chat UI. It deliberately includes things that can happen in real conversations (interruptions, missing wrap-ups, long lines) so we can verify they don't break the layout.",
+      timestamp: new Date().toISOString(),
+    },
+    // Case A — a tool chain interrupted before its final result / wrap-up.
+    {
+      role: 'user',
+      content: 'Run a few shell commands for me.',
+      timestamp: new Date().toISOString(),
+    },
+    {
+      role: 'assistant',
+      content: "Sure, let's start:\n\n```shell\nls -la\n```",
+      timestamp: new Date().toISOString(),
+    },
+    {
+      role: 'system',
+      content: '```stdout\ntotal 0\ndrwxr-xr-x  2 user user 4096 .\n```',
+      timestamp: new Date().toISOString(),
+    },
+    {
+      role: 'assistant',
+      content: 'Now the next one:\n\n```shell\ndu -sh *\n```',
+      timestamp: new Date().toISOString(),
+    },
+    {
+      role: 'system',
+      content: '```stdout\n4.0K\tsrc\n```',
+      timestamp: new Date().toISOString(),
+    },
+    {
+      role: 'assistant',
+      content: 'And a long-running one:\n\n```shell\nsleep 100\n```',
+      timestamp: new Date().toISOString(),
+    },
+    // (interrupted here — no system result, no assistant wrap-up)
+    // Case B — a very long single-line command (must scroll, not wrap).
+    {
+      role: 'user',
+      content: 'Show a very long command line.',
+      timestamp: new Date().toISOString(),
+    },
+    {
+      role: 'assistant',
+      content:
+        "Here:\n\n```shell\ngptme-server --cors-origin='https://chat.gptme.org' --tools shell,python,browser,patch --model anthropic/claude-sonnet-4-6  # long line that should scroll horizontally, not wrap or stretch the label\n```",
+      timestamp: new Date().toISOString(),
+    },
+    {
+      role: 'system',
+      content: '```stdout\nServer started on http://127.0.0.1:5700\n```',
+      timestamp: new Date().toISOString(),
+    },
+    // Case C — a tool call as the very last message (streaming cut off mid-turn).
+    {
+      role: 'user',
+      content: 'Build the project.',
+      timestamp: new Date().toISOString(),
+    },
+    {
+      role: 'assistant',
+      content: 'Building now:\n\n```shell\nmake build\n```',
+      timestamp: new Date().toISOString(),
+    },
+    // (last message — no result, no wrap-up)
   ],
 };
 
 // Demo conversations (as ConversationSummary objects)
 export const demoConversations: ConversationSummary[] = [
   {
+    id: 'getting-started',
+    name: 'Getting started',
+    modified: Math.floor(Date.now() / 1000),
+    messages: demoMessages['getting-started'].length,
+    readonly: true,
+    workspace: '/demo/workspace',
+  },
+  {
     id: 'introduction',
     name: 'Introduction to gptme',
     modified: Math.floor(Date.now() / 1000), // Unix timestamp
     messages: demoMessages.introduction.length,
+    readonly: true,
+    workspace: '/demo/workspace',
+  },
+  {
+    id: 'edge-cases',
+    name: 'Edge cases (rendering regression bed)',
+    modified: Math.floor(Date.now() / 1000),
+    messages: demoMessages['edge-cases'].length,
     readonly: true,
     workspace: '/demo/workspace',
   },

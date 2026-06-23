@@ -16,6 +16,7 @@ from ..base import ToolFunction, ToolSpec, ToolUse
 from .api import (
     subagent,
     subagent_cancel,
+    subagent_list,
     subagent_read_log,
     subagent_reply,
     subagent_status,
@@ -130,6 +131,20 @@ Assistant: I'll use ACP mode to run this via a different agent harness.
     }
 System: Started subagent "claude-task" in ACP mode.
 
+### List Subagents (observability)
+User: what subagents are currently running?
+Assistant: I'll use subagent_list to check running agents.
+{
+        ToolUse(
+            "ipython",
+            [],
+            "subagent_list()",
+        ).to_output(tool_format)
+    }
+System: Listing 2 subagents::
+  - analyze (running, 42s) -- "Analyze the codebase architecture..."
+  - fib-13 (success, 120s) -- "compute the 13th Fibonacci number"
+
 ### Batch Execution (parallel tasks)
 User: implement, test, and document a feature in parallel
 Assistant: I'll use subagent_batch for parallel execution with fire-and-gather pattern.
@@ -216,6 +231,18 @@ Assistant: I'll run the subagent in an isolated git worktree so it won't modify 
         ).to_output(tool_format)
     }
 System: Subagent started successfully.
+
+### Context-Isolated Subagent (no workspace context)
+User: verify this output without exposing our workspace secrets to the subagent
+Assistant: I'll use context_window=0 so the subagent only sees what I explicitly give it in the prompt, with no workspace files or secrets inherited.
+{
+        ToolUse(
+            "ipython",
+            [],
+            'subagent("verifier", "Check that the output file has no syntax errors", context_window=0)',
+        ).to_output(tool_format)
+    }
+System: Subagent started successfully.
 """.strip()
 
 
@@ -235,10 +262,46 @@ Key features:
 - use_acp=True: Run subagent via ACP protocol (supports any ACP-compatible agent)
 - acp_command="claude-code-acp": Use a different ACP agent (default: gptme-acp)
 - isolated=True: Run subagent in a git worktree for filesystem isolation
+- redact_secrets=True (default): Redact API keys, tokens, and passwords from workspace context
+- context_window=0: Minimal context — only agent identity + tools, no workspace files (strongest isolation)
+- context_window=N: Limit workspace context to at most N messages
 - subagent_batch(): Start multiple subagents in parallel
 - subagent_cancel(): Cancel a running subagent (SIGTERM for subprocess, marks result for threads)
 - subagent_reply(agent_id, reply): Answer a clarification request and re-spawn the subagent
 - Hook-based notifications: Completions (and clarification requests) delivered as system messages
+
+## Context Isolation
+
+Subagents do NOT inherit the parent's conversation history — they always start
+with a fresh context. What subagents DO inherit (in context_mode="full"):
+
+- Workspace files listed in gptme.toml [prompt] files (e.g. AGENTS.md, README)
+- Dynamic context_cmd output (if configured in gptme.toml)
+- User-level config files from ~/.config/gptme
+
+This means secrets stored in workspace config files or produced by context_cmd
+can reach the subagent. Secret patterns (API_KEY, TOKEN, PASSWORD, etc.) are
+redacted by default (redact_secrets=True). Pass redact_secrets=False to disable
+if legitimate config values are incorrectly redacted.
+
+### Controlling context depth with context_window
+
+Limit how much workspace context flows to the subagent. Reach for these when
+you need tighter control over what the subagent sees:
+
+- `context_window=None` (default): The subagent sees your full workspace (files,
+  tools, recent conversation). Best for tasks that benefit from maximum awareness.
+- `context_window=0`: **Strongest isolation** — the subagent gets only agent
+  identity and tool descriptions, no workspace files or context_cmd output. Use
+  this when the subagent handles sensitive data (secrets, prompts) that should
+  not leak into verification or analysis tasks. The subagent knows only what
+  you explicitly tell it in the task prompt.
+- `context_window=N`: Limits workspace to at most N context messages. Useful when
+  the default is too bloated but you still want the subagent to see some workspace
+  history — trim without fully isolating.
+
+`context_window=0` is equivalent to `context_mode="selective", context_include=["agent", "tools"]`
+but is a simpler one-parameter alternative. Only applies to thread-mode subagents.
 
 ## Agent Profiles for Subagents
 
@@ -310,6 +373,7 @@ tool = ToolSpec(
         for f in [
             subagent,
             subagent_cancel,
+            subagent_list,
             subagent_reply,
             subagent_status,
             subagent_wait,
@@ -332,6 +396,7 @@ __all__ = [
     # Public API
     "subagent",
     "subagent_cancel",
+    "subagent_list",
     "subagent_reply",
     "subagent_status",
     "subagent_wait",

@@ -33,7 +33,9 @@ function detectTool(content: string): string | null {
   const first = content.toLowerCase().trimStart();
   if (first.startsWith('saved')) return 'save';
   if (first.startsWith('appended')) return 'append';
-  if (first.startsWith('patch applied') || first.startsWith('patched')) return 'patch';
+  // gptme emits "Patch successfully applied to <file>" (and variants)
+  if (first.startsWith('patched') || (first.startsWith('patch') && first.includes('appl')))
+    return 'patch';
   if (first.startsWith('error')) return 'error';
   if (first.startsWith('$') || first.startsWith('```') || first.includes('exit code'))
     return 'shell';

@@ -15,6 +15,29 @@ def test_chat_config_from_logdir(tmp_path: Path):
     assert loaded.model == "test-model"
 
 
+def test_chat_config_from_logdir_permission_error(tmp_path: Path, monkeypatch):
+    """from_logdir must not crash when workspace dir can't be created (PermissionError).
+
+    Reproduces the gptme/gptme#2958 scenario: log dirs seeded by one user and
+    then mounted read-only into a container running as a different user.
+    """
+    logdir = tmp_path / "conv"
+    logdir.mkdir()
+    # No config.toml → hits the ensure_workspace_dir branch
+
+    def _raise(_path):
+        raise PermissionError(13, "Permission denied", str(_path))
+
+    monkeypatch.setattr(
+        "gptme.config.chat.ensure_workspace_dir",
+        _raise,
+    )
+
+    loaded = ChatConfig.from_logdir(logdir)
+    # Conversation is still listed; workspace points to the intended path
+    assert loaded.workspace == (logdir / "workspace").resolve()
+
+
 def test_chat_config_from_logdir_workspace_symlink(tmp_path: Path):
     """from_logdir must not crash when 'workspace' is a pre-existing symlink.
 
@@ -192,4 +215,18 @@ def test_chat_config_system_prompt_from_dict_validation(tmp_path: Path):
     data = config.to_dict()
     data["chat"]["system_prompt"] = {"nested": "dict"}
     with pytest.raises(ValueError, match="chat.system_prompt must be a string"):
+        ChatConfig.from_dict(data)
+
+
+def test_chat_config_unknown_chat_key_raises_value_error(tmp_path: Path):
+    """An unknown key under [chat] raises ValueError, not TypeError.
+
+    Untrusted callers (the v2 conversation endpoints) only catch ValueError, so
+    an unknown key must surface as a clean 400 rather than a 500 from the
+    ChatConfig(**chat_data) constructor.
+    """
+    config = ChatConfig(_logdir=tmp_path)
+    data = config.to_dict()
+    data["chat"]["foobar"] = 1
+    with pytest.raises(ValueError, match="Unknown keys in chat config"):
         ChatConfig.from_dict(data)

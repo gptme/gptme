@@ -8,7 +8,7 @@ import json
 import logging
 import re
 import types
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -297,7 +297,12 @@ def callable_signature(func: Callable) -> str:
     return f"{func.__name__}({args}){ret}"
 
 
-@dataclass(frozen=True, eq=False)
+ToolFunctionInput: TypeAlias = ToolFunction | Callable[..., Any]
+
+
+# init=False is intentional: ToolSpec needs a wide constructor input type while
+# storing normalized fields. Dataclasses will not call __post_init__ here.
+@dataclass(frozen=True, eq=False, init=False)
 class ToolSpec:
     """
     Tool specification. Defines a tool that can be used by the agent.
@@ -327,6 +332,9 @@ class ToolSpec:
     instructions: str = ""
     instructions_format: dict[str, str] = field(default_factory=dict)
     examples: str | Callable[[str], str] = ""
+    # Stored as ToolFunction, but bare callables are also accepted at runtime and
+    # normalized in __init__ — the documented plugin API (docs/plugins.rst)
+    # passes plain functions here.
     functions: list[ToolFunction] | None = None
     init: InitFunc | None = None
     execute: ExecuteFunc | None = None
@@ -340,6 +348,66 @@ class ToolSpec:
     hints: frozenset[str] = field(default_factory=frozenset)
     hooks: dict[str, tuple[str, HookFunc, int]] = field(default_factory=dict)
     commands: dict[str, Callable] = field(default_factory=dict)
+
+    def __init__(
+        self,
+        name: str,
+        desc: str,
+        instructions: str = "",
+        instructions_format: dict[str, str] | None = None,
+        examples: str | Callable[[str], str] = "",
+        functions: Sequence[ToolFunctionInput] | None = None,
+        init: InitFunc | None = None,
+        execute: ExecuteFunc | None = None,
+        block_types: list[str] | None = None,
+        available: bool | Callable[[], bool] = True,
+        available_hint: str | None = None,
+        parameters: list[Parameter] | None = None,
+        load_priority: int = 0,
+        disabled_by_default: bool = False,
+        is_mcp: bool = False,
+        hints: frozenset[str] | None = None,
+        hooks: dict[str, tuple[str, HookFunc, int]] | None = None,
+        commands: dict[str, Callable] | None = None,
+    ):
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "desc", desc)
+        object.__setattr__(self, "instructions", instructions)
+        object.__setattr__(
+            self,
+            "instructions_format",
+            instructions_format or {},
+        )
+        object.__setattr__(self, "examples", examples)
+        object.__setattr__(self, "functions", self._normalize_functions(functions))
+        object.__setattr__(self, "init", init)
+        object.__setattr__(self, "execute", execute)
+        object.__setattr__(self, "block_types", block_types or [])
+        object.__setattr__(self, "available", available)
+        object.__setattr__(self, "available_hint", available_hint)
+        object.__setattr__(self, "parameters", parameters or [])
+        object.__setattr__(self, "load_priority", load_priority)
+        object.__setattr__(self, "disabled_by_default", disabled_by_default)
+        object.__setattr__(self, "is_mcp", is_mcp)
+        object.__setattr__(self, "hints", hints or frozenset())
+        object.__setattr__(self, "hooks", hooks or {})
+        object.__setattr__(self, "commands", commands or {})
+
+    @staticmethod
+    def _normalize_functions(
+        functions: Sequence[ToolFunctionInput] | None,
+    ) -> list[ToolFunction] | None:
+        # Normalize bare callables in `functions` to ToolFunction. The public
+        # plugin API (docs/plugins.rst) lets tools pass plain functions, while
+        # consumers (python.init, get_functions_description, as_function_subtoolspecs)
+        # expect ToolFunction. Without this, any plugin using the documented API
+        # crashes gptme at startup with "'function' object has no attribute 'fn'".
+        if functions:
+            return [
+                fn if isinstance(fn, ToolFunction) else ToolFunction.from_callable(fn)
+                for fn in functions
+            ]
+        return None
 
     def __repr__(self):
         return f"ToolSpec({self.name})"

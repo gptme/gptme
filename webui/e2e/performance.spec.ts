@@ -18,9 +18,9 @@ test.describe('Performance: sidebar hot-loop prevention', () => {
   }) => {
     // CDP heap metrics require Chromium
     test.skip(browserName !== 'chromium', 'CDP heap metrics require Chromium');
+    test.setTimeout(60000);
 
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
     await expect(page.getByText('Introduction to gptme')).toBeVisible({ timeout: 10000 });
 
     // Open the demo conversation to populate the Observable store with messages
@@ -30,34 +30,26 @@ test.describe('Performance: sidebar hot-loop prevention', () => {
     // Use CDP Performance.getMetrics instead of the removed page.metrics() API
     const cdp = await page.context().newCDPSession(page);
     await cdp.send('Performance.enable');
-    await cdp.send('HeapProfiler.enable');
-    const collectGarbage = async () => {
-      // JSHeapUsedSize includes garbage that V8 has not collected yet. Force a
-      // collection around both measurements so this test gates retained heap,
-      // not normal GC scheduling jitter on busy CI runners.
-      await cdp.send('HeapProfiler.collectGarbage');
-      await page.waitForTimeout(100);
-    };
-    await collectGarbage();
-    const baseResult = await cdp.send('Performance.getMetrics');
     const getHeapUsed = (metrics: { name: string; value: number }[]) =>
       metrics.find((m) => m.name === 'JSHeapUsedSize')?.value ?? 0;
-    const baseHeap = getHeapUsed(baseResult.metrics);
+    const sampleHeapUsed = async () => {
+      await cdp.send('HeapProfiler.collectGarbage');
+      const result = await cdp.send('Performance.getMetrics');
+      return getHeapUsed(result.metrics);
+    };
+    const baseHeap = await sampleHeapUsed();
 
     // Switch back to the conversation list and re-open 10 times.
     // Pre-fix: each round-trip grew the JS heap substantially because the sidebar
     // re-subscribed every row to the loaded store on each render pass.
     for (let i = 0; i < 10; i++) {
-      await page.goto('/');
-      await page.waitForLoadState('networkidle');
+      await page.goto('/', { waitUntil: 'domcontentloaded' });
       await expect(page.getByTestId('conversation-list')).toBeVisible();
       await page.getByText('Introduction to gptme').click();
       await expect(page.getByText(/Hello! I'm gptme/)).toBeVisible({ timeout: 10000 });
     }
 
-    await collectGarbage();
-    const afterResult = await cdp.send('Performance.getMetrics');
-    const afterHeap = getHeapUsed(afterResult.metrics);
+    const afterHeap = await sampleHeapUsed();
     const growthMB = (afterHeap - baseHeap) / (1024 * 1024);
 
     // 25 MB over 10 round-trips is a generous gate that catches genuine regressions

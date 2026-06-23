@@ -265,17 +265,20 @@ def tokens():
 @click.option(
     "-f",
     "--file",
-    type=click.Path(exists=True, dir_okay=False),
-    help="File to count tokens in.",
+    type=click.Path(exists=True, dir_okay=False, allow_dash=True),
+    help="File to count tokens in. Use '-' to read from stdin.",
 )
 def tokens_count(text: str | None, model: str, file: str | None):
     """Count tokens in text or file."""
     import tiktoken  # fmt: skip
 
-    # Get text from file if specified
+    # Get text from file if specified (or stdin via "-")
     if file:
-        with open(file) as f:
-            text = f.read()
+        if file == "-":
+            text = sys.stdin.read()
+        else:
+            with open(file) as f:
+                text = f.read()
     elif text == "-":
         text = sys.stdin.read()
 
@@ -341,6 +344,48 @@ def context_retrieve(query: str, full: bool):
 
     # Search for the query
     results = rag_search(query, return_full=full)
+    print(results)
+
+
+@context.command("search-conversations")
+@click.argument("query")
+@click.option(
+    "--top-k",
+    default=3,
+    show_default=True,
+    type=int,
+    help="Number of results to return",
+)
+def context_search_conversations(query: str, top_k: int):
+    """Search indexed conversations for relevant context.
+
+    Returns the most relevant past conversation snippets for the given query.
+    Requires conversations to be indexed first with `rag_index_conversations`
+    (use `rag_index_conversations()` via the ipython tool, or `gptme context index` on a directory).
+    """
+    from ..tools.rag import _has_gptme_rag, init, rag_search  # fmt: skip
+
+    if not _has_gptme_rag():
+        print(
+            "Error: gptme-rag is not installed. Please install it to use this feature."
+        )
+        sys.exit(1)
+
+    # Initialize RAG
+    init()
+
+    # Search for the query
+    results = rag_search(query, return_full=True, top_k=top_k)
+
+    if not results.strip():
+        print(
+            "No relevant conversations found. "
+            "Try indexing conversations first with `rag_index_conversations()` "
+            "via the ipython tool."
+        )
+        return
+
+    print(f"Top {top_k} relevant conversations:\n")
     print(results)
 
 
@@ -1009,24 +1054,31 @@ def models_list(
 
     if as_json:
         # Keep JSON output machine-readable even if provider discovery logs warnings.
-        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            from ..llm import list_available_providers  # fmt: skip
+        # redirect_stdout/redirect_stderr suppresses print() noise; logging.disable
+        # suppresses Rich-formatted log output (httpx retry messages etc.) that escapes
+        # through Rich's pre-captured file handle and is not affected by sys.stderr redirect.
+        logging.disable(logging.INFO)
+        try:
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                from ..llm import list_available_providers  # fmt: skip
 
-            configured = (
-                {
-                    configured_provider
-                    for configured_provider, _ in list_available_providers()
-                }
-                if available
-                else None
-            )
-            models = get_model_list(
-                provider_filter=provider,
-                vision_only=vision,
-                reasoning_only=reasoning,
-                include_deprecated=include_deprecated,
-                dynamic_fetch=True,
-            )
+                configured = (
+                    {
+                        configured_provider
+                        for configured_provider, _ in list_available_providers()
+                    }
+                    if available
+                    else None
+                )
+                models = get_model_list(
+                    provider_filter=provider,
+                    vision_only=vision,
+                    reasoning_only=reasoning,
+                    include_deprecated=include_deprecated,
+                    dynamic_fetch=True,
+                )
+        finally:
+            logging.disable(logging.NOTSET)
         if configured is not None:
             models = [model for model in models if model.provider_key in configured]
         click.echo(json.dumps([model_to_dict(model) for model in models], indent=2))

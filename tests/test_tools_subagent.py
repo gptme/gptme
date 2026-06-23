@@ -387,11 +387,12 @@ def test_subagent_execution_mode_field():
     assert sa2.execution_mode == "subprocess"
 
 
-def test_subagent_status_returns_dict():
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
+def test_subagent_status_returns_dict(mock_create_thread: MagicMock):
     """Test that subagent_status returns a dictionary."""
     from gptme.tools.subagent import subagent, subagent_status
 
-    # First create a subagent
+    # First create a subagent (thread mocked to avoid real API calls in no-extras CI)
     subagent(agent_id="test-status-agent", prompt="Simple test")
 
     # Get status
@@ -922,39 +923,33 @@ def test_subprocess_monitor_timeout():
 
 def test_subprocess_timeout_passed_to_subagent():
     """Test that the timeout parameter is passed through to the Subagent dataclass."""
-    import tempfile
-    from pathlib import Path
-    from unittest.mock import patch
+    from unittest.mock import MagicMock, patch
 
     from gptme.tools.subagent import _subagents, subagent
 
     _subagents.clear()
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        temp_logdir = Path(tmpdir) / "logs"
-        temp_logdir.mkdir()
+    # Mock the subprocess so we don't start a real gptme process.
+    # _monitor_subprocess calls process.wait() which would block for `timeout`
+    # seconds on a real process, causing the test to time out in teardown.
+    mock_process = MagicMock()
+    mock_process.returncode = 0
 
-        with patch("gptme.cli.main.get_logdir", return_value=temp_logdir):
-            subagent(
-                agent_id="timeout-param-test",
-                prompt="Test",
-                use_subprocess=True,
-                timeout=600,
-            )
+    with patch(
+        "gptme.tools.subagent.execution._run_subagent_subprocess",
+        return_value=mock_process,
+    ):
+        subagent(
+            agent_id="timeout-param-test",
+            prompt="Test",
+            use_subprocess=True,
+            timeout=600,
+        )
+        _wait_for_new_subagent_threads(0)
 
-            sa = next(
-                (s for s in _subagents if s.agent_id == "timeout-param-test"), None
-            )
-            assert sa is not None
-            assert sa.timeout == 600
-
-            # Clean up
-            if sa.process:
-                sa.process.terminate()
-                try:
-                    sa.process.wait(timeout=5)
-                except Exception:
-                    sa.process.kill()
+    sa = next((s for s in _subagents if s.agent_id == "timeout-param-test"), None)
+    assert sa is not None
+    assert sa.timeout == 600
 
 
 @pytest.mark.slow
@@ -1062,6 +1057,8 @@ def test_subagent_with_model_override(mock_create_thread: MagicMock):
     # Verify model override is used
     executor = _subagents[-1]
     assert executor.model == "openai/gpt-4o-mini"
+
+    _wait_for_new_subagent_threads(initial_count)
 
 
 @patch("gptme.tools.subagent.execution._create_subagent_thread")
@@ -2556,3 +2553,91 @@ def test_hint_allowlist_filters_subagent_tools(
         assert "hint:read-only" not in str(call), (
             "hint: pattern incorrectly flagged as unknown tool"
         )
+
+
+def test_subagent_list_empty():
+    """Test that subagent_list returns an empty list when no subagents exist."""
+    from gptme.tools.subagent import _subagents, _subagents_lock, subagent_list
+
+    with _subagents_lock:
+        _subagents.clear()
+    result = subagent_list()
+    assert isinstance(result, list)
+    assert result == []
+
+
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
+def test_subagent_list_structure(mock_create_thread: MagicMock):
+    """Test that subagent_list returns the correct structure."""
+    from gptme.tools.subagent import (
+        _subagents,
+        _subagents_lock,
+        subagent,
+        subagent_list,
+    )
+
+    with _subagents_lock:
+        _subagents.clear()
+
+    subagent(agent_id="test-list-1", prompt="Test agent one")
+    _wait_for_new_subagent_threads(0)
+    result = subagent_list()
+
+    try:
+        assert isinstance(result, list)
+        assert len(result) >= 1
+
+        entry = result[0]
+        assert isinstance(entry, dict)
+        assert "agent_id" in entry
+        assert "status" in entry
+        assert "model" in entry
+        assert "execution_mode" in entry
+        assert "elapsed_s" in entry
+        assert "prompt_preview" in entry
+
+        # Verify types
+        assert isinstance(entry["agent_id"], str)
+        assert isinstance(entry["status"], str)
+        assert isinstance(entry["elapsed_s"], int)
+        assert isinstance(entry["prompt_preview"], str)
+
+        # Verify our agent is in the list
+        ids = [e["agent_id"] for e in result]
+        assert "test-list-1" in ids
+    finally:
+        with _subagents_lock:
+            _subagents[:] = [s for s in _subagents if s.agent_id != "test-list-1"]
+
+
+def test_subagent_list_prompt_truncation():
+    """Test that long prompts are truncated in the preview."""
+    import threading
+    from pathlib import Path
+
+    from gptme.tools.subagent import (
+        Subagent,
+        _subagents,
+        _subagents_lock,
+        subagent_list,
+    )
+
+    long_prompt = "x" * 200
+    sa = Subagent(
+        agent_id="test-truncate",
+        prompt=long_prompt,
+        thread=threading.Thread(),
+        logdir=Path("/tmp"),
+        model=None,
+    )
+    with _subagents_lock:
+        _subagents.append(sa)
+
+    try:
+        result = subagent_list()
+        entry = next(e for e in result if e["agent_id"] == "test-truncate")
+        assert len(entry["prompt_preview"]) <= 103  # 100 chars + "..."
+        assert entry["prompt_preview"].endswith("...")
+    finally:
+        with _subagents_lock:
+            _subagents[:] = [s for s in _subagents if s.agent_id != "test-truncate"]

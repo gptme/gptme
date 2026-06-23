@@ -723,6 +723,16 @@ def main():
         "config-file patch bad value type",
     )
 
+    # Probe: user config PATCH with non-table traversal (set_config_value ValueError)
+    # e.g. prompt.about_user.foo where about_user is a string, not a TOML table
+    _expect_error(
+        "PATCH",
+        "/api/v2/user/config-file",
+        {"key": "prompt.about_user.foo", "value": "bar"},
+        400,
+        "config-file patch non-table traversal",
+    )
+
     print("\n=== All tests done ===")
 
 

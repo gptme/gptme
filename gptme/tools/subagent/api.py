@@ -12,7 +12,7 @@ import threading
 import uuid
 from dataclasses import asdict
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from . import execution as _exec
 from .concurrency import get_slot_sem
@@ -51,6 +51,8 @@ def subagent(
     isolated: bool | None = None,
     timeout: int = 1800,
     role: Role | None = None,
+    redact_secrets: bool = True,
+    context_window: int | None = None,
 ):
     """Starts an asynchronous subagent. Returns None immediately.
 
@@ -113,6 +115,37 @@ def subagent(
             Falls back to a temporary directory if not in a git repo.
         timeout: Maximum seconds before the subprocess monitor kills the
             subagent (default 1800 = 30 min). Only applies to subprocess mode.
+        redact_secrets: If True (default), scrub common secret patterns from
+            workspace context messages before they are passed to the subagent.
+            Redacts values from lines where the variable name matches patterns
+            like API_KEY, TOKEN, PASSWORD, PRIVATE_KEY, etc.
+
+            Note: subagents do NOT inherit the parent's conversation history —
+            they always start with a fresh context containing only the task
+            prompt and workspace context (files from gptme.toml [prompt] files,
+            and context_cmd output when context_mode="full"). This option
+            sanitizes that inherited workspace context.
+
+            Only applies to thread-mode subagents (subprocess and ACP modes
+            run as a separate gptme process and handle their own context).
+            Set to False to disable redaction if legitimate config values are
+            being incorrectly redacted.
+        context_window: Limit workspace context messages passed to the subagent.
+            Controls how much of the workspace context (files from gptme.toml
+            [prompt] files, context_cmd output) is shared with the subagent.
+
+            - ``None`` (default): no limit — full workspace context is shared.
+            - ``0``: minimal context — only agent identity and tools; no workspace
+              files or context_cmd output. Equivalent to
+              ``context_mode="selective", context_include=["agent", "tools"]``.
+            - ``N > 0``: at most N workspace context messages are passed.
+
+            Use ``context_window=0`` when the subagent does not need the parent
+            workspace configuration (e.g. a verification task that should only
+            see what the orchestrator explicitly tells it).
+
+            Only applies to thread-mode subagents; has no effect in subprocess
+            or ACP modes (which build their own context as a separate process).
 
     Returns:
         None: Starts asynchronous execution.
@@ -122,6 +155,11 @@ def subagent(
             Executors use the `complete` tool to signal completion with a summary.
             The full conversation log is available at the logdir path.
     """
+    if context_window is not None and context_window < 0:
+        raise ValueError(
+            f"context_window must be None, 0, or a positive integer, got {context_window!r}"
+        )
+
     # noreorder
     from gptme.cli.main import get_logdir  # fmt: skip
     from gptme.llm.models import get_default_model  # fmt: skip
@@ -196,6 +234,8 @@ def subagent(
             context_include,
             model_name,
             profile_name=profile,
+            redact_secrets=redact_secrets,
+            context_window=context_window,
         )
 
     # Validate context_mode parameters
@@ -252,6 +292,13 @@ def subagent(
             logger.info(
                 f"Not in a git repo, using temp dir for {agent_id}: {worktree_path}"
             )
+
+    if redact_secrets and (use_acp or use_subprocess):
+        exec_mode = "ACP" if use_acp else "subprocess"
+        logger.debug(
+            f"Subagent {agent_id}: 'redact_secrets=True' has no effect in {exec_mode} mode "
+            "(only thread-mode subagents inherit workspace context from the parent process)"
+        )
 
     if use_acp:
         # ACP mode: multi-harness support via Agent Client Protocol
@@ -521,6 +568,8 @@ def subagent(
                         output_schema=output_schema,
                         profile_name=profile,
                         agent_id=agent_id,
+                        redact_secrets=redact_secrets,
+                        context_window=context_window,
                     )
                 except Exception as e:
                     # If subagent creation fails, notify with error status
@@ -593,6 +642,8 @@ def subagent(
             worktree_path=worktree_path,
             repo_path=repo_path,
             role=role,
+            redact_secrets=redact_secrets,
+            context_window=context_window,
         )
         with _subagents_lock:
             _subagents.append(sa)
@@ -721,6 +772,8 @@ def subagent_reply(agent_id: str, reply: str) -> None:
             isolated=sa.isolated,
             timeout=sa.timeout,
             role=sa.role,
+            redact_secrets=sa.redact_secrets,
+            context_window=sa.context_window,
         )
     except Exception:
         with _subagents_lock:
@@ -729,6 +782,54 @@ def subagent_reply(agent_id: str, reply: str) -> None:
             with _subagent_results_lock:
                 _subagent_results[agent_id] = old_result
         raise
+
+
+def subagent_list() -> list[dict]:
+    """Returns a list of all subagents with their current status.
+
+    Each entry contains:
+    - agent_id: The subagent identifier
+    - status: running/success/failure/clarification_needed
+    - model: The model used (or None)
+    - execution_mode: thread/subprocess/acp
+    - elapsed_s: Seconds since the subagent started (from started_at timestamp)
+    - prompt_preview: First 100 characters of the prompt
+
+    Useful for:
+    - Interactive sessions: "what's running right now?"
+    - Orchestrators deciding whether to spawn more agents
+    - Debugging runaway subagent fans
+    """
+    import time
+
+    now = time.time()
+    with _subagents_lock:
+        agents = list(_subagents)  # copy under lock, then iterate outside
+
+    result: list[dict[str, Any]] = []
+    for sa in agents:
+        status = sa.status().status
+
+        # Estimate elapsed time from start time
+        elapsed_s = int(now - sa.started_at)
+
+        # Truncate prompt for preview
+        prompt = sa.prompt[:97] + "..." if len(sa.prompt) > 100 else sa.prompt
+
+        result.append(
+            {
+                "agent_id": sa.agent_id,
+                "status": status,
+                "model": sa.model,
+                "execution_mode": sa.execution_mode,
+                "elapsed_s": max(elapsed_s, 0),
+                "prompt_preview": prompt,
+            }
+        )
+
+    # Sort newest first (smallest elapsed_s = most recently started)
+    result.sort(key=lambda x: x["elapsed_s"])
+    return result
 
 
 def subagent_status(agent_id: str) -> dict:

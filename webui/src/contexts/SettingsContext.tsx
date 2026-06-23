@@ -18,6 +18,11 @@ export interface Settings {
    * - 'server': always use the server-side transcription via MediaRecorder + /api/v2/audio/transcriptions
    */
   sttProvider: 'browser' | 'server';
+  /**
+   * Override that force-expands tool-use/output blocks. When false (default),
+   * tool blocks are collapsed and agent code examples stay open (smart behavior).
+   * When true, every code block is expanded.
+   */
   blocksDefaultOpen: boolean;
   showHiddenMessages: boolean;
   showInitialSystem: boolean;
@@ -75,7 +80,7 @@ const defaultSettings: Settings = {
   ttsEnabled: false,
   ttsProvider: 'auto',
   sttProvider: 'browser',
-  blocksDefaultOpen: true,
+  blocksDefaultOpen: false,
   showHiddenMessages: false,
   showInitialSystem: false,
   hasCompletedSetup: false,

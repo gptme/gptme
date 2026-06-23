@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { getCodeBlockEmoji } from '@/utils/markdownUtils';
+import { iconForLangtag } from '@/utils/codeBlockIcons';
 import * as smd from '@/utils/smd';
 import { customRenderer } from '@/utils/markdownRenderer';
 
@@ -27,7 +27,7 @@ export const TabbedCodeBlock: React.FC<TabbedCodeBlockProps> = ({ language, code
   const previewRef = useRef<HTMLDivElement>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
 
-  const emoji = getCodeBlockEmoji(language || '');
+  const LangIcon = iconForLangtag(language || '');
 
   // Check if this is a markdown code block
   const isMarkdown = language?.toLowerCase() === 'md' || language?.toLowerCase() === 'markdown';
@@ -66,7 +66,9 @@ export const TabbedCodeBlock: React.FC<TabbedCodeBlockProps> = ({ language, code
           }`}
           onClick={() => setActiveTab('code')}
         >
-          {emoji} Code
+          <span className="inline-flex items-center gap-1">
+            <LangIcon className="h-3.5 w-3.5" /> Code
+          </span>
         </button>
         {hasPreview && (
           <button

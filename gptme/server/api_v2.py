@@ -87,8 +87,11 @@ from .auth import require_auth
 from .external_sessions import get_external_session_provider
 from .metrics import record_cache_result, update_conversation_metrics
 from .openapi_docs import (
+    API_VERSION,
+    CONTRACT_REVISION,
     CONVERSATION_ID_PARAM,
     ApiRootResponse,
+    ApiVersionResponse,
     AudioTranscriptionResponse,
     ConversationCreateRequest,
     ConversationListResponse,
@@ -679,15 +682,33 @@ def api_root():
 
     provider_configured = get_default_model() is not None
 
-    return flask.jsonify(
-        {
-            "message": "gptme v2 API",
-            "documentation": "https://gptme.org/docs/server.html",
-            "version": __version__,
-            "capabilities": capabilities,
-            "provider_configured": provider_configured,
-        }
+    body = {
+        "message": "gptme v2 API",
+        "documentation": "https://gptme.org/docs/server.html",
+        "version": __version__,
+        "api_version": API_VERSION,
+        "contract_revision": CONTRACT_REVISION,
+        "capabilities": capabilities,
+        "provider_configured": provider_configured,
+    }
+    response = flask.jsonify(body)
+    response.headers["X-API-Version"] = str(API_VERSION)
+    return response
+
+
+@v2_api.route("/api/v2/version")
+@api_doc_simple(responses={200: ApiVersionResponse}, tags=["meta"])
+def api_version():
+    """Get the current API version.
+
+    Lightweight alternative to the full /api/v2 root for clients that only
+    need to check version compatibility.
+    """
+    response = flask.jsonify(
+        {"api_version": API_VERSION, "contract_revision": CONTRACT_REVISION}
     )
+    response.headers["X-API-Version"] = str(API_VERSION)
+    return response
 
 
 @v2_api.route("/api/v2/config")
@@ -886,7 +907,7 @@ def api_dev_deploy_staging_trigger():
         {
             "name": "days",
             "in": "query",
-            "schema": {"type": "integer", "default": 30},
+            "schema": {"type": "integer", "default": 7},
             "description": "How many recent days of session history to scan",
         },
     ],
@@ -899,7 +920,7 @@ def api_external_sessions():
 
     try:
         limit = int(request.args.get("limit", 100))
-        days = int(request.args.get("days", 30))
+        days = int(request.args.get("days", 7))
     except (ValueError, TypeError):
         return flask.jsonify({"error": "limit and days must be integers"}), 400
 
@@ -908,7 +929,7 @@ def api_external_sessions():
     limit = min(limit, 1000)
     if days <= 0:
         return flask.jsonify({"error": "days must be a positive integer"}), 400
-    days = min(days, 3650)
+    days = min(days, 365)
 
     sessions = [
         item.to_dict() for item in provider.list_sessions(limit=limit, days=days)
@@ -932,7 +953,7 @@ def api_external_sessions():
         {
             "name": "days",
             "in": "query",
-            "schema": {"type": "integer", "default": 30},
+            "schema": {"type": "integer", "default": 7},
             "description": "How many recent days of session history to scan",
         },
     ],
@@ -940,12 +961,12 @@ def api_external_sessions():
 def api_external_session(external_session_id: str):
     """Get a normalized read-only external session transcript."""
     try:
-        days = int(request.args.get("days", 30))
+        days = int(request.args.get("days", 7))
     except (ValueError, TypeError):
         return flask.jsonify({"error": "days must be an integer"}), 400
     if days <= 0:
         return flask.jsonify({"error": "days must be a positive integer"}), 400
-    days = min(days, 3650)
+    days = min(days, 365)
 
     provider = get_external_session_provider()
     if provider is None:
@@ -3004,7 +3025,10 @@ def api_user_config_file_patch():
     except ValueError as exc:
         return flask.jsonify({"error": str(exc)}), 400
 
-    set_config_value(key, value, reload=reload_config)
+    try:
+        set_config_value(key, value, reload=reload_config)
+    except ValueError as exc:
+        return flask.jsonify({"error": str(exc)}), 400
     content = _read_user_config_file_text()
     response = _get_user_config_file_response(content)
     response["status"] = "ok"

@@ -166,6 +166,12 @@ nitpick_ignore = [
     ("py:class", "gptme.hooks.elicitation.ElicitationRequest"),
     ("py:class", "gptme.hooks.types.StopPropagation"),
     ("py:class", "gptme.commands.base.CommandContext"),
+    # ToolSpec now exposes explicit __init__ type aliases for the documented
+    # bare-callable plugin API; these are internal aliases, not public docs targets.
+    ("py:class", "ToolFunctionInput"),
+    ("py:class", "InitFunc"),
+    ("py:class", "ExecuteFunc"),
+    ("py:class", "HookFunc"),
 ]
 
 # -- Options for HTML output -------------------------------------------------

@@ -19,6 +19,36 @@ function parse(markdown: string, streaming: boolean = false, log: boolean = fals
   return div;
 }
 
+function expectInlineCodeBlock(div: HTMLElement, language: string, codeHtml: string) {
+  const label = div.querySelector('.inline-codeblock-label');
+  expect(label).not.toBeNull();
+  expect(label?.querySelector('.codeblock-icon svg')).not.toBeNull();
+  expect(label?.querySelector('.codeblock-label-text')).toHaveTextContent(language);
+
+  const code = div.querySelector(`.inline-codeblock code.language-${language}`);
+  expect(code).not.toBeNull();
+  expect(code?.innerHTML).toBe(codeHtml);
+}
+
+function expectThinkingBlocks(div: HTMLElement, contents: string[]) {
+  const details = Array.from(div.querySelectorAll('details[type="thinking"]'));
+  expect(details).toHaveLength(contents.length);
+
+  details.forEach((block, index) => {
+    const summary = block.querySelector('summary');
+    expect(summary).not.toBeNull();
+    expect(summary).toHaveTextContent('Thinking');
+    expect(summary?.querySelector('.codeblock-icon svg.lucide-brain')).not.toBeNull();
+
+    const content = block.querySelector('summary + div');
+    expect(content).not.toBeNull();
+    expect(content).toHaveTextContent(contents[index]);
+    expect(content?.getAttribute('style')).toBe(
+      'white-space: pre-wrap; padding-top: 0px; padding-bottom: 0.5rem;'
+    );
+  });
+}
+
 describe('simple text rendering', () => {
   const markdown = 'This is a test';
   it('all at once, should render standard text', () => {
@@ -50,120 +80,87 @@ describe('renderThinkingBlocks', () => {
   it('should handle one thinking block at start of text', () => {
     const markdown = `<thinking>This is a thinking block</thinking> some other text`;
 
-    // Output should be:
-    // <div>
-    //   <p>
-    //     <details type="thinking" open="true">
-    //       <summary>💭 Thinking</summary>
-    //       <div style="white-space: pre-wrap; padding-top: 0px; padding-bottom: 0.5rem;">This is a thinking block</div>
-    //     </details>
-    //     some other text
-    //   </p>
-    // </div>
-    const expected =
-      '<p><details type="thinking"><summary>💭 Thinking</summary><div style="white-space: pre-wrap; padding-top: 0px; padding-bottom: 0.5rem;">This is a thinking block</div></details> some other text</p>';
-
     let div = parse(markdown);
-    expect(div.innerHTML).toBe(expected);
+    expectThinkingBlocks(div, ['This is a thinking block']);
+    expect(div.innerHTML).toMatch(/^<p><details type="thinking">/);
+    expect(div.innerHTML).toMatch(/<\/details> some other text<\/p>$/);
 
     div = parse(markdown, true);
-    expect(div.innerHTML).toBe(expected);
+    expectThinkingBlocks(div, ['This is a thinking block']);
+    expect(div.innerHTML).toMatch(/^<p><details type="thinking">/);
+    expect(div.innerHTML).toMatch(/<\/details> some other text<\/p>$/);
   });
 
   it('should handle one thinking block at end of text', () => {
     const markdown = `some other text <thinking>This is a thinking block</thinking>`;
 
-    // Output should be:
-    // <div>
-    //   <p>
-    //     some other text
-    //     <details type="thinking" open="true">
-    //       <summary>💭 Thinking</summary>
-    //       <div style="white-space: pre-wrap; padding-top: 0px; padding-bottom: 0.5rem;">This is a thinking block</div>
-    //     </details>
-    //   </p>
-    // </div>
-    const expected =
-      '<p>some other text <details type="thinking"><summary>💭 Thinking</summary><div style="white-space: pre-wrap; padding-top: 0px; padding-bottom: 0.5rem;">This is a thinking block</div></details></p>';
-
     let div = parse(markdown);
-    expect(div.innerHTML).toBe(expected);
+    expectThinkingBlocks(div, ['This is a thinking block']);
+    expect(div.innerHTML).toMatch(/^<p>some other text <details type="thinking">/);
+    expect(div.innerHTML).toMatch(/<\/details><\/p>$/);
 
     div = parse(markdown, true);
-    expect(div.innerHTML).toBe(expected);
+    expectThinkingBlocks(div, ['This is a thinking block']);
+    expect(div.innerHTML).toMatch(/^<p>some other text <details type="thinking">/);
+    expect(div.innerHTML).toMatch(/<\/details><\/p>$/);
   });
 
   it('should handle multiple thinking blocks', () => {
     const markdown = `some other text <thinking>This is a thinking block</thinking> some other text <thinking>This is another thinking block</thinking>`;
 
-    // Output should be:
-    // <div>
-    //   <p>
-    //     some other text
-    //     <details type="thinking" open="true">
-    //       <summary>💭 Thinking</summary>
-    //       <div style="white-space: pre-wrap; padding-top: 0px; padding-bottom: 0.5rem;">This is a thinking block</div>
-    //     </details>
-    //     some other text
-    //     <details type="thinking" open="true">
-    //       <summary>💭 Thinking</summary>
-    //       <div style="white-space: pre-wrap; padding-top: 0px; padding-bottom: 0.5rem;">This is another thinking block</div>
-    //     </details>
-    //   </p>
-    // </div>
-    const expected =
-      '<p>some other text <details type="thinking"><summary>💭 Thinking</summary><div style="white-space: pre-wrap; padding-top: 0px; padding-bottom: 0.5rem;">This is a thinking block</div></details> some other text <details type="thinking"><summary>💭 Thinking</summary><div style="white-space: pre-wrap; padding-top: 0px; padding-bottom: 0.5rem;">This is another thinking block</div></details></p>';
-
     const div = parse(markdown);
-    expect(div.innerHTML).toBe(expected);
+    expectThinkingBlocks(div, ['This is a thinking block', 'This is another thinking block']);
+    expect(div.innerHTML).toMatch(/^<p>some other text <details type="thinking">/);
+    expect(div.innerHTML).toContain('</details> some other text <details type="thinking">');
+    expect(div.innerHTML).toMatch(/<\/details><\/p>$/);
 
     const div2 = parse(markdown, true);
-    expect(div2.innerHTML).toBe(expected);
+    expectThinkingBlocks(div2, ['This is a thinking block', 'This is another thinking block']);
+    expect(div2.innerHTML).toMatch(/^<p>some other text <details type="thinking">/);
+    expect(div2.innerHTML).toContain('</details> some other text <details type="thinking">');
+    expect(div2.innerHTML).toMatch(/<\/details><\/p>$/);
   });
 });
 
 describe('renderCodeBlocks', () => {
   it('should handle one python code block at start of text', () => {
     const markdown = `\`\`\`python\nThis is a code block\n\`\`\` some other text`;
-
-    // Short single-line blocks render inline instead of collapsible
-    const expected =
-      '<div class="inline-codeblock"><span class="inline-codeblock-label">💻 python</span><code class="hljs language-python">This <span class="hljs-keyword">is</span> a code block</code></div><p>some other text</p>';
+    const codeHtml = 'This <span class="hljs-keyword">is</span> a code block';
 
     let div = parse(markdown);
-    expect(div.innerHTML).toBe(expected);
+    expectInlineCodeBlock(div, 'python', codeHtml);
+    expect(div.lastElementChild?.outerHTML).toBe('<p>some other text</p>');
 
     div = parse(markdown, true);
-    expect(div.innerHTML).toBe(expected);
+    expectInlineCodeBlock(div, 'python', codeHtml);
+    expect(div.lastElementChild?.outerHTML).toBe('<p>some other text</p>');
   });
 
   it('should handle one python code block at end of text', () => {
     const markdown = `some other text\n\`\`\`python\nThis is a code block\n\`\`\``;
-
-    // Short single-line blocks render inline instead of collapsible
-    const expected =
-      '<p>some other text<div class="inline-codeblock"><span class="inline-codeblock-label">💻 python</span><code class="hljs language-python">This <span class="hljs-keyword">is</span> a code block</code></div></p>';
+    const codeHtml = 'This <span class="hljs-keyword">is</span> a code block';
 
     let div = parse(markdown);
-    expect(div.innerHTML).toBe(expected);
+    expectInlineCodeBlock(div, 'python', codeHtml);
+    expect(div.firstElementChild?.textContent).toContain('some other text');
 
     div = parse(markdown, true);
-    expect(div.innerHTML).toBe(expected);
+    expectInlineCodeBlock(div, 'python', codeHtml);
+    expect(div.firstElementChild?.textContent).toContain('some other text');
   });
 });
 
 describe('renderMarkdownBlocks', () => {
   it('should handle one markdown block at start of text', () => {
     const markdown = `\`\`\`markdown\nThis is a markdown block\n\`\`\`\nsome other text`;
-
-    // Short single-line blocks render inline instead of collapsible
-    const expected =
-      '<div class="inline-codeblock"><span class="inline-codeblock-label">💻 markdown</span><code class="hljs language-markdown">This is a markdown block</code></div><p>some other text</p>';
+    const codeHtml = 'This is a markdown block';
 
     let div = parse(markdown, false, false);
-    expect(div.innerHTML).toBe(expected);
+    expectInlineCodeBlock(div, 'markdown', codeHtml);
+    expect(div.lastElementChild?.outerHTML).toBe('<p>some other text</p>');
 
     div = parse(markdown, true, false);
-    expect(div.innerHTML).toBe(expected);
+    expectInlineCodeBlock(div, 'markdown', codeHtml);
+    expect(div.lastElementChild?.outerHTML).toBe('<p>some other text</p>');
   });
 });

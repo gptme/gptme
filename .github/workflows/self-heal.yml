@@ -35,7 +35,7 @@ jobs:
 
     steps:
       - name: Checkout base repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         # No ref: defaults to base branch (master), not the fork's head SHA.
         # This prevents a malicious fork from exfiltrating secrets by modifying
         # scripts/github_ci_self_heal.py — we always run the trusted base copy.
@@ -274,7 +274,7 @@ jobs:
 
     steps:
       - name: Checkout base repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           path: base
 
@@ -285,7 +285,7 @@ jobs:
           path: /tmp/artifacts
 
       - name: Checkout PR head
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.analyze.outputs.head_sha }}
           path: pr-head

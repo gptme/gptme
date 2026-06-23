@@ -146,12 +146,18 @@
 }
 
 .chat-message .inline-codeblock .inline-codeblock-label {
-  @apply flex-shrink-0 self-stretch whitespace-nowrap bg-muted px-3 py-1.5 text-xs;
-  /* Label fills full height and keeps left rounding from parent */
+  @apply flex min-w-[5rem] flex-shrink-0 items-start gap-1.5 self-stretch whitespace-nowrap bg-muted px-3 py-1.5 text-xs font-medium text-foreground/80;
+  /* min-width (~stdout width) so short labels align; items-start keeps the label
+     aligned with the first code line; self-stretch fills full height */
+}
+
+/* lucide icon inside a code-block label */
+.chat-message .codeblock-icon {
+  @apply inline-flex h-4 flex-shrink-0 items-center;
 }
 
 .chat-message .inline-codeblock > code {
-  @apply min-w-0 flex-1 whitespace-pre-wrap break-words border-0 !bg-transparent px-3 py-1.5 text-xs text-white;
+  @apply min-w-0 flex-1 overflow-x-auto whitespace-pre border-0 !bg-transparent px-3 py-1.5 text-xs text-white;
 }
 
 .chat-message details {
@@ -159,11 +165,32 @@
 }
 
 .chat-message details summary {
-  @apply cursor-pointer select-none list-none rounded-md bg-muted px-3 py-2 text-xs transition-colors;
+  @apply flex cursor-pointer select-none list-none items-center gap-1.5 rounded-md bg-muted px-3 py-2 text-xs font-medium text-foreground/80 transition-colors;
+  /* higher-contrast label so the tool name / "Thinking" reads as an indicator */
 }
 
 .chat-message details summary::-webkit-details-marker {
   @apply hidden;
+}
+
+/* Minimal reveal animation when a code/tool block is expanded. Pure keyframe so
+   it works in all browsers (native <details> can't animate collapsing without
+   ::details-content, which isn't widely supported yet). Respects reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .chat-message details[open] > *:not(summary) {
+    animation: codeblock-reveal 0.18s ease-out;
+  }
+}
+
+@keyframes codeblock-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-0.25rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .chat-message details:not([open]) summary {

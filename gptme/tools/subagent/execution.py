@@ -137,6 +137,8 @@ def _create_subagent_thread(
     output_schema: type | None = None,
     profile_name: str | None = None,
     agent_id: str | None = None,
+    redact_secrets: bool = True,
+    context_window: int | None = None,
 ) -> None:
     """Shared function for running subagent threads.
 
@@ -150,6 +152,9 @@ def _create_subagent_thread(
         target: Who will review the results ("parent" or "planner")
         profile_name: Optional agent profile to apply (system prompt + hard tool enforcement)
         agent_id: Identifier stored in thread-local so the progress tool can self-identify
+        context_window: Limit workspace context messages. None = no limit; 0 = minimal
+            context (just agent identity + tools, no workspace files); N > 0 = at most
+            N workspace context messages included.
     """
     # Store agent_id in thread-local so the progress tool can identify this subagent
     if agent_id is not None:
@@ -220,9 +225,35 @@ def _create_subagent_thread(
 
     prompt_msgs = [Message("user", prompt)]
 
-    # Build initial messages based on context_mode
-    if context_mode == "selective":
-        # Selective context - build from specified components
+    # Build initial messages based on context_mode and context_window
+    if context_window == 0:
+        # Minimal context: just agent identity and tools, no workspace files.
+        # This is the context isolation mode requested by the --isolate flag.
+        # Note: if context_mode="selective" is also set, context_window=0 takes
+        # precedence and the context_include list is ignored — agent+tools only.
+        from ...prompts import prompt_gptme, prompt_tools
+
+        if (
+            context_mode == "selective"
+            and context_include
+            and set(context_include)
+            - {
+                "agent",
+                "tools",
+            }
+        ):
+            logger.warning(
+                "context_window=0 overrides context_include=%r; "
+                "only agent identity and tools will be included",
+                context_include,
+            )
+        initial_msgs = list(prompt_gptme(False, None, agent_name=None)) + list(
+            prompt_tools(tools=available_tools, tool_format="markdown")
+        )
+    elif context_mode == "selective":
+        # Selective context — build from specified components.
+        # context_window > 0 is not applied in selective mode; the caller
+        # controls the context set explicitly via context_include instead.
         from ...prompts import prompt_gptme, prompt_tools
 
         initial_msgs = []
@@ -242,6 +273,27 @@ def _create_subagent_thread(
         initial_msgs = get_prompt(
             available_tools, interactive=False, workspace=workspace
         )
+        # Truncate workspace context if a positive window is specified.
+        # Base messages (agent identity + tools) do NOT count against the
+        # window — only the workspace context messages after them do.
+        #
+        # get_prompt() merges core sections into a single combined message
+        # (via _join_messages()). In the typical subagent case (no active
+        # chat history, no context_cmd) n_base=1. Dynamic sections such as
+        # SYSTEM_PROMPT_CACHE_BOUNDARY, chat_history, or context_cmd output
+        # may add more — the measurement below handles all cases correctly.
+        if context_window is not None and context_window > 0:
+            n_base = len(get_prompt(available_tools, interactive=False, workspace=None))
+            initial_msgs = initial_msgs[: n_base + context_window]
+
+    # Apply secret redaction to workspace context messages if requested.
+    # This redacts values from lines where the variable name matches common
+    # secret patterns (API_KEY, TOKEN, PASSWORD, etc.) in system messages.
+    # Only redacts the context messages, not the task prompt itself.
+    if redact_secrets:
+        from .context import redact_secrets_from_messages
+
+        initial_msgs = redact_secrets_from_messages(initial_msgs)
 
     # Append profile system prompt if specified
     if profile and profile.system_prompt:
@@ -527,6 +579,8 @@ def _run_planner(
     context_include: list[str] | None = None,
     model: str | None = None,
     profile_name: str | None = None,
+    redact_secrets: bool = True,
+    context_window: int | None = None,
 ) -> None:
     """Run a planner that delegates work to multiple executor subagents.
 
@@ -539,6 +593,11 @@ def _run_planner(
         context_include: For selective mode, list of context components to include
         profile_name: Agent profile to apply to executor subagents (per-subtask role
             always overrides this when set — subtask role is more specific)
+        redact_secrets: If True, scrub secret patterns from workspace context before
+            thread-mode executors see it. Has no effect on subprocess-mode executors
+            (which manage their own context); a debug message is logged in that case.
+        context_window: Limit workspace context messages passed to executor subagents.
+            None = no limit; 0 = minimal context (no workspace files); N > 0 = at most N.
     """
     from gptme.cli.main import get_logdir
 
@@ -632,6 +691,11 @@ def _run_planner(
                 )
 
         if resolved_use_subprocess:
+            if redact_secrets:
+                logger.debug(
+                    f"Planner executor {executor_id}: 'redact_secrets=True' has no effect "
+                    "in subprocess mode (only thread-mode subagents inherit workspace context)"
+                )
             sa = Subagent(
                 executor_id,
                 executor_prompt,
@@ -756,6 +820,8 @@ def _run_planner(
                         target="planner",
                         profile_name=subtask_profile,
                         agent_id=executor_agent_id,
+                        redact_secrets=redact_secrets,
+                        context_window=context_window,
                     )
                 finally:
                     try:

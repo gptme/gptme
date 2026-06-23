@@ -47,6 +47,7 @@ from ..util.context import enrich_messages_with_context
 from ..util.conversation_ids import conversation_id_error, validate_conversation_id
 from ..util.reduce import limit_log, reduce_log
 from ..util.uri import URI
+from . import eventlog
 
 PathLike: TypeAlias = str | Path
 
@@ -358,6 +359,41 @@ class LogManager:
         chat_config = ChatConfig.from_logdir(self.logdir)
         return chat_config.name or self.chat_id
 
+    def _write_event_log(self, event_type: str, **extra: object) -> None:
+        """Write an event to the event log and optionally a checkpoint.
+
+        Writes a ``message_append``, ``message_edit``, or ``undo`` event
+        followed by a checkpoint if one is due.  Writes alongside the main
+        conversation JSONL (``get_logs_dir() / chat_id / events.jsonl``).
+        Silent-noop when the log directory is not set up yet.
+        """
+        event_dir = self.logfile.parent
+        event_dir.mkdir(parents=True, exist_ok=True)
+        seq = eventlog.sequence_number(event_dir)
+        if event_type == eventlog.EVENT_MESSAGE_APPEND:
+            if self.log.messages:
+                event = eventlog.build_message_append_event(seq, self.log.messages[-1])
+            else:
+                return
+        elif event_type == eventlog.EVENT_MESSAGE_EDIT:
+            event = eventlog.build_message_edit_event(seq, list(self.log.messages))
+        elif event_type == eventlog.EVENT_UNDO:
+            n_raw = extra.get("n", 1)
+            n = n_raw if isinstance(n_raw, int) else 1
+            event = eventlog.build_undo_event(seq, n=n)
+        else:
+            return  # unknown type, skip
+
+        eventlog.append_event(event_dir, event)
+
+        # Checkpoint if due
+        if eventlog.should_checkpoint(seq):
+            eventlog.write_checkpoint(
+                event_dir,
+                seq + 1,  # next seq for the checkpoint
+                [m.to_dict() for m in self.log.messages],
+            )
+
     def append(self, msg: Message) -> None:
         """Appends a message to the log, writes the log, prints the message.
 
@@ -381,6 +417,7 @@ class LogManager:
             self.log = self.log.append(msg)
 
         self.write()
+        self._write_event_log(eventlog.EVENT_MESSAGE_APPEND)
         if not msg.quiet:
             print_msg(msg, oneline=False)
 
@@ -467,6 +504,7 @@ class LogManager:
         self._save_backup_branch(type="edit")
         self.log = new_log
         self.write()
+        self._write_event_log(eventlog.EVENT_MESSAGE_EDIT)
 
     def undo(self, n: int = 1, quiet=False) -> None:
         """Removes the last message from the log."""
@@ -497,6 +535,7 @@ class LogManager:
                 )
             peek = self.log[-1] if self.log else None
         self.write()
+        self._write_event_log(eventlog.EVENT_UNDO, n=n)
 
     @classmethod
     def load(

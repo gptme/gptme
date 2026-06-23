@@ -2,8 +2,6 @@ import {
   MessageSquare,
   Kanban,
   History,
-  PanelLeftOpen,
-  PanelLeftClose,
   Settings,
   Bot,
   FolderOpen,
@@ -16,14 +14,13 @@ import {
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { toggleLeftSidebarCollapsed, leftSidebarCollapsed$ } from '@/stores/sidebar';
+import { toggleLeftSidebarCollapsed } from '@/stores/sidebar';
 import { commandPaletteOpen$ } from '@/stores/commandPalette';
 import { SettingsModal } from './SettingsModal';
 import { useProviderHealth } from '@/hooks/useProviderHealth';
 import { allProvidersDown } from '@/stores/providerHealth';
 import type { Task } from '@/types/task';
 import type { FC } from 'react';
-import { use$ } from '@legendapp/state/react';
 import { useState, useEffect } from 'react';
 
 const NAV_SIDEBAR_KEY = 'nav-sidebar-expanded';
@@ -42,7 +39,6 @@ interface Props {
 export const SidebarIcons: FC<Props> = ({ tasks }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const isConversationPanelCollapsed = use$(leftSidebarCollapsed$);
 
   // User's manual preference for nav sidebar expansion
   const [prefExpanded, setPrefExpanded] = useState<boolean>(() => {
@@ -96,6 +92,12 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
   const handleNavigateToSection = (
     section: 'chat' | 'tasks' | 'history' | 'agents' | 'workspaces' | 'external-sessions' | 'admin'
   ) => {
+    // Clicking the already-active Chat button toggles the conversation sidebar
+    // (VS Code activity-bar pattern) instead of being a no-op re-navigation.
+    if (section === 'chat' && currentSection === 'chat') {
+      toggleLeftSidebarCollapsed();
+      return;
+    }
     navigate(`/${section === 'chat' ? 'chat' : section}`);
   };
 
@@ -126,6 +128,7 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
         {navItems.map(({ id, icon: Icon, label, section }) => {
           const isActive = currentSection === section;
           const badge = id === 'tasks' && activeTasks.length > 0 ? activeTasks.length : null;
+          const actionLabel = id === 'chat' && isActive ? 'Toggle conversations sidebar' : label;
 
           return (
             <TooltipProvider key={id}>
@@ -135,8 +138,9 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
                     variant={isActive ? 'secondary' : 'ghost'}
                     className="relative h-8 w-full min-w-0 justify-start gap-2 px-2"
                     onClick={() => handleNavigateToSection(section)}
-                    aria-label={label}
+                    aria-label={actionLabel}
                     aria-current={isActive ? 'page' : undefined}
+                    data-testid={id === 'chat' ? 'toggle-conversations-sidebar' : undefined}
                   >
                     <Icon className="h-4 w-4 flex-shrink-0" />
                     <span
@@ -159,7 +163,7 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
                     )}
                   </Button>
                 </TooltipTrigger>
-                {!isExpanded && <TooltipContent side="right">{label}</TooltipContent>}
+                {!isExpanded && <TooltipContent side="right">{actionLabel}</TooltipContent>}
               </Tooltip>
             </TooltipProvider>
           );
@@ -262,41 +266,6 @@ export const SidebarIcons: FC<Props> = ({ tasks }) => {
               )}
             </TooltipTrigger>
             {!isExpanded && <TooltipContent side="right">Settings</TooltipContent>}
-          </Tooltip>
-        </TooltipProvider>
-      </div>
-
-      {/* Conversation panel toggle */}
-      <div className="flex-shrink-0 p-1">
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                className="h-8 w-full min-w-0 justify-start gap-2 px-2"
-                onClick={toggleLeftSidebarCollapsed}
-                data-testid="toggle-conversations-sidebar"
-                aria-label={isConversationPanelCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              >
-                {isConversationPanelCollapsed ? (
-                  <PanelLeftOpen className="h-4 w-4 flex-shrink-0" />
-                ) : (
-                  <PanelLeftClose className="h-4 w-4 flex-shrink-0" />
-                )}
-                <span
-                  className={`min-w-0 flex-1 truncate text-left text-sm transition-opacity duration-150 ${
-                    isExpanded ? 'opacity-100' : 'opacity-0'
-                  }`}
-                >
-                  {isConversationPanelCollapsed ? 'Show Chats' : 'Hide Chats'}
-                </span>
-              </Button>
-            </TooltipTrigger>
-            {!isExpanded && (
-              <TooltipContent side="right">
-                {isConversationPanelCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              </TooltipContent>
-            )}
           </Tooltip>
         </TooltipProvider>
       </div>

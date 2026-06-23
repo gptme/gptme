@@ -535,6 +535,59 @@ def _get_all_pids() -> list[int]:
     return []
 
 
+def _get_all_cmdlines() -> dict[int, list[str]] | None:
+    """Get cmdlines for all processes in a single batched call, cross-platform.
+
+    Returns a ``{pid: cmdline}`` mapping, or ``None`` if batching isn't
+    supported on this platform (callers should then fall back to per-PID
+    ``_get_process_cmdline``).
+
+    This avoids spawning one ``ps`` subprocess per PID on macOS, which made
+    the workspace-agents scan take 10+ seconds on busy machines.
+    """
+    system = platform.system()
+    if system == "Linux":
+        cmdlines: dict[int, list[str]] = {}
+        for entry in os.listdir("/proc"):
+            if not entry.isdigit():
+                continue
+            args = _get_process_cmdline(int(entry))
+            if args:
+                cmdlines[int(entry)] = args
+        return cmdlines
+    if system == "Darwin":
+        try:
+            out = subprocess.check_output(
+                ["ps", "-eo", "pid=,args="],
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=10,
+            )
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            FileNotFoundError,
+        ):
+            return None
+        result: dict[int, list[str]] = {}
+        for line in out.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            pid_str, sep, args_str = line.partition(" ")
+            if not sep or not pid_str.isdigit():
+                continue
+            try:
+                args = shlex.split(args_str)
+            except ValueError:
+                args = [args_str]
+            if args:
+                result[int(pid_str)] = args
+        return result
+    # Windows: no cheap batch path; fall back to per-PID.
+    return None
+
+
 def _get_process_timing(pid: int) -> tuple[int | None, float | None, str | None]:
     """Get process uptime, CPU time, and state.
 
@@ -1267,11 +1320,20 @@ def scan_agents(workspace: str | None = None) -> list[AgentInfo]:
     agents: list[AgentInfo] = []
     my_pid = os.getpid()
 
-    for pid in _get_all_pids():
+    # Fetch all cmdlines in one batched call where supported (macOS/Linux).
+    # This avoids spawning a ``ps`` subprocess per PID, which made scans take
+    # 10+ seconds on busy macOS machines. Falls back to per-PID on platforms
+    # without a cheap batch path (e.g. Windows).
+    cmdlines = _get_all_cmdlines()
+    pids = sorted(cmdlines) if cmdlines is not None else _get_all_pids()
+
+    for pid in pids:
         if pid == my_pid:
             continue
 
-        cmdline = _get_process_cmdline(pid)
+        cmdline = (
+            cmdlines.get(pid, []) if cmdlines is not None else _get_process_cmdline(pid)
+        )
         if not cmdline:
             continue
 

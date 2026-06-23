@@ -346,10 +346,11 @@ export function SettingsContent({
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label htmlFor="blocks-toggle" className="text-sm">
-                  Code blocks open by default
+                  Expand tool blocks by default
                 </Label>
                 <p className="text-xs text-muted-foreground">
-                  Whether code blocks are expanded when first shown
+                  By default, tool-use and output blocks are collapsed and code is shown. Enable to
+                  expand every block.
                 </p>
               </div>
               <Switch

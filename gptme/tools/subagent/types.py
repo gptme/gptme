@@ -13,7 +13,8 @@ import re
 import subprocess
 import sys
 import threading
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypedDict
 
@@ -192,6 +193,13 @@ class Subagent:
     # Maximum time (seconds) the subprocess monitor will wait before killing
     timeout: int = 1800  # 30 minutes
     role: Role | None = None
+    # Secret redaction: when True, common secret patterns (API keys, tokens, passwords)
+    # are redacted from workspace context messages before they are seen by the subagent.
+    redact_secrets: bool = True
+    # Context window: None = no limit; 0 = minimal (no workspace files); N = at most N msgs
+    context_window: int | None = None
+    # Timestamp (seconds since epoch) when this subagent was created
+    started_at: float = field(default_factory=time.time)
 
     def get_log(self) -> "LogManager":
         # noreorder

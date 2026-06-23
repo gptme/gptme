@@ -124,6 +124,9 @@ export const MAYBE_URL: 30;
 export const MAYBE_TASK: 31;
 export const EQUATION_BLOCK: 32;
 export const EQUATION_INLINE: 33;
+export const THINKING_BLOCK: 34;
+export const THINKING_CONTENT: 35;
+export const THINKING_SUMMARY: 36;
 export type Token = (typeof Token)[keyof typeof Token];
 export namespace Token {
   export { DOCUMENT as Document };
@@ -157,6 +160,9 @@ export namespace Token {
   export { TABLE_CELL as Table_Cell };
   export { EQUATION_BLOCK as Equation_Block };
   export { EQUATION_INLINE as Equation_Inline };
+  export { THINKING_BLOCK as Thinking_Block };
+  export { THINKING_CONTENT as Thinking_Content };
+  export { THINKING_SUMMARY as Thinking_Summary };
 }
 export const HREF: 1;
 export const SRC: 2;

@@ -5,6 +5,7 @@ import os
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from click.testing import CliRunner
@@ -57,6 +58,25 @@ def test_tokens_count(tmp_path):
     assert result.exit_code == 2
     assert result.exception is None or isinstance(result.exception, SystemExit)
     assert "is a directory" in result.output.lower()
+
+    # Test `--file -` reads from stdin (Unix convention: '-' as file = stdin).
+    # Regression: prior to allow_dash=True on --file, this failed with
+    # click.Path validation ("File '-' does not exist") even though the
+    # error message advertised '-' for stdin.
+    result = runner.invoke(
+        main, ["tokens", "count", "-f", "-"], input="stdin via file flag"
+    )
+    assert result.exit_code == 0
+    assert "Token count" in result.output
+    count = int(result.output.split(": ", 1)[1].strip())
+    assert count > 1
+
+    # Test `--file -` with empty stdin: should still error with the same
+    # "No text provided" path, not crash with click validation or
+    # FileNotFoundError.
+    result = runner.invoke(main, ["tokens", "count", "-f", "-"], input="")
+    assert result.exit_code == 1
+    assert "No text provided" in result.output
 
 
 def test_chats_list(tmp_path, mocker):
@@ -364,7 +384,11 @@ def test_tools_list(mocker):
     """Test the tools list command."""
     import json
 
-    runner = CliRunner()
+    runner_cls: Any = CliRunner
+    try:
+        runner = runner_cls(mix_stderr=False)
+    except TypeError:
+        runner = runner_cls()
 
     mocker.patch("gptme.tools.browser.browser", "playwright")
 
@@ -373,6 +397,7 @@ def test_tools_list(mocker):
     assert "Available tools" in result.output
     assert result.exit_code == 0
     assert "Using browser tool with" not in result.output
+    assert "Failed to register hook" not in getattr(result, "stderr", "")
 
     # Test langtags
     result = runner.invoke(main, ["tools", "list", "--langtags"])
@@ -1122,3 +1147,40 @@ def test_context_journal_rejects_file_path(tmp_path):
     result = runner.invoke(main, ["context", "journal", "--path", str(journal_file)])
     assert result.exit_code != 0
     assert "Directory" in result.output
+
+
+def test_context_search_conversations(tmp_path):
+    """context search-conversations is registered and returns results."""
+    from unittest.mock import patch
+
+    runner = CliRunner()
+    with (
+        patch("gptme.tools.rag._has_gptme_rag", return_value=True),
+        patch(
+            "gptme.tools.rag.rag_search",
+            return_value="snippet from a past conversation",
+        ),
+    ):
+        result = runner.invoke(main, ["context", "search-conversations", "pytest"])
+    assert result.exit_code == 0, result.output
+    assert "Top 3 relevant conversations" in result.output
+
+
+def test_context_search_conversations_top_k(tmp_path):
+    """context search-conversations --top-k option is forwarded correctly."""
+    from unittest.mock import patch
+
+    runner = CliRunner()
+    with (
+        patch("gptme.tools.rag._has_gptme_rag", return_value=True),
+        patch(
+            "gptme.tools.rag.rag_search",
+            return_value="snippet from a past conversation",
+        ) as mock_search,
+    ):
+        result = runner.invoke(
+            main, ["context", "search-conversations", "--top-k", "5", "pytest"]
+        )
+    assert result.exit_code == 0, result.output
+    assert "Top 5 relevant conversations" in result.output
+    mock_search.assert_called_once_with("pytest", return_full=True, top_k=5)

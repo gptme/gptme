@@ -1824,7 +1824,10 @@ def test_check_workspace_config_no_gptme_toml(tmp_path):
 
 def test_check_workspace_config_with_gptme_toml(tmp_path):
     """Returns a hint Message when gptme.toml exists in the current directory."""
-    from gptme.tools.shell import _check_workspace_config
+    from gptme.tools.shell import _check_workspace_config, _hinted_workspaces
+
+    # Ensure clean state for isolation
+    _hinted_workspaces.discard(str(tmp_path.resolve()))
 
     (tmp_path / "gptme.toml").write_text("[gptme]\n")
 
@@ -1843,7 +1846,7 @@ def test_check_workspace_config_with_gptme_toml(tmp_path):
 
 def test_check_workspace_config_hint_includes_workspace_name(tmp_path):
     """The suggestion uses the workspace directory name as the agent_id."""
-    from gptme.tools.shell import _check_workspace_config
+    from gptme.tools.shell import _check_workspace_config, _hinted_workspaces
 
     workspace = tmp_path / "my-project"
     workspace.mkdir()
@@ -1852,11 +1855,33 @@ def test_check_workspace_config_hint_includes_workspace_name(tmp_path):
     original_cwd = os.getcwd()
     try:
         os.chdir(workspace)
+        _hinted_workspaces.discard(str(workspace.resolve()))
         result = _check_workspace_config()
         assert result is not None
         assert "my-project" in result.content
     finally:
         os.chdir(original_cwd)
+
+
+def test_check_workspace_config_hints_only_once_per_workspace(tmp_path):
+    """The hint fires once per workspace per session, not on every cd."""
+    from gptme.tools.shell import _check_workspace_config, _hinted_workspaces
+
+    (tmp_path / "gptme.toml").write_text("[gptme]\n")
+
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(tmp_path)
+        _hinted_workspaces.discard(str(tmp_path.resolve()))
+
+        first = _check_workspace_config()
+        assert first is not None  # first cd into workspace → hint
+
+        second = _check_workspace_config()
+        assert second is None  # subsequent cd into same workspace → no hint
+    finally:
+        os.chdir(original_cwd)
+        _hinted_workspaces.discard(str(tmp_path.resolve()))
 
 
 def test_shell_bare_cd_updates_working_directory(tmp_path):
