@@ -5,6 +5,7 @@ import os
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from click.testing import CliRunner
@@ -383,7 +384,11 @@ def test_tools_list(mocker):
     """Test the tools list command."""
     import json
 
-    runner = CliRunner()
+    runner_cls: Any = CliRunner
+    try:
+        runner = runner_cls(mix_stderr=False)
+    except TypeError:
+        runner = runner_cls()
 
     mocker.patch("gptme.tools.browser.browser", "playwright")
 
@@ -392,6 +397,7 @@ def test_tools_list(mocker):
     assert "Available tools" in result.output
     assert result.exit_code == 0
     assert "Using browser tool with" not in result.output
+    assert "Failed to register hook" not in getattr(result, "stderr", "")
 
     # Test langtags
     result = runner.invoke(main, ["tools", "list", "--langtags"])

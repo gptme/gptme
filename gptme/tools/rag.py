@@ -389,7 +389,7 @@ tool = ToolSpec(
     available=_has_gptme_rag,
     init=init,
     hooks={
-        "rag_context": ("generation_pre", _rag_context_hook, 0),
+        "rag_context": ("generation.pre", _rag_context_hook, 0),
     },
 )
 
