@@ -298,7 +298,7 @@ def _log_responses_reasoning(item: Any) -> None:
         part.text if hasattr(part, "text") else part.get("text", "") for part in summary
     ).strip()
     if summary_text:
-        logger.info("Reasoning content: %s", summary_text)
+        logger.debug("Reasoning content: %s", summary_text)
         return
 
     content = _obj_get(item, "content") or []
@@ -306,7 +306,7 @@ def _log_responses_reasoning(item: Any) -> None:
         part.text if hasattr(part, "text") else part.get("text", "") for part in content
     ).strip()
     if content_text:
-        logger.info("Reasoning content: %s", content_text)
+        logger.debug("Reasoning content: %s", content_text)
 
 
 def _init_openai_client(
@@ -948,7 +948,7 @@ def chat(
             getattr(choice.message, "reasoning_content", None)
             or getattr(choice.message, "reasoning", None)
         ):
-            logger.info("Reasoning content: %s", reasoning_content)
+            logger.debug("Reasoning content: %s", reasoning_content)
         if choice.message.content:
             result.append(choice.message.content)
 
