@@ -248,3 +248,106 @@ Execute Python code interactively.
     lesson_msg = updated[1]
     assert "Python REPL Skill" in lesson_msg.content
     assert "Execute Python code interactively." in lesson_msg.content
+
+
+# --- Randomized lesson dropout (causal LOO measurement) ---
+
+from gptme.lessons.auto_include import (
+    _apply_lesson_dropout,
+    _get_dropout_epsilon,
+    _get_dropout_log_dir,
+    _get_dropout_session_id,
+)
+
+
+def test_dropout_epsilon_unset_is_zero(monkeypatch):
+    monkeypatch.delenv("LESSON_DROPOUT_EPSILON", raising=False)
+    assert _get_dropout_epsilon() == 0.0
+
+
+def test_dropout_epsilon_parses_and_clamps(monkeypatch):
+    monkeypatch.setenv("LESSON_DROPOUT_EPSILON", "0.25")
+    assert _get_dropout_epsilon() == 0.25
+    monkeypatch.setenv("LESSON_DROPOUT_EPSILON", "2.5")
+    assert _get_dropout_epsilon() == 1.0
+    monkeypatch.setenv("LESSON_DROPOUT_EPSILON", "0")
+    assert _get_dropout_epsilon() == 0.0
+    monkeypatch.setenv("LESSON_DROPOUT_EPSILON", "-0.3")
+    assert _get_dropout_epsilon() == 0.0
+    monkeypatch.setenv("LESSON_DROPOUT_EPSILON", "not-a-number")
+    assert _get_dropout_epsilon() == 0.0
+
+
+def test_dropout_session_id_prefers_env(monkeypatch):
+    monkeypatch.setenv("GPTME_SESSION_ID", "sess-123")
+    monkeypatch.delenv("CC_SESSION_ID", raising=False)
+    assert _get_dropout_session_id() == "sess-123"
+    monkeypatch.delenv("GPTME_SESSION_ID", raising=False)
+    monkeypatch.setenv("CC_SESSION_ID", "cc-456")
+    assert _get_dropout_session_id() == "cc-456"
+    monkeypatch.delenv("CC_SESSION_ID", raising=False)
+    # Falls back to a generated id (non-empty)
+    assert _get_dropout_session_id()
+
+
+def test_dropout_disabled_is_noop(monkeypatch, tmp_path):
+    monkeypatch.delenv("LESSON_DROPOUT_EPSILON", raising=False)
+    monkeypatch.setenv("LESSON_DROPOUT_LOG_DIR", str(tmp_path / "drop"))
+    matches = [_MockMatch(_make_lesson("A", "body", "/tmp/a.md"))]
+    result = _apply_lesson_dropout(matches)
+    assert result == matches
+    assert not (tmp_path / "drop").exists()  # nothing written
+
+
+def test_dropout_epsilon_one_withholds_all_and_logs(monkeypatch, tmp_path):
+    log_dir = tmp_path / "drop"
+    monkeypatch.setenv("LESSON_DROPOUT_EPSILON", "1.0")
+    monkeypatch.setenv("LESSON_DROPOUT_LOG_DIR", str(log_dir))
+    monkeypatch.setenv("GPTME_SESSION_ID", "sess-all")
+    monkeypatch.delenv("CC_SESSION_ID", raising=False)
+    matches = [
+        _MockMatch(_make_lesson("A", "abody", "/tmp/a.md")),
+        _MockMatch(_make_lesson("B", "bbody", "/tmp/b.md")),
+    ]
+    result = _apply_lesson_dropout(matches)
+    assert result == []  # all withheld
+
+    log_file = log_dir / "sess-all.jsonl"
+    assert log_file.exists()
+    records = [json.loads(line) for line in log_file.read_text().splitlines() if line]
+    assert len(records) == 1
+    record = records[0]
+    assert record["session_id"] == "sess-all"
+    assert record["epsilon"] == 1.0
+    withheld_paths = {w["path"] for w in record["withheld"]}
+    assert withheld_paths == {"/tmp/a.md", "/tmp/b.md"}
+
+
+def test_dropout_partial_is_consistent(monkeypatch, tmp_path):
+    import random as _random
+
+    log_dir = tmp_path / "drop"
+    monkeypatch.setenv("LESSON_DROPOUT_EPSILON", "0.5")
+    monkeypatch.setenv("LESSON_DROPOUT_LOG_DIR", str(log_dir))
+    monkeypatch.setenv("GPTME_SESSION_ID", "sess-part")
+    monkeypatch.delenv("CC_SESSION_ID", raising=False)
+    matches = [
+        _MockMatch(_make_lesson(f"L{i}", "body", f"/tmp/l{i}.md")) for i in range(20)
+    ]
+    _random.seed(42)
+    kept = _apply_lesson_dropout(matches)
+
+    # The withheld log plus the kept set must reconstruct the original set.
+    log_file = log_dir / "sess-part.jsonl"
+    records = [json.loads(line) for line in log_file.read_text().splitlines() if line]
+    withheld_paths = {w["path"] for r in records for w in r["withheld"]}
+    kept_paths = {str(m.lesson.path) for m in kept}
+    all_paths = {str(m.lesson.path) for m in matches}
+    assert kept_paths.isdisjoint(withheld_paths)
+    assert kept_paths | withheld_paths == all_paths
+    assert 0 < len(withheld_paths) < len(matches)  # genuinely partial
+
+
+def test_dropout_log_dir_default(monkeypatch):
+    monkeypatch.delenv("LESSON_DROPOUT_LOG_DIR", raising=False)
+    assert _get_dropout_log_dir() == Path("state/lesson-dropout")

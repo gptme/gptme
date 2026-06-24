@@ -1,7 +1,12 @@
 """Automatic lesson inclusion based on context."""
 
+import json
 import logging
 import os
+import random
+import time
+import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .index import LessonIndex
@@ -52,6 +57,116 @@ def _estimate_tokens(text: str) -> int:
     enforcement — actual tokenization varies by model.
     """
     return max(1, len(text) // 3)
+
+
+def _get_dropout_epsilon() -> float:
+    """Get the randomized lesson-dropout probability from the environment.
+
+    Controlled by ``LESSON_DROPOUT_EPSILON`` (float in [0, 1]). When > 0, each
+    otherwise-matched lesson is independently withheld with this probability and
+    the withheld set is logged for causal leave-one-out analysis. Default 0.0
+    means no dropout (fully backwards compatible).
+    """
+    raw = os.environ.get("LESSON_DROPOUT_EPSILON")
+    if not raw:
+        return 0.0
+    try:
+        epsilon = float(raw)
+    except (ValueError, TypeError):
+        logger.warning("Invalid LESSON_DROPOUT_EPSILON=%r, ignoring", raw)
+        return 0.0
+    if epsilon <= 0.0:
+        return 0.0
+    if epsilon > 1.0:
+        logger.warning("LESSON_DROPOUT_EPSILON=%s clamped to 1.0", epsilon)
+        return 1.0
+    return epsilon
+
+
+def _get_dropout_session_id() -> str:
+    """Resolve the session id used to correlate dropout logs with outcomes.
+
+    Prefers ``GPTME_SESSION_ID`` / ``CC_SESSION_ID`` (the same id used in lesson
+    trajectory logs) so causal analysis can join withheld lessons to session
+    outcomes. Falls back to a random id when neither is set.
+    """
+    for key in ("GPTME_SESSION_ID", "CC_SESSION_ID"):
+        value = os.environ.get(key)
+        if value:
+            return value
+    return uuid.uuid4().hex
+
+
+def _get_dropout_log_dir() -> Path:
+    """Directory for randomized-dropout logs (``state/lesson-dropout`` default).
+
+    Overridable via ``LESSON_DROPOUT_LOG_DIR``. The default is relative to the
+    current working directory so analysis tooling that reads
+    ``state/lesson-dropout/*.jsonl`` works without extra configuration.
+    """
+    return Path(os.environ.get("LESSON_DROPOUT_LOG_DIR", "state/lesson-dropout"))
+
+
+def _apply_lesson_dropout(matches: list) -> list:
+    """Randomly withhold matched lessons for causal LOO measurement.
+
+    For each match, flips a coin with probability ``LESSON_DROPOUT_EPSILON`` to
+    withhold it. Withheld lessons are logged to
+    ``<log dir>/<session-id>.jsonl`` and removed from the returned list so they
+    are not injected. When epsilon is 0 (default), the input list is returned
+    unchanged and nothing is logged.
+
+    Args:
+        matches: Match results (already truncated to the injection cap).
+
+    Returns:
+        The matches that survived the dropout roll (to be injected).
+    """
+    epsilon = _get_dropout_epsilon()
+    if epsilon <= 0.0 or not matches:
+        return matches
+
+    kept: list = []
+    withheld: list[dict] = []
+    for match in matches:
+        if random.random() < epsilon:
+            lesson = match.lesson
+            withheld.append({"path": str(lesson.path), "title": lesson.title})
+        else:
+            kept.append(match)
+
+    if withheld:
+        _log_dropout(epsilon, withheld)
+
+    return kept
+
+
+def _log_dropout(epsilon: float, withheld: list[dict]) -> None:
+    """Append a randomized-dropout record for causal LOO analysis.
+
+    Failures are logged and swallowed — dropout logging must never break lesson
+    injection.
+    """
+    try:
+        session_id = _get_dropout_session_id()
+        log_dir = _get_dropout_log_dir()
+        log_dir.mkdir(parents=True, exist_ok=True)
+        record = {
+            "ts": time.time(),
+            "session_id": session_id,
+            "epsilon": epsilon,
+            "withheld": withheld,
+        }
+        with open(log_dir / f"{session_id}.jsonl", "a") as f:
+            f.write(json.dumps(record) + "\n")
+        logger.debug(
+            "Lesson dropout: withheld %d lesson(s) at epsilon=%s (session %s)",
+            len(withheld),
+            epsilon,
+            session_id,
+        )
+    except Exception as e:
+        logger.warning("Failed to log lesson dropout: %s", e)
 
 
 def auto_include_lessons(
@@ -125,6 +240,14 @@ def auto_include_lessons(
 
         # Limit to top N (matcher may already limit, but ensure it)
         matches = matches[:max_lessons]
+
+        # Optionally withhold a random subset for causal LOO measurement.
+        # No-op unless LESSON_DROPOUT_EPSILON > 0.
+        matches = _apply_lesson_dropout(matches)
+        if not matches:
+            logger.debug("All matched lessons withheld by dropout")
+            return messages
+
         for match in matches:
             if match.lesson.is_stub:
                 match.lesson = index.materialize_lesson(match.lesson)
