@@ -689,7 +689,9 @@ def test_chat_uses_responses_api_for_gpt5_by_default(monkeypatch):
         None,
     )
 
-    assert result == "Hello from Responses"
+    # Reasoning summary is embedded as a <think> block, consistent with the
+    # streaming path and the Anthropic provider (instead of being dropped).
+    assert result == "<think>\nNeed no extra tools.\n</think>\nHello from Responses"
     assert metadata is not None
     assert metadata["usage"]["input_tokens"] == 100
     assert metadata["usage"]["output_tokens"] == 30
@@ -733,6 +735,59 @@ def test_chat_responses_api_formats_function_calls(monkeypatch):
     assert metadata is None
     responses_create.assert_called_once()
     mock_client.chat.completions.create.assert_not_called()
+
+
+def test_chat_completions_embeds_reasoning_content(monkeypatch):
+    """Chat Completions reasoning (DeepSeek/OpenRouter) is embedded, not dropped.
+
+    Keeps the non-streaming path consistent with ``stream()`` and Anthropic,
+    which both surface reasoning as a ``<think>`` block instead of discarding it.
+    """
+    completion = SimpleNamespace(
+        usage=None,
+        choices=[
+            SimpleNamespace(
+                finish_reason="stop",
+                message=SimpleNamespace(
+                    content="The answer is 4.",
+                    tool_calls=None,
+                    reasoning_content="Adding 2 and 2 gives 4.",
+                ),
+            )
+        ],
+    )
+    completions_create = Mock(return_value=completion)
+    mock_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=completions_create))
+    )
+
+    monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+    monkeypatch.setattr(llm_openai, "_should_use_responses_api", lambda *args: False)
+
+    result, _ = llm_openai.chat(
+        [Message(role="user", content="What is 2+2?")],
+        "openai/gpt-4o",
+        None,
+    )
+
+    assert result == "<think>\nAdding 2 and 2 gives 4.\n</think>\nThe answer is 4."
+
+
+def test_extract_responses_reasoning_prefers_summary_over_content():
+    item = SimpleNamespace(
+        summary=[SimpleNamespace(text="short summary")],
+        content=[SimpleNamespace(text="full reasoning")],
+    )
+    assert llm_openai._extract_responses_reasoning(item) == "short summary"
+
+
+def test_extract_responses_reasoning_falls_back_to_content():
+    item = SimpleNamespace(
+        summary=[],
+        content=[SimpleNamespace(text="full reasoning")],
+    )
+    assert llm_openai._extract_responses_reasoning(item) == "full reasoning"
 
 
 def test_content_to_responses_input_preserves_images():

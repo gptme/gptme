@@ -292,21 +292,26 @@ def _prepare_messages_for_responses_api(
     return instructions, input_items, responses_tools
 
 
-def _log_responses_reasoning(item: Any) -> None:
+def _extract_responses_reasoning(item: Any) -> str:
+    """Extract reasoning text from a Responses API ``reasoning`` output item.
+
+    Prefers the ``summary`` over the raw ``content``. Returns an empty string
+    when no reasoning text is present. The caller logs it and embeds it in the
+    response as a ``<think>`` block so the non-streaming path is consistent with
+    ``stream()`` and the Anthropic provider, which both preserve reasoning.
+    """
     summary = _obj_get(item, "summary") or []
     summary_text = "\n".join(
         part.text if hasattr(part, "text") else part.get("text", "") for part in summary
     ).strip()
     if summary_text:
-        logger.debug("Reasoning content: %s", summary_text)
-        return
+        return summary_text
 
     content = _obj_get(item, "content") or []
     content_text = "\n".join(
         part.text if hasattr(part, "text") else part.get("text", "") for part in content
     ).strip()
-    if content_text:
-        logger.debug("Reasoning content: %s", content_text)
+    return content_text
 
 
 def _init_openai_client(
@@ -886,7 +891,9 @@ def chat(
         for item in response.output:
             item_type = _obj_get(item, "type")
             if item_type == "reasoning":
-                _log_responses_reasoning(item)
+                if reasoning_text := _extract_responses_reasoning(item):
+                    logger.debug("Reasoning content: %s", reasoning_text)
+                    result.append(f"<think>\n{reasoning_text}\n</think>")
             elif item_type == "function_call":
                 name = _obj_get(item, "name", "").strip()
                 call_id = _obj_get(item, "call_id", "").strip()
@@ -949,6 +956,7 @@ def chat(
             or getattr(choice.message, "reasoning", None)
         ):
             logger.debug("Reasoning content: %s", reasoning_content)
+            result.append(f"<think>\n{reasoning_content}\n</think>")
         if choice.message.content:
             result.append(choice.message.content)
 
