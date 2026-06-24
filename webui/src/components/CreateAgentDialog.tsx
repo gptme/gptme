@@ -12,15 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import {
-  Bot,
-  GitBranch,
-  FolderOpen,
-  Settings,
-  ChevronDown,
-  ChevronRight,
-  User,
-} from 'lucide-react';
+import { Bot, GitBranch, FolderOpen, Settings, ChevronDown, ChevronRight } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import {
   Form,
@@ -45,9 +37,6 @@ export interface CreateAgentRequest {
   path?: string; // Now optional - auto-generated if not provided
   fork_command: string;
   project_config?: Record<string, unknown>;
-  // Persona fields (flattened for form use; serialized into project_config on submit)
-  about_agent?: string;
-  response_preference?: string;
 }
 
 export interface CreateAgentResponse {
@@ -76,8 +65,6 @@ const CreateAgentDialog: FC<Props> = ({ open, onOpenChange, onAgentCreated }) =>
       template_repo: 'https://github.com/gptme/gptme-agent-template',
       template_branch: 'master',
       fork_command: '',
-      about_agent: '',
-      response_preference: '',
     },
   });
 
@@ -94,22 +81,6 @@ const CreateAgentDialog: FC<Props> = ({ open, onOpenChange, onAgentCreated }) =>
     if (!processedData.fork_command.trim()) {
       processedData.fork_command = `./scripts/fork.sh {path} {name}`;
     }
-
-    // Serialize persona fields into project_config.prompt
-    if (processedData.about_agent?.trim() || processedData.response_preference?.trim()) {
-      processedData.project_config = {
-        ...processedData.project_config,
-        prompt: {
-          ...(processedData.project_config?.prompt as Record<string, unknown> | undefined),
-          ...(processedData.about_agent?.trim() && { about_user: processedData.about_agent }),
-          ...(processedData.response_preference?.trim() && {
-            response_preference: processedData.response_preference,
-          }),
-        },
-      };
-    }
-    delete processedData.about_agent;
-    delete processedData.response_preference;
 
     setIsLoading(true);
     try {
@@ -191,66 +162,6 @@ const CreateAgentDialog: FC<Props> = ({ open, onOpenChange, onAgentCreated }) =>
                 </FormItem>
               )}
             />
-
-            {/* Persona */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <User className="h-4 w-4" />
-                  Persona (Optional)
-                </CardTitle>
-                <CardDescription>
-                  Describe who this agent is and how it communicates. Leave blank to use the
-                  template defaults or the persona already defined in the workspace repo.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="about_agent"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>About the Agent</FormLabel>
-                      <FormControl>
-                        <Textarea
-                          placeholder="e.g. Alice is a software engineer who specialises in backend systems..."
-                          {...field}
-                          disabled={isLoading}
-                          rows={3}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        Who is this agent? This is injected into the system prompt as{' '}
-                        <code>about_user</code>.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="response_preference"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Response Preference</FormLabel>
-                      <FormControl>
-                        <Textarea
-                          placeholder="e.g. Be concise. Prefer code over prose. Use British English."
-                          {...field}
-                          disabled={isLoading}
-                          rows={2}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        How should the agent communicate? Injected as{' '}
-                        <code>response_preference</code>.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </CardContent>
-            </Card>
 
             {/* Advanced Options */}
             <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
