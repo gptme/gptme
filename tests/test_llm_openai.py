@@ -689,7 +689,9 @@ def test_chat_uses_responses_api_for_gpt5_by_default(monkeypatch):
         None,
     )
 
-    assert result == "Hello from Responses"
+    # Reasoning summary is embedded as a <think> block (consistent with the
+    # streaming path) rather than silently dropped.
+    assert result == "<think>\nNeed no extra tools.\n</think>\n\nHello from Responses"
     assert metadata is not None
     assert metadata["usage"]["input_tokens"] == 100
     assert metadata["usage"]["output_tokens"] == 30
@@ -700,6 +702,45 @@ def test_chat_uses_responses_api_for_gpt5_by_default(monkeypatch):
     assert kwargs["input"] == [{"role": "user", "content": "Say hello."}]
     assert kwargs["store"] is False
     mock_client.chat.completions.create.assert_not_called()
+
+
+def test_chat_completions_embeds_reasoning_content(monkeypatch):
+    """Non-streaming Chat Completions wraps reasoning_content in a <think> block.
+
+    Keeps the non-streaming path consistent with the streaming path (which
+    already embeds reasoning into the output) instead of silently dropping it.
+    """
+    fake_message = SimpleNamespace(
+        content="The answer is 42.",
+        reasoning_content="Let me think about this carefully.",
+        tool_calls=None,
+    )
+    fake_response = SimpleNamespace(
+        choices=[SimpleNamespace(finish_reason="stop", message=fake_message)],
+        usage=None,
+    )
+    completions_create = Mock(return_value=fake_response)
+    mock_client = SimpleNamespace(
+        responses=SimpleNamespace(create=Mock()),
+        chat=SimpleNamespace(completions=SimpleNamespace(create=completions_create)),
+    )
+
+    monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+
+    # gpt-4o does not use the Responses API → Chat Completions path
+    result, metadata = llm_openai.chat(
+        [Message(role="user", content="What is the answer?")],
+        "openai/gpt-4o",
+        None,
+    )
+
+    assert result == (
+        "<think>\nLet me think about this carefully.\n</think>\n\nThe answer is 42."
+    )
+    assert metadata is None
+    completions_create.assert_called_once()
+    mock_client.responses.create.assert_not_called()
 
 
 def test_chat_responses_api_formats_function_calls(monkeypatch):

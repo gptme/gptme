@@ -292,14 +292,22 @@ def _prepare_messages_for_responses_api(
     return instructions, input_items, responses_tools
 
 
-def _log_responses_reasoning(item: Any) -> None:
+def _extract_responses_reasoning(item: Any) -> str:
+    """Extract reasoning summary/content text from a Responses API reasoning item.
+
+    Returns the reasoning text (preferring ``summary`` over ``content``), logging
+    it at DEBUG. Returns an empty string when no reasoning text is present. The
+    caller is responsible for wrapping the text in ``<think>`` tags so that the
+    non-streaming path stays consistent with the streaming path, which already
+    embeds reasoning content into the output stream.
+    """
     summary = _obj_get(item, "summary") or []
     summary_text = "\n".join(
         part.text if hasattr(part, "text") else part.get("text", "") for part in summary
     ).strip()
     if summary_text:
         logger.debug("Reasoning content: %s", summary_text)
-        return
+        return summary_text
 
     content = _obj_get(item, "content") or []
     content_text = "\n".join(
@@ -307,6 +315,7 @@ def _log_responses_reasoning(item: Any) -> None:
     ).strip()
     if content_text:
         logger.debug("Reasoning content: %s", content_text)
+    return content_text
 
 
 def _init_openai_client(
@@ -886,7 +895,8 @@ def chat(
         for item in response.output:
             item_type = _obj_get(item, "type")
             if item_type == "reasoning":
-                _log_responses_reasoning(item)
+                if reasoning_text := _extract_responses_reasoning(item):
+                    result.append(f"<think>\n{reasoning_text}\n</think>\n")
             elif item_type == "function_call":
                 name = _obj_get(item, "name", "").strip()
                 call_id = _obj_get(item, "call_id", "").strip()
@@ -949,6 +959,10 @@ def chat(
             or getattr(choice.message, "reasoning", None)
         ):
             logger.debug("Reasoning content: %s", reasoning_content)
+            # Embed reasoning as a <think> block so the non-streaming path stays
+            # consistent with the streaming path (which already wraps reasoning
+            # content in <think> tags) instead of silently dropping it.
+            result.append(f"<think>\n{reasoning_content}\n</think>\n")
         if choice.message.content:
             result.append(choice.message.content)
 
