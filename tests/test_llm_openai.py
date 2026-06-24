@@ -689,7 +689,8 @@ def test_chat_uses_responses_api_for_gpt5_by_default(monkeypatch):
         None,
     )
 
-    assert result == "Hello from Responses"
+    # Reasoning is preserved in <think> tags, consistent with the streaming path
+    assert result == "<think>\nNeed no extra tools.\n</think>\nHello from Responses"
     assert metadata is not None
     assert metadata["usage"]["input_tokens"] == 100
     assert metadata["usage"]["output_tokens"] == 30
@@ -733,6 +734,48 @@ def test_chat_responses_api_formats_function_calls(monkeypatch):
     assert metadata is None
     responses_create.assert_called_once()
     mock_client.chat.completions.create.assert_not_called()
+
+
+def test_chat_completions_preserves_reasoning_in_think_tags(monkeypatch):
+    """Non-streaming Chat Completions preserves reasoning_content in <think> tags.
+
+    Mirrors the streaming path (delta.reasoning_content -> <think>) and Anthropic,
+    so reasoning survives in conversation history instead of being silently dropped.
+    """
+    fake_response = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                finish_reason="stop",
+                message=SimpleNamespace(
+                    content="Hi there!",
+                    reasoning_content="The user greeted me, I should greet back.",
+                    tool_calls=None,
+                ),
+            )
+        ],
+        usage=None,
+    )
+    completions_create = Mock(return_value=fake_response)
+    mock_client = SimpleNamespace(
+        responses=SimpleNamespace(create=Mock()),
+        chat=SimpleNamespace(completions=SimpleNamespace(create=completions_create)),
+    )
+
+    monkeypatch.setattr(llm_openai, "get_client", lambda provider: mock_client)
+    monkeypatch.setattr(llm_openai, "_is_proxy", lambda client: False)
+    monkeypatch.setattr(llm_openai, "_should_use_responses_api", lambda *a, **k: False)
+
+    result, _ = llm_openai.chat(
+        [Message(role="user", content="Hello")],
+        "openai/gpt-4o",
+        None,
+    )
+
+    assert (
+        result
+        == "<think>\nThe user greeted me, I should greet back.\n</think>\nHi there!"
+    )
+    completions_create.assert_called_once()
 
 
 def test_content_to_responses_input_preserves_images():
