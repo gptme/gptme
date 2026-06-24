@@ -106,6 +106,7 @@ def test_verify_role_dispatches_subprocess_isolated(planner_env):
 
     planner_env["subprocess_spawn"].assert_called_once()
     planner_env["create_thread"].assert_not_called()
+    planner_env["monitor"].assert_called_once()
 
     sa = next(s for s in _registered() if s.agent_id == "planner-v-t1")
     assert sa.execution_mode == "subprocess"
@@ -146,6 +147,7 @@ def test_implement_role_dispatches_thread(planner_env):
     sa = next(s for s in _registered() if s.agent_id == "planner-i-t1")
     assert sa.execution_mode == "thread"
     assert sa.isolated is False
+    assert sa.profile == "developer"
 
 
 def test_no_role_defaults_to_thread(planner_env):
