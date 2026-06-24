@@ -8,7 +8,7 @@ with the computer and browser tools.
 Install the required system tools before using computer control:
 
 ```bash
-# Check what's missing (gptme-doctor handles this automatically)
+# Check what's missing and see fix suggestions
 gptme-doctor
 
 # Linux/X11
@@ -17,7 +17,7 @@ sudo apt install xdotool scrot
 
 # macOS
 brew install cliclick
-# Then grant your terminal Screen Recording + Accessibility permissions in System Preferences
+# Then grant your terminal Screen Recording + Accessibility permissions in System Settings (macOS Ventura+) or System Preferences (older macOS)
 ```
 
 For headless Linux environments, start an Xvfb display first:
