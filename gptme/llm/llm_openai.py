@@ -956,7 +956,7 @@ def chat(
             or getattr(choice.message, "reasoning", None)
         ):
             logger.debug("Reasoning content: %s", reasoning_content)
-            result.append(f"<think>\n{reasoning_content}\n</think>")
+            result.append(f"<think>\n{reasoning_content}\n</think>\n")
         if choice.message.content:
             result.append(choice.message.content)
 

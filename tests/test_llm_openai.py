@@ -771,7 +771,7 @@ def test_chat_completions_embeds_reasoning_content(monkeypatch):
         None,
     )
 
-    assert result == "<think>\nAdding 2 and 2 gives 4.\n</think>\nThe answer is 4."
+    assert result == "<think>\nAdding 2 and 2 gives 4.\n</think>\n\nThe answer is 4."
 
 
 def test_extract_responses_reasoning_prefers_summary_over_content():
