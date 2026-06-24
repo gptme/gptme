@@ -362,13 +362,33 @@ def test_dropout_empty_matches_still_logs_when_epsilon_positive(monkeypatch, tmp
     monkeypatch.setenv("GPTME_SESSION_ID", "sess-empty")
     monkeypatch.delenv("CC_SESSION_ID", raising=False)
 
+    # Ensure LessonIndex returns at least one lesson so the early-return guard
+    # at "if not index.lessons" does not fire before _apply_lesson_dropout.
+    import gptme.lessons.index as index_module
+
+    class FakeLesson:
+        path = "test.md"
+        title = "Test Lesson"
+        category = "test"
+        body = "Some content"
+        is_stub = False
+        match_strength = 1
+
+    class FakeIndex:
+        lessons = [FakeLesson()]
+        def materialize_lesson(self, _lesson):
+            return _lesson
+
+    monkeypatch.setattr(index_module, "LessonIndex", lambda: FakeIndex())
+
     # Make the matcher return no matches
     import gptme.lessons.matcher as matcher_module
 
-    def empty_match(self, index, context):
-        return []
-
-    monkeypatch.setattr(matcher_module.LessonMatcher, "match", empty_match)
+    monkeypatch.setattr(
+        matcher_module.LessonMatcher,
+        "match",
+        lambda self, index, context: [],
+    )
 
     messages = [
         Message("system", "System prompt"),
