@@ -119,6 +119,18 @@ Assistant: I'll use subprocess mode for better output isolation.
     }
 System: Subagent started in subprocess mode.
 
+### Workspace-Aware Subagent (explicit workdir)
+User: I just cd'd into /path/to/project which has a gptme.toml — spawn a subagent there
+Assistant: I'll use workdir to make the subagent operate in that workspace and load its config.
+{
+        ToolUse(
+            "ipython",
+            [],
+            'subagent("project", "Add feature X", workdir="/path/to/project", use_subprocess=True)',
+        ).to_output(tool_format)
+    }
+System: Subagent started in subprocess mode (workdir=/path/to/project).
+
 ### ACP Mode (multi-harness support)
 User: delegate this task to a Claude Code agent
 Assistant: I'll use ACP mode to run this via a different agent harness.
@@ -262,6 +274,7 @@ Key features:
 - use_acp=True: Run subagent via ACP protocol (supports any ACP-compatible agent)
 - acp_command="claude-code-acp": Use a different ACP agent (default: gptme-acp)
 - isolated=True: Run subagent in a git worktree for filesystem isolation
+- workdir="/path/to/dir": Set the working directory for the subagent (defaults to cwd)
 - redact_secrets=True (default): Redact API keys, tokens, and passwords from workspace context
 - context_window=0: Minimal context — only agent identity + tools, no workspace files (strongest isolation)
 - context_window=N: Limit workspace context to at most N messages

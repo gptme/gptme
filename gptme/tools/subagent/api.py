@@ -53,6 +53,7 @@ def subagent(
     role: Role | None = None,
     redact_secrets: bool = True,
     context_window: int | None = None,
+    workdir: str | Path | None = None,
 ):
     """Starts an asynchronous subagent. Returns None immediately.
 
@@ -146,6 +147,23 @@ def subagent(
 
             Only applies to thread-mode subagents; has no effect in subprocess
             or ACP modes (which build their own context as a separate process).
+        workdir: Working directory for the subagent. Defaults to the current
+            working directory (``Path.cwd()``) when ``None``.
+
+            Use this when you want the subagent to operate in a specific
+            directory — for example, when a ``cd`` into a project with a
+            ``gptme.toml`` triggers workspace detection and you want the
+            subagent to load that workspace's config:
+
+            .. code-block:: python
+
+                subagent("impl", "Add feature X", workdir="/path/to/project",
+                         use_subprocess=True)
+
+            In subprocess mode the subagent process starts with this as its
+            ``cwd``, so it picks up the ``gptme.toml`` from that directory.
+            In thread mode the workspace context (files, ``context_cmd``) is
+            loaded relative to this path.
 
     Returns:
         None: Starts asynchronous execution.
@@ -251,12 +269,18 @@ def subagent(
     name = f"subagent-{agent_id}"
     logdir = get_logdir(name + "-" + random_string(4))
 
-    # Get workspace, handling case where cwd was deleted (e.g., in tests)
-    try:
-        workspace = Path.cwd()
-    except FileNotFoundError:
-        # Fallback to logdir's parent if cwd doesn't exist
-        workspace = logdir.parent
+    # Resolve workspace: explicit workdir > current working directory
+    if workdir is not None:
+        workspace = Path(workdir).resolve()
+        if not workspace.exists():
+            raise ValueError(f"workdir does not exist: {workspace}")
+    else:
+        # Get workspace, handling case where cwd was deleted (e.g., in tests)
+        try:
+            workspace = Path.cwd()
+        except FileNotFoundError:
+            # Fallback to logdir's parent if cwd doesn't exist
+            workspace = logdir.parent
 
     # Set up worktree isolation if requested
     worktree_path: Path | None = None
