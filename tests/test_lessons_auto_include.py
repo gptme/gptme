@@ -351,3 +351,41 @@ def test_dropout_partial_is_consistent(monkeypatch, tmp_path):
 def test_dropout_log_dir_default(monkeypatch):
     monkeypatch.delenv("LESSON_DROPOUT_LOG_DIR", raising=False)
     assert _get_dropout_log_dir() == Path("state/lesson-dropout")
+
+
+def test_dropout_empty_matches_still_logs_when_epsilon_positive(monkeypatch, tmp_path):
+    """When epsilon>0 and no lessons match, a dropout log record must still be written
+    so the analysis script can identify treatment-group sessions."""
+    log_dir = tmp_path / "drop"
+    monkeypatch.setenv("LESSON_DROPOUT_EPSILON", "0.25")
+    monkeypatch.setenv("LESSON_DROPOUT_LOG_DIR", str(log_dir))
+    monkeypatch.setenv("GPTME_SESSION_ID", "sess-empty")
+    monkeypatch.delenv("CC_SESSION_ID", raising=False)
+
+    # Make the matcher return no matches
+    import gptme.lessons.matcher as matcher_module
+
+    def empty_match(self, index, context):
+        return []
+
+    monkeypatch.setattr(matcher_module.LessonMatcher, "match", empty_match)
+
+    messages = [
+        Message("system", "System prompt"),
+        Message("user", "Something that won't match any lesson"),
+    ]
+    result = auto_include_lessons(messages)
+
+    # No lessons should be injected
+    assert len(result) == 2  # unchanged
+
+    # But a dropout log record MUST exist
+    log_file = log_dir / "sess-empty.jsonl"
+    assert log_file.exists(), (
+        "No dropout log written when epsilon>0 and match list is empty"
+    )
+    records = [json.loads(line) for line in log_file.read_text().splitlines() if line]
+    assert len(records) == 1
+    assert records[0]["session_id"] == "sess-empty"
+    assert records[0]["epsilon"] == 0.25
+    assert records[0]["withheld"] == []  # empty withheld list

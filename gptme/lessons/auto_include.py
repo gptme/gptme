@@ -235,10 +235,6 @@ def auto_include_lessons(
 
         matches = matcher.match(index.lessons, context)
 
-        if not matches:
-            logger.debug("No matching lessons found")
-            return messages
-
         # Limit to top N (matcher may already limit, but ensure it)
         matches = matches[:max_lessons]
 
@@ -246,7 +242,7 @@ def auto_include_lessons(
         # No-op unless LESSON_DROPOUT_EPSILON > 0.
         matches = _apply_lesson_dropout(matches)
         if not matches:
-            logger.debug("All matched lessons withheld by dropout")
+            logger.debug("No matching lessons found (or all withheld by dropout)")
             return messages
 
         for match in matches:
