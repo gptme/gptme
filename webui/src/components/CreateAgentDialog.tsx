@@ -76,6 +76,8 @@ const CreateAgentDialog: FC<Props> = ({ open, onOpenChange, onAgentCreated }) =>
       template_repo: 'https://github.com/gptme/gptme-agent-template',
       template_branch: 'master',
       fork_command: '',
+      about_agent: '',
+      response_preference: '',
     },
   });
 
@@ -375,7 +377,7 @@ const CreateAgentDialog: FC<Props> = ({ open, onOpenChange, onAgentCreated }) =>
                           <FormLabel>Fork Command</FormLabel>
                           <FormControl>
                             <Textarea
-                              placeholder="./scripts/fork.sh <workspace-path> <agent-name>"
+                              placeholder="./scripts/fork.sh {path} {name}"
                               {...field}
                               disabled={isLoading}
                               rows={3}
