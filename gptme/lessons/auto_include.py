@@ -114,7 +114,9 @@ def _apply_lesson_dropout(matches: list) -> list:
     withhold it. Withheld lessons are logged to
     ``<log dir>/<session-id>.jsonl`` and removed from the returned list so they
     are not injected. When epsilon is 0 (default), the input list is returned
-    unchanged and nothing is logged.
+    unchanged and nothing is logged. When epsilon is > 0, a log record is
+    always written (even if no lessons were withheld), so analysis can
+    distinguish treatment-group sessions from control.
 
     Args:
         matches: Match results (already truncated to the injection cap).
@@ -123,7 +125,7 @@ def _apply_lesson_dropout(matches: list) -> list:
         The matches that survived the dropout roll (to be injected).
     """
     epsilon = _get_dropout_epsilon()
-    if epsilon <= 0.0 or not matches:
+    if epsilon <= 0.0:
         return matches
 
     kept: list = []
@@ -135,8 +137,7 @@ def _apply_lesson_dropout(matches: list) -> list:
         else:
             kept.append(match)
 
-    if withheld:
-        _log_dropout(epsilon, withheld)
+    _log_dropout(epsilon, withheld)
 
     return kept
 
