@@ -54,6 +54,37 @@ def test_get_tokenizer_gpt4o():
     assert enc2.name == "o200k_base"
 
 
+def test_get_tokenizer_provider_prefixed_o1():
+    """Provider-prefixed models that need prefix stripping get correct tokenizer.
+
+    Regression: openai/o1 should resolve to o200k_base (not cl100k_base),
+    which requires stripping the "openai/" prefix before passing to
+    tiktoken.encoding_for_model, since tiktoken doesn't know the "openai/"
+    prefix.
+    """
+    from gptme.util.tokens import get_tokenizer
+
+    enc = get_tokenizer("openai/o1")
+    assert enc is not None
+    assert enc.name == "o200k_base"
+
+    # gpt-4o-mini with prefix should also resolve correctly (handled by
+    # the "gpt-4o" fast-path, but verify anyway)
+    enc = get_tokenizer("openai/gpt-4o-mini")
+    assert enc is not None
+    assert enc.name == "o200k_base"
+
+    # gpt-4 with prefix should resolve to cl100k_base correctly
+    enc = get_tokenizer("openai/gpt-4")
+    assert enc is not None
+    assert enc.name == "cl100k_base"
+
+    # Unknown model with prefix should fall back to cl100k_base
+    enc = get_tokenizer("openai/totally-unknown-model-xyz")
+    assert enc is not None
+    assert enc.name == "cl100k_base"
+
+
 def test_get_tokenizer_unknown_model():
     """Unknown models fall back to cl100k_base."""
     from gptme.util.tokens import get_tokenizer

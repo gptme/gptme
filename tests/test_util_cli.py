@@ -44,6 +44,13 @@ def test_tokens_count(tmp_path):
     assert "Token count" in result.output
     assert int(result.output.split(": ", 1)[1].strip()) > 0
 
+    # Provider-prefixed models needing prefix-strip (e.g. openai/o1) should
+    # get the correct encoding (o200k_base), not fall back to cl100k_base.
+    result = runner.invoke(main, ["tokens", "count", "--model", "openai/o1", "test"])
+    assert result.exit_code == 0
+    assert "Token count" in result.output
+    assert int(result.output.split(": ", 1)[1].strip()) > 0
+
     # Test file input
     tmp_file = Path(tmp_path) / "test.txt"
     tmp_file.write_text("Hello from file!")

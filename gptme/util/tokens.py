@@ -34,8 +34,20 @@ def get_tokenizer(model: str) -> "tiktoken.Encoding | None":
         return None
 
     try:
+        # Fast-path for known o200k_base models (handles provider-prefixed
+        # variants like "openai/gpt-4o" without needing a prefix strip for
+        # these specific models).
         if "gpt-4o" in model:
             return tiktoken.get_encoding("o200k_base")
+
+        # Strip known provider prefixes so tiktoken.encoding_for_model can
+        # match the bare model name (e.g. "openai/o1" → "o1", which tiktoken
+        # knows uses o200k_base; "openai/gpt-4" → "gpt-4" → cl100k_base).
+        _provider_prefixes = ["openai/", "anthropic/", "google/", "azure/", "vertex/"]
+        for prefix in _provider_prefixes:
+            if model.startswith(prefix):
+                model = model[len(prefix) :]
+                break
 
         try:
             return tiktoken.encoding_for_model(model)
