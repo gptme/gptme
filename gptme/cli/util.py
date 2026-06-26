@@ -270,7 +270,7 @@ def tokens():
 )
 def tokens_count(text: str | None, model: str, file: str | None):
     """Count tokens in text or file."""
-    import tiktoken  # fmt: skip
+    from ..util.tokens import len_tokens  # fmt: skip
 
     # Get text from file if specified (or stdin via "-")
     if file:
@@ -289,16 +289,11 @@ def tokens_count(text: str | None, model: str, file: str | None):
         )
         sys.exit(1)
 
-    # Validate model
-    try:
-        enc = tiktoken.encoding_for_model(model)
-    except KeyError:
-        print(f"Error: Model '{model}' not supported by tiktoken.")
-        sys.exit(1)
-
-    # Count tokens
-    tokens = enc.encode(text)
-    print(f"Token count ({model}): {len(tokens)}")
+    # Count tokens via gptme's shared tokenizer helper. It handles gptme's
+    # canonical "provider/model" names (e.g. "openai/gpt-4o" -> o200k_base),
+    # and falls back to a cl100k_base / character estimate for models tiktoken
+    # doesn't natively recognize, instead of erroring out. Counts are estimates.
+    print(f"Token count ({model}): {len_tokens(text, model)}")
 
 
 @main.group()

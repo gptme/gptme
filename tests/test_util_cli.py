@@ -25,12 +25,24 @@ def test_tokens_count(tmp_path):
     assert "Token count" in result.output
     assert "gpt-4" in result.output  # default model
 
-    # Test invalid model
+    # Provider-prefixed model names (gptme's canonical "provider/model" form)
+    # must count, not error. Regression: tiktoken doesn't know the "openai/"
+    # prefix, so the old raw encoding_for_model() rejected valid models.
     result = runner.invoke(
-        main, ["tokens", "count", "--model", "invalid-model", "test"]
+        main, ["tokens", "count", "--model", "openai/gpt-4o", "Hello, world!"]
     )
-    assert result.exit_code == 1
-    assert "not supported" in result.output
+    assert result.exit_code == 0
+    assert "Token count" in result.output
+    assert int(result.output.split(": ", 1)[1].strip()) > 0
+
+    # Models tiktoken doesn't natively recognize fall back to an estimate
+    # (cl100k_base) rather than erroring — a counter should count, not refuse.
+    result = runner.invoke(
+        main, ["tokens", "count", "--model", "anthropic/claude-3-5-sonnet", "test"]
+    )
+    assert result.exit_code == 0
+    assert "Token count" in result.output
+    assert int(result.output.split(": ", 1)[1].strip()) > 0
 
     # Test file input
     tmp_file = Path(tmp_path) / "test.txt"
