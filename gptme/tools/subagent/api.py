@@ -274,6 +274,8 @@ def subagent(
         workspace = Path(workdir).resolve()
         if not workspace.exists():
             raise ValueError(f"workdir does not exist: {workspace}")
+        if not workspace.is_dir():
+            raise ValueError(f"workdir is not a directory: {workspace}")
     else:
         # Get workspace, handling case where cwd was deleted (e.g., in tests)
         try:

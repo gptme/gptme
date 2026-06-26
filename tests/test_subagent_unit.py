@@ -2178,6 +2178,21 @@ class TestWorkdir:
         with pytest.raises(ValueError, match="workdir does not exist"):
             subagent("agent", "do something", workdir="/nonexistent/path/xyz")
 
+    def test_workdir_file_raises(self, monkeypatch, tmp_path):
+        """Passing a file (not a directory) as workdir raises ValueError immediately."""
+        import importlib
+
+        llm_models = importlib.import_module("gptme.llm.models")
+        monkeypatch.setattr(llm_models, "get_default_model", lambda: None)
+
+        from gptme.tools.subagent.api import subagent
+
+        file_path = tmp_path / "not_a_dir.txt"
+        file_path.write_text("i am a file")
+
+        with pytest.raises(ValueError, match="workdir is not a directory"):
+            subagent("agent", "do something", workdir=str(file_path))
+
     def _spawn_and_wait(self, monkeypatch, tmp_path, agent_id, exec_calls, **kwargs):
         """Spawn a subagent, capture workspace kwarg, wait for thread to finish."""
         import importlib
