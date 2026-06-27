@@ -489,7 +489,7 @@ document.write(`
                   
   <section id="providers">
 <h1>Providers<a class="headerlink" href="#providers" title="Link to this heading">#</a></h1>
-<p>We support LLMs from several providers, including OpenAI, Anthropic, OpenRouter, Deepseek, Azure, and any OpenAI-compatible server (e.g. <code class="docutils literal notranslate"><span class="pre">ollama</span></code>, <code class="docutils literal notranslate"><span class="pre">llama-cpp-python</span></code>).</p>
+<p>We support LLMs from several providers, including OpenAI, Anthropic, OpenRouter, Requesty, Deepseek, Azure, and any OpenAI-compatible server (e.g. <code class="docutils literal notranslate"><span class="pre">ollama</span></code>, <code class="docutils literal notranslate"><span class="pre">llama-cpp-python</span></code>).</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>We are in the process of adding support for configurable <a class="reference external" href="custom-providers">custom providers</a>.</p>
@@ -656,6 +656,15 @@ default.</p>
 <span class="n">OPENROUTER_QUANTIZATION</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;fp16,bf16&quot;</span>
 </pre></div>
 </div>
+<p class="rubric">Requesty</p>
+<p><a class="reference external" href="https://requesty.ai/">Requesty</a> is an OpenAI-compatible LLM gateway that routes to many models through a single API key, using the same <code class="docutils literal notranslate"><span class="pre">provider/model</span></code> naming as OpenRouter (e.g. <code class="docutils literal notranslate"><span class="pre">requesty/openai/gpt-4o-mini</span></code>, <code class="docutils literal notranslate"><span class="pre">requesty/anthropic/claude-sonnet-4-5</span></code>). It is reached through the standard OpenAI-compatible client path.</p>
+<p><strong>Configuration:</strong></p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="c1"># In gptme.toml or ~/.config/gptme/config.toml</span>
+<span class="k">[env]</span>
+<span class="n">REQUESTY_API_KEY</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;your-api-key&quot;</span>
+</pre></div>
+</div>
+<p>Get an API key at <a class="reference external" href="https://app.requesty.ai/api-keys">https://app.requesty.ai/api-keys</a>. See <a class="reference external" href="https://docs.requesty.ai">https://docs.requesty.ai</a> for details.</p>
 <p class="rubric">OpenAI Subscription</p>
 <p>You can use your existing ChatGPT Plus/Pro subscription with gptme. This uses the ChatGPT backend API (Codex endpoint) instead of the OpenAI Platform API, allowing you to leverage your subscription for development.</p>
 <p><strong>Setup:</strong></p>

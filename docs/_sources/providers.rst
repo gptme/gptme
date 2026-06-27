@@ -1,7 +1,7 @@
 Providers
 =========
 
-We support LLMs from several providers, including OpenAI, Anthropic, OpenRouter, Deepseek, Azure, and any OpenAI-compatible server (e.g. ``ollama``, ``llama-cpp-python``).
+We support LLMs from several providers, including OpenAI, Anthropic, OpenRouter, Requesty, Deepseek, Azure, and any OpenAI-compatible server (e.g. ``ollama``, ``llama-cpp-python``).
 
 .. note::
 
@@ -167,6 +167,20 @@ falsy values.
     # Restrict to specific quantization levels (optional)
     # Common values: fp16, bf16, fp8, int8, int4, unknown
     OPENROUTER_QUANTIZATION = "fp16,bf16"
+
+.. rubric:: Requesty
+
+`Requesty <https://requesty.ai/>`_ is an OpenAI-compatible LLM gateway that routes to many models through a single API key, using the same ``provider/model`` naming as OpenRouter (e.g. ``requesty/openai/gpt-4o-mini``, ``requesty/anthropic/claude-sonnet-4-5``). It is reached through the standard OpenAI-compatible client path.
+
+**Configuration:**
+
+.. code-block:: toml
+
+    # In gptme.toml or ~/.config/gptme/config.toml
+    [env]
+    REQUESTY_API_KEY = "your-api-key"
+
+Get an API key at https://app.requesty.ai/api-keys. See https://docs.requesty.ai for details.
 
 .. rubric:: OpenAI Subscription
 
