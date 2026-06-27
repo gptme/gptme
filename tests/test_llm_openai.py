@@ -2602,6 +2602,8 @@ class TestMaybeApplyVerbosity:
 
         with caplog.at_level(logging.WARNING, logger="gptme.llm.llm_openai"):
             _maybe_apply_verbosity({}, model)
+            # Verify the flag was persisted (guards against parallel-state interference)
+            assert llm_openai._verbosity_warned is True
             _maybe_apply_verbosity({}, model)
         assert caplog.text.count("OPENAI_VERBOSITY") == 1
 
