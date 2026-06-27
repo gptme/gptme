@@ -1884,6 +1884,27 @@ def test_check_workspace_config_hints_only_once_per_workspace(tmp_path):
         _hinted_workspaces.discard(str(tmp_path.resolve()))
 
 
+def test_check_workspace_config_hint_includes_workdir_param(tmp_path):
+    """The workspace hint snippet includes workdir= so the subagent uses the right path."""
+    from gptme.tools.shell import _check_workspace_config, _hinted_workspaces
+
+    (tmp_path / "gptme.toml").write_text("[gptme]\n")
+
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(tmp_path)
+        _hinted_workspaces.discard(str(tmp_path.resolve()))
+
+        result = _check_workspace_config()
+        assert result is not None
+        # The hint should include workdir= so the spawned subagent inherits the workspace
+        assert "workdir=" in result.content
+        assert str(tmp_path) in result.content
+    finally:
+        os.chdir(original_cwd)
+        _hinted_workspaces.discard(str(tmp_path.resolve()))
+
+
 def test_shell_bare_cd_updates_working_directory(tmp_path):
     """A bare ``cd`` should update cwd to HOME, not leave stale state behind."""
     original_cwd = os.getcwd()

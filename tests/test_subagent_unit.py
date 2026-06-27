@@ -2131,3 +2131,140 @@ class TestContextWindowValidation:
         # Clean up registered subagent
         with _subagents_lock:
             _subagents[:] = [s for s in _subagents if s.agent_id != "isolation-test"]
+
+
+class TestWorkdir:
+    """Tests for the workdir parameter of subagent()."""
+
+    def _spawn(self, monkeypatch, tmp_path, **kwargs):
+        """Helper: spawn a subagent with mocked deps and return the Subagent record."""
+        import importlib
+
+        cli_main = importlib.import_module("gptme.cli.main")
+        exec_mod = importlib.import_module("gptme.tools.subagent.execution")
+        llm_models = importlib.import_module("gptme.llm.models")
+        profiles = importlib.import_module("gptme.profiles")
+
+        monkeypatch.setattr(cli_main, "get_logdir", lambda name: tmp_path / name)
+        monkeypatch.setattr(llm_models, "get_default_model", lambda: None)
+        monkeypatch.setattr(profiles, "get_profile", lambda _: None)
+        monkeypatch.setattr(exec_mod, "_create_subagent_thread", lambda **kw: None)
+        monkeypatch.setattr(exec_mod, "_cleanup_isolation", lambda sa: None)
+
+        from gptme.tools.subagent.api import subagent
+        from gptme.tools.subagent.types import _subagents, _subagents_lock
+
+        agent_id = kwargs.pop("agent_id", "workdir-test")
+        subagent(agent_id, "do something", **kwargs)
+
+        with _subagents_lock:
+            sa = next((s for s in _subagents if s.agent_id == agent_id), None)
+
+        # cleanup
+        with _subagents_lock:
+            _subagents[:] = [s for s in _subagents if s.agent_id != agent_id]
+
+        return sa
+
+    def test_workdir_nonexistent_raises(self, monkeypatch, tmp_path):
+        """Passing a non-existent workdir raises ValueError immediately."""
+        import importlib
+
+        llm_models = importlib.import_module("gptme.llm.models")
+        monkeypatch.setattr(llm_models, "get_default_model", lambda: None)
+
+        from gptme.tools.subagent.api import subagent
+
+        with pytest.raises(ValueError, match="workdir does not exist"):
+            subagent("agent", "do something", workdir="/nonexistent/path/xyz")
+
+    def test_workdir_file_raises(self, monkeypatch, tmp_path):
+        """Passing a file (not a directory) as workdir raises ValueError immediately."""
+        import importlib
+
+        llm_models = importlib.import_module("gptme.llm.models")
+        monkeypatch.setattr(llm_models, "get_default_model", lambda: None)
+
+        from gptme.tools.subagent.api import subagent
+
+        file_path = tmp_path / "not_a_dir.txt"
+        file_path.write_text("i am a file")
+
+        with pytest.raises(ValueError, match="workdir is not a directory"):
+            subagent("agent", "do something", workdir=str(file_path))
+
+    def _spawn_and_wait(self, monkeypatch, tmp_path, agent_id, exec_calls, **kwargs):
+        """Spawn a subagent, capture workspace kwarg, wait for thread to finish."""
+        import importlib
+
+        cli_main = importlib.import_module("gptme.cli.main")
+        exec_mod = importlib.import_module("gptme.tools.subagent.execution")
+        llm_models = importlib.import_module("gptme.llm.models")
+        profiles = importlib.import_module("gptme.profiles")
+
+        monkeypatch.setattr(cli_main, "get_logdir", lambda name: tmp_path / name)
+        monkeypatch.setattr(llm_models, "get_default_model", lambda: None)
+        monkeypatch.setattr(profiles, "get_profile", lambda _: None)
+
+        def capture_thread(**kw):
+            exec_calls.append(kw.get("workspace"))
+
+        monkeypatch.setattr(exec_mod, "_create_subagent_thread", capture_thread)
+        monkeypatch.setattr(exec_mod, "_cleanup_isolation", lambda sa: None)
+
+        from gptme.tools.subagent.api import subagent
+        from gptme.tools.subagent.types import _subagents, _subagents_lock
+
+        subagent(agent_id, "do something", **kwargs)
+
+        # Wait for the daemon thread to finish so exec_calls is populated
+        with _subagents_lock:
+            sa = next((s for s in _subagents if s.agent_id == agent_id), None)
+        if sa and sa.thread:
+            sa.thread.join(timeout=5)
+
+        with _subagents_lock:
+            _subagents[:] = [s for s in _subagents if s.agent_id != agent_id]
+
+    def test_workdir_none_uses_cwd(self, monkeypatch, tmp_path):
+        """When workdir=None the subagent is launched in Path.cwd()."""
+        from pathlib import Path
+
+        exec_calls: list[Path] = []
+        self._spawn_and_wait(
+            monkeypatch, tmp_path, "cwd-test", exec_calls, workdir=None
+        )
+
+        assert len(exec_calls) == 1
+        assert exec_calls[0] == Path.cwd()
+
+    def test_workdir_explicit_path_is_used(self, monkeypatch, tmp_path):
+        """workdir=<path> is resolved and passed as the workspace to the thread."""
+        from pathlib import Path
+
+        workspace_dir = tmp_path / "myproject"
+        workspace_dir.mkdir()
+
+        exec_calls: list[Path] = []
+        self._spawn_and_wait(
+            monkeypatch, tmp_path, "workdir-explicit", exec_calls, workdir=workspace_dir
+        )
+
+        assert len(exec_calls) == 1
+        assert exec_calls[0] == workspace_dir.resolve()
+
+    def test_workdir_string_is_resolved_to_path(self, monkeypatch, tmp_path):
+        """A workdir passed as a string is converted to a resolved Path."""
+        from pathlib import Path
+
+        workspace_dir = tmp_path / "strproject"
+        workspace_dir.mkdir()
+
+        exec_calls: list[Path] = []
+        self._spawn_and_wait(
+            monkeypatch, tmp_path, "workdir-str", exec_calls, workdir=str(workspace_dir)
+        )
+
+        assert len(exec_calls) == 1
+        assert isinstance(exec_calls[0], Path)
+        assert exec_calls[0] == workspace_dir.resolve()

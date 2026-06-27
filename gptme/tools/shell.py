@@ -1462,9 +1462,9 @@ def _check_workspace_config() -> Message | None:
         f"To work within this workspace context (custom tools, files, prompt), "
         f"spawn a subagent here:\n"
         f"```ipython\n"
-        f'subagent("{workspace_name}", "Your task here", use_subprocess=True)\n'
+        f'subagent("{workspace_name}", "Your task here", workdir="{cwd}", use_subprocess=True)\n'
         f"```\n"
-        f"The subagent will inherit the workspace config from `{config_file}`.",
+        f"The subagent will load the workspace config from `{config_file}`.",
     )
 
 
