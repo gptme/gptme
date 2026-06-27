@@ -12,6 +12,7 @@ code-review
 debug-python
 automate-task
 refactor
+computer-use
 ```
 
 ## Minimal Context
@@ -31,6 +32,9 @@ refactor
 
 ## Refactor Code
 [Refactor across files](refactor.md) — rename, extract, and reshape code across a codebase.
+
+## Automate GUIs (Computer Use)
+[Control desktop apps and automate web UIs](computer-use.md) — screenshots, mouse/keyboard, and structured browser interaction.
 
 ---
 
