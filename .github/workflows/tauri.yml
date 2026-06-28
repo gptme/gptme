@@ -139,7 +139,7 @@ jobs:
 
       - name: Cache tauri-driver install
         id: tauri-driver-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cargo-tauri-driver
           key: ${{ runner.os }}-${{ runner.arch }}-tauri-driver-${{ env.TAURI_DRIVER_VERSION }}
