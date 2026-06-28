@@ -66,6 +66,11 @@ def _connect_or_launch_browser(
 ) -> Browser:
     if cdp_url:
         # CDP is only supported for Chromium-based browsers.
+        if engine != "chromium":
+            logger.warning(
+                "CDP connections only support Chromium; ignoring GPTME_BROWSER_ENGINE=%s",
+                engine,
+            )
         browser = playwright.chromium.connect_over_cdp(cdp_url)
         logger.info("Connected to browser over CDP")
         return browser
@@ -85,7 +90,17 @@ class BrowserThread:
         # Resolve engine: explicit arg > env var > default "chromium"
         if engine is None:
             raw = (get_config().get_env("BROWSER_ENGINE") or "").strip().lower()
-            engine = cast(BrowserEngine, raw) if raw in _VALID_ENGINES else "chromium"
+            if raw in _VALID_ENGINES:
+                engine = cast(BrowserEngine, raw)
+            else:
+                if raw:
+                    logger.warning(
+                        "Invalid GPTME_BROWSER_ENGINE='%s'; falling back to 'chromium'. "
+                        "Valid values: %s",
+                        raw,
+                        ", ".join(_VALID_ENGINES),
+                    )
+                engine = "chromium"
         self.engine: BrowserEngine = engine
         self.queue: Queue[tuple[Command | Action, object]] = Queue()
         self.results: dict[object, tuple[Any, Exception | None]] = {}

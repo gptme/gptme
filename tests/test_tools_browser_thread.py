@@ -130,6 +130,24 @@ class TestConnectOrLaunchBrowser:
         )
         mock_pw.chromium.launch.assert_not_called()
 
+    def test_cdp_ignores_non_chromium_engine_with_warning(self, caplog):
+        mock_pw = MagicMock()
+        mock_browser = MagicMock()
+        mock_pw.chromium.connect_over_cdp.return_value = mock_browser
+
+        result = _connect_or_launch_browser(
+            mock_pw, "http://127.0.0.1:9222", engine="firefox"
+        )
+
+        assert result is mock_browser
+        mock_pw.chromium.connect_over_cdp.assert_called_once_with(
+            "http://127.0.0.1:9222"
+        )
+        mock_pw.chromium.launch.assert_not_called()
+        mock_pw.firefox.launch.assert_not_called()
+        assert "CDP connections only support Chromium" in caplog.text
+        assert "firefox" in caplog.text
+
     def test_launches_firefox_when_engine_is_firefox(self):
         mock_pw = MagicMock()
         mock_browser = MagicMock()
@@ -186,6 +204,18 @@ class TestBrowserEngineConfig:
         bt = BrowserThread()
         try:
             assert bt.engine == "chromium"
+        finally:
+            bt.stop()
+
+    def test_invalid_engine_env_var_logs_warning(
+        self, mock_playwright, monkeypatch, caplog
+    ):
+        monkeypatch.setenv("GPTME_BROWSER_ENGINE", "safari")
+        bt = BrowserThread()
+        try:
+            assert "Invalid GPTME_BROWSER_ENGINE=" in caplog.text
+            assert "safari" in caplog.text
+            assert "chromium" in caplog.text
         finally:
             bt.stop()
 
