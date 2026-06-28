@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from queue import Empty, Queue
 from threading import Event, Lock, Thread
-from typing import Any, Literal, TypeVar
+from typing import Any, Literal, TypeVar, cast
 
 from playwright.sync_api import Browser, BrowserContext, Playwright, sync_playwright
 
@@ -16,6 +16,11 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 TIMEOUT = 20  # seconds - accounts for retry attempts with browser restarts
+
+# Supported browser engines for the Playwright backend.
+# Set GPTME_BROWSER_ENGINE=firefox to use Firefox instead of Chromium.
+BrowserEngine = Literal["chromium", "firefox"]
+_VALID_ENGINES: tuple[BrowserEngine, ...] = ("chromium", "firefox")
 
 # Default context options applied to every browser context (and, in CDP mode,
 # to the shared session context). Per-call request headers are layered on top
@@ -54,20 +59,34 @@ class Command:
 Action = Literal["stop"]
 
 
-def _connect_or_launch_browser(playwright: Playwright, cdp_url: str | None) -> Browser:
+def _connect_or_launch_browser(
+    playwright: Playwright,
+    cdp_url: str | None,
+    engine: BrowserEngine = "chromium",
+) -> Browser:
     if cdp_url:
+        # CDP is only supported for Chromium-based browsers.
         browser = playwright.chromium.connect_over_cdp(cdp_url)
         logger.info("Connected to browser over CDP")
         return browser
 
-    browser = playwright.chromium.launch()
-    logger.info("Browser launched")
+    browser_launcher = getattr(playwright, engine)
+    browser = browser_launcher.launch()
+    logger.info("Browser launched (engine=%s)", engine)
     return browser
 
 
 class BrowserThread:
-    def __init__(self, cdp_url: str | None = None) -> None:
+    def __init__(
+        self, cdp_url: str | None = None, engine: BrowserEngine | None = None
+    ) -> None:
         self.cdp_url = cdp_url or get_config().get_env("BROWSER_CDP_URL")
+
+        # Resolve engine: explicit arg > env var > default "chromium"
+        if engine is None:
+            raw = (get_config().get_env("BROWSER_ENGINE") or "").strip().lower()
+            engine = cast(BrowserEngine, raw) if raw in _VALID_ENGINES else "chromium"
+        self.engine: BrowserEngine = engine
         self.queue: Queue[tuple[Command | Action, object]] = Queue()
         self.results: dict[object, tuple[Any, Exception | None]] = {}
         self.lock = Lock()
@@ -109,7 +128,9 @@ class BrowserThread:
                     except Exception:
                         pass
                     self._session_context = None
-                browser = _connect_or_launch_browser(playwright, self.cdp_url)
+                browser = _connect_or_launch_browser(
+                    playwright, self.cdp_url, self.engine
+                )
                 # For CDP, (re)create an isolated session context so parallel
                 # gptme instances don't share cookies/tabs. Recreated on every
                 # (re)connect so it never points at a dead browser.
@@ -125,8 +146,13 @@ class BrowserThread:
 
                 if "Executable doesn't exist" in str(e):
                     pw_version = importlib.metadata.version("playwright")
+                    install_target = (
+                        "chromium-headless-shell"
+                        if self.engine == "chromium"
+                        else self.engine
+                    )
                     error = RuntimeError(
-                        f"Browser executable not found. Run: pipx run playwright=={pw_version} install chromium-headless-shell"
+                        f"Browser executable not found. Run: pipx run playwright=={pw_version} install {install_target}"
                     )
                 else:
                     error = e

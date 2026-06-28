@@ -130,6 +130,73 @@ class TestConnectOrLaunchBrowser:
         )
         mock_pw.chromium.launch.assert_not_called()
 
+    def test_launches_firefox_when_engine_is_firefox(self):
+        mock_pw = MagicMock()
+        mock_browser = MagicMock()
+        mock_pw.firefox.launch.return_value = mock_browser
+
+        result = _connect_or_launch_browser(mock_pw, None, engine="firefox")
+
+        assert result is mock_browser
+        mock_pw.firefox.launch.assert_called_once_with()
+        mock_pw.chromium.launch.assert_not_called()
+
+    def test_explicit_chromium_engine(self):
+        mock_pw = MagicMock()
+        mock_browser = MagicMock()
+        mock_pw.chromium.launch.return_value = mock_browser
+
+        result = _connect_or_launch_browser(mock_pw, None, engine="chromium")
+
+        assert result is mock_browser
+        mock_pw.chromium.launch.assert_called_once_with()
+        mock_pw.firefox.launch.assert_not_called()
+
+
+class TestBrowserEngineConfig:
+    """Test GPTME_BROWSER_ENGINE env var and explicit arg handling in BrowserThread."""
+
+    def test_default_engine_is_chromium(self, mock_playwright):
+        bt = BrowserThread()
+        try:
+            assert bt.engine == "chromium"
+        finally:
+            bt.stop()
+
+    def test_engine_from_explicit_arg_firefox(self, mock_playwright):
+        bt = BrowserThread(engine="firefox")
+        try:
+            assert bt.engine == "firefox"
+        finally:
+            bt.stop()
+
+    def test_engine_from_env_var(self, mock_playwright, monkeypatch):
+        # The fixture's get_config mock reads from os.environ with GPTME_ prefix.
+        monkeypatch.setenv("GPTME_BROWSER_ENGINE", "firefox")
+        bt = BrowserThread()
+        try:
+            assert bt.engine == "firefox"
+        finally:
+            bt.stop()
+
+    def test_invalid_engine_env_var_falls_back_to_chromium(
+        self, mock_playwright, monkeypatch
+    ):
+        monkeypatch.setenv("GPTME_BROWSER_ENGINE", "safari")
+        bt = BrowserThread()
+        try:
+            assert bt.engine == "chromium"
+        finally:
+            bt.stop()
+
+    def test_explicit_arg_overrides_env_var(self, mock_playwright, monkeypatch):
+        monkeypatch.setenv("GPTME_BROWSER_ENGINE", "firefox")
+        bt = BrowserThread(engine="chromium")
+        try:
+            assert bt.engine == "chromium"
+        finally:
+            bt.stop()
+
 
 # =============================================================================
 # BrowserThread tests (mocked playwright)

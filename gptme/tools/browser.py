@@ -23,6 +23,13 @@ Playwright backend:
        PW_VERSION=$(pipx runpip gptme show playwright | grep Version | cut -d' ' -f2)
        pipx run playwright==$PW_VERSION install chromium-headless-shell
 
+ - To use Firefox instead of Chromium (useful for pages that block headless Chromium):
+
+   .. code-block:: bash
+
+       pipx run playwright==$PW_VERSION install firefox
+       export GPTME_BROWSER_ENGINE=firefox
+
  - To use an existing Chromium-compatible browser over Chrome DevTools Protocol
    instead of launching Playwright's bundled Chromium, start it with remote
    debugging enabled and set GPTME_BROWSER_CDP_URL:
