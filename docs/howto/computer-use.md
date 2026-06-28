@@ -20,6 +20,13 @@ brew install cliclick
 # Then grant your terminal Screen Recording + Accessibility permissions in System Settings (macOS Ventura+) or System Preferences (older macOS)
 ```
 
+For web automation (structured ARIA snapshots), install Playwright:
+
+```bash
+# Install Playwright system browsers (required for snapshot_url, open_page, etc.)
+playwright install chromium
+```
+
 For headless Linux environments, start an Xvfb display first:
 
 ```bash
@@ -33,7 +40,7 @@ fluxbox &   # or any window manager
 The `computer-use` profile sets the right tool access and backend selection policy:
 
 ```bash
-gptme --profile computer-use 'take a screenshot and describe what you see'
+gptme --agent-profile computer-use 'take a screenshot and describe what you see'
 ```
 
 Or enable the computer tool for a one-off task:
@@ -48,7 +55,7 @@ For web targets, prefer structured ARIA snapshots over raw screenshots — they'
 cheaper, and more reliable when the page has a DOM you can address:
 
 ```bash
-gptme --profile computer-use 'go to https://news.ycombinator.com, find the top story, and summarize it'
+gptme --agent-profile computer-use 'go to https://news.ycombinator.com, find the top story, and summarize it'
 ```
 
 gptme will automatically:
@@ -59,7 +66,7 @@ gptme will automatically:
 Fill a form without screenshots:
 
 ```bash
-gptme --profile computer-use \
+gptme --agent-profile computer-use \
   'go to the login form at http://localhost:3000/login, fill username "alice" and password "hunter2", click submit'
 ```
 
@@ -92,7 +99,7 @@ gptme --tools +computer,+vision 'screenshot the screen and describe any UI error
 Verify a web page renders correctly:
 
 ```bash
-gptme --profile computer-use \
+gptme --agent-profile computer-use \
   'open http://localhost:5173, take a screenshot, and check that the login button is visible'
 ```
 
