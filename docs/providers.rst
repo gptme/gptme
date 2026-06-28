@@ -182,6 +182,31 @@ falsy values.
 
 Get an API key at https://app.requesty.ai/api-keys. See https://docs.requesty.ai for details.
 
+.. rubric:: app.nz
+
+`app.nz <https://app.nz/>`_ is an OpenAI-compatible (and Anthropic-compatible) LLM gateway that routes to many models through a single API key. Use the auto-router ``app/auto``, a task-tuned alias (``app/auto-code``, ``app/auto-reasoning``, ``app/auto-fast``, ``app/auto-cheap``, ``app/auto-vision``), or an explicit ``provider/model``. It is reached through the standard OpenAI-compatible client path via the :doc:`custom providers <custom-providers>` config.
+
+**Configuration:**
+
+.. code-block:: toml
+
+    # In gptme.toml or ~/.config/gptme/config.toml
+    [[providers]]
+    name = "appnz"
+    base_url = "https://app.nz/v1"
+    api_key_env = "APPNZ_API_KEY"
+    default_model = "app/auto"
+
+**Usage:**
+
+.. code-block:: sh
+
+    export APPNZ_API_KEY="app_live_..."
+    gptme "hello" -m appnz                  # uses default model (app/auto)
+    gptme "hello" -m appnz/app/auto-code
+
+Get an API key and find the model list at https://app.nz/. See https://app.nz/docs for details.
+
 .. rubric:: OpenAI Subscription
 
 You can use your existing ChatGPT Plus/Pro subscription with gptme. This uses the ChatGPT backend API (Codex endpoint) instead of the OpenAI Platform API, allowing you to leverage your subscription for development.

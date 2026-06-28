@@ -152,6 +152,29 @@ export AZURE_API_KEY="..."
 gptme --model azure-gpt4 "Write a Python function to sort a list"
 ```
 
+### app.nz
+
+[app.nz](https://app.nz/) is an OpenAI-compatible LLM gateway that routes to many
+models through a single API key. Use `app/auto` for the auto-router, one of the
+task-tuned aliases (`app/auto-code`, `app/auto-reasoning`, `app/auto-fast`,
+`app/auto-cheap`, `app/auto-vision`), or an explicit `provider/model`.
+
+```toml
+[[providers]]
+name = "appnz"
+base_url = "https://app.nz/v1"
+api_key_env = "APPNZ_API_KEY"
+default_model = "app/auto"
+```
+
+```bash
+export APPNZ_API_KEY="app_live_..."
+gptme --model appnz "Explain quantum computing"
+gptme --model appnz/app/auto-code "Write a Python function to sort a list"
+```
+
+See https://app.nz/docs for details.
+
 ## Related
 
 - [Issue #673](https://github.com/gptme/gptme/issues/673) - Original feature request
