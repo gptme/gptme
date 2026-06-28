@@ -512,8 +512,16 @@ MODELS: dict[Provider, dict[str, _ModelDictMeta]] = {
     "nvidia": {},
     "azure": {},
     # Requesty — OpenAI-compatible LLM gateway, provider/model naming.
-    # Empty dict = models fetched dynamically or specified by user.
-    "requesty": {},
+    # Model keys use the full sub-provider/model path (everything after "requesty/").
+    "requesty": {
+        "openai/gpt-4o-mini": {
+            "context": 128_000,
+            "price_input": 0.15,
+            "price_output": 0.6,
+            "supports_vision": True,
+            "preferred_edit_format": "whole",
+        },
+    },
     # gptme managed service — proxies to multiple providers
     # Models are pass-through: gptme/claude-sonnet-4-6 → proxied to backend
     # Empty dict = models fetched dynamically or specified by user
