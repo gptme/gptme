@@ -639,7 +639,7 @@ def _check_computer(verbose: bool = False) -> list[CheckResult]:
                     env = os.environ.copy()
                     env["DISPLAY"] = display
                     subprocess.run(
-                        ["xdpyinfo"],
+                        [xdpyinfo_path],
                         env=env,
                         capture_output=True,
                         check=True,
