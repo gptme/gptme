@@ -23,6 +23,8 @@ brew install cliclick
 For web automation (structured ARIA snapshots), install Playwright:
 
 ```bash
+# Install gptme with browser support (provides the 'playwright' CLI)
+pip install "gptme[browser]"
 # Install Playwright system browsers (required for snapshot_url, open_page, etc.)
 playwright install chromium
 ```
