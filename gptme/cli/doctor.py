@@ -11,6 +11,7 @@ import importlib.util
 import logging
 import os
 import shutil
+import subprocess
 import sys
 from dataclasses import dataclass
 from enum import Enum
@@ -631,13 +632,48 @@ def _check_computer(verbose: bool = False) -> list[CheckResult]:
         # Check DISPLAY
         display = os.environ.get("DISPLAY")
         if display:
-            results.append(
-                CheckResult(
-                    name="Computer: DISPLAY",
-                    status=CheckStatus.OK,
-                    message=f"X11 display available ({display})",
+            # Verify the X server at DISPLAY is actually reachable
+            xdpyinfo_path = shutil.which("xdpyinfo")
+            if xdpyinfo_path:
+                try:
+                    env = os.environ.copy()
+                    env["DISPLAY"] = display
+                    subprocess.run(
+                        ["xdpyinfo"],
+                        env=env,
+                        capture_output=True,
+                        check=True,
+                        timeout=3,
+                    )
+                    results.append(
+                        CheckResult(
+                            name="Computer: DISPLAY",
+                            status=CheckStatus.OK,
+                            message=f"X11 display reachable ({display})",
+                        )
+                    )
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                    results.append(
+                        CheckResult(
+                            name="Computer: DISPLAY",
+                            status=CheckStatus.WARNING,
+                            message=f"DISPLAY={display} is set but X server is not responding",
+                            fix_hint=(
+                                "Start an X server first:\n"
+                                "  Xvfb :1 -screen 0 1024x768x24 &\n"
+                                "  export DISPLAY=:1\n"
+                                "Or use: xvfb-run gptme ..."
+                            ),
+                        )
+                    )
+            else:
+                results.append(
+                    CheckResult(
+                        name="Computer: DISPLAY",
+                        status=CheckStatus.OK,
+                        message=f"X11 display set ({display}) — install xdpyinfo to verify it's reachable",
+                    )
                 )
-            )
         else:
             results.append(
                 CheckResult(

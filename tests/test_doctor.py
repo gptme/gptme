@@ -946,3 +946,41 @@ class TestCheckComputer:
 
         xdotool = next(r for r in results if r.name == "Computer: xdotool")
         assert xdotool.details == "/usr/bin/xdotool"
+
+    @patch("sys.platform", "linux")
+    @patch("subprocess.run")
+    @patch("shutil.which")
+    @patch.dict("os.environ", {"DISPLAY": ":1"})
+    def test_display_live_xdpyinfo_ok(self, mock_which, mock_run):
+        """When xdpyinfo confirms the display is live, DISPLAY check is OK."""
+        mock_which.side_effect = lambda t: (
+            f"/usr/bin/{t}" if t in ("xdotool", "scrot", "xdpyinfo") else None
+        )
+        mock_run.return_value = None  # subprocess.run returns CompletedProcess-like; None is fine since we only check=True
+
+        results = _check_computer()
+
+        names = {r.name: r for r in results}
+        assert names["Computer: DISPLAY"].status == CheckStatus.OK
+        assert "reachable" in names["Computer: DISPLAY"].message
+
+    @patch("sys.platform", "linux")
+    @patch("subprocess.run")
+    @patch("shutil.which")
+    @patch.dict("os.environ", {"DISPLAY": ":1"})
+    def test_display_dead_xdpyinfo_fails(self, mock_which, mock_run):
+        """When xdpyinfo reports the X server is unreachable, DISPLAY check warns."""
+        import subprocess
+
+        mock_which.side_effect = lambda t: (
+            f"/usr/bin/{t}" if t in ("xdotool", "scrot", "xdpyinfo") else None
+        )
+        mock_run.side_effect = subprocess.CalledProcessError(1, "xdpyinfo")
+
+        results = _check_computer()
+
+        names = {r.name: r for r in results}
+        assert names["Computer: DISPLAY"].status == CheckStatus.WARNING
+        assert "not responding" in names["Computer: DISPLAY"].message
+        hint = names["Computer: DISPLAY"].fix_hint or ""
+        assert "Xvfb" in hint or "xvfb-run" in hint
