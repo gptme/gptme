@@ -2583,6 +2583,12 @@ pipx<span class="w"> </span>run<span class="w"> </span><span class="nv">playwrig
 </pre></div>
 </div>
 </li>
+<li><p>To use Firefox instead of Chromium (useful for pages that block headless Chromium):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pipx<span class="w"> </span>run<span class="w"> </span><span class="nv">playwright</span><span class="o">==</span><span class="nv">$PW_VERSION</span><span class="w"> </span>install<span class="w"> </span>firefox
+<span class="nb">export</span><span class="w"> </span><span class="nv">GPTME_BROWSER_ENGINE</span><span class="o">=</span>firefox
+</pre></div>
+</div>
+</li>
 <li><p>To use an existing Chromium-compatible browser over Chrome DevTools Protocol
 instead of launching Playwright’s bundled Chromium, start it with remote
 debugging enabled and set GPTME_BROWSER_CDP_URL:</p>
