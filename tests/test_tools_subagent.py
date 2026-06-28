@@ -1938,6 +1938,7 @@ def test_role_explore_does_not_set_use_subprocess(mock_create_thread: MagicMock)
     )
 
     assert len(_subagents) == initial_count + 1
+    _wait_for_new_subagent_threads(initial_count)
     sa = _subagents[-1]
     assert sa.execution_mode == "thread"
     assert sa.isolated is False
@@ -1955,6 +1956,7 @@ def test_role_implement_does_not_set_use_subprocess(mock_create_thread: MagicMoc
     )
 
     assert len(_subagents) == initial_count + 1
+    _wait_for_new_subagent_threads(initial_count)
     sa = _subagents[-1]
     assert sa.execution_mode == "thread"
     assert sa.isolated is False
@@ -1973,6 +1975,7 @@ def test_role_verify_subprocess_has_verifier_profile(
         role="verify",
     )
 
+    _wait_for_new_subagent_threads(0)
     sa = _subagents[-1]
 
     # The Subagent should capture isolate=True
