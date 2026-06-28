@@ -1916,18 +1916,24 @@ def api_conversation_delete_message(conversation_id: str, index: int):
 
     new_msgs = msgs[:index] + msgs[index + 1 :]
 
-    # Validate role sequence: consecutive same-role messages break LLM APIs
-    non_system = [m for m in new_msgs if m.role != "system"]
-    for i in range(1, len(non_system)):
-        if non_system[i].role == non_system[i - 1].role:
-            return (
-                flask.jsonify(
-                    {
-                        "error": f"Deleting this message would create consecutive {non_system[i].role!r} messages, which is not supported by LLM APIs"
-                    }
-                ),
-                400,
-            )
+    # Validate role sequence: consecutive same-role messages break LLM APIs.
+    # Deleting a (non-system) message can only introduce a NEW adjacency at the
+    # seam — between its nearest non-system neighbours on either side. Check only
+    # that seam; scanning the whole conversation would reject valid deletions
+    # whenever an unrelated pre-existing adjacency exists elsewhere in the log.
+    prev_role = next(
+        (m.role for m in reversed(msgs[:index]) if m.role != "system"), None
+    )
+    next_role = next((m.role for m in msgs[index + 1 :] if m.role != "system"), None)
+    if prev_role is not None and prev_role == next_role:
+        return (
+            flask.jsonify(
+                {
+                    "error": f"Deleting this message would create consecutive {next_role!r} messages, which is not supported by LLM APIs"
+                }
+            ),
+            400,
+        )
 
     manager.edit(Log(new_msgs))
 

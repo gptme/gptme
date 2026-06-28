@@ -1509,3 +1509,65 @@ def test_api_v2_delete_message_success(conv_with_messages, client: FlaskClient):
     assert not any(
         m["role"] == "user" and m["content"] == "hello world" for m in final_log
     )
+
+
+def test_api_v2_delete_message_preexisting_adjacency(client: FlaskClient):
+    """Deleting a message must not fail just because the conversation already
+    contains a consecutive same-role pair elsewhere.
+
+    Regression: the role-sequence guard used to scan the whole conversation, so
+    any pre-existing adjacency made *every* delete return 400 with a misleading
+    "Deleting this message would create consecutive..." error. The guard should
+    only reject deletions that create a NEW adjacency at the deletion seam.
+    """
+    convname = f"test-delete-adj-{random.randint(0, 1000000)}"
+    response = client.put(
+        f"/api/v2/conversations/{convname}",
+        json={
+            "messages": [
+                {"role": "system", "content": "you are a test assistant"},
+                {"role": "user", "content": "first"},
+                {"role": "assistant", "content": "reply A"},
+                {"role": "assistant", "content": "reply B"},  # pre-existing pair
+                {"role": "user", "content": "second"},
+            ]
+        },
+    )
+    assert response.status_code == 200
+
+    # Deleting the trailing user message does not create a new adjacency (its
+    # only non-system neighbour is an assistant), so it must succeed despite the
+    # unrelated assistant/assistant pair earlier in the log.
+    r = client.get(f"/api/v2/conversations/{convname}")
+    log = r.get_json().get("log", [])
+    idx = next(
+        i for i, m in enumerate(log) if m["role"] == "user" and m["content"] == "second"
+    )
+    response = client.delete(f"/api/v2/conversations/{convname}/messages/{idx}")
+    assert response.status_code == 200, response.get_json()
+
+
+def test_api_v2_delete_message_creates_adjacency_rejected(client: FlaskClient):
+    """Deletions that DO create a new consecutive same-role pair are still rejected."""
+    convname = f"test-delete-adj2-{random.randint(0, 1000000)}"
+    response = client.put(
+        f"/api/v2/conversations/{convname}",
+        json={
+            "messages": [
+                {"role": "system", "content": "you are a test assistant"},
+                {"role": "user", "content": "first"},
+                {"role": "assistant", "content": "reply"},
+                {"role": "user", "content": "second"},
+            ]
+        },
+    )
+    assert response.status_code == 200
+
+    # Deleting the assistant message would join the two user messages -> 400.
+    r = client.get(f"/api/v2/conversations/{convname}")
+    log = r.get_json().get("log", [])
+    idx = next(i for i, m in enumerate(log) if m["role"] == "assistant")
+    response = client.delete(f"/api/v2/conversations/{convname}/messages/{idx}")
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data is not None and "consecutive" in data["error"]
