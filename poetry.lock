@@ -629,19 +629,20 @@ files = [
 
 [[package]]
 name = "beautifulsoup4"
-version = "4.12.3"
+version = "4.15.0"
 description = "Screen-scraping library"
 optional = false
-python-versions = ">=3.6.0"
+python-versions = ">=3.7.0"
 groups = ["main", "dev"]
 files = [
-    {file = "beautifulsoup4-4.12.3-py3-none-any.whl", hash = "sha256:b80878c9f40111313e55da8ba20bdba06d8fa3969fc68304167741bbf9e082ed"},
-    {file = "beautifulsoup4-4.12.3.tar.gz", hash = "sha256:74e3d1928edc070d21748185c46e3fb33490f22f52a3addee9aee0f4f7781051"},
+    {file = "beautifulsoup4-4.15.0-py3-none-any.whl", hash = "sha256:d6f88de62e1d4e38ecb1077eb9724cd0eff29d2a08ca16a401e9b9e93f117cf9"},
+    {file = "beautifulsoup4-4.15.0.tar.gz", hash = "sha256:288e3ca7d54b06f2ac191970bc275c1939cb46d450b255bf6718b04aa37ab4f7"},
 ]
 markers = {main = "extra == \"eval\" or extra == \"swebench\""}
 
 [package.dependencies]
-soupsieve = ">1.2"
+soupsieve = ">=1.6.1"
+typing-extensions = ">=4.0.0"
 
 [package.extras]
 cchardet = ["cchardet"]
@@ -9744,21 +9745,6 @@ rich = ">=13.8.0"
 shellingham = ">=1.3.0"
 
 [[package]]
-name = "types-beautifulsoup4"
-version = "4.12.0.20241020"
-description = "Typing stubs for beautifulsoup4"
-optional = false
-python-versions = ">=3.8"
-groups = ["dev"]
-files = [
-    {file = "types-beautifulsoup4-4.12.0.20241020.tar.gz", hash = "sha256:158370d08d0cd448bd11b132a50ff5279237a5d4b5837beba074de152a513059"},
-    {file = "types_beautifulsoup4-4.12.0.20241020-py3-none-any.whl", hash = "sha256:c95e66ce15a4f5f0835f7fbc5cd886321ae8294f977c495424eaf4225307fd30"},
-]
-
-[package.dependencies]
-types-html5lib = "*"
-
-[[package]]
 name = "types-certifi"
 version = "2021.10.8.3"
 description = "Typing stubs for certifi"
@@ -9773,36 +9759,40 @@ files = [
 
 [[package]]
 name = "types-html5lib"
-version = "1.1.11.20241018"
+version = "1.1.11.20260518"
 description = "Typing stubs for html5lib"
 optional = false
-python-versions = ">=3.8"
+python-versions = ">=3.10"
 groups = ["dev"]
 files = [
-    {file = "types-html5lib-1.1.11.20241018.tar.gz", hash = "sha256:98042555ff78d9e3a51c77c918b1041acbb7eb6c405408d8a9e150ff5beccafa"},
-    {file = "types_html5lib-1.1.11.20241018-py3-none-any.whl", hash = "sha256:3f1e064d9ed2c289001ae6392c84c93833abb0816165c6ff0abfc304a779f403"},
-]
-
-[[package]]
-name = "types-lxml"
-version = "2024.12.13"
-description = "Complete lxml external type annotation"
-optional = false
-python-versions = ">=3.8"
-groups = ["dev"]
-files = [
-    {file = "types_lxml-2024.12.13-py3-none-any.whl", hash = "sha256:d4830c99ef6f7b9eae176297a2b8dc840b3a75986bf4449592ca09a9a449b27e"},
-    {file = "types_lxml-2024.12.13.tar.gz", hash = "sha256:e2dadb92c7f730cd369daf1efe93ebc2ebfa8b692d4415cfc91b727419152e37"},
+    {file = "types_html5lib-1.1.11.20260518-py3-none-any.whl", hash = "sha256:9baa7912224ebb37027c5ccb7e3768e43ea47b1dfdd977e7ddc4b0a4a550584d"},
+    {file = "types_html5lib-1.1.11.20260518.tar.gz", hash = "sha256:4f33c087cb1119d65c4c80eca4323c2b501f9eaf8af9616b8b732ed4d8eae8fa"},
 ]
 
 [package.dependencies]
+types-webencodings = "*"
+
+[[package]]
+name = "types-lxml"
+version = "2026.2.16"
+description = "Complete lxml external type annotation"
+optional = false
+python-versions = ">=3.9"
+groups = ["dev"]
+files = [
+    {file = "types_lxml-2026.2.16-py3-none-any.whl", hash = "sha256:5dd81ffa54830e5f361988737c5f1d6a0ae48b2742790637ec560df790ea0401"},
+    {file = "types_lxml-2026.2.16.tar.gz", hash = "sha256:b3a1340cc06db98d541c785732f6f68bea438daff4e2b7809ef748d545d01406"},
+]
+
+[package.dependencies]
+beautifulsoup4 = ">=4.13,<5.0"
 cssselect = ">=1.2,<2.0"
-types-beautifulsoup4 = ">=4.12,<5.0"
-typing_extensions = {version = ">=4.10,<5.0", markers = "python_version < \"3.13\""}
+types-html5lib = ">=1.1.11.20250809,<1.2.0.0"
+typing_extensions = ">=4.15,<5.0"
 
 [package.extras]
-mypy = ["mypy (>=1.11,<2.0)"]
-pyright = ["pyright (>=1.1.351)"]
+dev = ["basedpyright (>=1.31.6) ; platform_machine != \"i686\"", "html5lib (==1.1)", "hypothesis (>=6.127.7)", "lxml (>=5.0)", "mypy (>=1.18.1)", "pook (>=2.0)", "pre-commit", "pyrefly (>=0.46.3)", "pyright (>=1.1.406)", "pytest (>=7.0,<9)", "pytest-revealtype-injector (>=0.9.0)", "rnc2rng", "tox (>=4.24,<5.0)", "ty (>=0.0.7)", "tzdata", "urllib3 (>=2.0)"]
+mypy = ["mypy (>=1.18.1)"]
 
 [[package]]
 name = "types-tabulate"
@@ -9827,6 +9817,18 @@ markers = "extra == \"eval\" or extra == \"swebench\""
 files = [
     {file = "types_toml-0.10.8.20260518-py3-none-any.whl", hash = "sha256:0e564ab05f6fde62a315b3b5a9b6624fda569399795d30a37e64705a70459303"},
     {file = "types_toml-0.10.8.20260518.tar.gz", hash = "sha256:80e10facd24fdeda9d5c672187d72be3ac284843788d67f5aae59e3e016db6fe"},
+]
+
+[[package]]
+name = "types-webencodings"
+version = "0.5.0.20260408"
+description = "Typing stubs for webencodings"
+optional = false
+python-versions = ">=3.10"
+groups = ["dev"]
+files = [
+    {file = "types_webencodings-0.5.0.20260408-py3-none-any.whl", hash = "sha256:19a2afe5c22d9b1e880b49ff823c7b531f473a390fe47ac903c0bdb5cd677dd9"},
+    {file = "types_webencodings-0.5.0.20260408.tar.gz", hash = "sha256:28c596619f367e43eee393d85f63e8d2fdb6874c654a8d441c37f8afe29c6d0d"},
 ]
 
 [[package]]
