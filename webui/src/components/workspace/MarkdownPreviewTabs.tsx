@@ -24,8 +24,8 @@ export function MarkdownPreviewTabs({ content, language = 'markdown' }: Markdown
         previewRef.current.innerHTML = '';
         setRenderError(null);
 
-        // Use streaming markdown parser for markdown content
-        const renderer = customRenderer(previewRef.current);
+        // Use streaming markdown parser in standard mode (no chat chrome)
+        const renderer = customRenderer(previewRef.current, false, false, true, true);
         const parser = smd.parser(renderer);
         smd.parser_write(parser, content);
         smd.parser_end(parser);

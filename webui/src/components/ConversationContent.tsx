@@ -729,6 +729,9 @@ export const ConversationContent: FC<Props> = ({ conversationId, serverId, isRea
                   onRegenerate={isReadOnly ? undefined : regenerateMessage}
                   onFork={isReadOnly ? undefined : handleForkMessage}
                   messageIndex={absoluteIndex}
+                  hideAvatar={
+                    stepRole?.type === 'group-start' && expandedGroups$.get().has(stepRole.groupId)
+                  }
                 />
                 {/* Branch indicator at fork points */}
                 <Memo>

@@ -154,6 +154,8 @@ interface Props {
   onRegenerate?: (index: number) => void;
   onFork?: (index: number) => void;
   messageIndex?: number;
+  /** Suppress the role avatar — used when a CollapsedStepGroup chip immediately precedes this message */
+  hideAvatar?: boolean;
 }
 
 const ChatMessageComponent: FC<Props> = ({
@@ -170,6 +172,7 @@ const ChatMessageComponent: FC<Props> = ({
   onRegenerate,
   onFork,
   messageIndex,
+  hideAvatar,
 }) => {
   const { api, connectionConfig } = useApi();
   const { settings } = useSettings();
@@ -568,20 +571,22 @@ const ChatMessageComponent: FC<Props> = ({
           <div className={`role-${message$.role.get()} ${wrapperClasses$.get()}`}>
             <div className="mx-auto max-w-3xl px-4">
               <div className="relative">
-                <MessageAvatar
-                  role$={message$.role}
-                  isError$={isError$}
-                  isSuccess$={isSuccess$}
-                  chainType$={chainType$}
-                  agentAvatarUrl={agentAvatarUrl}
-                  agentName={agentName}
-                  userAvatarUrl={
-                    api.userInfo$.avatar?.get()
-                      ? `${connectionConfig.baseUrl.replace(/\/+$/, '')}/api/v2/user/avatar`
-                      : undefined
-                  }
-                  userName={api.userInfo$.name?.get()}
-                />
+                {!hideAvatar && (
+                  <MessageAvatar
+                    role$={message$.role}
+                    isError$={isError$}
+                    isSuccess$={isSuccess$}
+                    chainType$={chainType$}
+                    agentAvatarUrl={agentAvatarUrl}
+                    agentName={agentName}
+                    userAvatarUrl={
+                      api.userInfo$.avatar?.get()
+                        ? `${connectionConfig.baseUrl.replace(/\/+$/, '')}/api/v2/user/avatar`
+                        : undefined
+                    }
+                    userName={api.userInfo$.name?.get()}
+                  />
+                )}
                 <div className={contentOffsetClasses$.get()}>
                   <div className={`group/message relative flex flex-col ${messageClasses$.get()}`}>
                     {/* Per-message actions — rendered under the message (order-last),

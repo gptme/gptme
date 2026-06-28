@@ -164,3 +164,53 @@ describe('renderMarkdownBlocks', () => {
     expect(div.lastElementChild?.outerHTML).toBe('<p>some other text</p>');
   });
 });
+
+function parseStandard(markdown: string) {
+  const div = document.createElement('div');
+  const renderer = customRenderer(div, false, false, true, true);
+  const parser = smd.parser(renderer);
+  smd.parser_write(parser, markdown);
+  smd.parser_end(parser);
+  return div;
+}
+
+describe('standardMarkdown mode', () => {
+  it('renders plain text without chrome', () => {
+    const div = parseStandard('Hello world');
+    expect(div.innerHTML).toBe('<p>Hello world</p>');
+  });
+
+  it('renders code blocks as plain pre+code without details/summary', () => {
+    const markdown = '```python\nprint("hello")\n```';
+    const div = parseStandard(markdown);
+
+    // No <details> or <summary> wrapper
+    expect(div.querySelector('details')).toBeNull();
+    expect(div.querySelector('summary')).toBeNull();
+
+    // Plain <pre><code> structure
+    const pre = div.querySelector('pre');
+    expect(pre).not.toBeNull();
+    const code = div.querySelector('pre code');
+    expect(code).not.toBeNull();
+    expect(code?.textContent).toContain('print("hello")');
+  });
+
+  it('renders multi-line code blocks without inline-codeblock conversion', () => {
+    // Chat mode converts short blocks (≤2 lines) to inline-codeblock; standard mode should not
+    const markdown = '```sh\necho hello\n```';
+    const div = parseStandard(markdown);
+
+    expect(div.querySelector('.inline-codeblock')).toBeNull();
+    expect(div.querySelector('pre')).not.toBeNull();
+  });
+
+  it('does not collapse tool-use blocks', () => {
+    // In chat mode, 'shell' blocks collapse by default; in standard mode no details exist
+    const markdown = '```shell\nls -la\n```';
+    const div = parseStandard(markdown);
+
+    expect(div.querySelector('details')).toBeNull();
+    expect(div.querySelector('pre')).not.toBeNull();
+  });
+});

@@ -89,13 +89,17 @@ export type CustomRenderer = Omit<
  * @param log - Whether to log rendering details (for debugging)
  * @param useReactTabbed - Whether to use React components for code blocks with tabs
  * @param blocksDefaultOpen - Whether code blocks should be open by default
+ * @param standardMarkdown - When true, renders plain code blocks without chat-specific
+ *   chrome (no collapsible details, no tool labels/icons). Use for non-chat contexts
+ *   like workspace file previews and artifact viewers.
  * @returns A CustomRenderer instance
  */
 export function customRenderer(
   root: HTMLElement,
   log: boolean = false,
   useReactTabbed: boolean = false,
-  blocksDefaultOpen: boolean = true
+  blocksDefaultOpen: boolean = true,
+  standardMarkdown: boolean = false
 ): CustomRenderer {
   return {
     add_token: (data: CustomRendererData, type: smd.Token) => {
@@ -108,6 +112,16 @@ export function customRenderer(
       switch (type) {
         case smd.CODE_BLOCK:
         case smd.CODE_FENCE: {
+          if (standardMarkdown) {
+            // Standard mode: plain pre+code, no collapsible details/summary chrome
+            parent = parent.appendChild(document.createElement('pre'));
+            slot = document.createElement('code');
+            data.code = slot;
+            slot.setAttribute('class', 'hljs');
+            data.nodes[++data.index] = parent.appendChild(slot);
+            break;
+          }
+
           parent = parent.appendChild(document.createElement('details'));
           // Default to open (agent code shown to the user). Tool-use/output
           // blocks are collapsed once their langtag is known (see smd.LANG),
@@ -153,40 +167,42 @@ export function customRenderer(
         console.log('end_token');
       }
 
-      if (useReactTabbed && data.placeholder && data.code && data.lang && data.codeText) {
-        const langFromInfo = data.lang ? data.lang.split('.').pop() : undefined;
-        // Only render for markdown and html
-        if (!isMarkdownOrHtml(langFromInfo)) return;
-        try {
-          // Create React root and render the component
-          const reactRoot = createRoot(data.placeholder);
-          reactRoot.render(
-            createElement(TabbedCodeBlock, {
-              language: langFromInfo,
-              codeText: data.codeText,
-              code: data.code!,
-            })
-          );
-        } catch (error) {
-          console.error('Error rendering TabbedCodeBlock:', error);
+      if (!standardMarkdown) {
+        if (useReactTabbed && data.placeholder && data.code && data.lang && data.codeText) {
+          const langFromInfo = data.lang ? data.lang.split('.').pop() : undefined;
+          // Only render for markdown and html
+          if (!isMarkdownOrHtml(langFromInfo)) return;
+          try {
+            // Create React root and render the component
+            const reactRoot = createRoot(data.placeholder);
+            reactRoot.render(
+              createElement(TabbedCodeBlock, {
+                language: langFromInfo,
+                codeText: data.codeText,
+                code: data.code!,
+              })
+            );
+          } catch (error) {
+            console.error('Error rendering TabbedCodeBlock:', error);
+          }
         }
-      }
 
-      // Convert short code blocks (≤2 lines) from <details> to inline display.
-      // Long lines scroll horizontally; the label stays fixed on the left.
-      if (data.code && data.summary) {
-        const codeText = (data.code.textContent || '').replace(/\n$/, '');
-        const lineCount = codeText.split('\n').length;
-        const details = data.summary.parentElement; // the <details> element
+        // Convert short code blocks (≤2 lines) from <details> to inline display.
+        // Long lines scroll horizontally; the label stays fixed on the left.
+        if (data.code && data.summary) {
+          const codeText = (data.code.textContent || '').replace(/\n$/, '');
+          const lineCount = codeText.split('\n').length;
+          const details = data.summary.parentElement; // the <details> element
 
-        if (lineCount <= 2 && codeText.length <= 1000 && details?.tagName === 'DETAILS') {
-          // Replace <details><summary>...<pre><code>... with inline element
-          const inline = document.createElement('div');
-          inline.className = 'inline-codeblock';
-          inline.innerHTML =
-            `<span class="inline-codeblock-label">${data.summary.innerHTML}</span>` +
-            `<code class="${data.code.className}">${data.code.innerHTML}</code>`;
-          details.replaceWith(inline);
+          if (lineCount <= 2 && codeText.length <= 1000 && details?.tagName === 'DETAILS') {
+            // Replace <details><summary>...<pre><code>... with inline element
+            const inline = document.createElement('div');
+            inline.className = 'inline-codeblock';
+            inline.innerHTML =
+              `<span class="inline-codeblock-label">${data.summary.innerHTML}</span>` +
+              `<code class="${data.code.className}">${data.code.innerHTML}</code>`;
+            details.replaceWith(inline);
+          }
         }
       }
 
@@ -232,7 +248,7 @@ export function customRenderer(
       // Set the language in the summary tag
       if (type === smd.LANG) {
         data.lang = value;
-        if (data.summary) {
+        if (!standardMarkdown && data.summary) {
           // Code-block label — CHAT renderer (smd custom renderer, real DOM nodes).
           // This is the path the chat view (/chat/...) actually uses. We build a
           // lucide icon + langtag label as innerHTML (carried over to the inline

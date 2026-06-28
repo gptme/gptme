@@ -53,7 +53,7 @@ export function MessageAvatar({
   const avatarUrl = isUser ? userAvatarUrl : agentAvatarUrl;
   const sideClass = isUser ? 'right-0' : 'left-0';
 
-  const avatarClasses = `absolute flex h-8 w-8 flex-shrink-0 select-none items-center justify-center rounded-full border-2 border-border text-xs font-semibold md:h-10 md:w-10 md:text-sm ${sideClass} ${
+  const avatarClasses = `absolute top-0 flex h-8 w-8 flex-shrink-0 select-none items-center justify-center rounded-full border-2 border-border text-xs font-semibold md:h-10 md:w-10 md:text-sm ${sideClass} ${
     isUser
       ? showCustomAvatar
         ? 'overflow-hidden'
