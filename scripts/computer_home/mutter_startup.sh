@@ -13,8 +13,15 @@ timeout_ms=30000
 elapsed_ms=0
 poll_ms=100
 
+# Determine once which readiness probe to use (avoids a subprocess fork per iteration)
+if command -v xprop >/dev/null 2>&1; then
+    _use_xprop=1
+else
+    _use_xprop=0
+fi
+
 while [ $elapsed_ms -lt $timeout_ms ]; do
-    if command -v xprop >/dev/null 2>&1; then
+    if [ "$_use_xprop" -eq 1 ]; then
         if xprop -root _NET_SUPPORTING_WM_CHECK >/dev/null 2>&1; then
             break
         fi
@@ -23,7 +30,7 @@ while [ $elapsed_ms -lt $timeout_ms ]; do
             break
         fi
     fi
-    sleep "0.${poll_ms}"
+    sleep "$(printf '%.3f' "$(echo "scale=3; ${poll_ms}/1000" | bc)")"
     elapsed_ms=$((elapsed_ms + poll_ms))
 done
 
