@@ -1295,7 +1295,7 @@ Common modifiers (ctrl, alt, cmd/super, shift) work consistently across platform
 """
 
 
-def observe_web(url: str, screenshot_too: bool = False) -> list:
+def observe_web(url: str, screenshot_too: bool = False) -> list[Message]:
     """Observe a web page: structured ARIA snapshot first, screenshot as fallback.
 
     Implements the structured-first observation policy: prefer accessibility snapshots
@@ -1322,7 +1322,7 @@ def observe_web(url: str, screenshot_too: bool = False) -> list:
         msgs = observe_web("https://example.com", screenshot_too=True)
         # Returns snapshot Message + screenshot Message side-by-side.
     """
-    messages: list = []
+    messages: list[Message] = []
 
     snapshot_text: str | None = None
     try:
@@ -1338,7 +1338,11 @@ def observe_web(url: str, screenshot_too: bool = False) -> list:
 
         messages.append(Message("system", snapshot_text))
         if screenshot_too:
-            msg = computer("screenshot")
+            # Playwright is available (snapshot succeeded), use browser screenshot
+            from gptme.tools.browser import screenshot_url
+
+            path = screenshot_url(url)
+            msg = _make_screenshot_msg(path, tool="computer")
             if msg is not None:
                 messages.append(msg)
     else:

@@ -260,11 +260,9 @@ class TestObserveWeb:
         assert isinstance(result, list)
 
     def test_screenshot_too_appends_second_message(self) -> None:
-        """screenshot_too=True should add a screenshot message alongside the snapshot."""
+        """screenshot_too=True should add a browser screenshot alongside the snapshot."""
         fake_snapshot = "# Page snapshot"
-
-        screenshot_msg = MagicMock()
-        screenshot_msg.content = "screenshot"
+        fake_screenshot_path = "/tmp/fake_screenshot.png"
 
         with (
             patch.dict(
@@ -273,15 +271,20 @@ class TestObserveWeb:
                     "gptme.tools.browser": MagicMock(
                         has_playwright=lambda: True,
                         snapshot_url=lambda _url: fake_snapshot,
+                        screenshot_url=lambda _url: fake_screenshot_path,
                     )
                 },
             ),
-            patch("gptme.tools.computer.computer", return_value=screenshot_msg),
+            patch(
+                "gptme.tools.computer._make_screenshot_msg",
+                return_value=MagicMock(content="browser screenshot"),
+            ),
         ):
             msgs = observe_web("https://example.com", screenshot_too=True)
 
         assert len(msgs) == 2
         assert fake_snapshot in msgs[0].content
+        assert "browser screenshot" in msgs[1].content
 
 
 # ---------------------------------------------------------------------------
