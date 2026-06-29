@@ -2685,13 +2685,20 @@ class TestParentContextForwarding:
             _subagents[:] = [s for s in _subagents if s.agent_id != "test-no-log"]
 
     def test_context_turns_slices_log(self, monkeypatch):
-        """context_turns=2 forwards the last 4 messages from the parent log."""
+        """context_turns=2 forwards the last 2 turns (from 2nd-to-last user msg onward)."""
         import gptme.tools.subagent.execution as exec_mod
         from gptme.logmanager import Log, LogManager
         from gptme.message import Message
 
-        # Build a mock log with 6 messages
-        msgs = [Message("user", f"msg {i}") for i in range(6)]
+        # Build a log with 3 realistic user+assistant turns
+        msgs = [
+            Message("user", "turn 1 user"),
+            Message("assistant", "turn 1 assistant"),
+            Message("user", "turn 2 user"),
+            Message("assistant", "turn 2 assistant"),
+            Message("user", "turn 3 user"),
+            Message("assistant", "turn 3 assistant"),
+        ]
         mock_log = MagicMock(spec=LogManager)
         mock_log.log = Log(msgs)
 
@@ -2716,15 +2723,64 @@ class TestParentContextForwarding:
             time.sleep(0.05)
 
         assert len(captured) == 1
-        # context_turns=2 → last 4 messages (2 turns × 2 msgs/turn)
+        # context_turns=2 → starts from 2nd-to-last user message (index 2)
         assert captured[0] is not None
         assert len(captured[0]) == 4
-        assert captured[0][0].content == "msg 2"
-        assert captured[0][-1].content == "msg 5"
+        assert captured[0][0].content == "turn 2 user"
+        assert captured[0][-1].content == "turn 3 assistant"
 
         # Cleanup
         with _subagents_lock:
             _subagents[:] = [s for s in _subagents if s.agent_id != "test-slice"]
+
+    def test_context_turns_slices_log_with_tool_results(self, monkeypatch):
+        """context_turns correctly includes tool-result system msgs within a turn."""
+        import gptme.tools.subagent.execution as exec_mod
+        from gptme.logmanager import Log, LogManager
+        from gptme.message import Message
+
+        # Log with 2 turns; turn 1 has a tool-result system message in the middle
+        msgs = [
+            Message("user", "turn 1 user"),
+            Message("assistant", "calling tool"),
+            Message("system", "[tool result]"),
+            Message("assistant", "turn 1 final"),
+            Message("user", "turn 2 user"),
+            Message("assistant", "turn 2 assistant"),
+        ]
+        mock_log = MagicMock(spec=LogManager)
+        mock_log.log = Log(msgs)
+
+        monkeypatch.setattr(
+            LogManager, "get_current_log", staticmethod(lambda: mock_log)
+        )
+
+        captured: list = []
+
+        def mock_create_thread(**kw):
+            captured.append(kw.get("parent_messages"))
+
+        monkeypatch.setattr(exec_mod, "_create_subagent_thread", mock_create_thread)
+
+        subagent("test-slice-tool", "do something", context_turns=2)
+
+        import time
+
+        for _ in range(20):
+            if captured:
+                break
+            time.sleep(0.05)
+
+        assert len(captured) == 1
+        # Both turns included; tool-result system message is included within turn 1
+        assert captured[0] is not None
+        assert len(captured[0]) == 6
+        assert captured[0][0].content == "turn 1 user"
+        assert captured[0][-1].content == "turn 2 assistant"
+
+        # Cleanup
+        with _subagents_lock:
+            _subagents[:] = [s for s in _subagents if s.agent_id != "test-slice-tool"]
 
     def test_context_turns_none_passes_none(self, monkeypatch):
         """context_turns=None (default) passes parent_messages=None to thread."""

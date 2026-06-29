@@ -222,8 +222,18 @@ def subagent(
         parent_log = LogManager.get_current_log()
         if parent_log is not None:
             msgs = parent_log.log
-            # Each turn = user + assistant pair; slice the last context_turns*2 messages.
-            parent_messages = list(msgs[-(context_turns * 2) :])
+            # Slice from the N-th-from-last user message so tool-result system
+            # messages within a turn are included and the count is exact.
+            user_indices = [i for i, m in enumerate(msgs) if m.role == "user"]
+            if user_indices:
+                start = (
+                    user_indices[-context_turns]
+                    if len(user_indices) >= context_turns
+                    else 0
+                )
+                parent_messages = list(msgs[start:])
+            else:
+                parent_messages = list(msgs)
         else:
             logger.warning(
                 "context_turns=%d set but no active LogManager found; "
@@ -454,6 +464,12 @@ def subagent(
             logger.warning(
                 f"Subagent {agent_id}: 'context_include' is not supported in ACP mode (ignored)"
             )
+        if context_turns is not None:
+            logger.warning(
+                "context_turns=%d set but ACP mode does not forward parent context; "
+                "parameter is ignored",
+                context_turns,
+            )
 
         def run_acp_subagent():
             _sem = get_slot_sem()
@@ -587,6 +603,12 @@ def subagent(
         # A launcher thread acquires the slot before starting the OS process so that
         # excess agents queue (rather than all starting at once).
         logger.info(f"Starting subagent {agent_id} in subprocess mode")
+        if context_turns is not None:
+            logger.warning(
+                "context_turns=%d set but subprocess mode does not forward parent context; "
+                "parameter is ignored",
+                context_turns,
+            )
         if profile:
             logger.info(f"  with profile: {profile}")
         # Convert output_schema type to JSON string if present
