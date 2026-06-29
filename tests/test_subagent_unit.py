@@ -2269,8 +2269,8 @@ class TestWorkdir:
         assert isinstance(exec_calls[0], Path)
         assert exec_calls[0] == workspace_dir.resolve()
 
-    def test_workdir_ignored_in_planner_mode(self, monkeypatch, tmp_path):
-        """workdir is silently ignored when mode='planner' (returns early before workdir resolution)."""
+    def test_workdir_validated_in_planner_mode(self, monkeypatch, tmp_path):
+        """workdir is validated before the planner branch — a bad path raises."""
         import importlib
 
         exec_mod = importlib.import_module("gptme.tools.subagent.execution")
@@ -2281,15 +2281,42 @@ class TestWorkdir:
 
         from gptme.tools.subagent.api import subagent
 
-        # Should NOT raise ValueError even though workdir doesn't exist,
-        # because the planner path returns before workdir is validated
+        with pytest.raises(ValueError, match="workdir does not exist"):
+            subagent(
+                "agent",
+                "do planner thing",
+                mode="planner",
+                subtasks=[{"id": "test-1", "description": "test subtask"}],
+                workdir="/nonexistent",
+            )
+
+    def test_workdir_forwarded_to_planner(self, monkeypatch, tmp_path):
+        """A valid workdir is resolved and forwarded to _run_planner."""
+        import importlib
+
+        exec_mod = importlib.import_module("gptme.tools.subagent.execution")
+        llm_models = importlib.import_module("gptme.llm.models")
+
+        captured: dict = {}
+        monkeypatch.setattr(
+            exec_mod, "_run_planner", lambda *args, **kw: captured.update(kw)
+        )
+        monkeypatch.setattr(llm_models, "get_default_model", lambda: None)
+
+        from gptme.tools.subagent.api import subagent
+
+        workspace_dir = tmp_path / "planner-workspace"
+        workspace_dir.mkdir()
+
         subagent(
             "agent",
             "do planner thing",
             mode="planner",
             subtasks=[{"id": "test-1", "description": "test subtask"}],
-            workdir="/nonexistent",
+            workdir=str(workspace_dir),
         )
+
+        assert captured.get("workdir") == workspace_dir.resolve()
 
     def test_workdir_overridden_when_isolated(self, monkeypatch, tmp_path):
         """When isolated=True, workdir is overridden by the isolated workspace (tempdir or worktree)."""

@@ -240,6 +240,16 @@ def subagent(
         current_model = get_default_model()
         model_name = current_model.full if current_model else None
 
+    # Resolve explicit workdir once, shared by the planner and executor paths.
+    # When workdir is None each path falls back to Path.cwd() at spawn time.
+    workdir_path: Path | None = None
+    if workdir is not None:
+        workdir_path = Path(workdir).resolve()
+        if not workdir_path.exists():
+            raise ValueError(f"workdir does not exist: {workdir_path}")
+        if not workdir_path.is_dir():
+            raise ValueError(f"workdir is not a directory: {workdir_path}")
+
     if mode == "planner":
         if not subtasks:
             raise ValueError("Planner mode requires subtasks parameter")
@@ -254,6 +264,7 @@ def subagent(
             profile_name=profile,
             redact_secrets=redact_secrets,
             context_window=context_window,
+            workdir=workdir_path,
         )
 
     # Validate context_mode parameters
@@ -269,13 +280,9 @@ def subagent(
     name = f"subagent-{agent_id}"
     logdir = get_logdir(name + "-" + random_string(4))
 
-    # Resolve workspace: explicit workdir > current working directory
-    if workdir is not None:
-        workspace = Path(workdir).resolve()
-        if not workspace.exists():
-            raise ValueError(f"workdir does not exist: {workspace}")
-        if not workspace.is_dir():
-            raise ValueError(f"workdir is not a directory: {workspace}")
+    # Resolve workspace: explicit workdir (validated above) > current working dir
+    if workdir_path is not None:
+        workspace = workdir_path
     else:
         # Get workspace, handling case where cwd was deleted (e.g., in tests)
         try:

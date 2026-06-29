@@ -581,6 +581,7 @@ def _run_planner(
     profile_name: str | None = None,
     redact_secrets: bool = True,
     context_window: int | None = None,
+    workdir: Path | None = None,
 ) -> None:
     """Run a planner that delegates work to multiple executor subagents.
 
@@ -598,6 +599,8 @@ def _run_planner(
             (which manage their own context); a debug message is logged in that case.
         context_window: Limit workspace context messages passed to executor subagents.
             None = no limit; 0 = minimal context (no workspace files); N > 0 = at most N.
+        workdir: Pre-resolved working directory for all executor subagents. When
+            None, each executor falls back to Path.cwd() at spawn time.
     """
     from gptme.cli.main import get_logdir
 
@@ -649,12 +652,15 @@ def _run_planner(
                 f"isolated={resolved_isolated}"
             )
 
-        # Capture workspace before spawning to avoid FileNotFoundError
-        # if cwd is deleted (e.g., tmpdir cleanup in tests)
-        try:
-            workspace = Path.cwd()
-        except FileNotFoundError:
-            workspace = logdir.parent
+        # Explicit workdir > current working directory. Capture before spawning
+        # to avoid FileNotFoundError if cwd is deleted (e.g., tmpdir cleanup in tests)
+        if workdir is not None:
+            workspace = workdir
+        else:
+            try:
+                workspace = Path.cwd()
+            except FileNotFoundError:
+                workspace = logdir.parent
 
         # Set up worktree isolation if the resolved role requires it
         worktree_path: Path | None = None
