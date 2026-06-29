@@ -326,3 +326,36 @@ from gptme.message import Message
     assert len(msgs) == 2, f"Expected 2 messages, got {len(msgs)}: {msgs}"
     assert msgs[0].content == "msg1"
     assert msgs[1].content == "msg2"
+
+
+def test_execute_python_returns_empty_list_of_messages():
+    """Empty list[Message] (e.g. observe_web failure) should produce no output.
+
+    Without this, the LLM sees confusing 'Result:\n```\n[]\n```' output instead
+    of clean silence. We verify no output is yielded and crucially that the output
+    does NOT contain a repr of [].
+    """
+    code = """\
+from gptme.message import Message
+[m for m in [] if isinstance(m, Message)]  # evaluates to []
+"""
+    msgs = list(execute_python(code, [], None))
+    assert len(msgs) == 0 or (len(msgs) == 1 and "[]" not in msgs[0].content), (
+        f"Expected no confusing [] repr, got: {msgs}"
+    )
+
+
+def test_execute_python_returns_mixed_list_falls_through():
+    """A mixed list (Message + non-Message) should NOT yield from; show as repr.
+
+    A type guard checking only result[0] would incorrectly yield the non-Message
+    items, violating the generator's return type. The all() check prevents this.
+    """
+    code = """\
+from gptme.message import Message
+[Message("system", "real"), "not-a-message"]
+"""
+    msgs = list(execute_python(code, [], None))
+    # Should fall through to repr output, not yield 2 items of mixed type
+    assert len(msgs) == 1, f"Expected 1 repr output message, got {len(msgs)}: {msgs}"
+    assert "not-a-message" in msgs[0].content

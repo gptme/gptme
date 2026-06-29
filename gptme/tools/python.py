@@ -278,10 +278,8 @@ def execute_python(
     if isinstance(result.result, Message):
         yield result.result
         return
-    if (
-        isinstance(result.result, list)
-        and result.result
-        and isinstance(result.result[0], Message)
+    if isinstance(result.result, list) and all(
+        isinstance(m, Message) for m in result.result
     ):
         yield from result.result
         return
