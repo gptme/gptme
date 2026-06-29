@@ -209,16 +209,26 @@ def test_query_bool_field_with_string_value_returns_400(client: FlaskClient):
     assert "boolean" in data["error"].lower()
 
 
-def test_query_regex_pattern_length_limit(client: FlaskClient):
-    """Overly long regex pattern is rejected safely (no hang)."""
+def test_query_invalid_regex_returns_400(client: FlaskClient):
+    """Invalid regex pattern returns 400, not an empty list."""
     resp = _query(
         client,
-        {"filters": [{"field": "name", "op": "regex", "value": "a" * 300}]},
+        {"filters": [{"field": "name", "op": "regex", "value": "[invalid"}]},
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 400
     data = resp.get_json()
-    # Pattern > 200 chars should match nothing (safely rejected)
-    assert data["tools"] == []
+    assert "error" in data
+
+
+def test_query_regex_too_long_returns_400(client: FlaskClient):
+    """Regex pattern exceeding max length returns 400."""
+    resp = _query(
+        client,
+        {"filters": [{"field": "name", "op": "regex", "value": "a" * 201}]},
+    )
+    assert resp.status_code == 400
+    data = resp.get_json()
+    assert "error" in data
 
 
 def test_query_unknown_projection_field_returns_400(client: FlaskClient):

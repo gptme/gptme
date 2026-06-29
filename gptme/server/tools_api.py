@@ -183,16 +183,19 @@ def _apply_filters(
             raise ValueError(
                 f"Field '{f.field}' requires a boolean value, got '{type(f.value).__name__}'"
             )
-    # Regex patterns must be syntactically valid — invalid patterns silently
-    # return no matches, which is indistinguishable from a real empty result.
+    # Validate regex patterns upfront — invalid/too-long patterns should return 400,
+    # not silently produce an empty list indistinguishable from a real no-match.
     for f in filters:
         if f.op == "regex":
-            try:
-                re.compile(str(f.value))
-            except re.error as exc:
+            sv = str(f.value)
+            if len(sv) > _MAX_REGEX_LEN:
                 raise ValueError(
-                    f"Invalid regex pattern for field '{f.field}': {exc}"
-                ) from exc
+                    f"Regex pattern too long ({len(sv)} chars, max {_MAX_REGEX_LEN})"
+                )
+            try:
+                re.compile(sv)
+            except re.error as exc:
+                raise ValueError(f"Invalid regex pattern: {exc}") from exc
     return [t for t in tools if all(_match_filter(t, f) for f in filters)]
 
 
@@ -266,6 +269,40 @@ def list_tools():
         return flask.jsonify({"error": str(e)}), 500
 
 
+_MAX_REGEX_LEN = 200
+
+
+def _validate_query(query: ToolQueryRequest) -> str | None:
+    """Validate filters and fields; return an error string or None if valid."""
+    for f in query.filters:
+        if f.field not in _ALL_FILTERABLE:
+            return (
+                f"Unknown filter field: {f.field!r}. "
+                f"Valid fields: {sorted(_ALL_FILTERABLE)}"
+            )
+        if f.field in _FILTERABLE_BOOL_FIELDS and not isinstance(f.value, bool):
+            return (
+                f"Filter field {f.field!r} requires a boolean value, "
+                f"got {type(f.value).__name__!r}"
+            )
+        if f.op == "regex":
+            sv = str(f.value)
+            if len(sv) > _MAX_REGEX_LEN:
+                return f"Regex pattern too long (max {_MAX_REGEX_LEN} chars)"
+            try:
+                re.compile(sv)
+            except re.error as exc:
+                return f"Invalid regex pattern: {exc}"
+    if query.fields is not None:
+        unknown = [f for f in query.fields if f not in ToolOut.model_fields]
+        if unknown:
+            return (
+                f"Unknown projection field(s): {unknown}. "
+                f"Valid fields: {sorted(ToolOut.model_fields)}"
+            )
+    return None
+
+
 @tools_api.route("/api/v2/tools", methods=["QUERY"])
 @require_auth
 def query_tools():
@@ -293,6 +330,10 @@ def query_tools():
         query = ToolQueryRequest(**body)
     except ValidationError as e:
         return flask.jsonify({"error": str(e)}), 400
+
+    err = _validate_query(query)
+    if err:
+        return flask.jsonify({"error": err}), 400
 
     try:
         raw_tools = get_available_tools(include_mcp=True)
