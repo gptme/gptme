@@ -1981,5 +1981,6 @@ tool = ToolSpec(
         "allowlist": ("tool.confirm", shell_allowlist_hook, 10),
         "session_end": ("session.end", _session_end_shell_cleanup, 0),
     },
+    hints=frozenset({"code-exec", "destructive"}),
 )
 __doc__ = tool.get_doc(__doc__)

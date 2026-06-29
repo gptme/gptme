@@ -424,5 +424,6 @@ tool = ToolSpec(
             required=True,
         ),
     ],
+    hints=frozenset({"file-ops", "destructive"}),
 )
 __doc__ = tool.get_doc(__doc__)

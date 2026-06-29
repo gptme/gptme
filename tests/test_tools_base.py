@@ -1279,3 +1279,66 @@ class TestToolPromptEdgeCases:
         prompt = tool.get_tool_prompt(examples=False, tool_format="xml")
         assert "<description>" not in prompt
         assert '<tool name="t">' in prompt
+
+
+# ── Built-in tool hint annotations ─────────────────────────────────
+
+
+class TestBuiltinToolHints:
+    """Verify that core built-in tools carry the expected hint tags."""
+
+    def test_read_tool_is_read_only(self):
+        from gptme.tools.read import tool
+
+        assert "read-only" in tool.hints
+        assert "file-ops" in tool.hints
+
+    def test_patch_tool_is_destructive(self):
+        from gptme.tools.patch import tool
+
+        assert "destructive" in tool.hints
+        assert "file-ops" in tool.hints
+
+    def test_save_tools_are_destructive(self):
+        from gptme.tools.save import tool_append, tool_save
+
+        for t in (tool_save, tool_append):
+            assert "destructive" in t.hints
+            assert "file-ops" in t.hints
+
+    def test_python_tool_hints(self):
+        from gptme.tools.python import tool
+
+        assert "code-exec" in tool.hints
+        assert "destructive" in tool.hints
+
+    def test_shell_tool_hints(self):
+        from gptme.tools.shell import tool
+
+        assert "code-exec" in tool.hints
+        assert "destructive" in tool.hints
+
+    def test_browser_tool_hint(self):
+        from gptme.tools.browser import tool
+
+        assert "web" in tool.hints
+
+    def test_hint_allowlist_selects_read_only_tools(self):
+        """hint:read-only should match read but not shell."""
+        from gptme.tools.read import tool as read_tool
+        from gptme.tools.shell import tool as shell_tool
+
+        tools = [read_tool, shell_tool]
+        result = matching_allowlist_tools("hint:read-only", tools)
+        assert read_tool in result
+        assert shell_tool not in result
+
+    def test_hint_allowlist_selects_code_exec_tools(self):
+        """hint:code-exec should match both ipython and shell."""
+        from gptme.tools.python import tool as py_tool
+        from gptme.tools.shell import tool as shell_tool
+
+        tools = [py_tool, shell_tool]
+        result = matching_allowlist_tools("hint:code-exec", tools)
+        assert py_tool in result
+        assert shell_tool in result

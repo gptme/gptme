@@ -467,5 +467,6 @@ tool = ToolSpec(
         ),
     ],
     load_priority=10,
+    hints=frozenset({"code-exec", "destructive"}),
 )
 __doc__ = tool.get_doc(__doc__)
