@@ -1322,6 +1322,7 @@ class TestBuiltinToolHints:
         from gptme.tools.browser import tool
 
         assert "web" in tool.hints
+        assert "destructive" in tool.hints
 
     def test_hint_allowlist_selects_read_only_tools(self):
         """hint:read-only should match read but not shell."""
