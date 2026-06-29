@@ -799,7 +799,10 @@ def _dispatch_transport(
 
     if action == "wait_for_change":
         timeout = float(text) if text else 10.0
-        poll_interval = 0.5
+        # Start polling at 50ms, cap at 500ms — catches fast UI updates without
+        # burning CPU on long waits.
+        poll_interval = 0.05
+        max_poll_interval = 0.5
         change_threshold = 0.01
         baseline = transport.screenshot()
         deadline = time.monotonic() + timeout
@@ -810,6 +813,8 @@ def _dispatch_transport(
             if ratio >= change_threshold:
                 print(f"Screen changed ({ratio:.1%} pixels differ)")
                 return _make_screenshot_msg(current)
+            # Back off poll interval up to the cap
+            poll_interval = min(poll_interval * 2, max_poll_interval)
         print(
             f"No screen change detected after {timeout:.0f}s — returning current screenshot"
         )
@@ -1046,7 +1051,10 @@ def computer(
     if action == "wait_for_change":
         # text holds the optional timeout (seconds) as a string; default 10s
         timeout = float(text) if text else 10.0
-        poll_interval = 0.5
+        # Start polling at 50ms, cap at 500ms — catches fast UI updates without
+        # burning CPU on long waits.
+        poll_interval = 0.05
+        max_poll_interval = 0.5
         change_threshold = 0.01  # 1% of pixels must differ
         baseline = screenshot()
         deadline = time.monotonic() + timeout
@@ -1079,6 +1087,8 @@ def computer(
                     ):
                         pass
                 return _make_screenshot_msg(path)
+            # Back off poll interval up to the cap
+            poll_interval = min(poll_interval * 2, max_poll_interval)
         print(
             f"No screen change detected after {timeout:.0f}s — returning current screenshot"
         )

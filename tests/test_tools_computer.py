@@ -1166,6 +1166,49 @@ def test_wait_for_change_timeout_returns_screenshot(mock_transport, mock_res, tm
     assert result is mock.sentinel.timeout_msg
 
 
+@mock.patch("gptme.tools.computer.IS_MACOS", False)
+@mock.patch(
+    "gptme.tools.computer._get_display_resolution", return_value=_MOCK_LINUX_RES_WFC
+)
+@mock.patch("gptme.tools.computer.get_transport", return_value=None)
+def test_wait_for_change_polls_with_backoff(mock_transport, mock_res, tmp_path):
+    """wait_for_change uses adaptive backoff: starts at 50ms, backs off to 500ms cap."""
+    from PIL import Image
+
+    static = tmp_path / "static.png"
+    Image.new("RGB", (100, 100), (42, 42, 42)).save(static)
+
+    sleep_calls = []
+
+    def _record_sleep(interval):
+        sleep_calls.append(interval)
+
+    # Expire the loop on the 4th poll so we get 3 sleep calls and see the backoff
+    monotonic_values = [0.0, 0.0, 0.0, 0.0, 100.0]
+    monotonic_iter = iter(monotonic_values)
+
+    with (
+        mock.patch("gptme.tools.computer.screenshot", return_value=static),
+        mock.patch("gptme.tools.computer.time.sleep", side_effect=_record_sleep),
+        mock.patch(
+            "gptme.tools.computer.time.monotonic",
+            side_effect=lambda: next(monotonic_iter),
+        ),
+        mock.patch(
+            "gptme.tools.computer._make_screenshot_msg",
+            return_value=mock.sentinel.timeout_msg,
+        ),
+    ):
+        result = computer("wait_for_change", text="1")
+
+    assert result is mock.sentinel.timeout_msg
+    # First call: 50ms; second: 100ms; third: 200ms — doubling backoff
+    assert len(sleep_calls) >= 2
+    assert sleep_calls[0] == pytest.approx(0.05)  # 50ms initial interval
+    assert sleep_calls[1] == pytest.approx(0.10)  # 100ms after first backoff
+    assert sleep_calls[2] == pytest.approx(0.20)  # 200ms after second backoff
+
+
 # ============================================================
 # window_focus action tests
 # ============================================================
