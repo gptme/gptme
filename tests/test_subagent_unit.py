@@ -2808,3 +2808,58 @@ class TestParentContextForwarding:
         # Cleanup
         with _subagents_lock:
             _subagents[:] = [s for s in _subagents if s.agent_id != "test-none-turns"]
+
+    def test_context_turns_fallback_skips_leading_system_messages(self, monkeypatch):
+        """When context_turns exceeds available turns, fallback starts at first user msg.
+
+        A real gptme log opens with system bootstrap messages (identity, workspace
+        context). When context_turns > available user turns the fallback must start at
+        user_indices[0], not at 0, so those setup messages are never forwarded.
+        """
+        import gptme.tools.subagent.execution as exec_mod
+        from gptme.logmanager import Log, LogManager
+        from gptme.message import Message
+
+        # Log with leading system messages before the first user message
+        msgs = [
+            Message("system", "[agent identity]"),
+            Message("system", "[workspace context]"),
+            Message("user", "first user task"),
+            Message("assistant", "first response"),
+        ]
+        mock_log = MagicMock(spec=LogManager)
+        mock_log.log = Log(msgs)
+
+        monkeypatch.setattr(
+            LogManager, "get_current_log", staticmethod(lambda: mock_log)
+        )
+
+        captured: list = []
+
+        def mock_create_thread(**kw):
+            captured.append(kw.get("parent_messages"))
+
+        monkeypatch.setattr(exec_mod, "_create_subagent_thread", mock_create_thread)
+
+        # context_turns=5 exceeds the 1 available user turn → triggers fallback
+        subagent("test-fallback-skip-system", "do something", context_turns=5)
+
+        import time
+
+        for _ in range(20):
+            if captured:
+                break
+            time.sleep(0.05)
+
+        assert len(captured) == 1
+        assert captured[0] is not None
+        # Must NOT include the leading system bootstrap messages
+        assert captured[0][0].content == "first user task"
+        assert captured[0][0].role == "user"
+        assert len(captured[0]) == 2  # user + assistant only
+
+        # Cleanup
+        with _subagents_lock:
+            _subagents[:] = [
+                s for s in _subagents if s.agent_id != "test-fallback-skip-system"
+            ]

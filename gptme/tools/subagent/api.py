@@ -226,12 +226,15 @@ def subagent(
             msgs = parent_log.log
             # Slice from the N-th-from-last user message so tool-result system
             # messages within a turn are included and the count is exact.
+            # Fallback to user_indices[0] (not 0) so leading system bootstrap
+            # messages (identity, workspace context) are never forwarded when
+            # context_turns exceeds available turns.
             user_indices = [i for i, m in enumerate(msgs) if m.role == "user"]
             if user_indices:
                 start = (
                     user_indices[-context_turns]
                     if len(user_indices) >= context_turns
-                    else 0
+                    else user_indices[0]
                 )
                 parent_messages = list(msgs[start:])
             else:
