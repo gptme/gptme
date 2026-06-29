@@ -1295,6 +1295,92 @@ Common modifiers (ctrl, alt, cmd/super, shift) work consistently across platform
 """
 
 
+def observe_web(url: str, screenshot_too: bool = False) -> list:
+    """Observe a web page: structured ARIA snapshot first, screenshot as fallback.
+
+    Implements the structured-first observation policy: prefer accessibility snapshots
+    for web targets — they avoid vision-token cost and give a DOM-addressable tree.
+    Use ``screenshot_too=True`` when you need pixel-level visual confirmation alongside
+    the structured snapshot (e.g. to verify layout or canvas content).
+
+    Falls back to a browser screenshot, then to a desktop screenshot, if Playwright is
+    not available.
+
+    Args:
+        url: Page URL to observe.
+        screenshot_too: If True, also take a screenshot even when a snapshot succeeded.
+
+    Returns:
+        List of :class:`~gptme.message.Message` objects (snapshot and/or screenshots).
+        Empty only if all observation paths fail.
+
+    Example (from IPython in a computer-use session)::
+
+        msgs = observe_web("https://news.ycombinator.com")
+        # Returns one Message containing the ARIA snapshot text.
+
+        msgs = observe_web("https://example.com", screenshot_too=True)
+        # Returns snapshot Message + screenshot Message side-by-side.
+    """
+    messages: list = []
+
+    snapshot_text: str | None = None
+    try:
+        from gptme.tools.browser import has_playwright, snapshot_url
+
+        if has_playwright():
+            snapshot_text = snapshot_url(url)
+    except Exception:
+        pass
+
+    if snapshot_text is not None:
+        from gptme.message import Message
+
+        messages.append(Message("system", snapshot_text))
+        if screenshot_too:
+            msg = computer("screenshot")
+            if msg is not None:
+                messages.append(msg)
+    else:
+        # Fallback: browser screenshot, then desktop screenshot
+        try:
+            from gptme.tools.browser import has_playwright, screenshot_url
+
+            if has_playwright():
+                path = screenshot_url(url)
+                msg = _make_screenshot_msg(path, tool="computer")
+                if msg is not None:
+                    messages.append(msg)
+        except Exception:
+            pass
+
+        if not messages:
+            msg = computer("screenshot")
+            if msg is not None:
+                messages.append(msg)
+
+    return messages
+
+
+def observe_desktop() -> Message | None:
+    """Observe the current desktop state via screenshot.
+
+    Thin wrapper around ``computer('screenshot')`` that makes the
+    structured-first / screenshot-fallback policy explicit: call this when
+    there is no URL to snapshot (native apps, the raw desktop, or any
+    non-browser surface).
+
+    Returns:
+        Screenshot :class:`~gptme.message.Message`, or ``None`` if capture failed.
+
+    Example (from IPython in a computer-use session)::
+
+        msg = observe_desktop()
+        # Equivalent to computer("screenshot"), but signals intent clearly.
+    """
+    return computer("screenshot")
+
+
 def examples(tool_format):
     system = platform.system()
     is_macos = system == "Darwin"
