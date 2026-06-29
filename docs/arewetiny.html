@@ -534,20 +534,20 @@ This is a major goal of the project, and it is important to keep in mind that th
 make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking import time for gptme
 time poetry run python -X importtime -m gptme --model openai --non-interactive 2&gt;&amp;1 | grep &quot;import time&quot; | cut -d&#39;|&#39; -f 2- | sort -n | tail -n 10
-     340788 |               mcp.server.fastmcp
-     341169 |             mcp.server
-     341235 |           mcp.server.session
-     483714 |           mcp.client.session
-     850953 |         mcp
-     850992 |       mcp.types
-     856894 |     gptme.mcp.client
-     861428 |   gptme.mcp
-     861478 | gptme.mcp.client
-    1134427 | gptme.cli.main
+     369368 |           mcp.server.session
+     372101 |     gptme.commands
+     415079 |   gptme.chat
+     507801 |           mcp.client.session
+     903307 |         mcp
+     903335 |       mcp.types
+     908602 |     gptme.mcp.client
+     911881 |   gptme.mcp
+     911909 | gptme.mcp.client
+    1240353 | gptme.cli.main
 
-real	0m2.917s
-user	0m2.620s
-sys	0m0.204s
+real	0m2.903s
+user	0m2.313s
+sys	0m0.300s
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
 </div>
@@ -556,10 +556,10 @@ make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Benchmarking startup time for gptme
 hyperfine &quot;poetry run gptme &#39;/exit&#39;&quot; -M 5 || poetry run gptme &#39;/exit&#39; || exit 1
 Benchmark 1: poetry run gptme &#39;/exit&#39;
-  Time (mean ± σ):      3.457 s ±  0.477 s    [User: 3.078 s, System: 0.571 s]
-  Range (min … max):    3.229 s …  4.310 s    5 runs
+  Time (mean ± σ):      3.264 s ±  0.466 s    [User: 2.749 s, System: 0.788 s]
+  Range (min … max):    3.027 s …  4.097 s    5 runs
  
-  Warning: The first benchmarking run for this command was significantly slower than the rest (4.310 s). This could be caused by (filesystem) caches that were not filled until after the first run. You should consider using the &#39;--warmup&#39; option to fill those caches before the actual benchmark. Alternatively, use the &#39;--prepare&#39; option to clear the caches before each timing run.
+  Warning: The first benchmarking run for this command was significantly slower than the rest (4.097 s). This could be caused by (filesystem) caches that were not filled until after the first run. You should consider using the &#39;--warmup&#39; option to fill those caches before the actual benchmark. Alternatively, use the &#39;--prepare&#39; option to clear the caches before each timing run.
  
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -699,12 +699,12 @@ cloc gptme/tools/*.py gptme/hooks/*.py gptme/plugins/*.py --by-file --hide-rate 
 ------------------------------------------------------------------------------------------
 File                                                   blank        comment           code
 ------------------------------------------------------------------------------------------
-gptme/tools/shell.py                                     260            342           1383
+gptme/tools/shell.py                                     260            342           1384
 gptme/hooks/workspace_agents.py                          233            139           1222
 gptme/tools/computer.py                                  209            313            868
 gptme/tools/base.py                                      164            234            749
 gptme/tools/mcp_adapter.py                               227            217            648
-gptme/tools/browser.py                                   194            276            595
+gptme/tools/browser.py                                   194            276            596
 gptme/tools/chats.py                                     106            120            566
 gptme/tools/_browser_playwright.py                       152            121            541
 gptme/tools/gh.py                                        117            128            523
@@ -714,12 +714,12 @@ gptme/tools/tmux.py                                       98            170     
 gptme/tools/mcp.py                                       102            103            337
 gptme/tools/__init__.py                                   94             65            332
 gptme/tools/complete.py                                   87            108            329
-gptme/tools/python.py                                     85             98            288
+gptme/tools/python.py                                     85             98            289
 gptme/plugins/__init__.py                                 95            131            282
 gptme/tools/lessons.py                                   106            115            278
-gptme/tools/save.py                                       63             63            274
+gptme/tools/save.py                                       63             63            276
 gptme/tools/shell_validation.py                           88            121            273
-gptme/tools/patch.py                                      63             95            270
+gptme/tools/patch.py                                      63             95            271
 gptme/tools/shell_background.py                           65             36            270
 gptme/tools/patch_many.py                                 56             62            243
 gptme/tools/todo.py                                       95            104            232
@@ -732,7 +732,7 @@ gptme/hooks/cost_awareness.py                             65             73     
 gptme/hooks/auto_snapshots.py                             51             66            201
 gptme/hooks/__init__.py                                   20             42            197
 gptme/tools/morph.py                                      43             49            185
-gptme/tools/read.py                                       41             49            177
+gptme/tools/read.py                                       41             49            178
 gptme/tools/patch_anchored.py                             54             79            172
 gptme/hooks/cache_awareness.py                           118            186            168
 gptme/hooks/types.py                                      96            136            163
@@ -772,7 +772,7 @@ gptme/hooks/auto_confirm.py                               11              9     
 gptme/plugins/plugin.py                                   25             39             17
 gptme/tools/_browser_format.py                             3              5              3
 ------------------------------------------------------------------------------------------
-SUM:                                                    4872           5779          17444
+SUM:                                                    4872           5779          17451
 ------------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -842,8 +842,8 @@ tests/test_acp_agent.py                                            321          
 tests/test_util_gh.py                                              231            125           1059
 tests/test_server_v2_sessions.py                                   159            121            997
 tests/test_config.py                                               304            394            976
+tests/test_tools_base.py                                           309            107            929
 tests/test_tools_computer.py                                       312            169            906
-tests/test_tools_base.py                                           289            103            889
 tests/test_eval_leaderboard.py                                     126            104            883
 tests/test_info.py                                                 167             73            878
 tests/test_llm_utils.py                                            246            126            851
@@ -1112,7 +1112,7 @@ tests/test_tools_shell_multiline.py                                  7          
 tests/test_browser_format.py                                         8              6             18
 tests/test_screenshot.py                                             9              6             15
 ----------------------------------------------------------------------------------------------------
-SUM:                                                             24346          16686          83736
+SUM:                                                             24366          16690          83776
 ----------------------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -1158,7 +1158,7 @@ tests/test_llm_openai.py                                                        
 tests/test_tools_subagent.py                                                                  565            284           1866
 tests/test_subagent_unit.py                                                                   431            136           1799
 tests/test_init.py                                                                            249            141           1533
-gptme/tools/shell.py                                                                          260            342           1383
+gptme/tools/shell.py                                                                          260            342           1384
 tests/test_eval_behavioral.py                                                                 865            961           1354
 gptme/llm/llm_openai.py                                                                       276            307           1327
 gptme/hooks/workspace_agents.py                                                               233            139           1222
@@ -1174,9 +1174,9 @@ tests/test_server_v2_sessions.py                                                
 gptme/acp/agent.py                                                                            181            294            983
 tests/test_config.py                                                                          304            394            976
 gptme/hooks/tests/test_workspace_agents.py                                                    189             44            945
+tests/test_tools_base.py                                                                      309            107            929
 gptme/llm/llm_anthropic.py                                                                    217            306            914
 tests/test_tools_computer.py                                                                  312            169            906
-tests/test_tools_base.py                                                                      289            103            889
 tests/test_eval_leaderboard.py                                                                126            104            883
 tests/test_info.py                                                                            167             73            878
 gptme/eval/main.py                                                                            104            110            868
@@ -1209,7 +1209,7 @@ tests/test_llm_anthropic.py                                                     
 tests/test_json_output.py                                                                     110             83            615
 scripts/github_bot.py                                                                         109            107            598
 tests/test_llm_models_resolution.py                                                           205            141            597
-gptme/tools/browser.py                                                                        194            276            595
+gptme/tools/browser.py                                                                        194            276            596
 tests/test_tools_complete.py                                                                  131            149            594
 gptme/tools/subagent/execution.py                                                             108            175            593
 gptme/util/context.py                                                                         140            207            593
@@ -1334,8 +1334,8 @@ tests/test_conversations.py                                                     
 tests/test_plugins.py                                                                         110             85            292
 tests/test_util_cli_batch.py                                                                   59              8            292
 tests/test_chats_stats.py                                                                      72             30            291
+gptme/tools/python.py                                                                          85             98            289
 tests/test_eventlog.py                                                                         70             34            289
-gptme/tools/python.py                                                                          85             98            288
 tests/test_execenv.py                                                                          76             54            288
 gptme/commands/snapshot.py                                                                     43             32            287
 tests/lessons/test_wildcard_matching.py                                                       114            125            287
@@ -1350,12 +1350,12 @@ gptme/llm/models/resolution.py                                                  
 gptme/eval/swe_extra/swe_bench_test_spec.py                                                    53             29            280
 gptme/tools/lessons.py                                                                        106            115            278
 tests/test_tools_patch_anchored.py                                                             65             26            278
+gptme/tools/save.py                                                                            63             63            276
 gptme/config/chat.py                                                                           57             89            274
-gptme/tools/save.py                                                                            63             63            274
 tests/test_tools_restart.py                                                                    72             49            274
 gptme/tools/shell_validation.py                                                                88            121            273
 tests/test_server_v2_agents.py                                                                 57             25            272
-gptme/tools/patch.py                                                                           63             95            270
+gptme/tools/patch.py                                                                           63             95            271
 gptme/tools/shell_background.py                                                                65             36            270
 gptme/hooks/tests/test_token_awareness.py                                                      37             28            269
 gptme/cli/cmd_init.py                                                                          91            163            267
@@ -1459,7 +1459,7 @@ tests/test_dspy_hybrid.py                                                       
 tests/test_tools_tmux.py                                                                       77             65            179
 gptme/eval/suites/subagent.py                                                                  39             22            178
 gptme/tools/autocompact/resume.py                                                              50             74            178
-gptme/tools/read.py                                                                            41             49            177
+gptme/tools/read.py                                                                            41             49            178
 tests/test_dspy_basic.py                                                                       66             44            177
 gptme/eval/suites/practical4.py                                                                47             24            176
 tests/test_cost_tracker.py                                                                     26             26            175
@@ -1843,7 +1843,7 @@ gptme/server/__main__.py                                                        
 gptme/tools/_browser_format.py                                                                  3              5              3
 gptme/oauth/__init__.py                                                                         1              4              0
 -------------------------------------------------------------------------------------------------------------------------------
-SUM:                                                                                        47275          44276         170765
+SUM:                                                                                        47295          44280         170812
 -------------------------------------------------------------------------------------------------------------------------------
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
@@ -1858,8 +1858,8 @@ make[2]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 
 Project Overview:
   Files: 694
-  Total blocks: 13239
-  Average complexity: 3.685399199335297
+  Total blocks: 13248
+  Average complexity: 3.685084541062802
 
 Most Complex Functions (D+):
   gptme/codeblock.py
@@ -2060,7 +2060,7 @@ Largest Files (&gt;300 SLOC):
   1866 tests/test_tools_subagent.py
   1799 tests/test_subagent_unit.py
   1533 tests/test_init.py
-  1476 gptme/tools/shell.py
+  1477 gptme/tools/shell.py
   1353 tests/test_tools_shell.py
   1328 gptme/llm/llm_openai.py
   1223 gptme/hooks/workspace_agents.py
@@ -2077,9 +2077,9 @@ Largest Files (&gt;300 SLOC):
    999 tests/test_server_v2_sessions.py
    983 gptme/acp/agent.py
    976 gptme/tools/computer.py
+   961 tests/test_tools_base.py
    947 gptme/eval/dspy/tasks.py
    945 gptme/hooks/tests/test_workspace_agents.py
-   921 tests/test_tools_base.py
    918 tests/test_tools_computer.py
    916 gptme/llm/llm_anthropic.py
    889 tests/test_eval_leaderboard.py
@@ -2103,7 +2103,7 @@ Largest Files (&gt;300 SLOC):
    696 tests/test_hooks_registry.py
    690 tests/test_doctor.py
    681 tests/test_acp_session_runtime.py
-   680 gptme/tools/browser.py
+   681 gptme/tools/browser.py
    675 tests/test_tools_gh.py
    659 tests/test_prompt_templates.py
    658 gptme/tools/subagent/api.py
@@ -2220,7 +2220,7 @@ Largest Files (&gt;300 SLOC):
    322 tests/test_workspace_snapshot.py
    322 tests/test_util_tool_format.py
    322 tests/test_circuit_breaker.py
-   321 gptme/tools/python.py
+   322 gptme/tools/python.py
    320 gptme/checkpoint.py
    319 gptme/hooks/tests/test_tool_target_instructions.py
    318 tests/test_agent_doctor.py
@@ -2228,11 +2228,12 @@ Largest Files (&gt;300 SLOC):
    316 gptme/eval/trends.py
    312 tests/test_plugins.py
    310 tests/test_tools_morph.py
-   309 gptme/tools/patch.py
+   310 gptme/tools/patch.py
    309 gptme/hooks/tests/test_confirm.py
    307 gptme/mcp/client.py
    303 gptme/prompts/templates.py
    302 gptme/config/user.py
+   301 gptme/tools/save.py
 
 make[3]: Entering directory &#39;/home/runner/work/gptme/gptme&#39;
 Most Duplicated Files:
@@ -2637,7 +2638,7 @@ Clone found (python)
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ markup     │ 2              │ 322         │ 2113         │ 0            │ 0 (0.00%)        │ 0 (0.00%)         │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ python     │ 405            │ 139075      │ 644398       │ 129          │ 1533 (1.10%)     │ 8909 (1.38%)      │
+│ python     │ 405            │ 139082      │ 644475       │ 129          │ 1533 (1.10%)     │ 8909 (1.38%)      │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ text       │ 2              │ 527         │ 267          │ 0            │ 0 (0.00%)        │ 0 (0.00%)         │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
@@ -2647,10 +2648,10 @@ Clone found (python)
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
 │ yaml       │ 1              │ 82          │ 151          │ 0            │ 0 (0.00%)        │ 0 (0.00%)         │
 ├────────────┼────────────────┼─────────────┼──────────────┼──────────────┼──────────────────┼───────────────────┤
-│ Total:     │ 433            │ 143825      │ 656563       │ 129          │ 1533 (1.07%)     │ 8909 (1.36%)      │
+│ Total:     │ 433            │ 143832      │ 656640       │ 129          │ 1533 (1.07%)     │ 8909 (1.36%)      │
 └────────────┴────────────────┴─────────────┴──────────────┴──────────────┴──────────────────┴───────────────────┘
 Found 129 clones.
-time: 349.064ms
+time: 307.424ms
 make[3]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 make[2]: Leaving directory &#39;/home/runner/work/gptme/gptme&#39;
 </pre></div>
