@@ -283,6 +283,10 @@ def execute_python(
     ):
         yield from result.result
         return
+    # Empty list — return a clear message instead of confusing repr output
+    if isinstance(result.result, list) and not result.result:
+        yield Message("system", "No results returned.")
+        return
 
     if result.result is not None:
         # show stdout before result if both exist
