@@ -30,7 +30,7 @@ while [ $elapsed_ms -lt $timeout_ms ]; do
             break
         fi
     fi
-    sleep "$(printf '%.3f' "$(echo "scale=3; ${poll_ms}/1000" | bc)")"
+    sleep 0.1
     elapsed_ms=$((elapsed_ms + poll_ms))
 done
 
