@@ -1183,6 +1183,8 @@ def main(
             output_format,
         )
         show_resume_hint_on_exit = True
+    except click.ClickException:
+        raise  # let Click handle proper exit code (2 for UsageError)
     except (RuntimeError, Exception) as e:
         logger.error("Fatal error occurred")
         if verbose:

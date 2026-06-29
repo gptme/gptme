@@ -1527,3 +1527,34 @@ def test_non_python_custom_tool_path_reports_suffix_before_existence(
     assert "stdin is not a TTY and prompts provided" not in result.output
     assert "Using project configuration" not in result.output
     assert "Using local configuration" not in result.output
+
+
+def test_click_exception_inside_chat_exits_2(
+    tmp_path: Path, monkeypatch, runner: CliRunner
+):
+    """ClickException raised inside chat() must propagate as exit code 2, not 1.
+
+    Regression guard for the except clause ordering fix: before the fix,
+    `except (RuntimeError, Exception)` swallowed ClickException and always
+    exited 1; after the fix `except click.ClickException: raise` runs first.
+    """
+    # Use a pre-existing conversation so get_prompt() is skipped (no LLM call)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    logdir = tmp_path / "test-conv-exit2"
+    logdir.mkdir(parents=True)
+    (logdir / "conversation.jsonl").write_text('{"role":"user","content":"hello"}\n')
+
+    monkeypatch.setattr(cli, "get_logdir", lambda name: logdir)
+    monkeypatch.setattr(cli, "init_telemetry", lambda **kwargs: None)
+
+    def _raise_usage_error(*args, **kwargs):
+        raise click.UsageError("simulated usage error from inside chat")
+
+    monkeypatch.setattr(cli, "chat", _raise_usage_error)
+
+    result = runner.invoke(
+        cli.main, ["--name", "test-conv-exit2", "--non-interactive", "hello"]
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "Fatal error occurred" not in result.output
