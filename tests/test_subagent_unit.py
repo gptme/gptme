@@ -1264,6 +1264,7 @@ class TestClarifyBlock:
                         isolated=kwargs["isolated"],
                         timeout=kwargs["timeout"],
                         role=kwargs["role"],
+                        context_turns=kwargs.get("context_turns"),
                     )
                 )
 
@@ -1288,6 +1289,7 @@ class TestClarifyBlock:
             "redact_secrets": True,
             "context_window": None,
             "max_time": None,
+            "context_turns": None,
         }
         with _subagent_results_lock:
             assert "clarify-agent" not in _subagent_results
