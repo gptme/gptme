@@ -183,3 +183,51 @@ def test_query_name_regex_filter(client: FlaskClient):
     data = resp.get_json()
     assert len(data["tools"]) == 1
     assert data["tools"][0]["name"] == first_name
+
+
+def test_query_unknown_filter_field_returns_400(client: FlaskClient):
+    """Unknown filter field name returns 400, not silent empty list."""
+    resp = _query(
+        client,
+        {"filters": [{"field": "description", "op": "eq", "value": "x"}]},
+    )
+    assert resp.status_code == 400
+    data = resp.get_json()
+    assert "error" in data
+    assert "Unknown filter field" in data["error"]
+
+
+def test_query_bool_field_with_string_value_returns_400(client: FlaskClient):
+    """String value for bool field returns 400, not inverted results."""
+    resp = _query(
+        client,
+        {"filters": [{"field": "is_available", "op": "eq", "value": "false"}]},
+    )
+    assert resp.status_code == 400
+    data = resp.get_json()
+    assert "error" in data
+    assert "boolean" in data["error"].lower()
+
+
+def test_query_regex_pattern_length_limit(client: FlaskClient):
+    """Overly long regex pattern is rejected safely (no hang)."""
+    resp = _query(
+        client,
+        {"filters": [{"field": "name", "op": "regex", "value": "a" * 300}]},
+    )
+    assert resp.status_code == 200
+    data = resp.get_json()
+    # Pattern > 200 chars should match nothing (safely rejected)
+    assert data["tools"] == []
+
+
+def test_query_unknown_projection_field_returns_400(client: FlaskClient):
+    """Unknown projection field name returns 400, not empty dicts."""
+    resp = _query(
+        client,
+        {"fields": ["schema", "tags"]},
+    )
+    assert resp.status_code == 400
+    data = resp.get_json()
+    assert "error" in data
+    assert "Unknown projection field" in data["error"]

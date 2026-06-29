@@ -11,6 +11,8 @@ idempotent, and body-capable, allowing agents to request specific tool subsets
 without downloading the full catalog.
 """
 
+import concurrent.futures
+import functools
 import logging
 import re
 from typing import Any, Literal
@@ -70,6 +72,33 @@ _ALL_FILTERABLE = (
     _FILTERABLE_STR_FIELDS | _FILTERABLE_BOOL_FIELDS | _FILTERABLE_LIST_FIELDS
 )
 
+# Regex safety limits — prevents ReDoS in filter queries
+_MAX_REGEX_LEN = 200
+_REGEX_TIMEOUT = 2.0
+
+
+@functools.lru_cache(maxsize=1)
+def _get_regex_executor() -> concurrent.futures.ThreadPoolExecutor:
+    """Return a cached thread pool for regex searches with timeout."""
+    return concurrent.futures.ThreadPoolExecutor(max_workers=4)
+
+
+def _safe_regex_search(pattern: str, string: str) -> bool:
+    """Run a regex search with length limit and wall-clock timeout.
+
+    Prevents ReDoS attacks through the QUERY filter endpoint.
+    """
+    if len(pattern) > _MAX_REGEX_LEN:
+        return False
+    executor = _get_regex_executor()
+    future = executor.submit(re.search, pattern, string)
+    try:
+        return bool(future.result(timeout=_REGEX_TIMEOUT))
+    except concurrent.futures.TimeoutError:
+        return False
+    except re.error:
+        return False
+
 
 class ToolQueryFilter(BaseModel):
     field: str = Field(..., description="Tool field to filter on")
@@ -98,11 +127,12 @@ def _match_filter(tool: ToolOut, f: ToolQueryFilter) -> bool:
 
     if f.field in _FILTERABLE_BOOL_FIELDS:
         # bool fields: only eq/neq make sense
-        bool_val = bool(f.value)
+        if not isinstance(f.value, bool):
+            return False
         if f.op == "eq":
-            return raw == bool_val
+            return raw == f.value
         if f.op == "neq":
-            return raw != bool_val
+            return raw != f.value
         return False
 
     if f.field in _FILTERABLE_LIST_FIELDS:
@@ -130,10 +160,7 @@ def _match_filter(tool: ToolOut, f: ToolQueryFilter) -> bool:
         vals = f.value if isinstance(f.value, list) else [sv]
         return s in vals
     if f.op == "regex":
-        try:
-            return bool(re.search(sv, s))
-        except re.error:
-            return False
+        return _safe_regex_search(sv, s)
     return False
 
 
@@ -142,11 +169,31 @@ def _apply_filters(
 ) -> list[ToolOut]:
     if not filters:
         return tools
+    # Validate all filter field names before applying — unknown fields
+    # should return 400, not silently exclude all tools.
+    invalid = [f.field for f in filters if f.field not in _ALL_FILTERABLE]
+    if invalid:
+        raise ValueError(
+            f"Unknown filter field(s): {invalid}. "
+            f"Valid fields: {sorted(_ALL_FILTERABLE)}"
+        )
+    # Bool fields must receive actual bool values, not strings like "false"
+    for f in filters:
+        if f.field in _FILTERABLE_BOOL_FIELDS and not isinstance(f.value, bool):
+            raise ValueError(
+                f"Field '{f.field}' requires a boolean value, got '{type(f.value).__name__}'"
+            )
     return [t for t in tools if all(_match_filter(t, f) for f in filters)]
 
 
 def _project_fields(tools: list[ToolOut], fields: list[str]) -> list[dict]:
     valid = {f for f in fields if f in ToolOut.model_fields}
+    invalid = [f for f in fields if f not in valid]
+    if invalid:
+        raise ValueError(
+            f"Unknown projection field(s): {invalid}. "
+            f"Valid fields: {sorted(ToolOut.model_fields.keys())}"
+        )
     result = []
     for t in tools:
         d = t.model_dump()
@@ -246,6 +293,9 @@ def query_tools():
             return flask.jsonify({"tools": _project_fields(filtered, query.fields)})
 
         return flask.jsonify({"tools": [t.model_dump() for t in filtered]})
+    except ValueError as e:
+        # Validation errors from _apply_filters / _project_fields → 400
+        return flask.jsonify({"error": str(e)}), 400
     except Exception as e:
         logger.exception("Error querying tools")
         return flask.jsonify({"error": str(e)}), 500
