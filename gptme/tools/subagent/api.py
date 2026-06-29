@@ -54,6 +54,7 @@ def subagent(
     redact_secrets: bool = True,
     context_window: int | None = None,
     max_time: float | None = None,
+    context_turns: int | None = None,
     workdir: str | Path | None = None,
 ):
     """Starts an asynchronous subagent. Returns None immediately.
@@ -156,6 +157,26 @@ def subagent(
             Use this for defensive orchestration (prevent a stuck subagent from
             blocking the parent) or hard time budgets in autonomous sessions.
             ``max_time=None`` is fully backwards-compatible — no change in behavior.
+        context_turns: Number of recent parent conversation turns to forward to
+            the subagent as context. A "turn" is one user+assistant exchange,
+            so ``context_turns=3`` forwards up to 6 messages. The messages are
+            injected as a system message so the subagent understands what the
+            parent has been doing without confusing its own conversation flow.
+
+            - ``None`` (default): no parent context forwarded (current behavior).
+            - ``N > 0``: forward the last N turns from the parent's active log.
+
+            The parent log is fetched automatically from the currently active
+            ``LogManager`` (set by the chat loop via ``ContextVar``). This works
+            when ``subagent()`` is called from within the ``ipython`` tool during
+            a running chat session.
+
+            Use this when the subagent needs awareness of what the parent has
+            already done (e.g. "the parent tried A and B, now try C") or when
+            the task prompt alone doesn't provide enough context.
+
+            Only applies to thread-mode subagents; has no effect in subprocess
+            or ACP modes.
         workdir: Working directory for the subagent. Defaults to the current
             working directory (``Path.cwd()``) when ``None``.
 
@@ -186,6 +207,29 @@ def subagent(
         raise ValueError(
             f"context_window must be None, 0, or a positive integer, got {context_window!r}"
         )
+    if context_turns is not None and context_turns <= 0:
+        raise ValueError(
+            f"context_turns must be None or a positive integer, got {context_turns!r}"
+        )
+
+    # Fetch parent messages from the active LogManager when context_turns is set.
+    # LogManager.get_current_log() reads a ContextVar set by the chat loop, so
+    # this works when subagent() is called from within an ipython tool execution.
+    parent_messages = None
+    if context_turns is not None:
+        from ...logmanager import LogManager  # fmt: skip
+
+        parent_log = LogManager.get_current_log()
+        if parent_log is not None:
+            msgs = parent_log.log
+            # Each turn = user + assistant pair; slice the last context_turns*2 messages.
+            parent_messages = list(msgs[-(context_turns * 2) :])
+        else:
+            logger.warning(
+                "context_turns=%d set but no active LogManager found; "
+                "parent context will not be forwarded",
+                context_turns,
+            )
 
     # noreorder
     from gptme.cli.main import get_logdir  # fmt: skip
@@ -649,6 +693,7 @@ def subagent(
                         agent_id=agent_id,
                         redact_secrets=redact_secrets,
                         context_window=context_window,
+                        parent_messages=parent_messages,
                     )
                 except Exception as e:
                     # If subagent creation fails, notify with error status

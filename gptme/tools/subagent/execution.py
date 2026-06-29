@@ -126,6 +126,19 @@ def _build_memory_system_message(
     return Message("system", "\n\n".join(parts))
 
 
+def _build_parent_context_message(parent_messages: list[Message]) -> Message:
+    """Format parent conversation messages into a system context message for the subagent."""
+    lines = ["# Parent Conversation Context\n"]
+    for msg in parent_messages:
+        role_label = msg.role.capitalize()
+        lines.append(f"**{role_label}:** {msg.content}\n")
+    lines.append(
+        "\n_This context is provided so you can understand what the parent agent has been doing. "
+        "Focus on your own task — don't re-execute work the parent has already completed._"
+    )
+    return Message("system", "\n".join(lines))
+
+
 def _create_subagent_thread(
     prompt: str,
     logdir: Path,
@@ -139,6 +152,7 @@ def _create_subagent_thread(
     agent_id: str | None = None,
     redact_secrets: bool = True,
     context_window: int | None = None,
+    parent_messages: list[Message] | None = None,
 ) -> None:
     """Shared function for running subagent threads.
 
@@ -155,6 +169,9 @@ def _create_subagent_thread(
         context_window: Limit workspace context messages. None = no limit; 0 = minimal
             context (just agent identity + tools, no workspace files); N > 0 = at most
             N workspace context messages included.
+        parent_messages: Recent messages from the parent's conversation to inject as context.
+            Formatted as a system message so the subagent understands what the parent has
+            been doing without confusing the subagent's own conversation flow.
     """
     # Store agent_id in thread-local so the progress tool can identify this subagent
     if agent_id is not None:
@@ -308,6 +325,10 @@ def _create_subagent_thread(
     if memory_dir is not None:
         memory_msg = _build_memory_system_message(memory_content, memory_dir)
         initial_msgs.append(memory_msg)
+
+    # Inject parent conversation context if provided
+    if parent_messages:
+        initial_msgs.append(_build_parent_context_message(parent_messages))
 
     # Add completion instruction as a system message
     complete_instruction = Message(

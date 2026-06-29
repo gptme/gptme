@@ -2598,3 +2598,155 @@ class TestMaxTimeWatchdog:
             _subagents[:] = [s for s in _subagents if s.agent_id != "no-watchdog-test"]
 
         assert len(timers_started) == 0, f"No timer expected; got {timers_started}"
+
+
+# ---------------------------------------------------------------------------
+# context_turns + parent context forwarding tests
+# ---------------------------------------------------------------------------
+
+
+class TestParentContextForwarding:
+    """Tests for the context_turns parameter and parent message injection."""
+
+    def test_build_parent_context_message_format(self):
+        """_build_parent_context_message produces a correctly structured system message."""
+        from gptme.message import Message
+        from gptme.tools.subagent.execution import _build_parent_context_message
+
+        msgs = [
+            Message("user", "What is 1+1?"),
+            Message("assistant", "It is 2."),
+        ]
+        result = _build_parent_context_message(msgs)
+        assert result.role == "system"
+        assert "Parent Conversation Context" in result.content
+        assert "What is 1+1?" in result.content
+        assert "It is 2." in result.content
+        assert "User:" in result.content
+        assert "Assistant:" in result.content
+
+    def test_build_parent_context_message_guidance(self):
+        """Parent context message includes guidance not to duplicate parent work."""
+        from gptme.message import Message
+        from gptme.tools.subagent.execution import _build_parent_context_message
+
+        msgs = [Message("user", "hello")]
+        result = _build_parent_context_message(msgs)
+        assert "Focus on your own task" in result.content
+
+    def test_context_turns_validation_zero(self):
+        """context_turns=0 raises ValueError."""
+        with pytest.raises(ValueError, match="context_turns must be None"):
+            subagent("test-turns-zero", "task", context_turns=0)
+
+    def test_context_turns_validation_negative(self):
+        """context_turns=-1 raises ValueError."""
+        with pytest.raises(ValueError, match="context_turns must be None"):
+            subagent("test-turns-neg", "task", context_turns=-1)
+
+    def test_context_turns_no_active_log_warns(self, monkeypatch, caplog):
+        """context_turns with no active LogManager logs a warning and spawns without parent context."""
+        import logging
+
+        import gptme.tools.subagent.execution as exec_mod
+        from gptme.logmanager import LogManager
+
+        # No active log in this context
+        monkeypatch.setattr(LogManager, "get_current_log", staticmethod(lambda: None))
+
+        captured_parent_msgs = []
+
+        def mock_create_thread(**kw):
+            captured_parent_msgs.append(kw.get("parent_messages"))
+
+        monkeypatch.setattr(exec_mod, "_create_subagent_thread", mock_create_thread)
+
+        with caplog.at_level(logging.WARNING, logger="gptme.tools.subagent.api"):
+            subagent("test-no-log", "do something", context_turns=3)
+
+        # Wait briefly for the daemon thread to call mock_create_thread
+        import time
+
+        for _ in range(20):
+            if captured_parent_msgs:
+                break
+            time.sleep(0.05)
+
+        # The spawn should still happen
+        assert len(captured_parent_msgs) == 1
+        # But parent_messages should be None (no log found)
+        assert captured_parent_msgs[0] is None
+        assert any("context_turns" in r.message for r in caplog.records)
+
+        # Cleanup
+        with _subagents_lock:
+            _subagents[:] = [s for s in _subagents if s.agent_id != "test-no-log"]
+
+    def test_context_turns_slices_log(self, monkeypatch):
+        """context_turns=2 forwards the last 4 messages from the parent log."""
+        import gptme.tools.subagent.execution as exec_mod
+        from gptme.logmanager import Log, LogManager
+        from gptme.message import Message
+
+        # Build a mock log with 6 messages
+        msgs = [Message("user", f"msg {i}") for i in range(6)]
+        mock_log = MagicMock(spec=LogManager)
+        mock_log.log = Log(msgs)
+
+        monkeypatch.setattr(
+            LogManager, "get_current_log", staticmethod(lambda: mock_log)
+        )
+
+        captured: list = []
+
+        def mock_create_thread(**kw):
+            captured.append(kw.get("parent_messages"))
+
+        monkeypatch.setattr(exec_mod, "_create_subagent_thread", mock_create_thread)
+
+        subagent("test-slice", "do something", context_turns=2)
+
+        import time
+
+        for _ in range(20):
+            if captured:
+                break
+            time.sleep(0.05)
+
+        assert len(captured) == 1
+        # context_turns=2 → last 4 messages (2 turns × 2 msgs/turn)
+        assert captured[0] is not None
+        assert len(captured[0]) == 4
+        assert captured[0][0].content == "msg 2"
+        assert captured[0][-1].content == "msg 5"
+
+        # Cleanup
+        with _subagents_lock:
+            _subagents[:] = [s for s in _subagents if s.agent_id != "test-slice"]
+
+    def test_context_turns_none_passes_none(self, monkeypatch):
+        """context_turns=None (default) passes parent_messages=None to thread."""
+        import gptme.tools.subagent.execution as exec_mod
+
+        captured: list = []
+
+        def mock_create_thread(**kw):
+            captured.append(kw.get("parent_messages"))
+
+        monkeypatch.setattr(exec_mod, "_create_subagent_thread", mock_create_thread)
+
+        subagent("test-none-turns", "do something")
+
+        import time
+
+        for _ in range(20):
+            if captured:
+                break
+            time.sleep(0.05)
+
+        assert len(captured) == 1
+        assert captured[0] is None
+
+        # Cleanup
+        with _subagents_lock:
+            _subagents[:] = [s for s in _subagents if s.agent_id != "test-none-turns"]
