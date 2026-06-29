@@ -158,10 +158,12 @@ def subagent(
             blocking the parent) or hard time budgets in autonomous sessions.
             ``max_time=None`` is fully backwards-compatible — no change in behavior.
         context_turns: Number of recent parent conversation turns to forward to
-            the subagent as context. A "turn" is one user+assistant exchange,
-            so ``context_turns=3`` forwards up to 6 messages. The messages are
-            injected as a system message so the subagent understands what the
-            parent has been doing without confusing its own conversation flow.
+            the subagent as context. A "turn" starts at a user message and
+            includes all subsequent assistant and tool-result (system) messages
+            until the next user message, so the total message count per turn
+            varies with the number of tool calls. The messages are injected as
+            a system message so the subagent understands what the parent has
+            been doing without confusing its own conversation flow.
 
             - ``None`` (default): no parent context forwarded (current behavior).
             - ``N > 0``: forward the last N turns from the parent's active log.
