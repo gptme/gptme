@@ -1292,6 +1292,19 @@ varies across sessions or virtual displays.
 
 Note: Key names are automatically mapped between platforms.
 Common modifiers (ctrl, alt, cmd/super, shift) work consistently across platforms.
+
+### Observation helpers (structured-first policy)
+
+Two higher-level helpers are available that implement the structured-first observation policy:
+
+- ``observe_web(url, screenshot_too=False)`` — observe a web page using ARIA snapshots first
+  (no vision tokens), with automatic fallback to a browser screenshot, then desktop screenshot.
+  Pass ``screenshot_too=True`` to get both an ARIA snapshot AND a screenshot side by side.
+- ``observe_desktop()`` — thin wrapper around ``computer('screenshot')`` that signals intent
+  clearly for native apps and non-browser surfaces.
+
+These helpers are preferred over calling ``computer("screenshot")`` directly when observing
+web pages, because ARIA snapshots avoid costly vision tokens and give a DOM-addressable tree.
 """
 
 
@@ -1446,6 +1459,21 @@ System: Focused window matching: 'Terminal'
 System: Typed text: ls -la
 {ToolUse("ipython", [], 'computer("key", text="return")').to_output(tool_format)}
 System: Sent key sequence: return
+
+User: Read the content of https://news.ycombinator.com
+Assistant: I'll use observe_web to get a structured ARIA snapshot of the page — faster and cheaper than a screenshot.
+{ToolUse("ipython", [], 'observe_web("https://news.ycombinator.com")').to_output(tool_format)}
+System: [ARIA snapshot of Hacker News front page...]
+
+User: Check what's on my desktop right now
+Assistant: I'll capture a screenshot of the desktop.
+{ToolUse("ipython", [], "observe_desktop()").to_output(tool_format)}
+System: Viewing image...
+
+User: Navigate to https://example.com and verify both the text content and visual layout
+Assistant: I'll use observe_web with screenshot_too=True to get both the ARIA snapshot and a screenshot.
+{ToolUse("ipython", [], 'observe_web("https://example.com", screenshot_too=True)').to_output(tool_format)}
+System: [ARIA snapshot + screenshot of example.com]
 """
 
     # Platform-specific keyboard shortcut examples
@@ -1478,7 +1506,11 @@ tool = ToolSpec(
     desc="Control the computer through X11 (keyboard, mouse, screen)",
     instructions=instructions,
     examples=examples,
-    functions=[ToolFunction.from_callable(computer)],
+    functions=[
+        ToolFunction.from_callable(computer),
+        ToolFunction.from_callable(observe_web),
+        ToolFunction.from_callable(observe_desktop),
+    ],
     disabled_by_default=True,
 )
 

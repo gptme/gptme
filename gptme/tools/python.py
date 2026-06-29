@@ -274,9 +274,16 @@ def execute_python(
 
     output = ""
     # TODO: should we include captured stdout with messages like these?
-    # used by vision tool
+    # used by vision tool and observe helpers
     if isinstance(result.result, Message):
         yield result.result
+        return
+    if (
+        isinstance(result.result, list)
+        and result.result
+        and isinstance(result.result[0], Message)
+    ):
+        yield from result.result
         return
 
     if result.result is not None:

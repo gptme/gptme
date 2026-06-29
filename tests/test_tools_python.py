@@ -306,3 +306,23 @@ def test_execute_python_no_plot_no_artifact(tmp_path):
 
     artifacts = (msg.metadata or {}).get("artifacts", [])
     assert artifacts == []
+
+
+def test_execute_python_returns_list_of_messages():
+    """execute_python yields each Message when a list[Message] is returned.
+
+    This is the key integration needed for observe_web() which returns
+    list[Message] (ARIA snapshot + optional screenshot). Without this fix,
+    observe_web() results would be shown as repr(list) instead of each
+    message being delivered to the conversation.
+    """
+
+    code = """\
+from gptme.message import Message
+[Message("system", "msg1"), Message("system", "msg2")]
+"""
+    msgs = list(execute_python(code, [], None))
+    # Both messages should be yielded, not collapsed into a repr string
+    assert len(msgs) == 2, f"Expected 2 messages, got {len(msgs)}: {msgs}"
+    assert msgs[0].content == "msg1"
+    assert msgs[1].content == "msg2"
