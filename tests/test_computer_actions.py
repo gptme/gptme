@@ -197,8 +197,8 @@ class TestWaitForChange:
     def test_polls_multiple_times(self, tmp_path: Path) -> None:
         """wait_for_change must poll more than once (not bail after first check)."""
         transport = _FixedScreenTransport(tmp_path)
-        _dispatch_transport(transport, "wait_for_change", text="0.12")
-        # In 120ms with initial interval 50ms: expect at least baseline + 2 polls
+        _dispatch_transport(transport, "wait_for_change", text="0.3")
+        # In 300ms with 50ms→100ms→200ms backoff: baseline + ≥2 polls + timeout shot
         assert transport._call_count >= 3
 
     def test_default_timeout_is_ten_seconds(self, tmp_path: Path) -> None:
@@ -285,6 +285,29 @@ class TestObserveWeb:
         assert len(msgs) == 2
         assert fake_snapshot in msgs[0].content
         assert "browser screenshot" in msgs[1].content
+
+    def test_screenshot_too_degrades_gracefully_on_failure(self) -> None:
+        """If screenshot_url raises when screenshot_too=True, the snapshot is preserved."""
+        fake_snapshot = "# Page snapshot"
+
+        def raise_on_screenshot(_url: str) -> str:
+            raise RuntimeError("Playwright timed out")
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "gptme.tools.browser": MagicMock(
+                    has_playwright=lambda: True,
+                    snapshot_url=lambda _url: fake_snapshot,
+                    screenshot_url=raise_on_screenshot,
+                )
+            },
+        ):
+            msgs = observe_web("https://example.com", screenshot_too=True)
+
+        # Snapshot must survive even though screenshot raised
+        assert len(msgs) == 1
+        assert fake_snapshot in msgs[0].content
 
 
 # ---------------------------------------------------------------------------

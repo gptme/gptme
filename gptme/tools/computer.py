@@ -1338,13 +1338,18 @@ def observe_web(url: str, screenshot_too: bool = False) -> list[Message]:
 
         messages.append(Message("system", snapshot_text))
         if screenshot_too:
-            # Playwright is available (snapshot succeeded), use browser screenshot
-            from gptme.tools.browser import screenshot_url
+            # Playwright is available (snapshot succeeded), use browser screenshot.
+            # Wrapped in try/except so a page-load failure degrades gracefully
+            # instead of discarding the snapshot already in messages.
+            try:
+                from gptme.tools.browser import screenshot_url
 
-            path = screenshot_url(url)
-            msg = _make_screenshot_msg(path, tool="computer")
-            if msg is not None:
-                messages.append(msg)
+                path = screenshot_url(url)
+                msg = _make_screenshot_msg(path, tool="computer")
+                if msg is not None:
+                    messages.append(msg)
+            except Exception:
+                pass
     else:
         # Fallback: browser screenshot, then desktop screenshot
         try:
