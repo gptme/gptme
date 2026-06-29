@@ -304,6 +304,12 @@ def subagent(
             raise ValueError(f"workdir is not a directory: {workdir_path}")
 
     if mode == "planner":
+        if context_turns is not None:
+            logger.warning(
+                "context_turns=%d set but planner mode does not forward parent context; "
+                "parameter is ignored",
+                context_turns,
+            )
         if not subtasks:
             raise ValueError("Planner mode requires subtasks parameter")
 
@@ -568,6 +574,7 @@ def subagent(
             repo_path=repo_path,
             role=role,
             max_time=max_time,
+            context_turns=context_turns,
         )
         # Append sa before starting the thread so the finally block can find it
         # (avoids race condition where fast completion can't locate sa in _subagents)
@@ -655,6 +662,7 @@ def subagent(
             timeout=timeout,
             role=role,
             max_time=max_time,
+            context_turns=context_turns,
         )
         with _subagents_lock:
             _subagents.append(sa)
@@ -769,6 +777,7 @@ def subagent(
             redact_secrets=redact_secrets,
             context_window=context_window,
             max_time=max_time,
+            context_turns=context_turns,
         )
         with _subagents_lock:
             _subagents.append(sa)
@@ -946,6 +955,7 @@ def subagent_reply(agent_id: str, reply: str) -> None:
             redact_secrets=sa.redact_secrets,
             context_window=sa.context_window,
             max_time=sa.max_time,
+            context_turns=sa.context_turns,
         )
     except Exception:
         with _subagents_lock:

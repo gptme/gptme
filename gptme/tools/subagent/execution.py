@@ -131,7 +131,7 @@ def _build_parent_context_message(parent_messages: list[Message]) -> Message:
     lines = ["# Parent Conversation Context\n"]
     for msg in parent_messages:
         role_label = msg.role.capitalize()
-        lines.append(f"**{role_label}:** {msg.content}\n")
+        lines.append(f"**{role_label}:**\n\n{msg.content}\n")
     lines.append(
         "\n_This context is provided so you can understand what the parent agent has been doing. "
         "Focus on your own task — don't re-execute work the parent has already completed._"
@@ -327,7 +327,13 @@ def _create_subagent_thread(
         initial_msgs.append(memory_msg)
 
     # Inject parent conversation context if provided
+    # Redact secrets from parent messages to prevent leaking API keys/tokens
+    # that may appear in parent conversation output (e.g., shell output, env reads).
     if parent_messages:
+        if redact_secrets:
+            from .context import redact_secrets_from_messages
+
+            parent_messages = redact_secrets_from_messages(parent_messages)
         initial_msgs.append(_build_parent_context_message(parent_messages))
 
     # Add completion instruction as a system message
