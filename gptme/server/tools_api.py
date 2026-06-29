@@ -183,6 +183,16 @@ def _apply_filters(
             raise ValueError(
                 f"Field '{f.field}' requires a boolean value, got '{type(f.value).__name__}'"
             )
+    # Regex patterns must be syntactically valid — invalid patterns silently
+    # return no matches, which is indistinguishable from a real empty result.
+    for f in filters:
+        if f.op == "regex":
+            try:
+                re.compile(str(f.value))
+            except re.error as exc:
+                raise ValueError(
+                    f"Invalid regex pattern for field '{f.field}': {exc}"
+                ) from exc
     return [t for t in tools if all(_match_filter(t, f) for f in filters)]
 
 

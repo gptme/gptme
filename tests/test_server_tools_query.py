@@ -231,3 +231,15 @@ def test_query_unknown_projection_field_returns_400(client: FlaskClient):
     data = resp.get_json()
     assert "error" in data
     assert "Unknown projection field" in data["error"]
+
+
+def test_query_invalid_regex_pattern_returns_400(client: FlaskClient):
+    """Invalid regex pattern returns 400, not silent empty results."""
+    resp = _query(
+        client,
+        {"filters": [{"field": "name", "op": "regex", "value": "[invalid"}]},
+    )
+    assert resp.status_code == 400
+    data = resp.get_json()
+    assert "error" in data
+    assert "Invalid regex" in data["error"]
