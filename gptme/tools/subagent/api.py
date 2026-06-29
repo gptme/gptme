@@ -874,12 +874,17 @@ def subagent_status(agent_id: str) -> dict:
     return asdict(sa.status())
 
 
-def subagent_wait(agent_id: str, timeout: int = 60) -> dict:
+def subagent_wait(
+    agent_id: str, timeout: int = 60, max_result_chars: int = 2000
+) -> dict:
     """Waits for a subagent to finish.
 
     Args:
         agent_id: The subagent to wait for
         timeout: Maximum seconds to wait (default 60)
+        max_result_chars: Truncate result text to this many characters (default 2000).
+            Long subagent outputs are truncated to keep the parent's context clean.
+            Call subagent_read_log(agent_id) to read the full output.
 
     Returns:
         Status dict with 'status' and 'result' keys
@@ -917,7 +922,19 @@ def subagent_wait(agent_id: str, timeout: int = 60) -> dict:
         sa.thread.join(timeout=timeout)
 
     status = sa.status()
-    return asdict(status)
+    result_dict = asdict(status)
+
+    # Compact result: truncate long outputs so they don't flood the parent's context.
+    # The complete block is meant to be a brief summary; if it's longer than
+    # max_result_chars the parent agent can call subagent_read_log() to get details.
+    result_text = result_dict.get("result")
+    if result_text and len(result_text) > max_result_chars:
+        result_dict["result"] = (
+            result_text[:max_result_chars]
+            + f"\n... [truncated — call subagent_read_log('{agent_id}') for full output]"
+        )
+
+    return result_dict
 
 
 def subagent_read_log(

@@ -457,6 +457,75 @@ def test_subagent_wait_returns_failure_when_thread_startup_raises(
         _subagent_results.clear()
 
 
+@patch("gptme.tools.subagent.api.notify_completion")
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
+def test_subagent_wait_truncates_long_result(
+    _mock_create_thread: MagicMock, _mock_notify: MagicMock
+):
+    """subagent_wait() should truncate very long results to keep parent context clean."""
+    from gptme.tools.subagent import (
+        ReturnType,
+        _subagent_results,
+        _subagents_lock,
+        subagent,
+        subagent_wait,
+    )
+
+    _subagents.clear()
+    _subagent_results.clear()
+
+    try:
+        subagent(agent_id="test-truncate-wait", prompt="Long output task")
+
+        # Inject a long result into the cache (simulates a completed subagent)
+        long_result = "A" * 5000 + "\n\nFull log: /tmp/test-logdir"
+        with _subagents_lock:
+            _subagent_results["test-truncate-wait"] = ReturnType("success", long_result)
+
+        result = subagent_wait("test-truncate-wait", timeout=1, max_result_chars=2000)
+        assert result["status"] == "success"
+        assert result["result"] is not None
+        assert len(result["result"]) < 3000  # truncated + hint text
+        assert "truncated" in result["result"]
+        assert "subagent_read_log" in result["result"]
+        assert "test-truncate-wait" in result["result"]
+    finally:
+        _subagents.clear()
+        _subagent_results.clear()
+
+
+@patch("gptme.tools.subagent.api.notify_completion")
+@patch("gptme.tools.subagent.execution._create_subagent_thread")
+def test_subagent_wait_short_result_not_truncated(
+    _mock_create_thread: MagicMock, _mock_notify: MagicMock
+):
+    """Short results should pass through unchanged."""
+    from gptme.tools.subagent import (
+        ReturnType,
+        _subagent_results,
+        _subagents_lock,
+        subagent,
+        subagent_wait,
+    )
+
+    _subagents.clear()
+    _subagent_results.clear()
+
+    try:
+        subagent(agent_id="test-short-wait", prompt="Short output task")
+
+        short_result = "Fibonacci 13 = 233\n\nFull log: /tmp/logdir"
+        with _subagents_lock:
+            _subagent_results["test-short-wait"] = ReturnType("success", short_result)
+
+        result = subagent_wait("test-short-wait", timeout=1)
+        assert result["status"] == "success"
+        assert result["result"] == short_result  # unchanged
+    finally:
+        _subagents.clear()
+        _subagent_results.clear()
+
+
 @pytest.mark.slow
 @pytest.mark.eval
 def test_subagent_wait_basic():
