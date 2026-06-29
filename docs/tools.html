@@ -3765,6 +3765,58 @@ Viewing image...</pre>
 </dl>
 </dd></dl>
 
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.computer.</span></span><span class="sig-name descname"><span class="pre">observe_desktop</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><span class="pre">None</span></a></span></span></dt>
+<dd><p>Observe the current desktop state via screenshot.</p>
+<p>Thin wrapper around <code class="docutils literal notranslate"><span class="pre">computer('screenshot')</span></code> that makes the
+structured-first / screenshot-fallback policy explicit: call this when
+there is no URL to snapshot (native apps, the raw desktop, or any
+non-browser surface).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Screenshot <a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><code class="xref py py-class docutils literal notranslate"><span class="pre">Message</span></code></a>, or <code class="docutils literal notranslate"><span class="pre">None</span></code> if capture failed.</p>
+</dd>
+</dl>
+<p>Example (from IPython in a computer-use session):</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">msg</span> <span class="o">=</span> <span class="n">observe_desktop</span><span class="p">()</span>
+<span class="c1"># Equivalent to computer(&quot;screenshot&quot;), but signals intent clearly.</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">gptme.tools.computer.</span></span><span class="sig-name descname"><span class="pre">observe_web</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">url</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">screenshot_too</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><span class="pre">Message</span></a><span class="p"><span class="pre">]</span></span></span></span></dt>
+<dd><p>Observe a web page: structured ARIA snapshot first, screenshot as fallback.</p>
+<p>Implements the structured-first observation policy: prefer accessibility snapshots
+for web targets — they avoid vision-token cost and give a DOM-addressable tree.
+Use <code class="docutils literal notranslate"><span class="pre">screenshot_too=True</span></code> when you need pixel-level visual confirmation alongside
+the structured snapshot (e.g. to verify layout or canvas content).</p>
+<p>Falls back to a browser screenshot, then to a desktop screenshot, if Playwright is
+not available.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>url</strong> – Page URL to observe.</p></li>
+<li><p><strong>screenshot_too</strong> – If True, also take a screenshot even when a snapshot succeeded.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>List of <a class="reference internal" href="api.html#gptme.message.Message" title="gptme.message.Message"><code class="xref py py-class docutils literal notranslate"><span class="pre">Message</span></code></a> objects (snapshot and/or screenshots).
+Empty only if all observation paths fail.</p>
+</dd>
+</dl>
+<p>Example (from IPython in a computer-use session):</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">msgs</span> <span class="o">=</span> <span class="n">observe_web</span><span class="p">(</span><span class="s2">&quot;https://news.ycombinator.com&quot;</span><span class="p">)</span>
+<span class="c1"># Returns one Message containing the ARIA snapshot text.</span>
+
+<span class="n">msgs</span> <span class="o">=</span> <span class="n">observe_web</span><span class="p">(</span><span class="s2">&quot;https://example.com&quot;</span><span class="p">,</span> <span class="n">screenshot_too</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="c1"># Returns snapshot Message + screenshot Message side-by-side.</span>
+</pre></div>
+</div>
+</dd></dl>
+
 </section>
 <section id="rag">
 <span id="id1"></span><h2>RAG<a class="headerlink" href="#rag" title="Link to this heading">#</a></h2>
