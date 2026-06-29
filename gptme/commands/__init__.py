@@ -24,6 +24,7 @@ from . import (  # noqa: F401
     export,
     llm,
     meta,
+    rag,
     session,
     snapshot,
 )
