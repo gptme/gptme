@@ -7,6 +7,7 @@ All tests use a mock transport — no X11 display or xdotool required.
 
 from __future__ import annotations
 
+import importlib.util
 import struct
 import zlib
 from typing import TYPE_CHECKING
@@ -16,6 +17,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 import pytest
+
+_PIL_AVAILABLE = importlib.util.find_spec("PIL") is not None
 
 from gptme.tools.computer import (
     _dispatch_transport,
@@ -168,9 +171,7 @@ class TestWindowFocusAction:
 # ---------------------------------------------------------------------------
 
 
-pytest.importorskip("PIL", reason="PIL not installed")
-
-
+@pytest.mark.skipif(not _PIL_AVAILABLE, reason="PIL not installed")
 class TestWaitForChange:
     def test_returns_screenshot_when_pixels_change(self, tmp_path: Path) -> None:
         """wait_for_change should return the first frame where pixels differ."""
@@ -196,9 +197,27 @@ class TestWaitForChange:
 
     def test_polls_multiple_times(self, tmp_path: Path) -> None:
         """wait_for_change must poll more than once (not bail after first check)."""
+        import time
+
+        original_monotonic = time.monotonic
+        start = original_monotonic()
+        tick = [0]
+
+        # Simulate a 200ms window: first 3 monotonic() calls return times within
+        # the deadline, 4th returns past it — guarantees exactly 3 screenshots
+        # (baseline + 2 polls) regardless of CI scheduler jitter.
+        def stepped_clock() -> float:
+            tick[0] += 1
+            if tick[0] <= 3:
+                return start + tick[0] * 0.05  # 50ms, 100ms, 150ms — within 200ms
+            return start + 0.25  # 250ms — past deadline
+
         transport = _FixedScreenTransport(tmp_path)
-        _dispatch_transport(transport, "wait_for_change", text="0.3")
-        # In 300ms with 50ms→100ms→200ms backoff: baseline + ≥2 polls + timeout shot
+        with (
+            patch("gptme.tools.computer.time.monotonic", side_effect=stepped_clock),
+            patch("gptme.tools.computer.time.sleep"),
+        ):
+            _dispatch_transport(transport, "wait_for_change", text="0.2")
         assert transport._call_count >= 3
 
     def test_default_timeout_is_ten_seconds(self, tmp_path: Path) -> None:
