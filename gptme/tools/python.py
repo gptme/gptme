@@ -278,15 +278,14 @@ def execute_python(
     if isinstance(result.result, Message):
         yield result.result
         return
-    if isinstance(result.result, list) and all(
-        isinstance(m, Message) for m in result.result
-    ):
-        yield from result.result
-        return
-    # Empty list — return a clear message instead of confusing repr output
-    if isinstance(result.result, list) and not result.result:
-        yield Message("system", "No results returned.")
-        return
+    if isinstance(result.result, list):
+        if not result.result:
+            # Empty list — return a clear message instead of confusing repr output
+            yield Message("system", "No results returned.")
+            return
+        if all(isinstance(m, Message) for m in result.result):
+            yield from result.result
+            return
 
     if result.result is not None:
         # show stdout before result if both exist
