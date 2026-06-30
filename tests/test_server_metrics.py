@@ -8,12 +8,8 @@ flask = pytest.importorskip(
 
 
 @pytest.fixture()
-def metrics_client(tmp_path):
+def metrics_client():
     """Flask test client with metrics enabled."""
-    import sys
-
-    sys.path.insert(0, str(tmp_path))  # ensure worktree takes precedence
-
     from gptme.server.app import create_app
 
     app = create_app()
