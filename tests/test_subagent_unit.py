@@ -1287,6 +1287,7 @@ class TestClarifyBlock:
             "role": "verify",
             "redact_secrets": True,
             "context_window": None,
+            "max_time": None,
         }
         with _subagent_results_lock:
             assert "clarify-agent" not in _subagent_results

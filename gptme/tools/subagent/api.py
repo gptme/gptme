@@ -262,19 +262,54 @@ def subagent(
     if mode == "planner":
         if not subtasks:
             raise ValueError("Planner mode requires subtasks parameter")
-        return _exec._run_planner(
-            agent_id,
-            prompt,
-            subtasks,
-            execution_mode,
-            context_mode,
-            context_include,
-            model_name,
-            profile_name=profile,
+
+        # Register the planner as a subagent and launch the watchdog timer.
+        # The planner runs synchronously in the parent thread, so the timer
+        # logs and marks the result as "timeout" on expiry — same pattern as
+        # thread-mode watchdog.
+        logdir = get_logdir(f"subagent-{agent_id}")
+        sa = Subagent(
+            agent_id=agent_id,
+            prompt=prompt,
+            thread=None,
+            logdir=logdir,
+            model=model_name,
+            context_mode=context_mode,
+            context_include=context_include,
+            profile=profile,
+            isolated=isolated,
             redact_secrets=redact_secrets,
             context_window=context_window,
-            workdir=workdir_path,
+            max_time=max_time,
         )
+        with _subagents_lock:
+            _subagents.append(sa)
+
+        _timer = None
+        if max_time is not None:
+            _timer = threading.Timer(
+                max_time, _timeout_subagent, args=(agent_id, max_time)
+            )
+            _timer.daemon = True
+            _timer.start()
+
+        try:
+            return _exec._run_planner(
+                agent_id,
+                prompt,
+                subtasks,
+                execution_mode,
+                context_mode,
+                context_include,
+                model_name,
+                profile_name=profile,
+                redact_secrets=redact_secrets,
+                context_window=context_window,
+                workdir=workdir_path,
+            )
+        finally:
+            if _timer is not None:
+                _timer.cancel()
 
     # Validate context_mode parameters
     if context_mode == "selective" and not context_include:
@@ -865,6 +900,7 @@ def subagent_reply(agent_id: str, reply: str) -> None:
             role=sa.role,
             redact_secrets=sa.redact_secrets,
             context_window=sa.context_window,
+            max_time=sa.max_time,
         )
     except Exception:
         with _subagents_lock:
