@@ -282,6 +282,7 @@ def execute_python(
         if result.result and all(isinstance(m, Message) for m in result.result):
             yield from result.result
             return
+        # empty list or non-Message list falls through to repr output below
 
     if result.result is not None:
         # show stdout before result if both exist

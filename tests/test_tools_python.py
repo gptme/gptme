@@ -331,9 +331,13 @@ from gptme.message import Message
 def test_execute_python_returns_empty_list_falls_through_to_repr():
     """Empty list should fall through to the normal repr path, showing 'Result: []'.
 
-    An empty list is NOT treated as list[Message] — it falls through to the
-    existing repr branch so the LLM sees 'Result: []', preserving a meaningful
-    empty-result signal for general IPython cells like '[x for x in items if x>0]'.
+    An empty list from any computation — whether from observe_web returning no
+    results or a regular list comprehension filtering to nothing — should show
+    the LLM a clear 'Result: []' rather than silent no-output (which hides
+    information) or a potentially misleading 'No results returned.' message.
+
+    The list[Message] fast-path only activates for non-empty lists where every
+    item is a Message; empty lists fall through to the normal repr output.
     """
     code = """\
 from gptme.message import Message
@@ -342,7 +346,7 @@ from gptme.message import Message
     msgs = list(execute_python(code, [], None))
     assert len(msgs) == 1, f"Expected 1 repr message for empty list, got: {msgs}"
     assert "[]" in msgs[0].content, (
-        f"Expected '[]' in repr output, got: {msgs[0].content}"
+        f"Expected '[]' in repr output, got: {msgs[0].content!r}"
     )
 
 
