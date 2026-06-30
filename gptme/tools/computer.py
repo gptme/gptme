@@ -629,9 +629,6 @@ def _linux_accessibility_tree(display: str, max_depth: int = 8) -> str:
             "(requires AT-SPI2 accessibility stack: apt install python3-pyatspi)"
         ) from None
 
-    env = os.environ.copy()
-    env["DISPLAY"] = display
-
     lines: list[str] = []
 
     def _walk(obj: object, depth: int) -> None:
@@ -700,11 +697,9 @@ def _linux_click_accessible_element(
         import pyatspi  # type: ignore[import-not-found,import-untyped]
     except ImportError:
         raise RuntimeError(
-            "pyatspi not installed. Install with: pip install pyatspi"
+            "pyatspi not installed. Install with: pip install pyatspi\n"
+            "(requires AT-SPI2 accessibility stack: apt install python3-pyatspi)"
         ) from None
-
-    env = os.environ.copy()
-    env["DISPLAY"] = display
 
     name_lower = element_name.lower()
 
@@ -1343,10 +1338,8 @@ def computer(
         x, y = _linux_click_accessible_element(
             role_name.strip(), element_name.strip(), display
         )
-        scaled_x, scaled_y = _scale_coordinates(
-            _ScalingSource.COMPUTER, x, y, width, height
-        )
-        _run_xdotool(f"mousemove --sync {scaled_x} {scaled_y} click 1", display)
+        # AT-SPI2 DESKTOP_COORDS are already physical screen pixels — no scaling needed.
+        _run_xdotool(f"mousemove --sync {x} {y} click 1", display)
         print(
             f"Clicked accessible element {role_name!r}: {element_name!r} at ({x}, {y})"
         )
