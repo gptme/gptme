@@ -20,6 +20,13 @@ brew install cliclick
 # Then grant your terminal Screen Recording + Accessibility permissions in System Settings (macOS Ventura+) or System Preferences (older macOS)
 ```
 
+Optional: for accessibility-first control of native Linux apps (no screenshot needed), install
+the AT-SPI2 stack:
+
+```bash
+sudo apt install python3-pyatspi
+```
+
 For web automation (structured ARIA snapshots), install Playwright:
 
 ```bash
@@ -65,6 +72,13 @@ gptme will automatically:
 2. Use `open_page()` + `click_element()` / `fill_element()` when it needs to interact
 3. Fall back to screenshots only for canvas, layout verification, or image-heavy content
 
+`observe_web(url)` is a single-call shortcut for step 1 — it wraps `snapshot_url()` and can
+optionally append a screenshot in one call, instead of chaining separate calls:
+
+```bash
+gptme --agent-profile computer-use 'use observe_web() to read https://news.ycombinator.com and summarize the top story'
+```
+
 Fill a form without screenshots:
 
 ```bash
@@ -78,6 +92,17 @@ For native apps or anything not reachable via a URL, the `computer` tool takes o
 
 ```bash
 gptme --tools +computer 'open the calculator app, compute 137 * 42, and tell me the result'
+```
+
+On Linux, prefer accessibility-first interaction over coordinate guessing when `pyatspi` is
+installed: `computer('accessibility_tree')` dumps the role/name tree for open apps without a
+screenshot, and `computer('click_accessible_element', text='push button:Submit')` clicks an
+element by role+name — robust against window size or position changes. Fall back to
+coordinate-based `left_click` only for apps without accessibility support (games, canvas UIs,
+some Electron apps):
+
+```bash
+gptme --tools +computer 'use computer("accessibility_tree") to find the Submit button in the open dialog, then click it with click_accessible_element'
 ```
 
 The observe-act-verify loop:
@@ -97,6 +122,9 @@ Take a screenshot and analyse what's on screen:
 ```bash
 gptme --tools +computer,+vision 'screenshot the screen and describe any UI errors you see'
 ```
+
+`observe_desktop()` is a shortcut for `computer('screenshot')` that signals observation intent
+explicitly rather than acting — useful when you want the "look" half of a look-act-look loop.
 
 Verify a web page renders correctly:
 
@@ -137,11 +165,13 @@ Then connect a browser to `http://localhost:6080` to watch the agent work.
 
 | Situation | Tool to use |
 |-----------|-------------|
-| Read a web page | `snapshot_url(url)` (no screenshot needed) |
+| Read a web page | `observe_web(url)` or `snapshot_url(url)` (no screenshot needed) |
 | Fill a form or click a link | `open_page(url)` + `click_element()` / `fill_element()` |
-| Visual layout check / canvas | `computer('screenshot')` |
+| Inspect a native Linux app's UI elements | `computer('accessibility_tree')` (AT-SPI2, no screenshot needed) |
+| Click a native app element by role+name | `computer('click_accessible_element', text='push button:Submit')` (AT-SPI2) |
+| Visual layout check / canvas | `computer('screenshot')` or `observe_desktop()` |
 | Wait for UI to settle | `computer('wait_for_change')` |
-| Click a native app | `computer('left_click', coordinate=(x, y))` |
+| Click a native app (no accessibility support) | `computer('left_click', coordinate=(x, y))` |
 | Type text in native app | `computer('type', text='...')` |
 | Focus a window by name | `computer('window_focus', text='pattern')` |
 | Scroll in native UI | `computer('scroll', coordinate=(x,y), text='down')` |
