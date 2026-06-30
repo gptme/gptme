@@ -767,7 +767,7 @@ per OpenAI best practices for function calling:
 <p>For text-based formats (markdown/xml), examples are kept even for reasoning models,
 since they serve as documentation in the system prompt rather than few-shot examples.</p>
 </div></blockquote>
-<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f629af87100&gt;, tool_format=’markdown’):</p>
+<p>Example output (tools=&lt;function &lt;lambda&gt; at 0x7f3677d8f100&gt;, tool_format=’markdown’):</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span><span class="gh"># Tools Overview</span>
 
 <span class="gu">## append</span>
@@ -1143,11 +1143,26 @@ varies across sessions or virtual displays.
 Note: Key names are automatically mapped between platforms.
 Common modifiers (ctrl, alt, cmd/super, shift) work consistently across platforms.
 
+<span class="gu">### Observation helpers (structured-first policy)</span>
+
+Two higher-level helpers are available that implement the structured-first observation policy:
+
+<span class="k">-</span><span class="w"> </span>``observe_web(url, screenshot_too=False)`` — observe a web page using ARIA snapshots first
+  (no vision tokens), with automatic fallback to a browser screenshot, then desktop screenshot.
+  Pass ``screenshot_too=True`` to get both an ARIA snapshot AND a screenshot side by side.
+<span class="k">-</span><span class="w"> </span>``observe_desktop()`` — thin wrapper around ``computer(&#39;screenshot&#39;)`` that signals intent
+  clearly for native apps and non-browser surfaces.
+
+These helpers are preferred over calling ``computer(&quot;screenshot&quot;)`` directly when observing
+web pages, because ARIA snapshots avoid costly vision tokens and give a DOM-addressable tree.
+
 
 The following Python functions are available:
 
 <span class="sb">```txt</span>
 <span class="s">computer(action: Action, text: str | None, coordinate: tuple[int, int] | None) -&gt; Message | None: Perform computer interactions in X11 or macOS environments.</span>
+<span class="s">observe_web(url: str, screenshot_too: bool) -&gt; list[Message]: Observe a web page: structured ARIA snapshot first, screenshot as fallback.</span>
+<span class="s">observe_desktop() -&gt; Message | None: Observe the current desktop state via screenshot.</span>
 <span class="sb">```</span>
 
 <span class="gu">### Examples</span>
@@ -1191,6 +1206,21 @@ The following Python functions are available:
 <span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll open a terminal with a keyboard shortcut, wait for it to appear and focus it, then type the command.</span>
 <span class="sb">```ipython</span>
 <span class="n">computer</span><span class="p">(</span><span class="s2">&quot;key&quot;</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s2">&quot;ctrl+alt+t&quot;</span><span class="p">)</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">User: Read the content of https://news.ycombinator.com</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll use observe_web to get a structured ARIA snapshot of the page — faster and cheaper than a screenshot.</span>
+<span class="sb">```ipython</span>
+<span class="n">observe_web</span><span class="p">(</span><span class="s2">&quot;https://news.ycombinator.com&quot;</span><span class="p">)</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">User: Check what&#39;s on my desktop right now</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll capture a screenshot of the desktop.</span>
+<span class="sb">```ipython</span>
+<span class="n">observe_desktop</span><span class="p">()</span>
+<span class="sb">```</span>
+<span class="k">&gt; </span><span class="ge">User: Navigate to https://example.com and verify both the text content and visual layout</span>
+<span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll use observe_web with screenshot_too=True to get both the ARIA snapshot and a screenshot.</span>
+<span class="sb">```ipython</span>
+<span class="n">observe_web</span><span class="p">(</span><span class="s2">&quot;https://example.com&quot;</span><span class="p">,</span> <span class="n">screenshot_too</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="sb">```</span>
 <span class="k">&gt; </span><span class="ge">User: Open a new browser tab</span>
 <span class="k">&gt; </span><span class="ge">Assistant: I&#39;ll open a new browser tab.</span>
@@ -2552,7 +2582,7 @@ state or Python libraries.
 <span class="ge">*End of Tools List.*</span>
 </pre></div>
 </div>
-<p>Tokens: 14754</p>
+<p>Tokens: 15135</p>
 </dd></dl>
 
 <dl class="py function">
