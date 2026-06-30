@@ -167,7 +167,7 @@ server = ["flask", "flask-cors", "flask-compress", "pydantic", "prometheus-clien
 browser = ["playwright"]
 datascience = ["matplotlib", "pandas", "numpy"]  # pillow (non-opt)
 sounds = ["sounddevice", "scipy"]
-computer = []  # pillow (non-opt)
+computer = []  # pillow (non-opt); AT-SPI2 accessibility needs system pkg: apt install python3-pyatspi
 pyinstaller = ["pyinstaller"]
 acp = ["agent-client-protocol"]
 telemetry = [
@@ -347,3 +347,8 @@ exclude_also = [
 [build-system]
 requires = ["poetry-core>=2.0"]
 build-backend = "poetry.core.masonry.api"
+
+[dependency-groups]
+dev = [
+    "requests>=2.34.2",
+]

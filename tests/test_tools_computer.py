@@ -14,6 +14,8 @@ from gptme.tools.computer import (
     MODIFIER_KEYS,
     _chunks,
     _get_display_resolution,
+    _linux_accessibility_tree,
+    _linux_click_accessible_element,
     _linux_scroll,
     _linux_window_focus,
     _macos_window_focus,
@@ -1387,3 +1389,161 @@ def test_macos_window_focus_accepts_double_quotes_in_pattern():
     assert cmd[0] == "osascript"
     assert cmd[-1] == pattern
     assert pattern not in cmd[2]
+
+
+# === Accessibility tree tests ===
+
+
+def _make_mock_accessible(
+    role_name: str, name: str, children: list | None = None, bbox=None
+):
+    """Build a minimal pyatspi-like mock accessible object."""
+    obj = mock.MagicMock()
+    obj.getRoleName.return_value = role_name
+    obj.name = name
+    state_set = mock.MagicMock()
+    state_set.contains.return_value = False
+    obj.getState.return_value = state_set
+    kids = children or []
+    obj.childCount = len(kids)
+    obj.__getitem__ = lambda self, i: kids[i]
+    if bbox is not None:
+        component = mock.MagicMock()
+        component.getExtents.return_value = mock.MagicMock(
+            x=bbox[0], y=bbox[1], width=bbox[2], height=bbox[3]
+        )
+        obj.queryComponent.return_value = component
+    return obj
+
+
+def _make_pyatspi_module(desktop_obj):
+    """Return a minimal pyatspi mock module."""
+    mod = mock.MagicMock()
+    mod.Registry.getDesktop.return_value = desktop_obj
+    mod.DESKTOP_COORDS = 0
+    return mod
+
+
+@pytest.mark.skipif(IS_MACOS, reason="AT-SPI2 is Linux-only")
+def test_accessibility_tree_no_pyatspi_raises():
+    """Missing pyatspi raises RuntimeError with install hint."""
+    with (
+        mock.patch.dict("sys.modules", {"pyatspi": None}),
+        pytest.raises(RuntimeError, match="pyatspi not installed"),
+    ):
+        _linux_accessibility_tree(":1")
+
+
+@pytest.mark.skipif(IS_MACOS, reason="AT-SPI2 is Linux-only")
+def test_accessibility_tree_returns_structured_text():
+    """accessibility_tree returns indented role:name lines for each accessible object."""
+    button = _make_mock_accessible("push button", "OK")
+    app = _make_mock_accessible("application", "TestApp", children=[button])
+    desktop = _make_mock_accessible("desktop frame", "", children=[app])
+
+    pyatspi_mod = _make_pyatspi_module(desktop)
+
+    with mock.patch.dict("sys.modules", {"pyatspi": pyatspi_mod}):
+        result = _linux_accessibility_tree(":1")
+
+    assert "TestApp" in result
+    assert "push button" in result
+    assert "OK" in result
+    # app should be indented one level, button two levels
+    lines = result.splitlines()
+    app_line = next(ln for ln in lines if "TestApp" in ln)
+    btn_line = next(ln for ln in lines if "OK" in ln)
+    assert btn_line.startswith("  " + "  ")  # deeper indent than app
+    assert app_line.startswith("  ")
+
+
+@pytest.mark.skipif(IS_MACOS, reason="AT-SPI2 is Linux-only")
+def test_accessibility_tree_empty_desktop():
+    """Empty desktop returns a non-empty string indicating zero apps."""
+    desktop = _make_mock_accessible("desktop frame", "", children=[])
+    pyatspi_mod = _make_pyatspi_module(desktop)
+
+    with mock.patch.dict("sys.modules", {"pyatspi": pyatspi_mod}):
+        result = _linux_accessibility_tree(":1")
+
+    assert "Desktop" in result or "empty" in result or result.strip()
+
+
+@pytest.mark.skipif(IS_MACOS, reason="AT-SPI2 is Linux-only")
+def test_click_accessible_element_no_pyatspi_raises():
+    """Missing pyatspi raises RuntimeError."""
+    with (
+        mock.patch.dict("sys.modules", {"pyatspi": None}),
+        pytest.raises(RuntimeError, match="pyatspi not installed"),
+    ):
+        _linux_click_accessible_element("push button", "OK", ":1")
+
+
+@pytest.mark.skipif(IS_MACOS, reason="AT-SPI2 is Linux-only")
+def test_click_accessible_element_found_returns_center():
+    """click_accessible_element returns the center (x, y) of a matching element."""
+    # bbox: x=100, y=200, width=80, height=40 → center (140, 220)
+    button = _make_mock_accessible("push button", "Submit", bbox=(100, 200, 80, 40))
+    app = _make_mock_accessible("application", "MyApp", children=[button])
+    desktop = _make_mock_accessible("desktop frame", "", children=[app])
+
+    pyatspi_mod = _make_pyatspi_module(desktop)
+
+    with mock.patch.dict("sys.modules", {"pyatspi": pyatspi_mod}):
+        x, y = _linux_click_accessible_element("push button", "Submit", ":1")
+
+    assert x == 140
+    assert y == 220
+
+
+@pytest.mark.skipif(IS_MACOS, reason="AT-SPI2 is Linux-only")
+def test_click_accessible_element_case_insensitive():
+    """Name matching is case-insensitive (substring)."""
+    button = _make_mock_accessible("push button", "SUBMIT FORM", bbox=(0, 0, 100, 50))
+    app = _make_mock_accessible("application", "App", children=[button])
+    desktop = _make_mock_accessible("desktop frame", "", children=[app])
+
+    pyatspi_mod = _make_pyatspi_module(desktop)
+
+    with mock.patch.dict("sys.modules", {"pyatspi": pyatspi_mod}):
+        x, y = _linux_click_accessible_element("push button", "submit", ":1")
+
+    assert x == 50
+    assert y == 25
+
+
+@pytest.mark.skipif(IS_MACOS, reason="AT-SPI2 is Linux-only")
+def test_click_accessible_element_not_found_raises():
+    """Raises RuntimeError with helpful message when element is not found."""
+    desktop = _make_mock_accessible("desktop frame", "", children=[])
+    pyatspi_mod = _make_pyatspi_module(desktop)
+
+    with (
+        mock.patch.dict("sys.modules", {"pyatspi": pyatspi_mod}),
+        pytest.raises(RuntimeError, match="No accessible element"),
+    ):
+        _linux_click_accessible_element("push button", "Nonexistent", ":1")
+
+
+def test_computer_accessibility_tree_invalid_on_macos():
+    """On macOS, accessibility_tree raises a helpful error."""
+    if not IS_MACOS:
+        pytest.skip("macOS-only test")
+    with pytest.raises(RuntimeError, match="AT-SPI2"):
+        computer("accessibility_tree")
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", False)
+@mock.patch("gptme.tools.computer._get_display_resolution", return_value=(1920, 1080))
+def test_computer_click_accessible_element_missing_text(mock_res):
+    """click_accessible_element without text raises ValueError on Linux."""
+    with pytest.raises(ValueError, match="text="):
+        computer("click_accessible_element")
+
+
+@mock.patch("gptme.tools.computer.IS_MACOS", False)
+@mock.patch("gptme.tools.computer._get_display_resolution", return_value=(1920, 1080))
+def test_computer_click_accessible_element_missing_colon(mock_res):
+    """click_accessible_element with text missing ':' raises ValueError."""
+    with pytest.raises(ValueError, match="role_name:element_name"):
+        computer("click_accessible_element", text="no-colon-here")

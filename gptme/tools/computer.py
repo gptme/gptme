@@ -59,6 +59,10 @@ Screen:
 Window management:
     - window_focus: Wait for a window matching a name pattern to appear and focus it
 
+Accessibility (Linux/AT-SPI2 only):
+    - accessibility_tree: Dump the AT-SPI2 accessibility tree for all apps
+    - click_accessible_element: Find and click an element by role and name (text='role:name')
+
 The tool automatically handles screen resolution scaling to ensure optimal performance
 with LLM vision capabilities.
 
@@ -166,6 +170,8 @@ Action = Literal[
     "cursor_position",
     "wait_for_change",
     "window_focus",
+    "accessibility_tree",
+    "click_accessible_element",
 ]
 
 ScrollDirection = Literal["up", "down", "left", "right"]
@@ -597,6 +603,169 @@ def _linux_window_focus(pattern: str, display: str, timeout: float = 10.0) -> No
         ) from e
 
 
+def _linux_accessibility_tree(display: str, max_depth: int = 8) -> str:
+    """Return a text dump of the AT-SPI2 accessibility tree for all desktop apps.
+
+    Requires the optional ``pyatspi`` package (``pip install pyatspi``).
+    The tree lists every accessible object with its role, name, and state,
+    indented by depth.  Use the output to identify elements for
+    ``click_accessible_element`` without needing pixel coordinates.
+
+    Args:
+        display: X11 display string (e.g. ":1").
+        max_depth: Maximum recursion depth (default 8).
+
+    Returns:
+        Multi-line text representation of the accessibility tree.
+
+    Raises:
+        RuntimeError: If pyatspi is not installed or the desktop is not accessible.
+    """
+    try:
+        import pyatspi  # type: ignore[import-not-found,import-untyped]
+    except ImportError:
+        raise RuntimeError(
+            "pyatspi not installed. Install with: pip install pyatspi\n"
+            "(requires AT-SPI2 accessibility stack: apt install python3-pyatspi)"
+        ) from None
+
+    env = os.environ.copy()
+    env["DISPLAY"] = display
+
+    lines: list[str] = []
+
+    def _walk(obj: object, depth: int) -> None:
+        if depth > max_depth:
+            return
+        try:
+            role = obj.getRoleName()  # type: ignore[attr-defined]
+            name = obj.name or ""  # type: ignore[attr-defined]
+        except Exception:
+            role, name = "unknown", ""
+
+        indent = "  " * depth
+        label = f"{role!r}" if not name else f"{role!r}: {name!r}"
+        lines.append(f"{indent}{label}")
+
+        try:
+            child_count = obj.childCount  # type: ignore[attr-defined]
+        except Exception:
+            child_count = 0
+        for i in range(child_count):
+            try:
+                child = obj[i]  # type: ignore[index]
+                _walk(child, depth + 1)
+            except Exception:
+                pass
+
+    try:
+        desktop = pyatspi.Registry.getDesktop(0)
+    except Exception as e:
+        raise RuntimeError(f"Could not connect to AT-SPI desktop: {e}") from e
+
+    lines.append(f"Desktop ({desktop.childCount} apps)")
+    for i in range(desktop.childCount):
+        try:
+            app = desktop[i]
+            _walk(app, 1)
+        except Exception:
+            pass
+
+    return "\n".join(lines) if lines else "(empty accessibility tree)"
+
+
+def _linux_click_accessible_element(
+    role_name: str, element_name: str, display: str
+) -> tuple[int, int]:
+    """Find an accessible element by role and name and return its center coordinates.
+
+    Looks up the element via AT-SPI2, computes its bounding box, and returns the
+    center (x, y) in screen coordinates.  The caller should then use
+    ``xdotool mousemove --sync x y click 1`` or a transport-layer click to
+    actually interact with it.
+
+    Args:
+        role_name: AT-SPI role name, e.g. "push button", "entry", "check box".
+        element_name: Accessible name of the element (case-insensitive substring match).
+        display: X11 display string.
+
+    Returns:
+        (x, y) center of the first matching element in screen coordinates.
+
+    Raises:
+        RuntimeError: If pyatspi is not installed, the element is not found, or has
+            no geometry.
+    """
+    try:
+        import pyatspi  # type: ignore[import-not-found,import-untyped]
+    except ImportError:
+        raise RuntimeError(
+            "pyatspi not installed. Install with: pip install pyatspi"
+        ) from None
+
+    env = os.environ.copy()
+    env["DISPLAY"] = display
+
+    name_lower = element_name.lower()
+
+    def _find(obj: object, depth: int) -> object | None:
+        if depth > 20:
+            return None
+        try:
+            role = obj.getRoleName()  # type: ignore[attr-defined]
+            name = (obj.name or "").lower()  # type: ignore[attr-defined]
+            if role == role_name and name_lower in name:
+                return obj
+        except Exception:
+            pass
+        try:
+            child_count = obj.childCount  # type: ignore[attr-defined]
+        except Exception:
+            return None
+        for i in range(child_count):
+            try:
+                result = _find(obj[i], depth + 1)  # type: ignore[index]
+                if result is not None:
+                    return result
+            except Exception:
+                pass
+        return None
+
+    try:
+        desktop = pyatspi.Registry.getDesktop(0)
+    except Exception as e:
+        raise RuntimeError(f"Could not connect to AT-SPI desktop: {e}") from e
+
+    found = None
+    for i in range(desktop.childCount):
+        try:
+            found = _find(desktop[i], 0)
+            if found is not None:
+                break
+        except Exception:
+            pass
+
+    if found is None:
+        raise RuntimeError(
+            f"No accessible element with role={role_name!r} and name containing "
+            f"{element_name!r} found in the accessibility tree. "
+            "Run computer('accessibility_tree') to see available elements."
+        )
+
+    try:
+        component = found.queryComponent()  # type: ignore[attr-defined]
+        bbox = component.getExtents(pyatspi.DESKTOP_COORDS)
+        x = bbox.x + bbox.width // 2
+        y = bbox.y + bbox.height // 2
+    except Exception as e:
+        raise RuntimeError(
+            f"Found element {role_name!r}: {element_name!r} but could not get its "
+            f"screen position: {e}"
+        ) from e
+
+    return x, y
+
+
 def _macos_window_focus(pattern: str, timeout: float = 10.0) -> None:
     """Focus the frontmost application whose name contains pattern on macOS.
 
@@ -825,6 +994,33 @@ def _dispatch_transport(
             raise ValueError("text (window name pattern) is required for window_focus")
         transport.window_focus(text)
         print(f"Focused window matching: {text!r}")
+        return None
+
+    if action == "accessibility_tree":
+        display = os.getenv("DISPLAY", ":1")
+        tree = _linux_accessibility_tree(display)
+        print(tree)
+        return None
+
+    if action == "click_accessible_element":
+        if not text:
+            raise ValueError(
+                "text='role_name:element_name' is required for click_accessible_element"
+            )
+        if ":" not in text:
+            raise ValueError(
+                "text must be 'role_name:element_name', e.g. 'push button:Submit'"
+            )
+        role_name, _, element_name = text.partition(":")
+        display = os.getenv("DISPLAY", ":1")
+        x, y = _linux_click_accessible_element(
+            role_name.strip(), element_name.strip(), display
+        )
+        transport.mouse_move(x, y)
+        transport.left_click()
+        print(
+            f"Clicked accessible element {role_name!r}: {element_name!r} at ({x}, {y})"
+        )
         return None
 
     raise ValueError(f"Invalid action: {action}")
@@ -1118,6 +1314,44 @@ def computer(
             _linux_window_focus(text, display)
         print(f"Focused window matching: {text!r}")
         return None
+
+    if action == "accessibility_tree":
+        if IS_MACOS:
+            raise RuntimeError(
+                "accessibility_tree is only supported on Linux (AT-SPI2). "
+                "On macOS, use the browser tool's snapshot_url() for web content."
+            )
+        tree = _linux_accessibility_tree(display)
+        print(tree)
+        return None
+
+    if action == "click_accessible_element":
+        if IS_MACOS:
+            raise RuntimeError(
+                "click_accessible_element is only supported on Linux (AT-SPI2). "
+                "On macOS, use the browser tool's click_element() for web content."
+            )
+        if not text:
+            raise ValueError(
+                "text='role_name:element_name' is required for click_accessible_element"
+            )
+        if ":" not in text:
+            raise ValueError(
+                "text must be 'role_name:element_name', e.g. 'push button:Submit'"
+            )
+        role_name, _, element_name = text.partition(":")
+        x, y = _linux_click_accessible_element(
+            role_name.strip(), element_name.strip(), display
+        )
+        scaled_x, scaled_y = _scale_coordinates(
+            _ScalingSource.COMPUTER, x, y, width, height
+        )
+        _run_xdotool(f"mousemove --sync {scaled_x} {scaled_y} click 1", display)
+        print(
+            f"Clicked accessible element {role_name!r}: {element_name!r} at ({x}, {y})"
+        )
+        return None
+
     raise ValueError(f"Invalid action: {action}")
 
 
@@ -1267,6 +1501,28 @@ Available actions:
 - window_focus: Wait for a window whose title contains text=<pattern> to appear,
   then focus it. On Linux/X11 this uses xdotool --sync so no screenshot polling
   is needed. Use after opening a new application to avoid guessing where to click.
+- accessibility_tree: (Linux/AT-SPI2 only) Dump the accessibility tree for all
+  open applications as structured text. Each node shows role, name, and state.
+  Use this to discover element names and roles before using click_accessible_element.
+  Requires: pip install pyatspi (and AT-SPI2 accessibility stack).
+- click_accessible_element: (Linux/AT-SPI2 only) Find and click an element by
+  role and name without needing screen coordinates. Use text='role:name' where
+  role is the AT-SPI role name (e.g. 'push button', 'entry', 'check box') and
+  name is a substring of the element's accessible name. Example:
+  computer('click_accessible_element', text='push button:Submit')
+
+### Accessibility-first for native apps (Linux)
+
+Prefer click_accessible_element over coordinate-based clicks for native Linux apps:
+
+  computer("accessibility_tree")                               # inspect available elements
+  computer("click_accessible_element", text="entry:Username")  # fill username field
+  computer("type", text="user@example.com")
+  computer("click_accessible_element", text="push button:Log In")
+
+This is more robust than coordinate guessing: element names don't shift when
+window size or position changes. Use coordinate-based clicks only when the app
+lacks accessibility support (e.g. electron apps, games, canvas-based UIs).
 
 ### Efficient action-verify loops
 
