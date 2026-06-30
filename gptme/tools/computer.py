@@ -641,7 +641,7 @@ def _linux_accessibility_tree(display: str, max_depth: int = 8) -> str:
             role, name = "unknown", ""
 
         indent = "  " * depth
-        label = f"{role!r}" if not name else f"{role!r}: {name!r}"
+        label = role if not name else f"{role}: {name}"
         lines.append(f"{indent}{label}")
 
         try:

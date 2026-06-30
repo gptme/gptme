@@ -1449,12 +1449,18 @@ def test_accessibility_tree_returns_structured_text():
     assert "TestApp" in result
     assert "push button" in result
     assert "OK" in result
+    # Roles and names must NOT be repr-quoted so agents can copy them directly
+    # into click_accessible_element without quote mismatches.
+    assert "'push button'" not in result
+    assert "'OK'" not in result
     # app should be indented one level, button two levels
     lines = result.splitlines()
     app_line = next(ln for ln in lines if "TestApp" in ln)
     btn_line = next(ln for ln in lines if "OK" in ln)
     assert btn_line.startswith("  " + "  ")  # deeper indent than app
     assert app_line.startswith("  ")
+    # The button line should be directly copyable as role_name:element_name
+    assert "push button: OK" in result
 
 
 @pytest.mark.skipif(IS_MACOS, reason="AT-SPI2 is Linux-only")
