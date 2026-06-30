@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { use$ } from '@legendapp/state/react';
 import { useApi } from '@/contexts/ApiContext';
 import { isDemoMode } from '@/utils/connectionConfig';
 
@@ -31,7 +32,8 @@ const DEMO_USER_SETTINGS: UserSettings = {
 };
 
 export function useUserSettings() {
-  const { api } = useApi();
+  const { api, isConnected$ } = useApi();
+  const isConnected = use$(isConnected$);
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -41,6 +43,13 @@ export function useUserSettings() {
     if (isDemoMode()) {
       setSettings(DEMO_USER_SETTINGS);
       setError(null);
+      setIsLoading(false);
+      return;
+    }
+    // Don't fetch until connected — avoids LNA/CORS errors on hosted pages
+    // (e.g. chat.gptme.org) that would otherwise hit http://127.0.0.1:5700
+    // before any server is confirmed reachable.
+    if (!isConnected) {
       setIsLoading(false);
       return;
     }
@@ -74,7 +83,7 @@ export function useUserSettings() {
 
     void fetchSettings();
     return () => controller.abort();
-  }, [api.baseUrl, api.authHeader, refetchKey]);
+  }, [api.baseUrl, api.authHeader, isConnected, refetchKey]);
 
   const refetch = useCallback(() => setRefetchKey((k) => k + 1), []);
 

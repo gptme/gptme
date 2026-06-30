@@ -1,8 +1,10 @@
 import '@testing-library/jest-dom';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { observable } from '@legendapp/state';
 import { ServerProviderHealthSettings } from '../ServerProviderHealthSettings';
 
 const mockFetch = jest.fn();
+const isConnected$ = observable(true);
 
 jest.mock('@/contexts/ApiContext', () => ({
   useApi: () => ({
@@ -10,6 +12,7 @@ jest.mock('@/contexts/ApiContext', () => ({
       baseUrl: 'http://127.0.0.1:5700',
       authHeader: 'Bearer test-token',
     },
+    isConnected$,
   }),
 }));
 

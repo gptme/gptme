@@ -1,10 +1,14 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { observable } from '@legendapp/state';
 import { useProviderHealth } from '../useProviderHealth';
 import { useUserSettings } from '../useUserSettings';
 import { providerHealth$ } from '@/stores/providerHealth';
 
 const mockFetch = jest.fn();
 const mockIsDemoMode = jest.fn();
+// Created at module scope so it can be referenced inside the jest.mock() factory
+// (jest.mock() is hoisted before imports, but factory closures evaluate lazily).
+const isConnected$ = observable(false);
 
 jest.mock('@/contexts/ApiContext', () => ({
   useApi: () => ({
@@ -12,6 +16,7 @@ jest.mock('@/contexts/ApiContext', () => ({
       baseUrl: 'demo://offline',
       authHeader: null,
     },
+    isConnected$,
   }),
 }));
 

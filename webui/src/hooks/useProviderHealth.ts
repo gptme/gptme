@@ -13,7 +13,8 @@ export const POLL_INTERVAL_MS = 30_000;
  * while the calling component is mounted.
  */
 export function useProviderHealth(poll = false) {
-  const { api } = useApi();
+  const { api, isConnected$ } = useApi();
+  const isConnected = use$(isConnected$);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const demoMode = isDemoMode();
 
@@ -51,6 +52,13 @@ export function useProviderHealth(poll = false) {
   );
 
   useEffect(() => {
+    // Don't make requests until connected — avoids LNA/CORS errors on hosted
+    // pages (e.g. chat.gptme.org) that would try http://127.0.0.1:5700 before
+    // any server is confirmed reachable.
+    if (!demoMode && !isConnected) {
+      providerHealth$.isLoading.set(false);
+      return;
+    }
     void fetchHealth();
     if (!demoMode && poll) {
       intervalRef.current = setInterval(() => void fetchHealth(), POLL_INTERVAL_MS);
@@ -61,7 +69,7 @@ export function useProviderHealth(poll = false) {
         intervalRef.current = null;
       }
     };
-  }, [demoMode, fetchHealth, poll]);
+  }, [demoMode, fetchHealth, isConnected, poll]);
 
   const data = use$(providerHealth$.data);
   const isLoading = use$(providerHealth$.isLoading);
