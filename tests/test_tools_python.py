@@ -328,20 +328,21 @@ from gptme.message import Message
     assert msgs[1].content == "msg2"
 
 
-def test_execute_python_returns_empty_list_of_messages():
-    """Empty list[Message] (e.g. observe_web failure) should produce no output.
+def test_execute_python_returns_empty_list_falls_through_to_repr():
+    """Empty list should fall through to the normal repr path, showing 'Result: []'.
 
-    Without this, the LLM sees confusing 'Result:\n```\n[]\n```' output instead
-    of clean silence. We verify no output is yielded and crucially that the output
-    does NOT contain a repr of [].
+    An empty list is NOT treated as list[Message] — it falls through to the
+    existing repr branch so the LLM sees 'Result: []', preserving a meaningful
+    empty-result signal for general IPython cells like '[x for x in items if x>0]'.
     """
     code = """\
 from gptme.message import Message
 [m for m in [] if isinstance(m, Message)]  # evaluates to []
 """
     msgs = list(execute_python(code, [], None))
-    assert len(msgs) == 0 or (len(msgs) == 1 and "[]" not in msgs[0].content), (
-        f"Expected no confusing [] repr, got: {msgs}"
+    assert len(msgs) == 1, f"Expected 1 repr message for empty list, got: {msgs}"
+    assert "[]" in msgs[0].content, (
+        f"Expected '[]' in repr output, got: {msgs[0].content}"
     )
 
 
