@@ -3419,6 +3419,11 @@ Similar to Anthropic’s computer use demo, but integrated with gptme’s archit
 <li><p>window_focus: Wait for a window matching a name pattern to appear and focus it</p></li>
 </ul>
 </dd>
+<dt>Accessibility (Linux/AT-SPI2 only):</dt><dd><ul class="simple">
+<li><p>accessibility_tree: Dump the AT-SPI2 accessibility tree for all apps</p></li>
+<li><p>click_accessible_element: Find and click an element by role and name (text=’role:name’)</p></li>
+</ul>
+</dd>
 </dl>
 <p>The tool automatically handles screen resolution scaling to ensure optimal performance
 with LLM vision capabilities.</p>
@@ -3468,6 +3473,28 @@ Available actions:
 <span class="k">-</span><span class="w"> </span>window_focus: Wait for a window whose title contains text=&lt;pattern&gt; to appear,
   then focus it. On Linux/X11 this uses xdotool --sync so no screenshot polling
   is needed. Use after opening a new application to avoid guessing where to click.
+<span class="k">-</span><span class="w"> </span>accessibility_tree: (Linux/AT-SPI2 only) Dump the accessibility tree for all
+  open applications as structured text. Each node shows role, name, and state.
+  Use this to discover element names and roles before using click_accessible_element.
+  Requires: pip install pyatspi (and AT-SPI2 accessibility stack).
+<span class="k">-</span><span class="w"> </span>click_accessible_element: (Linux/AT-SPI2 only) Find and click an element by
+  role and name without needing screen coordinates. Use text=&#39;role:name&#39; where
+  role is the AT-SPI role name (e.g. &#39;push button&#39;, &#39;entry&#39;, &#39;check box&#39;) and
+  name is a substring of the element&#39;s accessible name. Example:
+  computer(&#39;click_accessible_element&#39;, text=&#39;push button:Submit&#39;)
+
+<span class="gu">### Accessibility-first for native apps (Linux)</span>
+
+Prefer click_accessible_element over coordinate-based clicks for native Linux apps:
+
+  computer(&quot;accessibility_tree&quot;)                               # inspect available elements
+  computer(&quot;click_accessible_element&quot;, text=&quot;entry:Username&quot;)  # fill username field
+  computer(&quot;type&quot;, text=&quot;user@example.com&quot;)
+  computer(&quot;click_accessible_element&quot;, text=&quot;push button:Log In&quot;)
+
+This is more robust than coordinate guessing: element names don&#39;t shift when
+window size or position changes. Use coordinate-based clicks only when the app
+lacks accessibility support (e.g. electron apps, games, canvas-based UIs).
 
 <span class="gu">### Efficient action-verify loops</span>
 
