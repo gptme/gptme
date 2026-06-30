@@ -276,17 +276,39 @@ def chats_send(id: str, message: tuple[str, ...]):
 @click.option(
     "-o", "--output", type=click.Path(), default=None, help="Output file path."
 )
-def chats_export(id: str, fmt: str, output: str | None):
+@click.option(
+    "--safety-check",
+    is_flag=True,
+    default=False,
+    help="Run local heuristic safety analysis on assistant messages before exporting.",
+)
+@click.option(
+    "--safety-json",
+    is_flag=True,
+    default=False,
+    help="Output safety analysis as JSON (implies --safety-check, skips export).",
+)
+def chats_export(
+    id: str, fmt: str, output: str | None, safety_check: bool, safety_json: bool
+):
     """Export a conversation to HTML or markdown.
 
     Exports the conversation with the given ID to a file.
     Use --format to choose between HTML (self-contained) and markdown.
+
+    Use --safety-check to run a local heuristic analysis of assistant messages
+    for hedging/uncertainty signals and jailbreak bypass indicators before exporting.
+    No network calls are made; the check is fully local.
 
     Examples:
 
         gptme-util chats export my-conversation
 
         gptme-util chats export my-conversation -f html -o chat.html
+
+        gptme-util chats export my-conversation --safety-check
+
+        gptme-util chats export my-conversation --safety-json
     """
     _ensure_tools()
     from ..util.export import export_chat_to_html, export_chat_to_markdown  # fmt: skip
@@ -297,6 +319,20 @@ def chats_export(id: str, fmt: str, output: str | None):
         raise SystemExit(1)
 
     log = LogManager.load(logdir)
+
+    if safety_check or safety_json:
+        import json as _json  # fmt: skip
+
+        from ..util.safety import check_messages  # fmt: skip
+
+        report = check_messages(log.log.messages, source=id)
+        if safety_json:
+            click.echo(_json.dumps(report.to_dict(), indent=2))
+            return
+        click.echo(report.to_text())
+        click.echo()
+        if report.flags:
+            click.echo(f"⚠  Safety flags: {', '.join(report.flags)}")
 
     ext = "html" if fmt == "html" else "md"
     output_path = Path(output) if output else Path(f"{id}.{ext}")
