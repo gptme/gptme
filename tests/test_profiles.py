@@ -129,6 +129,12 @@ class TestBuiltinProfiles:
         assert "**Visual verification or non-DOM surfaces**" in prompt
         assert "**Native desktop / X11 / non-browser apps**" in prompt
         assert "snapshot_url" in prompt, "must mention structured ARIA snapshot for web"
+        assert "observe_web" in prompt, (
+            "must mention observe_web helper for web observation"
+        )
+        assert "observe_desktop" in prompt, (
+            "must mention observe_desktop helper for desktop observation"
+        )
         assert "wait_for_change" in prompt, (
             "must mention wait_for_change for efficiency"
         )
