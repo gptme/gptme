@@ -91,7 +91,8 @@ def test_check_messages_hedging_detected():
     assert report.total_segments == 1
     seg = report.segments[0]
     assert seg.hedging_count >= 3
-    assert seg.hedging_count == len(seg.hedging_phrases)
+    # count is raw (duplicates included); phrases is deduplicated — count >= len is the invariant
+    assert seg.hedging_count >= len(seg.hedging_phrases)
     assert seg.hedging_phrases, "hedging_phrases should not be empty"
     # Verify phrases are full match strings, not fragment tokens
     for phrase in seg.hedging_phrases:
@@ -99,6 +100,20 @@ def test_check_messages_hedging_detected():
             f"phrase '{phrase}' looks like a fragment, not a full match"
         )
     assert report.overall_risk > 0.0
+
+
+def test_hedging_count_deduplication():
+    """hedging_count is the raw match count; hedging_phrases is deduplicated."""
+    msgs = [
+        _Msg("user", "Tell me."),
+        _Msg("assistant", "I think this is right. I think so, yes."),
+    ]
+    report = check_messages(msgs, source="test-dedup")
+    seg = report.segments[0]
+    # "I think" appears twice → count=2, but phrases has it only once
+    assert seg.hedging_count == 2
+    assert len(seg.hedging_phrases) == 1
+    assert seg.hedging_phrases[0] == "i think"
 
 
 def test_check_messages_jailbreak_detected():
