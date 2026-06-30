@@ -2364,3 +2364,236 @@ class TestWorkdir:
         assert exec_calls[0] != workspace_dir.resolve()
         # It should be a temp dir
         assert "subagent-isolated-test" in str(exec_calls[0])
+
+
+# ---------------------------------------------------------------------------
+# max_time watchdog tests
+# ---------------------------------------------------------------------------
+
+
+class TestMaxTimeWatchdog:
+    """Tests for max_time auto-cancel watchdog in subagent()."""
+
+    def setup_method(self):
+        from gptme.tools.subagent.types import (
+            _subagent_results,
+            _subagent_results_lock,
+            _subagents,
+            _subagents_lock,
+        )
+
+        with _subagents_lock:
+            _subagents.clear()
+        with _subagent_results_lock:
+            _subagent_results.clear()
+        while not _completion_queue.empty():
+            try:
+                _completion_queue.get_nowait()
+            except queue.Empty:
+                break
+
+    def test_timeout_status_is_valid(self):
+        """ReturnType accepts 'timeout' as a valid status."""
+        rt = ReturnType("timeout", "Auto-cancelled after 5.0s")
+        assert rt.status == "timeout"
+        assert "5.0s" in (rt.result or "")
+
+    def test_timeout_subagent_noop_when_already_finished(self, tmp_path):
+        """_timeout_subagent() is a no-op when the subagent already has a result."""
+        from gptme.tools.subagent.api import _timeout_subagent
+        from gptme.tools.subagent.types import (
+            _subagent_results,
+            _subagent_results_lock,
+            _subagents,
+            _subagents_lock,
+        )
+
+        # Register a finished subagent
+        finished_thread = threading.Thread(target=lambda: None)
+        finished_thread.start()
+        finished_thread.join()  # Thread is done → is_running() returns False
+
+        sa = Subagent(
+            agent_id="done-agent",
+            prompt="test",
+            thread=finished_thread,
+            logdir=tmp_path,
+            model=None,
+            execution_mode="thread",
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+
+        # Pre-seed a success result
+        with _subagent_results_lock:
+            _subagent_results["done-agent"] = ReturnType("success", "all done")
+
+        # Watchdog should not overwrite the success result
+        _timeout_subagent("done-agent", 5.0)
+
+        with _subagent_results_lock:
+            result = _subagent_results.get("done-agent")
+        assert result is not None
+        assert result.status == "success", (
+            "timeout must not overwrite an already-finished result"
+        )
+
+    def test_timeout_subagent_noop_when_not_found(self):
+        """_timeout_subagent() is a no-op when the agent_id is unknown."""
+        from gptme.tools.subagent.api import _timeout_subagent
+
+        # Should not raise
+        _timeout_subagent("nonexistent-agent", 5.0)
+
+    def test_timeout_subagent_cancels_running_thread(self, tmp_path):
+        """_timeout_subagent() sets timeout result for a running thread-mode subagent."""
+        from gptme.tools.subagent.api import _timeout_subagent
+        from gptme.tools.subagent.types import (
+            _subagent_results,
+            _subagent_results_lock,
+            _subagents,
+            _subagents_lock,
+        )
+
+        barrier = threading.Barrier(2)
+
+        def slow_fn():
+            barrier.wait()  # Signal we're running
+            import time
+
+            time.sleep(60)  # Would run forever without a cancel
+
+        t = threading.Thread(target=slow_fn, daemon=True)
+        t.start()
+        barrier.wait()  # Ensure thread is alive before proceeding
+
+        sa = Subagent(
+            agent_id="running-thread",
+            prompt="test",
+            thread=t,
+            logdir=tmp_path,
+            model=None,
+            execution_mode="thread",
+        )
+        with _subagents_lock:
+            _subagents.append(sa)
+
+        _timeout_subagent("running-thread", 0.5)
+
+        with _subagent_results_lock:
+            result = _subagent_results.get("running-thread")
+
+        assert result is not None
+        assert result.status == "timeout"
+        assert "0.5s" in (result.result or "")
+
+        # Completion notification should be queued
+        notifications = []
+        while not _completion_queue.empty():
+            try:
+                notifications.append(_completion_queue.get_nowait())
+            except queue.Empty:
+                break
+        assert any(
+            n[0] == "running-thread" and n[1] == "timeout" for n in notifications
+        )
+
+    def test_completion_hook_timeout_message(self):
+        """_subagent_completion_hook yields a ⏱️ message for timeout status."""
+        notify_completion("hook-timeout-agent", "timeout", "Timed out after 10s")
+
+        messages = list(
+            _subagent_completion_hook(
+                manager=MagicMock(),
+                interactive=False,
+                prompt_queue=MagicMock(),
+            )
+        )
+        timeout_msgs = [
+            m
+            for m in messages
+            if "hook-timeout-agent" in m.content and "⏱️" in m.content
+        ]
+        assert len(timeout_msgs) == 1
+        assert "Timed out after 10s" in timeout_msgs[0].content
+
+    def test_subagent_launches_watchdog_when_max_time_set(self, monkeypatch, tmp_path):
+        """subagent() launches a threading.Timer when max_time is given."""
+        import importlib
+
+        cli_main = importlib.import_module("gptme.cli.main")
+        exec_mod = importlib.import_module("gptme.tools.subagent.execution")
+        llm_models = importlib.import_module("gptme.llm.models")
+        profiles = importlib.import_module("gptme.profiles")
+
+        monkeypatch.setattr(cli_main, "get_logdir", lambda name: tmp_path / name)
+        monkeypatch.setattr(llm_models, "get_default_model", lambda: None)
+        monkeypatch.setattr(profiles, "get_profile", lambda _: None)
+        monkeypatch.setattr(exec_mod, "_create_subagent_thread", lambda **kw: None)
+        monkeypatch.setattr(exec_mod, "_cleanup_isolation", lambda sa: None)
+
+        timers_started: list[float] = []
+        original_timer = threading.Timer
+
+        class CapturingTimer(original_timer):  # type: ignore[misc,valid-type]
+            def __init__(self, interval, function, args=None, kwargs=None):
+                super().__init__(interval, function, args=args, kwargs=kwargs)
+                timers_started.append(interval)
+                self.daemon = True
+
+        monkeypatch.setattr(threading, "Timer", CapturingTimer)
+
+        from gptme.tools.subagent.api import subagent
+        from gptme.tools.subagent.types import _subagents, _subagents_lock
+
+        subagent("watchdog-test", "do something", max_time=42.0)
+
+        # Wait for the thread to complete
+        with _subagents_lock:
+            sa = next((s for s in _subagents if s.agent_id == "watchdog-test"), None)
+        if sa and sa.thread:
+            sa.thread.join(timeout=5)
+        with _subagents_lock:
+            _subagents[:] = [s for s in _subagents if s.agent_id != "watchdog-test"]
+
+        assert 42.0 in timers_started, f"Expected 42.0s timer; got {timers_started}"
+
+    def test_subagent_no_watchdog_when_max_time_none(self, monkeypatch, tmp_path):
+        """subagent() does NOT launch a timer when max_time=None (default)."""
+        import importlib
+
+        cli_main = importlib.import_module("gptme.cli.main")
+        exec_mod = importlib.import_module("gptme.tools.subagent.execution")
+        llm_models = importlib.import_module("gptme.llm.models")
+        profiles = importlib.import_module("gptme.profiles")
+
+        monkeypatch.setattr(cli_main, "get_logdir", lambda name: tmp_path / name)
+        monkeypatch.setattr(llm_models, "get_default_model", lambda: None)
+        monkeypatch.setattr(profiles, "get_profile", lambda _: None)
+        monkeypatch.setattr(exec_mod, "_create_subagent_thread", lambda **kw: None)
+        monkeypatch.setattr(exec_mod, "_cleanup_isolation", lambda sa: None)
+
+        timers_started: list[float] = []
+        original_timer = threading.Timer
+
+        class CapturingTimer(original_timer):  # type: ignore[misc,valid-type]
+            def __init__(self, interval, function, args=None, kwargs=None):
+                super().__init__(interval, function, args=args, kwargs=kwargs)
+                timers_started.append(interval)
+                self.daemon = True
+
+        monkeypatch.setattr(threading, "Timer", CapturingTimer)
+
+        from gptme.tools.subagent.api import subagent
+        from gptme.tools.subagent.types import _subagents, _subagents_lock
+
+        subagent("no-watchdog-test", "do something")  # max_time=None (default)
+
+        with _subagents_lock:
+            sa = next((s for s in _subagents if s.agent_id == "no-watchdog-test"), None)
+        if sa and sa.thread:
+            sa.thread.join(timeout=5)
+        with _subagents_lock:
+            _subagents[:] = [s for s in _subagents if s.agent_id != "no-watchdog-test"]
+
+        assert len(timers_started) == 0, f"No timer expected; got {timers_started}"

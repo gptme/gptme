@@ -53,6 +53,7 @@ def subagent(
     role: Role | None = None,
     redact_secrets: bool = True,
     context_window: int | None = None,
+    max_time: float | None = None,
     workdir: str | Path | None = None,
 ):
     """Starts an asynchronous subagent. Returns None immediately.
@@ -147,6 +148,14 @@ def subagent(
 
             Only applies to thread-mode subagents; has no effect in subprocess
             or ACP modes (which build their own context as a separate process).
+        max_time: Wall-clock time limit in seconds. When set, a watchdog timer
+            auto-cancels the subagent after ``max_time`` seconds by calling
+            ``subagent_cancel()`` and delivers a "timeout" status notification
+            via the LOOP_CONTINUE hook. Defaults to ``None`` (no limit).
+
+            Use this for defensive orchestration (prevent a stuck subagent from
+            blocking the parent) or hard time budgets in autonomous sessions.
+            ``max_time=None`` is fully backwards-compatible — no change in behavior.
         workdir: Working directory for the subagent. Defaults to the current
             working directory (``Path.cwd()``) when ``None``.
 
@@ -479,6 +488,7 @@ def subagent(
             worktree_path=worktree_path,
             repo_path=repo_path,
             role=role,
+            max_time=max_time,
         )
         # Append sa before starting the thread so the finally block can find it
         # (avoids race condition where fast completion can't locate sa in _subagents)
@@ -565,6 +575,7 @@ def subagent(
             repo_path=repo_path,
             timeout=timeout,
             role=role,
+            max_time=max_time,
         )
         with _subagents_lock:
             _subagents.append(sa)
@@ -677,10 +688,57 @@ def subagent(
             role=role,
             redact_secrets=redact_secrets,
             context_window=context_window,
+            max_time=max_time,
         )
         with _subagents_lock:
             _subagents.append(sa)
         t.start()
+
+    # Launch max_time watchdog after all execution paths have registered the subagent.
+    # The watchdog fires _timeout_subagent() after max_time seconds, which cancels
+    # the subagent and delivers a "timeout" notification via the LOOP_CONTINUE hook.
+    if max_time is not None:
+        _timer = threading.Timer(max_time, _timeout_subagent, args=(agent_id, max_time))
+        _timer.daemon = True
+        _timer.start()
+
+
+def _timeout_subagent(agent_id: str, max_time: float) -> None:
+    """Internal: auto-cancel a subagent that exceeded its max_time wall-clock budget.
+
+    Called by the watchdog timer launched in subagent(). Uses set_subagent_result_if_absent
+    so a subagent that already completed normally is not affected (the race is handled
+    atomically).
+    """
+    with _subagents_lock:
+        sa = next((s for s in _subagents if s.agent_id == agent_id), None)
+
+    if sa is None or not sa.is_running():
+        return  # Already finished normally before the timer fired
+
+    timeout_result = ReturnType(
+        "timeout", f"Auto-cancelled after {max_time}s (max_time exceeded)"
+    )
+    if not set_subagent_result_if_absent(agent_id, timeout_result):
+        return  # Another result was set concurrently (subagent finished at the same time)
+
+    if sa.execution_mode == "subprocess" and sa.process:
+        sa.process.terminate()
+        try:
+            sa.process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            sa.process.kill()
+            sa.process.wait()
+        logger.info(
+            f"Subagent '{agent_id}' subprocess killed after {max_time}s (max_time)."
+        )
+    else:
+        logger.info(
+            f"Subagent '{agent_id}' marked timed-out after {max_time}s "
+            "(thread will stop at its next checkpoint)."
+        )
+
+    notify_completion(agent_id, "timeout", f"Timed out after {max_time}s")
 
 
 def subagent_cancel(agent_id: str) -> str:

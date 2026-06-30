@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-Status = Literal["running", "success", "failure", "clarification_needed"]
+Status = Literal["running", "success", "failure", "clarification_needed", "timeout"]
 Role = Literal["general", "explore", "implement", "verify"]
 
 # Role → profile name mapping
@@ -200,6 +200,8 @@ class Subagent:
     context_window: int | None = None
     # Timestamp (seconds since epoch) when this subagent was created
     started_at: float = field(default_factory=time.time)
+    # Wall-clock limit in seconds; when set, a watchdog auto-cancels after this time
+    max_time: float | None = None
 
     def get_log(self) -> "LogManager":
         # noreorder

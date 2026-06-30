@@ -134,6 +134,8 @@ def _subagent_completion_hook(
                 f"❓ Subagent '{agent_id}' needs clarification: {summary}\n"
                 f"Call subagent_reply('{agent_id}', '<your answer>') to continue."
             )
+        elif status == "timeout":
+            msg = f"⏱️ Subagent '{agent_id}' timed out: {summary}"
         else:
             msg = f"❌ Subagent '{agent_id}' failed: {summary}"
 
