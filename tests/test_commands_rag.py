@@ -38,7 +38,7 @@ class TestRagCommand:
         self, mock_manager: MagicMock, capsys
     ) -> None:
         ctx = _make_ctx("pytest fixtures", mock_manager)
-        with patch("shutil.which", return_value=None):
+        with patch("gptme.commands.rag.shutil.which", return_value=None):
             list(cmd_rag(ctx))
         captured = capsys.readouterr()
         assert "gptme-rag" in captured.out
@@ -47,7 +47,7 @@ class TestRagCommand:
     def test_no_results_prints_message(self, mock_manager: MagicMock, capsys) -> None:
         ctx = _make_ctx("nonexistent topic XYZ123", mock_manager)
         with (
-            patch("shutil.which", return_value="/usr/bin/gptme-rag"),
+            patch("gptme.commands.rag.shutil.which", return_value="/usr/bin/gptme-rag"),
             patch("gptme.commands.rag.rag_search", return_value=""),
         ):
             messages = list(cmd_rag(ctx))
@@ -59,7 +59,7 @@ class TestRagCommand:
         ctx = _make_ctx("pytest fixtures", mock_manager)
         fake_results = "Result 1: some snippet\nResult 2: another snippet"
         with (
-            patch("shutil.which", return_value="/usr/bin/gptme-rag"),
+            patch("gptme.commands.rag.shutil.which", return_value="/usr/bin/gptme-rag"),
             patch("gptme.commands.rag.rag_search", return_value=fake_results),
         ):
             messages = list(cmd_rag(ctx))
@@ -75,7 +75,7 @@ class TestRagCommand:
     ) -> None:
         ctx = _make_ctx("pytest fixtures", mock_manager)
         with (
-            patch("shutil.which", return_value="/usr/bin/gptme-rag"),
+            patch("gptme.commands.rag.shutil.which", return_value="/usr/bin/gptme-rag"),
             patch(
                 "gptme.commands.rag.rag_search",
                 side_effect=RuntimeError("index empty"),
@@ -97,7 +97,7 @@ class TestRagCommand:
     def test_top_k_passed_to_search(self, mock_manager: MagicMock) -> None:
         ctx = _make_ctx("query text", mock_manager)
         with (
-            patch("shutil.which", return_value="/usr/bin/gptme-rag"),
+            patch("gptme.commands.rag.shutil.which", return_value="/usr/bin/gptme-rag"),
             patch(
                 "gptme.commands.rag.rag_search", return_value="some result"
             ) as mock_search,

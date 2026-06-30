@@ -18,10 +18,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Imported at module level so tests can patch gptme.commands.rag.rag_search
-try:
-    from ..tools.rag import rag_search
-except ImportError:  # pragma: no cover
-    rag_search = None  # type: ignore[assignment]
+from ..tools.rag import rag_search
 
 
 @command("rag", auto_undo=False)
@@ -41,10 +38,6 @@ def cmd_rag(ctx: CommandContext) -> Generator[Message, None, None]:
 
     if not shutil.which("gptme-rag"):
         print("gptme-rag is not installed. Install with: pipx install gptme-rag")
-        return
-
-    if rag_search is None:
-        print("RAG tool unavailable: gptme.tools.rag could not be imported")
         return
 
     try:
