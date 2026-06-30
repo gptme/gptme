@@ -1,6 +1,7 @@
 """Tests for the computer tool."""
 
 import itertools
+import os
 import shutil
 import subprocess
 from typing import Any, cast
@@ -1473,6 +1474,25 @@ def test_accessibility_tree_empty_desktop():
         result = _linux_accessibility_tree(":1")
 
     assert "Desktop" in result or "empty" in result or result.strip()
+
+
+@pytest.mark.skipif(IS_MACOS, reason="AT-SPI2 is Linux-only")
+def test_accessibility_tree_sets_display_env():
+    """accessibility_tree sets DISPLAY to the given display before connecting to pyatspi."""
+    desktop = _make_mock_accessible("desktop frame", "", children=[])
+    captured: list[str] = []
+
+    def capturing_get_desktop(index):
+        captured.append(os.environ.get("DISPLAY", ""))
+        return desktop
+
+    pyatspi_mod = _make_pyatspi_module(desktop)
+    pyatspi_mod.Registry.getDesktop.side_effect = capturing_get_desktop
+
+    with mock.patch.dict("sys.modules", {"pyatspi": pyatspi_mod}):
+        _linux_accessibility_tree(":42")
+
+    assert captured == [":42"]
 
 
 @pytest.mark.skipif(IS_MACOS, reason="AT-SPI2 is Linux-only")

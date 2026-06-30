@@ -655,18 +655,26 @@ def _linux_accessibility_tree(display: str, max_depth: int = 8) -> str:
             except Exception:
                 pass
 
+    _old_display = os.environ.get("DISPLAY")
+    os.environ["DISPLAY"] = display
     try:
-        desktop = pyatspi.Registry.getDesktop(0)
-    except Exception as e:
-        raise RuntimeError(f"Could not connect to AT-SPI desktop: {e}") from e
-
-    lines.append(f"Desktop ({desktop.childCount} apps)")
-    for i in range(desktop.childCount):
         try:
-            app = desktop[i]
-            _walk(app, 1)
-        except Exception:
-            pass
+            desktop = pyatspi.Registry.getDesktop(0)
+        except Exception as e:
+            raise RuntimeError(f"Could not connect to AT-SPI desktop: {e}") from e
+
+        lines.append(f"Desktop ({desktop.childCount} apps)")
+        for i in range(desktop.childCount):
+            try:
+                app = desktop[i]
+                _walk(app, 1)
+            except Exception:
+                pass
+    finally:
+        if _old_display is None:
+            os.environ.pop("DISPLAY", None)
+        else:
+            os.environ["DISPLAY"] = _old_display
 
     return "\n".join(lines) if lines else "(empty accessibility tree)"
 
@@ -726,37 +734,45 @@ def _linux_click_accessible_element(
                 pass
         return None
 
+    _old_display = os.environ.get("DISPLAY")
+    os.environ["DISPLAY"] = display
     try:
-        desktop = pyatspi.Registry.getDesktop(0)
-    except Exception as e:
-        raise RuntimeError(f"Could not connect to AT-SPI desktop: {e}") from e
-
-    found = None
-    for i in range(desktop.childCount):
         try:
-            found = _find(desktop[i], 0)
-            if found is not None:
-                break
-        except Exception:
-            pass
+            desktop = pyatspi.Registry.getDesktop(0)
+        except Exception as e:
+            raise RuntimeError(f"Could not connect to AT-SPI desktop: {e}") from e
 
-    if found is None:
-        raise RuntimeError(
-            f"No accessible element with role={role_name!r} and name containing "
-            f"{element_name!r} found in the accessibility tree. "
-            "Run computer('accessibility_tree') to see available elements."
-        )
+        found = None
+        for i in range(desktop.childCount):
+            try:
+                found = _find(desktop[i], 0)
+                if found is not None:
+                    break
+            except Exception:
+                pass
 
-    try:
-        component = found.queryComponent()  # type: ignore[attr-defined]
-        bbox = component.getExtents(pyatspi.DESKTOP_COORDS)
-        x = bbox.x + bbox.width // 2
-        y = bbox.y + bbox.height // 2
-    except Exception as e:
-        raise RuntimeError(
-            f"Found element {role_name!r}: {element_name!r} but could not get its "
-            f"screen position: {e}"
-        ) from e
+        if found is None:
+            raise RuntimeError(
+                f"No accessible element with role={role_name!r} and name containing "
+                f"{element_name!r} found in the accessibility tree. "
+                "Run computer('accessibility_tree') to see available elements."
+            )
+
+        try:
+            component = found.queryComponent()  # type: ignore[attr-defined]
+            bbox = component.getExtents(pyatspi.DESKTOP_COORDS)
+            x = bbox.x + bbox.width // 2
+            y = bbox.y + bbox.height // 2
+        except Exception as e:
+            raise RuntimeError(
+                f"Found element {role_name!r}: {element_name!r} but could not get its "
+                f"screen position: {e}"
+            ) from e
+    finally:
+        if _old_display is None:
+            os.environ.pop("DISPLAY", None)
+        else:
+            os.environ["DISPLAY"] = _old_display
 
     return x, y
 
