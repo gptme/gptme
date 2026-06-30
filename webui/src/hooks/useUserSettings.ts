@@ -55,8 +55,8 @@ export function useUserSettings() {
     }
     const controller = new AbortController();
 
+    setIsLoading(true);
     const fetchSettings = async () => {
-      setIsLoading(true);
       setError(null);
       try {
         const headers: Record<string, string> = {};

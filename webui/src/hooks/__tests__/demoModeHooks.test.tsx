@@ -71,4 +71,18 @@ describe('demo-mode hooks', () => {
     expect(result.current.error).toBeNull();
     expect(mockFetch).not.toHaveBeenCalled();
   });
+
+  it('useUserSettings does not fetch when not in demo mode and not connected', async () => {
+    mockIsDemoMode.mockReturnValue(false);
+
+    const { result } = renderHook(() => useUserSettings());
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.settings).toBeNull();
+    expect(result.current.error).toBeNull();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
 });
