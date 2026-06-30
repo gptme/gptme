@@ -196,12 +196,12 @@ class SafetyReport:
 
 def _score_segment(text: str, index: int) -> SegmentScore:
     seg = SegmentScore(text=text, segment_index=index)
-    hedging_matches = _HEDGING_RE.findall(text)
-    seg.hedging_count = len(hedging_matches)
-    # Deduplicate phrases while preserving order
+    hedging_iter = list(_HEDGING_RE.finditer(text))
+    seg.hedging_count = len(hedging_iter)
+    # Deduplicate full-match phrases while preserving order
     seen: set[str] = set()
-    for m in hedging_matches:
-        phrase = m.strip().lower()
+    for m in hedging_iter:
+        phrase = m.group(0).strip().lower()
         if phrase and phrase not in seen:
             seen.add(phrase)
             seg.hedging_phrases.append(phrase)
