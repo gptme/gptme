@@ -1423,6 +1423,9 @@ def computer(
         _audit_log(action, text, coordinate, time.perf_counter() - start, error)
 
 
+computer.__doc__ = _computer_impl.__doc__
+
+
 # Common key mappings for both platforms
 # Output is directly compatible with cliclick
 COMMON_KEY_MAP = {
