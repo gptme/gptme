@@ -24,19 +24,38 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
-def _role_contents(messages: list[Message], role: str) -> str:
-    return "\n".join(msg.content for msg in messages if msg.role == role)
+def _role_tool_use_contents(messages: list[Message], role: str) -> str:
+    """Concatenate the content of actually-executed tool-use blocks for a role.
+
+    Unlike scanning raw message text, this only looks inside blocks that
+    gptme's own parser recognizes as runnable tool invocations (see
+    ``gptme.eval.run.count_tool_calls`` for the same pattern). An agent that
+    merely describes calling ``observe_web(...)`` in prose, without emitting
+    a real tool-use block, will not satisfy these checks.
+    """
+    from gptme.tools import ToolUse
+
+    parts: list[str] = []
+    for msg in messages:
+        if msg.role != role:
+            continue
+        parts.extend(
+            tu.content
+            for tu in ToolUse.iter_from_content(msg.content)
+            if tu.is_runnable and tu.content
+        )
+    return "\n".join(parts)
 
 
 def check_used_snapshot_or_observe_web(messages: list[Message]) -> bool:
     """Agent must use snapshot_url or observe_web, not screenshot, for a pure web task."""
-    assistant_log = _role_contents(messages, "assistant")
+    assistant_log = _role_tool_use_contents(messages, "assistant")
     return "snapshot_url(" in assistant_log or "observe_web(" in assistant_log
 
 
 def check_did_not_screenshot_for_web(messages: list[Message]) -> bool:
     """Structured-first policy: screenshots should NOT be the first observation for web."""
-    assistant_log = _role_contents(messages, "assistant")
+    assistant_log = _role_tool_use_contents(messages, "assistant")
     first_snapshot = min(
         (
             assistant_log.find(needle)
@@ -106,10 +125,10 @@ tests: list["EvalSpec"] = [
         "files": {},
         "run": "cat links.txt",
         "prompt": (
-            "You are in computer-use mode. Use observe_web('https://news.ycombinator.com') "
-            "or snapshot_url('https://news.ycombinator.com') to get the page structure — "
+            "You are in computer-use mode. Use observe_web('https://en.wikipedia.org/wiki/Main_Page') "
+            "or snapshot_url('https://en.wikipedia.org/wiki/Main_Page') to get the page structure — "
             "prefer the structured approach over taking screenshots. "
-            "Find the top 3 story titles (the text of the first 3 ranked links). "
+            "Find the 'In the news' section and extract the first 3 linked article titles. "
             "Write each title on its own line to links.txt."
         ),
         "tools": ["browser", "computer", "vision", "ipython", "save"],
