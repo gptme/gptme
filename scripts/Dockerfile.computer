@@ -68,10 +68,18 @@ ENV HEIGHT=768
 ENV DISPLAY=:${DISPLAY_NUM}
 
 # Install gptme with server and browser extras
+# Two-stage copy for better layer caching: the heavy dep-install layer only
+# re-runs when pyproject.toml or README.md changes, not on every source edit.
 WORKDIR /app
-COPY . /app
+COPY pyproject.toml README.md /app/
+# Minimal stub lets poetry-core (the build backend) resolve and build a wheel
+# so all transitive deps are installed before the full source arrives.
 RUN python3.10 -m pip install --no-cache-dir --upgrade pip && \
+    mkdir -p /app/gptme && touch /app/gptme/__init__.py && \
     python3.10 -m pip install --no-cache-dir ".[server,browser]"
+# Overwrite stub with real source, then reinstall the package without re-fetching deps.
+COPY . /app
+RUN python3.10 -m pip install --no-cache-dir --no-deps .
 
 # Install Playwright system-level deps (needs root)
 RUN python3.10 -m playwright install-deps chromium
