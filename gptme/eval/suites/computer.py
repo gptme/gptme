@@ -11,6 +11,7 @@ an X11 display are not included here — they belong in manual or CI-with-displa
 pipelines.
 """
 
+import logging
 from typing import TYPE_CHECKING
 
 from gptme.message import Message
@@ -18,6 +19,8 @@ from gptme.tools.base import ToolUse
 
 if TYPE_CHECKING:
     from gptme.eval.types import EvalSpec
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -31,14 +34,28 @@ def _executed_tool_calls(messages: list[Message]) -> list[str]:
     Scans parsed ``ToolUse`` blocks rather than raw message text, so a tool
     name mentioned in prose (e.g. "I will call observe_web(...)") without an
     actual executable code block does not count as having been used.
+
+    Note: ``tu.is_runnable`` and ``ToolUse.iter_from_content`` both resolve
+    against the global tool registry (``get_tool`` / ``get_tool_for_langtag``).
+    If ``init_tools()`` was never called — e.g. in a unit test constructing
+    synthetic ``Message`` objects — the registry is empty and this returns
+    ``[]`` for every message, which makes both trajectory checks below fail
+    silently rather than raising. This matches the existing pattern in
+    ``count_tool_calls`` (``eval/run.py``).
     """
-    return [
+    calls = [
         tu.content
         for msg in messages
         if msg.role == "assistant"
         for tu in ToolUse.iter_from_content(msg.content)
         if tu.is_runnable and tu.content is not None
     ]
+    if not calls and any(msg.role == "assistant" for msg in messages):
+        logger.debug(
+            "_executed_tool_calls found no runnable tool calls; "
+            "if this is unexpected, verify init_tools() has been called"
+        )
+    return calls
 
 
 def check_used_snapshot_or_observe_web(messages: list[Message]) -> bool:
